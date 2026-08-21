@@ -1,28 +1,13 @@
-// WP5.1 (issue 15) declared `ServerRuntime` and delivered `wireRuntimeCore` (governance -> index
-// resources, argv-free, with construction-order-reversed cleanup on failure over already-open
-// stores). WP5.2 (issue 16) finishes the job: `buildServerRuntime` below is the actual composition
-// root — stores -> otel/observability -> wireRuntimeCore -> job queue/health tools -> gateway seams
-// -> job handlers -> index coordinator/watcher -> M1 -> bridge clients/capability snapshots -> M2-M8
-// -> MCP server -> transports -> scheduler — returning a `ServerRuntime` whose `start()` is the
-// final activation step (fire the boot reconcile, start the scheduler ticking, connect stdio) and
-// whose `close(reason)` is the ordered, idempotent shutdown. cli.ts's `run_serve` is now three lines:
-// build, install signal handlers (./shutdown.ts), start.
-// Why stores is a PARAMETER to wireRuntimeCore, not built there: `ToolRegistry` (governance) needs
-// the OTEL tracer and the Prometheus/MORGIANA observability module's `metrics`/`morgiana`, both of
-// which the observability module (runtime/observability.ts) derives from `stores.db`. Real boot
-// therefore has `buildServerRuntime`'s own OTEL-init + `createObservability` call sitting textually
-// BETWEEN stores and governance. Folding that gap into `wireRuntimeCore` would mean either
-// reordering real boot steps (forbidden) or accepting an arbitrary "give me your deps" callback,
-// which starts to look like the service-locator this file is told not to build. Taking `stores` as
-// an input and folding its cleanup into THIS call's unwind stack gets the same reverse-order
-// guarantee without either problem: a failure in governance or index resources still closes stores,
-// in the right order, and the boot-failure test below (extended for WP5.2) exercises exactly that.
-// One more resource shares this exact shape and was flagged, not fixed, at the time: `otel` (OTEL
-// SDK init) also sits textually between `stores` and this call in `buildServerRuntime`, for the same
-// reason `stores` does — real boot's construction order forbids reordering it inside. `otel` below is
-// the same fix applied a second time: an optional param this call folds into its own unwind, sitting
-// between `stores` and `governance` (its real open position), so a throw in governance or index
-// resources closes it too — never built inside `wireRuntimeCore` itself.
+// `buildServerRuntime` is the composition root (stores -> otel/observability -> wireRuntimeCore ->
+// job queue/health tools -> gateway seams -> job handlers -> index coordinator/watcher -> M1 ->
+// bridge clients/capability snapshots -> M2-M8 -> MCP server -> transports -> scheduler), argv-free,
+// returning a `ServerRuntime` whose `start()` fires the boot reconcile/scheduler/stdio and whose
+// `close(reason)` is the ordered, idempotent shutdown.
+// `stores` (and `otel`) are constructed OUTSIDE `wireRuntimeCore` and handed in as params, then
+// folded into its own unwind stack, because real boot's construction order requires them to sit
+// textually between `stores` and `governance` — reordering that is forbidden, and accepting an
+// arbitrary deps callback would reintroduce the service-locator this file avoids. See
+// docs/design/server-runtime.md.
 
 import { dirname } from "node:path";
 import type { Tracer } from "@opentelemetry/api";
@@ -65,44 +50,35 @@ import { type Stores, wireStores } from "./stores";
 import { wireDomainTools, wireGatewaySeams, wireHealthTools, wireM1Tools } from "./tool-wiring";
 import { wireTransports } from "./transport-wiring";
 
-/** The map's target shape (WP5). `registry` is the one thing every caller of a fully-composed
- *  runtime needs; `start`/`close` are the two lifecycle verbs — nothing else is public runtime
- *  state. WP5.2 implements this; this slice only declares it. */
+/** Public runtime surface: `registry` is what every caller of a fully-composed runtime needs;
+ *  `start`/`close` are the only lifecycle verbs. No other runtime state is exposed. */
 export interface ServerRuntime {
   registry: ToolRegistry;
   start(): Promise<void>;
   close(reason: string): Promise<void>;
 }
 
-/** THE-466 slice 2's established idiom (see cli.ts's original header comment): a boot resource read
- *  through a closure before the `const`/`let` that holds it has executed is a bug if that closure is
- *  ever CALLED early, and correct — by construction, never called before boot finishes — otherwise. A
- *  thrown Error (never a non-null assertion, forbidden by lint) documents the invariant instead of
- *  silently returning undefined. Moved here from cli.ts because `wireRuntimeCore` below now needs
- *  the same pattern for `indexHealth` (constructed one step after the registry that closes over it);
- *  cli.ts still uses it for `indexCoordinatorRef`/`schedulerRef` (WP5.2) and imports it from here. */
+/** Guards a boot resource captured by a closure before its own `const`/`let` has run: throws (never
+ *  a non-null assertion — forbidden by lint) if the closure is ever invoked early. THE-466. Shared
+ *  by `wireRuntimeCore`'s `indexHealth` forward-reference and cli.ts's
+ *  `indexCoordinatorRef`/`schedulerRef`. See docs/design/server-runtime.md. */
 export function requireBoot<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`${what} read before boot completed`);
   return value;
 }
 
-/** Layer names are a plain `string`, not a closed union: `wireRuntimeCore` below uses its own
- *  fixed set ("stores"/"otel" (only when supplied)/"governance"/"indexResources"), while
- *  `buildServerRuntime`'s own post-`wireRuntimeCore` unwind stack (further down this file) reuses
- *  the same `OwnedLayer` / `unwindReversed` machinery for a different set
- *  ("watcher"/"transports") — the mechanism is identical, only the inventory of what got built
- *  differs. */
+/** `name` is a plain `string`, not a closed union — `wireRuntimeCore` and `buildServerRuntime` each
+ *  push their own fixed set of layer names onto the same `OwnedLayer`/`unwindReversed` machinery. */
 interface OwnedLayer {
   name: string;
   close(): void | Promise<void>;
 }
 
 /**
- * Run each already-built layer's cleanup in REVERSE (most-recently-opened-first) order — the
- * resource-acquisition-is-cleanup pattern `wireRuntimeCore` uses when a later wiring step throws.
- * Exported and independently testable: a layer that was never built never contributed a cleanup, so
- * it can never be touched here, and reversing (or dropping) an entry in `layers` is exactly the bug
- * class this function exists to make loud — see server-runtime.test.ts.
+ * Runs each already-built layer's cleanup in REVERSE (most-recently-opened-first) order — the
+ * resource-acquisition-is-cleanup pattern used when a later wiring step throws. A layer that was
+ * never built never contributes a cleanup call. Exported and independently tested; see
+ * server-runtime.test.ts.
  */
 export async function unwindReversed(
   layers: readonly OwnedLayer[],
@@ -124,12 +100,10 @@ export interface RuntimeCoreDeps {
   cacheDir: string;
   /** THE-736: `sessions.traceContent` — capture dispatch arguments onto the trace. */
   traceContent?: boolean;
-  /** Already-initialized OTEL handle, opened between `stores` and this call in real boot — see this
-   *  file's header comment. Optional: `buildServerRuntime` always supplies it, but the direct
-   *  `wireRuntimeCore` tests below construct no OTEL and omit it, so `built` simply has one fewer
-   *  entry and behaves exactly as before this was added. When present, `shutdown()` is called
-   *  best-effort (its own rejection is swallowed) — a telemetry SDK failing to shut down during
-   *  unwind must never replace the real construction error that is propagating. */
+  /** Already-initialized OTEL handle, opened between `stores` and this call in real boot. Optional
+   *  (unit tests of `wireRuntimeCore` omit it). When present, `shutdown()` runs best-effort on
+   *  unwind — its rejection is swallowed so it can never replace the real construction error that
+   *  is propagating. See docs/design/server-runtime.md. */
   otel?: Pick<OtelHandle, "shutdown">;
   // governance
   vaults: VaultConfigInput[];
@@ -155,16 +129,13 @@ export interface RuntimeCoreDeps {
     chunkContext: boolean;
   };
   onVecRebuild: (event: VecRebuildEvent) => void;
-  /** `dirname(configPath)` — the trust root for embeddings.modulePath (the module hatch). See
-   *  `ResolveContext.configDir`'s doc comment (providers/types.ts) for the exact undefined-vs-set
-   *  cases: it is NOT undefined in zero-config vault-path mode, only when `configPath` itself is
-   *  absent. Review round 2 (Minor 5): corrected from a false "undefined when derived from a vault
-   *  path" claim. */
+  /** `dirname(configPath)` — the trust root for embeddings.modulePath (the module hatch). Undefined
+   *  only when `configPath` itself is absent, NOT in zero-config vault-path mode. See
+   *  `ResolveContext.configDir`'s doc comment (providers/types.ts) and docs/design/server-runtime.md. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
-  /** Test-only observability: fires with each layer's name, in the order its cleanup actually ran.
-   *  Only invoked when a later step throws during construction — never on the happy path, and never
-   *  by production callers, which omit it. */
+  /** Test-only: fires with each layer's name, in the order its cleanup ran. Only invoked when a
+   *  later step throws during construction — never on the happy path, never by production callers. */
   onCleanup?: (name: OwnedLayer["name"]) => void;
 }
 
@@ -174,19 +145,16 @@ export interface RuntimeCore {
 }
 
 /**
- * Compose governance -> index resources on top of already-open stores, with no process-argument
- * parsing — the map's acceptance criterion for WP5 ("the runtime is constructible in a test without
- * parsing process arguments"), scoped to what this slice actually extracted. If governance or index
- * resources throws during construction, every already-built layer's cleanup — INCLUDING the stores
- * (and, when supplied, otel) handed in — runs in reverse order (via `unwindReversed`) before the
- * error propagates, so a partial boot never leaks an open db handle or a live OTEL exporter.
+ * Composes governance -> index resources on top of already-open stores, with no process-argument
+ * parsing (constructible in a test without parsing argv). If governance or index resources throws
+ * during construction, every already-built layer's cleanup — INCLUDING the stores (and, when
+ * supplied, otel) handed in — runs in reverse order via `unwindReversed` before the error
+ * propagates, so a partial boot never leaks an open db handle or a live OTEL exporter.
  */
 export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCore> {
   const built: OwnedLayer[] = [{ name: "stores", close: deps.stores.close }];
-  // otel opens right after stores in real boot (see this file's header comment), so its cleanup
-  // slots in here too — before governance is attempted, after stores. Best-effort by construction:
-  // `.catch` swallows a shutdown() rejection so it can never replace the real error `unwindReversed`
-  // is already propagating (see `deps.otel`'s doc comment above).
+  // otel opens right after stores in real boot, so its cleanup slots in here too. `.catch` swallows
+  // a shutdown() rejection so it can never replace the real error `unwindReversed` is propagating.
   if (deps.otel) {
     const otel = deps.otel;
     built.push({ name: "otel", close: () => otel.shutdown().catch(() => {}) });
@@ -234,53 +202,37 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
   }
 }
 
-// THE-457: cap on how long graceful shutdown waits for in-flight index work. Unchanged from
-// cli.ts's pre-extraction value — the map's WP5 acceptance criterion is that this timeout does
-// not change.
+// THE-457: cap on how long graceful shutdown waits for in-flight index work.
 const SHUTDOWN_DRAIN_MS = 5000;
 
 /**
- * WP5.2: the full composition root. Builds every boot resource in the SAME order run_serve used
- * to build them inline — stores, otel/observability, governance+index resources
- * (`wireRuntimeCore`), the job queue (hoisted so the health tool's stats accessor can close over
- * it), the two inline admin tools, the gateway seams, the job handlers/runner, the index
- * coordinator + watcher, M1, the bridge clients/capability snapshots, M2-M8, the MCP server, the
- * transports, and the scheduler (registered, not started) — then returns a `ServerRuntime` whose
- * `start()` is the go-live step (fire the boot reconcile, start the scheduler, connect stdio) and
- * whose `close(reason)` is the ordered, idempotent shutdown.
- *
- * Argv-free: takes an already-resolved `ServerConfig`, never touches `process.argv` — the map's
- * "the runtime is constructible in a test" criterion.
+ * The full composition root. Builds every boot resource in the same order as inline boot — stores,
+ * otel/observability, governance+index resources (`wireRuntimeCore`), job queue, health tools,
+ * gateway seams, job handlers/runner, index coordinator+watcher, M1, bridge clients/capability
+ * snapshots, M2-M8, MCP server, transports, scheduler (registered, not started) — then returns a
+ * `ServerRuntime` whose `start()` is the go-live step and whose `close(reason)` is the ordered,
+ * idempotent shutdown. Argv-free: takes an already-resolved `ServerConfig`, never touches
+ * `process.argv`. See docs/design/server-runtime.md.
  */
 export async function buildServerRuntime(
   config: ServerConfig,
   configPath: string | undefined,
-  /** Test-only observability: fires with each already-built layer's name, in the order its cleanup
-   *  actually ran, on either failure window this function covers — a construction step AFTER
-   *  `wireRuntimeCore` throws (reports its own post-core layers), or `wireRuntimeCore` itself throws
-   *  (reports stores/otel/governance via the same callback, passed straight through — see the
-   *  `wireRuntimeCore` call below). Never invoked on the happy path, and never passed by production
-   *  callers (cli.ts). */
+  /** Test-only: fires with each already-built layer's name, in the order its cleanup ran, on either
+   *  failure window this function covers. Never invoked on the happy path, never passed by
+   *  production callers (cli.ts). */
   onCleanup?: (name: string) => void,
-  /** THE-825: whether the raw config file explicitly set `plane.enabled` (vs. absent and
-   *  defaulted). Governs `start()`'s boot-time opt-in notice (plane-opt-in-notice.ts). Defaults to
-   *  `true` ("assume explicit") so non-`run_serve` callers (rerun.ts, tests) never nag by accident
-   *  — cli.ts's `run_serve` is the one production caller and passes the real computed value. */
+  /** THE-825: whether the raw config file explicitly set `plane.enabled`. Governs `start()`'s
+   *  boot-time opt-in notice (plane-opt-in-notice.ts). Defaults `true` so non-`run_serve` callers
+   *  never nag by accident; cli.ts's `run_serve` passes the real computed value. */
   planeEnabledExplicit = true,
 ): Promise<ServerRuntime> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
-  // Trust root for a `module` provider's modulePath (embeddings.modulePath / reranker.modulePath)
-  // — cwd in a container is arbitrary, so a relative modulePath is resolved against the config
-  // FILE's directory instead, and refused entirely when `configPath` is absent (see
-  // module-loader.ts). Review round 2 (Minor 5): `configPath` is NOT always a config file — cli.ts's
-  // zero-config vault-path mode passes the VAULT directory as `configPath`, so `configDir` here
-  // becomes that vault directory's PARENT, not undefined; the module hatch's relative-path refusal
-  // does not fire in that mode (a relative modulePath would resolve against the vault's parent
-  // instead), it's just unreachable today because nothing configures `provider: "module"` from
-  // zero-config mode. `dirname` of a RELATIVE `configPath` (e.g. `--config cfg.json`) is `"."`,
-  // i.e. still cwd-relative — passing an absolute --config is what actually makes this a fixed
-  // trust root.
+  // Trust root for a `module` provider's modulePath (embeddings.modulePath / reranker.modulePath):
+  // cwd in a container is arbitrary, so a relative modulePath resolves against the config FILE's
+  // directory instead, and is refused entirely when `configPath` is absent (module-loader.ts).
+  // `configPath` is not always a config file — see docs/design/server-runtime.md for the
+  // zero-config vault-path case.
   const configDir = configPath !== undefined ? dirname(configPath) : undefined;
   const startedAt = Date.now();
 
@@ -342,13 +294,10 @@ export async function buildServerRuntime(
     metrics,
     tracer: otel.tracer,
     morgiana,
-    // otel is opened just above, between `stores` and this call — handing it in (like `stores`)
-    // folds its shutdown into wireRuntimeCore's own unwind if governance or index resources throws,
-    // in the correct reverse-ownership position (after those, before stores). `onCleanup` is the
-    // same test-only hook this function already threads through its OWN post-core unwind below; a
-    // wireRuntimeCore-level throw is a distinct failure window (stores/otel/governance never reach
-    // postCoreLayers), so wiring it here too costs nothing on the happy path or on a post-core
-    // failure — it only ever fires when `wireRuntimeCore` itself is what threw.
+    // otel is opened just above, between `stores` and this call — handing it in folds its shutdown
+    // into wireRuntimeCore's own unwind if governance or index resources throws. `onCleanup` fires
+    // here only when `wireRuntimeCore` itself throws (a distinct failure window from postCoreLayers
+    // below).
     otel,
     onCleanup,
     embeddings: config.embeddings,
@@ -367,22 +316,17 @@ export async function buildServerRuntime(
     indexVaultRecorded,
   } = indexResources;
 
-  // Everything from here on is built on top of an already-successful `wireRuntimeCore` — a later
-  // construction failure (e.g. the metrics endpoint's non-loopback-bind refusal, deep in
-  // wireTransports below) must still close what THIS function itself went on to open: the vault
-  // watcher (indexCoordinator has no other stop path) and any transport socket, then governance
-  // and stores, in reverse order — the same `unwindReversed` contract `wireRuntimeCore` used above,
-  // extended to the layers WP5.2 adds. `indexResources` contributes no cleanup of its own (see
-  // `wireRuntimeCore`), so it is not repeated here.
+  // A later construction failure (e.g. wireTransports below) must still close what this function
+  // went on to open after `wireRuntimeCore` succeeded: the vault watcher and any transport socket,
+  // then governance and stores, in reverse order via `unwindReversed`. `indexResources` contributes
+  // no cleanup of its own, so it is not repeated here.
   const postCoreLayers: OwnedLayer[] = [
     { name: "stores", close: stores.close },
     { name: "governance", close: governance.close },
   ];
-  // THE-466 slice 2's requireBoot idiom (see this file's top): assigned once, at the very end of
-  // the try block below, after every other post-core construction step has succeeded. Read via
-  // requireBoot immediately after the try/catch — by construction that point is only reached once
-  // this IS assigned (the catch always rethrows), so the guard never actually fires in production;
-  // it documents the invariant instead of asserting it away with `!`.
+  // requireBoot idiom (see this file's top): assigned once, at the end of the try block, after
+  // every post-core construction step succeeds; the catch below always rethrows, so the guard on
+  // the read after try/catch never actually fires in production.
   let postCore:
     | {
         runReconcile: () => Promise<void>;
@@ -444,9 +388,8 @@ export async function buildServerRuntime(
       maxPromptChars: config.plane.maxPromptChars,
       gatewayMaxAttempts: config.plane.gatewayMaxAttempts,
       gatewayTimeoutMs: config.plane.gatewayTimeoutMs,
-      // THE-717: the citation pass needs the AUTHORED store (chunk content + stored vectors) and a
-      // query-side embedder for its stage-1 cosine leg, neither of which the other plane jobs use.
-      // Passed unconditionally; wireJobHandlers decides whether to register anything.
+      // THE-717: citation pass needs the AUTHORED store + a query-side embedder, unlike other plane
+      // jobs. Passed unconditionally; wireJobHandlers decides whether to register anything.
       citationInfer: config.experiential.citationInfer,
       cacheDb: db,
       embed: (texts) => embeddingProvider.embed(texts, { input: "query" }),
@@ -472,7 +415,7 @@ export async function buildServerRuntime(
       });
     // THE-466 slice 2: hand the live coordinator to the observability module's lazy gauge sources.
     indexCoordinatorRef = indexCoordinator;
-    // THE-649: the watcher is the first layer opened after wireRuntimeCore, pushed immediately so a later throw (e.g. wireTransports below) stops it too.
+    // THE-649: pushed immediately (first layer after wireRuntimeCore) so a later throw stops it too.
     postCoreLayers.push({ name: "watcher", close: () => stopVaultWatch() });
 
     wireM1Tools({
@@ -697,11 +640,9 @@ export async function buildServerRuntime(
     await Promise.race([
       (async () => {
         await indexCoordinator.idle().catch(() => {});
-        // #14: no explicit contradiction drain here any more — durable jobs survive the process
-        // exiting mid-lease (claim()'s lease-expiry reclaim picks them up), so there is nothing
-        // that would be LOST by skipping a final drain. One bounded best-effort pass still gives a
-        // live worker a chance to clear the queue before exit rather than always waiting out the
-        // lease.
+        // #14: durable jobs survive the process exiting mid-lease (claim()'s lease-expiry reclaim
+        // picks them up); this bounded best-effort pass just gives a live worker a chance to clear
+        // the queue before exit instead of always waiting out the lease. See docs/design/server-runtime.md.
         const shutdownDrain = new AbortController();
         setTimeout(() => shutdownDrain.abort(), SHUTDOWN_DRAIN_MS).unref();
         await jobRunner.drainOnce(shutdownDrain.signal).catch(() => {});

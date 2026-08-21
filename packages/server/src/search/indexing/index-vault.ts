@@ -1,11 +1,10 @@
-// WP3 slice 3 (docs/plans/2026-07-30-codebase-refactor-map.md): indexVault, moved verbatim out of
-// indexer.ts — the whole-vault walk, two-phase batching (plan+embed outside any transaction, apply a
-// batch inside one), stale-note cleanup, edge reconciliation (literal + derived), and aggregated
-// IndexStats. It owns the WRITE TRANSACTION boundary (inWriteTransaction) for its batches: the
-// generation bump (bumpGeneration) at the end runs as its OWN transaction, after every flush has
-// committed, mirroring indexNote's placement (see index-note.ts) of the bump as the last write in a
-// transaction that follows applyNoteWrites. index-note.ts's deindexNote is imported here for the
-// stale-path sweep — a sibling import, not a cycle (importing indexer.ts itself, the facade, would be).
+// indexVault: the whole-vault walk — two-phase batching (plan+embed outside any transaction,
+// apply a batch inside one), stale-note cleanup, edge reconciliation, and aggregated IndexStats.
+// Owns the WRITE TRANSACTION boundary for its batches: bumpGeneration runs as its OWN transaction
+// after every flush commits, mirroring indexNote's placement (index-note.ts) as the last write
+// after applyNoteWrites. index-note.ts's deindexNote is imported here for the stale-path sweep —
+// a sibling import, not a cycle (importing indexer.ts, the facade, would be).
+// See docs/design/search-indexing-and-cache.md.
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { parseNote } from "../../vault/frontmatter";
@@ -56,7 +55,7 @@ import {
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
 
-// THE-500 defaults: 100 notes was the prior hardcoded flush size; 8 MiB caps a batch of large notes.
+// THE-500: default flush thresholds. See docs/design/search-indexing-and-cache.md.
 const DEFAULT_BATCH_MAX_NOTES = 100;
 const DEFAULT_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 
@@ -65,14 +64,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // THE-645: captured once, up front, so onProgress reports a stable start time for the whole pass
   // rather than the time of whichever flush happens to fire.
   const startedAt = now();
-  // THE-683: the caller passes the manifest it already built; this no longer re-derives one.
-  // The old hand-built copy carried a comment warning that if it drifted from
-  // runtime/indexing-wiring.ts, "boot and index_vault each DROP and rebuild the table the other
-  // just built — an unbounded rebuild loop". Accepting the identity instead of recomputing it
-  // makes that drift unrepresentable rather than merely tested-against.
-  //
-  // A caller without one (tests, eval harnesses) builds it with buildRepresentationManifest, which
-  // is the same function boot uses — so there is still exactly one derivation in the codebase.
+  // THE-683: the caller passes the manifest it already built; this no longer re-derives one,
+  // making cross-derivation drift with runtime/indexing-wiring.ts unrepresentable. A caller
+  // without one (tests, eval harnesses) builds it with buildRepresentationManifest, the same
+  // function boot uses. See docs/design/search-indexing-and-cache.md.
   const hasVec = ensureVecChunks(args.db, args.representation, {
     now,
     onRebuild: args.onVecRebuild,
@@ -115,11 +110,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // titled notes never share a vector. Purely in-memory — works even when the body_sha column is absent.
   const dedupRegistry = new Map<string, string>();
   // THE-445: seed the registry from embed texts already embedded in a PRIOR run, so content indexed
-  // under an UNCHANGED path (never re-walked this pass, hence not registered below) still dedups a new
-  // path carrying the same embed text. First path wins (deterministic by path). Gated on hasBodySha,
-  // which mirrors when the copy path is active (dedupEnabled). Caveat: if a seeded first path's content
-  // CHANGES this same run, a same-embed-text new path defers to a now-stale first path; it self-heals
-  // on the next reindex (the new path then becomes the first).
+  // under an UNCHANGED path (never re-walked this pass) still dedups against a new path carrying the
+  // same embed text. First path wins (deterministic by path). Gated on hasBodySha. Self-heals if a
+  // seeded path's content changes mid-run — see docs/design/search-indexing-and-cache.md.
   if (hasBodySha) {
     const seeded = args.db
       .prepare(
@@ -172,12 +165,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // full-state pass — the undirected links_to graph W-RETRIEVAL walks (THE-233 W-INGEST).
   const noteLinks = new Map<string, ExtractedLink[]>();
   // Two-phase batching: PLAN each note (including its embed() network call) with no transaction,
-  // then APPLY a batch of plans in ONE transaction. The write lock is never held across a note's
-  // embed, and a K-note reconcile pays ~ceil(N/BATCH) fsyncs instead of N. A batch is the atomic
-  // unit — a mid-batch failure rolls the whole batch back; that only costs re-work (the reconcile
-  // is idempotent, the content-hash skip re-converges next pass), never correctness. Safe because
-  // indexVault is the sole writer on this single connection during the reconcile, so a plan's
-  // pre-read `existing` snapshot cannot be raced before its apply.
+  // then APPLY a batch of plans in ONE transaction. A mid-batch failure rolls the whole batch back
+  // (idempotent reconcile, never a correctness issue). Safe because indexVault is the sole writer
+  // on this connection during the reconcile. See docs/design/search-indexing-and-cache.md.
   const BATCH = args.batch?.maxNotes ?? DEFAULT_BATCH_MAX_NOTES;
   const BATCH_MAX_BYTES = args.batch?.maxBytes ?? DEFAULT_BATCH_MAX_BYTES;
   let batch: NoteWritePlan[] = [];
@@ -187,9 +177,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     const applied = batch;
     batch = [];
     batchBytes = 0;
-    // Batch the embed() calls across the whole batch (THE-277) BEFORE opening the write txn, so the
+    // THE-277: batch the embed() calls across the whole batch BEFORE opening the write txn, so the
     // reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in flight instead of one serial
-    // round-trip per note. The write lock is still never held across a network call.
+    // round-trip per note. The write lock is never held across a network call.
     const report = await embedPlans(
       args.provider,
       applied,
@@ -206,11 +196,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       );
     }
     // THE-390: a chunk the provider rejects even alone quarantines its NOTE — the rest of the
-    // batch still applies and the reconcile completes (surfaced via stats + reconcile health;
-    // the content-hash skip retries the note next pass). Deliberate consequence: a quarantined
-    // note keeps serving its LAST-INDEXED chunks (stale-but-consistent) rather than being pruned
-    // to a search hole or failing the whole reindex; its notes/FTS metadata may be newer, which
-    // the notes pass already allows by design (THE-291 independence).
+    // batch still applies and the reconcile completes; the quarantined note keeps serving its
+    // last-indexed chunks rather than being pruned to a search hole. Deliberate — do not "fix" by
+    // failing the whole reindex. See docs/design/search-indexing-and-cache.md.
     let toApply = applied;
     if (report.failed.length > 0) {
       const failedSet = new Set(report.failed);
@@ -284,12 +272,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       startedAt,
     });
   };
-  // The two-transaction split (notes vs chunks) is a deliberate atomicity gap; it is safe ONLY because
-  // the next index_vault self-heals either side (an absent chunk set re-embeds; a missing notes row is
-  // rewritten). That invariant is pinned by test/index-selfheal.test.ts — do not break it.
-  // THE-291: the notes/FTS pass is flushed INDEPENDENTLY of the chunk/embed pass, so a broken
-  // embedding backend cannot block metadata/FTS readiness (they need no embeddings). Notes
-  // batches commit inline during the walk; chunk plans still batch through the embed flush.
+  // THE-291: the notes/FTS pass is flushed INDEPENDENTLY of the chunk/embed pass (deliberate
+  // atomicity gap), so a broken embedding backend cannot block metadata/FTS readiness. Safe ONLY
+  // because the next index_vault self-heals either side; pinned by test/index-selfheal.test.ts —
+  // do not break it. See docs/design/search-indexing-and-cache.md.
   let notesBatch: NoteRecord[] = [];
   const flushNotes = (): void => {
     if (!hasNotes || notesBatch.length === 0) return;
@@ -315,8 +301,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
-    // THE-823: `rel` is already in scope here — the whole reason the boot reconcile's "frontmatter
-    // is not valid YAML" degrade message used to name no file even though this call site knew one.
+    // THE-823: `rel` must be threaded into link extraction here, not left for the caller to infer.
+    // See docs/design/search-indexing-and-cache.md.
     noteLinks.set(rel, extractLinks(parseNote(raw, rel).body));
     // THE-486: capture this pass's tags straight from the raw content (no DB round-trip) so the
     // tag-cooccurrence delta can diff against oldNotesTagsSnapshot below — a note's frontmatter tags
@@ -402,36 +388,25 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     );
     stats.edges_inserted = edgeStats.inserted;
     stats.edges_deleted = edgeStats.deleted;
-    // Densification (docs/plans/2026-07-13-graph-densification.md): derived edges — shared-tag
-    // co-occurrence + vec0 kNN neighbors — reconciled on their OWN edge_types, so the literal layer and
-    // the LLM layer (semantically_similar_to, built out-of-band by the densify-llm runner) are never
-    // touched here.
-    //
-    // THE-486: a flag OFF still reconciles to an EMPTY desired set via the FULL reconcileDerivedEdges —
-    // that is what makes "turn the flag off" actually prune (the layer must not survive invisibly,
-    // ready to reappear the moment the flag flips back on). A flag ON reconciles DELTA-only once a
-    // baseline exists: only the notes/chunks this pass actually touched (plus, for kNN, their existing
-    // edge-neighbors and forward vector neighbors — see knnDiscoveryScope) are re-scored; edges
-    // entirely outside that scope are
-    // assumed already correct and are never read or rewritten. The very FIRST on-pass (no rows of this
-    // edge_type exist yet — "cold start", which also covers a flag just flipped from off, since off
-    // always prunes to zero) has no delta baseline to build on and falls back to the full recompute,
-    // exactly matching the old always-full behaviour for that one pass.
-    // Guarded on the densification columns: reconciling unconditionally against a vault_edges that
-    // predates migration 20260713_001 would throw on the upsert and kill the entire index pass.
+    // Densification (THE-486, docs/plans/2026-07-13-graph-densification.md): derived edges —
+    // shared-tag co-occurrence + vec0 kNN neighbors — reconciled on their OWN edge_types, so the
+    // literal layer and the LLM layer (semantically_similar_to) are never touched here. A flag OFF
+    // reconciles to an EMPTY desired set (so turning it off actually prunes); a flag ON reconciles
+    // DELTA-only once a baseline exists, falling back to a full recompute on cold start. Guarded on
+    // derivedColumnsOk: a pre-migration-20260713_001 vault_edges would throw on the upsert.
+    // See docs/design/search-indexing-and-cache.md.
     if (derivedColumnsOk) {
       const tagFanout = { maxTagFanout: args.densify?.maxTagFanout ?? 25 };
       if (!densifyTagsRequested) {
         reconcileDerivedEdges(args.db, args.vaultId, [], ["shared_tag"], now);
       } else if (countDerivedEdges(args.db, args.vaultId, "shared_tag") === 0) {
-        // Cold start: build the FULL post-pass tag map the same way a from-scratch reconcile would —
-        // readNoteTags reads notes AFTER this pass's upserts/deletes have all committed.
+        // Cold start: readNoteTags reads notes AFTER this pass's upserts/deletes have committed.
         const tagDesired = tagCooccurrenceEdges(readNoteTags(args.db, args.vaultId), tagFanout);
         reconcileDerivedEdges(args.db, args.vaultId, tagDesired, ["shared_tag"], now);
       } else {
-        // THE-486 warm delta: the FULL post-pass tag map is the old snapshot overlaid with this pass's
-        // walked notes' fresh tags, minus anything deleted — cheaper than re-reading the whole notes
-        // table, and exactly what it would read anyway (every untouched note keeps its old value).
+        // THE-486 warm delta: the FULL post-pass tag map is the old snapshot overlaid with this
+        // pass's walked notes' fresh tags, minus anything deleted. See design note for why this is
+        // cheaper than a full re-read yet equivalent to one.
         const newNotesTagsFull = new Map(oldNotesTagsSnapshot);
         for (const [path, tags] of newNotesTagsWalked) newNotesTagsFull.set(path, tags);
         for (const path of deletedPaths) newNotesTagsFull.delete(path);
@@ -439,9 +414,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           ...newNotesTagsWalked.keys(),
           ...deletedPaths,
         ]);
-        // Mirrors the kNN branch below: NO note's tags changed this pass -> skip the call entirely
-        // (not even the scope build runs), same "no scan on a true no-op" guarantee as acceptance
-        // criterion 1, applied to the tag layer too.
+        // Mirrors the kNN branch below: no note's tags changed this pass -> skip entirely, same
+        // "no scan on a true no-op" guarantee applied to the tag layer.
         if (tagChangedNotes.size > 0) {
           const scope = tagCooccurrenceScope(
             oldNotesTagsSnapshot,
@@ -467,17 +441,15 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
         const knnDesired = computeKnnEdges(args.db, args.vaultId, knnOpts);
         reconcileDerivedEdges(args.db, args.vaultId, knnDesired, ["similar_to"], now);
       } else if (changedChunkPaths.size > 0) {
-        // THE-533: knnDiscoveryScope, not knnNeighborScope — the edge-only expansion cannot reach a
-        // note that would newly rank a changed/new note in its OWN top-k without being ranked back,
-        // so it needs the forward vector neighbours too. Costs one extra vecKnn per CHANGED chunk
-        // (not per vault chunk), which is what keeps THE-486's speedup intact.
+        // THE-533: knnDiscoveryScope, not a narrower edge-only scope — the edge-only expansion
+        // cannot reach a note that would newly rank a changed/new note in its OWN top-k without
+        // being ranked back, so this needs the forward vector neighbours too. See design note.
         const scope = knnDiscoveryScope(args.db, args.vaultId, changedChunkPaths, knnOpts);
         const knnDesired = computeKnnEdgesForPaths(args.db, args.vaultId, scope, knnOpts);
         reconcileDerivedEdgesScoped(args.db, args.vaultId, knnDesired, ["similar_to"], scope, now);
       }
       // else: densifyKnnRequested but changedChunkPaths is empty — nothing this pass could have
-      // invalidated any similar_to edge, so THE-486 acceptance criterion 1 applies: skip the call
-      // entirely (not even a scope lookup runs) rather than paying any kNN scan on a warm no-op pass.
+      // invalidated, so skip entirely rather than pay a kNN scan on a warm no-op pass.
     }
   }
   // THE-496: bump the vault generation once per reconcile when anything result-affecting changed —

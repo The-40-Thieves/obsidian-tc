@@ -1,19 +1,10 @@
-// Prometheus metric catalog (G2.4 §Prometheus — THE-211 / THE-183). The exact 8 counters,
-// 2 histograms, and 4 gauges from the observability spec, on a PRIVATE prom-client Registry
-// (never the global default registry, so multiple recorders — e.g. in tests — never collide).
-// The recorder is always live: counters are cheap in-memory adds and back both `get_metrics`
-// and the optional `/metrics` scrape endpoint, which stays disabled by default (G2.4 `:0`).
-//
-// Cardinality is bounded exactly as G2.4 mandates: labels use `scope_class` (a family like
-// `read`/`write`/`bulk`), never full scope strings, and the caller hash is deliberately NOT a
-// label — caller-dimension breakdowns belong in OTEL spans and MORGIANA events, whose
-// cardinality budgets are looser than Prometheus'.
-//
-// Coverage note (honest, per spec): every catalog name is registered so `/metrics` is
-// catalog-complete, but two counters have no V1 emission source — `idempotency_hits_total`
-// and `idempotency_cache_skipped_total` (idempotency replay is forward-compat, THE-197) — and
-// the `idempotency_cache_bytes` gauge likewise. They expose as registered-zero until that
-// subsystem lands; this is documented rather than faked.
+// Prometheus metric catalog (G2.4 §Prometheus — THE-211 / THE-183) on a PRIVATE prom-client
+// Registry — never the global default, so multiple recorders (e.g. in tests) never collide.
+// Cardinality stays bounded per G2.4: labels use `scope_class`, never full scope strings or the
+// caller hash — caller-dimension breakdowns belong in OTEL spans / MORGIANA events instead.
+// `idempotency_hits_total`, `idempotency_cache_skipped_total`, and `idempotency_cache_bytes`
+// are registered but have no V1 emission source (THE-197) and expose as registered-zero.
+// See docs/design/metrics-registry.md.
 import { Counter, Gauge, Histogram, Registry } from "prom-client";
 // Type-only: the label unions are DEFINED at the write-transaction seam that produces them, so a
 // new transaction site cannot add a Prometheus series without widening the union there first.
@@ -27,14 +18,9 @@ export interface GaugeSources {
   captureQueueDepth?: () => Array<{ vault: string; value: number }>;
   elicitTokensPending?: () => Array<{ vault: string; value: number }>;
   idempotencyCacheBytes?: () => Array<{ vault: string; value: number }>;
-  /** THE-507: query-cache effectiveness (THE-497's cache). The `vault` label carries the CACHE
-   *  name ("results" / "vectors") rather than a vault id — the cache is process-wide and keyed
-   *  internally by vault, so it has no per-vault counts to report. Two bounded values.
-   *
-   *  These are cumulative counts exposed through the gauge seam rather than as Counters because
-   *  the cache owns the numbers and the recorder only reads them; a Counter would need the cache
-   *  to call INTO the recorder, which would invert the dependency the composition root exists to
-   *  keep one-way. */
+  /** THE-507: query-cache effectiveness. `vault` carries the CACHE name ("results"/"vectors"),
+   *  not a vault id — the cache is process-wide. Gauges rather than Counters because the cache
+   *  owns the numbers and the recorder only reads them. See docs/design/metrics-registry.md. */
   /** THE-585 (#1): index-COORDINATOR depth — in-process write work waiting on the per-(vault,path)
    *  serialization chain. Deliberately NOT the same thing as `captureQueueDepth`, which is the
    *  durable capture_queue table; conflating them was called out in the ticket. Process-wide, so
@@ -73,12 +59,10 @@ export type ToolCallStatus = "ok" | "denied" | "error";
 // Log-spaced byte buckets from G2.4 (1k, 10k, 100k, 1M, 10M).
 const RESPONSE_BYTE_BUCKETS = [1_000, 10_000, 100_000, 1_000_000, 10_000_000];
 
-// THE-585 (#5): lock-wait buckets, in seconds. There is a bucket AT the configured `busy_timeout`
-// (5 s) and another ABOVE it, and the second one is the point: a timed-out acquisition always
-// measures slightly OVER the timeout — 5000 ms of busy_timeout was measured at 5006 ms, because
-// the sample spans SQLite's busy-handler loop plus the call overhead around it. With 5 as the top
-// bucket every timeout would fall into +Inf alone, and "waited the full timeout and then threw"
-// would be indistinguishable from "waited a minute". The 5..10 band is where timeouts land.
+// THE-585 (#5): lock-wait buckets, in seconds. Buckets straddle the configured `busy_timeout`
+// (5s) with a second boundary above it (10s) — a timed-out acquisition always measures slightly
+// OVER the timeout, so without that second boundary every timeout would collapse into +Inf. The
+// 5..10s band is where timeouts land. See docs/design/metrics-registry.md.
 const SQL_LOCK_WAIT_BUCKETS = [0.001, 0.01, 0.1, 0.5, 1, 5, 10];
 
 // THE-585 (#6): retrieval stages are sub-millisecond to low-tens-of-ms individually, so the
@@ -203,11 +187,9 @@ export class MetricsRecorder {
       registers,
     });
     // THE-612: ensureVecChunks DROPs and rebuilds vec_chunks — a full re-embed of every vault
-    // sharing the table — whenever the stored representation fingerprint drifts or a legacy
-    // pre-partition shape is detected. Rare (a deploy changed the embedding model, or a one-time
-    // schema upgrade) and huge blast radius (dense retrieval goes cold for every vault until
-    // re-embedded), and previously had no counter at all — no `vault` label because the event is
-    // not scoped to one vault; see obsidian_tc_auth_rejections_total for the same precedent.
+    // sharing the table — on a fingerprint drift or a legacy pre-partition shape. No `vault`
+    // label: the event isn't scoped to one vault (same precedent as auth_rejections_total).
+    // See docs/design/metrics-registry.md.
     this.vecRebuild = new Counter({
       name: "obsidian_tc_vec_rebuild_total",
       help: "vec_chunks DROP+rebuild events, by reason. legacy_shape is a one-time pre-partition upgrade; fingerprint_changed means the embedding provider/model/dimensions, distance metric, or chunk/enrichment representation changed since the index was built. Either way every vault's dense index is cold until it re-embeds — any non-zero count outside a deliberate model migration is worth investigating.",
@@ -225,22 +207,18 @@ export class MetricsRecorder {
       labelNames: ["vault", "outcome"],
       registers,
     });
-    // THE-417 Phase 2: the instrument that makes warn-mode runnable. Before this, a mismatch wrote
-    // one stderr line among every other internal error and nothing accumulated it, so "let
-    // warn-mode surface latent mismatches" had no way to be read. Labels are bounded exactly like
-    // obsidian_tc_tool_calls_total's — vault id and tool name, never the payload or the Zod issues,
-    // which would put note content into a label.
+    // THE-417 Phase 2: makes warn-mode runnable/observable. Labels are bounded exactly like
+    // obsidian_tc_tool_calls_total's — vault id and tool name only, never the payload or the Zod
+    // issues, which would put note content into a label. See docs/design/metrics-registry.md.
     this.outputSchemaDrift = new Counter({
       name: "obsidian_tc_output_schema_drift_total",
       help: "Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case.",
       labelNames: ["vault", "tool"],
       registers,
     });
-    // THE-645 item 1: registerActivationRecompute's onRecompute stats were computed every tick
-    // and discarded — nothing outside the process could see whether the periodic ACT-R recompute
-    // was running, or how much work it was doing. `vault` carries the bounded job name
-    // ("activation-recompute"), the same process-wide-subsystem precedent the scheduler gauges
-    // use, since the recompute runs once over the whole experiential store rather than per vault.
+    // THE-645 item 1: `vault` carries the bounded job name ("activation-recompute") — the same
+    // process-wide-subsystem precedent the scheduler gauges use, since the recompute runs once
+    // over the whole experiential store rather than per vault. See docs/design/metrics-registry.md.
     this.activationRecomputeChunks = new Counter({
       name: "obsidian_tc_activation_recompute_chunks_total",
       help: "Chunks whose cached_activation_score was recomputed by the periodic ACT-R activation job, by job name. Cumulative. A flat line while the scheduler reports the job running means chunk_retrievals has stopped growing, not that the job stalled.",
@@ -306,21 +284,13 @@ export class MetricsRecorder {
       buckets: RESPONSE_BYTE_BUCKETS,
       registers,
     });
-    // THE-585 (#5): the signal THE-467/468 cannot be argued without — how long writers block each
-    // other on ONE shared cache.db. Under WAL readers never block, so every sample here is
-    // writer-vs-writer contention and nothing else.
-    //
-    // Observed on EVERY acquisition, including the uncontended ones that fall in the 1 ms bucket:
-    // without those the histogram would have no denominator and "5% of index writes waited >100 ms"
-    // could not be computed at all. The `txn` label is a closed union (see WriteTxnLabel) so an
-    // operator can tell a reindex waiting on a live tool call from the reverse.
-    // THE-585 (#6). `stage` is the closed StageName union from THE-465's instrumentation, so the
-    // label set is bounded at 8 by construction — no cardinality work was needed.
-    //
-    // The two candidate counters are the point, more than the duration: their RATIO per stage is
-    // the retrieval funnel. `candidates_out / candidates_in` says which stage is actually filtering,
-    // and a stage whose ratio drifts to 1.0 has quietly stopped doing its job while still costing
-    // its latency. Neither number answers that alone.
+    // THE-585 (#5/#6): sqlLockWait measures writer-vs-writer contention on cache.db (WAL readers
+    // never block, so every sample is contention and nothing else); retrievalStageDuration and
+    // the candidate counters below measure the graph-search funnel, where candidates_out /
+    // candidates_in per stage is the signal — a stage whose ratio drifts to 1.0 has quietly
+    // stopped filtering while still costing its latency. `txn` and `stage` are closed unions
+    // (WriteTxnLabel, THE-465's StageName), so both label sets are bounded by construction.
+    // See docs/design/metrics-registry.md.
     this.retrievalStageDuration = new Histogram({
       name: "obsidian_tc_retrieval_stage_duration_seconds",
       help: "Wall time per named graph-search stage, by vault and stage.",
@@ -358,12 +328,10 @@ export class MetricsRecorder {
       labelNames: ["vault", "stage"],
       registers,
     });
-    // THE-891 item 3: the graph-walk ACL filter (THE-695/THE-852) has been unconditional since
-    // v1.22.0 — fine for correctness, but its recall cost (readable notes reachable only through
-    // an unreadable bridge) had no signal at all. Only ever non-zero for a RESTRICTED caller:
-    // resolveAclWalkFilter's structural-no-op argument for an unrestricted one
-    // (retrieval-runtime.ts) means this stays at zero for the common single-principal deployment,
-    // which doubles as a live check of that argument rather than just a doc claim.
+    // THE-891 item 3: the graph-walk ACL filter (THE-695/THE-852). Only ever non-zero for a
+    // RESTRICTED caller — resolveAclWalkFilter's structural-no-op argument for an unrestricted
+    // one (retrieval-runtime.ts) keeps this at zero for the common single-principal deployment,
+    // which doubles as a live check of that argument. See docs/design/metrics-registry.md.
     this.aclWalkPruned = new Counter({
       name: "obsidian_tc_acl_walk_pruned_total",
       help: "Paths the graph-walk ACL filter excluded from a walk that an unfiltered walk over the same seed frontier would have reached, by vault. Zero for an unrestricted caller by construction (nothing to prune); a non-zero, rising count for a restricted one is the filter's recall cost made visible, not an error.",

@@ -1,50 +1,13 @@
 // THE-645 item 3 — re-issue a recorded session's captured arguments against current vault state.
+// This is re-execution, not replay: THE-736 captured arguments only, so there is nothing to
+// substitute during a walk of the control flow. Hence `rerun`, not `replay`.
 //
-// RE-EXECUTION, not reconstruction. The prevailing meaning of "replay" in agent tooling is to walk
-// the control flow again substituting STORED RESULTS, so nothing executes. That is impossible here
-// and not by oversight: THE-736 captured arguments and deliberately not results. So the only
-// available shape is to re-issue the inputs and compare what comes back — which is also what the
-// ticket asks for. Hence `rerun`, not `replay`.
-//
-// MUTATION SAFETY IS NOT IMPLEMENTED HERE. Observe mode hands dispatch a read-only ACL and the
-// existing `enforceReadOnlyGate` (mcp/registry/policy-gates.ts) refuses every mutating call, using
-// the same `isMutating` predicate the facade and visibility layers use. A runner-side "is this tool
-// mutating" list would be a SECOND copy of that rule, and the two can disagree — which is how a
-// re-run eventually executes a write it believed was a read.
-//
-// That gate covers the `write`/`delete`/`bulk`/`execute` families and NOT `admin`, because
-// `MUTATING_FAMILIES` (shared/src/scopes.ts) omits it — deliberately, since it is the whole
-// server's definition of a vault mutation. So an `admin:` call is refused HERE by not granting the
-// scope at all (see RERUN_SCOPES); widening MUTATING_FAMILIES to close it would change behaviour
-// far beyond this command.
-//
-// DEVIATION FROM THE BRIEF, MEASURED: the brief's draft granted only `["read:notes",
-// "read:workspace"]` and left `ctx.acl` unset. Running it (not just reading it) against
-// `makeTestVault` showed the "mutating skip" was coming from `assertScopesGranted` (missing
-// `write:notes`), NOT from `enforceReadOnlyGate` — dispatch.ts:191 runs the scope gate BEFORE
-// `applyVaultAcl`/`enforceReadOnlyGate` (:197/:200). Proof: flipping the fixture's ACL to writable
-// (Step 5) did NOT change the outcome — patch_note was still refused, for the same scope reason,
-// with a WRITABLE vault. That is a false safety signal: the test would report the guarantee held
-// while never exercising the ACL gate at all.
-//
-// So this runner grants a FAMILY-LEVEL scope set (read/write/delete/bulk/execute, deliberately NOT
-// admin — see RERUN_SCOPES) and instead supplies `ctx.acl` itself, read-only
-// unless `sandbox`. This does NOT reintroduce the per-tool classifier the design doc warns against
-// (`isMutatingCall`'s `destructive || requiredScopes.some(isMutatingScope)` predicate is still the
-// ONLY thing deciding which calls are mutating); it only supplies the ACL VALUE, exactly as
-// `withReadOnlyAcl` will for the CLI's own registry (Task 4) once that registry's `aclResolver` is
-// wired. `makeTestVault`'s registry has no `aclResolver` (m1-helpers.ts:75), so nothing overwrites
-// this — that omission is deliberate in the fixture, not an oversight this runner should route
-// around.
-//
-// CONSEQUENCE FOR THE MUTATION TEST, also measured: observe mode is now unconditional — read-only
-// regardless of the TARGET VAULT's own configured ACL, matching the design doc's stated goal that
-// Task 4's `withReadOnlyAcl` must force every vault read-only, not merely honor one that already
-// happens to be. So flipping the test fixture's `acl: {readOnly}` (the brief's literal Step 5) has
-// NO effect here — verified, not assumed: it still reports 6/6 green. The lever that actually
-// gates the write is THIS file's `readOnly: true` literal a few lines below, so that is what
-// task-3-report.md's mutation cycle flips instead, and watches go red with the note actually
-// overwritten on disk before restoring it.
+// Mutation safety is NOT implemented here — observe mode relies on `enforceReadOnlyGate`
+// (mcp/registry/policy-gates.ts) and the shared `isMutating` predicate, not a second copy of that
+// rule. That gate covers write/delete/bulk/execute; `admin` is refused instead by never granting
+// the scope (see RERUN_SCOPES). See docs/design/workspace-rerun.md for the file-header history,
+// including the measured deviation from the original brief and its consequence for the mutation
+// test.
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -64,10 +27,8 @@ import { CACHE_TRACE_SUBDIR, getSession, readTrace, resolveTraceAbs } from "./se
 /**
  * THE-740 — the principal a re-issued call is attributed to in `event_log`.
  *
- * `rerun:` prefix rather than a new column: it needs no migration, keeps the original principal
- * readable (`rerun:alice` still says alice), and makes the rows filterable with a LIKE. A null
- * caller becomes `rerun:` rather than staying null, so a synthetic row is never indistinguishable
- * from an unattributed real one.
+ * `rerun:` prefix rather than a new column, so synthetic rows stay distinguishable from live
+ * traffic without a migration. See docs/design/workspace-rerun.md for why this is load-bearing.
  */
 export const RERUN_CALLER_PREFIX = "rerun:";
 
@@ -78,18 +39,11 @@ export function rerunCaller(caller: string | null): string {
 /**
  * The scopes a re-issued call is authenticated with.
  *
- * FAMILY WILDCARDS, and `admin` is absent on purpose. `grantsScope` (shared/src/scopes.ts) matches
+ * Family wildcards, and `admin` is absent on purpose. `grantsScope` (shared/src/scopes.ts) matches
  * `read:*` against any `read:<resource>`, so this covers every non-admin tool without enumerating
- * resources — while `admin:*` calls fail at `assertScopesGranted` in BOTH modes.
- *
- * The previous `["*"]` was justified by "the ORIGINAL call already cleared scope/auth once when it
- * was recorded". THAT IS FALSE: `recordOutcome` (mcp/registry/dispatch-observability.ts) traces
- * FAILED dispatches too, arguments included — so a record whose `recorded.status` is `error` with
- * `error_code: "forbidden"` was in the trace precisely BECAUSE its caller was denied, and `["*"]`
- * re-issued it with privileges the original caller never held. Omitting `admin` also closes
- * `add_vault`, which declares no `vaultArg` and so slips past the vault-binding guard below: under
- * `["*"]` it registered an operator-supplied REAL path into the live VaultRegistry and indexed it,
- * from the mode that advertises it refuses every mutating call.
+ * resources, while `admin:*` calls fail at `assertScopesGranted` in both modes. Do not widen this
+ * to `["*"]` — see docs/design/workspace-rerun.md for why that under-grants the audit trail and
+ * over-grants `add_vault`.
  */
 export const RERUN_SCOPES: readonly string[] = [
   "read:*",
@@ -108,12 +62,9 @@ export interface RerunOptions {
    * Absolute filesystem root of the session's OWN vault, resolved from `row.vault_id` — so it is a
    * function, called after the row is read rather than a value the caller must pre-compute.
    *
-   * REQUIRED, and that is the fix rather than a style choice. It used to be optional with a
-   * `?? ""` default, which only `--sandbox` ever supplied: a legacy `trace_store = 'vault'` row
-   * (the `DEFAULT 'vault'` backfill of migration 20260805_003 — i.e. every row predating THE-737)
-   * then resolved its trace against `resolve("")` = process.cwd(), found nothing, and reported
-   * `no_capture` for the whole session while blaming `sessions.traceContent`. A required resolver
-   * makes that silent misattribution unrepresentable.
+   * Required — an optional resolver silently mis-resolves legacy `trace_store = 'vault'` rows
+   * (pre-THE-737) against the process cwd instead of the vault. See
+   * docs/design/workspace-rerun.md for the failure this caused.
    */
   vaultRootFor: (vaultId: string) => string;
   /** When true, this runner leaves `ctx.acl` unset (the copied sandbox vault's normal read-write
@@ -215,56 +166,35 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
 
     const started = Date.now();
     const res = (await opts.registry.dispatch(common.tool, classified.args, {
-      // THE-740: every re-issued call goes through the real dispatch — which is the point, since a
-      // re-run that passes is evidence about the actual gates — and `recordOutcome` therefore
-      // writes an `event_log` row for each one, into the REAL cache.db in observe mode. Attributed
-      // to the raw `row.caller`, those rows were byte-indistinguishable from live traffic by a
-      // principal who did not make the calls: audit history gained synthetic entries, per-caller
-      // volume double-counted a replayed session, and a re-run of a session containing a denial
-      // re-recorded that denial against the original caller.
-      //
-      // Prefixing keeps the original principal legible while making the rows excludable from any
-      // analysis over event_log. This repo already treats audit integrity as load-bearing (the
-      // forget log is hash-chained; THE-605 reasons explicitly about which commands may write
-      // audit rows), and synthesising indistinguishable rows was never part of that reasoning.
+      // THE-740: every re-issued call goes through real dispatch, so `recordOutcome` writes an
+      // `event_log` row for each one into the real cache.db in observe mode. `rerunCaller` prefixes
+      // the original principal so these rows stay excludable/filterable rather than
+      // byte-indistinguishable from live traffic. See docs/design/workspace-rerun.md.
       caller: rerunCaller(row.caller),
       authenticated: true,
-      // Family wildcards minus `admin` — see RERUN_SCOPES for why "the original call already
-      // cleared scope/auth" was not true and what `["*"]` let through.
+      // Family wildcards minus `admin` — see RERUN_SCOPES.
       grantedScopes: new Set(RERUN_SCOPES),
       vaultId: row.vault_id,
-      // THE SESSION'S VAULT IS THE ONLY VAULT THIS RUN MAY TOUCH, and this is what makes that
-      // structural rather than documented. `enforceVaultBinding` (mcp/registry/input-binding.ts)
-      // returns immediately unless `vaultBound === true`; without it, a handler resolved its target
-      // from `input.vault` via `VaultRegistry.resolve`, so a record whose captured args named a
-      // DIFFERENT vault was executed against that vault — under `--sandbox` that is a real,
-      // unstaged vault being mutated while the command exits 0 ("ran, nothing moved") and the
-      // staged copy sits untouched. Set in BOTH modes: a mismatched record is refused outright
-      // rather than silently retargeted.
+      // The session's vault is the only vault this run may touch. `enforceVaultBinding`
+      // (mcp/registry/input-binding.ts) returns immediately unless `vaultBound === true`; without
+      // it, a record whose captured args named a different vault would execute against that vault
+      // instead of being refused. Required in both modes. See docs/design/workspace-rerun.md.
       vaultBound: true,
       db: opts.db,
-      // Read-only unless `--sandbox`. `aclResolver` (mcp/registry/types.ts:257/:290) is fixed at
-      // ToolRegistry construction and, when wired, `applyVaultAcl` (dispatch.ts:197,
-      // input-binding.ts:88) REPLACES this on every call naming a vault — so in the CLI's own
-      // registry (Task 4, `withReadOnlyAcl`) this value is redundant, not load-bearing. It IS
-      // load-bearing here and in `makeTestVault`'s registry, which wires no `aclResolver`
-      // (m1-helpers.ts:75) and so never overwrites it.
+      // Read-only unless `--sandbox`. Redundant when a registry's `aclResolver` is wired (it
+      // overwrites this per call — dispatch.ts:197), but load-bearing for `makeTestVault`'s
+      // registry, which wires none (m1-helpers.ts:75). See docs/design/workspace-rerun.md.
       acl: opts.sandbox
         ? undefined
         : new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] }),
     } as never)) as DispatchLike;
 
     const code = res.error?.code;
-    // Dispatch refuses a mutating call under a read-only ACL with `forbidden`. That is the gate's
-    // ruling, recorded — not a prediction this runner made.
-    //
-    // MATCHED ON THE GATE, NOT ON THE CODE. `forbidden` is also what the scope gate, the
-    // vault-binding guard, the vault-kind gate and the path ACL throw. Folding all of them into
-    // `skipped_mutating` reported a genuine regression — a call recorded `ok` that now comes back
-    // `forbidden` because an ACL rule, a vault kind or a scope changed — as an EXPECTED skip: it
-    // counted toward neither `diverged` nor the exit code, which is the one thing this command
-    // exists to surface. Only the read-only gate's own message (imported, so it cannot drift) is a
-    // skip; every other `forbidden` falls through and is compared like any other outcome.
+    // Dispatch refuses a mutating call under a read-only ACL with `forbidden`. That ruling is
+    // recorded here, not predicted. Matched on the read-only gate's own message
+    // (READ_ONLY_DENIAL_MESSAGE) rather than the bare `forbidden` code: the scope gate,
+    // vault-binding guard, vault-kind gate, and path ACL all throw `forbidden` too, and folding
+    // them together turns real regressions into expected skips. See docs/design/workspace-rerun.md.
     const readOnlySkip = res.error?.message === READ_ONLY_DENIAL_MESSAGE;
     if (!opts.sandbox && !res.ok && code === "forbidden" && readOnlySkip) {
       records.push({
@@ -277,20 +207,11 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
       continue;
     }
 
-    // THE-738: refusals this runner caused are NOT divergence.
-    //
-    // `plugin_unreachable` is the sandbox stripping restApiUrl/restApiKey so bridge tools cannot
-    // reach the live Obsidian app — correct, and the only safe answer, since a filesystem copy
-    // cannot bound a network write. But the strip is wholesale, so `openBridge` throws it for
-    // every m4 tool including the READ-ONLY ones (list_tasks, git_status, git_diff,
-    // eval_dataview_field, ocr_attachment, search_omnisearch, ...). Each was recorded `ok`, now
-    // returns an error, and so reported as diverged.
-    //
-    // The scope case is the same shape in observe mode: an `admin:` call is refused because
-    // RERUN_SCOPES deliberately omits that family.
-    //
-    // This is exactly the class the design doc names — "every search diverges for a reason
-    // unrelated to the change being investigated" — arriving through a different door.
+    // THE-738: refusals this runner itself caused are not divergence. `plugin_unreachable` is the
+    // sandbox correctly stripping the plugin bridge (a filesystem copy cannot bound a network
+    // write), which also catches read-only m4 tools that never touched anything. The scope case is
+    // an `admin:` call refused because RERUN_SCOPES omits that family. See
+    // docs/design/workspace-rerun.md.
     if (!res.ok && (code === "plugin_unreachable" || refusedByRerunScope(res.error))) {
       records.push({
         ...common,
@@ -356,26 +277,13 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
 const SANDBOX_DBS = ["cache.db", "experiential.db"] as const;
 
 /**
- * THE-739 — stage ONE database as a consistent snapshot.
+ * THE-739 — stage one database as a consistent snapshot via `VACUUM INTO`, not `cpSync`.
  *
- * `cpSync` was wrong here, and quietly. Every adapter sets `PRAGMA journal_mode = WAL`, so a live
- * database's recent writes sit in a `-wal` sidecar that a file copy does not take. In production
- * `serve` holds a connection, so nothing checkpoints it. The staged copy therefore LAGS the real
- * one by whatever is uncheckpointed, and can tear under a concurrent writer.
- *
- * The failure it produced reads as something else entirely: `rerun <id> --sandbox` on a session
- * that just ended finds the row in the REAL cache.db, stages a copy, and then throws
- * `unknown session` against the STAGED copy — because the row was still in the WAL. That looks
- * like a corrupt session id, not a staging defect.
- *
- * `VACUUM INTO` is SQLite's own consistent-snapshot primitive: one statement, checkpoints
- * implicitly, and writes a single self-contained file with no sidecars to keep in sync. Preferred
- * over copying the `-wal`/`-shm` alongside (still racy under a concurrent writer) and over the
- * backup API (more code for the same guarantee).
- *
- * Falls back to `cpSync` when the source will not open as a database — a truncated or non-SQLite
- * file staged for a test fixture must not abort the whole run, and copying it preserves the
- * previous behaviour exactly for that case.
+ * A plain file copy misses the `-wal` sidecar every adapter's `PRAGMA journal_mode = WAL` writes
+ * to, so a copied database can lag or tear under a concurrent writer. `VACUUM INTO` checkpoints
+ * implicitly and writes one self-contained file. Falls back to `cpSync` when the source will not
+ * open as a database (e.g. a non-SQLite test fixture), preserving prior behaviour for that case.
+ * See docs/design/workspace-rerun.md for the failure this fixes.
  */
 async function stageDatabase(src: string, dest: string): Promise<void> {
   // `cpSync` creates missing parent directories; VACUUM INTO does NOT — it fails on a missing
@@ -401,21 +309,12 @@ function quoteSqlString(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
 
-/** Best-effort removal of a staged sandbox directory. NEVER THROWS: `dispose()` runs in
- *  `cli/commands/rerun.ts`'s outermost `finally`, so a throw here would escape into `main()`'s
- *  `.catch()`, which writes `fatal: ...` and exits 1 — turning "I could not delete a scratch dir"
- *  into "your vault state changed". THIS COMMAND'S EXIT CODE IS ITS ENTIRE OUTPUT (0 = nothing
- *  moved, 1 = divergence found, 2 = nothing was runnable), so a cleanup failure must never corrupt
- *  it. A leaked temp dir is a nuisance; a corrupted exit code is a lie. On a failure that survives
- *  the retries below, this warns to stderr (naming the path, so the operator can clean it up) and
- *  carries on instead of throwing.
- *
- *  `maxRetries`/`retryDelay` are `fs.rmSync`'s own answer to the Windows EBUSY/EPERM/ENOTEMPTY that
- *  removing a directory can raise immediately after a file inside it (here: the staged cache.db)
- *  was closed — the OS can take a beat to actually release the handle even after the runtime has
- *  awaited `close()`. 5 retries at 100ms apart is enough slack to absorb that without stalling a
- *  normal run noticeably. `force: true` alone (the previous behaviour) only suppresses ENOENT and
- *  does nothing for EBUSY/EPERM. */
+/** Best-effort removal of a staged sandbox directory. Never throws: `dispose()` runs in
+ *  `cli/commands/rerun.ts`'s outermost `finally`, and this command's exit code (0/1/2) is its
+ *  entire output, so a cleanup failure must never corrupt it — warn to stderr and carry on instead.
+ *  `maxRetries`/`retryDelay` absorb the Windows EBUSY/EPERM/ENOTEMPTY a directory removal can raise
+ *  right after a file inside it (the staged cache.db) was closed. See
+ *  docs/design/workspace-rerun.md. */
 function safeDispose(base: string): void {
   try {
     rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -437,10 +336,9 @@ export async function stageSandbox(
   cacheDir: string,
 ): Promise<{ root: string; cacheDir: string; dispose(): void }> {
   const base = mkdtempSync(join(tmpdir(), "obtc-rerun-"));
-  // Fix round 1, finding 2: a mid-copy failure (e.g. the vault disappearing underneath us, a full
-  // disk) must not leave `base` behind — nothing downstream would ever call `dispose()` for a
+  // A mid-copy failure must not leave `base` behind — nothing downstream calls `dispose()` for a
   // staging call that never returned. Every throwing path from here on cleans up before
-  // rethrowing.
+  // rethrowing. See docs/design/workspace-rerun.md.
   try {
     const root = join(base, "vault");
     const cache = join(base, "cache");
@@ -450,11 +348,9 @@ export async function stageSandbox(
       if (existsSync(src)) await stageDatabase(src, join(cache, name));
     }
     // THE-737: a session minted today writes trace_store='cache' — its JSONL lives under
-    // <cacheDir>/traces/, not under the vault. Skipping this copy would make --sandbox find
-    // `no_capture` for every record on the ONLY generation of session anything writes now
-    // (nothing constructs trace_store='vault' any more; see sessions.ts's own comment on the
-    // column), which defeats the command as thoroughly as staging into the real vault would —
-    // just as a silent false negative instead of an unsafe write.
+    // <cacheDir>/traces/, not under the vault. Skipping this copy makes --sandbox find
+    // `no_capture` for every record on the only generation of session this server writes now. See
+    // docs/design/workspace-rerun.md.
     const tracesSrc = join(cacheDir, CACHE_TRACE_SUBDIR);
     if (existsSync(tracesSrc))
       cpSync(tracesSrc, join(cache, CACHE_TRACE_SUBDIR), { recursive: true, dereference: true });

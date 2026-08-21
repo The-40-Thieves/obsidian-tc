@@ -1,47 +1,20 @@
 // THE-222 — reflect's sleep-time half: the evaluator pass over pending agent_episodes and the
-// versioned preference profile. This is the selective-addition stamp THE-228 designed for
-// (rows are born 'pending'; retrieval-USE waits for this pass) plus THE-238's layer 2
-// (A-MemGuard-style cross-episode consistency) and the ACE typed-delta constraint folded from
-// THE-232 (preference updates are add/strengthen/weaken/retract with counters — never a
-// monolithic profile regeneration).
+// versioned preference profile (selective-addition stamp per THE-228; A-MemGuard-style
+// cross-episode consistency per THE-238; ACE typed-delta preference updates per THE-232).
 //
 // Safety invariants, in order:
-//   * born-'ineligible' rows (the poison scanner's verdict) are NEVER raised here;
-//   * THE-701: there is NO judge layer. It was removed 2026-08-02 after measurement, not on
-//     principle. Over 333 candidates it denied 35 rows, ALL of them status=error and nothing else
-//     — 100% of its effect was reproducing `status === "error"`, at 94.6% fidelity with zero false
-//     positives on ok rows. That directly contradicted this file's own policy below ("errors are
-//     lessons too"), and because the judge could only LOWER it won every disagreement silently.
-//     It also could not have been doing its stated job: every episode had summary IS NULL, so it
-//     saw only id/tool/status while being asked to detect manipulative content. That job is
-//     already done deterministically and EARLIER — assessPoison() runs at capture and stamps a
-//     high-risk row 'ineligible' at birth (episodes.ts:184), which this pass's WHERE never sees.
-//     deterministic promotions stand (same kill-switch posture as citation inference);
+//   * born-'ineligible' rows (assessPoison's verdict at capture, episodes.ts:184) are NEVER
+//     raised here — this pass's WHERE never selects them. THE-701 removed the judge layer that
+//     used to sit here; see docs/design/experiential-reflection.md for the measurement.
 //   * unstable evidence — the same caller+tool+args_hash showing BOTH ok and error among the
-//     pending set — is held pending rather than promoted (contradictory runs are not a lesson
-//     yet, they are noise or an attack surface).
-//   * THE-565: an episode the system has already judged a BAD result (`task_result = -1`) is held
-//     pending, never auto-promoted — a known-negative-outcome row must not enter the eligible
-//     pool as a default lesson. This is the one place the deterministic pass consults the
-//     task-result axis. NOTE the deliberate asymmetry: a `status = 'error'` dispatch with no bad result
-//     still promotes ("errors are lessons too" — a forbidden delete teaches a boundary); it is
-//     the explicit -1 task_result, not a failed dispatch, that we refuse. `status`/`skipped` are
-//     otherwise unchanged.
-//
-//     THE-721: this gate is CORRECT, TESTED and INERT. An earlier version of this comment said
-//     the -1 was "stamped by the citation / session-close outcome pass". No such writer exists,
-//     and none ever did: `agent_episodes` has seven write statements across the tree and not one
-//     of them sets it, so the column is NULL on 414 of 414 live rows (re-measured 2026-08-06; it
-//     was 363 when this was written, and the ratio has never moved off 1.0). The citation pass
-//     stamps `chunk_retrievals` columns only, and there is no session-close pass —
-//     sessions.ts and session-tools.ts never touch the column. The same false claim is frozen
-//     into migration 20260711_001's header, which is checksum-pinned and cannot be corrected in
-//     place; THE-721 carries it.
-//
-//     The consequence is bounded rather than dangerous: an unreachable HOLD is more permissive
-//     than designed, not less, and there is no known-bad set to leak because nothing marks one.
-//     reflect-evaluator.test.ts:96 seeds `task_result: -1` directly and asserts the hold, so the gate
-//     is ready the moment a producer exists. Whether to build one is the open question on THE-721.
+//     pending set — is held rather than promoted (contradictory runs are noise or an attack
+//     surface, not a lesson yet).
+//   * THE-565: an episode already judged a BAD result (`task_result = -1`) is held, never
+//     auto-promoted — the one place this pass consults the task-result axis. Deliberate
+//     asymmetry: a plain `status = 'error'` with no bad result still promotes ("errors are
+//     lessons too"); only the explicit -1 is refused. THE-721: this gate is presently INERT
+//     (no writer sets task_result = -1 on the live store) but stays wired for when one exists —
+//     see the design note for the correction history.
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import type { Scheduler } from "../scheduler/scheduler";
@@ -67,20 +40,11 @@ interface PendingRow {
 }
 
 /**
- * THE-698 — the deterministic hold rules, as ONE derivation.
- *
- * Extracted so `readEpisodeBacklog` can answer "how many pending rows would this pass promote?"
- * WITHOUT promoting anything. That question is what a health check actually needs: a pending row is
- * not evidence the evaluator is broken — held rows are supposed to stay pending forever, and on the
- * live store four contradictory `index_vault` episodes do exactly that. A count of pending rows
- * therefore cannot distinguish "the evaluator has never run" from "the evaluator ran and correctly
- * held these", and a check built on that count warns forever on a healthy deployment. Measured: it
- * did, immediately after the live promotion left 333 eligible and 4 legitimately held.
- *
- * Deliberately shared rather than reimplemented in the checker. Two copies of these predicates
- * would drift, and the drift would be silent in exactly the direction that matters — a checker
- * that thinks fewer rows are promotable than the evaluator does reports healthy while the tier
- * goes dark again.
+ * THE-698 — the deterministic hold rules, as ONE derivation, shared by `evaluateEpisodes` and
+ * `readEpisodeBacklog` so the two can never drift: a pending row is not evidence the evaluator is
+ * broken (held rows are supposed to stay pending forever), so a health check needs to know how
+ * many pending rows are actually promotable, not just how many are pending. See
+ * docs/design/experiential-reflection.md for the measurement that motivated this.
  *
  * Layer 2 (cross-episode consistency): the same caller+tool+args_hash yielding BOTH ok and error
  * among the pending set is unstable evidence, so every row of that cluster is held. Plus THE-565:
@@ -231,19 +195,11 @@ export async function evaluateEpisodes(
         : { [r.tool ?? "unknown"]: 1 },
     );
 
-  // THE-726: the WHERE re-checks `task_result` as well as `eligibility`, and that second clause is
-  // load-bearing rather than defensive. This pass reads, classifies in memory, then writes — it
-  // is not wrapped in a transaction — so a verdict can land in the gap:
-  //
-  //   1. this pass selects R (pending, task_result NULL) and classifies it for promotion
-  //   2. a verdict transaction stamps R = -1; its own demotion matches nothing, because R is
-  //      still `pending` and demotion only moves rows OUT of `eligible`
-  //   3. this UPDATE promotes R anyway, and R is now eligible carrying a -1
-  //
-  // R would then never be re-inspected, because the next pass selects only `pending`. Re-checking
-  // here means step 3 promotes nothing and the following pass holds R with its reason recorded.
-  // Without this clause the demotion in verdict.ts closes only the case where the verdict arrives
-  // AFTER promotion, and the claim that the hold is order-independent is simply false.
+  // THE-726: the WHERE re-checks `task_result` (not just `eligibility`) because this pass is not
+  // transactional — a verdict stamping task_result = -1 can land in the gap between this pass's
+  // read and this UPDATE. Without the re-check that race promotes the row anyway and it is never
+  // re-inspected (the next pass selects only `pending`). See
+  // docs/design/experiential-reflection.md for the full race sequence.
   const promote = edb.prepare(
     `UPDATE agent_episodes
         SET eligibility = 'eligible', eligibility_reason = ?, eligibility_policy = ?, summary = ?
@@ -303,25 +259,20 @@ function tableReady(edb: Database): boolean {
 
 /** Apply typed deltas as ONE versioned batch. Never regenerates: rows not named by a delta are
  *  untouched, retraction zeroes the weight but keeps the row (readers filter weight > 0). */
-// NAMESPACE (THE-710, revising the P1.8 / audit-THE-562 disposition; narrowed again by THE-891):
-// the preference plane is partitioned BY VAULT — `vault_id` leads the primary key and every
-// statement below is scoped to it. It was previously keyed by `key` alone, deliberately, on the
-// rationale that a single-user runtime wants one shared profile. That rationale does not extend to
-// a single-VAULT assumption: with two vaults configured, one vault's learned preference silently
-// overwrote the other's under the same key, with no column to filter on (the THE-310 defect class).
-// Migration 20260803_001 rebuilt both tables; its header carries the full reasoning.
+// NAMESPACE (THE-710; narrowed again by THE-891): the preference plane is partitioned BY VAULT —
+// `vault_id` leads the primary key and every statement below is scoped to it. Migration
+// 20260803_001 rebuilt both tables for this; see docs/design/experiential-reflection.md for the
+// THE-310 defect class it replaced.
 //
-// THE CALLER AXIS IS NOW PER-KEY, not global. `(vault_id, scope_caller, key)` is the full primary
-// key (migration 20260820_001): `scope_caller` is `''` for the human/shared partition, or one
-// caller's own partition, and WHICH one a delta targets is a property of the delta record — see
-// `PreferenceDelta.scopeCaller` and `scopeCallerFor`. This function never derives or defaults that
-// value itself; it only writes wherever the caller says. Contrast: agent_episodes is per-principal
-// (vault+caller+session, P1.7-authorized) at the ROW level; vault_object_state ACT-R activation is
-// corpus-global by design; preference_profile is per-principal only for the keys that opt in.
+// THE CALLER AXIS IS PER-KEY, not global: `(vault_id, scope_caller, key)` is the full primary key
+// (migration 20260820_001). WHICH partition a delta targets is a property of the delta record —
+// see `PreferenceDelta.scopeCaller` and `scopeCallerFor`; this function never derives or defaults
+// it, only writes wherever the caller says. Contrast: agent_episodes is per-principal at the ROW
+// level; vault_object_state ACT-R activation is corpus-global; preference_profile is per-principal
+// only for the keys that opt in.
 //
-// `vaultId` is REQUIRED and deliberately undefaulted, for the same reason `scopeCaller` on each
-// delta is required rather than optional: a default would let a call site silently fall back to one
-// shared bucket, which is the exact behaviour this partition exists to remove.
+// `vaultId` is REQUIRED and undefaulted for the same reason: a default would let a call site
+// silently fall back to one shared bucket, which is the exact behaviour this partition removes.
 export function applyPreferenceDeltas(
   edb: Database,
   vaultId: string,
@@ -402,29 +353,22 @@ export function applyPreferenceDeltas(
 
 /** THE-891: raised when a read tries to cross the caller partition (`opts.anyCaller`) without
  *  proving it holds the elevated scope (`opts.crossPrincipal`). Mirrors work_search's own
- *  `any_caller` gate (tools/m8/work-search-tool.ts) — same "authorization-enforced, not filtered"
- *  posture SECURITY.md now documents for this store — but this module cannot import
- *  `tools/m8/shared.ts`'s `CROSS_PRINCIPAL_SCOPE`/`canCrossPrincipal` itself: the dependency runs
- *  tools -> experiential, never the reverse (dependency-cruiser's `no-circular`/layering rules), so
- *  the decision (`canCrossPrincipal(ctx)`) is computed at the MCP tool boundary that has a
- *  `CallerContext`, and only the boolean RESULT crosses into this lower layer as `crossPrincipal`. */
+ *  `any_caller` gate (tools/m8/work-search-tool.ts) — authorization-enforced, not filtered. The
+ *  decision itself is computed at the MCP tool boundary (which has a `CallerContext`) and only the
+ *  boolean crosses into this layer as `crossPrincipal`, since experiential cannot import from
+ *  tools/ (dependency-cruiser's no-circular layering rule runs tools -> experiential only). */
 export class PreferenceScopeError extends Error {}
 
-/** Current profile rollup for ONE vault, scoped to ONE principal: entries with `scope_caller = ''`
- *  (the human/shared partition every registered human-scoped key writes, and where a NULL caller —
- *  the single trusted local principal on an unauthenticated stdio transport — lands too) UNION
- *  `caller`'s own partition. Active entries only (weight > 0), newest-touched first.
+/** THE-891: current profile rollup for ONE vault, scoped to ONE principal: entries with
+ *  `scope_caller = ''` (the human/shared partition; a NULL caller — the single trusted local
+ *  principal on an unauthenticated stdio transport — lands here too) UNION `caller`'s own
+ *  partition. Active entries only (weight > 0), newest-touched first.
  *
- *  THE-891: `caller` is required for the same reason `vaultId` is — an unscoped read would blend
- *  partitions the migration exists to keep apart. `caller: null` reads ONLY the human partition
- *  (its own partition and the human partition are the same row set), matching the NULL-caller
- *  mapping the migration documents.
- *
- *  `opts.anyCaller` crosses every principal's partition in the vault — mirroring `agent_episodes`'
- *  P1.7 authorization rather than merely filtering it: a caller that has not proven
- *  `opts.crossPrincipal` gets `PreferenceScopeError` thrown, not a silently narrowed result. There
- *  is deliberately no "read every vault" overload either; a caller that wants that must ask for
- *  each vault and say so (unchanged from THE-710). */
+ *  `caller` is required for the same reason `vaultId` is — an unscoped read would blend
+ *  partitions this store exists to keep apart. `opts.anyCaller` crosses every principal's
+ *  partition and requires `opts.crossPrincipal` proof, else throws `PreferenceScopeError` rather
+ *  than silently narrowing. There is no "read every vault" overload; a caller wanting that must
+ *  ask per vault (THE-710). */
 export function preferenceProfile(
   edb: Database,
   vaultId: string,
@@ -494,37 +438,24 @@ export interface PreferenceKeyScope {
 }
 
 /** THE-673 (registry), THE-891 (per-key scope): the closed set of preference keys a deterministic
- *  extractor may write, each declaring whether it is shared (`"human"`) or partitioned
- *  (`"caller"`). Enforced in application code, NOT a DB `CHECK` — `key` is part of
- *  `preference_profile`'s primary key, and SQLite cannot add a `CHECK` to an existing column
- *  without a full table rebuild (the same class of migration `20260803_001`/`20260820_001` already
- *  had to do twice for this table). A TypeScript allowlist gives the same "impossible state"
- *  guarantee at zero migration cost.
- *
- *  Deliberately one member. `preferred.search_mode` is the only axis with a real producer today
- *  (tool choice, 100%-populated), and it is `"caller"`-scoped: it is dispatch telemetry — it
- *  encodes the OBSERVING agent's workload, not the human's intent, so one agent's revealed tool
- *  choice must not steer another agent's retrieval. The other four keys once proposed for this
- *  registry (`preferred.output_format`, `response.detail`, `citation.style`,
- *  `workflow.confirmation_level`) each need an input this ticket does not build — `captureContent`
- *  flipped on, THE-675's transcript question, or an elicitation/HITL producer respectively — and
- *  shipping them unregistered-but-inert would be the ticket's own named anti-pattern ("four keys
- *  nothing can ever write"). Widen this set only when a new axis has a real producer; DEFAULT any
- *  new key to `"caller"` — sharing is a per-key opt-in, reviewed at registration, never the
- *  fallback. */
+ *  extractor may write, each declaring `"human"` (shared) or `"caller"` (partitioned) scope.
+ *  Enforced in application code, not a DB CHECK (see design note for why). Deliberately one
+ *  member — `preferred.search_mode` is the only axis with a real producer today, and it is
+ *  `"caller"`-scoped dispatch telemetry (one agent's tool choice must not steer another's
+ *  retrieval). Widen only when a new axis has a real producer; DEFAULT new keys to `"caller"` —
+ *  sharing is a per-key opt-in, never the fallback. See docs/design/experiential-reflection.md for
+ *  the four keys considered and rejected. */
 export const PREFERENCE_KEYS: ReadonlyMap<string, PreferenceKeyScope> = new Map([
   ["preferred.search_mode", { scope: "caller" }],
 ]);
 
 /** THE-891: the ONE place a producer derives `PreferenceDelta.scopeCaller` from a registered key
- *  plus the caller a window/evidence row carried. A `"human"`-scoped key always writes `''`
- *  regardless of who was calling — that IS the shared partition. A `"caller"`-scoped key writes
- *  `windowCaller ?? ''` — the NULL-caller mapping migration `20260820_001` documents (an
- *  unauthenticated local transport is the single trusted local principal, so NULL safely collapses
- *  onto the same `''` partition human-scoped keys use, without inventing a shared identity between
- *  two DIFFERENT unauthenticated callers). An unregistered key (should never reach here —
- *  `filterRegisteredDeltas` drops those first) defaults to caller-scoped, matching the registry's
- *  own "unknown defaults to partitioned" posture rather than silently sharing it. */
+ *  plus the caller a window/evidence row carried. A `"human"`-scoped key always writes `''` — the
+ *  shared partition, regardless of who was calling. A `"caller"`-scoped key writes
+ *  `windowCaller ?? ''` (NULL collapses onto the shared `''` slot, matching migration
+ *  `20260820_001`'s NULL-caller mapping, without inventing a shared identity between two different
+ *  unauthenticated callers). An unregistered key defaults to caller-scoped (should never reach
+ *  here — `filterRegisteredDeltas` drops those first). */
 function scopeCallerFor(key: string, windowCaller: string | null): string {
   const decl = PREFERENCE_KEYS.get(key);
   if (decl?.scope === "human") return "";
@@ -554,30 +485,14 @@ export interface VerdictWindowable {
 
 /**
  * THE-726 / THE-673 — collapse episode rows onto their `(session_id, verdict_at)` WINDOW, so one
- * rendered judgement becomes one observation rather than N correlated rows.
- *
- * A task verdict is rendered at session grain and PROJECTED onto every judgeable dispatch in its
- * window, so N rows can carry one opinion. `(session_id, verdict_at)` is the window identity — the
- * pair that recovers which rows those are. Without collapsing on it a reader sees N
- * perfectly-correlated rows and cannot tell they are one observation: measured on the live corpus
- * at 4.82 dispatches per session (range 1-18), a single 18-dispatch task would outweigh a careful
- * one-call task 18:1 for the same single judgement. That is a LENGTH bias toward tool-heavy
- * workflows, not a quality signal.
- *
- * Extracted as ONE shared helper (originally inline in the now-removed LLM evidence-line
- * formatter) because this repo has an explicit standing rule against two copies of one predicate
- * drifting apart (see `partitionPending`'s comment above making the same argument) — the
- * deterministic counter built on this needs exactly the same collapse the LLM path needed, and a
- * second copy is exactly the kind of drift that would be silent in the direction that matters.
+ * rendered judgement becomes one observation rather than N correlated rows. A task verdict is
+ * rendered at session grain and PROJECTED onto every judgeable dispatch in its window; without
+ * collapsing, a long tool-heavy task outweighs a careful one-call task for the same single
+ * judgement — a LENGTH bias, not a quality signal. See docs/design/experiential-reflection.md for
+ * the measured magnitude and the known row-budget/window-count limit this collapse has.
  *
  * Rows predating THE-726's producer have `verdict_at` NULL; they group under their own key so a
  * pre-projection row is never merged with an unrelated one.
- *
- * KNOWN LIMIT, stated rather than left to be rediscovered: grouping happens AFTER whatever row
- * LIMIT the caller applied upstream, so a large window still consumes ROW slots even though it
- * contributes one WINDOW. At the measured 4.82 dispatches per window a 40-row budget yields
- * roughly 8 windows, not 40. That is under-sampling, and it is a strictly smaller problem than the
- * length bias this collapse removes.
  */
 export function groupEpisodesByVerdictWindow<T extends VerdictWindowable>(
   episodes: readonly T[],
@@ -607,29 +522,13 @@ interface EvidenceRow extends VerdictWindowable {
   caller: string | null;
 }
 
-/** THE-673: one window (one rendered judgement) yields AT MOST ONE delta — the BINDING
- *  REQUIREMENT on this ticket is "one window contributes ONE observation", and `preference_profile`
- *  enforces the same shape structurally: its primary key is `(vault_id, key)`, so
- *  `preferred.search_mode` can only ever hold ONE current value, never a per-tool tally. So when a
- *  window dispatched more than one distinct search-family tool, the MAJORITY tool within that
- *  window (ties broken toward the most recently dispatched — evidence rows arrive ts-DESC, so the
- *  first-seen tool in the count map is the latest) is the window's one observation —
- *  not a delta per tool, which would let a single judgement bump the weight multiple times and
- *  violate the one-window-one-observation requirement.
- *
- *  `task_result = 0` (recorded but neutral) produces no delta: a neutral or unjudged window is not
- *  evidence of preference either way, and treating "used a tool" alone as revealed preference
- *  would silently reintroduce the "count everything, judged or not" behaviour the eligibility
- *  WHERE (`task_result IS NOT NULL`) already excludes upstream. A window with no search-family
- *  tool at all (e.g. only `read_note`) also produces no delta — this axis counts choice among
- *  search alternatives, not general activity.
- *
- *  `op` is always `add` on the positive branch rather than a looked-up `strengthen` —
- *  `applyPreferenceDeltas`'s `add` already upserts (create-or-reinforce, refresh `value`), so it is
- *  the create-or-strengthen behaviour the design calls for without a second DB read to pick a
- *  label. `weaken` is left as a plain UPDATE-only op on purpose: weakening a key that was never
- *  added must stay a no-op (the existing C4 guard in `applyPreferenceDeltas` — no phantom audit
- *  row), never a way to sneak the key into existence from the negative side. */
+/** THE-673: one window (one rendered judgement) yields AT MOST ONE delta — `preference_profile`'s
+ *  primary key `(vault_id, key)` can only hold ONE current value, never a per-tool tally. When a
+ *  window dispatched more than one distinct search-family tool, the MAJORITY tool wins (ties
+ *  toward the most recently dispatched). A neutral/unjudged window (`task_result = 0`) or a window
+ *  with no search-family tool produces no delta. `op` is `add` on the positive branch (upsert
+ *  already reinforces); `weaken` stays UPDATE-only so it can never create a key from the negative
+ *  side. See docs/design/experiential-reflection.md for the full rationale. */
 function buildSearchModeDeltas(windows: Array<{ episodes: EvidenceRow[] }>): PreferenceDelta[] {
   const deltas: PreferenceDelta[] = [];
   for (const w of windows) {
@@ -683,22 +582,16 @@ export interface CitationEvidenceRow {
 const CITATION_EVIDENCE_BATCH = 200;
 
 /**
- * THE-644: `chunk_retrievals` carries NO `vault_id` column at all (chunks live in cache.db,
- * across the experiential/cache membrane — see context-bundle.ts's header on the same absence).
- * So vault scoping here is a GROUND-TRUTH join against the TARGET vault's own cache.db `chunks`
- * table, batched, exactly the cross-store pattern note-quality.ts and metrics.ts already use for
- * the identical reason: a chunk id this vault's `chunks` table does not contain is a deleted or
- * foreign-vault chunk, and is dropped rather than attributed (never a default vault, matching the
- * NULL-vault-episode exclusion two comments above).
+ * THE-644: `chunk_retrievals` carries NO `vault_id` column (chunks live in cache.db, across the
+ * experiential/cache membrane — see context-bundle.ts's header). Vault scoping here is therefore a
+ * GROUND-TRUTH join against the TARGET vault's own cache.db `chunks` table, batched — the same
+ * cross-store pattern note-quality.ts and metrics.ts use: a chunk id this vault's `chunks` table
+ * does not contain is dropped rather than attributed to a default vault.
  *
- * `cacheDb` is undefined whenever `experiential.citationPreferences` is off — the caller never
- * opens cache.db at all in that case, so this function is simply never reached and the query cost
- * is zero, not merely its result discarded.
- *
- * Rows are restricted to `citation_state IS NOT NULL`: a row the citation pass never covered
- * (THE-717's `citationInfer.enabled`, or the kill-switch leaving survivors NULL for a clean rerun)
- * is unmeasured, not negative evidence — the same "unmeasured != bad" contract note-quality.ts's
- * `scoreNote` documents for the same column.
+ * `cacheDb` is undefined whenever `experiential.citationPreferences` is off, so this function is
+ * never reached (zero query cost, not merely a discarded result). Rows are restricted to
+ * `citation_state IS NOT NULL`: a row the citation pass never covered is unmeasured, not negative
+ * evidence (same "unmeasured != bad" contract as note-quality.ts's `scoreNote`).
  */
 function citationEvidence(
   edb: Database,
@@ -751,16 +644,13 @@ export function groupCitationEvidenceByEventGroup(
 }
 
 /** THE-644: the citation-evidence producer for `preferred.search_mode` — a second EVIDENCE SOURCE
- *  for the same key `buildSearchModeDeltas` already writes, not a new axis. One `event_group`
- *  window is one search call by construction, so every row in it shares one `surface_type`
- *  (tool); that tool's window verdict is CONFIRMED if any chunk in the call was confirmed cited
- *  (strengthen — `add` upserts, same create-or-reinforce reasoning `buildSearchModeDeltas`
- *  documents), else REJECTED if any chunk was rejected and none confirmed (weaken), else the
- *  window carries no verdict at all (skip — unmeasured, not negative). A window whose tool is not
- *  in `SEARCH_FAMILY_TOOLS` — `knowledge_search`, `vault_context`, `reflect`'s own
- *  self-instrumentation, `advisory` rows — is skipped for the same reason the episode producer
- *  restricts to that closed tool list: this axis counts revealed choice AMONG search
- *  alternatives, not citation for tools with no comparable substitute. */
+ *  for the same key `buildSearchModeDeltas` writes, not a new axis. One `event_group` window is
+ *  one search call, so every row in it shares one `surface_type` (tool); the window verdict is
+ *  CONFIRMED if any chunk was confirmed cited (strengthen), else REJECTED if any chunk was
+ *  rejected and none confirmed (weaken), else no verdict (skip — unmeasured, not negative). A
+ *  window whose tool is not in `SEARCH_FAMILY_TOOLS` is skipped for the same reason the episode
+ *  producer restricts to that closed list: choice AMONG search alternatives, not citation for
+ *  tools with no comparable substitute. */
 function buildCitationSearchModeDeltas(
   windows: Array<{ rows: CitationEvidenceRow[] }>,
 ): PreferenceDelta[] {
@@ -798,24 +688,14 @@ export function filterRegisteredDeltas(deltas: PreferenceDelta[]): PreferenceDel
   return deltas.filter((d) => PREFERENCE_KEYS.has(d.key));
 }
 
-/** Deterministic preference extraction (THE-673): evidence = recent task_result-bearing episodes
- *  (THE-718 removed the retrieval half — see the note at the query), collapsed onto their
- *  `(session_id, verdict_at)` window and counted, never inferred from prose. THE-701 set the
- *  precedent for this file: the analogous judge layer left `evaluateEpisodes` "not on principle,
- *  on measurement" — this removes the second and last judge in this file for the same reason: a
- *  free-form LLM proposal over a store designed for auditable counters is strictly worse at equal
- *  accuracy, because it carries no derivation. `skipped` now means only "no evidence reached the
- *  window pass" (no gateway concept exists anymore); a run that finds evidence but derives no
- *  delta from it — e.g. every window is neutral — is NOT reported skipped, distinct from finding
- *  nothing to look at. `aborted` is retained in the return shape for call-site compatibility but a
- *  deterministic counter has no parse-failure mode, so it is always `false`.
- *
- *  THE-644 reopens the retrieval half THE-718 removed, repointed at the axis that actually has a
- *  producer: `citation_state`, not the still-dead `feedback` this comment used to name as the
- *  repoint target. `opts.cacheDb` is that gate, and it is a CALLER decision, not a flag read in
- *  here — the caller only supplies it when `experiential.citationPreferences` is on, so leaving it
- *  undefined (the default) skips `citationEvidence` entirely and this function is byte-identical
- *  to the THE-673 version: same query, same windowing, same one evidence source. */
+/** Deterministic preference extraction (THE-673): evidence = recent task_result-bearing episodes,
+ *  collapsed onto their `(session_id, verdict_at)` window and counted, never inferred from prose —
+ *  THE-701's precedent (no judge layer; see file header). `skipped` means only "no evidence
+ *  reached the window pass"; a run that finds evidence but derives no delta (every window neutral)
+ *  is NOT skipped. `aborted` is retained for call-site compatibility but always `false` (a
+ *  deterministic counter has no parse-failure mode). THE-644 adds `citation_state` as a second,
+ *  optional evidence source (`opts.cacheDb`, a caller decision) — see
+ *  docs/design/experiential-reflection.md for the history of what this axis used to be gated on. */
 export async function extractPreferences(
   edb: Database,
   vaultId: string,
@@ -871,29 +751,16 @@ export interface EpisodeEvaluationDeps {
 }
 
 /**
- * THE-698 — run the evaluator pass on the maintenance cadence.
- *
- * `evaluateEpisodes` had exactly two non-test call sites: its own definition and the manual
- * `obsidian-tc reflect` CLI. Nothing wired it on a schedule the way registerActivationRecompute
- * wires activation, so the promotion pass simply never happened unless an operator remembered to
- * invoke it. Measured on the live store before this shipped: 337 of 337 episodes `pending`, zero
- * eligible, across seventeen days of continuous capture.
- *
- * The consequence was not a stale number but a dark subsystem. `work_search` serves
- * evaluator-approved rows only — that is its security contract, not a default — so with zero
- * eligible rows it returned nothing, always. An empty result is indistinguishable from "nothing
- * matched", which is exactly how this stayed invisible. SECURITY.md meanwhile documents `pending`
- * as "a short-lived state and not a quarantine"; seventeen days at 100% pending is a quarantine.
- *
- * Registered beside activation-recompute on the same `config.maintenance.intervalMinutes` cadence
- * and behind the same `experientialOpen` gate. No gateway dependency, like note-quality-enqueue —
- * and since THE-701 removed the judge, the deterministic layer is not merely "the whole job here"
- * by convention but the only thing this pass can do.
+ * THE-698 — run the evaluator pass on the maintenance cadence. Registered beside
+ * activation-recompute on the same `config.maintenance.intervalMinutes` cadence and behind the
+ * same `experientialOpen` gate; no gateway dependency (like note-quality-enqueue), and since
+ * THE-701 removed the judge, the deterministic layer is the only thing this pass can do.
  *
  * Every safety invariant lives in evaluateEpisodes and is unchanged by scheduling it: born-
  * 'ineligible' rows are untouchable by the WHERE, contradictory ok/error clusters are held, and a
- * known-bad outcome (-1) is held. Scheduling the pass must never become a way to launder a row the
- * pre-ingest poison scanner already refused, so that is pinned by test rather than left to reading.
+ * known-bad outcome (-1) is held. Scheduling must never become a way to launder a row the
+ * pre-ingest poison scanner already refused, so that is pinned by test. See
+ * docs/design/experiential-reflection.md for the measurement that motivated wiring this up.
  */
 export function registerEpisodeEvaluation(scheduler: Scheduler, deps: EpisodeEvaluationDeps): void {
   scheduler.register({
@@ -920,12 +787,10 @@ export interface EpisodeBacklog {
 }
 
 /**
- * THE-698 — read the episode backlog WITHOUT evaluating anything.
- *
- * Diagnosing must never promote a row, so this shares `partitionPending` with the evaluator rather
- * than mutating through it. The alternative — counting `eligibility = 'pending'` in the checker —
- * was tried first and was wrong on the live store the moment the backlog was promoted: 333 eligible
- * and 4 permanently-held contradictory `index_vault` episodes read as "the evaluator has not run".
+ * THE-698 — read the episode backlog WITHOUT evaluating anything. Diagnosing must never promote a
+ * row, so this shares `partitionPending` with the evaluator rather than mutating through it — see
+ * docs/design/experiential-reflection.md for why a plain `pending` count was tried first and found
+ * wrong.
  */
 export function readEpisodeBacklog(edb: Database, nowMs: number): EpisodeBacklog {
   const pending = edb

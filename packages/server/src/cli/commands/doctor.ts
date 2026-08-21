@@ -43,27 +43,10 @@ function restApiOnDisk(
 }
 
 /**
- * THE-688 fix 2 — the opt-in dense liveness probe behind `doctor --probe`.
- *
- * Encodes one short fixed string. That is the smallest call that exercises the whole path an
- * operator cares about: config resolution, credential lookup, network reach, and a response the
- * adapter can parse. A cheaper check (a TCP connect, a HEAD on the base URL) would have passed for
- * the failure this closes — Ollama's container was simply gone, but a wrong model name or a missing
- * API key look identical to a reachability test and are just as fatal.
- *
- * Goes through the SHARED `createQueryEncoder` rather than calling `provider.embed([...])` here.
- * Two reasons, and the architectural gate in query-encoder.test.ts enforces the first: a second
- * single-query encode in the tree is exactly what THE-622 consolidated away. The second is that it
- * makes this a better probe — it exercises the same path retrieval actually takes, including the
- * `input: "query"` asymmetric-prefix handling, so a provider that answers batches but breaks on
- * query-shaped input is caught rather than missed.
- *
- * Deliberately uses the SYNC `createEmbeddingProvider`, not the async one: the sync factory refuses
- * `provider: "module"` with an actionable error, so doctor's "never execute operator-supplied code"
- * rule holds BY CONSTRUCTION rather than through a special case here that could drift away from it.
- *
- * Never throws — every failure becomes a reason string. A diagnostic that dies while diagnosing is
- * useless exactly when it is needed.
+ * THE-688 fix 2 — the opt-in dense liveness probe behind `doctor --probe`. Goes through the
+ * SHARED `createQueryEncoder` (not `provider.embed` directly — THE-622) and the SYNC
+ * `createEmbeddingProvider` (refuses `provider: "module"` by construction). Never throws — every
+ * failure becomes a reason string. See docs/design/cli-doctor.md.
  */
 async function probeDenseProvider(
   embeddings: Parameters<typeof createEmbeddingProvider>[0],
@@ -93,18 +76,11 @@ async function probeDenseProvider(
 }
 
 /**
- * THE-696 — the opt-in notes_fts integrity probe behind `doctor --probe`.
- *
- * Opens cache.db READ-WRITE, which is required: FTS5 exposes integrity-check as an INSERT into the
- * virtual table, so a read-only handle cannot run it. It writes nothing — the command only reads
- * the inverted index and reports — and WAL mode means this is safe alongside a running server.
- *
- * `ensureNotesFts` is called first because availability and soundness are different questions and
- * conflating them is the whole ticket: an adapter without FTS5 must report "off", not "malformed".
- *
- * Returns the availability flag alongside the verdict so the check can tell those two cases apart.
- * Never throws — a missing or unopenable cache.db degrades to "not verified" rather than killing a
- * diagnostic run, and a doctor that dies while diagnosing is useless exactly when it is needed.
+ * THE-696 — the opt-in notes_fts integrity probe behind `doctor --probe`. Opens cache.db
+ * READ-WRITE — FTS5 exposes integrity-check as an INSERT into the virtual table, so a read-only
+ * handle cannot run it; WAL mode keeps this safe alongside a running server. Checks
+ * `ensureNotesFts` first: availability ("off") and soundness ("malformed") are different
+ * questions. Never throws. See docs/design/cli-doctor.md.
  */
 async function probeNotesFts(
   cacheDir: string,
@@ -131,21 +107,11 @@ async function probeNotesFts(
 }
 
 /**
- * THE-698 — the opt-in pending-episode backlog count behind `doctor --probe`.
- *
- * Counts rather than evaluates: diagnosing must never promote a row. Reports the oldest pending
- * episode's AGE alongside the count because the count alone cannot discriminate — episodes
- * captured since the last tick are supposed to be pending, and "6 pending" is healthy while "337
- * pending, oldest 17 days" means the evaluator has never run. Both are non-zero numbers.
- *
- * Reads only — it issues a single GROUP BY and writes nothing. The path is passed PLAIN, not as a
- * `file:...?mode=ro` URI: `openDatabase` hands the string straight to bun:sqlite, which treats a URI
- * as a literal filename, so the read-only form silently opened the wrong file and the catch below
- * turned that into "not probed" against a live store with 337 pending rows. The existsSync guard is
- * what keeps a fresh install from having an empty experiential.db conjured by the probe.
- *
- * Never throws: no store yet (capture disabled, or a fresh install) degrades to the unprobed
- * wording rather than killing the run.
+ * THE-698 — the opt-in pending-episode backlog count behind `doctor --probe`. Counts rather than
+ * evaluates (diagnosing must never promote a row) and reports the oldest pending episode's AGE
+ * alongside the count — the count alone can't discriminate a healthy backlog from a stalled
+ * evaluator. Path is passed PLAIN, never as `file:...?mode=ro` — `openDatabase` treats a URI as a
+ * literal filename, not a read-only flag. Never throws. See docs/design/cli-doctor.md.
  */
 async function probeEpisodeBacklog(
   cacheDir: string,
@@ -186,40 +152,24 @@ function hasAclRules(acl: { rules?: unknown[]; readPaths?: unknown[] } | undefin
 }
 
 /**
- * Count rows in the derived tables and classify each one's writer, for `derived.liveness`.
- *
- * The classification is the load-bearing part — a row count alone cannot distinguish "this feature
- * is switched off" from "this feature is on and has never worked", and only the second is a
- * finding. Each entry therefore pairs the count with whether anything is in a position to write it
- * IN THIS deployment, derived from the same config the server boots from.
- *
- * `writer: "none"` is reserved for tables no code path writes at all — currently `memory_entities`
- * and `memory_relations`, which have existed since the initial migration with nothing populating
- * them (THE-629). That is a different fact from "disabled" and must not be reported as one.
- *
- * Never throws: a missing store degrades to an empty list, which the check renders as "no store"
- * rather than as a wall of false warnings.
+ * Count rows in the derived tables and classify each one's writer, for `derived.liveness`. The
+ * classification is load-bearing: a row count alone can't distinguish "switched off" from "on and
+ * never worked" — only the second is a finding. `writer: "none"` means no code path writes the
+ * table at all, distinct from "disabled". See `table-spec.ts` for the current classification per
+ * table (THE-629 corrected an earlier misclassification here — docs/design/cli-doctor.md). Never
+ * throws: a missing store degrades to an empty list, not a wall of false warnings.
  */
 /**
- * Sample the signal-bearing columns for `derived.column-liveness` (THE-720).
- *
- * One aggregate per column: total rows, non-NULL rows, distinct non-NULL values. The row count is
- * re-read per column rather than cached per table because a missing column must degrade to "skip
- * this entry" and not to "this table has no rows", which would report every OTHER column on that
- * table as inconclusive.
- *
- * Never throws, same contract as probeDerivedTables: an absent store, table or column drops the
- * entry rather than producing a wall of false findings.
+ * Sample the signal-bearing columns for `derived.column-liveness` (THE-720): total rows, non-NULL
+ * rows, distinct non-NULL values, one aggregate per column. Re-read per column rather than cached
+ * per table — a missing column must degrade to "skip this entry", not "table has no rows" (which
+ * would mark every OTHER column on that table inconclusive too). Never throws, same contract as
+ * probeDerivedTables. See docs/design/cli-doctor.md.
  */
 /**
- * Read the newest kb_health report for `audit.kbHealth` (THE-722).
- *
- * This is the reader `audit_reports` never had. The table held 301 rows in production — one every
- * ~8 minutes since the job shipped — and nothing in the tree selected from it outside its own
- * test, so both liveness checks called it `live` while no operator could see a single report.
- *
- * Reads only, and never throws: a missing table (a store predating the plane migration) degrades
- * to `undefined`, which the check renders as "never run" rather than as a vault fault.
+ * Read the newest kb_health report for `audit.kbHealth` (THE-722) — the reader `audit_reports`
+ * never had; see docs/design/cli-doctor.md. Reads only, and never throws: a missing table (a store
+ * predating the plane migration) degrades to `undefined`, rendered as "never run".
  */
 async function probeKbHealth(cacheDir: string): Promise<KbHealthProbe | undefined> {
   const path = join(cacheDir, "cache.db");
@@ -362,32 +312,15 @@ async function probeDerivedTables(
         // a dense-only provider darkens both at once. One config line, two dark tables.
         ["chunk_sparse", cfg.multiVector ? "enabled" : "disabled", multiVectorLever],
         ["chunk_colbert", cfg.multiVector ? "enabled" : "disabled", multiVectorLever],
-        // No config turns these on — nothing writes them at all. Reporting them as "off" would
-        // imply a switch exists.
-        // THE-629, CORRECTED 2026-08-04: these were classified `none`, with a lever asserting the
-        // writer was absent — the ticket's own unverified premise, propagated into the health
-        // surface. It is false. `memory/entities.ts:97` and
-        // `:164` ARE the writers, and five registered MCP tools reach them — create_entity,
-        // get_entity, add_observation, link_entities, query_entity_graph. Nothing is missing except
-        // a caller, which is the same situation as workspace_sessions directly below.
-        //
-        // The distinction is not cosmetic: `none` stays a FINDING, while `on-demand` is reported
-        // and never warned on ("a feature awaiting its first use"). So doctor was warning about a
-        // missing writer that is not missing, and pointing anyone who investigated at building one
-        // that already exists.
-        //
-        // Genuinely on-demand, and unlike sessions there is no server-side alternative: the server
-        // can observe that a principal is active, but "this concept named X of type Y matters" is a
-        // judgement it cannot make. The archived G2.1 design specifies create_entity as a
-        // caller-supplied verb and defers retrieval fusion to V2; no ingest-time producer was ever
-        // designed, and none exists.
+        // memory_entities/memory_relations report `on-demand`, not `none` — a client calling
+        // create_entity/link_entities is a valid, if rare, writer (THE-629). See
+        // docs/design/cli-doctor.md.
         ["memory_entities", "on-demand", "a client calling create_entity (THE-629)"],
         ["memory_relations", "on-demand", "a client calling link_entities (THE-629)"],
-        // Client- and user-driven surfaces. Enabled means "the verb is registered and reachable";
-        // empty then means the verb has never been exercised, which is the finding.
-        // THE-726: the lever is no longer only a client. With `sessions.autoOpen` the server opens
-        // one on a principal's first authenticated dispatch, which is why this table stopped being
-        // empty on 2026-08-04. Still on-demand — off by default, and nothing writes it unasked.
+        // Client- and user-driven surface: enabled means the verb is registered and reachable;
+        // empty means it has never been exercised. THE-726: `sessions.autoOpen` also lets the
+        // server open one itself on a principal's first dispatch — still on-demand, off by
+        // default. See docs/design/cli-doctor.md.
         [
           "workspace_sessions",
           "on-demand",
@@ -465,25 +398,12 @@ async function probeDerivedTables(
 }
 
 /**
- * Read the scheduler's own durable state and the tool-invocation census, for `entrypoints.liveness`.
- *
- * Both halves are already written by the running server, so this reads truth rather than deriving
- * it. `job_schedule` is what the THE-462 scheduler persists per registered task; `agent_episodes`
- * is what episode capture records per tool call. Neither needs the server booted.
- *
- * TWO TRAPS, both live on this deployment:
- *
- *  1. `job_schedule.name` is a TEXT PRIMARY KEY, and SQLite does not enforce NOT NULL on one, so
- *     every UPSERT carrying a null name INSERTED instead of updating — 2,979 orphan rows against 6
- *     real ones (THE-715). Filtering on `name IS NOT NULL` is not defensive coding here; without it
- *     the pass list is 99.8% noise. The orphan count is reported, not warned on: the named rows
- *     update correctly and the defect is already ticketed.
- *  2. The census is a LOWER BOUND and `null` means NOT MEASURED. Episode capture is per-caller and
- *     `captureEpisodes` can be off, so coercing an absent measurement to 0 would present "capture
- *     is off" as "no tool was ever called" — a failure encoded as a valid result.
- *
- * Never throws: a missing store degrades to an empty pass list and a null census, which the check
- * renders as "no scheduler state" rather than as a wall of false warnings.
+ * Read the scheduler's own durable state and the tool-invocation census, for
+ * `entrypoints.liveness` — both already written by the running server, so this reads truth rather
+ * than deriving it. Filters `job_schedule` on `name IS NOT NULL`: SQLite does not enforce NOT NULL
+ * on a TEXT PRIMARY KEY, so a null-named UPSERT inserts instead of updating (THE-715). The tool
+ * census is a LOWER BOUND — `null` means NOT MEASURED, never coerced to 0. Never throws. See
+ * docs/design/cli-doctor.md.
  */
 async function probeEntryPoints(cacheDir: string): Promise<EntryPointsProbe> {
   const out: EntryPointsProbe = { passes: [], tools: null, orphanScheduleRows: 0 };
@@ -645,11 +565,8 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           (config.embeddings.provider === "model-tier" &&
             config.embeddings.modelTier?.full !== undefined),
         experiential: experientialEnabled,
-        // An ACL declared anywhere — root or a single vault override — is enough for the path-set
-        // cache to be built for some caller. Absent everywhere means it correctly never builds.
-        // `acl` is present on EVERY resolved config (rules/defaultScopes default to []), so testing
-        // the object reports every deployment as ACL-configured and the path-set cache then looks
-        // "configured but empty" on installs that correctly never build one. Test the content.
+        // ACL-configured only when a rule/defaultScope actually exists, not merely declared — see
+        // hasAclRules above.
         aclConfigured: hasAclRules(config.acl) || config.vaults.some((v) => hasAclRules(v.acl)),
         snapshots: config.snapshots.enabled,
         // The SCHEDULER's own predicate, mirrored. scheduler-wiring registers the sweep on exactly
