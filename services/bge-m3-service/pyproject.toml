@@ -14,7 +14,9 @@ dependencies = [
     "FlagEmbedding>=1.4",
     "torch>=2.3",
     "huggingface-hub>=1",
-    "sentence-transformers>=5",
+    # v6 (released 2026-08-18) is unvalidated against this service; the compiled requirements.txt
+    # pins deployments, so this ceiling only guards pyproject-only installs.
+    "sentence-transformers>=5,<6",
     "numpy>=2",
 ]
 
