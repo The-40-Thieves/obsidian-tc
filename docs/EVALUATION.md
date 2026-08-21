@@ -425,6 +425,49 @@ and current. Note the figure the set *sizes* — the nDCG/recall numbers derived
 equivalent automated check; `sync-facts` deliberately refuses to scrape it, for the reason in the
 paragraph above.
 
+## Generalization
+
+Everything above establishes that a result is *real for this vault*: reproducible in the sense that
+re-running it against the same private set gives the same number, audited by a permutation test with
+no hidden assumptions, and honest about the effect size it could and could not have detected. None of
+that establishes that a result is *real for vaults in general*. Those are different claims, and this
+project shipped defaults for two years as though the first implied the second.
+
+It does not, and this is not a project-specific worry — it is the documented failure mode of
+single-collection retrieval evaluation. BEIR's whole contribution was showing retrievers reorder
+across corpora with no universal winner; Armstrong et al. (CIKM 2009) found ad-hoc "improvements"
+published against one TREC collection routinely lost to a strong baseline once compared honestly
+elsewhere; Fuhr (SIGIR Forum 2017) named the gap directly — a significance test answers whether an
+effect is real on *this* sample, never whether it generalizes. A win on the ~1,150-note private vault
+behind this document's numbers is exactly that kind of single-collection result.
+
+**What the golden-set evidence in this document does and does not establish**, stated as plainly as
+the rest of it:
+
+- It establishes that a mechanism is not-worse than its alternative *on this vault's shape* — one
+  language, one size regime, one link-density and doc-length profile — within the stated
+  non-inferiority margin and power.
+- It does not establish that the mechanism is not-worse on a vault of a different shape: a different
+  language, an order-of-magnitude different note count, code-heavy or reference-heavy documents,
+  sparser or denser linking. Every published negative result above is itself a demonstration that
+  shape moves the answer — `knnEdges` at floor 0.0 ties on the private vault and fails
+  non-inferiority on the public evergreen corpus in the same sweep.
+
+**The taxonomy this implies, and the promotion bar it sets**, is recorded as
+[ADR 0007](./adr/0007-default-promotion-requires-multi-shape-evidence.md) rather than repeated in
+full here: corpus-insensitive constants (a flat-optimum value like RRF's folklore k=60) may default
+on from single-vault evidence; vault-fact-conditional settings (language, size, doc-length variance,
+link density) should eventually derive from measured index statistics instead of a fixed constant —
+named there as future work, not built; everything else — judgment-dependent mechanisms, which is most
+of what this document's ship rule gates — defaults off until it wins-or-ties on a majority of a
+multi-shape suite of three-plus corpora, with no catastrophic loss on any. A single-vault win still
+means something under that bar: it labels the mechanism "validated on: personal-notes shape" and
+qualifies it for an opt-in preset. It does not, on its own, promote a project-wide default.
+
+No default changes as a result of this section. What changes is that every default this document
+currently reports as a golden-set win is now also on record as evidence *for one vault shape*, not
+evidence that the field's own literature says a single vault can give.
+
 ## Why there is no headline benchmark number
 
 Not for lack of a benchmark to run. Because the available ones measure something else, and because
