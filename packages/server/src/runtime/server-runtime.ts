@@ -500,8 +500,7 @@ export async function buildServerRuntime(
       experientialDb,
     });
 
-    // M4 plugin bridges (THE-180): per-vault client + probed capability snapshot. Built before M2 so
-    // search_dql can share the same Dataview bridge.
+    // M4 plugin bridges (THE-180): per-vault client + probed capability snapshot, built before M2 so search_dql can share the same Dataview bridge.
     const { capabilities, memoryFolderByVault, traceFolderByVault, m4Deps } = await wireBridges({
       vaults: config.vaults,
       vaultRegistry,
@@ -534,6 +533,7 @@ export async function buildServerRuntime(
       onVecFallback,
       onStageMetric,
       onRerankOutcome,
+      onAclWalkPruned: observability.onAclWalkPruned, // THE-891 item 3
       ...(activationFor ? { activationFor } : {}),
       experientialOpen,
       experientialDb,

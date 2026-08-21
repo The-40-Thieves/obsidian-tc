@@ -242,6 +242,18 @@ describe("onRerankOutcome reaches the exposition", () => {
   });
 });
 
+describe("onAclWalkPruned reaches the exposition (THE-891 item 3)", () => {
+  it("routes a prune count to the recorder, by vault", async () => {
+    const db = await seededDb();
+    const observability = createObservability(baseDeps(db));
+
+    observability.onAclWalkPruned("main", 2);
+
+    const text = await observability.metrics.metrics();
+    expect(text).toContain('obsidian_tc_acl_walk_pruned_total{vault="main"} 2');
+  });
+});
+
 describe("THE-645 item 1: onActivationRecompute reaches the exposition", () => {
   it("routes registerActivationRecompute's stats to the recorder instead of discarding them", async () => {
     const db = await seededDb();

@@ -120,6 +120,8 @@ export class MetricsRecorder {
   private readonly retrievalStageCandidatesOut: Counter<string>;
   private readonly retrievalContentBytesIn: Counter<string>;
   private readonly retrievalContentBytesOut: Counter<string>;
+  // THE-891 item 3: the graph-walk ACL filter's (THE-695/THE-852) recall cost, made measurable.
+  private readonly aclWalkPruned: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
   private readonly sqlLockWait: Histogram<string>;
@@ -356,6 +358,18 @@ export class MetricsRecorder {
       labelNames: ["vault", "stage"],
       registers,
     });
+    // THE-891 item 3: the graph-walk ACL filter (THE-695/THE-852) has been unconditional since
+    // v1.22.0 — fine for correctness, but its recall cost (readable notes reachable only through
+    // an unreadable bridge) had no signal at all. Only ever non-zero for a RESTRICTED caller:
+    // resolveAclWalkFilter's structural-no-op argument for an unrestricted one
+    // (retrieval-runtime.ts) means this stays at zero for the common single-principal deployment,
+    // which doubles as a live check of that argument rather than just a doc claim.
+    this.aclWalkPruned = new Counter({
+      name: "obsidian_tc_acl_walk_pruned_total",
+      help: "Paths the graph-walk ACL filter excluded from a walk that an unfiltered walk over the same seed frontier would have reached, by vault. Zero for an unrestricted caller by construction (nothing to prune); a non-zero, rising count for a restricted one is the filter's recall cost made visible, not an error.",
+      labelNames: ["vault"],
+      registers,
+    });
     this.sqlLockWait = new Histogram({
       name: "obsidian_tc_sql_lock_wait_seconds",
       help: "Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw.",
@@ -506,6 +520,13 @@ export class MetricsRecorder {
 
   incAclDenied(vault: string, scopeClass: string, reason: string): void {
     this.aclDenied.inc({ vault, scope_class: scopeClass, reason });
+  }
+  /** THE-891 item 3: one call per completed graph-walk expansion that pruned at least one path;
+   *  `n` is the count of distinct paths excluded. Guarded on n > 0 like the ingest counters above
+   *  so a restricted caller whose walk never touched a bridge does not create a label series that
+   *  never moves. */
+  incAclWalkPruned(vault: string, n: number): void {
+    if (n > 0) this.aclWalkPruned.inc({ vault }, n);
   }
   incHitlElicited(vault: string, tool: string): void {
     this.hitlElicited.inc({ vault, tool });

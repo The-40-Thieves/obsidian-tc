@@ -285,6 +285,10 @@ const FUNCTION_FIELDS = [
   // sink above: it is a pure side-channel that cannot change results, so two calls differing only
   // in it must share a cache entry.
   "onRetrievalTrace",
+  // THE-891 item 3 — onAclWalkPruned: reports how many paths the walk filter excluded, purely
+  // observational like onVecFallback/onRerankOutcome above. Same cache-HIT caveat: a hit skips
+  // graph_expansion.ts entirely, so the counter measures executed walks, not requested ones.
+  "onAclWalkPruned",
 ] as const;
 
 /** THE-632: `traceNotePath` selects which note the trace FOLLOWS. It never filters, boosts or

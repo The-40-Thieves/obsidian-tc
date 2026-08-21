@@ -63,6 +63,9 @@ export interface Observability {
   /** one rerankWithScores decision (see MetricsRecorder.incRerankOutcome). Same seam
    *  shape as onVecFallback — the search layer never imports the metrics recorder. */
   onRerankOutcome: (vault: string, outcome: RerankOutcome) => void;
+  /** THE-891 item 3: graph-walk ACL prune counter (see MetricsRecorder.incAclWalkPruned). Same
+   *  seam shape as onVecFallback — the search layer never imports the metrics recorder. */
+  onAclWalkPruned: (vault: string, count: number) => void;
   /** THE-645 item 1: registerActivationRecompute's onRecompute stats, routed to the recorder
    *  instead of discarded. Same seam shape as onVecFallback — the experiential layer never
    *  imports the metrics recorder. */
@@ -152,6 +155,9 @@ export function createObservability(deps: ObservabilityDeps): Observability {
   // same seam shape as onVecFallback/onStageMetric above.
   const onRerankOutcome = (vault: string, outcome: RerankOutcome): void =>
     metrics.incRerankOutcome(vault, outcome);
+  // THE-891 item 3: graph-walk ACL prune counter. Same seam shape as onVecFallback/onStageMetric.
+  const onAclWalkPruned = (vault: string, count: number): void =>
+    metrics.incAclWalkPruned(vault, count);
   // THE-645 item 1: same seam shape as onVecFallback/onStageMetric above.
   const onActivationRecompute = (vault: string, stats: ActivationRecomputeStats): void =>
     metrics.incActivationRecomputeChunks(vault, stats.chunks);
@@ -212,6 +218,7 @@ export function createObservability(deps: ObservabilityDeps): Observability {
     onVecFallback,
     onStageMetric,
     onRerankOutcome,
+    onAclWalkPruned,
     onActivationRecompute,
     onVecRebuild,
     sqlHooksFor,

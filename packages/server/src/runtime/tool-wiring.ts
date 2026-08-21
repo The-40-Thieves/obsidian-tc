@@ -373,6 +373,8 @@ export interface DomainToolsDeps {
   /** optional (unlike the two required seams above) — additive and purely observational,
    *  see M7Deps.onRerankOutcome. */
   onRerankOutcome?: (vault: string, outcome: RerankOutcome) => void;
+  /** THE-891 item 3: optional, same reason as onRerankOutcome above — see M7Deps.onAclWalkPruned. */
+  onAclWalkPruned?: (vault: string, count: number) => void;
   activationFor?: (chunkId: string) => number | null;
   experientialOpen: boolean;
   experientialDb: Database;
@@ -520,6 +522,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     onVecFallback: deps.onVecFallback,
     onStageMetric: deps.onStageMetric,
     ...(deps.onRerankOutcome ? { onRerankOutcome: deps.onRerankOutcome } : {}),
+    // THE-891 item 3: graph-walk ACL prune counter.
+    ...(deps.onAclWalkPruned ? { onAclWalkPruned: deps.onAclWalkPruned } : {}),
     // THE-187/193: activation bubble lookup (dark unless experiential.activationRerank).
     ...(deps.activationFor ? { activationFor: deps.activationFor } : {}),
     // THE-258: class router (dark unless retrieval.classRouter).

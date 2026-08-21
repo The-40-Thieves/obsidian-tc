@@ -74,6 +74,24 @@ assumptions:
   (write/delete/execute/bulk, or a tool marked `destructive`) against a `docs`- or `system`-kind
   vault (write/integrity direction) — a reserved docs/system corpus is now read-only by kind on
   both axes. Zero blast radius for the default all-`private` config.
+- **Graph-walk ACL filter is on unconditionally (THE-695/THE-852, v1.22.0).** The recursive
+  graph-expansion walk behind `vault_graph_search` / `knowledge_search` / `vault_context` /
+  `reflect` joins the caller's permitted-path set INSIDE the walk (not just on the final result
+  list), so an ACL-denied note cannot serve as a stepping-stone bridge between two readable ones —
+  `readable A -> denied S -> readable B` no longer reaches B through S. Applied uniformly: not
+  behind a config flag, and not conditioned on whether a given caller happens to be restricted.
+  That is a fail-safe-defaults choice, not an oversight — a recall miss (a note the walk should
+  have reached but didn't) is detectable; an inference leak through a forbidden bridge is silent,
+  and a caller-conditional gate was the exact prior defect class it replaces: THE-852 closed two
+  live P0s that a "only engage the join for restricted callers" design had left open —
+  `via_edge.source_path` could surface a denied predecessor path, and an unreadable bridge note
+  could act as a membership/rank oracle (its presence or absence in results, inferred from what it
+  bridged to, leaked whether it existed). For an unrestricted caller the join is a structural
+  no-op (their permitted set is the whole corpus), so this is zero-cost in the common
+  single-principal deployment. `obsidian_tc_acl_walk_pruned_total` (THE-891) turns that recall
+  cost from an unmeasured tradeoff into a per-vault counter: it fires only for a genuinely
+  restricted caller and is zero by construction otherwise, so a live deployment can see the size
+  of what the filter is protecting rather than taking the design argument on faith.
 
 ## Learned-state namespaces
 
