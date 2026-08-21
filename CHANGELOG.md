@@ -118,7 +118,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   typed `plugin_unreachable` when absent, matching `/makemd/query`'s existing guard, instead of a
   silent wrong-value result. The routes stay in place (dropping them is a product decision, not a
   correctness fix) with a comment documenting the finding.
-- **Five deployment-bias leaks from the THE-891 product-lens audit, corrected (THE-710's
+- **Five deployment-bias leaks from the THE-891 product-lens audit, corrected (#843, THE-710's
   recorded-lesson pattern: "single-user is not single-vault").** Each was a numeric default or
   justification calibrated on the maintainer's own ~1,150-note, single-principal deployment and
   shipped as though it were a product truth:
