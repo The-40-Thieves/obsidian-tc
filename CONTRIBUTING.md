@@ -124,6 +124,61 @@ CI runs both the native and fallback paths.
 - **Rust**: `rustfmt` and `clippy` clean. `#![deny(unsafe_code)]` outside the napi-rs FFI boundary.
 - **JSON**: Biome-formatted (2-space). YAML and Markdown are kept tidy but are not auto-formatted by Biome.
 
+### Inline commentary
+
+Inline comments state **invariants and why**, present-tense, impersonal. Target ~6 lines per
+block. Say what must hold and why the code is shaped this way — not who found it or when:
+
+```ts
+// Sink assignment happens before the first tick, so a call in the constructor never observes
+// `undefined` here. Do not move this behind the ready check below.
+```
+
+Deep rationale — measurements, correction history, decision narratives, alternatives considered —
+belongs in `docs/design/` notes, `docs/adr/`, or `docs/superpowers/specs/`, not in the source. The
+comment carries a one-line summary and a pointer to where the substance lives:
+
+```ts
+// Chosen over a per-row trigger for write-amplification reasons; see docs/adr/0007-....md.
+```
+
+Not allowed in `packages/*/src`:
+
+- **Dated banners** — `CORRECTED <date>`, `VERIFIED <date>`, `MEASURED <date>`, `DECIDED <date>`,
+  `RE-CHECKED <date>`. A comment is either true now or it is wrong; a date does not fix that, and
+  the correction history belongs in git blame and the linked doc, not restated inline every time
+  someone rereads the function.
+- **First-person narrative** — "I found", "we decided", "turns out". Write what is true of the
+  code, not the story of how you got there.
+- **Measurement tables** — benchmark numbers, before/after comparisons. These drift the moment the
+  code around them changes and nothing re-runs them; put pinned measurements in a doc where a
+  reader expects a number to need re-checking, not in a comment where it reads as still current.
+
+Ticket IDs (`THE-xxx`) are a provenance suffix, not a substitute for a self-contained comment —
+allowed only when the comment already stands on its own without the ticket, or when it points at a
+public doc. `THE-xxx` refers to an issue tracker that is private to this project's maintainers;
+[`docs/decisions-index.md`](./docs/decisions-index.md) resolves each ticket referenced from source
+to a public one-line summary and, where one exists, the doc or CHANGELOG entry carrying the real
+rationale — so a reader without tracker access is never stuck at a dead end.
+
+**Exemptions** — this policy does not apply to:
+
+- Migration files (`packages/server/src/migrations/*.sql`) and their generated embedding
+  (`packages/server/src/db/migrations-embedded.ts`). Both are checksum-pinned once applied and
+  uneditable by design; their comments are a historical record, not living documentation.
+- `docs/`, `CHANGELOG.md`. These are exactly the narrative, dated, first-person forms the policy
+  above relocates rationale *to* — the rule constrains `packages/*/src`, not where the rationale
+  ends up.
+- Test-fixture strings — a fixture asserting on comment *text* (e.g. a parser test) needs that text
+  to look like whatever it is testing, dated banners included.
+
+**Why relocate instead of delete.** The rationale density in this codebase's comments is
+deliberate and load-bearing — it is what makes agent-assisted changes safe in a system with this
+much accumulated, non-obvious behavior. This policy does not thin that out; it moves the
+narrative, measurement, and correction-history weight to `docs/` where it can be found, updated,
+and read on its own, and leaves the comment doing the one job a comment is actually read for in
+the middle of changing code: what has to stay true, and why.
+
 ### Commits
 
 Conventional Commits format.

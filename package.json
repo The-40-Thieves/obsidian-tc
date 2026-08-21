@@ -43,6 +43,8 @@
     "check:workflow-injection": "node scripts/check-workflow-injection.mjs",
     "config:schema": "bun scripts/gen-config-schema.ts",
     "config:schema:check": "bun scripts/gen-config-schema.ts --check",
+    "docs:decisions-index": "node scripts/gen-decisions-index.mjs",
+    "docs:decisions-index:check": "node scripts/gen-decisions-index.mjs --check",
     "format": "biome format --write .",
     "lint": "biome check --error-on-warnings .",
     "knip": "knip",

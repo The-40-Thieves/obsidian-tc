@@ -77,6 +77,13 @@ jobs:
         # nothing: depcruise 18.x declares typescript <7 and this repo is on TS 7, so handed a
         # DIRECTORY it resolves zero files and exits 0. The file list is explicit for that reason.
         run: bun run map:check
+      - name: decisions-index drift gate
+        # docs/decisions-index.md resolves every THE-xxx cited under packages/*/src to a public
+        # CHANGELOG or docs/ summary, so the private Linear tracker never becomes a dead end for an
+        # outside contributor — CONTRIBUTING.md's "Inline commentary" policy relies on this staying
+        # current. Same drift-gate shape as the TREE.md graph above: regenerate, refuse if the
+        # committed table disagrees.
+        run: bun run docs:decisions-index:check
       - name: embedded-migrations drift gate (THE-578)
         # db/migrations-embedded.ts inlines every migrations/*.sql so provisioning needs no
         # filesystem — that is what makes the standalone binaries work at all. If a migration is

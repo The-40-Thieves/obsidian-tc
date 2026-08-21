@@ -6,6 +6,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Inline commentary policy + a generated, drift-gated decisions index** (#850). Ticket-thread-
+  register comments (dated `CORRECTED`/`VERIFIED`/`MEASURED` banners, first-person narrative,
+  measurement tables) are knowledge-dense but read as insider notes to an outside contributor, and
+  hundreds of source files cite a `THE-xxx` id into this project's private Linear tracker with no
+  way to resolve it publicly. CONTRIBUTING.md's new "Inline commentary" section states the policy
+  going forward — invariants and why, present-tense, ≤~6 lines, deep rationale relocated to
+  `docs/design/`, `docs/adr/`, or `docs/superpowers/specs/` with a one-line pointer left behind —
+  with explicit exemptions for migrations, `docs/`, `CHANGELOG.md`, and test fixtures.
+  `docs/decisions-index.md` (`scripts/gen-decisions-index.mjs`, same generate/`--check` drift-gate
+  shape as `just map`) resolves every `THE-xxx` cited under `packages/*/src` to the CHANGELOG entry
+  or design/ADR/spec doc that shipped it, or an explicit internal-reference placeholder — never a
+  guess. Wired into `ci-docgen`'s drift gate alongside the other generated docs.
+
 ## [1.23.0] - 2026-08-21
 
 ### Added
