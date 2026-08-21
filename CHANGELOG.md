@@ -21,6 +21,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   or design/ADR/spec doc that shipped it, or an explicit internal-reference placeholder — never a
   guess. Wired into `ci-docgen`'s drift gate alongside the other generated docs.
 
+- **Inline commentary policy enforcement gate (`check:comment-style`).** #851/#852 swept the tree
+  clean of the register #850's policy bans; this is the mechanized guard against it regrowing.
+  `scripts/check-comment-style.mjs` scans every TypeScript file under `packages/*/src` for two
+  hard-fail patterns in COMMENT CONTENT ONLY (string/template literals are walked and skipped
+  before comment extraction, so a fixture asserting on comment text is never in scope) — a dated
+  ticket-thread banner (`CORRECTED`/`VERIFIED`/`MEASURED`/`DECIDED`/`RE-CHECKED`/`RETARGETED`/
+  `SUPERSEDED`/`UNPARKED` attached to a year) and first-person narrative (`"I found"`, `"we
+  measured"`). Both patterns were tuned against the real tree until they read cleanly at 0 hits:
+  the banner rule excludes an adjectival `-era` year suffix (`transport-VERIFIED 2026-era`, not a
+  banner), and the first-person rule blanks quoted prose first so a comment glossing someone
+  else's voice (`("I looked and found nothing")`) is not mistaken for the author's own. A ratchet
+  (`scripts/comment-style-baseline.json`) caps the count of files carrying >= 120 comment lines at
+  today's measured 33 — a file may still carry a long comment block, but that count may not grow —
+  mirroring `.jscpd.json`'s duplication threshold. Generated files (this repo's `GENERATED` header
+  convention) are skipped entirely. Wired into `ci-server`'s lint job alongside `check:config-paths`.
+
 ## [1.23.0] - 2026-08-21
 
 ### Added
