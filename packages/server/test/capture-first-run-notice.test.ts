@@ -5,7 +5,7 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureNoticeAlreadyShown,
   captureNoticeMarkerPath,
@@ -13,6 +13,7 @@ import {
   formatCaptureFirstRunNotice,
   markCaptureNoticeShown,
 } from "../src/runtime/capture-first-run-notice";
+import { rmTemp } from "./tmp";
 
 describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
   it("captureContent on, never shown -> emits, naming location/retention/off-switch", () => {
@@ -70,21 +71,39 @@ describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
   });
 });
 
+// Tracked temp dirs — removed best-effort in afterEach (PR #627 discipline: an
+// untracked mkdtempSync is invisible to teardown and leaks on every run).
+const tmpDirs: string[] = [];
+function tmpCacheDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+  tmpDirs.push(dir);
+  return dir;
+}
+afterEach(() => {
+  for (const dir of tmpDirs.splice(0)) {
+    try {
+      rmTemp(dir);
+    } catch {
+      // best-effort: a throwing cleanup fails the suite with every assertion passing
+    }
+  }
+});
+
 describe("the marker mechanism — fires once per cacheDir, not once per boot", () => {
   it("captureNoticeAlreadyShown is false before any marker is written", () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+    const cacheDir = tmpCacheDir();
     expect(captureNoticeAlreadyShown(cacheDir)).toBe(false);
   });
 
   it("markCaptureNoticeShown writes the marker so a SECOND check reports true", () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+    const cacheDir = tmpCacheDir();
     expect(captureNoticeAlreadyShown(cacheDir)).toBe(false);
     markCaptureNoticeShown(cacheDir);
     expect(captureNoticeAlreadyShown(cacheDir)).toBe(true);
   });
 
   it("the marker lives directly under cacheDir, not in a subdirectory", () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+    const cacheDir = tmpCacheDir();
     markCaptureNoticeShown(cacheDir);
     const path = captureNoticeMarkerPath(cacheDir);
     expect(path).toBe(join(cacheDir, "capture-notice-shown"));
@@ -99,7 +118,7 @@ describe("the marker mechanism — fires once per cacheDir, not once per boot", 
   });
 
   it("simulates the boot sequence end to end: fires once, then stays silent", () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+    const cacheDir = tmpCacheDir();
     const bootOnce = () => {
       const notice = formatCaptureFirstRunNotice({
         captureContent: true,
@@ -118,7 +137,7 @@ describe("the marker mechanism — fires once per cacheDir, not once per boot", 
 
 describe("emitCaptureFirstRunNotice — the side-effecting wrapper server-runtime.ts calls", () => {
   it("writes to stderr once, then stays silent on a second call", () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+    const cacheDir = tmpCacheDir();
     const writes: string[] = [];
     const spy = vi.spyOn(process.stderr, "write").mockImplementation((c: unknown) => {
       writes.push(String(c));
@@ -135,7 +154,7 @@ describe("emitCaptureFirstRunNotice — the side-effecting wrapper server-runtim
   });
 
   it("writes nothing when captureContent is off", () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+    const cacheDir = tmpCacheDir();
     const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
       emitCaptureFirstRunNotice({ captureContent: false, cacheDir, retentionDays: 30 });
