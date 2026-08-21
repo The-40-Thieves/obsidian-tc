@@ -41,6 +41,32 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   NO network call — the same degradation contract `plur`'s optional endpoint already establishes.
   Readwise is the first adapter of a format designed for others (Instapaper/Matter, which Readwise
   itself already aggregates) to reuse without a new canonical shape.
+- **Source-agnostic ambient-capture import format + Pensieve adapter, staged via `capture_queue`
+  (THE-175).** Sibling to THE-650's highlight-import format (same pattern, different domain):
+  passively-recorded screen activity — OCR'd screen text, active app/window, optional browser
+  URL — never reached the vault before this. `import-ambient` (a new CLI command) polls a
+  Pensieve instance's `GET /api/search` (verified against github.com/arkohut/pensieve @ v0.37.0,
+  Apache-2.0; `q=""` lists entities newest-first, `start=<epochSeconds>` scopes to `--since`),
+  maps `metadata_entries` (`active_app`/`active_window`/`url`/`ocr_result`, filtering OCR lines
+  below the plugin's own 0.5 confidence score) onto a source-agnostic canonical shape
+  (`packages/server/src/capture/ambient-import.ts`), and lands each observation in `capture_queue`
+  via the existing `enqueueCapture` contract with `source: "ambient"` — the channel
+  `experiential/poison.ts`'s frozen `CHANNEL_TRUST` table already reserved by name for this ticket
+  — inheriting THE-855's poison scan and the human `commit_capture` gate the same as every other
+  capture producer; nothing here writes to the vault directly. Unlike highlight-import, ambient
+  text is redacted for secret-shaped substrings (`experiential/redact.ts`'s shared scanner) BEFORE
+  enqueue, since a passively-captured screen is far more likely to catch a credential in frame than
+  a deliberate highlight. Deduplicates on a hash of `(source, machine, app, text)`, carried as an
+  `ambient-dedupe:<hash>` tag and checked against every prior `source: "ambient"` row (pending AND
+  committed) before enqueueing, so a repeatedly-polled static screen never re-enqueues — the dedupe
+  tag itself is filtered out of `list_capture_queue` and a committed note's frontmatter via
+  `tools/m5/capture-tools.ts`'s `visibleTags` (now shared with THE-650's own dedupe tag), so this
+  machine identity never reaches a reviewer or the vault. Every fetch is capped
+  (`PENSIEVE_DEFAULT_LIMIT`, clamped to the API's own `le=200`) so a first sync against months of
+  unprocessed screenshots can't flood the queue in one run. Ships INERT: the new `pensieve.baseUrl`
+  config key is absent by default, and with no baseUrl the command no-ops with NO network call —
+  the same degradation contract `readwise.token` already establishes. Screenpipe is explicitly out
+  of scope for this OSS-clean slice (licensing).
 
 - **`experiential.citationPreferences` folds retrieval-level citation outcomes into learned
   preferences (#836, THE-644).** `extractPreferences`'s deterministic `preferred.search_mode` counter

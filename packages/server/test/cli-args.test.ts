@@ -800,6 +800,75 @@ describe("THE-650 — parseCliArgs import-highlights", () => {
   });
 });
 
+describe("THE-175 — parseCliArgs import-ambient", () => {
+  it("bare import-ambient carries no vault (run_import_ambient enforces it)", () => {
+    expect(parseCliArgs(["import-ambient"])).toStrictEqual({ kind: "import-ambient" });
+  });
+
+  it("--vault is captured", () => {
+    expect(parseCliArgs(["import-ambient", "--vault", "main"])).toStrictEqual({
+      kind: "import-ambient",
+      vault: "main",
+    });
+  });
+
+  it("a positional becomes the config path, same as every other command", () => {
+    expect(parseCliArgs(["import-ambient", "/etc/otc.json", "--vault", "main"])).toStrictEqual({
+      kind: "import-ambient",
+      configPath: "/etc/otc.json",
+      vault: "main",
+    });
+  });
+
+  it("--config is honoured the same as a positional config path", () => {
+    expect(
+      parseCliArgs(["import-ambient", "--config", "/etc/otc.json", "--vault", "main"]),
+    ).toStrictEqual({ kind: "import-ambient", configPath: "/etc/otc.json", vault: "main" });
+  });
+
+  it("--since and --machine are captured and do not consume the config positional", () => {
+    expect(
+      parseCliArgs([
+        "import-ambient",
+        "--vault",
+        "main",
+        "--since",
+        "2026-08-01T00:00:00Z",
+        "--machine",
+        "workstation-1",
+      ]),
+    ).toStrictEqual({
+      kind: "import-ambient",
+      vault: "main",
+      since: "2026-08-01T00:00:00Z",
+      machine: "workstation-1",
+    });
+  });
+
+  it("carries --dry-run through as a boolean, omitted when absent", () => {
+    expect(parseCliArgs(["import-ambient", "--vault", "main", "--dry-run"])).toStrictEqual({
+      kind: "import-ambient",
+      vault: "main",
+      dryRun: true,
+    });
+    expect(parseCliArgs(["import-ambient", "--vault", "main"])).not.toHaveProperty("dryRun");
+  });
+
+  it("--vault with no value is a usage error", () => {
+    expect(parseCliArgs(["import-ambient", "--vault"])).toStrictEqual({
+      kind: "error",
+      message: "--vault requires a value",
+    });
+  });
+
+  it("--machine with no value is a usage error", () => {
+    expect(parseCliArgs(["import-ambient", "--vault", "main", "--machine"])).toStrictEqual({
+      kind: "error",
+      message: "--machine requires a value",
+    });
+  });
+});
+
 describe("parseCliArgs — note-quality --suggest (THE-643)", () => {
   it("is omitted when absent, matching every other boolean flag's convention", () => {
     expect(parseCliArgs(["note-quality"])).not.toHaveProperty("suggest");

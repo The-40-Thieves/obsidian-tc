@@ -338,3 +338,19 @@ export const ReadwiseConfigSchema = z.object({
       "Readwise access token (readwise.io/access_token), used as `Authorization: Token <token>` against the classic v2 export API. Secret — never logged or placed in an error/audit payload. Absent means `import-highlights` no-ops with NO network call.",
     ),
 });
+
+// THE-175: the Pensieve adapter for `obsidian-tc import-ambient` — the first producer of the
+// source-agnostic ambient-capture format (capture/ambient-import.ts). Same shape and same
+// degradation contract as ReadwiseConfigSchema just above: a bare base URL, ABSENT by default, and
+// its absence is meaningful — `import-ambient` no-ops with NO network call rather than failing.
+// A URL rather than a fixed localhost port because Pensieve instances run on remote machines
+// reached over tailscale, not necessarily the box obsidian-tc itself runs on — which machine an
+// observation came from is a separate, per-invocation `--machine` label, not part of this config.
+export const PensieveConfigSchema = z.object({
+  baseUrl: z
+    .string()
+    .optional()
+    .describe(
+      "Base URL of a Pensieve instance (e.g. http://100.x.x.x:8839, its default port), queried at `/api/search`. Pensieve's API has no auth — access control is expected at the network layer (tailscale). Absent means `import-ambient` no-ops with NO network call.",
+    ),
+});

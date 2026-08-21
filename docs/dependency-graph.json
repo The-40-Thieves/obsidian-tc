@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 434,
-    "dependencies": 1950,
+    "modules": 438,
+    "dependencies": 1970,
     "subsystemPairs": 122,
-    "crossSubsystemImports": 880
+    "crossSubsystemImports": 888
   },
   "subsystems": {
     "auth": 4,
     "bridge": 8,
     "capability": 6,
-    "capture": 3,
-    "cli": 33,
+    "capture": 5,
+    "cli": 35,
     "config": 14,
     "db": 15,
     "doctor": 11,
@@ -65,7 +65,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 37
+      "weight": 40
     },
     {
       "from": "runtime",
@@ -238,6 +238,11 @@
       "weight": 4
     },
     {
+      "from": "cli",
+      "to": "capture",
+      "weight": 4
+    },
+    {
       "from": "plane",
       "to": "search",
       "weight": 4
@@ -271,6 +276,11 @@
       "from": "transports",
       "to": "auth",
       "weight": 4
+    },
+    {
+      "from": "capture",
+      "to": "db",
+      "weight": 3
     },
     {
       "from": "cli",
@@ -328,23 +338,23 @@
       "weight": 3
     },
     {
+      "from": "tools",
+      "to": "capture",
+      "weight": 3
+    },
+    {
       "from": "workspace",
       "to": "db",
       "weight": 3
     },
     {
       "from": "capture",
-      "to": "db",
+      "to": "experiential",
       "weight": 2
     },
     {
       "from": "cli",
       "to": "providers",
-      "weight": 2
-    },
-    {
-      "from": "cli",
-      "to": "capture",
       "weight": 2
     },
     {
@@ -428,11 +438,6 @@
       "weight": 2
     },
     {
-      "from": "tools",
-      "to": "capture",
-      "weight": 2
-    },
-    {
       "from": "vault",
       "to": "db",
       "weight": 2
@@ -440,11 +445,6 @@
     {
       "from": "capability",
       "to": "search",
-      "weight": 1
-    },
-    {
-      "from": "capture",
-      "to": "experiential",
       "weight": 1
     },
     {

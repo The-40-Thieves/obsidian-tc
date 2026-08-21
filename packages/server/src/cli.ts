@@ -29,6 +29,7 @@ import { run_error } from "./cli/commands/error";
 import { run_forget } from "./cli/commands/forget";
 import { run_gaps } from "./cli/commands/gaps";
 import { run_help } from "./cli/commands/help";
+import { run_import_ambient } from "./cli/commands/import-ambient";
 import { run_import_highlights } from "./cli/commands/import-highlights";
 import { run_index } from "./cli/commands/index";
 import { run_metrics } from "./cli/commands/metrics";
@@ -61,19 +62,20 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // reproduces it, so an audit row would be noise (a rewritten cluster assignment is not a loss
 // event). `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
 // free. `forget`, `elicit` (THE-826), `context-export`/`context-import` (THE-636) and
-// `import-highlights` (THE-650) are the commands that write `audit_events` directly rather than
-// through `runDispatch` — `forget` for true vault-destructive writes (cli/commands/forget.ts,
-// `auditForgetEvent`), `elicit` because minting a HITL confirmation token is itself the
-// security-relevant event worth a record, independent of whether the token is ever redeemed
-// (cli/commands/elicit-mint.ts, `mintElicitAudited`), `context-export`/`context-import` because
-// they are the exfiltration and untrusted-input surfaces THE-636's design note names
-// (cli/commands/context-export.ts / context-import.ts, `auditContextExportEvent` /
-// `auditContextImportEvent`), and `import-highlights` because pulling an external account's
-// content in is the same untrusted-input shape as `context-import` (cli/commands/
-// import-highlights.ts, `auditImportHighlightsEvent`) — see those files for the writers and the
-// "why not runDispatch" reasoning. This is a DECISION, not an oversight: do not add audit rows to
-// the recompute commands above without re-litigating the "recomputable state is not a loss event"
-// premise this classification rests on.
+// `import-highlights` (THE-650) and `import-ambient` (THE-175) are the commands that write
+// `audit_events` directly rather than through `runDispatch` — `forget` for true vault-destructive
+// writes (cli/commands/forget.ts, `auditForgetEvent`), `elicit` because minting a HITL
+// confirmation token is itself the security-relevant event worth a record, independent of whether
+// the token is ever redeemed (cli/commands/elicit-mint.ts, `mintElicitAudited`),
+// `context-export`/`context-import` because they are the exfiltration and untrusted-input
+// surfaces THE-636's design note names (cli/commands/context-export.ts / context-import.ts,
+// `auditContextExportEvent` / `auditContextImportEvent`), and `import-highlights`/`import-ambient`
+// because pulling external content (a read-later account, a remote screen-capture backend) in is
+// the same untrusted-input shape as `context-import` (cli/commands/import-highlights.ts /
+// import-ambient.ts, `auditImportHighlightsEvent` / `auditImportAmbientEvent`) — see those files
+// for the writers and the "why not runDispatch" reasoning. This is a DECISION, not an oversight:
+// do not add audit rows to the recompute commands above without re-litigating the "recomputable
+// state is not a loss event" premise this classification rests on.
 async function main(): Promise<void> {
   const cmd = parseCliArgs(process.argv.slice(2));
   switch (cmd.kind) {
@@ -116,6 +118,8 @@ async function main(): Promise<void> {
       return run_context_import(cmd);
     case "import-highlights":
       return run_import_highlights(cmd);
+    case "import-ambient":
+      return run_import_ambient(cmd);
     case "gaps":
       return run_gaps(cmd);
     case "index":
