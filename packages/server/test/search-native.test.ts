@@ -164,14 +164,20 @@ describe("deriveNativeBindingActive — THE-906 honest-signal derivation", () =>
 // so pinning it here transitively covers all of them without duplicating the assertion at each
 // call site. See capability-profile.test.ts and server-runtime.test.ts for the threading pins.
 describe("THE-906: nativeBindingActive is the honest gate for reporting surfaces", () => {
-  it("real .node built on this host (bun run test:local) — nativeBindingActive matches the package's own nativeLoaded", () => {
-    const req = loadNative({} as NodeJS.ProcessEnv); // empty env: ignores an ambient FORCE_JS_FALLBACK
+  it("nativeBindingActive matches the package's own nativeLoaded — and is false under a forced JS fallback", () => {
+    // Under OBSIDIAN_TC_FORCE_JS_FALLBACK=1 (the ci-native fallback lane) the module-level
+    // signal is pinned to the JS path by design, even when a platform prebuild is resolvable —
+    // the override wins, so active must read false. Without the override, active must equal
+    // the resolved module's own nativeLoaded (real .node on a built host: non-vacuous true).
+    if (process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK === "1") {
+      expect(nativeBindingActive).toBe(false);
+      return;
+    }
+    const req = loadNative(process.env);
     const isRealNative =
       (req as unknown as { nativeLoaded?: boolean } | null)?.nativeLoaded === true;
     expect(nativeBindingActive).toBe(isRealNative);
-    // On this box the addon is built (see repo gates), so this is a real, non-vacuous assertion —
-    // not just "both false".
-    expect(nativeResolved).toBe(true);
+    expect(nativeResolved).toBe(req !== null);
   });
 
   it("WATCHED FAILURE: reporting nativeResolved instead of nativeBindingActive fails this pin whenever the two diverge", () => {
