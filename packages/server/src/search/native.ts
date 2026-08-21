@@ -147,7 +147,7 @@ const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
  *     export is missing).
  *
  * @internal Exported for unit tests; production code uses the bound exports
- * (`cosineSimilarity` / `tokenize` / `bm25Score` / `nativeLoaded`) below.
+ * (`cosineSimilarity` / `tokenize` / `bm25Score` / `nativeResolved` / `nativeBindingActive`) below.
  */
 export function loadNative(
   env: NodeJS.ProcessEnv = process.env,
@@ -169,10 +169,31 @@ export function loadNative(
   }
 }
 
+/**
+ * THE-906: whether `mod` (the value `loadNative()` handed back) is the REAL compiled napi binding,
+ * as opposed to `@the-40-thieves/obsidian-tc-native`'s own bundled `fallback.js` — which
+ * `packages/native/index.js` substitutes transparently, under the exact same function names,
+ * whenever no local `.node` and no published platform prebuild resolve for the host (true of every
+ * `--ignore-scripts` checkout). `mod !== null` cannot tell these apart (#857): both shapes pass
+ * `loadNative()`'s function-name check. `mod.nativeLoaded` is packages/native/index.js's OWN
+ * honest signal (`native !== null` at THAT loader's level) and is the only thing that can.
+ */
+export function deriveNativeBindingActive(mod: NativeOps | null): boolean {
+  return mod !== null && (mod as unknown as { nativeLoaded?: boolean }).nativeLoaded === true;
+}
+
 const native = loadNative();
 
-/** True when the compiled native module is loaded (accelerated path active). */
-export const nativeLoaded: boolean = native !== null;
+/** True when `loadNative()` returned a non-null module — i.e. requiring the native package
+ *  succeeded and it exposed the `NativeOps` function names. Do NOT read this as "the compiled
+ *  napi binding is serving": per `deriveNativeBindingActive`'s note above, this stays true even
+ *  when the resolved module is `packages/native`'s own internal JS fallback. Anything reporting
+ *  native status to an operator (boot line, doctor, `server_health`, the capability profile) must
+ *  use `nativeBindingActive` instead (THE-906). */
+export const nativeResolved: boolean = native !== null;
+
+/** True only when the REAL compiled napi binding is serving. See `deriveNativeBindingActive`. */
+export const nativeBindingActive: boolean = deriveNativeBindingActive(native);
 
 export const cosineSimilarity: NativeOps["cosineSimilarity"] =
   native?.cosineSimilarity ?? jsCosineSimilarity;

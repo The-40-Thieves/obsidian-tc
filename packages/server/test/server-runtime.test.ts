@@ -20,12 +20,26 @@ import { experientialMigrations } from "../src/cli/shared";
 import { MetricsRecorder } from "../src/metrics/registry";
 import {
   buildServerRuntime,
+  nativeReadyToken,
   type RuntimeCoreDeps,
   unwindReversed,
   wireRuntimeCore,
 } from "../src/runtime/server-runtime";
 import { type Stores, wireStores } from "../src/runtime/stores";
 import { rmTemp } from "./tmp";
+
+describe("nativeReadyToken — THE-906 boot ready line's native= token", () => {
+  it("is 'on' only when the real binding is active, never merely because a module resolved", () => {
+    expect(nativeReadyToken(true)).toBe("on");
+  });
+
+  it("is the legible fallback token, not the old ambiguous 'off', when the binding is not active", () => {
+    // Covers BOTH cases that must print this token: no module resolved at all, and a module that
+    // resolved but is internally serving packages/native's own fallback.js (#857) — the boot line
+    // only ever sees the collapsed boolean, which is exactly the point: it cannot lie either way.
+    expect(nativeReadyToken(false)).toBe("js-fallback");
+  });
+});
 
 describe("unwindReversed — reverse-ownership-order cleanup", () => {
   it("closes already-built layers in REVERSE (most-recently-opened-first) order", async () => {

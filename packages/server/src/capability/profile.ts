@@ -9,7 +9,7 @@
 // testable off a real install and so the CLI can pass an explicit --config-dir / added vaults.
 import { existsSync, readFileSync } from "node:fs";
 import { version as SERVER_VERSION } from "../../package.json";
-import { nativeLoaded } from "../search/native";
+import { nativeBindingActive } from "../search/native";
 import { discoverPlugins, type PluginDiscovery, parseRegistry } from "./discovery";
 import { type HardwareEnrichment, type HardwareEnvelope, hardwareEnvelope } from "./hardware";
 import { locateRegistry } from "./locate";
@@ -28,7 +28,12 @@ export interface VaultProfile {
 export interface RuntimeProfile {
   name: "bun" | "node";
   version: string;
-  /** True when the compiled native acceleration module is loaded. */
+  // THE-906 register: doctor's native.availability check reads this to claim "native acceleration
+  // module loaded" vs "running on the JS fallback path" — a claim about the real napi binding
+  // SERVING, not merely about the package having resolved. `search/native.ts`'s `nativeResolved`
+  // stays true even when packages/native/index.js silently substituted its own fallback.js (#857),
+  // so this field is sourced from `nativeBindingActive`, not `nativeResolved`.
+  /** True when the compiled native acceleration module is actually serving (not the JS fallback). */
   nativeModule: boolean;
 }
 
@@ -63,7 +68,7 @@ function detectRuntime(): RuntimeProfile {
     version: isBun
       ? ((globalThis as { Bun?: { version: string } }).Bun?.version ?? "unknown")
       : process.versions.node,
-    nativeModule: nativeLoaded,
+    nativeModule: nativeBindingActive,
   };
 }
 

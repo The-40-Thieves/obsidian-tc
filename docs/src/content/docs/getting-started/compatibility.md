@@ -44,10 +44,13 @@ The server reports it at startup on stderr:
 obsidian-tc 1.10.0 ready on stdio (vault main; native=on vec=on)
 ```
 
-- `native=on` — the native module loaded (Standard or better)
+- `native=on` — the real compiled native binding is serving (Standard or better); `native=js-fallback`
+  when it is not — including the case where the native *package* loaded but silently substituted its
+  own pure-JS fallback internally (#857), which this line deliberately does not call `on`
 - `vec=on` — `sqlite-vec` loaded (Accelerated)
 
-Both `off` means you are on Baseline, which is a fully supported place to be.
+`native=js-fallback` and `vec=off` together means you are on Baseline, which is a fully supported
+place to be.
 
 ## Forcing the baseline path
 

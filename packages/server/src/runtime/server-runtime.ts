@@ -24,7 +24,7 @@ import type { MorgianaEmitter } from "../morgiana/emitter";
 import { initOtel, type OtelHandle } from "../otel/tracing";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { IndexCoordinator } from "../search/index-coordinator";
-import { nativeLoaded } from "../search/native";
+import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
 import type { VecRebuildEvent } from "../search/vec";
 import type { ThrottleTiers } from "../throttle";
@@ -65,6 +65,14 @@ export interface ServerRuntime {
 export function requireBoot<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`${what} read before boot completed`);
   return value;
+}
+
+/** THE-906: the boot ready line's `native=` token. `active` MUST be `nativeBindingActive` (the
+ *  real napi binding serving), never `nativeResolved` — the latter stays true even when
+ *  `packages/native/index.js` silently substituted its own JS fallback.js (#857), which would
+ *  print `native=on` on a process that is, in fact, running pure JS. */
+export function nativeReadyToken(active: boolean): "on" | "js-fallback" {
+  return active ? "on" : "js-fallback";
 }
 
 /** `name` is a plain `string`, not a closed union — `wireRuntimeCore` and `buildServerRuntime` each
@@ -608,11 +616,11 @@ export async function buildServerRuntime(
     if (config.transports.stdio) {
       await connectStdio(server);
       process.stderr.write(
-        `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeLoaded ? "on" : "off"} vec=${hasVec ? "on" : "off"})\n`,
+        `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
       );
     } else if (config.transports.http.enabled) {
       process.stderr.write(
-        `obsidian-tc ${VERSION} ready (http-only; stdio disabled; vault ${firstVault.id}; native=${nativeLoaded ? "on" : "off"} vec=${hasVec ? "on" : "off"})\n`,
+        `obsidian-tc ${VERSION} ready (http-only; stdio disabled; vault ${firstVault.id}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
       );
     } else {
       process.stderr.write(

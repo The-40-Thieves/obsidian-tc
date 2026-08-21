@@ -350,7 +350,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-861 | Client identity now reaches `tools/call` handlers (#834, THE-861). | CHANGELOG.md (1.23.0) | 2 |
 | THE-862 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
 | THE-891 | THE-891 item 2 (#845) — the capture mitigation profile every accepted local-persistence precedent ships (bounded retention + first-run notice + location guard), `experiential.captureContent` stays on (behavior change: retention). | CHANGELOG.md (1.23.0) | 34 |
+| THE-906 | The boot ready line, `doctor`, the capability profile and `server_health` could all report `native=on` / "native acceleration module loaded" while actually running the pure-JS fallback (THE-906). | CHANGELOG.md (Unreleased) | 4 |
 
-336 distinct ticket(s) across 480 source file(s) under
-`packages/*/src`; 268 resolved to a public summary, 68
+337 distinct ticket(s) across 480 source file(s) under
+`packages/*/src`; 269 resolved to a public summary, 68
 fall back to the internal-reference placeholder above.
