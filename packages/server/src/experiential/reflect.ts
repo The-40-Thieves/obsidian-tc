@@ -281,6 +281,13 @@ export interface PreferenceDelta {
   op: "add" | "strengthen" | "weaken" | "retract";
   value?: string;
   evidence?: string;
+  /** THE-891: which partition this delta targets — `''` for the human/shared partition, or the
+   *  caller string for that caller's own partition. Taken from the delta record itself, NEVER
+   *  defaulted inside `applyPreferenceDeltas` — see `PREFERENCE_KEYS`'s per-key scope declaration
+   *  and `scopeCallerFor`, the one place a producer is allowed to derive it. Required rather than
+   *  optional so a producer cannot forget it and fall through to an implicit `''`, which is exactly
+   *  the silent-bleed-back-to-shared failure mode this ticket exists to close. */
+  scopeCaller: string;
 }
 
 const WEIGHT_CAP = 5;
@@ -296,23 +303,25 @@ function tableReady(edb: Database): boolean {
 
 /** Apply typed deltas as ONE versioned batch. Never regenerates: rows not named by a delta are
  *  untouched, retraction zeroes the weight but keeps the row (readers filter weight > 0). */
-// NAMESPACE (THE-710, revising the P1.8 / audit-THE-562 disposition): the preference plane is now
-// partitioned BY VAULT — `(vault_id, key)` is the primary key and every statement below is scoped.
-// It was previously keyed by `key` alone, deliberately, on the rationale that a single-user runtime
-// wants one shared profile. That rationale does not extend to a single-VAULT assumption: with two
-// vaults configured, one vault's learned preference silently overwrote the other's under the same
-// key, with no column to filter on (the THE-310 defect class). Migration 20260803_001 rebuilt both
-// tables; its header carries the full reasoning.
+// NAMESPACE (THE-710, revising the P1.8 / audit-THE-562 disposition; narrowed again by THE-891):
+// the preference plane is partitioned BY VAULT — `vault_id` leads the primary key and every
+// statement below is scoped to it. It was previously keyed by `key` alone, deliberately, on the
+// rationale that a single-user runtime wants one shared profile. That rationale does not extend to
+// a single-VAULT assumption: with two vaults configured, one vault's learned preference silently
+// overwrote the other's under the same key, with no column to filter on (the THE-310 defect class).
+// Migration 20260803_001 rebuilt both tables; its header carries the full reasoning.
 //
-// THE CALLER AXIS IS STILL GLOBAL, and that remains deliberate: within a vault, deltas from any
-// caller update the one shared profile. That residual is documented in SECURITY.md ("Learned-state
-// namespaces" + "Known limitations") and closing it needs the P1.7 authorization treatment
-// agent_episodes got. Contrast: agent_episodes is per-principal (vault+caller+session,
-// P1.7-authorized); vault_object_state ACT-R activation is corpus-global by design.
+// THE CALLER AXIS IS NOW PER-KEY, not global. `(vault_id, scope_caller, key)` is the full primary
+// key (migration 20260820_001): `scope_caller` is `''` for the human/shared partition, or one
+// caller's own partition, and WHICH one a delta targets is a property of the delta record — see
+// `PreferenceDelta.scopeCaller` and `scopeCallerFor`. This function never derives or defaults that
+// value itself; it only writes wherever the caller says. Contrast: agent_episodes is per-principal
+// (vault+caller+session, P1.7-authorized) at the ROW level; vault_object_state ACT-R activation is
+// corpus-global by design; preference_profile is per-principal only for the keys that opt in.
 //
-// `vaultId` is REQUIRED and deliberately undefaulted. A default would let a call site silently fall
-// back to one shared bucket, which is the exact behaviour this partition exists to remove — and an
-// added-with-a-default parameter turns every existing caller into a caller of the default.
+// `vaultId` is REQUIRED and deliberately undefaulted, for the same reason `scopeCaller` on each
+// delta is required rather than optional: a default would let a call site silently fall back to one
+// shared bucket, which is the exact behaviour this partition exists to remove.
 export function applyPreferenceDeltas(
   edb: Database,
   vaultId: string,
@@ -320,8 +329,10 @@ export function applyPreferenceDeltas(
   nowMs: number,
 ): { version: number; applied: number } {
   if (!tableReady(edb)) throw new Error("preference_profile tables missing (run migrations)");
-  // Version is PER-VAULT. A global counter would make one vault's batch bump the other's version
-  // number, so `version` would no longer describe the profile it is stored on.
+  // Version is PER-VAULT (not per scope_caller): one batch can legitimately mix deltas for several
+  // partitions (an extraction pass over several windows with different callers), and it is still
+  // ONE batch — splitting the version counter by scope_caller too would make an operator's "what
+  // changed in this run" question require reading N version numbers instead of one.
   const prev = edb
     .prepare(
       "SELECT MAX(v) AS v FROM (SELECT MAX(version) AS v FROM preference_deltas WHERE vault_id = ? UNION ALL SELECT MAX(version) AS v FROM preference_profile WHERE vault_id = ?)",
@@ -329,74 +340,137 @@ export function applyPreferenceDeltas(
     .get(vaultId, vaultId) as { v: number | null };
   const version = (prev.v ?? 0) + 1;
   const logDelta = edb.prepare(
-    "INSERT INTO preference_deltas (vault_id, ts, key, op, value, evidence, version) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO preference_deltas (vault_id, scope_caller, ts, key, op, value, evidence, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   );
   const upsertAdd = edb.prepare(
-    `INSERT INTO preference_profile (vault_id, key, value, weight, version, updated_at, provenance)
-     VALUES (?, ?, ?, 1.0, ?, ?, ?)
-     ON CONFLICT(vault_id, key) DO UPDATE SET
+    `INSERT INTO preference_profile (vault_id, scope_caller, key, value, weight, version, updated_at, provenance)
+     VALUES (?, ?, ?, ?, 1.0, ?, ?, ?)
+     ON CONFLICT(vault_id, scope_caller, key) DO UPDATE SET
        weight = MIN(${WEIGHT_CAP}, weight + ${WEIGHT_STEP}),
        value = COALESCE(excluded.value, preference_profile.value),
        version = excluded.version, updated_at = excluded.updated_at`,
   );
   const bump = edb.prepare(
-    `UPDATE preference_profile SET weight = MIN(${WEIGHT_CAP}, weight + ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE vault_id = ? AND key = ?`,
+    `UPDATE preference_profile SET weight = MIN(${WEIGHT_CAP}, weight + ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE vault_id = ? AND scope_caller = ? AND key = ?`,
   );
   const damp = edb.prepare(
-    `UPDATE preference_profile SET weight = MAX(0, weight - ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE vault_id = ? AND key = ?`,
+    `UPDATE preference_profile SET weight = MAX(0, weight - ${WEIGHT_STEP}), version = ?, updated_at = ? WHERE vault_id = ? AND scope_caller = ? AND key = ?`,
   );
   const retract = edb.prepare(
-    "UPDATE preference_profile SET weight = 0, version = ?, updated_at = ? WHERE vault_id = ? AND key = ?",
+    "UPDATE preference_profile SET weight = 0, version = ?, updated_at = ? WHERE vault_id = ? AND scope_caller = ? AND key = ?",
   );
   let applied = 0;
   for (const d of deltas) {
     if (!d.key) continue;
-    // strengthen/weaken/retract are UPDATE ... WHERE vault_id = ? AND key = ? — on a key that was
-    // never added IN THIS VAULT they change 0 rows. Gate the audit row + `applied` on an actual
-    // mutation so a judge proposing a delta for a non-existent key can't log a phantom
-    // preference_deltas row or bump the version.
+    // strengthen/weaken/retract are UPDATE ... WHERE vault_id = ? AND scope_caller = ? AND key = ?
+    // — on a key that was never added IN THIS PARTITION they change 0 rows. Gate the audit row +
+    // `applied` on an actual mutation so a judge proposing a delta for a non-existent key can't log
+    // a phantom preference_deltas row or bump the version.
     let changed = 1;
     if (d.op === "add")
-      upsertAdd.run(vaultId, d.key, d.value ?? "", version, nowMs, d.evidence ?? null);
+      upsertAdd.run(
+        vaultId,
+        d.scopeCaller,
+        d.key,
+        d.value ?? "",
+        version,
+        nowMs,
+        d.evidence ?? null,
+      );
     else if (d.op === "strengthen")
-      changed = bump.run(version, nowMs, vaultId, d.key).changes as number;
+      changed = bump.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes as number;
     else if (d.op === "weaken")
-      changed = damp.run(version, nowMs, vaultId, d.key).changes as number;
+      changed = damp.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes as number;
     else if (d.op === "retract")
-      changed = retract.run(version, nowMs, vaultId, d.key).changes as number;
+      changed = retract.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes as number;
     else continue;
     if (changed === 0) continue;
-    logDelta.run(vaultId, nowMs, d.key, d.op, d.value ?? null, d.evidence ?? null, version);
+    logDelta.run(
+      vaultId,
+      d.scopeCaller,
+      nowMs,
+      d.key,
+      d.op,
+      d.value ?? null,
+      d.evidence ?? null,
+      version,
+    );
     applied++;
   }
   return { version, applied };
 }
 
-/** Current profile rollup for ONE vault: active entries (weight > 0), newest-touched first.
+/** THE-891: raised when a read tries to cross the caller partition (`opts.anyCaller`) without
+ *  proving it holds the elevated scope (`opts.crossPrincipal`). Mirrors work_search's own
+ *  `any_caller` gate (tools/m8/work-search-tool.ts) — same "authorization-enforced, not filtered"
+ *  posture SECURITY.md now documents for this store — but this module cannot import
+ *  `tools/m8/shared.ts`'s `CROSS_PRINCIPAL_SCOPE`/`canCrossPrincipal` itself: the dependency runs
+ *  tools -> experiential, never the reverse (dependency-cruiser's `no-circular`/layering rules), so
+ *  the decision (`canCrossPrincipal(ctx)`) is computed at the MCP tool boundary that has a
+ *  `CallerContext`, and only the boolean RESULT crosses into this lower layer as `crossPrincipal`. */
+export class PreferenceScopeError extends Error {}
+
+/** Current profile rollup for ONE vault, scoped to ONE principal: entries with `scope_caller = ''`
+ *  (the human/shared partition every registered human-scoped key writes, and where a NULL caller —
+ *  the single trusted local principal on an unauthenticated stdio transport — lands too) UNION
+ *  `caller`'s own partition. Active entries only (weight > 0), newest-touched first.
  *
- *  THE-710: `vaultId` is required for the same reason it is on applyPreferenceDeltas — an
- *  unscoped read would return a blend of every vault's profile, which is the pre-migration
- *  behaviour this partition removes. There is deliberately no "read every vault" overload; a
- *  caller that wants that must ask for each vault and say so. */
+ *  THE-891: `caller` is required for the same reason `vaultId` is — an unscoped read would blend
+ *  partitions the migration exists to keep apart. `caller: null` reads ONLY the human partition
+ *  (its own partition and the human partition are the same row set), matching the NULL-caller
+ *  mapping the migration documents.
+ *
+ *  `opts.anyCaller` crosses every principal's partition in the vault — mirroring `agent_episodes`'
+ *  P1.7 authorization rather than merely filtering it: a caller that has not proven
+ *  `opts.crossPrincipal` gets `PreferenceScopeError` thrown, not a silently narrowed result. There
+ *  is deliberately no "read every vault" overload either; a caller that wants that must ask for
+ *  each vault and say so (unchanged from THE-710). */
 export function preferenceProfile(
   edb: Database,
   vaultId: string,
+  caller: string | null,
+  opts?: { anyCaller?: boolean; crossPrincipal?: boolean },
 ): {
   version: number;
-  entries: Array<{ key: string; value: string; weight: number; updated_at: number }>;
-} {
-  if (!tableReady(edb)) return { version: 0, entries: [] };
-  const rows = edb
-    .prepare(
-      "SELECT key, value, weight, version, updated_at FROM preference_profile WHERE vault_id = ? AND weight > 0 ORDER BY updated_at DESC",
-    )
-    .all(vaultId) as Array<{
+  entries: Array<{
     key: string;
     value: string;
     weight: number;
-    version: number;
     updated_at: number;
+    scope_caller: string;
   }>;
+} {
+  if (!tableReady(edb)) return { version: 0, entries: [] };
+  if (opts?.anyCaller && !opts.crossPrincipal) {
+    throw new PreferenceScopeError(
+      "any_caller requires proof of the admin:workspace scope (P1.7 treatment — see tools/m8/shared.ts's CROSS_PRINCIPAL_SCOPE)",
+    );
+  }
+  const rows = opts?.anyCaller
+    ? (edb
+        .prepare(
+          "SELECT scope_caller, key, value, weight, version, updated_at FROM preference_profile WHERE vault_id = ? AND weight > 0 ORDER BY updated_at DESC",
+        )
+        .all(vaultId) as Array<{
+        scope_caller: string;
+        key: string;
+        value: string;
+        weight: number;
+        version: number;
+        updated_at: number;
+      }>)
+    : (edb
+        .prepare(
+          "SELECT scope_caller, key, value, weight, version, updated_at FROM preference_profile WHERE vault_id = ? AND (scope_caller = '' OR scope_caller = ?) AND weight > 0 ORDER BY updated_at DESC",
+        )
+        .all(vaultId, caller ?? "") as Array<{
+        scope_caller: string;
+        key: string;
+        value: string;
+        weight: number;
+        version: number;
+        updated_at: number;
+      }>);
   const version = rows.reduce((m, r) => Math.max(m, r.version), 0);
   return {
     version,
@@ -405,24 +479,57 @@ export function preferenceProfile(
       value: r.value,
       weight: r.weight,
       updated_at: r.updated_at,
+      scope_caller: r.scope_caller,
     })),
   };
 }
 
-/** THE-673: the closed set of preference keys a deterministic extractor may write. Enforced in
- *  application code, NOT a DB `CHECK` — `key` is half of `preference_profile`'s primary key, and
- *  SQLite cannot add a `CHECK` to an existing column without a full table rebuild (the same class
- *  of migration `20260803_001` already had to do once for this table). A TypeScript allowlist
- *  gives the same "impossible state" guarantee at zero migration cost.
+/** THE-891: a registered key's scope — see `PREFERENCE_KEYS`. */
+export interface PreferenceKeyScope {
+  /** `"human"` — one shared value per vault, correct for a context-free, intent-derived
+   *  preference (the human's preference, whichever agent is asking). `"caller"` — partitioned per
+   *  principal, because the key encodes the OBSERVING AGENT's own workload and one agent's learned
+   *  behavior must not steer a different agent's retrieval. */
+  scope: "human" | "caller";
+}
+
+/** THE-673 (registry), THE-891 (per-key scope): the closed set of preference keys a deterministic
+ *  extractor may write, each declaring whether it is shared (`"human"`) or partitioned
+ *  (`"caller"`). Enforced in application code, NOT a DB `CHECK` — `key` is part of
+ *  `preference_profile`'s primary key, and SQLite cannot add a `CHECK` to an existing column
+ *  without a full table rebuild (the same class of migration `20260803_001`/`20260820_001` already
+ *  had to do twice for this table). A TypeScript allowlist gives the same "impossible state"
+ *  guarantee at zero migration cost.
  *
  *  Deliberately one member. `preferred.search_mode` is the only axis with a real producer today
- *  (tool choice, 100%-populated). The other four keys once proposed for this registry
- *  (`preferred.output_format`, `response.detail`, `citation.style`,
+ *  (tool choice, 100%-populated), and it is `"caller"`-scoped: it is dispatch telemetry — it
+ *  encodes the OBSERVING agent's workload, not the human's intent, so one agent's revealed tool
+ *  choice must not steer another agent's retrieval. The other four keys once proposed for this
+ *  registry (`preferred.output_format`, `response.detail`, `citation.style`,
  *  `workflow.confirmation_level`) each need an input this ticket does not build — `captureContent`
  *  flipped on, THE-675's transcript question, or an elicitation/HITL producer respectively — and
  *  shipping them unregistered-but-inert would be the ticket's own named anti-pattern ("four keys
- *  nothing can ever write"). Widen this set only when a new axis has a real producer. */
-export const PREFERENCE_KEYS: ReadonlySet<string> = new Set(["preferred.search_mode"]);
+ *  nothing can ever write"). Widen this set only when a new axis has a real producer; DEFAULT any
+ *  new key to `"caller"` — sharing is a per-key opt-in, reviewed at registration, never the
+ *  fallback. */
+export const PREFERENCE_KEYS: ReadonlyMap<string, PreferenceKeyScope> = new Map([
+  ["preferred.search_mode", { scope: "caller" }],
+]);
+
+/** THE-891: the ONE place a producer derives `PreferenceDelta.scopeCaller` from a registered key
+ *  plus the caller a window/evidence row carried. A `"human"`-scoped key always writes `''`
+ *  regardless of who was calling — that IS the shared partition. A `"caller"`-scoped key writes
+ *  `windowCaller ?? ''` — the NULL-caller mapping migration `20260820_001` documents (an
+ *  unauthenticated local transport is the single trusted local principal, so NULL safely collapses
+ *  onto the same `''` partition human-scoped keys use, without inventing a shared identity between
+ *  two DIFFERENT unauthenticated callers). An unregistered key (should never reach here —
+ *  `filterRegisteredDeltas` drops those first) defaults to caller-scoped, matching the registry's
+ *  own "unknown defaults to partitioned" posture rather than silently sharing it. */
+function scopeCallerFor(key: string, windowCaller: string | null): string {
+  const decl = PREFERENCE_KEYS.get(key);
+  if (decl?.scope === "human") return "";
+  return windowCaller ?? "";
+}
 
 /** THE-673: the search-family tools `preferred.search_mode` counts over. Closed list rather than
  *  "any tool that ran", because the point of this key is revealed *choice among alternatives* —
@@ -493,6 +600,11 @@ interface EvidenceRow extends VerdictWindowable {
   status: string;
   task_result: number;
   summary: string | null;
+  /** THE-891: the window's caller — `agent_episodes.caller`, one value per (session_id,
+   *  verdict_at) window by construction (a session belongs to one principal). Feeds
+   *  `scopeCallerFor` so a caller-scoped delta lands in the window's OWN partition rather than the
+   *  shared one. */
+  caller: string | null;
 }
 
 /** THE-673: one window (one rendered judgement) yields AT MOST ONE delta — the BINDING
@@ -538,11 +650,15 @@ function buildSearchModeDeltas(windows: Array<{ episodes: EvidenceRow[] }>): Pre
         majorityCount = count;
       }
     }
+    // THE-891: `preferred.search_mode` is caller-scoped (dispatch telemetry, not human intent) —
+    // scopeCallerFor resolves that against the WINDOW's caller, so this delta lands in the
+    // dispatching agent's own partition, never the shared one.
     deltas.push({
       key: "preferred.search_mode",
       op: taskResult > 0 ? "add" : "weaken",
       value: majorityTool,
       evidence: `tool=${majorityTool} sampled_calls=${w.episodes.length} tool_calls=${majorityCount}`,
+      scopeCaller: scopeCallerFor("preferred.search_mode", w.episodes[0]?.caller ?? null),
     });
   }
   return deltas;
@@ -551,12 +667,15 @@ function buildSearchModeDeltas(windows: Array<{ episodes: EvidenceRow[] }>): Pre
 /** THE-644: one `chunk_retrievals` row shaped enough to build the citation-evidence delta —
  *  `surface_type` is the retrieving tool (log.ts's own doc comment: "which serve surface
  *  retrieved it (tool name) — chunk_retrievals.surface_type"), `event_group` is the one-id-per-
- *  search-CALL correlator (20260725_001), and `citation_state` is THE-717's judge verdict. */
+ *  search-CALL correlator (20260725_001), `citation_state` is THE-717's judge verdict, and `caller`
+ *  (THE-568/P1.7) is the window's principal — THE-891 feeds it to `scopeCallerFor` the same way
+ *  `EvidenceRow.caller` does for the episode side. */
 export interface CitationEvidenceRow {
   chunk_id: string;
   surface_type: string | null;
   event_group: string | null;
   citation_state: string | null;
+  caller: string | null;
 }
 
 /** THE-644: batch size for the cross-store chunk_id -> vault_id ground-truth join below. Same
@@ -590,7 +709,7 @@ function citationEvidence(
   if (!tableExists(edb, "chunk_retrievals")) return [];
   const rows = edb
     .prepare(
-      `SELECT chunk_id, surface_type, event_group, citation_state FROM chunk_retrievals
+      `SELECT chunk_id, surface_type, event_group, citation_state, caller FROM chunk_retrievals
        WHERE citation_state IS NOT NULL
        ORDER BY retrieved_at DESC LIMIT ?`,
     )
@@ -661,6 +780,8 @@ function buildCitationSearchModeDeltas(
       op: confirmed > 0 ? "add" : "weaken",
       value: tool,
       evidence: `citation tool=${tool} confirmed=${confirmed} rejected=${rejected}`,
+      // THE-891: same registry lookup buildSearchModeDeltas uses, against this window's caller.
+      scopeCaller: scopeCallerFor("preferred.search_mode", w.rows[0]?.caller ?? null),
     });
   }
   return deltas;
@@ -706,9 +827,11 @@ export async function extractPreferences(
   // default vault would invent the attribution the migration purged old rows to avoid inventing.
   // The equality predicate already excludes NULL; it is spelled out here so the exclusion reads as
   // a decision rather than as an accident of SQL three-valued logic.
+  // THE-891: `caller` travels alongside — it is the window identity's principal, fed to
+  // scopeCallerFor so a caller-scoped delta lands in the dispatching agent's own partition.
   const episodes = edb
     .prepare(
-      `SELECT tool, status, task_result, summary, session_id, verdict_at FROM agent_episodes
+      `SELECT tool, status, task_result, summary, session_id, verdict_at, caller FROM agent_episodes
        WHERE vault_id = ? AND vault_id IS NOT NULL
          AND blocked = 0 AND eligibility = 'eligible' AND task_result IS NOT NULL
        ORDER BY ts DESC LIMIT ?`,

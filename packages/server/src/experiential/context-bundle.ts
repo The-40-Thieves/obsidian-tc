@@ -86,7 +86,11 @@ export interface ExportOptions {
   serverVersion: string;
 }
 
-const PREFERENCE_PROFILE_COLS = "vault_id, key, value, weight, version, updated_at, provenance";
+// THE-891: scope_caller travels too — dropping it here would silently re-scope every exported
+// caller-partitioned preference to the shared partition on any export/import round trip, which is
+// exactly the bleed this ticket closes.
+const PREFERENCE_PROFILE_COLS =
+  "vault_id, scope_caller, key, value, weight, version, updated_at, provenance";
 const AGENT_EPISODE_COLS =
   "id, ts, vault_id, session_id, caller, channel, episode_type, tool, status, error_code, " +
   "duration_ms, result_size, args_hash, args_json, secret_scan, summary, tags, task_result, " +
@@ -108,7 +112,17 @@ const GOAL_COLS = "id, vault_id, text, status, source, created_at, target_date, 
 
 /** Read the 9 experiential tables into a versioned envelope. `agent_episodes` filters
  *  `blocked = 0` UNCONDITIONALLY (no `--include-blocked` escape hatch — see context-bundle-schema
- *  and the ticket's item 3): a tombstoned episode never enters a bundle in the first place. */
+ *  and the ticket's item 3): a tombstoned episode never enters a bundle in the first place.
+ *
+ *  THE-891: `preference_profile`/`preference_deltas` now carry `scope_caller`, so a bundle exports
+ *  learned state that CROSSES caller partitions within the vault(s) it covers — a human-scoped row
+ *  alongside every caller-scoped one, unfiltered. That is intentional here, not an oversight this
+ *  ticket left open: this module is the same admin/operator-only, CLI-only, `registry.dispatch`-
+ *  bypassing surface the module header already establishes (mirroring `forget.ts`'s precedent) —
+ *  reachable only by an operator running `obsidian-tc context-export` directly on the box, never
+ *  through the MCP tool surface partition-scoped reads (`preferenceProfile`'s own `admin:workspace`
+ *  gate) protect against. The existing CLI-command elevation already covers a cross-caller export;
+ *  it does not need — and deliberately does not get — a second, redundant scope check here. */
 export function exportContextBundle(edb: Database, opts: ExportOptions): ContextBundle {
   const v = opts.vaultId;
 
@@ -124,12 +138,12 @@ export function exportContextBundle(edb: Database, opts: ExportOptions): Context
     v
       ? edb
           .prepare(
-            "SELECT id, ts, key, op, value, evidence, version, vault_id FROM preference_deltas WHERE vault_id = ?",
+            "SELECT id, ts, key, op, value, evidence, version, vault_id, scope_caller FROM preference_deltas WHERE vault_id = ?",
           )
           .all(v)
       : edb
           .prepare(
-            "SELECT id, ts, key, op, value, evidence, version, vault_id FROM preference_deltas",
+            "SELECT id, ts, key, op, value, evidence, version, vault_id, scope_caller FROM preference_deltas",
           )
           .all()
   ) as PreferenceDeltaRow[];
@@ -330,8 +344,8 @@ function zeroStats(): TableImportStats {
  * Dedup on a NATURAL KEY, not on "insert and see if it throws": every table here either has no
  * meaningful cross-install id (preference_deltas, gap_reports — both autoincrement, stripped on
  * import) or an id whose PK collision is exactly the natural key (agent_episodes.id,
- * goals.id, chunk_retrievals.id, vault_object_state.object_id, the (vault_id,key)/(vault_id,path)
- * composite PKs). Checking existence explicitly rather than relying on `INSERT OR IGNORE`'s PK
+ * goals.id, chunk_retrievals.id, vault_object_state.object_id, the (vault_id,scope_caller,key)/
+ * (vault_id,path) composite PKs). Checking existence explicitly rather than relying on `INSERT OR IGNORE`'s PK
  * semantics makes the SAME code correct for both cases, and means a genuine constraint violation
  * (a CHECK failing) still throws instead of being silently swallowed as "duplicate".
  */
@@ -489,13 +503,25 @@ export function importContextBundle(
     }
 
     // 3. Every other vault-scoped table — no cascade, no reconciliation, plain dedup-by-natural-key.
+    // THE-891: preference_profile's natural key gained scope_caller, mirroring the PK it rebuilds
+    // to (vault_id, scope_caller, key) — omitting it here would dedup two DIFFERENT callers'
+    // partitions against each other under the old (vault_id, key) key, silently dropping one.
     for (const row of bundle.tables.preference_profile) {
       const result = importDeduped(
         edb,
-        "SELECT 1 FROM preference_profile WHERE vault_id = ? AND key = ? LIMIT 1",
-        [row.vault_id, row.key],
-        `INSERT INTO preference_profile (${PREFERENCE_PROFILE_COLS}) VALUES (?,?,?,?,?,?,?)`,
-        [row.vault_id, row.key, row.value, row.weight, row.version, row.updated_at, row.provenance],
+        "SELECT 1 FROM preference_profile WHERE vault_id = ? AND scope_caller = ? AND key = ? LIMIT 1",
+        [row.vault_id, row.scope_caller, row.key],
+        `INSERT INTO preference_profile (${PREFERENCE_PROFILE_COLS}) VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          row.vault_id,
+          row.scope_caller,
+          row.key,
+          row.value,
+          row.weight,
+          row.version,
+          row.updated_at,
+          row.provenance,
+        ],
         dryRun,
       );
       stats.preference_profile[result]++;
@@ -504,10 +530,19 @@ export function importContextBundle(
     for (const row of bundle.tables.preference_deltas) {
       const result = importDeduped(
         edb,
-        "SELECT 1 FROM preference_deltas WHERE vault_id = ? AND ts = ? AND key = ? AND op = ? AND version = ? LIMIT 1",
-        [row.vault_id, row.ts, row.key, row.op, row.version],
-        "INSERT INTO preference_deltas (ts, key, op, value, evidence, version, vault_id) VALUES (?,?,?,?,?,?,?)",
-        [row.ts, row.key, row.op, row.value, row.evidence, row.version, row.vault_id],
+        "SELECT 1 FROM preference_deltas WHERE vault_id = ? AND scope_caller = ? AND ts = ? AND key = ? AND op = ? AND version = ? LIMIT 1",
+        [row.vault_id, row.scope_caller, row.ts, row.key, row.op, row.version],
+        "INSERT INTO preference_deltas (ts, key, op, value, evidence, version, vault_id, scope_caller) VALUES (?,?,?,?,?,?,?,?)",
+        [
+          row.ts,
+          row.key,
+          row.op,
+          row.value,
+          row.evidence,
+          row.version,
+          row.vault_id,
+          row.scope_caller,
+        ],
         dryRun,
       );
       stats.preference_deltas[result]++;

@@ -22,11 +22,19 @@ import type { NoteQualityRow } from "./note-quality";
 export type { GoalRow, NoteQualityRow };
 
 /** Bumped only on a breaking change to the envelope or a table's row shape. Import refuses any
- *  bundle whose format_version does not exactly match — no silent upgrade path in v1 (item 4). */
-export const BUNDLE_FORMAT_VERSION = 1;
+ *  bundle whose format_version does not exactly match — no silent upgrade path (item 4).
+ *
+ *  v2 (THE-891): `preference_profile`/`preference_deltas` rows grew `scope_caller` — a REQUIRED
+ *  field, not defaulted, matching this file's own "no silent upgrade path" posture: a v1 bundle
+ *  cannot honestly claim a scope for rows that predate the partition, so it is refused outright
+ *  (format_version mismatch) rather than parsed with an invented `''`. */
+export const BUNDLE_FORMAT_VERSION = 2;
 
 export const PreferenceProfileRowSchema = z.object({
   vault_id: z.string().min(1),
+  // THE-891: '' = the human/shared partition; a non-empty value is one caller's own partition. See
+  // migration 20260820_001 for the NULL-caller -> '' mapping this column encodes.
+  scope_caller: z.string(),
   key: z.string().min(1),
   value: z.string(),
   weight: z.number(),
@@ -37,7 +45,8 @@ export const PreferenceProfileRowSchema = z.object({
 export type PreferenceProfileRow = z.infer<typeof PreferenceProfileRowSchema>;
 
 // `id` travels for reference only (autoincrement — not a stable cross-install identity).
-// Import strips it and re-derives dedup via the natural key (vault_id, ts, key, op, version).
+// Import strips it and re-derives dedup via the natural key (vault_id, scope_caller, ts, key, op,
+// version) — THE-891 added scope_caller to the natural key alongside the PK column it mirrors.
 export const PreferenceDeltaRowSchema = z.object({
   id: z.number().int(),
   ts: z.number().int(),
@@ -47,6 +56,7 @@ export const PreferenceDeltaRowSchema = z.object({
   evidence: z.string().nullable(),
   version: z.number().int(),
   vault_id: z.string(),
+  scope_caller: z.string(),
 });
 export type PreferenceDeltaRow = z.infer<typeof PreferenceDeltaRowSchema>;
 

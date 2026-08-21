@@ -68,12 +68,13 @@ function seedRetrieval(
     surface_type: string | null;
     event_group: string | null;
     citation_state: string | null;
+    caller: string | null;
   }> = {},
 ): void {
   edb
     .prepare(
-      `INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results, event_group, citation_state)
-       VALUES (?, ?, ?, ?, 'q', 1, ?, ?)`,
+      `INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, surface_type, query_text, rank_in_results, event_group, citation_state, caller)
+       VALUES (?, ?, ?, ?, 'q', 1, ?, ?, ?)`,
     )
     .run(
       over.id ?? `r-${Math.random()}`,
@@ -82,6 +83,7 @@ function seedRetrieval(
       over.surface_type ?? "search_text",
       over.event_group ?? null,
       over.citation_state ?? null,
+      over.caller ?? null,
     );
 }
 
@@ -93,30 +95,35 @@ describe("groupCitationEvidenceByEventGroup (THE-644)", () => {
         surface_type: "search_text",
         event_group: "eg1",
         citation_state: "confirmed",
+        caller: null,
       },
       {
         chunk_id: "c2",
         surface_type: "search_text",
         event_group: "eg1",
         citation_state: "rejected",
+        caller: null,
       },
       {
         chunk_id: "c3",
         surface_type: "search_vault",
         event_group: "eg2",
         citation_state: "confirmed",
+        caller: null,
       },
       {
         chunk_id: "c4",
         surface_type: "search_text",
         event_group: null,
         citation_state: "confirmed",
+        caller: null,
       },
       {
         chunk_id: "c5",
         surface_type: "search_text",
         event_group: null,
         citation_state: "confirmed",
+        caller: null,
       },
     ];
     const windows = groupCitationEvidenceByEventGroup(rows);
@@ -139,7 +146,7 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     });
     const r = await extractPreferences(edb, V1, { nowMs: NOW });
     expect(r).toMatchObject({ skipped: true, applied: 0 });
-    expect(preferenceProfile(edb, V1).entries).toHaveLength(0);
+    expect(preferenceProfile(edb, V1, null).entries).toHaveLength(0);
   });
 
   it("a CONFIRMED citation on a search-family tool strengthens preferred.search_mode (op=add)", async () => {
@@ -153,7 +160,7 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     });
     const r = await extractPreferences(edb, V1, { nowMs: NOW, cacheDb });
     expect(r).toMatchObject({ skipped: false, applied: 1 });
-    expect(preferenceProfile(edb, V1).entries).toEqual([
+    expect(preferenceProfile(edb, V1, null).entries).toEqual([
       expect.objectContaining({ key: "preferred.search_mode", value: "search_vault", weight: 1 }),
     ]);
     const ev = edb.prepare("SELECT evidence FROM preference_deltas WHERE vault_id = ?").get(V1) as {
@@ -169,10 +176,10 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     applyPreferenceDeltas(
       edb,
       V1,
-      [{ key: "preferred.search_mode", op: "add", value: "search_vault" }],
+      [{ key: "preferred.search_mode", op: "add", value: "search_vault", scopeCaller: "" }],
       NOW,
     );
-    const before = preferenceProfile(edb, V1).entries[0]?.weight as number;
+    const before = preferenceProfile(edb, V1, null).entries[0]?.weight as number;
 
     seedRetrieval(edb, {
       chunk_id: "chk1",
@@ -182,7 +189,7 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     });
     const r = await extractPreferences(edb, V1, { nowMs: NOW + 1, cacheDb });
     expect(r.applied).toBe(1);
-    const after = preferenceProfile(edb, V1).entries[0]?.weight as number;
+    const after = preferenceProfile(edb, V1, null).entries[0]?.weight as number;
     expect(after).toBeLessThan(before);
   });
 
@@ -206,7 +213,7 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     // "found evidence but derived no delta" distinction the episode side makes for a
     // task_result = 0 window.
     expect(r).toMatchObject({ skipped: false, applied: 0 });
-    expect(preferenceProfile(edb, V1).entries).toHaveLength(0);
+    expect(preferenceProfile(edb, V1, null).entries).toHaveLength(0);
   });
 
   it("citation_state IS NULL rows never reach evidence at all — excluded at the query, not merely neutral", async () => {
@@ -217,15 +224,15 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     applyPreferenceDeltas(
       edb,
       V1,
-      [{ key: "preferred.search_mode", op: "add", value: "search_text" }],
+      [{ key: "preferred.search_mode", op: "add", value: "search_text", scopeCaller: "" }],
       NOW,
     );
-    const before = preferenceProfile(edb, V1).entries[0]?.weight as number;
+    const before = preferenceProfile(edb, V1, null).entries[0]?.weight as number;
 
     seedRetrieval(edb, { chunk_id: "c1", surface_type: "search_text", citation_state: null });
     const r = await extractPreferences(edb, V1, { nowMs: NOW + 1, cacheDb });
     expect(r).toMatchObject({ skipped: true, applied: 0 }); // no OTHER evidence reached the pass
-    expect(preferenceProfile(edb, V1).entries[0]?.weight).toBe(before); // unchanged, not weakened
+    expect(preferenceProfile(edb, V1, null).entries[0]?.weight).toBe(before); // unchanged, not weakened
   });
 
   it("a non-search-family surface_type never contributes, even with a confirmed citation", async () => {
@@ -238,7 +245,7 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     });
     const r = await extractPreferences(edb, V1, { nowMs: NOW, cacheDb });
     expect(r).toMatchObject({ skipped: false, applied: 0 });
-    expect(preferenceProfile(edb, V1).entries).toHaveLength(0);
+    expect(preferenceProfile(edb, V1, null).entries).toHaveLength(0);
   });
 
   it("one event_group (one search call) returning multiple chunks yields exactly ONE delta", async () => {
@@ -285,7 +292,7 @@ describe("extractPreferences: citation evidence (THE-644, off by default)", () =
     });
     const r = await extractPreferences(edb, V1, { nowMs: NOW, cacheDb });
     expect(r).toMatchObject({ skipped: true, applied: 0 });
-    expect(preferenceProfile(edb, V1).entries).toHaveLength(0);
+    expect(preferenceProfile(edb, V1, null).entries).toHaveLength(0);
     // The SAME evidence, scoped to its actual vault, DOES apply — proving the exclusion above was
     // the vault join, not something wrong with the fixture.
     const r2 = await extractPreferences(edb, V2, { nowMs: NOW, cacheDb });

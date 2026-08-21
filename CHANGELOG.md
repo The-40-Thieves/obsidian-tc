@@ -187,6 +187,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Security
 
+- **Per-key preference scoping — human vs caller (#846, THE-891 item 6).** `preference_profile` /
+  `preference_deltas` gain a `scope_caller` column (migration `20260820_001`, PK now `(vault_id,
+  scope_caller, key)`), and `PREFERENCE_KEYS` (`reflect.ts`) now declares a scope per registered
+  key: `"human"` keys stay shared by every caller of a vault (the human's preference, whichever
+  agent is asking); `"caller"` keys are partitioned per principal, because a telemetry-derived
+  preference encodes the *observing agent's* workload and must not steer a different agent's
+  retrieval. `preferred.search_mode` — the one registered key — is now caller-scoped. New keys
+  default to caller-scoped; sharing is a per-key opt-in reviewed at registration. Reads go through
+  `preferenceProfile(edb, vaultId, caller, opts?)`: a caller sees the human partition (`''`, where a
+  NULL caller — the single trusted principal on an unauthenticated stdio transport — lands too)
+  UNION its own; `opts.anyCaller` crosses every partition and is authorization-enforced, not
+  filtered, mirroring `agent_episodes`' P1.7 treatment (`admin:workspace`, refuses rather than
+  silently narrowing). Existing `preferred.search_mode` rows were purged, not backfilled — same
+  THE-563/THE-710 precedent: no row ever recorded a caller, and the deterministic extractor
+  (THE-673) reproduces them with correct per-window attribution from retained episodes. SECURITY.md
+  and `reflect.ts`'s own comments are rewritten in the same change (the earlier "all callers are the
+  same person" wording conflated one human with one working context — the supported topology is one
+  human running many agents through one server, and cross-caller preference bleed is a real
+  contamination channel even with a single trusted human).
 - **`sentence-transformers`'s floor bounded below its new major (#840).** The bge-m3 service's
   `>=5` floor admitted the just-released v6.0.0 (2026-08-18, requires `transformers>=5,<6`) on any
   pyproject-only install — unvalidated against this service, the same unbounded-`>=X`-forces-a-major
