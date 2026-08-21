@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-08-21
+
 ### Added
 
 - **THE-891 item 2 (#845) — the capture mitigation profile every accepted local-persistence
