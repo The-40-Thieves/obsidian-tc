@@ -15,12 +15,15 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
+import { MIN_CALIBRATION_N, persistCalibration } from "../src/experiential/calibration";
 import {
+  DEFAULT_GAP_THRESHOLD,
   detectGaps,
   type GapBatchSearchFn,
   parseQueriesFile,
   persistGapReport,
   readLatestGapReport,
+  resolveGapThreshold,
   scoreDistribution,
   singleQuerySearch,
 } from "../src/experiential/gaps";
@@ -113,6 +116,84 @@ describe("detectGaps (THE-48)", () => {
     expect(called).toBe(false);
     expect(report.total).toBe(0);
     expect(report.items).toEqual([]);
+  });
+});
+
+describe("resolveGapThreshold (THE-891 item 4)", () => {
+  it("falls back to DEFAULT_GAP_THRESHOLD when no calibration row exists", () => {
+    const edb = edb0();
+    const resolved = resolveGapThreshold(edb, "main");
+    expect(resolved.source).toBe("fallback");
+    expect(resolved.reason).toBe("not_calibrated");
+    expect(resolved.threshold).toBe(DEFAULT_GAP_THRESHOLD);
+  });
+
+  it("falls back when a calibration exists but has too few samples", () => {
+    const edb = edb0();
+    persistCalibration(edb, {
+      vault_id: "main",
+      computed_at: 1_000,
+      n: MIN_CALIBRATION_N - 1,
+      min: 0.01,
+      p5: 0.05,
+      p10: 0.06,
+      p25: 0.08,
+      median: 0.1,
+      p75: 0.15,
+      p90: 0.2,
+      p95: 0.25,
+      engine_version: "test",
+      config_fingerprint: null,
+    });
+    const resolved = resolveGapThreshold(edb, "main");
+    expect(resolved.source).toBe("fallback");
+    expect(resolved.reason).toBe("not_enough_samples");
+    expect(resolved.threshold).toBe(DEFAULT_GAP_THRESHOLD);
+  });
+
+  it("uses the vault's own calibrated p5 when enough samples exist", () => {
+    const edb = edb0();
+    persistCalibration(edb, {
+      vault_id: "main",
+      computed_at: 1_000,
+      n: MIN_CALIBRATION_N,
+      min: 0.01,
+      p5: 0.222,
+      p10: 0.3,
+      p25: 0.35,
+      median: 0.4,
+      p75: 0.5,
+      p90: 0.6,
+      p95: 0.7,
+      engine_version: "test",
+      config_fingerprint: null,
+    });
+    const resolved = resolveGapThreshold(edb, "main");
+    expect(resolved.source).toBe("calibration");
+    expect(resolved.reason).toBeUndefined();
+    expect(resolved.threshold).toBe(0.222);
+  });
+
+  it("scopes by vault_id — another vault's calibration never leaks in", () => {
+    const edb = edb0();
+    persistCalibration(edb, {
+      vault_id: "other",
+      computed_at: 1_000,
+      n: MIN_CALIBRATION_N,
+      min: 0.01,
+      p5: 0.9,
+      p10: 0.9,
+      p25: 0.9,
+      median: 0.9,
+      p75: 0.9,
+      p90: 0.9,
+      p95: 0.9,
+      engine_version: "test",
+      config_fingerprint: null,
+    });
+    const resolved = resolveGapThreshold(edb, "main");
+    expect(resolved.source).toBe("fallback");
+    expect(resolved.threshold).toBe(DEFAULT_GAP_THRESHOLD);
   });
 });
 

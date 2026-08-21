@@ -179,7 +179,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // no-ops with no network call; see packages/shared/src/config/observability.schema.ts's
   // ReadwiseConfigSchema for the full description text. No existing key, type, default or
   // constraint moved.
-  "c79f3bc9dc3555dc258307954bdd36d35341688ea46cce5143b871f97a9ee63a";
+  // THE-891 item 7: rebaselined deliberately. `plane.maxPromptChars`'s DEFAULT changed
+  // 60000 -> 45535 and its `.describe()` text was rewritten. No key added, removed, retyped or
+  // moved — see packages/shared/src/config/observability.schema.ts's PlaneConfigSchema and
+  // packages/server/src/plane/jobs/synthesis.ts's DEFAULT_MAX_PROMPT_CHARS comment for the
+  // derivation: the char budget now targets the SAME ~14,554-token output reserve for every vault
+  // shape (derived from the worst-case 2.5 chars/token density this job already documented),
+  // instead of a budget anchored to one vault's own measured prose density.
+  "15e86873d83433ec6be1177b9209e87df554e9ec50605e2e9bfac36297749520";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

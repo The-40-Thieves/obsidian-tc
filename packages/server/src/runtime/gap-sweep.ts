@@ -18,7 +18,13 @@
 //      meaningful. A fixed golden set would measure the golden set forever.
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
-import { detectGaps, type GapBatchSearchFn, persistGapReport } from "../experiential/gaps";
+import {
+  DEFAULT_GAP_THRESHOLD,
+  detectGaps,
+  type GapBatchSearchFn,
+  persistGapReport,
+  resolveGapThreshold,
+} from "../experiential/gaps";
 import type { Scheduler } from "../scheduler/scheduler";
 import { chunkPathResolver } from "../search/chunk-vault";
 import { graphSearch } from "../search/graph_search";
@@ -154,10 +160,19 @@ export function registerGapSweep(scheduler: Scheduler, deps: GapSweepDeps): void
           vaultId,
           ...(deps.rrfK !== undefined ? { rrfK: deps.rrfK } : {}),
         });
+        // THE-891 item 4: same calibration-first threshold the CLI uses (resolveGapThreshold) —
+        // two copies of "prefer score_calibration, fall back to the single-vault constant" would
+        // drift, same reasoning as makeGapBatchSearch being shared above.
+        const resolved = resolveGapThreshold(deps.experientialDb, vaultId);
+        if (resolved.source === "fallback") {
+          process.stderr.write(
+            `[gap-sweep] ${vaultId} has no usable score_calibration (${resolved.reason}) — using DEFAULT_GAP_THRESHOLD (${DEFAULT_GAP_THRESHOLD}), a single-vault fallback. Run \`gaps --calibrate\` against this vault to replace it.\n`,
+          );
+        }
         const report = await detectGaps(
           queries.map((q, i) => ({ id: `recent-${i}`, query: q })),
           search,
-          {},
+          { threshold: resolved.threshold },
         );
         persistGapReport(deps.experientialDb, report, { vaultId, computedAt: now() });
       }

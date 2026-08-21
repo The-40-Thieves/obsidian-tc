@@ -7,6 +7,7 @@ import type {
   DerivedTablesView,
   ExperientialEvaluatorView,
   KbHealthView,
+  NoteSummaryScaleView,
   NotesFtsView,
   ProviderRegistrationView,
   RerankerBuildableView,
@@ -21,6 +22,7 @@ import {
   experientialEvaluatorCheck,
   kbHealthCheck,
   nativeCheck,
+  noteSummaryScaleCheck,
   notesFtsIntegrityCheck,
   obsidianCheck,
   providerRegistrationCheck,
@@ -85,6 +87,10 @@ export interface DoctorConfigView {
   /** Entry-point liveness: is each scheduled pass actually succeeding, and how much of the tool
    *  surface has ever been invoked. Probe-only, same as derivedTables. */
   entryPoints?: EntryPointsView;
+  /** THE-891 item 5: is the note-summary brute-force scan's cost still bounded? `enabled` always
+   *  present (mirrors notesFts); the per-vault row counts only under `--probe`, same reasoning as
+   *  every other store-touching check. */
+  noteSummariesScale?: NoteSummaryScaleView;
 }
 
 export interface AssembleOptions {
@@ -155,6 +161,10 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // whether nothing enabled its writer or the writer runs and loses every time; only the schedule
   // row separates those, and they need opposite fixes.
   if (config.entryPoints) checks.push(entryPointsCheck(config.entryPoints));
+  // THE-891 item 5: the note-summary candidate stream's brute-force scan was documented as "stays
+  // small enough" with no bound and no way to tell from inside the system when a vault outgrew that
+  // assumption. Same optional-view reasoning as retrieval/snapshots above.
+  if (config.noteSummariesScale) checks.push(noteSummaryScaleCheck(config.noteSummariesScale));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

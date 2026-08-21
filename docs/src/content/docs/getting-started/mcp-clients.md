@@ -117,7 +117,9 @@ cut, so the tie order decides top-10 membership. Ranking metrics move; set-based
 
 That is a narrow effect on a duplicate-heavy fixture rather than a statement about arm retrieval
 being worse. It is still the reason arm is a first-class target rather than a portability
-courtesy — the maintainer's production runs Ampere.
+courtesy — a platform where the SAME commit's ranking metrics can diverge like this is one the
+required `build-test` matrix has to catch on every PR, not one measured occasionally and trusted
+the rest of the time.
 
 ## Reproducing a row
 

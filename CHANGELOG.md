@@ -118,6 +118,30 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   typed `plugin_unreachable` when absent, matching `/makemd/query`'s existing guard, instead of a
   silent wrong-value result. The routes stay in place (dropping them is a product decision, not a
   correctness fix) with a comment documenting the finding.
+- **Five deployment-bias leaks from the THE-891 product-lens audit, corrected (#843, THE-710's
+  recorded-lesson pattern: "single-user is not single-vault").** Each was a numeric default or
+  justification calibrated on the maintainer's own ~1,150-note, single-principal deployment and
+  shipped as though it were a product truth:
+  - `gaps.ts`'s coverage-gap threshold now prefers a vault's own `score_calibration` (`gaps
+    --calibrate`) over `DEFAULT_GAP_THRESHOLD` whenever one exists with enough samples
+    (`resolveGapThreshold`, wired into both the CLI and the scheduled gap-sweep); the constant is
+    now documented honestly as a last-resort fallback from one vault's dead nomic-768
+    representation, and both callers log when they actually fall back to it uncalibrated.
+  - `search/note-summaries.ts`'s brute-force note-summary scan now states a concrete, measured
+    ceiling (`NOTE_SUMMARY_SCAN_CEILING`, derived from a benchmarked ~2us/row cosine cost) instead
+    of an unstated "stays small enough," and a new `search.note-summaries-scale` doctor check
+    (`doctor --probe`) warns per-vault when a vault crosses it.
+  - The synthesis job's `plane.maxPromptChars` default moved from 60,000 to 45,535 characters,
+    recomputed from the SAME worst-case density (2.5 chars/token, code/CJK) the module already
+    documented rather than from the maintainer's own prose density (3.294) — every vault shape now
+    keeps at least the same ~14,554-token output reserve the old default only gave prose-like
+    vaults.
+  - `citation.ts`'s `judgeConcurrency` default (unchanged: 3) is now justified as a conservative
+    floor safe for the weakest gateway behind the judge role, not "a burst this deployment has no
+    reason to send" — `--judge-concurrency`'s CLI help now says when to raise it.
+  - The arm-first-class CI rationale in `docs/.../mcp-clients.md` no longer cites "the maintainer's
+    production runs Ampere"; the tie-ordering nDCG divergence measured directly above it is the
+    actual evidence and now stands alone.
 
 ### Security
 

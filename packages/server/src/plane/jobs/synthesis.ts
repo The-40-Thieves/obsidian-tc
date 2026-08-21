@@ -38,17 +38,29 @@ const CONTENT_TRUNCATE = 1000;
  * (that is the point of the indirection) and the server does not advertise `max_model_len` through
  * the LiteLLM `/v1/models` passthrough, so this side cannot discover the real ceiling.
  *
- * Measured on the live vault: **3.294 chars/token** (107,475 chars = 32,625 tokens, bisected
- * against the real endpoint). Denser content tokenizes worse — code and CJK run nearer 2.5.
+ * THE-891 item 7: the number below is now DERIVED FORWARD from the worst-case density, not from one
+ * vault's prose. An earlier version anchored the char budget to a single measurement — **3.294
+ * chars/token** (107,475 chars = 32,625 tokens, bisected against the real endpoint on the
+ * maintainer's own vault) — with the worst-case rate (dense content: code and CJK run nearer 2.5
+ * chars/token) treated as a reassuring footnote rather than the design input. That gave the
+ * maintainer's own prose a generous ~14,554-token output reserve while a vault running consistently
+ * at the worst-case density got only ~8,768 — a materially thinner safety margin for exactly the
+ * vault shapes least like the one this was tuned on.
+ *
+ * The fix: pick the output reserve first (14,554 tokens — what the old default already gave the
+ * typical case) and hold it FIXED across vault shapes, deriving the char budget from the worst-case
+ * rate so no vault gets less of it. `32,768 - 14,554 = 18,214` input tokens allowed even at
+ * worst-case density; `18,214 x 2.5 chars/token = 45,535` characters. A prose-dense vault (3.294
+ * chars/token) now gets ~18,945 tokens of output reserve — MORE than before, not less — while a
+ * code/CJK vault gets the same ~14,554-token floor every vault shape is now guaranteed, instead of
+ * being the one paying for the difference.
  *
  * This number is the TOTAL: buildUserMessage subtracts `reserved` (the system prompt) from it, so
- * the system prompt is inside the 60,000, not on top of it. Worst case at 2.5 chars/token is
- * therefore 24,000 tokens, leaving 8,768 for the model's own JSON output inside a 32,768 window.
- * On this vault's actual prose (3.294) it is 18,214 tokens, leaving 14,554.
+ * the system prompt is inside the 45,535, not on top of it.
  *
  * Raise it via `plane.maxPromptChars` when the role points at a larger serving window.
  */
-const DEFAULT_MAX_PROMPT_CHARS = 60_000;
+const DEFAULT_MAX_PROMPT_CHARS = 45_535;
 
 interface ChunkRow {
   path: string;

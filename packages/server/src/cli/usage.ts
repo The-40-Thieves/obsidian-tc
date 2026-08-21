@@ -81,11 +81,15 @@ Usage:
                                           entries are SKIPPED and reported, never guessed at. The
                                           transcript must already be filtered to text produced AFTER
                                           retrieved_at.
-                                          --judge-concurrency bounds the judge fan-out (default 3);
-                                          --min-judged-for-kill floors the parse-failure kill switch
-                                          (default 10) so one bad reply cannot abort a small pass
-                                          (THE-621). --allow-uncertain lets the judge abstain — dark by
-                                          default, since it moves rows out of the citation count.
+                                          --judge-concurrency bounds the judge fan-out (default 3) — a
+                                          conservative floor safe for the weakest gateway behind the
+                                          judge role, not a measurement of any one deployment's
+                                          traffic; raise it when the judge role has real inference
+                                          capacity behind it. --min-judged-for-kill floors the
+                                          parse-failure kill switch (default 10) so one bad reply
+                                          cannot abort a small pass (THE-621). --allow-uncertain lets
+                                          the judge abstain — dark by default, since it moves rows out
+                                          of the citation count.
   obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
                                           Knowledge-health scorecard from the derive layer (THE-44/46)
   obsidian-tc config explain [path] [--source env|file|profile|default|derived] [--json]

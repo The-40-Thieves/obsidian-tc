@@ -11,6 +11,7 @@ import {
   detectGaps,
   parseQueriesFile,
   persistGapReport,
+  resolveGapThreshold,
   scoreDistribution,
 } from "../../experiential/gaps";
 import { makeGapBatchSearch } from "../../runtime/gap-sweep";
@@ -87,8 +88,21 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
     }
     const { queries, warnings } = parseQueriesFile(readFileSync(cmd.queries as string, "utf8"));
     for (const w of warnings) process.stderr.write(`gaps: ${w}\n`);
+    // THE-891 item 4: --threshold still wins when the operator supplied one explicitly; otherwise
+    // prefer this vault's own score_calibration over the single-vault DEFAULT_GAP_THRESHOLD
+    // fallback, and say so when the fallback is what actually ran.
+    let threshold = cmd.threshold;
+    if (threshold === undefined) {
+      const resolved = resolveGapThreshold(edb, vaultId);
+      threshold = resolved.threshold;
+      if (resolved.source === "fallback") {
+        process.stderr.write(
+          `gaps: ${vaultId} has no usable score_calibration (${resolved.reason}) — using DEFAULT_GAP_THRESHOLD (${DEFAULT_GAP_THRESHOLD}), a single-vault fallback. Run \`gaps --calibrate\` against this vault to replace it.\n`,
+        );
+      }
+    }
     const report = await detectGaps(queries, search, {
-      ...(cmd.threshold !== undefined ? { threshold: cmd.threshold } : {}),
+      threshold,
       ...(cmd.minResults !== undefined ? { minResults: cmd.minResults } : {}),
     });
     // THE-644 item 1: persist so a later pass (or the read-only gap_report MCP tool, THE-611) can
