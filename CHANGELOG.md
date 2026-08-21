@@ -187,7 +187,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Security
 
-- **Per-key preference scoping — human vs caller (THE-891 item 6).** `preference_profile` /
+- **Per-key preference scoping — human vs caller (#846, THE-891 item 6).** `preference_profile` /
   `preference_deltas` gain a `scope_caller` column (migration `20260820_001`, PK now `(vault_id,
   scope_caller, key)`), and `PREFERENCE_KEYS` (`reflect.ts`) now declares a scope per registered
   key: `"human"` keys stay shared by every caller of a vault (the human's preference, whichever
