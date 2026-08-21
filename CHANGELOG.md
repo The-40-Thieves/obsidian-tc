@@ -95,7 +95,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Security
 
-- **`sentence-transformers`'s floor bounded below its new major.** The bge-m3 service's
+- **`sentence-transformers`'s floor bounded below its new major (#840).** The bge-m3 service's
   `>=5` floor admitted the just-released v6.0.0 (2026-08-18, requires `transformers>=5,<6`) on any
   pyproject-only install — unvalidated against this service, the same unbounded-`>=X`-forces-a-major
   class the `sharp` override was bounded against in #750. Now `>=5,<6`; the compiled
