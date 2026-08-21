@@ -5,14 +5,27 @@
 // existing test, because the CI lane those tests ran in never had the addon built. This suite
 // calls the REAL compiled binding directly, with exactly the types NativeOps declares, so a
 // signature drift is caught here rather than only tolerated by the lenient JS fallback.
+//
+// `search/native.ts`'s exported `nativeLoaded` is NOT the right gate for that: it only checks
+// that requiring the package produced the expected function *names*, and
+// `packages/native/index.js` itself falls back to its own bundled `fallback.js` (same
+// function names, lenient types) whenever no local `.node` and no published platform prebuild
+// resolve — exactly the state of every `--ignore-scripts` CI checkout. The package's OWN
+// `nativeLoaded` export (index.js) is the only signal that distinguishes "real napi binding" from
+// "the package's internal JS fallback", so this suite reads that one directly instead.
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { loadNative } from "../src/search/native";
 
 // Empty env: OBSIDIAN_TC_FORCE_JS_FALLBACK in the ambient environment must not suppress this.
 const native = loadNative({} as NodeJS.ProcessEnv);
+// The real napi binding's own liveness flag — see the file-header note above for why this,
+// and not truthiness of `native` itself, is the correct gate.
+const isRealNative =
+  (native as unknown as { nativeLoaded?: boolean } | null)?.nativeLoaded === true;
 const hasRougeLLcs = typeof native?.rougeLLcs === "function";
 
-describe.skipIf(native === null)("NativeOps contract — real compiled binding (THE-905)", () => {
+describe.skipIf(!isRealNative)("NativeOps contract — real compiled binding (THE-905)", () => {
   const n = native as NonNullable<typeof native>;
 
   it("cosineSimilarity(number[], Float32Array) -> finite number in [-1, 1]", () => {
@@ -24,9 +37,10 @@ describe.skipIf(native === null)("NativeOps contract — real compiled binding (
 
   it("cosineSimilarity(number[], number[]) THROWS — the #855 class, pinned open", () => {
     // The native signature is (Vec<f64>, Float32Array); a plain array on the document side
-    // fails at the napi boundary instead of degrading. The JS fallback tolerates this same
-    // call silently (fallback-strictness left open as a follow-up option), so this pin
-    // documents the divergence rather than closing it.
+    // fails at the napi boundary instead of degrading. The JS fallback (both native.ts's own
+    // and packages/native/fallback.js) tolerates this same call silently (fallback-strictness
+    // left open as a follow-up option), so this pin documents the divergence rather than
+    // closing it.
     expect(() => n.cosineSimilarity([0.1, 0.2], [0.2, 0.1] as unknown as Float32Array)).toThrow();
   });
 
@@ -60,11 +74,25 @@ describe.skipIf(native === null)("NativeOps contract — real compiled binding (
   );
 });
 
-describe.skipIf(native !== null)(
+describe.skipIf(isRealNative)(
   "NativeOps contract — SKIPPED: no .node built on this host (THE-905)",
   () => {
     it("names why: run this suite where ci-server.yml's native-contract job builds the addon", () => {
-      expect(native).toBeNull();
+      expect(isRealNative).toBe(false);
     });
   },
 );
+
+describe("packages/native/index.js's own nativeLoaded is the real-binding signal, not the package's function shape", () => {
+  // Documents the trap this file's header explains: requiring the package always succeeds with
+  // the right function names, whether backed by the real .node or its bundled fallback.js, so
+  // `typeof mod.cosineSimilarity === "function"` alone (search/native.ts's own completeness
+  // check) cannot tell the two apart. `mod.nativeLoaded` can.
+  it("mod.nativeLoaded reflects reality even though the function surface is identical either way", () => {
+    if (native === null) return; // OBSIDIAN_TC_FORCE_JS_FALLBACK or a require failure; nothing to check
+    const req = createRequire(import.meta.url);
+    const mod = req("@the-40-thieves/obsidian-tc-native") as { nativeLoaded?: boolean };
+    expect(typeof mod.nativeLoaded).toBe("boolean");
+    expect(mod.nativeLoaded).toBe(isRealNative);
+  });
+});

@@ -385,6 +385,15 @@ jobs:
     # packages/server/src changes such a filter would never have run on. ci-server.yml is
     # deliberately unfiltered (see this workflow's `pull_request:` trigger comment) for exactly
     # this class of gap.
+    #
+    # The load-assertion below reads packages/native's OWN `nativeLoaded` export (index.js), not
+    # search/native.ts's -- discovered running this job for real: `search/native.ts`'s
+    # `loadNative()` only checks that the required package exposes the right function *names*,
+    # and packages/native/index.js itself falls back to its bundled fallback.js (same names,
+    # lenient types) whenever no local `.node` and no published platform prebuild resolve --
+    # which is every `--ignore-scripts` checkout, including build-test above. Checking
+    # search/native.ts's flag here would have made this assertion pass on the silent fallback it
+    # exists to catch.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -403,8 +412,9 @@ jobs:
         run: |
           set -euo pipefail
           bun -e '
-            import { nativeLoaded } from "./src/search/native";
-            if (!nativeLoaded) {
+            import { createRequire } from "node:module";
+            const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native");
+            if (mod.nativeLoaded !== true) {
               console.error("native-contract: compiled addon did NOT load -- silently on the JS fallback");
               process.exit(1);
             }
