@@ -42,7 +42,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Readwise is the first adapter of a format designed for others (Instapaper/Matter, which Readwise
   itself already aggregates) to reuse without a new canonical shape.
 - **Source-agnostic ambient-capture import format + Pensieve adapter, staged via `capture_queue`
-  (THE-175).** Sibling to THE-650's highlight-import format (same pattern, different domain):
+  (#841, THE-175).** Sibling to THE-650's highlight-import format (same pattern, different domain):
   passively-recorded screen activity — OCR'd screen text, active app/window, optional browser
   URL — never reached the vault before this. `import-ambient` (a new CLI command) polls a
   Pensieve instance's `GET /api/search` (verified against github.com/arkohut/pensieve @ v0.37.0,
