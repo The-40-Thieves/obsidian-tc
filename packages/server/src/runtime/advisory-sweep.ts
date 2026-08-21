@@ -212,7 +212,14 @@ export async function buildSimilarityFn(
     { input: "document" },
   );
   const goalVecByText = new Map(goals.map((g, i) => [g.text, goalVecs[i]]));
-  const candidateVecByText = new Map(candidates.map((c, i) => [c.text, candidateVecs[i]]));
+  // Document side converts to Float32Array once at map build — the native cosine requires it
+  // (native.ts contract); the goal side stays number[] per the same signature.
+  const candidateVecByText = new Map(
+    candidates.map((c, i) => {
+      const v = candidateVecs[i];
+      return [c.text, v ? Float32Array.from(v) : undefined] as const;
+    }),
+  );
   return (goalText, candidateText) => {
     const a = goalVecByText.get(goalText);
     const b = candidateVecByText.get(candidateText);

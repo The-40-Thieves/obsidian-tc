@@ -79,7 +79,10 @@ export async function semanticRankEpisodes(
   }
 
   const scored = embeddable
-    .map((c, i) => ({ id: c.id, score: cosineSimilarity(queryVec, docVecs[i] ?? []) }))
+    .map((c, i) => ({
+      id: c.id,
+      score: cosineSimilarity(queryVec, Float32Array.from(docVecs[i] ?? [])),
+    }))
     .filter((s) => Number.isFinite(s.score) && s.score > 0);
   scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return scored.map((s) => s.id);

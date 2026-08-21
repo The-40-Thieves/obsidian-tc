@@ -6,6 +6,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **Semantic `work_search` and the advisory sweep crashed on any install with the prebuilt native addon** — both passed a plain `number[]` where the native `cosineSimilarity` binding requires a `Float32Array` (#855). The JS fallback tolerated the wrong type, so the defect was invisible wherever the addon wasn't built — including the CI test lane. Callers fixed, and the `NativeOps` interface tightened to `b: Float32Array` so the compiler now rejects this class.
+
 ### Added
 
 - **Inline commentary policy + a generated, drift-gated decisions index** (#850). Ticket-thread-
