@@ -1,38 +1,18 @@
-// WP2.3: the `vault_graph_search` tool factory, extracted verbatim out of buildKnowledgeTools.
-// Takes the shared retrieval runtime constructed once in buildKnowledgeTools rather than building
-// its own embedder, cache, or policy state — see RetrievalRuntime's doc comment in
-// retrieval-runtime.ts. Uses retrieval.embedAll on both the cached and fan-out (THE-448) paths.
+// WP2.3: vault_graph_search tool factory. Runs against the shared RetrievalRuntime built once in
+// buildKnowledgeTools (embedder/cache/policy state) — see RetrievalRuntime's doc comment in
+// retrieval-runtime.ts. THE-630 adds federated multi-vault search: `vaults` is additive alongside
+// the required `vault` (primary vault always leads); a set collapsing to just the primary vault
+// is an exact no-op (AC1), byte-identical to this tool before THE-630. See federated_search.ts
+// for the fan-out/fusion engine (RRF keyed on (vault, path)). See docs/design/graph-search.md.
 //
-// THE-630: federated multi-vault search. `vaults` is an ADDITIVE optional field alongside the
-// existing required `vault` — same convention as THE-448's `queries[]` alongside `query`: the
-// primary `vault` always leads, `vaults` supplies additional targets, and a set that collapses to
-// just the primary vault (absent, empty, or every entry equal to `vault`) is an EXACT no-op that
-// runs the single-vault path below byte-identically to before this ticket (AC1). See
-// `search/federated_search.ts` for the fan-out/fusion engine and its header for why fusion is
-// rank-based RRF keyed on (vault, path).
-//
-// SECURITY: three invariants, each with its own dedicated test (see
-// test/federated-search-security.test.ts):
-//   1. ACL is enforced PER VAULT. Every federated leg resolves its OWN FolderAcl from
-//      `deps.aclByVault` (falling back to `deps.acl`, the root ACL — the SAME fallback
-//      governance.ts's own aclResolver and acl.ts's makeIndexReadable already use), and NEVER reads
-//      `ctx.acl` — `ctx.acl` is set once, by central dispatch's THE-295 swap, for the single vault
-//      named in this tool's declared `vaultArg` field, so it can describe at most one of N
-//      federated vaults correctly.
-//   2. The query cache stays a per-vault isolation boundary. Each leg's `QueryCacheContext` is
-//      built by `cacheContextFor(..., acl)` with that SAME per-vault ACL passed explicitly (not the
-//      ctx.acl default), so `aclFingerprint` — "the only thing that keeps caller A's cached results
-//      from reaching caller B" (query_cache.ts) — is fingerprinted per vault. No new cache-key
-//      shape or combined-fingerprint entry is introduced: each leg goes through the existing,
-//      unmodified `cachedGraphSearch`, so a federated call reads/writes N independent per-vault
-//      cache entries, never one.
-//   3. A vaultBound (HTTP-token) caller is refused BEFORE any DB/embedding work, on the PRESENCE of
-//      a non-empty `vaults` field alone — regardless of content, including `vaults: [ctx.vaultId]`
-//      naming only its own vault. Central dispatch's `enforceVaultBinding` (mcp/registry/
-//      input-binding.ts) cannot catch this by construction: it only inspects the tool's declared
-//      singular `vaultArg` field ("vault"), and never looks at `vaults` at all. Relying on it here
-//      would ship the exact cross-tenant leak class THE-563/564 were filed to close, on a brand-new
-//      surface — so the refusal is the FIRST line of this handler, not delegated to dispatch.
+// SECURITY: three invariants, each with a dedicated test (test/federated-search-security.test.ts):
+//   1. ACL is resolved PER VAULT, from deps.aclByVault (falling back to deps.acl), never from
+//      ctx.acl — ctx.acl describes only the single vault named in this tool's declared vaultArg.
+//   2. The query cache is a per-vault isolation boundary: each leg's QueryCacheContext carries
+//      that leg's own ACL, so aclFingerprint never lets one caller's cached results reach another.
+//   3. A vaultBound (HTTP-token) caller is refused on the PRESENCE of a non-empty `vaults` field
+//      alone, before any DB/embedding work — central dispatch cannot catch this by construction
+//      (it only inspects the declared singular `vaultArg`). See docs/design/graph-search.md.
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../../acl";
@@ -78,12 +58,10 @@ function aclForVault(deps: M7Deps, vaultId: string): FolderAcl | undefined {
 }
 
 /**
- * Run ONE vault's full search — the class-router short-circuit, then either the THE-448 fan-out
- * (multiQueryGraphSearch, bypasses the cache exactly as it always has) or the cached single-query
- * path (cachedGraphSearch). Moved verbatim out of the handler below so the exact same logic backs
- * both the ordinary single-vault call and each leg of a federated one — the single-vault call site
- * is what makes AC1's byte-identical guarantee mechanical rather than a promise to keep two copies
- * in sync.
+ * Runs ONE vault's full search: the class-router short-circuit, then either the THE-448 fan-out
+ * (multiQueryGraphSearch, bypasses the cache) or the cached single-query path (cachedGraphSearch).
+ * Shared verbatim by the single-vault call site and every federated leg, so AC1's byte-identical
+ * guarantee holds mechanically rather than by keeping two copies in sync.
  */
 async function searchOneVault(
   deps: M7Deps,
@@ -193,39 +171,24 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
       .object({
         vault: VaultId,
         query: z.string().min(1),
-        // THE-451: agent-supplied HyDE (Gao 2023). MCP-native — the CLIENT writes the
-        // hypothetical answer; there is no server-side LLM generating it here. When present,
-        // it replaces the query as the DENSE-arm seed only (see below); sparse/ColBERT keep
-        // the raw query untouched. No min() bound: an empty/whitespace-only value must be a
-        // silent no-op (not a validation error), so length-gating happens in the handler.
-        // Measurement-fragile per the ticket: HyDE helps under-specified/zero-shot queries and
-        // can HURT a strong encoder on well-specified queries (our nomic-768 + golden set is
-        // squarely the latter). This is an opt-in lever for the CALLER to reach for on vague
-        // queries — never make it the default path.
+        // THE-451: agent-supplied HyDE (Gao 2023), MCP-native — the client writes the hypothetical
+        // answer, no server-side LLM involved. Replaces the query as the DENSE-arm seed only;
+        // sparse/ColBERT always embed the raw query. No min() bound: blank/absent is a silent
+        // no-op, length-gated in the handler, not a validation error. Opt-in lever for vague
+        // queries — never the default path. See docs/design/graph-search.md.
         hypothetical_answer: z.string().max(4000).optional().nullable(),
-        // THE-448: agent-supplied phrasing VARIANTS. Like hypothetical_answer above this is
-        // MCP-native — the CLIENT writes the paraphrases; no server LLM generates them. Each
-        // variant gets its own full graphSearch and the ranked lists are fused across variants by
-        // rank-based RRF (see search/multi_query.ts for why rank and not score).
-        //
-        // The main `query` is ALWAYS included as a variant, so supplying only paraphrases cannot
-        // silently drop the phrasing the caller actually asked about.
-        //
-        // Capped at 8: cost is LINEAR in variants — N phrasings is N complete searches — so an
-        // unbounded array is a denial-of-service shape rather than a feature. Blank entries are
-        // ignored, and a set that collapses to one distinct query is an exact no-op.
-        //
-        // Gains concentrate on compound / multi-facet queries and are roughly neutral on
-        // single-fact ones, while always costing latency and agent tokens. Opt-in per call.
+        // THE-448: agent-supplied phrasing VARIANTS, MCP-native — the client writes the
+        // paraphrases, no server LLM. Each variant runs its own full graphSearch, fused by
+        // rank-based RRF (see search/multi_query.ts). `query` is always included as a variant so
+        // paraphrases-only input can't drop it. Capped at 8 (cost is linear — N phrasings is N
+        // searches); blanks dropped, duplicates collapsed to an exact no-op. Opt-in per call.
+        // See docs/design/graph-search.md.
         queries: z.array(z.string().max(1000)).max(8).optional(),
         // THE-630: agent-supplied ADDITIONAL target vaults, federated alongside the primary
-        // `vault`. Same "always leads, additive, capped, opt-in" shape as `queries[]` above —
-        // see this file's header for the security invariants this field's presence gates.
-        //
-        // Capped at 8 for the same reason `queries[]` is: cost is LINEAR in target vaults, so an
-        // unbounded array is a denial-of-service shape. A `vaults` set that collapses to just the
-        // primary vault (absent, empty, or every entry equal to `vault`) is an EXACT no-op —
-        // AC1 — running byte-identically to this tool before THE-630.
+        // `vault` — same additive/capped/opt-in shape as `queries[]` above. Capped at 8 (cost is
+        // linear in target vaults). A set collapsing to just the primary vault (absent, empty, or
+        // all equal to `vault`) is an exact no-op (AC1), byte-identical to this tool before
+        // THE-630. See this file's header for the security invariants this field's presence gates.
         vaults: z.array(VaultId).max(8).optional(),
         final_top_k: z.number().int().positive().max(100).default(30),
       })
@@ -234,13 +197,12 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search"],
     handler: async (input, ctx) => {
-      // THE-630 AC2 / invariant 3: refuse a vault-bound (HTTP-token) caller BEFORE any DB/embedding
-      // work, on PRESENCE of a non-empty `vaults` field alone — never on its content. Central
-      // dispatch's enforceVaultBinding only inspects this tool's declared singular `vaultArg`
-      // field ("vault") and cannot see `vaults` at all (see this file's header), so this check
-      // cannot be delegated to it. `vaults: [ctx.vaultId]` — naming only the caller's own vault —
-      // is refused too: the point is that a bound caller must never exercise the federation code
-      // path, not that its result would happen to be safe this time.
+      // THE-630 AC2 / invariant 3: refuse a vault-bound caller BEFORE any DB/embedding work, on
+      // the PRESENCE of a non-empty `vaults` field alone — never on its content (`vaults:
+      // [ctx.vaultId]` is refused too). Central dispatch's enforceVaultBinding only inspects the
+      // declared singular `vaultArg`, and cannot see `vaults` at all (see this file's header), so
+      // this check cannot be delegated to it — a bound caller must never exercise the federation
+      // path.
       if (ctx.vaultBound === true && input.vaults && input.vaults.length > 0) {
         throw err.forbidden(
           "federated multi-vault search is not available to a vault-bound caller",

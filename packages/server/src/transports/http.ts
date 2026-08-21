@@ -69,7 +69,8 @@ function reportAuthRejection(d: AuthRejectionDetail, opts: HttpAppOptions): void
   }
   // `caller` is unverified; label it so a log reader never mistakes it for authenticated identity.
   const who = d.caller === null ? "" : ` caller(unverified)=${JSON.stringify(d.caller)}`;
-  // The one line that would have made a 5-day outage a 5-minute one.
+  // Names the misconfiguration directly (see design note for the incident this call site guards
+  // against) rather than leaving an operator to infer it from a bare rejection reason.
   const hint = d.expStillFuture
     ? " — token has NOT expired; it exceeded auth.tokenTtlSeconds. A long-lived token under a" +
       " short ttl is almost certainly a misconfiguration."
@@ -249,36 +250,19 @@ function contextFromAuthInfo(
       db: opts.db,
       acl: opts.acl,
       signal,
-      // THE-726: attach the caller's open session, resolved DURABLY from SQLite.
+      // THE-726: attach the caller's open session, resolved DURABLY from SQLite (a single indexed
+      // row, idx_workspace_sessions_principal, partial on ended_at IS NULL) rather than cached, so
+      // it holds up across restarts and concurrent HTTP clients. Keyed on the AUTHENTICATED
+      // principal — `activeSessionFor` refuses NULL/empty by construction. See design note for why
+      // this is a transport gap rather than a client-adoption gap.
       //
-      // This transport had no session at all until now — `sessionId` and `activeSessions` appeared
-      // zero times in this file — while the stdio factory read a process-local map. Since this
-      // deployment is reached over HTTP, that is the whole reason `session_id` was NULL on 100% of
-      // `chunk_retrievals` and `agent_episodes` rows: not a wiring defect and not client adoption,
-      // but a transport that could not carry a session no matter what the client called.
-      //
-      // Resolved per request rather than cached: the in-memory tracker is explicitly "process-local
-      // and best-effort: not persisted, so a restart simply resumes untracked", which is acceptable
-      // for one local operator and not for concurrent HTTP clients across restarts. The lookup is a
-      // single indexed row (idx_workspace_sessions_principal, partial on ended_at IS NULL).
-      //
-      // Keyed on the AUTHENTICATED principal. `activeSessionFor` refuses NULL/empty by construction,
-      // so an unauthenticated-principal token resolves nothing instead of colliding on "".
-      //
-      // The vault match is REQUIRED here, and that is not the same judgement as the stdio factory's
-      // superficially identical check. On stdio, `ctx.vaultId` is a DEFAULT and tools address vaults
-      // by their `vault` input argument, so gating there drops sessions for every vault after the
-      // first. On HTTP the context is `vaultBound: true` (THE-267) — dispatch rejects a call naming
-      // any other vault — so the bound vault is the only one this context can act on, and attaching
-      // a session opened against a different vault would point its JSONL trace at a vault this
-      // request cannot touch.
+      // The vault match is REQUIRED: HTTP's context is `vaultBound: true` (THE-267), so the bound
+      // vault is the only one this context can act on, and attaching a session opened against a
+      // different vault would point its JSONL trace at a vault this request cannot touch.
       //
       // THE-726 slice 3: when `sessions.autoOpen` is on and the principal has no open session, the
-      // server opens one rather than waiting for a client to. "Client adoption" was recorded as the
-      // remaining blocker, but every client that would need changing is one we do not control, and
-      // the same reasoning that made this a TRANSPORT gap rather than an adoption gap applies again:
-      // a server-side answer exists. Off by default (privacy is a design input — see
-      // SessionsConfigSchema); when off this is byte-identical to the resolve-only behaviour above.
+      // server opens one rather than waiting for a client to — off by default (SessionsConfigSchema),
+      // in which case this is byte-identical to the resolve-only behaviour above.
       ...(() => {
         const bound = extra?.vault ?? opts.vaultId;
         const principal = extra?.caller ?? null;
@@ -325,21 +309,15 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   /**
    * THE-583: the MCP handler, created ONCE for the app rather than per request.
    *
-   * It used to be per request, and the reason was sound: the caller context closed over THIS
-   * request's verified identity, so a long-lived handler would have leaked one caller's
-   * authorization into another's. That constraint is what made a long-lived
-   * `subscriptions/listen` stream impossible — the handler serving it was closed the instant the
-   * request that created it returned.
-   *
-   * The isolation is preserved by a different mechanism, not dropped. `createMcpHandler` invokes
-   * its factory once per SERVING UNIT — one HTTP request — and hands it that request's
-   * `authInfo`, which the SDK treats as strictly pass-through (it never reads headers or verifies
-   * anything itself). So the caller context is still built per request from this request's
-   * identity; it simply arrives as an argument instead of a closure. Auth itself is unchanged and
-   * still runs in Hono, ahead of this.
+   * Caller isolation is preserved by a different mechanism than a per-request handler:
+   * `createMcpHandler` invokes its factory once per SERVING UNIT — one HTTP request — and hands it
+   * that request's `authInfo`, which the SDK treats as strictly pass-through. The caller context is
+   * still built per request from this request's identity; it arrives as an argument instead of a
+   * closure. Auth itself is unchanged and still runs in Hono, ahead of this.
    *
    * Asserted by test/http-caller-isolation.test.ts, which drives two different tokens through the
-   * SAME handler and fails if either sees the other's scopes or vault.
+   * SAME handler and fails if either sees the other's scopes or vault. See design note for why this
+   * used to require a per-request handler.
    */
   const handler = createMcpHandler(
     (mcpCtx) =>
@@ -417,13 +395,11 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     if (opts.enableDnsRebindingProtection !== false) {
       const rawHost = c.req.header("host") ?? "";
       // THE-583: validation is the SDK's (`validateHostHeader` / `validateOriginHeader`), which
-      // parses IPv6 brackets and ports properly rather than by regex.
-      //
-      // The allowlist is normalized first, and that is NOT incidental. The SDK matches on the
-      // HOSTNAME; our config schema documents `allowedHosts` as "Host header VALUES", so an
-      // operator may legitimately have written `example.com:8765`. Passing that straight to the
-      // SDK matches nothing — every request 403s, which is an outage rather than a warning.
-      // Feeding both forms keeps the documented contract while gaining the better parser.
+      // parses IPv6 brackets and ports properly rather than by regex. The allowlist is normalized
+      // first, and that is NOT incidental: the SDK matches on the HOSTNAME, while our config schema
+      // documents `allowedHosts` as "Host header VALUES" (which may include a port). Feeding both
+      // forms keeps the documented contract while gaining the better parser — omitting either
+      // direction turns a legitimate operator entry into a 403 outage.
       const hostnameOf = (v: string) => v.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
       const bothForms = (vs: readonly string[]) => vs.flatMap((v) => [v, hostnameOf(v)]);
 
@@ -484,17 +460,12 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
       );
     }
 
-    // THE-583: serve the Tasks EXTENSION here, BEFORE delegating.
-    //
-    // `createMcpHandler` validates an inbound method against the spec registry and answers -32601
-    // for anything it does not recognise — extension methods included. Measured: a `tasks/get`
-    // handler registered on the server is never consulted, even with era=modern, because the
-    // handler rejects the method first. (A raw transport DOES route it, which is what made the
-    // difference easy to miss.) So an extension cannot be served through the handler; it has to be
-    // answered in front of it.
-    //
-    // Everything the extension needs is already established at this point: auth has run, so
-    // `authz` names the caller and vault the ownership check uses.
+    // THE-583: serve the Tasks EXTENSION here, BEFORE delegating. `createMcpHandler` validates an
+    // inbound method against the spec registry and answers -32601 for anything it does not
+    // recognise, extension methods included — so an extension cannot be served through the handler
+    // and has to be answered in front of it. See design note. Everything it needs is already
+    // established at this point: auth has run, so `authz` names the caller and vault the ownership
+    // check uses.
     if (opts.jobQueue && c.req.header("mcp-protocol-version") === MODERN_PROTOCOL_VERSION) {
       const taskResponse = await serveTaskExtension(body, opts.jobQueue, {
         vaultId: authz.vault ?? opts.vaultId,
@@ -588,14 +559,12 @@ export type HttpHandle = ServerHandle & {
  *
  * The Bun-vs-Node choice lives in `serveHono` because it is a PROCESS-wide decision, not a
  * per-server one — see THE-659 there. THE-561 is why Bun wins under Bun: @hono/node-server's
- * Node-compat `http.Server` drops ~25% of requests that arrive on a REUSED keep-alive connection
- * with ECONNRESET, which a pooling client such as LiteLLM's httpx hits constantly. THE-583 removed
- * the fetch-to-node bridge this used to need: createMcpHandler is web-standard fetch in, Response
- * out, so the /mcp route no longer round-trips through Node req/res at all. Regression harnesses,
- * both Bun-only and both in bun-smoke/ so `bun test bun-smoke` actually reaches them:
- * bun-smoke/http-keepalive-reuse.test.ts and bun-smoke/dual-http-servers.test.ts. THE-730: the
- * first lived at test/http-keepalive-reuse.bun.ts and NO runner invoked it — this line named the
- * two together as though they were equivalently wired, and only the second one ran.
+ * Node-compat `http.Server` drops requests on a REUSED keep-alive connection with ECONNRESET,
+ * which a pooling client such as LiteLLM's httpx hits constantly. THE-583 removed the
+ * fetch-to-node bridge this used to need: createMcpHandler is web-standard fetch in, Response out.
+ * Regression harnesses (Bun-only, bun-smoke/): bun-smoke/http-keepalive-reuse.test.ts and
+ * bun-smoke/dual-http-servers.test.ts — both must actually be reachable from `bun test bun-smoke`;
+ * see design note for the THE-730 gap where one of them was not.
  */
 export function startHttp(
   opts: HttpAppOptions & { host: string; port: number },

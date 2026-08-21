@@ -42,13 +42,10 @@ export const CACHE_MIGRATION_FILES = [
   // handler for why retiring is folded into rename rather than a fifth tool).
   "20260814_001_memory_entity_status.sql",
   // THE-647 item 1: 20260818_001 adds the per-(caller, vault) watermark backing differential
-  // vault_context. Belongs in the CACHE chain because vault_context reads chunks/syntheses/
-  // contradictions exclusively off ctx.db (cache.db) — the optional include_work episodes leg is
-  // the only part of that tool touching experiential.db, and it is unaffected by this table.
-  // Borrows THE-461's activation_state discipline (capture the new watermark BEFORE the diff
-  // read, persist it only AFTER the response is composed, never regress) rather than re-deriving
-  // it — see the migration header and context-watermark.ts for the full reasoning. Not
-  // `workspace_sessions`: THE-714 found it stays empty in production.
+  // vault_context. CACHE chain because vault_context reads chunks/syntheses/contradictions off
+  // cache.db; only the optional include_work leg touches experiential.db and is unaffected here.
+  // See docs/design/migration-manifest.md for the activation_state precedent and why not
+  // workspace_sessions.
   "20260818_001_vault_context_watermark.sql",
   // THE-628 (first PR): note_summaries — the note-level (leaf) summary tier, dark behind
   // retrieval.summaries.enabled. Belongs in the CACHE chain (not EXPERIENTIAL) for locality with
@@ -71,39 +68,15 @@ export const CACHE_MIGRATION_FILES = [
 /**
  * experiential.db chain (cli.ts).
  *
- * ── THE-713: THE ADMISSION TEST, stated canonically HERE ──────────────────────────────────────
- *
- * Four shipped migration headers describe this store's charter and appear to contradict each other:
- * `20260626_001_experiential_init` says it holds *"only NON-RECONSTRUCTABLE keep-state"*, while
- * `20260725_002_note_quality` and `20260729_001_gap_reports` each admit a table because it is
- * *"DERIVED, RESETTABLE"*. Both phrases are in force and a `note_quality` rollup is plainly
- * reconstructable, so read literally the two rules exclude each other.
- *
- * They are not two rules. They are one rule and one consequence, and the resolution is that
- * **NEITHER phrase is the admission test**:
- *
- *   THE TEST IS TRUST, NOT RECONSTRUCTABILITY. A table belongs here when its contents are
- *   OBSERVED or DERIVED rather than AUTHORED — anything an injected episode, a retrieval event or
- *   a computed rollup can influence. The mechanism is a FILE boundary: nothing here can hold a
- *   foreign key into an authored atom (ids are referenced BY VALUE — "this is the membrane"), so
- *   poisoning blast radius is capped at the store boundary.
- *
- * Given that test, both phrases follow rather than compete:
- *
- *   "resettable"           — a consequence. Because nothing authored depends on this file, losing
- *                            it is survivable and a reset is a truncate, not a filtered delete.
- *   "non-reconstructable"  — a WARNING, not a criterion. Some of what lives here (activation
- *                            history, retrieval feedback, stated goals) cannot be recomputed from
- *                            the vault, so "resettable" must not be read as "costless to discard".
- *
- * `20260803_002_goals` already reasoned this way in practice — it admitted goals by arguing the
- * membrane is a file boundary and the trust boundary is enforced on the WRITE PATH, not by the
- * store's label. This comment states the general rule that case applied.
- *
- * Stated here rather than fixed in place because migration headers are CHECKSUM-PINNED: editing a
- * shipped migration is a hard startup error, so those four sentences cannot be corrected and this
- * is the nearest editable home that every reader of the chain already passes through.
- * ──────────────────────────────────────────────────────────────────────────────────────────────
+ * THE-713, the admission test (stated here, not in a migration header, because headers are
+ * checksum-pinned and cannot be corrected in place): a table belongs in this chain when its
+ * contents are OBSERVED or DERIVED rather than AUTHORED — anything an injected episode, a
+ * retrieval event, or a computed rollup can influence. Enforced via a file boundary: nothing here
+ * may hold a foreign key into an authored atom (ids are referenced BY VALUE), which caps
+ * poisoning blast radius at the store boundary. "Resettable" (losing this file is survivable) and
+ * "non-reconstructable" (some of it — activation history, retrieval feedback, stated goals —
+ * cannot be recomputed from the vault) are both consequences of that test, not competing
+ * criteria. See docs/design/migration-manifest.md for the full resolution.
  *
  * THE-222: 20260712_001 is the versioned preference profile (typed-delta updates only) for the
  * reflect pass. THE-44: 20260712_002 is derive-don't-mutate access instrumentation
@@ -151,18 +124,17 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // pass genuinely does not know which vault it stamped, and the migration header says why that
   // departs from the 20260803_002 precedent directly above.
   "20260805_001_citation_runs.sql",
-  // THE-733: 20260805_002 persists the per-vault calibrated score distribution. `gaps
-  // --calibrate` printed it and returned, so no percentile existed at query time and the only
-  // number reachable from the request path was a global constant from an n=136 calibration on
-  // ONE vault. Carries provenance (engine_version, config_fingerprint) because a distribution
-  // is only valid for the engine that produced it.
+  // THE-733: 20260805_002 persists the per-vault calibrated score distribution, previously computed
+  // by `gaps --calibrate` and never persisted, so query time only had a stale global constant.
+  // Carries provenance (engine_version, config_fingerprint) because a distribution is only valid
+  // for the engine that produced it. See docs/design/migration-manifest.md for the calibration
+  // sample size this replaces.
   "20260805_002_score_calibration.sql",
   // THE-718 (final): 20260806_001 retires chunk_retrievals.outcome — a task-level question stamped
-  // on a response-level row, so it never had a denominator. Measured 0 stamps across 108 rows, and
-  // the column was unreachable until 2026-08-03, so the zero is not low adoption of a working
-  // signal. Recreates chunk_access_stats first (SQLite refuses DROP COLUMN under a view), swapping
-  // the view's outcome_balance aggregate for `observed` — the denominator scoring was missing.
-  // cited_in_response deliberately SURVIVES: its writer is automatic and merely broken (THE-717).
+  // on a response-level row, so it never had a denominator. Recreates chunk_access_stats first
+  // (SQLite refuses DROP COLUMN under a view), swapping the view's outcome_balance aggregate for
+  // `observed`. cited_in_response deliberately SURVIVES: its writer is automatic and merely broken
+  // (THE-717). See design note for the adoption measurement behind the retirement.
   "20260806_001_retire_retrieval_outcome.sql",
   // THE-718: 20260806_002 swaps note_quality.outcome_balance for observed_retrievals. SPLIT from
   // _001 because the two touch different tables and note_quality arrives 14 migrations later, so a
@@ -173,43 +145,41 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // with chunk_retrievals outcome axis" and collided with both agent_episodes.status (dispatch
   // outcome) and cache.db's unrelated jobs.outcome.
   "20260806_003_agent_episodes_task_result.sql",
-  // THE-717 follow-up: 20260806_004 splits `judge_errors` out of `parse_failures`. A judge that is
-  // DOWN was recorded identically to a judge that is BABBLING — both live passes logged 3/3
-  // "parse failures" that were every one of them an HTTP 404. The kill switch still trips on the
-  // SUM, so a total outage keeps aborting; only the reporting is split.
+  // THE-717 follow-up: 20260806_004 splits `judge_errors` out of `parse_failures` — a judge that is
+  // DOWN was recorded identically to one that is BABBLING. The kill switch still trips on the SUM,
+  // so a total outage keeps aborting; only the reporting is split. See design note for the incident
+  // that prompted this.
   "20260806_004_citation_runs_judge_errors.sql",
   // THE-744: 20260806_005 adds citation_runs.entries. A pass over an EMPTY transcript index wrote
   // no row at all — openCitationRun is per-ENTRY, so zero entries meant zero passes and zero rows,
   // and a healthy scheduler with nothing to do looked identical to one that was never registered.
   "20260806_005_citation_runs_entries.sql",
   // THE-746: 20260806_006 records WHY evaluateEpisodes reached each eligibility verdict, plus the
-  // policy VERSION that produced it. THE-672's measurement had to diff two hand-made database
-  // copies to learn which rule fired; versioning separates a later policy change from a data one.
+  // policy VERSION that produced it, so a later policy change is distinguishable from a data
+  // change. See docs/design/migration-manifest.md for the investigation that motivated this.
   "20260806_006_episode_eligibility_reason.sql",
-  // THE-839: 20260816_001 corrects `episode_type`, which had been the literal 'tool_call' for every
-  // captured operation since 20260711_002 — 630 rows, one distinct value, no information. 192 of
-  // them (30.5%) are MCP protocol methods arriving through dispatchResource, not tool calls. The
-  // producer now carries the kind; this backfills the history. Classifying by name is legitimate
-  // HERE (once, over an inspected closed set) and refused at runtime, because SEP-986 permits `/`
-  // in tool names — the header carries the full argument.
+  // THE-839: 20260816_001 corrects `episode_type`, which had recorded the literal 'tool_call' for
+  // every captured operation since 20260711_002 — no information. This backfills the history now
+  // that the producer carries the real kind. Classifying by name is legitimate HERE, once, over an
+  // inspected closed set — and refused at runtime, because SEP-986 permits `/` in tool names (the
+  // migration header carries the full argument). See design note for the measured breakdown.
   "20260816_001_episode_type_structural.sql",
   // THE-726: 20260816_002 adds `verdict_at`, the timestamp half of a task verdict. Paired with
   // `session_id` it is the WINDOW IDENTITY — which rows share one judgement — without which the
-  // preference extractor reads N projected rows as N independent observations (measured: 4.82
-  // dispatches per session, so one 18-dispatch task would take 18 of its 40 evidence slots).
+  // preference extractor reads N projected rows as N independent observations. See design note for
+  // the measured skew this caused.
   "20260816_002_episode_verdict_at.sql",
-  // THE-634 (adversarial review): 20260818_002 recreates chunk_access_stats to exclude
-  // surface_type = 'advisory' rows — the proactive-advisory sweep's pushed-not-retrieved rows were
-  // silently bumping access_count/last_accessed_at, clearing note_quality's stale_access flag and
-  // inflating metrics.ts's knowledge-health scorecard. Fixed at the view, not at each reader.
+  // THE-634: 20260818_002 recreates chunk_access_stats to exclude surface_type = 'advisory' rows —
+  // the proactive-advisory sweep's pushed-not-retrieved rows were silently bumping access_count/
+  // last_accessed_at, clearing note_quality's stale_access flag and inflating the knowledge-health
+  // scorecard. Fixed at the view, not at each reader. Found via adversarial review; see design note.
   "20260818_002_chunk_access_stats_excludes_advisory.sql",
   // THE-891 item 6: 20260820_001 adds `scope_caller` to preference_profile (rebuilt, PK now
-  // `(vault_id, scope_caller, key)`) and preference_deltas (added in place). PREFERENCE_KEYS
-  // (reflect.ts) now declares a per-key scope — human-shared (`''`) or caller-partitioned — so a
-  // telemetry-derived key like `preferred.search_mode` can no longer bleed one agent's learned
-  // behavior into another's retrieval. Purges rather than backfills, same 20260724_001/20260803_001
-  // precedent; the migration header carries the full reasoning, including why a NULL caller maps to
-  // `''` without repeating the NULL-vault_id invented-attribution mistake.
+  // `(vault_id, scope_caller, key)`) and preference_deltas. PREFERENCE_KEYS (reflect.ts) declares a
+  // per-key scope — human-shared (`''`) or caller-partitioned — so a telemetry-derived key can no
+  // longer bleed one agent's learned behavior into another's retrieval. Purges rather than
+  // backfills (20260724_001/20260803_001 precedent). See design note for the NULL-caller mapping
+  // rationale.
   "20260820_001_preference_scope_caller.sql",
 ] as const;
 

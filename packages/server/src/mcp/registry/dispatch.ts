@@ -43,20 +43,12 @@ import type { ToolStore } from "./tool-store";
 import type { CallerContext, EpisodeKind, RegistryOptions, Status, VerifyElicit } from "./types";
 import { VERDICT_TOOL_TAG } from "./types";
 
-// WP4.3: the dispatch orchestrator — runDispatch's full pipeline body, moved here UNCHANGED from
-// registry.ts. Every gate's own logic already lives in a sibling leaf (input-binding.ts,
-// policy-gates.ts, result-governance.ts, idempotency.ts); this function is what's left after that:
-// the try/catch/finally skeleton, the mutable per-dispatch state (scopeClass, idemKey, idemClaimed,
-// handlerReturned, effectCommitted, installedMarker), and the sequencing that calls each gate in
-// the fixed order documented in the WP4 refactor map. ToolRegistry (registry.ts) still owns
-// dispatch()/dispatchResource() and the OTEL span wrapping; its private runDispatch method is now a
-// thin delegation to this function, built from one DispatchDeps object assembled once in the
-// constructor (the same concrete-composition pattern WP4.1/4.2 used for ToolStore/
-// DispatchObservability).
-//
-// The `now` clock: `ctx.now ?? Date.now` is called at the exact same points and the same number of
-// times as before the move (see the commit message for the full site list) — nothing was hoisted
-// into a pre-sampled value.
+// The dispatch orchestrator: the full try/catch/finally pipeline body, calling each gate
+// (input-binding.ts, policy-gates.ts, result-governance.ts, idempotency.ts) in a fixed order.
+// ToolRegistry (registry.ts) owns dispatch()/dispatchResource() and OTEL span wrapping; its
+// runDispatch delegates here via one DispatchDeps object built once in the constructor.
+// `ctx.now ?? Date.now` must be called at each existing call site, never hoisted into a
+// pre-sampled value. See docs/design/mcp-dispatch-and-transport.md.
 
 /** Everything runDispatch reads from ToolRegistry's construction-time config, bundled into one
  *  object so the function signature does not grow a positional parameter per field. Built once in
@@ -124,15 +116,12 @@ export async function runDispatch(
   // THIS dispatch installed.
   let installedMarker: { markEffectCommitted?: () => void } | undefined;
 
-  // THE-839: everything reaching here came through tools/call, so it is a real tool call — the
-  // protocol surfaces (resources/*, prompts/*) go through dispatchResource instead and declare
-  // `protocol` there. The one exception is a tool tagged `verdict`, whose job is to record a
-  // judgement ABOUT other episodes; classifying it as ordinary work would let it become its own
-  // evidence. Resolved from the tool's own tags rather than a name list, and resolved INSIDE the
-  // closure because the definition is not looked up until further down this function.
-  //
-  // An unrecognised name falls through to `tool_call`. That is the honest answer: dispatch rejects
-  // it moments later, and the audit row for a rejected tools/call is still a tool call.
+  // THE-839: episode kind for the audit row. Everything here came through tools/call (resources/*
+  // and prompts/* declare `protocol` via dispatchResource instead); a `verdict`-tagged tool is the
+  // one exception — it judges OTHER episodes, so classifying it as ordinary work would let it
+  // become its own evidence. Resolved from the tool's tags, inside the closure (def isn't looked
+  // up until later). An unrecognised name falls through to `tool_call` — honest, since dispatch
+  // rejects it moments later and that audit row is still a tool call.
   const episodeKind = (): EpisodeKind =>
     deps.toolStore.get(name)?.tags?.includes(VERDICT_TOOL_TAG) ? "verdict" : "tool_call";
 
@@ -193,11 +182,9 @@ export async function runDispatch(
       })
     )
       throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
-    // THE-727: the STATIC class, set before the parse ON PURPOSE. `scopeClass` feeds the throttle
-    // decision and the error-path metrics in the catch below, and a call that fails `parseInput`
-    // never reaches the resolver — leaving it "unknown" would silently degrade every parse-failure
-    // metric. The ticket proposed relocating this line below the parse; that would have been that
-    // regression. It is REFINED after the parse instead, a few lines down.
+    // THE-727: static scope class, set before parseInput ON PURPOSE — feeds the throttle decision
+    // and error-path metrics even when parseInput itself fails, so a parse failure still gets a
+    // real scope_class rather than "unknown". Refined after the parse below. See design note.
     scopeClass = def.scopeClass ?? scopeClassOf(def.requiredScopes);
 
     // WP4.3: input-schema parse, THE-267 vault-binding guard, THE-295 per-vault ACL swap — see
@@ -235,11 +222,10 @@ export async function runDispatch(
     // (auth/scope/ACL) still runs before this gate, so it stays authoritative on replays.
     idemKey = extractIdempotencyKey(inputData);
     if (idemKey) {
-      // WP4.2: the claim-or-replay decision (reclaim-and-retry, corrupt-blob recovery,
-      // terminal-overflow replay) now lives in registry/idempotency.ts's claimOrReplay,
-      // returning one explicit discriminated state instead of re-deriving it inline here. Only
-      // the dispatch-shaped reaction to each state — error construction, audit/meter calls, the
-      // result-serialization memo — stays here, unchanged in behavior from before the extraction.
+      // WP4.2: claim/replay decision-making (reclaim-and-retry, corrupt-blob recovery, terminal-
+      // overflow replay) lives in registry/idempotency.ts's claimOrReplay, returning one explicit
+      // discriminated state. Only the dispatch-shaped reaction — error construction, audit/meter
+      // calls, result-serialization memo — stays here.
       const claim = claimOrReplay(
         ctx.db,
         ctx.vaultId,
@@ -324,14 +310,11 @@ export async function runDispatch(
     // legitimate retry.
     checkAborted(ctx.signal);
 
-    // Dispatch-wide rate-limit policy gate (THE-210, G2.4 §Rate limits). Per
-    // (caller_hash, scope_class, vault); an unknown scope class is unlimited. Runs
-    // BEFORE HITL so a throttled call never consumes the single-use elicit token (a
-    // backed-off retry can reuse the same confirmation), and so the limiter covers every
-    // dispatch that reaches this gate, including calls that will fail HITL, not just the
-    // ones that clear it. Completed idempotent replays returned from the cache above, so
-    // they are intentionally not re-counted here: the original call already drew down the
-    // bucket. A throttled check does not draw down the bucket, so rejecting here costs no budget.
+    // Dispatch-wide rate-limit gate (THE-210, G2.4 §Rate limits), keyed on (caller_hash,
+    // scope_class, vault); an unknown scope class is unlimited. Runs BEFORE HITL so a throttled
+    // call never consumes the single-use elicit token. Idempotent replays (returned from cache
+    // above) are not re-counted — the original call already drew down the bucket, and a throttled
+    // check itself costs no budget.
     const throttleDecision = checkThrottle(
       deps.rateLimiter,
       ctx.caller,
@@ -345,10 +328,9 @@ export async function runDispatch(
         try {
           deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
         } catch {
-          // THE-667: best-effort by necessity — releasing the claim must never replace the
-          // `throttled` error the caller has to see. "best-effort" was the whole comment though,
-          // and the failure had no channel at all. Record the gate; the outer catch retries this
-          // delete and only counts it if that retry ALSO fails.
+          // THE-667: best-effort — releasing the claim must never replace the `throttled` error
+          // the caller has to see. Record the gate; the outer catch retries this delete and only
+          // counts it if that retry ALSO fails. See design note.
           releaseFailedGate = "throttle";
         }
       }
@@ -390,39 +372,25 @@ export async function runDispatch(
       });
     }
 
-    // THE-414: central folder-ACL enforcement. Extract the vault-relative paths this call
-    // touches (declared per tool via def.pathAcl) and enforce the per-op ACL HERE, right before
-    // the handler — so containment no longer depends on every handler remembering to call
-    // enforcePathAcl (the handler-side calls remain as defense-in-depth). Placed after the HITL
-    // gate to mirror exactly where handler-side enforcement ran, so ordering/behavior is
-    // unchanged. Uses the same symlink-canonical enforcePathAcl + the (already per-vault-swapped)
-    // ctx.acl; the root is the effective vault's. Skipped when no root resolver is wired.
-    // Central folder-ACL stage + handler, wrapped in the (default-off) ACL-audit frame so a
-    // dev/test run can verify each pathAcl extractor mirrors the handler's real fs usage (#280).
-    // THE-572: hand a multi-step handler the mid-execution effect-committed signal, so it can
-    // move the #13 marker from "handler returned" to its own FIRST durable effect. Installed
-    // here — after every gate that can still reject-and-release the claim (throttle, HITL), so
-    // the callback never outlives the claim it points at — and only when this dispatch owns
-    // that claim; a keyless call leaves it undefined, which is why every handler-side call
-    // site is `ctx.markEffectCommitted?.()`. Property mutation on a per-dispatch ctx, same as
-    // the per-vault ACL swap above. Idempotent: the UPDATE is a plain state set guarded on
-    // `completed_at IS NULL`, so signalling twice — or signalling and then returning normally,
-    // where the #13 call site fires again — is harmless.
+    // THE-414: central folder-ACL enforcement — extract def.pathAcl's vault-relative paths and
+    // enforce them HERE, right before the handler (handler-side enforcePathAcl calls remain as
+    // defense-in-depth). Placed after HITL to mirror where handler-side enforcement used to run.
+    // Wrapped in the (default-off) ACL-audit frame so a dev/test run can verify each pathAcl
+    // extractor mirrors the handler's real fs usage (#280). Skipped when no root resolver is wired.
+    // THE-572: install the mid-execution effect-committed signal AFTER every gate that can still
+    // reject-and-release the claim, so the callback never outlives the claim it points at. Only
+    // when this dispatch owns a claim — a keyless call leaves ctx.markEffectCommitted undefined.
+    // Idempotent: signalling twice, or signalling then returning normally, is harmless. See
+    // design note for the #13 marker-point reasoning.
     if (idemClaimed && idemKey) {
       const claimedKey = idemKey;
       const slot = ctx as { markEffectCommitted?: () => void };
-      // THE-573 #1: this callback is installed by MUTATING ctx, so two CONCURRENT dispatches
-      // sharing one CallerContext would have the second silently overwrite the first's callback.
-      // The outer handler would then mark the INNER claim, its own effectCommitted would stay
-      // false, and the catch would DELETE its claim — leaving a retry free to double-apply.
-      //
-      // Unreachable through the server (both context factories build a fresh object per MCP call,
-      // and no handler re-enters dispatch), so this is library-API misuse. Refuse it LOUDLY rather
-      // than make sharing work: silently corrupting an idempotency claim is far worse than a
-      // failed second dispatch, and a caller that hits this has a bug worth seeing.
-      //
-      // Keyed on a LIVE overlapping dispatch, not on "this ctx was used before" — the callback is
-      // removed in the finally below, so SEQUENTIAL reuse of one context is unaffected.
+      // THE-573 #1: mutating ctx to install this means two CONCURRENT dispatches sharing one
+      // CallerContext would silently overwrite each other's callback and let a retry double-apply
+      // a committed effect. Unreachable through the server today (each context factory builds a
+      // fresh object per call), so this is refused LOUDLY as library-API misuse rather than made
+      // safe. Keyed on a LIVE overlapping dispatch — removed in the finally below, so SEQUENTIAL
+      // reuse of one context is unaffected.
       if (slot.markEffectCommitted !== undefined) {
         throw new ObsidianTcError(
           "internal",
@@ -452,12 +420,10 @@ export async function runDispatch(
         handlerMs = Math.max(0, now() - handlerStart);
         handlerReturned = true;
         // #13: the default marker point — the WHOLE handler returned, so any later fault is
-        // post-effect. This alone leaves a window for a MULTI-STEP handler that commits effect #1
-        // and then does more fallible work before returning (a throw in between would delete the
-        // claim and let a retry double-apply). THE-572 closes that window from the handler side:
-        // such a handler calls ctx.markEffectCommitted() at its own first durable effect, which
-        // sets the same marker earlier. This call stays as the backstop for every single-effect
-        // handler (and re-fires harmlessly when the handler already signalled).
+        // post-effect. Leaves a window for a MULTI-STEP handler that commits effect #1 then does
+        // more fallible work before returning; THE-572's ctx.markEffectCommitted() closes that
+        // window from the handler side by setting the same marker earlier. This call stays as the
+        // backstop for every single-effect handler (and re-fires harmlessly if already signalled).
         if (idemClaimed && idemKey) markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
         return r;
       },
@@ -478,16 +444,12 @@ export async function runDispatch(
     const duration = Math.max(0, now() - start);
 
     if (isOverflow(resultSize, deps.maxResponseBytes)) {
-      // Idempotency post-effect: the handler's side effect has ALREADY committed by here, and
-      // markEffectCommitted (above) already durably marked the claim 'effect_committed' before we
-      // got here. Do not delete the claim — that would let a retry with the same key re-execute the
-      // committed effect. Instead FINALIZE it with the real over-limit size and a tiny marker (never
-      // the oversized payload), so a retry replays the same overflow error via the result_size
-      // re-check on the claimed-row path. #13: if the finalize below itself faults (caught), the row
-      // stays 'effect_committed' rather than reverting to in-flight — a retry (or a reclaim after a
-      // crash) resolves it to a durable indeterminate_outcome, never re-executing the handler. The
-      // finalize fault itself is fully covered; only the pre-marker window remains (see the residual
-      // note at the markEffectCommitted call site above).
+      // Idempotency post-effect: the handler's side effect has ALREADY committed here — never
+      // delete the claim, that would let a retry re-execute it. FINALIZE it with the real
+      // over-limit size and a tiny marker (never the oversized payload) so a retry replays the same
+      // overflow error. #13: a finalize fault here leaves the row 'effect_committed', not
+      // in-flight — a later retry/reclaim resolves it to indeterminate_outcome, never re-runs the
+      // handler. See design note for the residual-window analysis.
       if (idemClaimed && idemKey) {
         deps.observability.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
         try {
@@ -541,14 +503,12 @@ export async function runDispatch(
     return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
   } catch (e) {
     if (idemClaimed && idemKey) {
-      // THE-572: a handler that signalled mid-execution may have done so INSIDE its own
-      // transaction (the recommended shape when the first effect is a ctx.db write). If that
-      // transaction then rolled back, the marker rolled back with it and NOTHING was committed —
-      // so the in-memory `effectCommitted` flag alone would strand a false `indeterminate` on a
-      // call that is perfectly safe to retry. Consult the DURABLE state instead: it is the only
-      // record that rolled back in lockstep with the effect. A read fault here resolves toward
-      // "committed", because over-reporting an indeterminate is recoverable and a wrong delete
-      // is not.
+      // THE-572: a handler may signal mid-execution INSIDE its own transaction. If that
+      // transaction rolls back, the marker rolls back with it and NOTHING committed — so the
+      // in-memory `effectCommitted` flag alone would strand a false `indeterminate` on a call
+      // that's safe to retry. Consult the DURABLE state instead, since only it rolled back in
+      // lockstep with the effect. A read fault here resolves toward "committed": over-reporting
+      // indeterminate is recoverable, a wrong delete is not.
       let durablyCommitted = false;
       if (effectCommitted) {
         try {
@@ -575,15 +535,11 @@ export async function runDispatch(
         try {
           deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
         } catch {
-          // THE-667: cleanup stays best-effort — it must not mask the original error. But this is
-          // the LAST release attempt, so its failure is the point at which the claim is genuinely
-          // orphaned, and until now that had no channel at all. Counted here rather than at the
-          // gates precisely because they get this retry: a gate-site failure that this call then
-          // cleans up has no consequence and must not alert.
-          //
-          // `gate` names the rejection that led here when one did; `other` covers every other
-          // pre-handler failure (schema, ACL, resolution), which orphans a claim just the same.
-          // meter() is itself guarded, so a metrics fault cannot escape this catch.
+          // THE-667: cleanup stays best-effort — must not mask the original error. This is the
+          // LAST release attempt though, so its failure means the claim is genuinely orphaned;
+          // counted here (not at the gates) because a gate-site failure this call then cleans up
+          // has no consequence and must not alert. `gate` names the rejection that led here when
+          // one did; `other` covers every other pre-handler failure. meter() is itself guarded.
           deps.observability.meter((m) =>
             m.incIdempotencyReleaseFailed(ctx.vaultId, name, releaseFailedGate ?? "other"),
           );
@@ -591,12 +547,10 @@ export async function runDispatch(
       }
     }
     // THE-573: an abandoned transaction is an operator-grade fault — the connection may still be
-    // INSIDE a transaction, so later reads can observe uncommitted rows and the next BEGIN either
-    // fails or silently joins it. inTransaction/inSavepoint attach it to the thrown error rather
-    // than replacing the error that explains the failure, which reaches the CALLER; reporting it
-    // separately here is what makes it reach an OPERATOR, who would otherwise only ever log
-    // err.message. Reported for typed errors too: the transaction is just as abandoned when the
-    // handler failed for an ordinary, well-typed reason.
+    // INSIDE it, so later reads can observe uncommitted rows and the next BEGIN fails or silently
+    // joins it. inTransaction/inSavepoint attach it to the thrown error rather than replacing the
+    // caller-facing error; reported here separately so it reaches an OPERATOR (who would otherwise
+    // only see err.message). Reported for typed errors too — the transaction is abandoned either way.
     const rollbackErr = (e as { rollbackError?: unknown } | null)?.rollbackError;
     if (rollbackErr !== undefined) {
       try {

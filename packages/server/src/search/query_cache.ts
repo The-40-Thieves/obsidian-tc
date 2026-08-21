@@ -1,31 +1,11 @@
-// THE-497 — the query-product cache.
-//
-// Caches the expensive-but-reusable products of a retrieval (the query's dense/sparse/ColBERT
-// encodings, and the whole graph-search result) under a key that binds BOTH halves of THE-496:
-//
-//   1. IDENTITY — the caller's ACL fingerprint (acl.ts). Two callers with different effective read
-//      sets never share an entry, so the cache can never serve caller A's content to caller B. An
-//      incorrect key here is a data leak of the same class as THE-453/THE-456, which is why this is
-//      part of EVERY key in this file, even for products that do not depend on vault content: it
-//      costs only cross-principal hit rate (nothing at all in a single-principal runtime) and it
-//      also closes the timing side channel where B learns that A asked the same question.
-//   2. STALENESS — the vault generation (generation.ts). The bump lives inside each index write
-//      transaction, and the design deliberately errs toward bumping: a missed bump would silently
-//      serve stale results, while an over-bump is merely a cache miss. This cache inherits that
-//      asymmetry rather than re-deriving it.
-//
-// Two design decisions worth keeping:
-//
-// * THE KEY IS STRUCTURAL, NOT ENUMERATED. GraphSearchOptions carries ~30 knobs and grows most
-//   months. A hand-listed key would silently stop covering the next one added, and the failure mode
-//   is serving a result computed under a DIFFERENT configuration — invisible, and wrong. So the key
-//   hashes the whole options object generically (hashInto below); a new option participates the day
-//   it is added, with no edit here. `query-cache-key-coverage.test.ts` is the gate that proves it.
-// * THE KEY DOES NOT CONTAIN THE QUERY VECTORS. It contains the query TEXT plus a REPRESENTATION
-//   descriptor (what a vector means: provider/model/dimensions + which streams are on). Keying on
-//   the vectors would be circular — computing them is the expensive part we are trying to skip, so
-//   a cache that needs them first can only save the DB work, never the model round-trip. Vectors
-//   are a pure function of (text, representation), so this is exact, not an approximation.
+// THE-497 — the query-product cache. Caches the expensive-but-reusable products of a retrieval
+// (the query's dense/sparse/ColBERT encodings, and the whole graph-search result) under a key
+// binding both IDENTITY (the caller's ACL fingerprint, acl.ts — required in EVERY key, including
+// content-independent ones, so no principal can ever be served another's cached content) and
+// STALENESS (the vault generation, generation.ts — a missed bump risks stale reads, so bumping
+// errs generous; an over-bump only costs a miss). The key is structural (hashes the whole options
+// object; see hashInto) rather than a hand-enumerated field list, and never contains the query
+// vectors — see docs/design/search-indexing-and-cache.md for why both of those are load-bearing.
 import { createHash, type Hash } from "node:crypto";
 import type { Database } from "../db/types";
 import { graphSearch } from "./graph_search";
@@ -114,16 +94,10 @@ export class QueryCache<V> {
 
   set(key: string, value: V): void {
     this.entries.delete(key);
-    // THE-626: sweep one expired entry before growing the map. Without this, an entry that expires
-    // and is never re-requested just sits at the front — get() is the only other place that checks
-    // expiresAt, and only for the key actually asked for — until ordinary capacity pressure evicts
-    // it. That eviction lands on the right entry often enough to hide the bug, but it is charged as
-    // an LRU eviction rather than an expiration, and in the meantime the dead entry occupies a slot
-    // a live one could have used instead. Map iterates in insertion order and get() only reorders on
-    // a HIT, so the front is the least-recently-touched entry — a good proxy for "expired", though
-    // not a proof: an entry can be touched (moved to the back) without its expiresAt moving with it,
-    // so this does not catch every dead entry. A single check is O(1) amortised; scanning the whole
-    // map on every store is not worth the extra correctness for a cache this size (see the ticket).
+    // THE-626: sweep one expired entry before growing the map, since a never-re-requested expired
+    // entry otherwise sits at the front until capacity pressure evicts it (miscounted as an LRU
+    // eviction, not an expiration). The front is a good but not exact proxy for "expired" — see
+    // docs/design/search-indexing-and-cache.md. A single O(1) check; not a full-map scan.
     const front = this.entries.keys().next();
     if (!front.done) {
       const frontEntry = this.entries.get(front.value);
@@ -216,62 +190,32 @@ export function createRetrievalCaches(opts: QueryCacheOptions): RetrievalCaches 
 //
 //   isReadable     — the read predicate. Purely a function of (ACL config, granted scopes), which
 //                    IS in the key as the ACL fingerprint. This is the isolation guarantee.
-//   activationFor  — a DB lookup of cached_activation_score. RE-REVIEWED for THE-424 Part A, which
-//                    wired bubbleSafe into the serve path: this entry used to lead with "inert
-//                    unless bubbleSafe.enabled", and that clause is now false whenever an operator
-//                    sets experiential.activationRerank. The claim that survives, and the whole
-//                    argument today: what the sentinel drops is the lookup's IDENTITY, and identity
-//                    is not what varies — one process holds exactly one activationFor, built once
-//                    from config (runtime/stores.ts). What varies is the VALUES it returns, since
-//                    recomputeActivation rewrites cached_activation_score without bumping the
-//                    generation. So a cache hit inside the TTL can serve an order computed from
-//                    pre-recompute activation. That is bounded twice over — the bubble pass moves
-//                    any item at most one position, and the TTL bounds how stale the scores can be
-//                    (documented above).
-//                    CORRECTED after THE-424 Part B: this used to end "never a wrong result set",
-//                    reasoning that a one-position bound cannot change top-K MEMBERSHIP. It can.
-//                    An item at rank K+1 moving to rank K is a one-position move that swaps a
-//                    document into the returned set. Measured on the public evergreen corpus: zero
-//                    membership changes at the 512-token chunk budget, but 1-2 queries of 78 at 256,
-//                    because denser chunks crowd the rank-K boundary. The POSITION bound held in
-//                    both; the set-invariance was a property of that corpus at that budget, never of
-//                    the mechanism. So the honest bound is: at most one adjacent swap, which at fine
-//                    chunk budgets may mean one document entering or leaving the top-K. Accepted deliberately: keying on
-//                    activation values would invalidate the whole cache on every recompute, which
-//                    costs more than the one-slot drift it would fix. If the bubble pass ever
-//                    becomes a full re-sort, this trade dies and activation must enter the key.
+//   activationFor  — a DB lookup of cached_activation_score; the sentinel drops the lookup's
+//                    IDENTITY (one per process, built from config), not the VALUES it returns.
+//                    recomputeActivation rewrites the score without bumping the generation, so a
+//                    cache hit can serve pre-recompute activation — bounded to at most one adjacent
+//                    rank swap by the bubble pass, plus the TTL. That swap CAN change top-K
+//                    membership, not just position; accepted deliberately because keying on
+//                    activation values would invalidate the whole cache on every recompute. See
+//                    docs/design/search-indexing-and-cache.md for the THE-424 measurement.
 //   onStage        — observability only, cannot change results.
 //   onStageMetric  — observability only, cannot change results.
-//   onFusionWeights— observability only (THE-538 policy provenance), cannot change results. Note
-//                    it reports weights that are already a pure function of keyed inputs
-//                    (adaptiveRrf + query + vaultId), so nothing it observes is unkeyed.
-//   onVecFallback  — observability only (THE-585 vec0->brute-force counter), cannot change results.
-//                    Worth stating explicitly since this one reports a fact about HOW the search
-//                    ran rather than what it returned: both paths produce the same ranked hits, so
-//                    two calls differing only in their fallback sink must share a cache entry. A
-//                    consequence to be aware of rather than a defect: a cache HIT skips the search
-//                    entirely, so it also skips any fallback it would have taken — the counter
-//                    measures executed searches, not requested ones.
-//   onCoverage     — observability only (THE-631 coverage/confidence estimate), reported, never
-//                    read back into scoring or ordering — same non-behavioral shape as
-//                    onFusionWeights. Same cache-HIT caveat as onVecFallback above: a hit never
-//                    calls graphSearch, so onCoverage does not fire and the tool-layer response
-//                    simply omits `coverage` (the schema field is optional for exactly this).
-//   reranker       — a bare `(query, docs, topN) => hits` function with no identity to hash. It is
-//                    built once per process from config, so swapping it mid-process is not a thing
-//                    that happens today; the key records only whether one is PRESENT, since absent
-//                    vs present does change results. Give Reranker a stable id and this becomes
-//                    exact.
-//   onRerankOutcome— observability only: reports WHY the returned ranking is what it is
-//                    (not_configured / skipped_by_policy / executed / timed_out /
-//                    malformed_response / provider_error / fallback_used) and cannot change the
-//                    ranking itself — `rerankWithScores` decides the outcome and then reports it.
-//                    Two calls differing only in this sink must share a cache entry.
-//                    Same cache-HIT caveat as onVecFallback/onCoverage, and it bites hardest here:
-//                    a hit skips the rerank decision entirely, so the counter measures rerank
-//                    decisions on EXECUTED searches, not on requested ones. A high cache hit rate
-//                    therefore suppresses this metric without the reranker's health changing —
-//                    read it alongside the cache's own hit/miss counters, never alone.
+//   onFusionWeights— observability only (THE-538 policy provenance), cannot change results: reports
+//                    weights that are already a pure function of keyed inputs.
+//   onVecFallback  — observability only (THE-585 vec0->brute-force counter). Both fallback paths
+//                    produce the same ranked hits. Caveat: a cache HIT skips the search entirely,
+//                    so the counter measures executed searches, not requested ones — true of every
+//                    observability-only sink below too.
+//   onCoverage     — observability only (THE-631 coverage/confidence estimate), never read back
+//                    into scoring or ordering. Same cache-HIT caveat: a hit omits `coverage` from
+//                    the response (the schema field is optional for exactly this).
+//   reranker       — a bare function with no identity to hash; built once per process from config,
+//                    so the key records only whether one is PRESENT (absent vs present does change
+//                    results). Give Reranker a stable id and this becomes exact.
+//   onRerankOutcome— observability only: reports why the returned ranking is what it is, decided
+//                    after the fact by `rerankWithScores`. A high cache hit rate suppresses this
+//                    metric without the reranker's health changing — read it alongside the cache's
+//                    own hit/miss counters, never alone.
 const FUNCTION_FIELDS = [
   "isReadable",
   "activationFor",
@@ -281,63 +225,27 @@ const FUNCTION_FIELDS = [
   "onVecFallback",
   "onCoverage",
   "onRerankOutcome",
-  // THE-632 — onRetrievalTrace: diagnose_retrieval's per-note trace sink. Same reasoning as every
-  // sink above: it is a pure side-channel that cannot change results, so two calls differing only
-  // in it must share a cache entry.
+  // THE-632: diagnose_retrieval's per-note trace sink — same observability-only reasoning above.
   "onRetrievalTrace",
-  // THE-891 item 3 — onAclWalkPruned: reports how many paths the walk filter excluded, purely
-  // observational like onVecFallback/onRerankOutcome above. Same cache-HIT caveat: a hit skips
-  // graph_expansion.ts entirely, so the counter measures executed walks, not requested ones.
+  // THE-891 item 3: reports paths the ACL walk filter excluded — same observability-only
+  // reasoning above.
   "onAclWalkPruned",
 ] as const;
 
-/** THE-632: `traceNotePath` selects which note the trace FOLLOWS. It never filters, boosts or
- *  reorders — results are byte-identical with it set, unset, or pointed at a different note.
- *
- *  CORRECTION (cross-vendor review): an earlier version of this comment said the field was
- *  "deliberately UNKEYED". It is not. `graphSearchKey` deletes only DERIVED_VECTOR_FIELDS and
- *  normalizes `reranker`; FUNCTION_FIELDS drop out because JSON serialization discards functions,
- *  but `traceNotePath` is a STRING and therefore lands in the key. This list is the declaration of
- *  intent that the coverage gate reads, not a filter the key applies.
- *
- *  That mismatch is inert rather than wrong: `cachedGraphSearch` bypasses the cache outright
- *  whenever tracing is set, so the fragmenting entries the comment worried about are never written.
- *  Anyone making tracing cacheable must strip this field in `graphSearchKey` as well as listing it
- *  here — listing it here alone does nothing.
- *
- *  The cache-HIT caveat bites harder here than for the sinks, so it is written down rather than
- *  left to be rediscovered: a hit returns the cached results WITHOUT running the pipeline, so no
- *  trace records are produced and the caller sees an empty trace for a search that "worked". That
- *  is why `diagnose_retrieval` calls `graphSearch` DIRECTLY and never `cachedGraphSearch`. Anyone
- *  wiring tracing into the cached path must handle that explicitly — a silently empty trace reads
- *  as "the note was never anywhere", which is a wrong answer, not a missing one. */
+/** THE-632: `traceNotePath` selects which note the trace FOLLOWS and never filters, boosts or
+ *  reorders — results are byte-identical regardless of its value. It IS present in the key
+ *  (unlike FUNCTION_FIELDS) because it is a string, but this list is inert: `cachedGraphSearch`
+ *  bypasses the cache outright whenever tracing is set, so `diagnose_retrieval` calls `graphSearch`
+ *  directly and never observes a hit's empty trace. Anyone making tracing cacheable must strip this
+ *  field in `graphSearchKey`, not just list it here. See docs/design/search-indexing-and-cache.md. */
 const TRACE_SELECTOR_FIELDS = ["traceNotePath"] as const;
 
-/** THE-631 item 2: fields that PARAMETERISE the coverage estimate and nothing else.
- *
- *  `staleThresholdDays` sets the age past which a returned note counts toward
- *  `CoverageEstimate.staleReturned`. It reaches exactly one place — `countStaleNotes`, whose output
- *  is handed to `estimateCoverage` and reported through `onCoverage`. It never touches seeds,
- *  expansion, fusion, diversity, rerank or projection, so two calls differing only in it return
- *  BYTE-IDENTICAL results and must share a cache entry.
- *
- *  Unlike TRACE_SELECTOR_FIELDS above, this does NOT bypass the cache, so it is stripped in
- *  `graphSearchKey` rather than merely listed here — keeping it in the key would fragment the cache
- *  by a knob that cannot change what is cached. Listing without stripping does nothing; see the
- *  trace note above for the same warning.
- *
- *  The cache-HIT caveat is the mildest in this file: a hit never calls `graphSearch`, so
- *  `onCoverage` does not fire and the tool layer omits `coverage` entirely (the schema field is
- *  optional for exactly this). A stale threshold therefore cannot produce a WRONG staleness count
- *  from cache — only an absent one, which is already the documented behaviour for every coverage
- *  field.
- *
- *  THE-733 adds `scoreCalibration` and `engineVersion` on the same grounds. Both reach exactly one
- *  place — `confidenceFor`, whose output is the `confidence` field of the coverage estimate — and
- *  nothing downstream of it touches scoring, fusion or ordering. Two searches differing only in
- *  which calibration row was current return byte-identical RESULTS and must share a cache entry;
- *  keying on them would fragment the cache every time a vault is recalibrated, for no change in
- *  what is cached. */
+/** THE-631 item 2 / THE-733: fields that PARAMETERISE the coverage estimate (`countStaleNotes`,
+ *  `confidenceFor`) and touch nothing else — no seeds, expansion, fusion, diversity, rerank or
+ *  projection — so two calls differing only in these return BYTE-IDENTICAL results and must share
+ *  a cache entry. Unlike TRACE_SELECTOR_FIELDS, these are actually stripped in `graphSearchKey`
+ *  (not just listed here); keeping them in the key would fragment the cache on every recalibration
+ *  for no change in what is cached. See docs/design/search-indexing-and-cache.md. */
 const COVERAGE_ONLY_FIELDS = ["staleThresholdDays", "scoreCalibration", "engineVersion"] as const;
 
 /** Fields excluded from the key because they are derived from (query text, representation), both
@@ -492,17 +400,10 @@ export function graphSearchKey(
 }
 
 // Results are handed out to callers that pack, sort and annotate them in place. Store and return
-// COPIES so a caller mutating its own results can never rewrite what the next caller reads —
-// the cheap structural half of the same rule FolderAcl's accessors follow.
-//
-// THE-626: GraphSearchResult is NOT flat — `via_edge` (graph_search_stages/types.ts) is itself an
-// object, so a bare `{...r}` spread only protects the top-level fields; `via_edge` would still be
-// the SAME object shared between the cached entry and every caller that ever read it, so one
-// caller mutating it corrupts the entry for every later reader. Deep-copy that one field
-// explicitly rather than reaching for a generic deep clone: it is the only nested field this type
-// has today, and this runs on every hit AND every store (see :413/:423 below — a hot path a
-// speculative general-purpose clone is not worth paying for on fields that are already flat.
-// Exported for query-cache.test.ts's mutation test.
+// COPIES so a caller mutating its own results can never rewrite what the next caller reads.
+// THE-626: `via_edge` (graph_search_stages/types.ts) is the one nested field GraphSearchResult
+// has, so it is deep-copied explicitly on this hot path rather than via a generic deep clone.
+// Exported for query-cache.test.ts's mutation test. See docs/design/search-indexing-and-cache.md.
 export function copyResults(results: GraphSearchResult[]): GraphSearchResult[] {
   return results.map((r) => ({ ...r, via_edge: r.via_edge ? { ...r.via_edge } : null }));
 }

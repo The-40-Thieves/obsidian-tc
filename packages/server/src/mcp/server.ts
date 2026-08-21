@@ -123,8 +123,8 @@ export interface McpServerOptions {
    *
    * It must be supplied rather than read off the Server: we are STATELESS, so there is no
    * handshake and `server.getNegotiatedProtocolVersion()` is `undefined` on every call — including
-   * a request that plainly carried `MCP-Protocol-Version: 2026-07-28`. An earlier version of this
-   * read it there and silently emitted no 2026-era field at all while looking correct.
+   * a request that plainly carried `MCP-Protocol-Version: 2026-07-28`. See design note for the
+   * prior read-off-the-Server bug this replaced.
    *
    * Absent (stdio, direct construction, tests) means legacy, which is the safe default: no
    * 2026-only field goes on the wire toward a client that never asked for that revision.
@@ -307,8 +307,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
         // SEP-2575: `listChanged` is what makes a `subscriptions/listen` filter REAL. The handler
         // acknowledges a subscription only for types the server declared, so an undeclared type is
         // silently dropped from the filter — the stream opens, the ack comes back carrying
-        // `notifications: {}`, and the client waits forever for events that were never subscribed.
-        // Measured: without these, every publish reached zero listeners and nothing errored.
+        // `notifications: {}`, and the client waits forever for events never subscribed. See
+        // design note for the measured failure mode without these.
         tools: { listChanged: true },
         prompts: { listChanged: true },
         logging: {},
@@ -332,8 +332,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       //
       // Legacy stays first-class, not tolerated: LiteLLM — the gateway in front of this — pins
       // `mcp` 1.28.1, whose ceiling is 2025-11-25. Dropping the old era would take the MCP plane
-      // down. Verified with that exact client against this SDK: negotiated 2025-11-25, listed
-      // tools, called one.
+      // down. See design note for the compatibility verification.
       supportedProtocolVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
       // THE-583: the SDK verifies an echoed `requestState` (HMAC + TTL) BEFORE any handler runs,
       // and only then exposes the decoded payload via `ctx.mcpReq.requestState<T>()`. Wiring it
@@ -360,31 +359,17 @@ export function createMcpServer(opts: McpServerOptions): Server {
 
   const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
 
-  // THE-583: the verbosity floor for server->client log notifications.
-  //
-  // FIXED at `info`, and deliberately not settable. `logging/setLevel` is unroutable under MODERN
-  // (2026-07-28) — SEP-2575 removed it, and the modern route refuses it by name (-32601) before any
-  // `Server` handler runs. Under LEGACY (2025-11-25) it is reachable: declaring the `logging: {}`
-  // capability below makes the SDK's own `Server` constructor auto-register a built-in
-  // `logging/setLevel` handler, which succeeds (`{}`) rather than answering -32601 — see
-  // client-features.ts and docs/MCP-CLIENT-COMPAT-MATRIX.md (Finding 2, THE-725/THE-862). Either
-  // way, the SDK owns the method internally once the capability is declared. Registering our own
-  // was dead code that read as a feature, so it is gone rather than left in place looking
-  // implemented.
-  //
-  // SEP-2575 made verbosity a PER-REQUEST `_meta` field, so there is no server-side floor to set:
-  // the threshold is the client's, carried on the request, and the SDK's `mcpReq.log` applies it.
+  // THE-583: the verbosity floor for server->client log notifications is FIXED at `info` and
+  // deliberately not settable. `logging/setLevel` is unroutable under MODERN (SEP-2575 removed
+  // it); under LEGACY the SDK's own `Server` constructor auto-registers it once `logging: {}` is
+  // declared below, so the SDK owns the method internally either way — see client-features.ts and
+  // docs/MCP-CLIENT-COMPAT-MATRIX.md (Finding 2, THE-725/THE-862) and the design note. SEP-2575
+  // made verbosity a PER-REQUEST `_meta` field, so there is no server-side floor to set anyway.
 
-  // SEP-2575: `server/discover` REPLACES the initialize/initialized handshake, which the
-  // 2026-07-28 revision removed outright, and the spec makes it mandatory.
-  //
-  // SEP-2575: `server/discover` REPLACES the removed initialize/initialized handshake, and the spec
-  // makes it mandatory. It IS reachable — an earlier revision of this comment warned that it was
-  // not, which was true when hand-wiring a Server + transport (the SDK routes through the wire
-  // registry of the era the CONNECTION was classified as, and stateless serving left that
-  // undefined). Serving through `createMcpHandler` classifies the era per request, which is what
-  // makes it route. Asserted end to end by mcp-protocol-eras.test.ts rather than left to a comment
-  // that cannot notice when it stops being true.
+  // SEP-2575: `server/discover` REPLACES the removed initialize/initialized handshake, and the
+  // spec makes it mandatory. Reachable only when served through `createMcpHandler`, which
+  // classifies the era per request — asserted end to end by mcp-protocol-eras.test.ts. See design
+  // note for the history behind that requirement.
   server.setRequestHandler("server/discover", () =>
     withCacheHint(
       {
@@ -455,10 +440,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // A dispatch failure is a Tool Execution Error, not a JSON-RPC protocol error (MCP 2025-11-25 /
   // SEP-1303): return isError:true with a human-readable sentence AND the full error object as
   // structuredContent, so a model can read what went wrong (e.g. the Zod issues) and self-correct
-  // rather than seeing an opaque JSON blob. THE-823: the sentence alone used to carry only code +
-  // message + retryable — real clients discard structuredContent on isError and render the text
-  // block alone, so that sentence was the caller's ENTIRE diagnostic surface and never named the
-  // offending field. formatErrorDetail appends it (capped) to the text itself.
+  // rather than seeing an opaque JSON blob. THE-823: real clients discard structuredContent on
+  // isError and render the text block alone, so formatErrorDetail appends the offending-field
+  // detail (capped) to the text itself — see design note.
   const errorToResult = (error: ErrorJSON): CallToolResult => {
     const detail = formatErrorDetail(error);
     return {
@@ -484,20 +468,11 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
       // THE-583 (SEP-2260/2322): a confirmation requirement is not a failure, it is a round trip.
-      // The 2026-07-28 shape answers with `inputRequired` carrying an opaque state the client
-      // echoes back on the retry — which a generic MCP client knows how to complete, where the
-      // old `elicit_required` error plus a bespoke `elicit_token` argument required client code
-      // written against THIS server.
-      //
-      // Only on the modern era and only when a codec is wired: a 2025-era caller still gets the
-      // error it understands. `args_hash` comes from dispatch itself, so the state is bound to the
-      // hash the gate will recompute — deriving it here instead would be a second implementation
-      // of the same hash, free to drift.
-      // Only when the CLIENT declared it can render a form elicitation. The SDK refuses an
-      // `inputRequired` naming a capability the client never advertised (-32021), so offering the
-      // round trip unconditionally would turn "needs confirmation" into a hard protocol error for
-      // every modern client that cannot prompt a human. Those clients get the plain
-      // `elicit_required` error and the 2025 token path, which they can still complete out of band.
+      // Offered only on the modern era, only when a codec is wired, and only when the CLIENT
+      // declared form-elicitation support — the SDK refuses an `inputRequired` naming a capability
+      // the client never advertised (-32021). Every other caller gets the plain `elicit_required`
+      // error and the 2025 token path. `args_hash` comes from dispatch itself so the minted state
+      // is bound to the hash the gate will recompute. See design note for the shape comparison.
       if (result.error.code === "elicit_required" && isModern && opts.elicitCodec && canElicit) {
         const argsHash = (result.error as { details?: { args_hash?: string } }).details?.args_hash;
         if (typeof argsHash === "string") {
@@ -562,15 +537,11 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const traceCarrier = extractTraceCarrier(req.params._meta);
     if (traceCarrier !== undefined) ctx = { ...ctx, traceCarrier };
     // THE-627: which client software is calling.
-    // THE-861: the SDK reserves `io.modelcontextprotocol/clientInfo` as per-request envelope
-    // material and LIFTS it out of `params._meta` before any registered handler runs — on every
-    // message, in both spec eras (`liftWireOnlyMaterial`, the SHARED `Protocol._onrequest` base
-    // both legacy and modern serving go through) — surfacing it instead at `extra.mcpReq.envelope`.
-    // So `req.params._meta` never carries this key by the time this handler runs; read the lifted
-    // location first. `envelope` is keyed by the same reserved meta-key strings `_meta` used to
-    // carry, so `extractClientInfo` (unchanged) parses either bag identically. The `_meta` read is
-    // kept as a fallback, belt-and-suspenders, for any path that still legitimately delivers it
-    // there directly rather than through this lift.
+    // THE-861: the SDK LIFTS `io.modelcontextprotocol/clientInfo` out of `params._meta` before any
+    // handler runs (`liftWireOnlyMaterial`, shared across both spec eras), surfacing it instead at
+    // `extra.mcpReq.envelope` — so `req.params._meta` never carries this key by the time this
+    // handler runs; read the lifted location first. `envelope` uses the same reserved keys, so
+    // `extractClientInfo` parses either bag identically. The `_meta` read stays as a fallback.
     const clientInfo =
       extractClientInfo(extra.mcpReq.envelope) ?? extractClientInfo(req.params._meta);
     if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
@@ -641,12 +612,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // every gate (scope/ACL/HITL/idempotency/throttle) and the target's own Layer-6 Zod validation
     // fire unchanged. Any other name (incl. a directly-named tool) takes the normal path below.
     if (facadeMode !== "flat" && isFacadeTool(req.params.name)) {
-      // THE-823: validate the caller's envelope BEFORE the ad hoc extraction below ever ran a
-      // schema over it. `args: z.record(...).default({})` on CALL_CAPABILITY_SCHEMA meant a caller
-      // writing "arguments" instead of "args" silently fell through to the default empty object —
-      // the target tool was then dispatched with no arguments and reported ITS OWN missing required
-      // fields, not the caller's actual mistake. facade.ts's schemas are now `z.strictObject`, so an
-      // unrecognized envelope key surfaces as one `unrecognized_keys` issue naming it.
+      // THE-823: validate the caller's envelope BEFORE the ad hoc extraction below runs a schema
+      // over it, so an unrecognized envelope key (e.g. "arguments" instead of "args") surfaces as
+      // its own validation error naming the caller's mistake rather than the target tool's missing
+      // fields. See design note for the prior default-fallthrough bug this replaced.
       if (req.params.name === "find_capability") {
         const parsed = FIND_CAPABILITY_SCHEMA.safeParse(args);
         if (!parsed.success)
@@ -701,12 +670,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
 
   // Resources: vault notes. resources.ts owns AUTHORIZATION (read:notes scope, vault binding,
   // folder read-ACL, path containment) and keeps it - that is the security boundary. THE-415
-  // routes both ops through registry.dispatchResource so they also get the GOVERNANCE tools get:
-  // the THE-210 rate limiter and an audit row. Before this they had neither, so a read:notes
-  // caller could pull the vault in a loop with no budget and leave no audit trail. Registered only when a
-  // vaultRegistry is supplied, matching the conditionally-advertised resources capability: the
-  // MCP SDK refuses a handler for an undeclared capability, and a client sees resources/* as
-  // unsupported rather than as a misleading empty/error surface.
+  // routes both ops through registry.dispatchResource so they also get the GOVERNANCE tools get —
+  // the THE-210 rate limiter and an audit row — so a read:notes caller cannot pull the vault in a
+  // loop with no budget and no audit trail. Registered only when a vaultRegistry is supplied: the
+  // MCP SDK refuses a handler for an undeclared capability, so an absent one reads as unsupported.
   const { vaultRegistry } = opts;
   if (vaultRegistry) {
     server.setRequestHandler("resources/list", (req, extra): Promise<ListResourcesResult> => {
@@ -722,13 +689,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
         .then((r) => withCacheHint(r, CACHE_PRIVATE));
     });
     // SEP-2549 names `resources/templates/list` among the five cacheable results, so a server that
-    // declares `resources` is expected to answer it. We had no handler at all, and the SDK answered
-    // -32601 — a client probing the resource surface saw the METHOD as unsupported rather than
-    // seeing that we simply publish no templates.
-    //
-    // The empty list is the honest answer, not a placeholder: resources here are concrete vault
-    // notes enumerated by `resources/list`, and there is no URI template to expand. It still
-    // carries the cache hint, because the emptiness is as cacheable as any other listing.
+    // declares `resources` is expected to answer it — an unhandled method answers -32601, making
+    // the METHOD look unsupported rather than simply empty. The empty list is the honest answer:
+    // resources here are concrete vault notes enumerated by `resources/list`, with no URI template
+    // to expand. It still carries the cache hint — the emptiness is as cacheable as any listing.
     server.setRequestHandler(
       "resources/templates/list",
       (_req, _extra): Promise<ListResourceTemplatesResult> =>
@@ -769,12 +733,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
   }
 
   // Prompts: built-in, static templates (no vault access, so no authorization gate — like the
-  // unauthenticated liveness surface). THE-415 left prompts as the last MCP surface that skipped
-  // ToolRegistry governance entirely; route both ops through dispatchResource so they get the same
-  // GOVERNANCE resources get — the THE-210 rate limiter and an audit row — making "every invocation
-  // is audited" hold for the prompt surface too. dispatchResource applies throttle + audit + metrics
-  // but enforces no scope (authorization stays the handler's job), so passing [] preserves the
-  // open-template semantics while closing the observability gap.
+  // unauthenticated liveness surface). THE-415: route both ops through dispatchResource so they get
+  // the same GOVERNANCE resources get — the THE-210 rate limiter and an audit row — so "every
+  // invocation is audited" holds for the prompt surface too. dispatchResource enforces no scope
+  // here (authorization stays the handler's job); passing [] preserves open-template semantics.
   server.setRequestHandler("prompts/list", (_req, extra): Promise<ListPromptsResult> => {
     const ctx = opts.context(extra.mcpReq.signal);
     return opts.registry
