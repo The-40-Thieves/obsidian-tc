@@ -85,6 +85,13 @@ jobs:
       # cleanly and silently does nothing. This is the mechanized guard against that recurring.
       - name: config-path existence (source scan)
         run: bun run check:config-paths
+      # #850/#851/#852: CONTRIBUTING.md's "Inline commentary" section bans dated ticket-thread
+      # banners (CORRECTED 2026-08-04:, VERIFIED 2026-...) and first-person narrative ("I found",
+      # "we measured") in packages/*/src comments, and the sweep in #851/#852 already relocated
+      # that register out to docs/design/. This is the mechanized guard against it regrowing, plus
+      # a ratchet against re-accumulating oversized (>= 120-line) comment blocks.
+      - name: comment style (source scan)
+        run: bun run check:comment-style
       # THE-703: ARCHITECTURE.md §3.1's companion-plugin route block is prose that happens to look
       # like a spec, and nothing could tell it apart from one — it drifted 11 routes and 6 families
       # behind the code, and listed three routes under the wrong verb (GET where they ship POST),
