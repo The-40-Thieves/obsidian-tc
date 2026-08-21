@@ -34,21 +34,15 @@ export interface SemanticOptions {
    *  new-model query (is_active=1 + byteLength===dim*4 are both satisfied by the old vector). This
    *  makes the fallback agree with the vec0 path (THE-460). Omitted -> no filter (back-compat). */
   model?: string;
-  /** THE-585 (#7, #8): fired when the vec0 KNN path is abandoned for the brute-force scan, with
-   *  WHY. Both reasons are silent degradations today — the caller still gets correct results, at a
-   *  completely different cost profile, and nothing says so.
-   *
-   *  A callback rather than a metrics handle, matching graphSearch's `onStage` and indexVault's
-   *  `onNotesPass`: this module must not learn about the metrics recorder. The composition root
-   *  wires it, keeping the dependency one-way.
-   *
-   *  - "error"     — vec0 threw. Usually a dimension mismatch after an embedding-model change, i.e.
-   *                  the vector index no longer matches the query. Persistent = a real misconfig.
-   *  - "underfill" — vec0 returned, but the over-fetched candidates could not fill k VISIBLE hits
-   *                  while the index held at least `overFetch` chunks, so ACL-invisible chunks may
-   *                  be crowding out visible ones (THE-287). This is the ACL half of the pair.
-   *
-   *  Best-effort by contract: a throwing callback must never break a search. */
+  /** THE-585: fired with why the vec0 KNN path was abandoned for the brute-force scan — both
+   *  reasons are otherwise-silent degradations (correct results, different cost profile).
+   *  - "error"     — vec0 threw, usually a dimension mismatch after an embedding-model change.
+   *  - "underfill" — vec0's over-fetched candidates couldn't fill k visible hits while the index
+   *                  held at least `overFetch` chunks: ACL-invisible chunks may be crowding out
+   *                  visible ones (THE-287).
+   *  A callback, not a metrics handle, so this module stays ignorant of the metrics recorder —
+   *  see docs/design/retrieval-dense-index.md. Best-effort: a throwing callback must never break
+   *  a search. */
   onFallback?: (reason: "error" | "underfill") => void;
 }
 
@@ -122,14 +116,14 @@ export function semanticSearch(
       // Trust vec0 only when it filled k, or the index returned fewer candidates than the cap (we
       // have then seen every chunk). Otherwise crowding is possible -> exhaustive fallback.
       vecHits = out.length >= k || candidates.length < overFetch ? out : null;
-      // THE-585 (#8): the ACL half. Reported only on the crowding branch, not on the "index is
-      // smaller than the over-fetch" branch — the latter is an exhaustive read, not a degradation.
+      // THE-585: reported only on the crowding branch, not the "index is smaller than the
+      // over-fetch" branch — the latter is an exhaustive read, not a degradation.
       if (vecHits === null) notifyFallback(opts, "underfill");
     } catch {
       // Any vec0 failure (e.g. a dimension mismatch after an embedding-model change) degrades to
       // the dimension-tolerant brute-force scan below.
       vecHits = null;
-      notifyFallback(opts, "error"); // THE-585 (#7)
+      notifyFallback(opts, "error"); // THE-585
     }
   }
   if (vecHits !== null) return vecHits;
@@ -150,11 +144,11 @@ export function semanticSearch(
           )
           .all(vaultId)
   ) as BruteRow[];
-  // THE-420: score the whole candidate set in ONE native crossing instead of one per row.
-  // Per-pair cosine across the boundary is dominated by re-marshaling the f64 query on every
-  // call (measured 13-22x slower than JS); cosineBatch marshals the query once and scans the
-  // corpus in native. ACL-filter FIRST so invisible chunks are never scored; chunk_embeddings
-  // can hold mixed dims (e.model varies), which the per-pair path scored 0 — preserved here.
+  // THE-420: score the whole candidate set in one native crossing instead of one per row —
+  // per-pair cosine across the boundary is dominated by re-marshaling the f64 query on every
+  // call (see docs/design/retrieval-dense-index.md for the measurement); cosineBatch marshals
+  // the query once and scans the corpus in native. ACL-filter FIRST so invisible chunks are
+  // never scored; chunk_embeddings can hold mixed dims (e.model varies), scored 0 — preserved.
   const visible = rows.filter((r) => readable(r.path));
   const dim = queryVec.length;
   const same = visible.filter((r) => r.embedding.byteLength === dim * 4);

@@ -609,15 +609,12 @@ export function parseCliArgs(argv: string[]): CliCommand {
     }
     // THE-222: sleep-time reflect — episode-eligibility evaluator + preference-profile update.
     if (first === "reflect") {
-      // THE-747: this command used to accept --max-judged, capping the episode-eligibility judge.
-      // THE-701 removed that judge, and the flag outlived it — parsed, range-validated, advertised
-      // in --help, and passed to nothing. Removed rather than rewired: there is no longer a judge
-      // here to bound. The citation-infer command's --max-judged is a different, live knob.
+      // THE-747/THE-701: `--max-judged` no longer applies to `reflect` — history in CHANGELOG.md.
+      // citation-infer's --max-judged is a separate, live knob, unaffected by this.
       //
-      // It is REJECTED rather than ignored, for the reason the `token mint` branch documents: the
-      // positional scan takes the first non-dash token, so silently dropping the flag would leave
-      // its VALUE behind and `reflect --max-judged 5` would resolve the config path to "5".
-      // Erroring also tells an operator with it in a script that it has not worked since THE-701.
+      // Rejected rather than silently ignored, for the reason the `token mint` branch documents:
+      // the positional scan takes the first non-dash token, so dropping the flag would leave its
+      // VALUE behind and `reflect --max-judged 5` would resolve the config path to "5".
       if (rest.includes("--max-judged"))
         return {
           kind: "error",

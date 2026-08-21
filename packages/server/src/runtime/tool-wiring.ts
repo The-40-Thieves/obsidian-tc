@@ -1,14 +1,12 @@
-// WP5.2 (issue 16): run_serve's M1-M8 tool-dependency composition + registration, extracted
-// verbatim out of cli.ts, PLUS the two tools the map's trap list calls out by name: `health` and
-// `index_status` register inline from live runtime state (not from a module registrar), which is
-// why `boot.tools_registered` (eval/perf/collectors/boot.ts) is pinned 2 lower than
-// REGISTERED_TOOL_COUNT — see that collector's probe, which imports tools/m1..m8's registrars
-// DIRECTLY and never touches this file or cli.ts, so moving these call sites changes nothing it
-// measures.
+// run_serve's M1-M8 tool-dependency composition + registration, plus `health` and `index_status`,
+// which register inline from live runtime state rather than from a module registrar (that's why
+// `boot.tools_registered` in eval/perf/collectors/boot.ts is pinned 2 lower than
+// REGISTERED_TOOL_COUNT — that collector imports tools/m1..m8's registrars directly).
 //
-// `wireM1Tools` runs BEFORE bridge-wiring.ts (M1 has no bridge dependency); `wireDomainTools` (M2-M8)
-// runs AFTER it, because M2's dataviewBridge / M3's templaterBridge / M4 itself all read the
-// composed M4Deps object bridge-wiring.ts returns.
+// Composition order is load-bearing: `wireM1Tools` runs BEFORE bridge-wiring.ts (M1 has no bridge
+// dependency); `wireDomainTools` (M2-M8) runs AFTER it, because M2's dataviewBridge / M3's
+// templaterBridge / M4 itself all read the composed M4Deps object bridge-wiring.ts returns.
+// See docs/design/runtime-gateway-seams.md for the extraction background.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { DEFAULT_MEMORY_FOLDER, err } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilityCache } from "../bridge";
@@ -139,18 +137,12 @@ export interface GatewaySeams {
  * provider and what it needed, matching the actionable-hint idiom used throughout
  * providers/registry.ts.
  *
- * `provider: "local"` is a DELIBERATE exception (THE-705 round 2, adversarial review confirmed
- * finding 1). model-tier/gateway's null is a CONFIG-correctness defect — the operator declared a
- * block that structurally cannot work given the REST of their config, and that is always fixable by
- * editing the config. "local"'s null is an ENVIRONMENT-AVAILABILITY question: the optional
- * @the-40-thieves/obsidian-tc-reranker-local package may simply not be resolvable on THIS exact
- * deployment (not yet published to npm, not built in this checkout, no localModulePath override) —
- * treating that identically to a config typo means an operator who opts into an optional capability
- * that happens to be unavailable gets a hard boot crash, which is the opposite of "rerank reachable
- * without a gateway". So "local" degrades exactly like an ABSENT block: this returns `null`,
- * `rerankWithScores` reports `not_configured`, retrieval stays RRF-only. `doctor/checks.ts`'s
- * `rerankerBuildableCheck` (wired with a real resolution probe in cli/commands/doctor.ts) is what
- * keeps this LOUD instead of silently identical to "nothing configured".
+ * `provider: "local"` is a DELIBERATE exception: unlike model-tier/gateway (a config-correctness
+ * defect), a `null` here is an environment-availability question — the optional
+ * @the-40-thieves/obsidian-tc-reranker-local package may simply not be resolvable on this exact
+ * deployment. It degrades like an ABSENT block instead of crashing boot. `doctor/checks.ts`'s
+ * `rerankerBuildableCheck` keeps this loud rather than silently identical to "nothing configured".
+ * Full rationale (THE-705 round 2, #806): docs/design/runtime-gateway-seams.md.
  */
 async function resolveDeclaredReranker(
   cfg: NonNullable<ServerConfig["reranker"]>,
@@ -226,32 +218,20 @@ function rolesFrom(gw: GatewayClient): GatewayRoles {
 }
 
 /**
- * THE-700: a SEPARATE roles seam for the background plane, with a longer retry budget.
+ * A SEPARATE roles seam for the background plane, with a longer retry budget and its own
+ * per-attempt timeout — MORE ATTEMPTS rather than a longer per-attempt timeout, so each attempt
+ * still fails fast while a cold endpoint warms between them. SEPARATE from the interactive `roles`
+ * on purpose: that seam is shared with the M7 challenge tool, where a multi-minute budget is
+ * absurd (a user is waiting) but a weekly consolidation pass tolerates it fine.
  *
- * The Modal endpoints behind the gateway roles scale to zero, and a cold start was measured at
- * >180s — longer than the default 3 attempts x 60s, so every scheduled synthesis pass died with
- * `gateway timed out` while the same request against a warm endpoint took 4.8s.
- *
- * MORE ATTEMPTS, not a longer per-attempt timeout. Each attempt still fails fast; the endpoint
- * warms in the background between them, and a later attempt lands on a hot container. Widening the
- * per-attempt budget instead would hold the caller through the entire wake-up, which is exactly
- * what gateway/client.ts's own comment argues against.
- *
- * SEPARATE from the interactive roles on purpose. `roles` is shared with the M7 challenge tool,
- * where a ~6 minute budget is absurd — a user is waiting. A weekly consolidation pass is not.
- *
- * NOT a ping()-based pre-warm, which was the obvious idea and is wrong: ping() hits LiteLLM's
- * /health, and LiteLLM health-checks EVERY configured model — measured at 60.8s across 470 models
- * spanning 9 hosted providers. Using it to warm one Modal endpoint would issue real billable calls
- * to every unrelated vendor.
+ * Full history and measurements (Modal cold-start budget, the rejected ping()-based pre-warm
+ * idea, THE-700 #659 and THE-709): docs/design/runtime-gateway-seams.md.
  */
 export function planeRoles(attempts: number, timeoutMs?: number): GatewayRoles | null {
   try {
-    // THE-709: the PER-ATTEMPT budget matters as much as the attempt count. Attempts only rescue a
-    // transient failure; a request that deterministically exceeds the per-attempt timeout fails
-    // identically every time and merely burns the whole budget (measured: 370.4s twice, 12ms apart
-    // — 6 x 60s, not a varying cold start). Omitted rather than passed as undefined so the client's
-    // own 60s default still governs when the knob is absent.
+    // The PER-ATTEMPT budget matters as much as the attempt count — see the design note above.
+    // Omitted rather than passed as undefined so the client's own 60s default still governs when
+    // the knob is absent.
     return rolesFrom(
       createGatewayClient({
         maxAttempts: attempts,
@@ -384,13 +364,10 @@ export interface DomainToolsDeps {
  *  bridge clients / capability snapshots bridge-wiring.ts builds. */
 export function wireDomainTools(deps: DomainToolsDeps): void {
   const { config, registry } = deps;
-  // THE-630: federated multi-vault search's per-vault ACL source — the same shared buildAcls
-  // wireGovernance uses (see acl-build.ts for why it must be the ONE construction site), from
-  // `config` (already a DomainToolsDeps field) rather than threading governance's own already-built
-  // objects through server-runtime.ts's wireDomainTools call, which sits at biome's 700-line file
-  // ceiling (CLAUDE.md's documented gotcha). FolderAcl construction is a pure function of config,
-  // so this is behaviorally identical to reusing governance's objects, at the one-time boot cost
-  // of compiling the same glob rules twice.
+  // Federated multi-vault search's per-vault ACL source (THE-630, #809), built here from `config`
+  // rather than threading wireGovernance's already-built objects through — deliberately, at the
+  // one-time cost of compiling the same glob rules twice. Rationale:
+  // docs/design/runtime-gateway-seams.md.
   const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
   const memoryFolder = (vaultId: string): string =>
     deps.memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER;
@@ -426,15 +403,12 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
     onIndexVaultComplete: (vaultId, stats) => {
       deps.indexHealth.lastChunksUpserted = stats.chunks_upserted;
-      // THE-645: `inFlight` is a SINGLE slot, and dispatch has no cross-call serialization, so two
-      // index_vault calls on DIFFERENT vaults can genuinely overlap. Only clear the slot when this
-      // completion actually owns it — an unconditional clear here would let vault B finishing null
-      // out vault A's still-running entry, and get_index_status would falsely report nothing
-      // in-flight until A's next flush() self-heals it. One consequence of the single slot: while
-      // two runs overlap, `in_flight` reports "an" in-flight run, not "all" of them — the slot
-      // holds whichever vault's onProgress fired last (last-progress-wins), never a set. The
-      // output schema already carries `vault` on the entry, so a caller CAN tell which one it's
-      // looking at; it just can't see a second concurrent run through this single-slot field.
+      // `inFlight` is a SINGLE slot (THE-645); two index_vault calls on DIFFERENT vaults can
+      // genuinely overlap since dispatch has no cross-call serialization. Only clear the slot when
+      // this completion actually owns it, or vault B finishing would null out vault A's
+      // still-running entry. Consequence: while two runs overlap, `in_flight` reports "an"
+      // in-flight run, not "all" of them (last-progress-wins) — the entry still carries `vault`, so
+      // a caller can tell which one, just not that a second run exists.
       if (deps.indexHealth.inFlight?.vault === vaultId) {
         deps.indexHealth.inFlight = null;
       }

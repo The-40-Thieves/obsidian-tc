@@ -54,14 +54,10 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         k: z.number().int().positive().max(60).default(30),
         include_work: z.boolean().default(false),
         include_lessons: z.boolean().default(true),
-        // THE-647 item 1: differential mode. When present, notes/syntheses/contradictions and
-        // (if include_work) episodes are filtered to rows newer than this cutoff instead of
-        // top-K by relevance. This is a LOWER-BOUND HINT, not the filter of record: the server
-        // floors it against the caller's own stored watermark (when one exists) before filtering,
-        // so a client clock running ahead — or a stale cached `since` — cannot silently skip a
-        // row; the response's `diff_since` always echoes the value that was actually applied plus
-        // the safe next cutoff. See context-watermark.ts for the full floor + capture-before-read/
-        // advance-after discipline.
+        // THE-647 item 1: differential mode — a LOWER-BOUND HINT floored against the caller's own
+        // stored watermark, not the filter of record, so a client clock running ahead (or a stale
+        // cached `since`) cannot silently skip a row. See context-watermark.ts for the
+        // capture-before-read/advance-after discipline, and docs/design/knowledge-vault-context-tool.md.
         since: z
           .string()
           .datetime()
@@ -99,15 +95,14 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         query = text;
         querySource = "next_session";
         signalPath = rel;
-        // THE-136: prewarm-cache hit — the anticipatory prefetch already composed this
-        // bundle. The reader enforces the TTL and the signal hash (an edited note misses);
-        // an empty marker (the prefetch floor) falls through to a live compose. Cache hits
-        // are not retrieval-logged: no live retrieval happened, the prefetch run logged its.
+        // Prewarm-cache hit — the anticipatory prefetch already composed this bundle. Serving it
+        // requires four independent layers to agree (TTL+signal hash, caller+content cache key,
+        // per-path ACL recheck, response-shape validation); any one disagreeing is a full miss,
+        // never a partial return. See docs/design/knowledge-vault-context-tool.md (THE-543,
+        // THE-417, THE-136). Cache hits are not retrieval-logged: no live retrieval happened, and
+        // the prefetch run that produced the bundle already logged its own.
         signalHash = createHash("sha256").update(text).digest("hex");
         if (deps.prewarmDir) {
-          // THE-543: the cache key binds the CALLER (acl_fingerprint) and the CONTENT
-          // (vault_generation) that produced the bundle — an entry written under a broader
-          // ACL, or one whose vault has since mutated, is a miss here, not a match.
           const aclFingerprint = callerAclFingerprint(ctx.acl, ctx.grantedScopes);
           const cached = readPrewarm(prewarmPathFor(deps.prewarmDir, v.id, aclFingerprint), {
             nowMs: (ctx.now ?? Date.now)(),
@@ -115,18 +110,6 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
             aclFingerprint,
             vaultGeneration: readGeneration(ctx.db, v.id),
           });
-          // THE-543 layer 3: re-check every path the bundle references against THIS
-          // dispatch's ACL regardless of the key match above. A bundle is a composed whole —
-          // if any path in it is now unreadable, the whole entry is a miss, never a partial
-          // return, so it falls through to the live compose below.
-          // THE-417: layer 4 — the bundle's SHAPE. `PrewarmEntry.bundle` is
-          // `Record<string, unknown>` read from disk, so nothing here has ever guaranteed a
-          // cached entry matches what this tool returns today. A bundle written by an older
-          // build with a different response shape would have been served verbatim. Now that the
-          // shape is declared, validate it and treat a mismatch as a MISS — the same discipline
-          // as the ACL and generation layers above, and the same rule the comment there states:
-          // a bundle is a composed whole, so a partial or stale-shaped one falls through to a
-          // live compose rather than being returned in part.
           const shaped =
             cached?.empty === false && cached.bundle
               ? VaultContextOutput.safeParse(cached.bundle)
@@ -200,19 +183,14 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
       });
 
-      // THE-647 item 1: differential mode. `capturedWatermarkMs` is captured HERE — before any of
-      // the diff reads below run — and is what gets persisted (not a value re-read afterward).
-      // See context-watermark.ts's module doc for why that ordering is load-bearing: a value
-      // captured after the reads would let a row written in between be marked "already seen"
-      // without ever being returned to any caller.
+      // THE-647 item 1: `capturedWatermarkMs` is captured HERE, before any diff read below runs,
+      // and is what gets persisted (never a value re-read afterward) — load-bearing ordering, see
+      // context-watermark.ts's module doc and docs/design/knowledge-vault-context-tool.md.
       const sinceMs = input.since !== undefined ? Date.parse(input.since) : undefined;
       const capturedWatermarkMs = sinceMs !== undefined ? (ctx.now ?? Date.now)() : undefined;
-      // `since` is a LOWER-BOUND HINT, not the filter of record: floor it against this caller's
-      // stored watermark (when one exists) so a client whose clock has drifted ahead of the
-      // server's — or that replays a stale cached `since` — cannot silently lose a row. Absent a
-      // stored row (this caller's first-ever diff call for this vault), the client's `since` is
-      // used exactly as given. See context-watermark.ts's module doc for the full reasoning; this
-      // makes over-delivery (a row reappearing on a later call) the failure mode instead of loss.
+      // Floor `since` against this caller's stored watermark (when one exists); absent a stored
+      // row (first-ever diff call), the client's `since` is used as given. Makes over-delivery the
+      // failure mode instead of loss.
       const storedWatermarkMs =
         sinceMs !== undefined ? readContextWatermark(ctx.db, ctx.caller ?? null, v.id) : undefined;
       const effectiveSinceMs =
@@ -485,16 +463,15 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           /* bookkeeping only; the response above is already correct */
         }
       }
-      // THE-136 write-through: a live bootstrap compose refreshes the prewarm cache so the
-      // next bootstrap within the TTL is a hit even without a scheduled prefetch run.
-      // Best-effort; atomic (tmp + rename) so no reader catches a torn file.
+      // THE-136 write-through: a live bootstrap compose refreshes the prewarm cache so the next
+      // bootstrap within the TTL is a hit even without a scheduled prefetch run. Best-effort;
+      // atomic (tmp + rename) so no reader catches a torn file. Records the fingerprint of the ACL
+      // that actually produced `response` and the vault generation at this instant, so a later
+      // reader under a different/wider ACL, or after content moved, misses instead of inheriting
+      // this caller's view. See docs/design/knowledge-vault-context-tool.md.
       if (querySource === "next_session" && deps.prewarmDir && signalHash !== undefined) {
         try {
           const now = (ctx.now ?? Date.now)();
-          // THE-543: record the fingerprint of the ACL that actually produced `response`
-          // (results were already filtered through readableRel(ctx.acl, ...) above) and the
-          // vault generation at this instant, so a later reader under a different or wider
-          // ACL, or after content moved, misses instead of inheriting this caller's view.
           writePrewarm(
             prewarmPathFor(deps.prewarmDir, v.id, callerAclFingerprint(ctx.acl, ctx.grantedScopes)),
             {

@@ -42,10 +42,9 @@ export function blobToFloats(blob: Uint8Array): Float32Array {
 const vecLoaded = new WeakSet<Database>();
 
 // THE-663: sqlite's extension loader derives the entry-point symbol it dlsym()s from the
-// FILENAME (stripped of its extension, prefixed sqlite3_ and suffixed _init) rather than from any
-// metadata in the binary — so the materialized file's basename MUST be exactly "vec0.<ext>" or
-// loadExtension fails with an "undefined symbol" error even though the bytes are byte-for-byte
-// correct. The extension is platform-specific, mirroring sqlite-vec's own extensionSuffix().
+// materialized file's basename, so it must be exactly "vec0.<ext>" or loadExtension fails with
+// an "undefined symbol" error even though the bytes are correct. Extension is platform-specific,
+// mirroring sqlite-vec's own extensionSuffix(). See docs/design/retrieval-dense-index.md.
 function vecExtension(): string {
   if (process.platform === "win32") return "dll";
   if (process.platform === "darwin") return "dylib";
@@ -87,10 +86,10 @@ export function loadVec(db: Database): boolean {
     vecLoaded.add(db);
     return true;
   } catch {
-    // THE-663: the require() above resolves relative to import.meta.url, which `bun build
-    // --compile` freezes to the BUILD MACHINE's path — so it throws in every published standalone
-    // binary, on every platform, not only the cross-compiled ones. Fall back to the copy baked
-    // into THIS binary for its own target platform (see vec-embedded.ts).
+    // THE-663: require() above resolves relative to import.meta.url, which `bun build
+    // --compile` freezes to the build machine's path, so it throws in every published
+    // standalone binary, on every platform. Falls back to the copy baked into this binary for
+    // its own target platform — see vec-embedded.ts.
     try {
       const embedded = materializeEmbeddedVec();
       if (!embedded) return false;
@@ -127,16 +126,13 @@ export interface VecRebuildEvent {
 }
 
 /**
- * THE-683: takes the full RepresentationManifest, not a VecFingerprint.
+ * THE-683: takes the full RepresentationManifest, not just a VecFingerprint — the extra axes
+ * (pooling, instruct prefixes, MRL truncation, multi-vector heads) can make two "same provider,
+ * same model" representations produce non-interchangeable vectors. See
+ * docs/design/retrieval-dense-index.md for why the fingerprint-only shape was insufficient.
  *
- * The manifest is a structural SUPERSET of VecFingerprint, so nothing is lost — but the extra axes
- * (pooling, the instruct prefixes, MRL truncation, the multi-vector heads) are exactly the ones
- * that can make two "same provider, same model" representations produce non-interchangeable
- * vectors. Taking the fingerprint alone is what let `embeddings.pooling` be a validated, documented
- * config key that changed nothing.
- *
- * Callers build it with `buildRepresentationManifest` — the single derivation, which is what makes
- * the two production sites unable to disagree about the identity of the index they share.
+ * Callers build the manifest with `buildRepresentationManifest` — the single derivation, so the
+ * two production sites can't disagree about the identity of the index they share.
  */
 export function ensureVecChunks(
   db: Database,
@@ -224,30 +220,21 @@ export function ensureVecChunks(
             )
             .get() as { n: number }
         ).n;
-        // THE-460: filter on the MODEL as well as the byte length. Length alone cannot distinguish
-        // a same-dimension model swap — old-model vectors are exactly dims*4 too, so they passed
-        // the guard and refilled the index while the stored fingerprint claimed the new model.
-        // Retrieval would then score new-model queries against old-model embeddings: not an error,
-        // just quietly wrong results. Vectors from any other model are left for the re-embed to
-        // regenerate, which is the same posture already taken for a dimension change.
-        // THE-460 fix A: chunk_embeddings.model stores provider.id (e.g. "ollama:bge-m3"), not the
-        // bare fp.model — binding fp.model here could never match a production row, so the
-        // backfill silently selected zero rows after ANY fingerprint-triggered rebuild whose
-        // provider.id didn't ALSO change (revision is the first operator-settable field that moves
-        // the fingerprint while leaving provider.id untouched). opts.activeModel carries the
-        // actually-stored identity; fall back to fp.model only when it's absent (non-production
-        // callers, back-compat).
+        // THE-460 (fix A): filter on model as well as byte length — length alone can't distinguish
+        // a same-dimension model swap (old-model vectors are dims*4 too), which would otherwise
+        // silently score new-model queries against old-model embeddings. Bind opts.activeModel
+        // (the actually-stored provider.id), falling back to fp.model only when absent — see
+        // docs/design/retrieval-dense-index.md for why binding fp.model alone is wrong.
         db.prepare(
           `INSERT INTO vec_chunks (chunk_id, vault_id, path, model, embedding)
            SELECT e.chunk_id, c.vault_id, c.path, e.model, e.embedding
            FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id
            WHERE e.is_active = 1 AND length(e.embedding) = ${dims * 4} AND e.model = ?`,
         ).run(opts.activeModel ?? manifest.model);
-        // THE-612: NOT `.changes` from the INSERT above — vec0 virtual tables are backed by
-        // several shadow tables, so `.changes` reports shadow-table writes rather than logical
-        // rows (measured: 6 for a single logical row backfilled). vec_chunks was DROPped and
-        // recreated immediately above, so a plain COUNT here is exactly what this INSERT just
-        // wrote — cheap and exact, unlike `.changes` on a virtual table.
+        // THE-612: NOT `.changes` from the INSERT above — vec0's shadow tables make `.changes`
+        // report shadow-table writes rather than logical rows. vec_chunks was just DROPped and
+        // recreated, so COUNT(*) here is exactly what this INSERT wrote. See
+        // docs/design/retrieval-dense-index.md.
         const inserted = (db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number })
           .n;
         skipped = active - inserted;
@@ -296,22 +283,16 @@ export function ensureVecChunks(
 }
 
 /**
- * THE-582: impose a TOTAL order on the KNN result — distance ascending, then chunk_id — so equal
- * distances rank deterministically instead of in whatever order vec0's scan produced.
+ * THE-582: impose a total order on the KNN result — distance ascending, then chunk_id (compared
+ * by code unit, not localeCompare, to avoid trading one source of host-dependence for another) —
+ * so equal distances rank deterministically instead of in whatever order vec0's scan produced.
+ * Done here rather than in SQL because vec0 rejects a second sort key
+ * ("Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries").
  *
- * This has to happen here rather than in the SQL: vec0 rejects a second sort key outright
- * ("Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries"), so
- * `ORDER BY distance, chunk_id` is not available to us.
- *
- * Exact ties are not a corner case. Any two chunks with identical content embed to identical
- * vectors and therefore to a bit-identical distance — duplicate bodies, repeated boilerplate,
- * shared templates. In the perf corpus (dupGroups=20 over 100 notes) the rank-10 distance spans
- * the top-10 cut on 3 of 5 labelled queries, meaning the tie order decides top-10 MEMBERSHIP.
- * That is how the same commit produced retrieval.ndcg_at10 0.8028 on aarch64 and 0.8414 on
- * x86_64 while recall_at10 (set-based) and the candidate counts matched exactly.
- *
- * chunk_id is compared by code unit, NOT localeCompare: locale-sensitive collation would trade
- * one source of host dependence for another.
+ * Exact ties are not a corner case: identical-content chunks embed to a bit-identical distance
+ * (duplicate bodies, boilerplate, shared templates), and the tie order can decide top-K
+ * membership, not just order within it — this previously produced a host-dependent nDCG. See
+ * docs/design/retrieval-dense-index.md for the measurement.
  */
 function totalOrderByDistance<T extends { chunk_id: string; distance: number }>(rows: T[]): T[] {
   return rows.sort((a, b) => {

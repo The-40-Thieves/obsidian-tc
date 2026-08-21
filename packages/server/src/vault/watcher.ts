@@ -1,25 +1,13 @@
-// THE-649 — filesystem watch over each vault root, so an edit made OUTSIDE the server reaches the
-// index without waiting for an explicit index_vault.
-//
-// Why this exists: docs/SYNC.md has always told users "the server picks them up via its filesystem
-// watch" and "the server watches vaultPath and reindexes changed files". There was no watcher. Every
-// sync tier in that document (headless Obsidian Sync, LiveSync, git pull, Syncthing, a bind mount)
-// lands Markdown on disk with Obsidian very possibly not running on the server at all — which is
-// also why this is a filesystem watch rather than the companion plugin's event stream: the bridge
+// Filesystem watch over each vault root: an edit made OUTSIDE the server (any sync tier — headless
+// Obsidian Sync, LiveSync, git pull, Syncthing, a bind mount) reaches the index without waiting for
+// an explicit index_vault. A filesystem watch, not the companion plugin's event stream — the bridge
 // only answers while Obsidian is open, and the documented deployment does not require it to be.
+// THE-649. See docs/design/vault-watcher.md.
 //
-// The eligibility rules below are NOT re-derived here: they mirror `walkVault` (vault/paths.ts),
-// which is what index_vault walks. A watcher that admitted a path the full walk skips would index
-// content no other code path can reach, and the two would disagree forever.
-//
-// There is NO self-write feedback loop to defend against, and that is a property of the indexer, not
-// luck: indexing never writes a `.md` file back into the vault, and cache.db lives outside vaultPath
-// by SYNC.md's contract. A note the server itself wrote is already indexed inline by the write path,
-// so the watcher's echo is redundant rather than wrong — and it terminates, because the indexer's
-// content_hash comparison makes the second pass a no-op re-read rather than a re-embed. Deliberately
-// no second echo-suppression layer here: content_hash is where "have I already seen these bytes"
-// is decided for every other caller, and a private copy in the watcher would be a second answer to
-// a question that already has one.
+// Eligibility mirrors `walkVault` (vault/paths.ts) and must stay in sync with it — a watcher that
+// admits a path the full walk skips would index content no other code path can reach. There is no
+// self-write feedback loop and no separate echo-suppression layer: the write path indexes inline,
+// and content_hash makes the watcher's redundant re-read a no-op.
 import { lstatSync, realpathSync, statSync, watch } from "node:fs";
 import { join } from "node:path";
 import { readNote } from "./notes-io";
@@ -66,17 +54,11 @@ export function normalizeWatchPath(filename: string): string {
 
 /**
  * Config-shaped wrapper: maps the vault list onto watch targets and routes per-vault failures to
- * stderr. Lives here rather than inline in cli.ts, which is at its `noExcessiveLinesPerFile` cap —
- * and that cap has already been raised once (THE-610), so the file's own header asks the next
- * change to shrink it rather than raise it again.
+ * stderr. Lives here rather than inline in cli.ts, which is at its `noExcessiveLinesPerFile` cap.
  *
  * Structurally typed (not `ServerConfig`) for the same reason `resolveTraceDirs` is: it keeps the
  * vault module free of a dependency on the whole config schema, and keeps the tests able to call it
- * with two fields instead of a full parsed config.
- *
- * THE-657 removed the `platform` parameter. It existed solely to make the win32 skip assertable
- * from every CI leg; there is no platform branch left to assert, and a parameter kept for a
- * deleted branch is the kind of thing a future reader treats as load-bearing.
+ * with two fields instead of a full parsed config. See docs/design/vault-watcher.md.
  */
 export function registerVaultWatch(
   vaults: readonly { id: string; path: string }[],
@@ -84,29 +66,10 @@ export function registerVaultWatch(
   hooks: Pick<VaultWatchOptions, "onUpsert" | "onDelete">,
 ): () => void {
   if (!cfg.enabled) return () => {};
-  // THE-657 RESOLVED 2026-08-05: Windows watch is ENABLED. The crash was never recursive fs.watch.
-  //
-  // It was an 8.3 SHORT PATH. libuv prefix-compares each event's filename against the watched
-  // directory string (`!_wcsnicmp(filename, dir, dirlen)`, src/win/fs-event.c:72). `os.tmpdir()` on
-  // a Windows CI runner resolves to `C:\Users\RUNNER~1\...` — the short form — while events arrive
-  // carrying the long form, so the compare fails and libuv ABORTS THE PROCESS. Not an exception:
-  // an assertion inside the native layer, which is why the vitest worker vanished with no error and
-  // the block's tests simply went missing from the totals.
-  //
-  // Measured on windows-latest via scripts/watch-soak.mjs, one long-lived watcher over a nested
-  // 400-file tree, ubuntu and macos as controls on the identical harness:
-  //
-  //   tmpdir    (C:\Users\RUNNER~1\...)     DIED  276ms in, libuv assertion, exit 127
-  //   realpath  (C:\Users\runneradmin\...)  SURVIVED  45s, 1415 edits -> 2835 events
-  //   workspace (D:\a\...\soak-vault)       SURVIVED  45s, 1421 edits -> 2847 events
-  //
-  // So the old comment's open question — "does it affect a long-lived server, or only a test
-  // process churning watchers?" — had a false premise. Watcher count and lifetime were never the
-  // variable; the path shape was, and the test fixtures happened to live under tmpdir.
-  //
-  // `realpathSync.native` below is the fix and is applied on EVERY platform, not just win32: it is
-  // a no-op where short names do not exist, and a platform-conditional fix would leave the one
-  // platform that needs it as the only one that is untested by the other three CI legs.
+  // Windows watch is enabled: recursive fs.watch was never the hazard it looked like. The crash was
+  // a native libuv assertion from an 8.3 short watch-root path disagreeing with the long-form paths
+  // event payloads carry — fixed unconditionally, on every platform, by resolving the watch root
+  // through `realpathSync.native` below. THE-657. See docs/design/vault-watcher.md.
   return startVaultWatch({
     targets: vaults.map((v) => ({ vaultId: v.id, root: v.path })),
     debounceMs: cfg.debounceMs,
@@ -129,10 +92,9 @@ export type WatchResolution =
  * Decide what a changed path means, and read it if it is an indexable note.
  *
  * Split out of flush() deliberately: every security-relevant guarantee of this module lives HERE,
- * and none of it has anything to do with fs.watch. Testing these through the OS watcher made
- * platform-independent rules depend on platform-specific event delivery — which is exactly how a
- * correct symlink guard came to fail on macOS for timing reasons. As a pure function of (root, rel)
- * it is deterministic on every platform.
+ * independent of fs.watch, and is deterministic as a pure function of (root, rel) on every
+ * platform. See docs/design/vault-watcher.md for why coupling these rules to OS watch event
+ * delivery is unsafe.
  *
  * Reaching an indexable note takes BOTH guards, because they cover different aliases and neither
  * covers the other:
@@ -218,11 +180,9 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
   const closers: Array<() => void> = [];
   for (const t of opts.targets) {
     try {
-      // Explicit existence check, NOT delegated to watch(). The two runtimes this ships on disagree:
-      // Bun throws ENOENT synchronously, while Node returns a watcher that throws nothing, emits no
-      // 'error', and silently watches nothing forever (measured on Linux 6.17, node 26 / bun 1.3).
-      // Under Node alone an operator whose vault is on an unmounted volume would get NO signal that
-      // it is unwatched. Checking here makes both runtimes report the same thing.
+      // Explicit existence check, not delegated to watch(): Bun throws ENOENT synchronously, Node
+      // returns a watcher that emits no error and silently watches nothing forever — checking here
+      // makes both runtimes report the same failure. See docs/design/vault-watcher.md.
       //
       // statSync, not lstat: the vault ROOT is an operator-configured path and is legitimately a
       // symlink on plenty of setups. The lstat rule in flush() is about content DISCOVERED inside
@@ -230,41 +190,22 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
       if (!statSync(t.root).isDirectory()) {
         throw new Error(`vault root is not a directory: ${t.root}`);
       }
-      // `persistent: false` is LOAD-BEARING and must not be swapped for `unref()`.
+      // `persistent: false` is LOAD-BEARING — do not swap for `unref()`. They are not
+      // interchangeable for a RECURSIVE watcher: Node backs `{recursive: true}` with a tree of
+      // internal per-directory watchers, and unref'ing the parent handle does not propagate to
+      // them, so the process never exits. Getting this wrong does not fail a test; it hangs the
+      // process. Guarded by a source-scan assertion in vault-watcher.test.ts. See
+      // docs/design/vault-watcher.md.
       //
-      // They are not interchangeable for a RECURSIVE watcher. Measured directly (Linux 6.17, node
-      // 26): `watch(dir, {recursive: true})` followed by `w.unref()` never lets the process exit,
-      // even though `unref` is a real function on the returned FSWatcher — Node backs a recursive
-      // watch with a tree of internal per-directory watchers, and unref'ing the parent does not
-      // propagate to them. `{recursive: true, persistent: false}` exits immediately.
-      //
-      // Getting this wrong does not fail a test; it HANGS the process. It cost a 20-minute
-      // install-smoke timeout, because that lane runs `node dist/cli.js < /dev/null` and expects
-      // the server to reach stdio-ready and exit. See the source-scan assertion in
-      // vault-watcher.test.ts, which exists so this cannot be quietly undone.
-      //
-      // (The detour: this was briefly `unref()` because `persistent: false` on a recursive watch
-      // killed the vitest worker on Windows. That is moot now — registerVaultWatch does not start a
-      // watch on win32 at all.)
-      // THE-657: watch the REALPATH, not the configured string. libuv prefix-compares each event's
-      // filename against the watched directory (`!_wcsnicmp(filename, dir, dirlen)`,
-      // src/win/fs-event.c:72) and ABORTS THE PROCESS when they disagree — not an exception, a
-      // native assertion. A Windows 8.3 short path (`C:\Users\RUNNER~1\...`) disagrees with the
-      // long form the events carry, which is what killed the vitest worker and, measured directly,
-      // a plain long-lived watcher 276ms after registering.
-      //
-      // `.native` is required rather than incidental: the JS realpath does not expand 8.3 short
-      // names, so plain realpathSync would leave the exact defect in place while looking like a fix.
-      //
-      // Unconditional, not win32-gated — it is a no-op where short names do not exist, and gating
-      // it would leave the only platform that needs it as the only one the other three CI legs
-      // never exercise.
+      // Watch the REALPATH, not the configured string, unconditionally on every platform (a no-op
+      // where 8.3 short names don't exist): a short-path watch root can disagree with the long-form
+      // names event payloads carry and crash the process. THE-657. `.native` matters — the plain JS
+      // realpath does not expand 8.3 short names.
       const watchRoot = realpathSync.native(t.root);
       const w = watch(watchRoot, { recursive: true, persistent: false }, (_event, filename) => {
-        // The event TYPE is deliberately ignored. Node reports a file creation as `rename` and Bun
-        // reports the same creation as `change` (measured on Linux 6.17, node 26 / bun 1.3), so
-        // branching on it would behave differently under the two runtimes this ships on. The lstat
-        // in flush() is the single source of truth for what happened.
+        // Event TYPE is deliberately ignored: Node reports a file creation as `rename`, Bun reports
+        // the same creation as `change` — branching on it would behave differently per runtime. The
+        // lstat in flush() is the single source of truth for what happened.
         if (filename === null) return; // platform gave us no name — nothing actionable
         const rel = normalizeWatchPath(String(filename));
         if (!shouldWatchPath(rel)) return;

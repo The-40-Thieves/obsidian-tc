@@ -25,10 +25,10 @@ export interface AclConfigT {
 // which a space sentinel mis-compiled to `.*` and over-matched across `/`.
 const NUL = String.fromCharCode(0);
 
-// On a case-insensitive filesystem (Windows NTFS, macOS APFS) a path and its case variants name the
-// SAME file, so the folder ACL must match case-insensitively there or a case-variant path slips past
-// a whitelist/deny authored in canonical case (THE-272). On a case-sensitive filesystem (Linux) case
-// is significant and matching stays exact. Detected once from the platform; overridable for tests.
+// On a case-insensitive filesystem (Windows NTFS, macOS APFS), a path and its case variants name
+// the SAME file, so ACL matching must be case-insensitive there or a case-variant path slips past a
+// whitelist/deny (THE-272). Detected once from the platform; overridable for tests. See
+// docs/design/acl-folder-rules.md.
 const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
 
 // Upper bound on a single glob. Every path check compiles its globs, so an unbounded pattern is
@@ -37,30 +37,13 @@ const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform ===
 // longest is under 20 chars — so the ceiling is deliberately generous and never trips in practice.
 const MAX_GLOB_LENGTH = 512;
 
-// THE-618: globToRegExp compiles on every call, and it sits on the per-note ACL hot path.
-// Memoize the compiled regex. Since this landed, FolderAcl additionally precompiles its rule globs
-// and per-op whitelists at construction (see below), so the ACL paths no longer reach this cache on
-// every check at all — it now serves the caller-supplied globs (graph-health-tools' include/exclude)
-// and any direct globMatch caller.
-//
-// Key design: a NESTED Map, outer keyed by the exact glob string and inner keyed by the
-// `caseInsensitive` boolean — NOT a concatenated string key. `caseInsensitive` changes the
-// compiled RegExp's flags, so a cache keyed on the glob alone would hand a case-insensitive
-// caller a case-sensitive compile (or vice versa, depending on call order): a silent ACL
-// correctness bug, worse than the perf problem this memoizes away. A concatenated key (glob
-// and the flag joined into one string with a delimiter) would also work but reuses the
-// NUL-sentinel idea this file already uses for `**` (line ~26) for an unrelated purpose, and
-// invites exactly the naive-string-key collision class `check:nul` exists to catch; nesting
-// on the boolean makes collision structurally impossible instead of merely unlikely — the
-// inner key is never a string, so it can never be misread as part of the glob.
-//
-// Bound: globs are config-authored (AclConfigT.rules/readPaths/writePaths/deletePaths) EXCEPT
-// for one caller — audit_provenance's `include`/`exclude` tool args (graph-health-tools.ts)
-// accept up to 64 caller-supplied glob strings per call, unbounded across calls over the
-// process lifetime. An unbounded cache is therefore a real memory-growth vector, not a
-// theoretical one. Cap total entries and evict the oldest on overflow (Map preserves insertion
-// order, so this is a cheap FIFO — an LRU is unnecessary because the whole point is bounding
-// worst-case growth from a caller pumping distinct globs, not maximizing hit rate).
+// THE-618: memoized compiled-regex cache for the per-note ACL hot path. FolderAcl precompiles
+// its own rule globs and per-op whitelists at construction (see below), so this cache now mainly
+// serves caller-supplied globs (graph-health-tools' include/exclude) and direct globMatch callers.
+// Nested Map (glob string -> caseInsensitive boolean -> RegExp), deliberately not a concatenated
+// key — a wrong flag on a cache hit is a silent ACL correctness bug. Bounded (GLOB_CACHE_MAX,
+// FIFO eviction) because audit_provenance's include/exclude args accept unbounded caller-supplied
+// globs across calls. See docs/design/acl-folder-rules.md.
 const GLOB_CACHE_MAX = 1000;
 const globCache = new Map<string, Map<boolean, RegExp>>();
 
@@ -93,11 +76,9 @@ export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSEN
   return compiled;
 }
 
-// Match glob against path in a Unicode-normalization-insensitive way (THE-272). macOS stores
-// filenames as NFD while a config/glob authored elsewhere is almost always NFC; without normalizing
-// both sides, an NFC deny/whitelist rule silently fails to match its NFD path on disk (a deny that
-// does not deny, or an allow that wrongly denies). Normalizing both to NFC makes the ACL decide on
-// the logical name, not its byte form.
+// Match glob against path in a Unicode-normalization-insensitive way (THE-272): normalizing both
+// sides to NFC before comparing means the ACL decides on the logical name, not its on-disk byte
+// form (macOS stores NFD; configs are almost always authored NFC). See docs/design/acl-folder-rules.md.
 export function globMatch(
   glob: string,
   path: string,
@@ -120,11 +101,10 @@ const DEFAULT_DENY_EXEMPT: ReadonlySet<string> = new Set([
 export function isDefaultDenied(path: string): boolean {
   const p = path.normalize("NFC"); // THE-272: decide on the logical name, not its NFC/NFD byte form
   if (DEFAULT_DENY_EXEMPT.has(p)) return false;
-  // Case-fold the control-directory match: `.obsidian`/`.git`/`.trash` must be denied under EVERY
-  // case variant, because on a case-insensitive filesystem `.Obsidian` and `.obsidian` are the same
-  // directory on disk (THE-272). The roots are ASCII and this only ever denies MORE, never exempts,
-  // so it is safe on a case-sensitive filesystem too. The exempt check above stays exact so a
-  // mis-cased path can never be wrongly exempted where case is significant.
+  // Case-fold the control-directory match unconditionally (THE-272): a mis-cased root could alias
+  // the real one on a case-insensitive filesystem. Only ever denies MORE, never exempts, so it is
+  // safe on a case-sensitive filesystem too; the exempt check above stays exact. See
+  // docs/design/acl-folder-rules.md.
   const lower = p.toLowerCase();
   return DEFAULT_DENY_ROOTS.some((r) => lower === r || lower.startsWith(`${r}/`));
 }
@@ -158,13 +138,9 @@ export class FolderAcl {
   private readonly compiledPaths: Readonly<Record<AclPathOp, readonly CompiledGlobT[] | undefined>>;
 
   constructor(cfg: AclConfigT) {
-    // Snapshot the config. Precompiling the rules freezes the ACL at construction, and
-    // aclFingerprint — "the only thing that keeps caller A's cached results from reaching caller B"
-    // — must be frozen against the SAME source. Reading a live `cfg` for the fingerprint while the
-    // enforced rules were compiled from a since-mutated array would move the cache key without
-    // moving the ACL it claims to describe: two callers could then share an entry computed under a
-    // different rule set. Copying once here makes that divergence unrepresentable, and extends the
-    // no-live-reference guarantee the accessors already give (see below) to the config as a whole.
+    // Snapshot the config so the compiled rules and aclFingerprint() are always derived from the
+    // SAME frozen source (THE-496) — a live, since-mutated `cfg` would let the cache key and the
+    // enforced ACL drift apart. See docs/design/acl-folder-rules.md.
     this.cfg = {
       ...cfg,
       defaultScopes: [...cfg.defaultScopes],
@@ -235,16 +211,12 @@ export class FolderAcl {
   }
 }
 
-// THE-496 — a stable, deterministic fingerprint of the EFFECTIVE ACL for a caller/vault. This is the
-// SECURITY-CRITICAL half of the query-cache key: it is the only thing that keeps caller A's cached
-// results from reaching caller B. The read predicate (readableRel / scopesForPath) is a pure function
-// of the ACL CONFIG + the caller's granted SCOPES, so identical (config, scopes) provably yield the
-// identical read set -> a shared cache entry is safe; any difference yields a different fingerprint
-// -> no sharing (safe, at worst over-conservative). No vault walk, so it is cheap on the hot path.
-//
-// Canonicalisation is exact: sets are sorted (defaultScopes, each rule's scopes, the path whitelists,
-// the caller's scopes), but the RULES ARRAY ORDER IS PRESERVED — scopesForPath is last-match-wins, so
-// reordering rules changes the effective ACL and MUST change the fingerprint.
+// THE-496 — deterministic fingerprint of the EFFECTIVE ACL for a caller/vault: the security-critical
+// half of the query-cache key (the only thing keeping caller A's cached results from reaching caller
+// B). Pure function of (ACL config, granted scopes), so identical inputs are provably safe to share
+// and any difference is safe-by-default (over-conservative, never under). Sets are canonicalized by
+// sorting, but the RULES ARRAY ORDER IS PRESERVED — scopesForPath is last-match-wins, so reordering
+// rules changes the effective ACL and must change the fingerprint. See docs/design/acl-folder-rules.md.
 export function aclFingerprint(cfg: AclConfigT, grantedScopes: Iterable<string>): string {
   const canon = {
     readOnly: cfg.readOnly === true,
@@ -261,13 +233,11 @@ export function aclFingerprint(cfg: AclConfigT, grantedScopes: Iterable<string>)
 }
 
 /**
- * THE-453: build the indexing read-visibility predicate factory. Resolves the EFFECTIVE ACL per
- * vault (per-vault override, falling back to the root default) — the same resolution the dispatch
- * aclResolver does — so a vault's readPaths/strictReadDefault override is honored at INDEXING time,
- * not just at retrieval. Closing over the root ACL for every vault let a path a vault-override
- * DENIES still be read, embedded and sent to the embedding provider (an ingestion-time
- * confidentiality breach retrieval-time filtering cannot undo), and let a restrictive root wrongly
- * block a path a vault-override permits.
+ * THE-453: indexing read-visibility predicate factory. Resolves the EFFECTIVE per-vault ACL (same
+ * resolution as dispatch's aclResolver) so a vault's readPaths/strictReadDefault override is
+ * honored at INDEXING time, not just retrieval — closing over the root ACL for every vault is an
+ * ingestion-time confidentiality breach retrieval-time filtering cannot undo. See
+ * docs/design/acl-folder-rules.md.
  */
 export function makeIndexReadable(
   rootAcl: FolderAcl,
@@ -293,13 +263,11 @@ export interface ReindexSink {
 }
 
 /**
- * THE-453 (runtime): build the index-on-write hook that honors the EFFECTIVE read ACL, mirroring the
- * boot reconcile's indexReadableFor. A path can be write-allowed but read-DENIED (writePaths ⊃
- * readPaths); a write handler passes the write ACL and then calls this hook. Without the read gate
- * the content is chunked, embedded and shipped to the embedding provider despite being read-invisible
- * — an ingestion-time confidentiality breach that retrieval-time filtering cannot undo. A denied path
- * routes to `delete` instead of `write`, so an ACL that newly denies a previously-indexed path also
- * EVICTS its stale chunks/vectors rather than stranding them.
+ * THE-453 (runtime): index-on-write hook honoring the EFFECTIVE read ACL, mirroring the boot
+ * reconcile's indexReadableFor — a path can be write-allowed but read-DENIED (writePaths ⊃
+ * readPaths). A denied path routes to `delete` instead of `write`, so an ACL that newly denies a
+ * previously-indexed path also evicts its stale chunks/vectors rather than stranding them. See
+ * docs/design/acl-folder-rules.md.
  */
 export function makeReindexGate(
   indexReadableFor: (vaultId: string) => (rel: string) => boolean,

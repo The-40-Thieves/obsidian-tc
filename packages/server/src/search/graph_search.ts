@@ -35,17 +35,10 @@ export type { CoverageEstimate, FusionMode, GraphSearchOptions, GraphSearchResul
 export { clampMetadataBoost, seedZMargin };
 
 // THE-631: the full GraphSearchResult.source taxonomy — the denominator for
-// CoverageEstimate.armsPossible and the enumeration estimateCoverage() checks presence against.
-//
-// THE-628 (first PR) deliberately does NOT add "summary" here. GraphSearchResult.source and
-// Candidate.source both accept it (types.ts) so a summary candidate can flow through fusion and
-// projection, but folding it into the coverage taxonomy would move armsPossible from 5 to 6 for
-// EVERY search, on every config — including the default, flag-off one, where a summary candidate
-// can never appear. That is a visible behavior change this first PR's scope (dark mechanism only,
-// no retrieval-quality claim) does not license. Extending the taxonomy — and the matching
-// schemas.ts z.enum for CoverageEstimate.arms — is a follow-up once the summary stream is actually
-// enabled somewhere. THE-628 (second PR) extends this same deliberate omission to
-// "cluster_summary" — same rationale, same follow-up.
+// CoverageEstimate.armsPossible. Deliberately excludes "summary"/"cluster_summary" (THE-628):
+// adding either would move armsPossible from 5 to 6 for every search, including the flag-off
+// default where those streams never run. Extend only once a summary stream is on by default.
+// See docs/design/retrieval-graph-search-pipeline.md.
 const ALL_SOURCES = ["seed", "expansion", "lexical", "sparse", "temporal"] as const;
 
 /**
@@ -158,26 +151,18 @@ function contentBytes(items: ReadonlyArray<{ content?: string | null }>): number
 }
 
 /**
- * GraphRAG search — THE-233 W-RETRIEVAL port of knowledge-mcp-server vault_graph_search.
- * Vector seeds (semanticSearch — obsidian-tc has no chunk-level hybrid, and "don't
- * reimplement hybrid" stands) -> seed-strength router -> literal links_to expansion ->
- * RRF fusion. Default graph_rrf (the eval winner: RRF over the seed + expansion streams
- * IS the final ranking, no reranker call, so a rank-1 seed cannot be displaced by an
- * inflated expansion score). rrf_rerank / score_merge route through the injected reranker
- * (D1 gateway passthrough at integration; graceful no-op fallback otherwise).
+ * GraphRAG search — THE-233 port of knowledge-mcp-server vault_graph_search.
+ * Vector seeds (semanticSearch — obsidian-tc has no chunk-level hybrid) -> seed-strength
+ * router -> literal links_to expansion -> RRF fusion. Default fusionMode graph_rrf makes RRF
+ * over the seed + expansion streams the final ranking (no reranker call, so a rank-1 seed
+ * cannot be displaced by an inflated expansion score); rrf_rerank / score_merge route through
+ * the injected reranker (D1 gateway passthrough at integration; no-op fallback otherwise).
  *
- * THE-465: the body below is a thin orchestrator over the staged pipeline in
- * `./graph_search_stages/`. ACTUAL run order (verified against the runStage(...) call sequence
- * below, not the historical monolith): seedGeneration -> classify -> graphExpansion ->
- * candidateAssembly -> scoreFusion -> diversity -> gatedRerank -> projection. classify is a
- * POST-seed router — it consumes seed STRENGTH (seedZMargin, computed from the seeds
- * seedGeneration already produced), it never sees the query text — so it structurally cannot run
- * before seedGeneration. There is also an early return between the two
- * (`if (seeds.length === 0 && lexHits.length === 0 && sparseHits.length === 0) return []`) that
- * can terminate the whole pipeline before classify is ever reached. Each stage is a
- * separately-typed, separately-testable module; this function's only job is threading their
- * typed inputs/outputs together in the order above, and (additively) reporting a StageMetric per
- * stage via opts.onStageMetric.
+ * A thin orchestrator (THE-465) over the staged pipeline in `./graph_search_stages/`: each
+ * stage is separately-typed and separately-testable, and this function's only job is threading
+ * their typed inputs/outputs together and (additively) reporting a StageMetric per stage via
+ * opts.onStageMetric. Stage order and the classify/seedGeneration ordering constraint are
+ * documented in docs/design/retrieval-graph-search-pipeline.md.
  */
 export async function graphSearch(
   db: Database,
@@ -191,10 +176,11 @@ export async function graphSearch(
     (r) => r.length,
     opts.onStageMetric,
   );
-  // THE-632: the LAST word — what the caller actually receives. A note present here was returned;
-  // absent here after being present at gatedRerank means projection (ColBERT rerank) dropped it.
+  // The LAST word (THE-632) — what the caller actually receives. A note present here was
+  // returned; absent here after being present at gatedRerank means projection (ColBERT rerank)
+  // dropped it.
   traceStage(opts, "projection", core.results.length, results, candidateId);
-  // THE-631: fired AFTER projection so the estimate describes exactly what the caller receives,
+  // Fired AFTER projection (THE-631) so the estimate describes exactly what the caller receives;
   // never fed back into the pipeline above — see estimateCoverage()'s doc comment.
   if (opts.onCoverage) {
     // The mtime lookup runs ONLY when a caller asked for coverage, so ordinary search pays
@@ -208,14 +194,11 @@ export async function graphSearch(
           routedToSeedsOnly: core.routedToSeedsOnly,
           expansionTruncated: core.expansionTruncated,
         },
-        // THE-733: placed against the VAULT'S OWN distribution. `confidenceFor` returns the
+        // THE-733: placed against the vault's own distribution. `confidenceFor` returns the
         // not-calibrated branch when opts carries no calibration, so an unconfigured deployment
-        // reports no claim rather than a number derived from a global constant.
-        //
-        // `rerank_score` is the RIGHT field, verified not assumed: the calibration is built by
-        // gap-sweep.ts, which maps `score: r.rerank_score`. Placing any other score against this
-        // distribution would repeat the "not comparable" error the percentile exists to avoid,
-        // one level down.
+        // reports no claim rather than a number derived from a global constant. `rerank_score` is
+        // the field gap-sweep.ts's calibration was built from (`score: r.rerank_score`) — placing
+        // any other score against this distribution would be miscalibrated.
         confidenceFor(
           results[0]?.rerank_score,
           opts.scoreCalibration ?? null,
@@ -235,15 +218,15 @@ export async function graphSearch(
 }
 
 /**
- * THE-632: emit one trace record for the followed path at a stage boundary.
+ * Emit one trace record (THE-632) for the followed path at a stage boundary.
  *
- * Lives HERE rather than inside the nine stage modules because this function already holds every
- * intermediate array between stages — so tracing costs no change to any stage's own logic, and a
+ * Lives here rather than inside the stage modules because this function already holds every
+ * intermediate array between stages, so tracing costs no change to any stage's own logic and a
  * stage cannot drift from what the trace claims about it.
  *
- * Pure side-channel, on the same contract as onCoverage: it reads the arrays and reports. It never
- * filters, reorders, or feeds anything back, so results are byte-identical with tracing on or off.
- * When `traceNotePath` is unset this returns before touching anything.
+ * Pure side-channel, on the same contract as onCoverage: reads the arrays and reports, never
+ * filters/reorders/feeds anything back, so results are byte-identical with tracing on or off.
+ * Returns immediately, before touching anything, when `traceNotePath` is unset.
  */
 function traceStage<T>(
   opts: GraphSearchOptions,
@@ -275,10 +258,8 @@ function traceStage<T>(
       score = scoreOf?.(item);
     }
   }
-  // Exception-isolated. Cross-vendor review caught that an unguarded emit() made the "pure
-  // side-channel" claim false in one direction: a throwing callback turned a SUCCESSFUL search
-  // into an error. A diagnostic that can break the thing it observes is not a side-channel, and
-  // this mirrors how deps.observability.meter is guarded on the dispatch path.
+  // Exception-isolated (THE-632) — a throwing trace sink must never break the search it
+  // observes. See docs/design/retrieval-graph-search-pipeline.md.
   try {
     emit({
       stage,
@@ -319,11 +300,10 @@ async function graphSearchCore(
   const hopLimit = opts.hopLimit ?? 2;
   const similarityThreshold = opts.similarityThreshold ?? 0.2;
   const fusionMode = opts.fusionMode ?? "graph_rrf";
-  // THE-397: k=10, not the folklore k=60. With ~30-item pools, k=60 lets a document at rank M
-  // in TWO streams outrank a rank-1 single-stream hit whenever k > M-2 (2/(k+M) > 1/(k+1)) —
-  // overlapping noise buries confident dense hits. Measured at n=32: k=10 Pareto-dominates k=60
-  // (nDCG .444 vs .426, recall .586 vs .569, MRR +.024, bridge equal; replicated on a second
-  // index), while k=20 ≈ k=60 — the effect appears only below the pool-size crossover.
+  // THE-397: k=10, not the folklore k=60 — with ~30-item pools, k=60 lets a document at rank M
+  // in TWO streams outrank a rank-1 single-stream hit whenever k > M-2 (2/(k+M) > 1/(k+1)),
+  // burying confident dense hits under overlapping noise. Measured better-or-equal on all gate
+  // metrics at this pool size; see CHANGELOG.md [1.5.0] THE-397 for the numbers.
   const rrfK = opts.rrfK ?? 10;
   const rerankPool = opts.rerankPool ?? 40;
   const routerEnabled = opts.router?.enabled ?? true;
@@ -342,12 +322,10 @@ async function graphSearchCore(
     (r) => r.seeds.length + r.lexHits.length + r.sparseHits.length,
     onStageMetric,
   );
-  // THE-628 (first PR): note-summary stream, DARK behind opts.summaries?.enabled — undefined/false
-  // means note_summaries is never even queried (not merely queried-and-empty), so this is a true
-  // no-op on the default config, not just an empty result. Not wrapped in its own runStage: it is
-  // one query alongside seedGeneration's three, not a separate pipeline phase, and StageName's
-  // closed taxonomy stays untouched by this first PR (see this file's ALL_SOURCES comment below
-  // for the matching decision on the coverage taxonomy).
+  // THE-628: note-summary stream, dark behind opts.summaries?.enabled — undefined/false means
+  // note_summaries is never queried (a true no-op, not just an empty result). Not wrapped in its
+  // own runStage: one query alongside seedGeneration's three, not a separate pipeline phase; see
+  // this file's ALL_SOURCES comment for the matching coverage-taxonomy decision.
   const summaryHits: SummaryHit[] =
     (opts.summaries?.enabled ?? false) && hasNoteSummaries(db)
       ? searchNoteSummaries(db, opts.vaultId, opts.queryVec, {
@@ -355,11 +333,10 @@ async function graphSearchCore(
           ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
         })
       : [];
-  // THE-628 (second PR): cluster-summary stream, DARK behind opts.summaries?.clusters?.enabled —
-  // a SEPARATE flag from the note-level one above (see GraphSearchOptions.summaries's comment for
-  // why). Undefined/false means cluster_summaries is never queried either, same true-no-op
-  // contract as summaryHits. searchClusterSummaries applies its OWN (stricter, multi-note)
-  // isReadable filter internally — see that function's doc comment.
+  // THE-628: cluster-summary stream, dark behind opts.summaries?.clusters?.enabled — a separate
+  // flag from the note-level one above (see GraphSearchOptions.summaries's comment for why).
+  // Same true-no-op contract as summaryHits. searchClusterSummaries applies its own (stricter,
+  // multi-note) isReadable filter internally — see that function's doc comment.
   const clusterSummaryHits: ClusterSummaryHit[] =
     (opts.summaries?.clusters?.enabled ?? false) && hasClusterSummaries(db)
       ? searchClusterSummaries(db, opts.vaultId, opts.queryVec, {
@@ -367,12 +344,10 @@ async function graphSearchCore(
           ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
         })
       : [];
-  // THE-632: traced BEFORE the early return below, so the no-seed case produces a REAL record
-  // instead of an empty trace. Cross-vendor review found the previous arrangement misdiagnosed it:
-  // graphSearchCore returned early while graphSearch still traced projection, so summarize() saw a
-  // single projection record and reported "never entered the candidate pool at projection" — an
-  // absurd stage to name. All three arms are ACL-filtered at query time (seed_generation), so this
-  // count never includes a chunk the caller cannot read.
+  // Traced BEFORE the early return below (THE-632) so the no-seed case produces a real record
+  // instead of an empty one — see docs/design/retrieval-graph-search-pipeline.md. All three arms
+  // are ACL-filtered at query time (seed_generation), so this count never includes a chunk the
+  // caller cannot read.
   traceStage(
     opts,
     "seedGeneration",
@@ -382,10 +357,10 @@ async function graphSearchCore(
     undefined,
     "the retrieval arms: dense seeds, lexical (BM25) and sparse. Absent here means no arm matched the note directly — graph expansion may still reach it.",
   );
-  // THE-628: summaryHits (and, second PR, clusterSummaryHits) join the early-return guard so a
-  // query that matches ONLY a note or cluster summary (the intended "global/thematic" case a
-  // chunk-only pipeline has no answer for) is not zeroed out here. Both are always 0-length when
-  // their flag is off, so this condition is unchanged on the default config.
+  // THE-628: summaryHits/clusterSummaryHits join the early-return guard so a query that matches
+  // only a note or cluster summary (the "global/thematic" case a chunk-only pipeline can't
+  // answer) isn't zeroed out here. Both are always 0-length when their flag is off, so this
+  // condition is unchanged on the default config.
   if (
     seeds.length === 0 &&
     lexHits.length === 0 &&

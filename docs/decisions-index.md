@@ -61,7 +61,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-235 | _internal planning reference — see repo history_ | — | 4 |
 | THE-237 | _internal planning reference — see repo history_ | — | 2 |
 | THE-238 | A sanctioned, poison-scanned path for agent-synthesised notes (#814, THE-639). | CHANGELOG.md (1.22.0) | 11 |
-| THE-239 | Dependency-aware deletion + hash-chained forget audit (THE-239). | CHANGELOG.md (1.8.0) | 10 |
+| THE-239 | Dependency-aware deletion + hash-chained forget audit (THE-239). | CHANGELOG.md (1.8.0) | 9 |
 | THE-249 | The experiential tier is live (THE-227 family — Phase 2 of the converged-engine plan). | CHANGELOG.md (1.6.0) | 2 |
 | THE-250 | Per-caller tool-visibility filtering (THE-250): | CHANGELOG.md (1.2.1) | 4 |
 | THE-251 | Terse search projection (THE-251). | CHANGELOG.md (1.3.0) | 2 |
@@ -138,18 +138,18 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-450 | _internal planning reference — see repo history_ | — | 5 |
 | THE-451 | _internal planning reference — see repo history_ | — | 3 |
 | THE-452 | Graph analytics | CHANGELOG.md (1.12.0) | 3 |
-| THE-453 | _internal planning reference — see repo history_ | — | 5 |
+| THE-453 | ACL: folder rules, glob matching, and the fingerprint cache key | docs/design/acl-folder-rules.md | 5 |
 | THE-454 | _internal planning reference — see repo history_ | — | 5 |
 | THE-455 | _internal planning reference — see repo history_ | — | 5 |
 | THE-456 | `jwksUri` is covered by the audience-binding gate (THE-658, #556). | CHANGELOG.md (1.13.1) | 7 |
-| THE-457 | Wire the durable JobQueue to its workloads — THE-562 #14 (THE-517) | docs/superpowers/specs/2026-07-24-the-562-14-durable-job-queue-wiring-design.md | 10 |
+| THE-457 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 10 |
 | THE-458 | Periodic vault reconcile | CHANGELOG.md (1.12.0) | 11 |
 | THE-459 | THE-459 — Synthetic-vault perf harness + CI gates (design) | docs/superpowers/specs/2026-07-20-the-459-perf-harness-design.md | 3 |
 | THE-460 | Pluggable embedding and rerank provider slots (THE-677, #628, #631). | CHANGELOG.md (1.14.0) | 10 |
 | THE-461 | _internal planning reference — see repo history_ | — | 7 |
 | THE-462 | The scheduler's backoff cap had become a global 5-minute ceiling on every background job (#687, THE-723). | CHANGELOG.md (1.18.0) | 11 |
 | THE-463 | _internal planning reference — see repo history_ | — | 2 |
-| THE-465 | THE-459 — Synthetic-vault perf harness + CI gates (design) | docs/superpowers/specs/2026-07-20-the-459-perf-harness-design.md | 13 |
+| THE-465 | Retrieval: graph search pipeline | docs/design/retrieval-graph-search-pipeline.md | 13 |
 | THE-466 | _internal planning reference — see repo history_ | — | 8 |
 | THE-467 | THE-459 — Synthetic-vault perf harness + CI gates (design) | docs/superpowers/specs/2026-07-20-the-459-perf-harness-design.md | 3 |
 | THE-486 | _internal planning reference — see repo history_ | — | 3 |
@@ -158,13 +158,13 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-489 | _internal planning reference — see repo history_ | — | 2 |
 | THE-490 | _internal planning reference — see repo history_ | — | 8 |
 | THE-491 | _internal planning reference — see repo history_ | — | 7 |
-| THE-496 | _internal planning reference — see repo history_ | — | 11 |
+| THE-496 | ACL: folder rules, glob matching, and the fingerprint cache key | docs/design/acl-folder-rules.md | 11 |
 | THE-497 | Query-product cache | CHANGELOG.md (1.12.0) | 12 |
 | THE-499 | _internal planning reference — see repo history_ | — | 3 |
 | THE-500 | _internal planning reference — see repo history_ | — | 2 |
 | THE-501 | _internal planning reference — see repo history_ | — | 2 |
 | THE-502 | _internal planning reference — see repo history_ | — | 2 |
-| THE-504 | _internal planning reference — see repo history_ | — | 5 |
+| THE-504 | Citation inference | docs/design/experiential-citation-inference.md | 5 |
 | THE-507 | SQL write-lock wait, vec fallbacks, coalesced writes, scheduler health, HTTP construct time, retrieval stage funnel, content-bytes, ingest counters, query-cache effectiveness, cold-start `boot.*` | CHANGELOG.md (1.12.0) | 7 |
 | THE-509 | _internal planning reference — see repo history_ | — | 2 |
 | THE-510 | Release and CI: draft-release no longer races itself on the plugin zip, and the release is verified whole (#695, THE-731); the quiet-host perf calibration is keyed by CPU architecture (#699, THE-510). | CHANGELOG.md (1.20.0) | 1 |
@@ -216,11 +216,11 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-591 | Docs no longer describe deleted config keys as working | CHANGELOG.md (1.12.0) | 7 |
 | THE-600 | `work_forget` writes the forget-log audit row | CHANGELOG.md (1.12.0) | 4 |
 | THE-603 | `snapshots.enabled` now defaults to `true` (THE-648, #569). | CHANGELOG.md (1.14.0) | 7 |
-| THE-605 | _internal planning reference — see repo history_ | — | 7 |
+| THE-605 | Context bundle export/import | docs/design/experiential-context-bundle.md | 6 |
 | THE-606 | `bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown (THE-661, THE-606, THE-625, THE-614). | CHANGELOG.md (1.14.0) | 2 |
 | THE-607 | `bun run map` and `check:boundaries` refuse to run against a stale `dist/` (THE-664, THE-607, THE-604). | CHANGELOG.md (1.14.0) | 1 |
-| THE-609 | `forget` audit parity, including on a no-op (THE-609, #542). | CHANGELOG.md (1.13.0) | 2 |
-| THE-610 | Session traces are pruned by age | CHANGELOG.md (1.12.0) | 8 |
+| THE-609 | `forget` audit parity, including on a no-op (THE-609, #542). | CHANGELOG.md (1.13.0) | 1 |
+| THE-610 | Session traces are pruned by age | CHANGELOG.md (1.12.0) | 7 |
 | THE-611 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 8 |
 | THE-612 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 5 |
 | THE-613 | A judge that did not ANSWER is no longer counted as one that answered unparseably (#732, #734, THE-717, THE-613). | CHANGELOG.md (1.20.0) | 6 |
@@ -252,7 +252,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-645 | `get_index_status` reports in-flight `index_vault` progress (#807, THE-645 item 4). | CHANGELOG.md (1.22.0) | 21 |
 | THE-646 | `explain_answer` — the retrieval → chunk → citation → episode lineage chain (#705, THE-646 item 2). | CHANGELOG.md (1.20.0) | 6 |
 | THE-647 | Differential `vault_context` and persona scoping (#811, THE-647). | CHANGELOG.md (1.22.0) | 17 |
-| THE-648 | `snapshots.enabled` now defaults to `true` (THE-648, #569). | CHANGELOG.md (1.14.0) | 8 |
+| THE-648 | `snapshots.enabled` now defaults to `true` (THE-648, #569). | CHANGELOG.md (1.14.0) | 7 |
 | THE-649 | The server now watches each vault and reindexes notes changed outside it | CHANGELOG.md (1.12.0) | 5 |
 | THE-650 | Source-agnostic highlight-import format + Readwise adapter, staged via `capture_queue` (#839, THE-650). | CHANGELOG.md (1.23.0) | 14 |
 | THE-653 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 2 |
@@ -269,7 +269,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-672 | _internal planning reference — see repo history_ | — | 4 |
 | THE-673 | Per-key preference scoping — human vs caller (#846, THE-891 item 6). | CHANGELOG.md (1.23.0) | 7 |
 | THE-674 | An ACL predicate SQLite can see | docs/superpowers/specs/2026-08-02-the-694-695-acl-permitted-set-design.md | 1 |
-| THE-675 | _internal planning reference — see repo history_ | — | 2 |
+| THE-675 | Citation inference | docs/design/experiential-citation-inference.md | 2 |
 | THE-677 | Pluggable embedding and rerank provider slots (THE-677, #628, #631). | CHANGELOG.md (1.14.0) | 2 |
 | THE-678 | A credential error names the config block that actually holds the key (THE-680, THE-678, #633). | CHANGELOG.md (1.14.0) | 1 |
 | THE-679 | `doctor` pre-detects an unbuildable reranker, and names the declared one (THE-679, THE-681, #632). | CHANGELOG.md (1.14.0) | 5 |
@@ -300,13 +300,13 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 5 |
 | THE-717 | `experiential.citationPreferences` folds retrieval-level citation outcomes into learned preferences (#836, THE-644). | CHANGELOG.md (1.23.0) | 24 |
 | THE-718 | `chunk_retrievals.outcome` is RETIRED (#731, THE-718). | CHANGELOG.md (1.20.0) | 15 |
-| THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 8 |
+| THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 7 |
 | THE-720 | Liveness reporting: three new `doctor --probe` checks. | CHANGELOG.md (1.17.0) | 9 |
 | THE-721 | _internal planning reference — see repo history_ | — | 1 |
 | THE-722 | `audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722). | CHANGELOG.md (1.17.1) | 4 |
 | THE-723 | The scheduler's backoff cap had become a global 5-minute ceiling on every background job (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
 | THE-725 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
-| THE-726 | The task-verdict producer for `agent_episodes.task_result` (#804, THE-726). | CHANGELOG.md (1.22.0) | 24 |
+| THE-726 | The task-verdict producer for `agent_episodes.task_result` (#804, THE-726). | CHANGELOG.md (1.22.0) | 23 |
 | THE-727 | Operation-aware authorization (#697, THE-727). | CHANGELOG.md (1.20.0) | 3 |
 | THE-730 | _internal planning reference — see repo history_ | — | 1 |
 | THE-732 | _internal planning reference — see repo history_ | — | 1 |
@@ -352,5 +352,5 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-891 | THE-891 item 2 (#845) — the capture mitigation profile every accepted local-persistence precedent ships (bounded retention + first-run notice + location guard), `experiential.captureContent` stays on (behavior change: retention). | CHANGELOG.md (1.23.0) | 34 |
 
 336 distinct ticket(s) across 480 source file(s) under
-`packages/*/src`; 252 resolved to a public summary, 84
+`packages/*/src`; 257 resolved to a public summary, 79
 fall back to the internal-reference placeholder above.
