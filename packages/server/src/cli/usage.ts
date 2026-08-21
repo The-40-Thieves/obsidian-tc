@@ -137,6 +137,23 @@ Usage:
                                           source_id, text, location, highlighted_at), so re-running
                                           a sync never re-enqueues an already-staged highlight.
                                           --dry-run reports counts and enqueues nothing.
+  obsidian-tc import-ambient [path] --vault <id> [--since <iso-date>] [--machine <label>] [--dry-run]
+                                          Pull passive screen observations from a configured
+                                          ambient-capture backend (Pensieve, the only adapter so
+                                          far) and stage them in capture_queue as source: "ambient"
+                                          for commit_capture review (THE-175) — the same staged,
+                                          human-gated path every capture producer uses; nothing
+                                          here writes to the vault directly. Secret-shaped
+                                          substrings in the captured text are redacted BEFORE
+                                          enqueue. INERT with no pensieve.baseUrl configured: exits
+                                          0 with NO network call. --vault is required. --since
+                                          scopes to observations captured after that ISO 8601
+                                          instant. --machine labels which computer's Pensieve
+                                          instance this is (defaults to the configured baseUrl's
+                                          hostname). Deduplicates on a hash of (source, machine,
+                                          app, text), so a re-polled static screen never
+                                          re-enqueues. --dry-run reports counts and enqueues
+                                          nothing.
   obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--json]
                                           Mint an HS256 bearer token from the config's auth block.
                                           Refuses to mint without an aud when the config binds one,

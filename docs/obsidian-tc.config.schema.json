@@ -293,6 +293,16 @@
         }
       }
     },
+    "pensieve": {
+      "description": "Pensieve ambient-capture adapter. ABSENT (no baseUrl) means `import-ambient` no-ops with NO network call.",
+      "type": "object",
+      "properties": {
+        "baseUrl": {
+          "description": "Base URL of a Pensieve instance (e.g. http://100.x.x.x:8839, its default port), queried at `/api/search`. Pensieve's API has no auth — access control is expected at the network layer (tailscale). Absent means `import-ambient` no-ops with NO network call.",
+          "type": "string"
+        }
+      }
+    },
     "auth": {
       "description": "Authentication and token verification.",
       "default": {

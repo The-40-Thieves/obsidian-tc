@@ -8,6 +8,7 @@
 // resolveVaultPath + enforcePathAcl and refuses to clobber an existing note.
 import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { AMBIENT_DEDUPE_TAG_PREFIX } from "../../capture/ambient-import";
 import { IMPORT_DEDUPE_TAG_PREFIX } from "../../capture/highlight-import";
 import {
   type CaptureRow,
@@ -42,8 +43,12 @@ function splitTags(tags: string | null): string[] {
 // column directly) — it is not a tag any human or committed note has a reason to see. Applied
 // wherever tags reach a reviewer or the vault (list_capture_queue, commitFrontmatter); NOT applied
 // to metadataScanText, which scans for poison rather than displaying anything.
+// THE-175: `ambient-dedupe:<hash>` is the same machine-identity mechanism, stamped by
+// ambient-import.ts for its own re-sync lookup — same reasoning, same filter.
 function visibleTags(tags: string[]): string[] {
-  return tags.filter((t) => !t.startsWith(IMPORT_DEDUPE_TAG_PREFIX));
+  return tags.filter(
+    (t) => !t.startsWith(IMPORT_DEDUPE_TAG_PREFIX) && !t.startsWith(AMBIENT_DEDUPE_TAG_PREFIX),
+  );
 }
 
 // THE-855: poison_signals is stored as a JSON array (queue.ts's enqueueCapture); a row written

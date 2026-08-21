@@ -167,13 +167,19 @@ const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 // files' THE-628 comments. No existing key moved.
 // THE-644: adds the `experiential.citationPreferences` boolean flag (default false).
 const CONFIG_SCHEMA_BASELINE_SHA256 =
+  // THE-175: rebaselined deliberately. Adds ONE new optional block, `pensieve` (a single key,
+  // `baseUrl`, string, optional) — the Pensieve ambient-capture adapter config for `obsidian-tc
+  // import-ambient` (packages/server/src/cli/commands/import-ambient.ts). Absent baseUrl means
+  // the command no-ops with no network call; see
+  // packages/shared/src/config/observability.schema.ts's PensieveConfigSchema for the full
+  // description text. No existing key, type, default or constraint moved.
   // THE-650: rebaselined deliberately. Adds ONE new optional block, `readwise` (a single key,
   // `token`, string, optional) — the Readwise adapter config for `obsidian-tc import-highlights`
   // (packages/server/src/cli/commands/import-highlights.ts). Absent token means the command
   // no-ops with no network call; see packages/shared/src/config/observability.schema.ts's
   // ReadwiseConfigSchema for the full description text. No existing key, type, default or
   // constraint moved.
-  "07bb375284617e1a4cbc551c6187a26411e25034ebd829af8387467711b10416";
+  "c79f3bc9dc3555dc258307954bdd36d35341688ea46cce5143b871f97a9ee63a";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

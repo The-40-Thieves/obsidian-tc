@@ -13,6 +13,7 @@ import { EmbeddingsConfigSchema, IndexingConfigSchema } from "./indexing-embeddi
 import {
   MaintenanceConfigSchema,
   ObservabilityConfigSchema,
+  PensieveConfigSchema,
   PlaneConfigSchema,
   PlurConfigSchema,
   ReadwiseConfigSchema,
@@ -71,6 +72,13 @@ export const ServerConfigObject = z.object({
   // which vault its highlights land in is chosen per invocation (--vault), not per config block.
   readwise: ReadwiseConfigSchema.optional().describe(
     "Readwise highlight-import adapter. ABSENT (no token) means `import-highlights` no-ops with NO network call.",
+  ),
+  // THE-175: Pensieve ambient-capture adapter config for `obsidian-tc import-ambient`. Global
+  // rather than per-vault, matching `readwise`/`plur` above — which vault an observation lands in
+  // is chosen per invocation (--vault), and which machine's Pensieve instance to poll is
+  // per-invocation too (--machine), so this block is just the one connection detail (baseUrl).
+  pensieve: PensieveConfigSchema.optional().describe(
+    "Pensieve ambient-capture adapter. ABSENT (no baseUrl) means `import-ambient` no-ops with NO network call.",
   ),
   auth: AuthConfigSchema.prefault({ mode: "none" }).describe(
     "Authentication and token verification.",

@@ -340,6 +340,12 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound. |
 | `observability.retention.tracesDays` | `number` | `30` |  | Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (THE-572 writes the trace before the session row, so a failed attempt leaves a file with no row referencing it). |
 
+### `pensieve`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `pensieve.baseUrl` | `string` | — |  | Base URL of a Pensieve instance (e.g. http://100.x.x.x:8839, its default port), queried at `/api/search`. Pensieve's API has no auth — access control is expected at the network layer (tailscale). Absent means `import-ambient` no-ops with NO network call. |
+
 ### `personas`
 
 | Key | Type | Default | Required | Description |
