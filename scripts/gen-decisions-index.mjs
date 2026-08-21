@@ -91,9 +91,11 @@ export function extractTitle(text, fallbackPath) {
   return m ? m[1].trim() : fallbackPath;
 }
 
-/** Escapes a string for embedding in a single markdown table cell. */
+/** Escapes a string for embedding in a single markdown table cell. Backslashes first, so an
+ *  input backslash cannot resurrect a pipe the second replace already escaped (CodeQL
+ *  js/incomplete-sanitization). */
 export function cell(s) {
-  return s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 /**
