@@ -351,8 +351,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-862 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
 | THE-891 | THE-891 item 2 (#845) — the capture mitigation profile every accepted local-persistence precedent ships (bounded retention + first-run notice + location guard), `experiential.captureContent` stays on (behavior change: retention). | CHANGELOG.md (1.23.0) | 34 |
 | THE-906 | The boot ready line, `doctor`, the capability profile and `server_health` could all report `native=on` / "native acceleration module loaded" while actually running the pure-JS fallback (THE-906, #858). | CHANGELOG.md (1.23.2) | 4 |
-| THE-922 | _internal planning reference — see repo history_ | — | 3 |
+| THE-922 | A TLS trust failure was reported as "reload the plugin inside Obsidian" — the bridge transport discarded `e.cause`, collapsing every fetch failure into one indistinguishable state (THE-922, #861). | CHANGELOG.md (1.23.3) | 3 |
 
 338 distinct ticket(s) across 480 source file(s) under
-`packages/*/src`; 269 resolved to a public summary, 69
+`packages/*/src`; 270 resolved to a public summary, 68
 fall back to the internal-reference placeholder above.
