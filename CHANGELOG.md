@@ -6,6 +6,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.23.3] - 2026-08-31
+
+### Fixed
+
+- **A TLS trust failure was reported as "reload the plugin inside Obsidian" — the bridge transport discarded `e.cause`, collapsing every fetch failure into one indistinguishable state (THE-922, #861).** Externally reported (#860): `doctor` prescribed a plugin reload while the companion was answering the same URL in 69 ms; the real cause was `DEPTH_ZERO_SELF_SIGNED_CERT` on a hand-run CLI that lacked the `NODE_EXTRA_CA_CERTS` an MCP client's env supplies. `doFetch` now attaches a pattern-guarded `cause_code` to the `plugin_unreachable` error the way the non-2xx branch attaches `http_status` (the code lands on `e.cause.code` under Node and directly on `e.code` under Bun; both shapes are read), the probe carries it onto the capability snapshot as `unreachableCause`, and `bridgeState` classifies the TLS/trust class (`DEPTH_ZERO_SELF_SIGNED_CERT`, `SELF_SIGNED_CERT_IN_CHAIN`, `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, `ERR_TLS_CERT_ALTNAME_INVALID`, `CERT_`/`ERR_TLS_` prefixes) to a new `companion-untrusted-cert` reason whose remediation points at the certificate. The cert classification outranks the reload advice only when the plugin is enabled on disk (or the hint is unavailable) — a TLS handshake proves something is listening, not that it is the companion, so `absent`/`disabled` keep their install/enable remediations. Every unreachable report now surfaces `causeCode` verbatim, so even an unrecognized code collapses diagnosis to one line.
+
 ## [1.23.2] - 2026-08-21
 
 ### Added
