@@ -96,6 +96,28 @@ export interface BridgeClient {
   requestNative<T>(req: BridgeRequest): Promise<NativeResponse<T>>;
 }
 
+// A code identifier only — ECONNREFUSED, DEPTH_ZERO_SELF_SIGNED_CERT, ConnectionRefused, etc.
+// Rejects anything a URL, message, or other free text could smuggle through .code.
+const CAUSE_CODE_SHAPE = /^[A-Za-z0-9_]{1,64}$/;
+
+// THE-922: best-effort cause code for a fetch rejection, so bridgeState can tell a TLS
+// trust failure apart from ECONNREFUSED/ENOTFOUND/an abort instead of collapsing every
+// unreachable cause into one plugin_unreachable. Node puts the code on `e.cause`; Bun puts
+// it on `e` itself — check both. Code string only, and shape-checked: the message/cause
+// object may embed a URL and must never reach an error payload (see the token-never-logged
+// invariant above), and a non-conforming runtime/fetchFn must not smuggle one through .code.
+function extractCauseCode(e: unknown): string | undefined {
+  const cause = e instanceof Error ? (e.cause as unknown) : undefined;
+  const first = cause instanceof AggregateError ? cause.errors[0] : undefined;
+  const raw =
+    (first as { code?: unknown } | undefined)?.code ??
+    (cause as { code?: unknown } | undefined)?.code ??
+    (e as { code?: unknown } | undefined)?.code;
+  if (typeof raw === "string" && CAUSE_CODE_SHAPE.test(raw)) return raw;
+  const name = e instanceof Error ? e.name : undefined;
+  return name === "AbortError" || name === "TimeoutError" ? "ABORT_ERR" : undefined;
+}
+
 export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
   const fetchFn = opts.fetchFn ?? fetch;
   const prefix = opts.apiPrefix ?? DEFAULT_API_PREFIX;
@@ -119,9 +141,11 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
         ...(r.body !== undefined ? { body: JSON.stringify(r.body) } : {}),
         signal: ctrl.signal,
       });
-    } catch {
+    } catch (e) {
+      const causeCode = extractCauseCode(e);
       throw err.pluginUnreachable("bridge request failed", {
         ...(r.plugin ? { plugin: r.plugin } : {}),
+        ...(causeCode ? { cause_code: causeCode } : {}),
       });
     } finally {
       clearTimeout(timer);

@@ -255,14 +255,21 @@ export function bridgeCheck(reports: { vaultId: string; report: BridgeStateRepor
     run: () => {
       const details: Record<string, string> = {};
       for (const { vaultId, report } of reports) {
-        details[vaultId] = `${report.state} (${report.reason})`;
+        details[vaultId] = report.causeCode
+          ? `${report.state} (${report.reason}: ${report.causeCode})`
+          : `${report.state} (${report.reason})`;
       }
       const degraded = reports.filter((r) => r.report.state === "degraded");
       if (degraded.length > 0) {
         const first = degraded[0];
         return {
           status: "warning",
-          summary: `${degraded.length} vault(s) degraded: ${degraded.map((d) => `${d.vaultId} [${d.report.reason}]`).join(", ")}`,
+          summary: `${degraded.length} vault(s) degraded: ${degraded
+            .map(
+              (d) =>
+                `${d.vaultId} [${d.report.reason}${d.report.causeCode ? `: ${d.report.causeCode}` : ""}]`,
+            )
+            .join(", ")}`,
           details,
           ...(first?.report.remediation ? { remediation: first.report.remediation } : {}),
         };
