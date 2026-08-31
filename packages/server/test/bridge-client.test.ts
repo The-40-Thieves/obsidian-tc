@@ -1,7 +1,7 @@
 import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type FakeRequestInfo, fakeBridgeTransport } from "../src/bridge/fake";
-import { createBridgeClient } from "../src/bridge/transport";
+import { type BridgeFetch, createBridgeClient } from "../src/bridge/transport";
 
 const BASE = "http://127.0.0.1:27124";
 
@@ -176,5 +176,57 @@ describe("bridge client over an injectable transport", () => {
       client.request({ method: "POST", path: "/tasks/query", body: {}, plugin: "tasks" }),
     );
     expect(JSON.stringify(e.toJSON())).not.toContain("topsecret-token");
+  });
+
+  // THE-922: preserve the fetch cause across the plugin_unreachable collapse, so bridgeState can
+  // tell a TLS trust failure from ECONNREFUSED/an abort instead of one indistinguishable state.
+  it("attaches cause_code from a rejection carrying e.cause.code (Node's fetch shape)", async () => {
+    const fetchFn: BridgeFetch = () =>
+      Promise.reject(
+        Object.assign(new Error("fetch failed"), {
+          cause: { code: "DEPTH_ZERO_SELF_SIGNED_CERT" },
+        }),
+      );
+    const client = createBridgeClient({ baseUrl: BASE, fetchFn });
+    const e = await caught(client.request({ method: "GET", path: "/probe" }));
+    expect(e.details?.cause_code).toBe("DEPTH_ZERO_SELF_SIGNED_CERT");
+  });
+
+  it("attaches cause_code from a rejection carrying e.code directly (Bun's fetch shape)", async () => {
+    const fetchFn: BridgeFetch = () =>
+      Promise.reject(Object.assign(new Error("Unable to connect."), { code: "ConnectionRefused" }));
+    const client = createBridgeClient({ baseUrl: BASE, fetchFn });
+    const e = await caught(client.request({ method: "GET", path: "/probe" }));
+    expect(e.details?.cause_code).toBe("ConnectionRefused");
+  });
+
+  it("omits cause_code when the rejection carries no usable code", async () => {
+    const fetchFn: BridgeFetch = () => Promise.reject(new Error("boom"));
+    const client = createBridgeClient({ baseUrl: BASE, fetchFn });
+    const e = await caught(client.request({ method: "GET", path: "/probe" }));
+    expect(e.details && "cause_code" in e.details).toBe(false);
+  });
+
+  // THE-922 review fix: a code string is trusted only after a shape check — a URL-bearing or
+  // oversized value on .code (a custom fetchFn, a future runtime) must never reach the payload.
+  it("omits cause_code when the rejection's .code is a URL-bearing string, not a code", async () => {
+    const fetchFn: BridgeFetch = () =>
+      Promise.reject(
+        Object.assign(new Error("boom"), {
+          code: "https://user:topsecret-token@127.0.0.1:27124/some/leaky/path?x=1",
+        }),
+      );
+    const client = createBridgeClient({ baseUrl: BASE, fetchFn });
+    const e = await caught(client.request({ method: "GET", path: "/probe" }));
+    expect(e.details && "cause_code" in e.details).toBe(false);
+  });
+
+  it("maps an abort (timeout) to cause_code ABORT_ERR", async () => {
+    const fetchFn = fakeBridgeTransport({
+      routes: { "GET /obsidian-tc/v1/probe": { abort: true } },
+    });
+    const client = createBridgeClient({ baseUrl: BASE, fetchFn });
+    const e = await caught(client.request({ method: "GET", path: "/probe" }));
+    expect(e.details?.cause_code).toBe("ABORT_ERR");
   });
 });

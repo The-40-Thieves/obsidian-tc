@@ -28,6 +28,9 @@ export interface CapabilitySnapshot {
    *  /probe versioning (treated as compatible — it answered the v1 probe shape). */
   apiCompat?: "compatible" | "incompatible";
   vaultPath?: string;
+  /** THE-922: when unreachable, the fetch cause code (e.g. a TLS trust code, ECONNREFUSED) — lets
+   *  bridgeState tell "answering but untrusted" from "not running" instead of one collapsed state. */
+  unreachableCause?: string;
 }
 
 export interface PluginOverrides {

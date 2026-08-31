@@ -88,7 +88,14 @@ A companion **older** than the minimum, or on a different API major, is a **brea
 | `headless` | `plugin-disabled` | Installed but disabled — enable it in Obsidian. |
 | `headless` | `companion-missing` | No companion detected; running on direct filesystem. |
 | `degraded` | `enabled-but-unreachable` | **Enabled on disk but not answering** — reload the plugin inside Obsidian. (Previously an invisible failure.) |
+| `degraded` | `companion-untrusted-cert` | **The companion IS answering**, but its certificate isn't trusted — the Local REST API plugin serves a self-signed cert by default. Locate/export that cert and set `NODE_EXTRA_CA_CERTS`, then refresh capabilities. |
 | `degraded` | `companion-unreachable` | Endpoint configured but no answer — check URL/key and that Obsidian is running. |
 | `degraded` | `version-skew` | Companion version or API major incompatible — update the companion. |
 
-The `plugin-not-installed` / `plugin-disabled` / `enabled-but-unreachable` distinction is sourced from on-disk detection ([[Environment detection|THE-522]]): three different operator actions that were previously one indistinguishable "headless".
+The `plugin-not-installed` / `plugin-disabled` / `enabled-but-unreachable` distinction is sourced from on-disk detection ([[Environment detection|THE-522]]): three different operator actions that were previously one indistinguishable "headless". `companion-untrusted-cert` only fires when the on-disk hint is `enabled` or absent — a TLS handshake failure proves *something* is listening with a cert on that host:port, not that the plugin is installed, so an `absent`/`disabled` on-disk hint still wins and keeps its install/enable remediation.
+
+### Cause codes (THE-922)
+
+Every unreachable/degraded report carries `causeCode`: the underlying fetch failure's code (e.g. `ECONNREFUSED`, `ENOTFOUND`, a `CERT_`/`ERR_TLS_`-prefixed TLS code, or `ABORT_ERR` for a timeout/abort), surfaced **verbatim** even when the server doesn't classify it into one of the reasons above — one doctor line replaces what used to be a full diagnostic session. It's what drives the `companion-untrusted-cert` classification, but it's reported on every unreachable state, classified or not.
+
+The TLS case exists because of an asymmetry in how `NODE_EXTRA_CA_CERTS` gets set: an MCP client supplies it through the environment it launches the server with, but a hand-run `obsidian-tc doctor` on the CLI usually doesn't inherit it — so the exact same companion, answering in milliseconds, looks "unreachable" from one caller and fine from the other. `causeCode` turns that gap into a one-line diagnosis instead of a session of guessing.

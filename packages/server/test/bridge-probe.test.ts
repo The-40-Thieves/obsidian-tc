@@ -7,7 +7,7 @@ import {
 } from "../src/bridge/capabilities";
 import { type FakeRoute, fakeBridgeTransport } from "../src/bridge/fake";
 import { buildVaultCapabilities, probeCompanion } from "../src/bridge/probe";
-import { createBridgeClient } from "../src/bridge/transport";
+import { type BridgeFetch, createBridgeClient } from "../src/bridge/transport";
 
 const BASE = "http://127.0.0.1:27124";
 const PROBE = "GET /obsidian-tc/v1/probe";
@@ -86,6 +86,28 @@ describe("companion auto-probe", () => {
     const snap = await probeCompanion(client);
     expect(snap.companion).toBe("unreachable");
     expect(calls).toBe(2);
+  });
+
+  // THE-922: the probe carries the fetch cause onto the snapshot, so bridgeState can tell a TLS
+  // trust failure from a plain "companion did not answer".
+  it("carries the fetch cause code onto an unreachable snapshot", async () => {
+    const fetchFn: BridgeFetch = () =>
+      Promise.reject(
+        Object.assign(new Error("fetch failed"), {
+          cause: { code: "DEPTH_ZERO_SELF_SIGNED_CERT" },
+        }),
+      );
+    const client = createBridgeClient({ baseUrl: BASE, fetchFn });
+    const snap = await probeCompanion(client);
+    expect(snap.companion).toBe("unreachable");
+    expect(snap.unreachableCause).toBe("DEPTH_ZERO_SELF_SIGNED_CERT");
+  });
+
+  it("omits unreachableCause when the fetch cause carries no usable code", async () => {
+    const client = clientWith({ [PROBE]: { networkError: true } });
+    const snap = await probeCompanion(client);
+    expect(snap.companion).toBe("unreachable");
+    expect(snap.unreachableCause).toBeUndefined();
   });
 });
 

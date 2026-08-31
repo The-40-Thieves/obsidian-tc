@@ -205,6 +205,25 @@ describe("THE-523 bridge.state doctor check", () => {
     const r = await bridgeCheck([]).run({ serverVersion: "1.10.0" });
     expect(r.status).toBe("ok");
   });
+
+  // THE-922: even an unclassified cause code collapses a session of diagnosis to one line — it
+  // must reach the human-visible detail, not just the typed report.
+  it("surfaces the cause code verbatim in the detail line for a degraded vault", async () => {
+    const { bridgeCheck } = await import("../src/doctor/checks");
+    const r = await bridgeCheck([
+      {
+        vaultId: "a",
+        report: {
+          state: "degraded",
+          reason: "companion-untrusted-cert",
+          remediation: "set NODE_EXTRA_CA_CERTS",
+          causeCode: "DEPTH_ZERO_SELF_SIGNED_CERT",
+        },
+      },
+    ]).run({ serverVersion: "1.10.0" });
+    expect(r.details?.a).toContain("DEPTH_ZERO_SELF_SIGNED_CERT");
+    expect(r.summary).toContain("DEPTH_ZERO_SELF_SIGNED_CERT");
+  });
 });
 
 describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", () => {

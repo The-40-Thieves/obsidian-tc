@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,228 tracked code files · 198,711 lines.
+**Scale:** 1,228 tracked code files · 198,962 lines.
 
-TypeScript 183,467 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 183,718 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -92,7 +92,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `mcp/` | 18 | 4,715 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 35 | 4,273 | arg parsing + subcommands |
 | `runtime/` | 19 | 3,948 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `doctor/` | 13 | 2,147 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `doctor/` | 13 | 2,154 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 1,954 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `migrations/` | 51 | 1,897 | hand-registered SQL. **Two chains** — see below |
 | `db/` | 15 | 1,461 | provisioning, migrate runner, experiential store |
@@ -102,8 +102,8 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `providers/` | 6 | 997 |  |
 | `workspace/` | 3 | 964 | session tracking |
 | `metrics/` | 4 | 841 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
+| `bridge/` | 8 | 818 | Obsidian plugin bridge clients |
 | `capture/` | 5 | 768 | the capture queue |
-| `bridge/` | 8 | 745 | Obsidian plugin bridge clients |
 | `transports/` | 3 | 704 | stdio, HTTP and the shared serve loop |
 | `embeddings/` | 6 | 695 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
@@ -141,7 +141,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 818 | `packages/server/src/experiential/reflect.ts` |
 | 754 | `packages/server/src/mcp/server.ts` |
 | 720 | `packages/server/src/cli/commands/doctor.ts` |
-| 712 | `packages/server/src/doctor/checks.ts` |
+| 719 | `packages/server/src/doctor/checks.ts` |
 | 711 | `packages/shared/src/config/retrieval.schema.ts` |
 | 697 | `packages/server/src/cli/args.ts` |
 | 682 | `packages/server/src/runtime/server-runtime.ts` |

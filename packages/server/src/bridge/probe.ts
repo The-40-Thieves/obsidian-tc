@@ -96,7 +96,13 @@ export async function probeCompanion(
       return await attempt(retryTimeoutMs);
     } catch (e2) {
       if (isMissing(e2)) return { companion: "missing", plugins: {} };
-      return { companion: "unreachable", plugins: {} };
+      const unreachableCause =
+        e2 instanceof ObsidianTcError ? (e2.details?.cause_code as string | undefined) : undefined;
+      return {
+        companion: "unreachable",
+        plugins: {},
+        ...(unreachableCause ? { unreachableCause } : {}),
+      };
     }
   }
 }
