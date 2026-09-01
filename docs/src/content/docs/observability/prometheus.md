@@ -4,7 +4,7 @@ description: The metrics catalog and the optional, auth-gated /metrics scrape en
 ---
 
 <!-- BEGIN GENERATED: metrics-catalog -->
-obsidian-tc maintains a Prometheus catalog of **27 counters, 4 histograms, 16 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
+obsidian-tc maintains a Prometheus catalog of **28 counters, 4 histograms, 16 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
 
 ### Counters
 
@@ -21,6 +21,7 @@ obsidian-tc maintains a Prometheus catalog of **27 counters, 4 histograms, 16 ga
 | `obsidian_tc_idempotency_cache_skipped_total` | `tool`, `vault` | Idempotency results skipped over the byte cap, by vault and tool. |
 | `obsidian_tc_idempotency_hits_total` | `tool`, `vault` | Idempotency cache hits, by vault and tool. |
 | `obsidian_tc_idempotency_release_failed_total` | `gate`, `tool`, `vault` | Idempotency claims left ORPHANED because the final release attempt on a pre-handler failure failed, by vault, tool and the rejection gate that led there (throttle \| hitl \| other). Release is best-effort so it never masks the error the caller must see, which also makes this counter its only signal. Counted at the LAST attempt, not at the gate: the gates get a retry in the outer catch, so a gate-site failure that retry then cleans up leaves no orphan and is deliberately not counted. When this does fire the claim survives, and a matching retry inside the reclaim window (idempotencyReclaimSeconds, default 60s) returns idempotency_in_flight; at or after that window claimOrReplay reclaims the row. The 24h idempotencyTtlSeconds is the later alternate expiry, not the blocking bound. |
+| `obsidian_tc_index_stale_skipped_total` | `vault` | Notes an indexVault batch skipped because a concurrent write_note/watcher commit changed the path's chunks after the plan was computed, by vault. Not a failure — the skipped note is re-planned against current content on the next index_vault pass. |
 | `obsidian_tc_index_write_failures_total` | `vault` | Notes skipped in a pass because the embed provider rejected them even at single-text size, by vault. Unlike the batch rejections above these are NOT retried within the pass, so the note is absent from the index until the next reconcile. |
 | `obsidian_tc_ingest_dedup_skipped_total` | `vault` | Chunks whose embedding was reused from an identical-body sibling instead of recomputed, by vault. This is work AVOIDED, so a rise is good ONLY for the chunks it actually resolved — see obsidian_tc_ingest_dedup_unresolved_total for the subset that copied nothing; a fall in this counter means the dedup path stopped matching. |
 | `obsidian_tc_ingest_dedup_unresolved_total` | `vault` | Chunks skipped for embedding by cross-path dedup whose source had no stored vector to copy, by vault. A rise is BAD — these chunks are FTS-only (no dense/sparse/colbert) until the owner note re-embeds successfully; it is the loss side of obsidian_tc_ingest_dedup_skipped_total, not work avoided. |

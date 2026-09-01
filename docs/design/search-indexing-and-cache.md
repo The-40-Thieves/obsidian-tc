@@ -49,9 +49,25 @@ Two-phase batching: PLAN each note (including its `embed()` network call) with n
 then APPLY a batch of plans in ONE transaction. The write lock is never held across a note's
 embed, and a K-note reconcile pays ~ceil(N/BATCH) fsyncs instead of N. A batch is the atomic unit —
 a mid-batch failure rolls the whole batch back, which only costs re-work (the reconcile is
-idempotent, the content-hash skip re-converges next pass), never correctness. This is safe because
-`indexVault` is the sole writer on this single connection during the reconcile, so a plan's
-pre-read `existing` snapshot cannot be raced before its apply.
+idempotent, the content-hash skip re-converges next pass), never correctness.
+
+**THE-925 correction:** this section used to claim the plan/apply gap was safe because `indexVault`
+is "the sole writer on this single connection during the reconcile" — that stopped being true once
+THE-455 routed `write_note`/the vault watcher through `IndexCoordinator` -> `indexNote` on the SAME
+`cache.db` connection, with no serialization against `indexVault`. A concurrent `indexNote` commit
+for the same path can land between a plan's pre-read (`preloadChunkState`/`computeNotePlan`) and its
+apply here, since both happen on one connection but the plan spans an `await` (`embedPlans`'s
+network call) with no lock held across it. Applying a plan whose pre-read `existing` snapshot has
+since gone stale would either revert the concurrent commit's fresher content back to what the plan
+saw, or prune chunk ids the concurrent commit already rewrote. The fix is a freshness guard,
+immediately before each plan is applied inside the batch's write transaction: re-read the path's
+current chunk rows (`readExistingChunkRows`) and compare them to the plan's `existing` snapshot
+(`existingRowsMatch`, both in `indexing/note-plan.ts`); a mismatch skips that note's writes entirely
+rather than applying them, and the next `index_vault` re-plans the path against current content.
+`indexNote` itself has the identical plan-then-await-then-apply shape but does not need this guard:
+`IndexCoordinator` is its only production caller and already serializes same-path work, so no second
+write for the same path can land inside one `indexNote` call's own `await`. Reproduced and pinned by
+`test/index-vault-concurrent-write-guard.test.ts`.
 
 The embed() calls are additionally batched across the whole flush batch (THE-277) BEFORE opening
 the write transaction, so the reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in

@@ -94,6 +94,10 @@ export class MetricsRecorder {
   private readonly ingestDedupUnresolved: Counter<string>;
   private readonly embedBatchRejections: Counter<string>;
   private readonly indexWriteFailures: Counter<string>;
+  // THE-925: notes an indexVault batch skipped because a concurrent write_note/watcher commit
+  // changed the path after the plan was computed. Sibling of indexWriteFailures above — additive
+  // to the same [index] stderr line indexVault already writes.
+  private readonly indexStaleSkipped: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
   private readonly outputSchemaDrift: Counter<string>;
@@ -177,6 +181,15 @@ export class MetricsRecorder {
     this.indexWriteFailures = new Counter({
       name: "obsidian_tc_index_write_failures_total",
       help: "Notes skipped in a pass because the embed provider rejected them even at single-text size, by vault. Unlike the batch rejections above these are NOT retried within the pass, so the note is absent from the index until the next reconcile.",
+      labelNames: ["vault"],
+      registers,
+    });
+    // THE-925: a batched indexVault plan applied against state a concurrent write_note/watcher
+    // commit had already changed. Non-zero is expected under concurrent write traffic, not a
+    // failure — the skipped note is re-planned against current content on the next pass.
+    this.indexStaleSkipped = new Counter({
+      name: "obsidian_tc_index_stale_skipped_total",
+      help: "Notes an indexVault batch skipped because a concurrent write_note/watcher commit changed the path's chunks after the plan was computed, by vault. Not a failure — the skipped note is re-planned against current content on the next index_vault pass.",
       labelNames: ["vault"],
       registers,
     });
@@ -517,6 +530,11 @@ export class MetricsRecorder {
   }
   incIndexWriteFailures(vault: string, n: number): void {
     if (n > 0) this.indexWriteFailures.inc({ vault }, n);
+  }
+  /** THE-925: a batched indexVault plan skipped because a concurrent write_note/watcher commit
+   *  raced its apply — see the counter's help text. */
+  incIndexStaleSkipped(vault: string, n: number): void {
+    if (n > 0) this.indexStaleSkipped.inc({ vault }, n);
   }
   /** THE-585 (#7, #8): one vec0 -> brute-force degradation. `reason` is a closed set of two, so the
    *  label stays bounded per the ticket's cardinality constraint. */

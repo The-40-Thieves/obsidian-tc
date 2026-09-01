@@ -140,7 +140,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-452 | Graph analytics | CHANGELOG.md (1.12.0) | 3 |
 | THE-453 | ACL: folder rules, glob matching, and the fingerprint cache key | docs/design/acl-folder-rules.md | 4 |
 | THE-454 | _internal planning reference — see repo history_ | — | 5 |
-| THE-455 | _internal planning reference — see repo history_ | — | 5 |
+| THE-455 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 7 |
 | THE-456 | `jwksUri` is covered by the audience-binding gate (THE-658, #556). | CHANGELOG.md (1.13.1) | 6 |
 | THE-457 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 10 |
 | THE-458 | Periodic vault reconcile | CHANGELOG.md (1.12.0) | 11 |
@@ -354,7 +354,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-922 | A TLS trust failure was reported as "reload the plugin inside Obsidian" — the bridge transport discarded `e.cause`, collapsing every fetch failure into one indistinguishable state (THE-922, #861). | CHANGELOG.md (1.23.3) | 4 |
 | THE-923 | _internal planning reference — see repo history_ | — | 7 |
 | THE-924 | _internal planning reference — see repo history_ | — | 3 |
+| THE-925 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 5 |
 
-340 distinct ticket(s) across 481 source file(s) under
-`packages/*/src`; 270 resolved to a public summary, 70
+341 distinct ticket(s) across 481 source file(s) under
+`packages/*/src`; 272 resolved to a public summary, 69
 fall back to the internal-reference placeholder above.

@@ -26,6 +26,7 @@ const COUNTERS = [
   "obsidian_tc_ingest_dedup_unresolved_total",
   "obsidian_tc_embed_batch_rejections_total",
   "obsidian_tc_index_write_failures_total",
+  "obsidian_tc_index_stale_skipped_total",
   // THE-585 (#7, #8): vec0 -> brute-force degradation. Results stay correct; the cost profile
   // does not, and nothing reported it before.
   "obsidian_tc_vec_fallback_total",
@@ -100,14 +101,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 27 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 28 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(47);
+    expect(new Set(declared).size).toBe(48);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
