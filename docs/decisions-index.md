@@ -195,7 +195,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-548 | _internal planning reference — see repo history_ | — | 3 |
 | THE-561 | Full 2026-07-28 conformance (#544): `server/discover`, SEP-2243 routing headers, SEP-2549 cache hints (THE-583). | CHANGELOG.md (1.13.0) | 2 |
 | THE-562 | `SECURITY.md` supported-version table corrected and drift-gated | CHANGELOG.md (1.12.0) | 14 |
-| THE-563 | Per-key preference scoping — human vs caller (#846, THE-891 item 6). | CHANGELOG.md (1.23.0) | 12 |
+| THE-563 | Four introspection tools leaked cross-vault identifiers to a vault-bound HTTP caller (THE-924, #864). | CHANGELOG.md (1.23.4) | 12 |
 | THE-564 | All-source ACL on derived objects before return / model egress | CHANGELOG.md (1.11.0) | 3 |
 | THE-565 | _internal planning reference — see repo history_ | — | 4 |
 | THE-567 | Per-path rule-scopes are now enforced | CHANGELOG.md (1.11.0) | 4 |
@@ -351,12 +351,12 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-862 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
 | THE-891 | THE-891 item 2 (#845) — the capture mitigation profile every accepted local-persistence precedent ships (bounded retention + first-run notice + location guard), `experiential.captureContent` stays on (behavior change: retention). | CHANGELOG.md (1.23.0) | 34 |
 | THE-906 | The boot ready line, `doctor`, the capability profile and `server_health` could all report `native=on` / "native acceleration module loaded" while actually running the pure-JS fallback (THE-906, #858). | CHANGELOG.md (1.23.2) | 4 |
-| THE-922 | A TLS trust failure was reported as "reload the plugin inside Obsidian" — the bridge transport discarded `e.cause`, collapsing every fetch failure into one indistinguishable state (THE-922, #861). | CHANGELOG.md (1.23.3) | 4 |
-| THE-923 | _internal planning reference — see repo history_ | — | 7 |
-| THE-924 | _internal planning reference — see repo history_ | — | 3 |
-| THE-925 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 5 |
-| THE-926 | _internal planning reference — see repo history_ | — | 10 |
+| THE-922 | The fetch cause was preserved only at `doFetch`, so a TLS-untrusted companion still misdirected every other transport (THE-923, #865). | CHANGELOG.md (1.23.4) | 4 |
+| THE-923 | The fetch cause was preserved only at `doFetch`, so a TLS-untrusted companion still misdirected every other transport (THE-923, #865). | CHANGELOG.md (1.23.4) | 7 |
+| THE-924 | Four introspection tools leaked cross-vault identifiers to a vault-bound HTTP caller (THE-924, #864). | CHANGELOG.md (1.23.4) | 3 |
+| THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 5 |
+| THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 
 342 distinct ticket(s) across 481 source file(s) under
-`packages/*/src`; 272 resolved to a public summary, 70
+`packages/*/src`; 275 resolved to a public summary, 67
 fall back to the internal-reference placeholder above.
