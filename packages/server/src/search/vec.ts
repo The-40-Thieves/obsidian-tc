@@ -6,9 +6,6 @@ import { cachedPrepare, type Database } from "../db/types";
 import { type RepresentationManifest, representationFingerprint } from "./representation";
 import { EMBEDDED_VEC_BASE64 } from "./vec-embedded";
 
-export type { VecFingerprint } from "./representation";
-export { vecFingerprint } from "./representation";
-
 const requireFromHere = createRequire(import.meta.url);
 
 // Encode a JS number[] as a little-endian float32 BLOB — the on-disk wire format

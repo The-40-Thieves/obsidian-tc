@@ -8,7 +8,7 @@
 // ONE scanner, deliberately. A pattern added because it leaked through an episode must protect a
 // trace too — two copies would drift, and the drift would be silent in the direction that matters.
 
-export const SECRET_PATTERNS: RegExp[] = [
+const SECRET_PATTERNS: RegExp[] = [
   // BOUNDED on purpose (CodeQL js/polynomial-redos, high). The unbounded form
   //   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
   // backtracks polynomially on input that repeats the BEGIN marker without ever supplying an

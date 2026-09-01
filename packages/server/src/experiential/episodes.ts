@@ -69,8 +69,8 @@ export function genEpisodeId(): string {
 import { redactSecrets } from "./redact";
 
 // THE-736: the scanner moved to ./redact so the trace capture path can share it without a
-// cycle. Re-exported here because this module was its public home and several tests import it.
-export { redactSecrets, SECRET_PATTERNS } from "./redact";
+// cycle. Re-exported here because this module was its public home and tests import it from here.
+export { redactSecrets } from "./redact";
 
 export interface EpisodeCaptureOptions {
   now?: () => number;
