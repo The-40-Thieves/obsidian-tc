@@ -24,6 +24,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Poll for the scheduler's first persisted tick instead of guessing a wall-clock budget. Mirrors
+ *  the vi.waitFor conversion in test/param-binding.test.ts's runIntegrationProbe -- this script
+ *  runs as a plain `bun` subprocess (no vitest, no `vi.waitFor`), so the same "poll until true or
+ *  fail loudly" shape is hand-rolled here instead. Checking `last_run_at` specifically (not mere
+ *  row existence) matters: persistRunStart and the run-completion persist() are two separate
+ *  writes, and a row can exist with `last_run_at` still NULL between them. */
+async function waitForScheduleRow(
+  db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown } },
+  name: string,
+  timeoutMs = 5000,
+  intervalMs = 20,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const row = db.prepare("SELECT * FROM job_schedule WHERE name = ?").get(name) as
+      | Record<string, unknown>
+      | undefined;
+    if (row?.last_run_at != null) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `schedule row for "${name}" did not persist last_run_at within ${timeoutMs}ms`,
+      );
+    }
+    await sleep(intervalMs);
+  }
+}
+
 async function main(): Promise<void> {
   // --- raw adapter-level probe: the exact bind style job-queue.ts/scheduler.ts used BEFORE this
   // fix (bare-key object against an `@name` statement), vs. the fix (positional `?`). ---
@@ -53,7 +80,7 @@ async function main(): Promise<void> {
   const sched = new Scheduler({ db, now: () => 1_700_000_000_000 });
   sched.register({ name: "probe-tick", intervalMs: 20, run: () => {} });
   sched.start();
-  await sleep(120); // let at least one real tick land
+  await waitForScheduleRow(db, "probe-tick");
   await sched.stop();
   const scheduleRow = db.prepare("SELECT * FROM job_schedule WHERE name = ?").get("probe-tick");
 

@@ -33,7 +33,7 @@
 // after switching to positional `?` binds.
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { openBetterSqlite3 } from "../src/db/node-better-sqlite3";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { provisionCacheDb } from "../src/db/provision";
@@ -91,10 +91,6 @@ console.log(
   `[THE-665 param-binding conformance] adapters run: [${adaptersRun.join(", ") || "NONE"}]; skipped: [${adaptersSkipped.join(", ") || "none"}]`,
 );
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** Exercises the real call sites (JobQueue.enqueue, Scheduler's durable persist) against a real
  *  adapter + the real migrated schema, and returns the STORED rows for both. */
 async function runIntegrationProbe(db: Database): Promise<{
@@ -115,7 +111,21 @@ async function runIntegrationProbe(db: Database): Promise<{
   const sched = new Scheduler({ db, now: () => 1_700_000_000_000 });
   sched.register({ name: "probe-tick", intervalMs: 20, run: () => {} });
   sched.start();
-  await sleep(120);
+  // A fixed 120ms sleep (6 ticks at intervalMs:20) raced the scheduler's first persisted tick under
+  // load — the row is only written once `run()` has actually fired, not on register()/start(). Poll
+  // for the row instead of guessing a wall-clock budget that a busy CI runner can blow through.
+  // Checking `last_run_at` specifically (not mere row existence) matters: persistRunStart and the
+  // run-completion persist() are two separate writes, and a row can exist with `last_run_at` still
+  // NULL between them — polling on existence alone would stop waiting before the tick is done.
+  await vi.waitFor(
+    () => {
+      const row = db.prepare("SELECT * FROM job_schedule WHERE name = ?").get("probe-tick") as
+        | Record<string, unknown>
+        | undefined;
+      expect(row?.last_run_at).toBe(1_700_000_000_000);
+    },
+    { timeout: 5000, interval: 20 },
+  );
   await sched.stop();
   const scheduleRow = db.prepare("SELECT * FROM job_schedule WHERE name = ?").get("probe-tick") as
     | Record<string, unknown>
