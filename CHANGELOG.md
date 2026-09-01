@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.23.6] - 2026-09-01
+
 ### Changed
 
 - **A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932).** `filterChunksAsOf` selected the large `content` column (and `path`) for every chunk existing at the cutoff, but the `as_of` pre-filter only ever builds an `id → changed_since_d` lookup from the result — so the content was fetched purely to be thrown away. The query now returns id + timestamps only. Behavior is byte-identical; only the wasted I/O on an `as_of` query is removed.
