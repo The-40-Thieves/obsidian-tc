@@ -40,9 +40,13 @@ import { appendForgetLog } from "./forget";
 import { SCORE_VERSION } from "./note-quality";
 
 export interface ExportOptions {
-  /** Narrow the 6 vault-scoped-and-filterable tables to one vault. `chunk_retrievals`,
-   *  `vault_object_state` and `forget_log` are ALWAYS exported in full regardless — see
-   *  `ALWAYS_FULL_TABLES`'s doc comment for why. Absent -> deployment-wide export, `vault: "*"`. */
+  /** Narrow the 6 vault-scoped-and-filterable tables to one vault. `chunk_retrievals` and
+   *  `vault_object_state` have no `vault_id` column to filter by at all (they key "by value",
+   *  globally, across every vault in the deployment); `forget_log` conceptually belongs to
+   *  whichever vault owned the deleted episode/note, but also carries no `vault_id` column, and
+   *  guessing one from `target` (a bare episode id or note path) would be exactly the kind of
+   *  silent lossy filter THE-636's design note warns against. All three are therefore ALWAYS
+   *  exported in full regardless of `--vault`. Absent -> deployment-wide export, `vault: "*"`. */
   vaultId?: string;
   nowMs: number;
   serverVersion: string;
@@ -144,7 +148,7 @@ export function exportContextBundle(edb: Database, opts: ExportOptions): Context
   ) as GoalRow[];
 
   // ALWAYS FULL — no vault_id column to filter by (chunk_retrievals, vault_object_state), or a
-  // deliberate choice not to guess one from `target` (forget_log). See ALWAYS_FULL_TABLES.
+  // deliberate choice not to guess one from `target` (forget_log). See ExportOptions.vaultId above.
   const chunk_retrievals = edb
     .prepare(`SELECT ${CHUNK_RETRIEVAL_COLS} FROM chunk_retrievals`)
     .all() as ChunkRetrievalRow[];

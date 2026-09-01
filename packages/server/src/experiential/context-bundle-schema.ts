@@ -230,17 +230,3 @@ export const ContextBundleSchema = z.object({
   tables: ContextBundleTablesSchema,
 });
 export type ContextBundle = z.infer<typeof ContextBundleSchema>;
-
-/** The 9 experiential tables that have no `vault_id` column to filter a `--vault` export by, and
- *  so are always exported/considered in full regardless of `--vault`: `chunk_retrievals` and
- *  `vault_object_state` key by chunk/object id "by value" (the membrane: no cross-file FK),
- *  globally, across every vault in the deployment (doctor/table-spec.ts's grouping). `forget_log`
- *  joins them here for a narrower reason — it DOES conceptually belong to whichever vault owned
- *  the deleted episode/note, but the table itself carries no `vault_id` column to filter on, and
- *  guessing one from `target` (a bare episode id or note path) would be exactly the kind of silent
- *  lossy filter THE-636's design note warns against. A `--vault` export therefore always includes
- *  the FULL forget_log — never a guessed-at subset — so an importer's reconciliation check (see
- *  context-bundle.ts) always has the complete picture to reconcile against, not a filtered one
- *  that could hide a forget that happened in a different vault.
- */
-export const ALWAYS_FULL_TABLES = ["chunk_retrievals", "vault_object_state", "forget_log"] as const;

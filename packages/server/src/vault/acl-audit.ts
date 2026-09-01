@@ -78,10 +78,6 @@ export function setAclAuditMode(mode: "off" | "on" | "strict"): void {
   applyMode(mode === "off" ? "" : mode);
 }
 
-export function aclAuditEnabled(): boolean {
-  return _enabled;
-}
-
 const als = new AsyncLocalStorage<AuditFrame>();
 
 /** Run `fn` inside a fresh audit frame. A transparent passthrough when the audit is disabled. */

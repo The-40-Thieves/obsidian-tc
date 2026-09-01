@@ -1,0 +1,43 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    "packages/server": {
+      "entry": [
+        "src/index.ts",
+        "src/cli.ts",
+        "scripts/**/*.{ts,mjs}",
+        "eval/**/*.ts",
+        "bun-smoke/**/*.ts",
+        "test/**/*.{ts,bun.ts}"
+      ],
+      "project": ["src/**/*.ts", "scripts/**/*.ts", "eval/**/*.ts", "bun-smoke/**/*.ts"]
+    },
+    "packages/shared": { "project": ["src/**/*.ts"] },
+    "packages/plugin": { "project": ["src/**/*.ts"] },
+    "packages/native": { "entry": ["fallback.ts"], "project": ["*.{ts,js}"] },
+    ".": { "entry": ["scripts/**/*.mjs"], "project": ["scripts/**/*.mjs"] }
+  },
+  // packages/reranker-local is a standalone optional package (own bun.lock, not in the root
+  // package.json "workspaces" array, not configured as a knip workspace above) that server
+  // depends on only as an external at build time. Knip still walks it without this ignore
+  // (unlike docs/**, services/**, dist/**, target/**, which knip itself flagged as redundant
+  // and were removed) — verified via `bun run knip`, so this one entry stays.
+  "ignore": ["packages/reranker-local/**"],
+  // Resolved dynamically by package name rather than via a static import/require, so knip's
+  // static analysis can't see the usage:
+  //  - @ast-grep/cli: scripts/ast-grep-bin.mjs resolves the package's own entry point (never
+  //    node_modules/.bin, which is unsafe to exec on Windows) to shell out to the ast-grep binary.
+  //  - dependency-cruiser: scripts/check-boundaries.mjs uses import.meta.resolve("dependency-cruiser")
+  //    to locate its CLI script on disk and invoke it directly.
+  //  - @the-40-thieves/obsidian-tc-native: src/search/native.ts and src/vault/notes-io.ts both
+  //    build `["@the-40-thieves", "obsidian-tc-native"].join("/")` before importing, so the
+  //    native module (which may not exist on every platform/arch) is never named as a literal
+  //    import specifier.
+  "ignoreDependencies": [
+    "@ast-grep/cli",
+    "dependency-cruiser",
+    "@the-40-thieves/obsidian-tc-native"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "includeEntryExports": false
+}

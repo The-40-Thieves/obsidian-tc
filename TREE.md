@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,232 tracked code files · 200,483 lines.
+**Scale:** 1,232 tracked code files · 200,466 lines.
 
-TypeScript 185,239 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 185,222 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -87,13 +87,13 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
 | `tools/` | 90 | 18,087 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 61 | 12,409 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `experiential/` | 25 | 6,321 | work-memory tier: activation, retrieval log, forget, citations |
+| `search/` | 61 | 12,406 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `experiential/` | 25 | 6,311 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 18 | 4,715 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 35 | 4,273 | arg parsing + subcommands |
 | `runtime/` | 19 | 3,978 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 13 | 2,154 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `vault/` | 17 | 1,954 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `vault/` | 17 | 1,950 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `migrations/` | 51 | 1,897 | hand-registered SQL. **Two chains** — see below |
 | `db/` | 15 | 1,461 | provisioning, migrate runner, experiential store |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
@@ -145,7 +145,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 711 | `packages/shared/src/config/retrieval.schema.ts` |
 | 697 | `packages/server/src/cli/args.ts` |
 | 685 | `packages/server/src/runtime/server-runtime.ts` |
-| 677 | `packages/server/src/experiential/context-bundle.ts` |
+| 681 | `packages/server/src/experiential/context-bundle.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 627 | `packages/server/src/metrics/registry.ts` |
