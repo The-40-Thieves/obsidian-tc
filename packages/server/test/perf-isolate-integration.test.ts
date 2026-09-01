@@ -11,30 +11,34 @@ import { checkHardStability } from "../eval/perf/isolate";
 import { runIsolatedSamples } from "../eval/perf/sample";
 
 describe("runIsolatedSamples() end-to-end (real bun subprocesses)", () => {
-  it("spawns N genuinely fresh subprocesses and every hard-class metric agrees exactly across them", async () => {
-    const result = runIsolatedSamples("small", { n: 2 });
+  it(
+    "spawns N genuinely fresh subprocesses and every hard-class metric agrees exactly across them",
+    async () => {
+      const result = runIsolatedSamples("small", { n: 2 });
 
-    expect(result.aggregate.n).toBe(2);
-    // The deterministic seeded corpus must reproduce byte-identical hard invariants across TWO
-    // completely separate process launches -- this is the isolation layer's core promise.
-    expect(checkHardStability(result.aggregate)).toEqual([]);
-    expect(result.hardInstabilities).toEqual([]);
+      expect(result.aggregate.n).toBe(2);
+      // The deterministic seeded corpus must reproduce byte-identical hard invariants across TWO
+      // completely separate process launches -- this is the isolation layer's core promise.
+      expect(checkHardStability(result.aggregate)).toEqual([]);
+      expect(result.hardInstabilities).toEqual([]);
 
-    const chunkCount = result.aggregate.samples.find((s) => s.key === "index.chunk_count");
-    expect(chunkCount?.raw).toHaveLength(2);
-    expect(chunkCount?.raw[0]).toBe(chunkCount?.raw[1]);
-    expect(chunkCount?.cv).toBe(0);
+      const chunkCount = result.aggregate.samples.find((s) => s.key === "index.chunk_count");
+      expect(chunkCount?.raw).toHaveLength(2);
+      expect(chunkCount?.raw[0]).toBe(chunkCount?.raw[1]);
+      expect(chunkCount?.cv).toBe(0);
 
-    // Every subprocess reported its own calibration probe on EVERY channel (THE-584) -- contention
-    // detection has real (not injected) data to work with. A channel silently reporting 0 would
-    // make its absolute check trivially pass forever, which is exactly the blindness this fixes.
-    for (const channel of CALIBRATION_CHANNELS) {
-      const series = result.contention.channels[channel].raw;
-      expect(series, `${channel} series`).toHaveLength(2);
-      expect(
-        series.every((v: number) => v > 0),
-        `${channel} must be measured, not defaulted to 0`,
-      ).toBe(true);
-    }
-  }, 60_000);
+      // Every subprocess reported its own calibration probe on EVERY channel (THE-584) -- contention
+      // detection has real (not injected) data to work with. A channel silently reporting 0 would
+      // make its absolute check trivially pass forever, which is exactly the blindness this fixes.
+      for (const channel of CALIBRATION_CHANNELS) {
+        const series = result.contention.channels[channel].raw;
+        expect(series, `${channel} series`).toHaveLength(2);
+        expect(
+          series.every((v: number) => v > 0),
+          `${channel} must be measured, not defaulted to 0`,
+        ).toBe(true);
+      }
+    },
+    process.platform === "win32" ? 180_000 : 60_000,
+  );
 });

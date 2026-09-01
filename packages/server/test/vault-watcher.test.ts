@@ -375,12 +375,14 @@ describe("startVaultWatch — event delivery", () => {
     try {
       await arm();
       writeFileSync(join(root, "Projects", "Deep", "n.md"), "deep", "utf8");
-      await r.settle();
-      expect(uniqueUpserts(r.upserts)).toEqual([["v1", "Projects/Deep/n.md", "deep"]]);
+      await vi.waitFor(
+        () => expect(uniqueUpserts(r.upserts)).toEqual([["v1", "Projects/Deep/n.md", "deep"]]),
+        { timeout: 5000, interval: 20 },
+      );
     } finally {
       stop();
     }
-  });
+  }, 8000);
 
   it("reports a deleted note as a delete, not an upsert", async () => {
     // Create the note AFTER the watch is armed, let its upsert land, then reset and delete — so
@@ -403,20 +405,26 @@ describe("startVaultWatch — event delivery", () => {
     try {
       await arm();
       writeFileSync(join(root, "gone.md"), "bye", "utf8");
-      await r.settle();
-      expect(uniqueUpserts(r.upserts)).toEqual([["v1", "gone.md", "bye"]]);
+      await vi.waitFor(() => expect(uniqueUpserts(r.upserts)).toEqual([["v1", "gone.md", "bye"]]), {
+        timeout: 5000,
+        interval: 20,
+      });
       r.reset();
 
       rmSync(join(root, "gone.md"));
-      // until(deletes), not settle(1): a stray duplicate upsert would satisfy a plain count and let
-      // the assertion run before the delete had arrived.
-      await r.until(() => r.deletes.length >= 1);
-      expect(r.deletes).toEqual([["v1", "gone.md"]]);
-      expect(r.upserts).toEqual([]);
+      // vi.waitFor on the KIND, not a plain count: a stray duplicate upsert would satisfy a plain
+      // count and let the assertion run before the delete had arrived.
+      await vi.waitFor(
+        () => {
+          expect(r.deletes).toEqual([["v1", "gone.md"]]);
+          expect(r.upserts).toEqual([]);
+        },
+        { timeout: 5000, interval: 20 },
+      );
     } finally {
       stop();
     }
-  });
+  }, 12_000);
 
   it("ignores non-markdown and dot-directory writes entirely", async () => {
     const root = makeVault();
@@ -435,13 +443,17 @@ describe("startVaultWatch — event delivery", () => {
       // Then a real note, to prove the watch was alive the whole time rather than simply broken —
       // "nothing fired" is otherwise indistinguishable from a watcher that never started.
       writeFileSync(join(root, "real.md"), "real", "utf8");
-      await r.settle();
-      expect(uniqueUpserts(r.upserts)).toEqual([["v1", "real.md", "real"]]);
-      expect(r.deletes).toEqual([]);
+      await vi.waitFor(
+        () => {
+          expect(uniqueUpserts(r.upserts)).toEqual([["v1", "real.md", "real"]]);
+          expect(r.deletes).toEqual([]);
+        },
+        { timeout: 5000, interval: 20 },
+      );
     } finally {
       stop();
     }
-  });
+  }, 8000);
 
   it("coalesces a burst of writes to one path into a single upsert with the FINAL content", async () => {
     const root = makeVault();
@@ -457,14 +469,18 @@ describe("startVaultWatch — event delivery", () => {
       for (const c of ["v1", "v2", "v3", "v4"]) {
         writeFileSync(join(root, "busy.md"), c, "utf8");
       }
-      await r.settle();
-      expect(r.upserts).toHaveLength(1);
-      // Read at flush time, so an editor's several save events cost one reindex of the end state.
-      expect(r.upserts[0]?.[2]).toBe("v4");
+      await vi.waitFor(
+        () => {
+          expect(r.upserts).toHaveLength(1);
+          // Read at flush time, so an editor's several save events cost one reindex of the end state.
+          expect(r.upserts[0]?.[2]).toBe("v4");
+        },
+        { timeout: 5000, interval: 20 },
+      );
     } finally {
       stop();
     }
-  });
+  }, 8000);
 
   it("keeps vaults separate and reports each under its own id", async () => {
     const a = makeVault();
@@ -483,15 +499,18 @@ describe("startVaultWatch — event delivery", () => {
       await arm();
       writeFileSync(join(a, "in-a.md"), "A", "utf8");
       writeFileSync(join(b, "in-b.md"), "B", "utf8");
-      await r.settle(2);
-      expect(uniqueUpserts(r.upserts).sort()).toEqual([
-        ["va", "in-a.md", "A"],
-        ["vb", "in-b.md", "B"],
-      ]);
+      await vi.waitFor(
+        () =>
+          expect(uniqueUpserts(r.upserts).sort()).toEqual([
+            ["va", "in-a.md", "A"],
+            ["vb", "in-b.md", "B"],
+          ]),
+        { timeout: 5000, interval: 20 },
+      );
     } finally {
       stop();
     }
-  });
+  }, 8000);
 
   it("survives an unwatchable vault and keeps watching the others", async () => {
     // A missing root is the realistic shape (a vault on an unmounted volume); ENOSPC from the
@@ -519,12 +538,14 @@ describe("startVaultWatch — event delivery", () => {
       expect(errs.map((e) => e[1])).toEqual(["missing"]);
       await arm();
       writeFileSync(join(good, "still-works.md"), "ok", "utf8");
-      await r.settle();
-      expect(uniqueUpserts(r.upserts)).toEqual([["good", "still-works.md", "ok"]]);
+      await vi.waitFor(
+        () => expect(uniqueUpserts(r.upserts)).toEqual([["good", "still-works.md", "ok"]]),
+        { timeout: 5000, interval: 20 },
+      );
     } finally {
       stop();
     }
-  });
+  }, 8000);
 
   it("stop() is idempotent and silences further events", async () => {
     const root = makeVault();
@@ -546,11 +567,43 @@ describe("startVaultWatch — event delivery", () => {
   it("drops a pending debounce on stop rather than flushing after shutdown", async () => {
     // cli.ts calls stop() BEFORE indexCoordinator.idle(). If a queued flush still fired here it
     // would enqueue coordinator work after the drain had already been asked to settle.
+    //
+    // The false-pass risk this test is exposed to: if the fs.watch event for "queued.md" never
+    // registered before stop() ran, nothing was ever pending, so stop() cancelled nothing and the
+    // empty-upserts assertion below passes VACUOUSLY -- indistinguishable from a correctly-working
+    // cancel. There is no pollable "flush pending" signal to assert against instead (that state is
+    // internal to startVaultWatch), so the fix is a CONTROL probe: prove, on a short-debounce watch
+    // over the same root, that this environment's fs.watch is actually live and our code reports it
+    // -- via vi.waitFor, so a dead/unarmed watch fails loudly right here rather than silently
+    // validating the negative case below. Only once that is proven does the long-debounce negative
+    // case run.
     const root = makeVault();
     const r = recorder();
+    const probeStop = startVaultWatch({
+      targets: [{ vaultId: "v1", root }],
+      debounceMs: 50,
+      onUpsert: r.onUpsert,
+      onDelete: r.onDelete,
+    });
+    try {
+      await arm();
+      writeFileSync(join(root, "control.md"), "control", "utf8");
+      await vi.waitFor(
+        () => expect(uniqueUpserts(r.upserts)).toEqual([["v1", "control.md", "control"]]),
+        { timeout: 5000, interval: 20 },
+      );
+    } finally {
+      probeStop();
+    }
+    r.reset();
+
+    // The negative case proper. The two real-time sleeps below are NOT converted to vi.waitFor:
+    // there is nothing to poll for. "the debounce timer never fires" has no positive signal, only
+    // the absence of one, so a late flush is caught only by waiting past when it would have fired.
+    const debounceMs = 2000;
     const stop = startVaultWatch({
       targets: [{ vaultId: "v1", root }],
-      debounceMs: 2000,
+      debounceMs,
       onUpsert: r.onUpsert,
       onDelete: r.onDelete,
     });
@@ -558,7 +611,8 @@ describe("startVaultWatch — event delivery", () => {
     writeFileSync(join(root, "queued.md"), "x", "utf8");
     await new Promise((res) => setTimeout(res, 300)); // event received, flush still pending
     stop();
-    await new Promise((res) => setTimeout(res, 2400)); // past when the flush would have fired
+    // Derived from debounceMs (+ a fixed margin), not a bare magic number.
+    await new Promise((res) => setTimeout(res, debounceMs + 400)); // past when the flush would have fired
     expect(r.upserts).toEqual([]);
-  });
+  }, 12_000);
 });
