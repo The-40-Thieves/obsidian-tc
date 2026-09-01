@@ -42,6 +42,48 @@ describe("server_health (F3)", () => {
     expect(out.vaults).toEqual(["v1", "v2"]);
   });
 
+  it("THE-924: withholds the vault-id list AND index detail from a vaultBound caller", () => {
+    const t = createHealthTool({
+      version: "1.0.0",
+      vaults: ["v1", "v2"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getIndexHealth: (authenticated) => ({
+        reconcile: "degraded",
+        reconcile_at: 123,
+        write_failures: 2,
+        ...(authenticated
+          ? {
+              detail: {
+                reconcile_errors: [{ vault: "v2", error: "embed backend down" }],
+                last_write_error: "/private/vault-v2/note.md: eperm",
+              },
+            }
+          : {}),
+      }),
+    });
+    // A vaultBound (HTTP-token) caller is authenticated:true, but must be treated like an
+    // unauthenticated liveness probe for both fields — they name OTHER tenants' vaults/paths.
+    const bound = t.handler({}, {
+      ...base,
+      authenticated: true,
+      vaultBound: true,
+    } as CallerContext) as {
+      vaults?: string[];
+      index?: { detail?: unknown };
+    };
+    expect(bound.vaults).toBeUndefined();
+    expect(bound.index?.detail).toBeUndefined();
+
+    const unboundAuthed = t.handler({}, { ...base, authenticated: true } as CallerContext) as {
+      vaults?: string[];
+      index?: { detail?: unknown };
+    };
+    expect(unboundAuthed.vaults).toEqual(["v1", "v2"]);
+    expect(unboundAuthed.index?.detail).toBeDefined();
+  });
+
   it("reflects the native + vec capability flags from opts", () => {
     const t = createHealthTool({
       version: "1.0.0",

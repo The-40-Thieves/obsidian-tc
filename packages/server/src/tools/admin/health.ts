@@ -11,7 +11,8 @@ export interface IndexHealthSnapshot {
   write_failures: number;
   /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
   notes_ready?: boolean;
-  /** Per-vault reconcile errors + last write error — authenticated callers only (may name paths). */
+  /** Per-vault reconcile errors + last write error — authenticated, non-vault-bound callers only
+   *  (THE-924; may name paths). */
   detail?: {
     reconcile_errors: Array<{ vault: string; error: string }>;
     last_write_error?: string;
@@ -45,11 +46,14 @@ export interface HealthInfo {
   fts_enabled: boolean;
   /** Number of configured vaults (always present, non-identifying). */
   vault_count: number;
-  /** Vault id list — only for authenticated callers (ids are deployment-internal). */
+  /** Vault id list — only for an authenticated, non-vault-bound caller (ids are
+   *  deployment-internal; THE-924: a vaultBound HTTP token is authenticated but must not see
+   *  other tenants' ids). */
   vaults?: string[];
   uptime_ms: number;
   /** Search-index health (THE-288). Always present; `detail` (per-vault reconcile errors + last
-   *  write error) is authenticated-only since messages may name paths. */
+   *  write error) is withheld from any caller that is not authenticated AND unbound (THE-924)
+   *  since messages may name paths. */
   index?: IndexHealthSnapshot;
   /** #14: durable job-queue depth + dead-letter count. Always present when wired; counts are
    *  non-identifying (no paths/ids), so it is not auth-gated. A non-zero `failed` = a workload
@@ -124,7 +128,8 @@ const IndexHealthSnapshotOutput = z.object({
   reconcile_at: z.number().nullable(),
   write_failures: z.number(),
   notes_ready: z.boolean().optional(),
-  // authenticated-callers-only (may name paths); absent for an unauthenticated server_health call.
+  // authenticated, non-vault-bound callers only (may name paths; THE-924): absent for an
+  // unauthenticated OR vault-bound server_health call.
   detail: z
     .object({
       reconcile_errors: z.array(z.object({ vault: z.string(), error: z.string() })),
@@ -202,7 +207,9 @@ export function createHealthTool(opts: {
   vecEnabled: boolean;
   /** Optional so existing harnesses stay source-compatible; absent -> false. */
   ftsEnabled?: boolean;
-  /** THE-288: returns a live index-health snapshot at call time, shaped by caller auth. */
+  /** THE-288: returns a live index-health snapshot at call time, shaped by caller auth. The
+   *  boolean passed in is `authedUnbound` (THE-924), not raw `ctx.authenticated` — see the
+   *  handler below. */
   getIndexHealth?: (authenticated: boolean) => IndexHealthSnapshot;
   /** #14: live job-queue stats at call time. Counts are non-identifying, so the block is always
    *  present when the accessor is wired (unauthenticated-safe, like vec_enabled). */
@@ -225,32 +232,40 @@ export function createHealthTool(opts: {
     // requiredScopes [] keeps this an unauthenticated liveness probe, but the vault-id list is
     // emitted only to authenticated callers (F3): ids are deployment-internal. The native/vec
     // capability flags are non-identifying, so they stay in the always-present payload.
-    handler: (_input, ctx) => ({
-      status: "ok",
-      name: "obsidian-tc",
-      version: opts.version,
-      native_loaded: opts.nativeLoaded,
-      vec_enabled: opts.vecEnabled,
-      fts_enabled: opts.ftsEnabled ?? false,
-      vault_count: opts.vaults.length,
-      ...(ctx.authenticated ? { vaults: opts.vaults } : {}),
-      uptime_ms: Date.now() - opts.startedAt,
-      ...(opts.getIndexHealth ? { index: opts.getIndexHealth(ctx.authenticated) } : {}),
-      ...(opts.getJobQueueStats
-        ? (() => {
-            const s = opts.getJobQueueStats?.();
-            if (!s) return {};
-            return {
-              job_queue: {
-                queued: s.queued,
-                running: s.running,
-                retrying: s.retrying,
-                failed: s.failed, // dead-letter count
-                oldest_queued_age_ms: s.oldestQueuedAgeMs,
-              },
-            };
-          })()
-        : {}),
-    }),
+    //
+    // THE-924: F3's rationale covered only the pre-auth axis — a vaultBound (HTTP-token) caller
+    // is `authenticated: true` but must not see other tenants' vault ids or path-bearing index
+    // detail, so `authenticated` alone is not the right gate. `authedUnbound` folds both axes:
+    // present only for a trusted, non-vault-bound caller.
+    handler: (_input, ctx) => {
+      const authedUnbound = ctx.authenticated && ctx.vaultBound !== true;
+      return {
+        status: "ok",
+        name: "obsidian-tc",
+        version: opts.version,
+        native_loaded: opts.nativeLoaded,
+        vec_enabled: opts.vecEnabled,
+        fts_enabled: opts.ftsEnabled ?? false,
+        vault_count: opts.vaults.length,
+        ...(authedUnbound ? { vaults: opts.vaults } : {}),
+        uptime_ms: Date.now() - opts.startedAt,
+        ...(opts.getIndexHealth ? { index: opts.getIndexHealth(authedUnbound) } : {}),
+        ...(opts.getJobQueueStats
+          ? (() => {
+              const s = opts.getJobQueueStats?.();
+              if (!s) return {};
+              return {
+                job_queue: {
+                  queued: s.queued,
+                  running: s.running,
+                  retrying: s.retrying,
+                  failed: s.failed, // dead-letter count
+                  oldest_queued_age_ms: s.oldestQueuedAgeMs,
+                },
+              };
+            })()
+          : {}),
+      };
+    },
   };
 }

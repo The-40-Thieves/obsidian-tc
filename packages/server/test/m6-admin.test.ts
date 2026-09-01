@@ -90,6 +90,43 @@ describe("get_server_config", () => {
     const cfg = data<{ read_only: boolean }>(await v.call("get_server_config", {}));
     expect(cfg.read_only).toBe(true);
   });
+
+  it("THE-924: a vaultBound caller sees only its own vault's id + plugin list", async () => {
+    v = makeM6Vault({
+      authMode: "jwt",
+      capabilities: (vaultId) => ({
+        companion: "reachable",
+        plugins: {
+          [vaultId === "beta" ? "secretplugin" : "dataview"]: {
+            installed: true,
+            version: vaultId === "beta" ? "9.9.9" : "0.5.64",
+          },
+        },
+      }),
+      register,
+    });
+    // A second, unrelated vault this caller is not bound to. get_server_config takes no
+    // arguments, so central dispatch's enforceVaultBinding (which only inspects a declared
+    // `vaultArg`) cannot police this tool — it must scope its own per-vault output.
+    v.deps.vaultRegistry.register({ id: "beta", path: "/nonexistent/beta-vault" });
+
+    type Cfg = { vaults_summary: { id: string }[]; plugins_detected: Record<string, string[]> };
+    const unbound = data<Cfg>(await v.call("get_server_config", {}));
+    expect(unbound.vaults_summary.map((x) => x.id).sort()).toEqual(["beta", "test"]);
+    expect(unbound.plugins_detected.beta).toEqual(["secretplugin"]);
+
+    const bound = data<Cfg>(
+      await v.call(
+        "get_server_config",
+        {},
+        { vaultBound: true, vaultId: "test", grantedScopes: new Set(["admin:config"]) },
+      ),
+    );
+    expect(bound.vaults_summary).toEqual([{ id: "test" }]);
+    expect(bound.plugins_detected).toEqual({ test: ["dataview"] });
+    // Must not leak the other vault's id or plugin inventory.
+    expect(bound.plugins_detected.beta).toBeUndefined();
+  });
 });
 
 describe("inspect_acl", () => {
@@ -251,6 +288,43 @@ describe("get_metrics", () => {
       (m) => m.name === "obsidian_tc_rate_limit_hits_total" && m.labels.scope_class === "bulk",
     );
     expect(hit?.value).toBe(1);
+  });
+
+  it("THE-924: a vaultBound caller omitting `vault` is pinned to its own vault, not every vault", async () => {
+    v = makeM6Vault({ register, rateLimiter: new RateLimiter() });
+    // A second, unrelated vault this caller is not bound to. `vault` is OPTIONAL on this tool, so
+    // central dispatch's enforceVaultBinding only fires when a caller NAMES a foreign vault —
+    // omitting the arg entirely (the call below) skips that guard by construction.
+    v.deps.vaultRegistry.register({ id: "beta", path: "/nonexistent/beta-vault" });
+    v.db
+      .prepare(
+        "INSERT INTO event_log (ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        Date.now(),
+        "beta",
+        "get_server_config",
+        null,
+        null,
+        null,
+        "ok",
+        null,
+        null,
+        "tool_invocation",
+      );
+    v.rateLimiter.check("c0ffee00", "bulk", "beta", 0);
+
+    const out = data<{
+      metrics: { name: string; value: number; labels: Record<string, string> }[];
+    }>(
+      await v.call(
+        "get_metrics",
+        {},
+        { vaultBound: true, vaultId: "test", grantedScopes: new Set(["admin:metrics"]) },
+      ),
+    );
+    // No metric row may name the OTHER vault this caller is not bound to.
+    expect(out.metrics.some((m) => m.labels.vault === "beta")).toBe(false);
   });
 });
 

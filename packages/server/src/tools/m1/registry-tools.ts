@@ -176,8 +176,15 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: z.object({}).strict(),
       outputSchema: ListVaultsOutput,
       requiredScopes: ["read:vault"],
+      // THE-924: zero-arg input means central dispatch's enforceVaultBinding has nothing to police
+      // (it only inspects a tool's declared `vaultArg`) — this tool must scope itself, the same
+      // idiom vault_graph_search uses for its own vaultBound guard. A bound (HTTP-token) caller
+      // gets only its own vault; the trusted, unbound caller keeps the full registry.
       handler: (_input, ctx) => ({
-        vaults: deps.vaultRegistry.list().map((v) => ({
+        vaults: (ctx.vaultBound === true
+          ? [deps.vaultRegistry.resolve(ctx.vaultId)]
+          : deps.vaultRegistry.list()
+        ).map((v) => ({
           id: v.id,
           name: v.name,
           kind: v.kind,

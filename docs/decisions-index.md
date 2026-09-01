@@ -353,7 +353,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-906 | The boot ready line, `doctor`, the capability profile and `server_health` could all report `native=on` / "native acceleration module loaded" while actually running the pure-JS fallback (THE-906, #858). | CHANGELOG.md (1.23.2) | 4 |
 | THE-922 | A TLS trust failure was reported as "reload the plugin inside Obsidian" — the bridge transport discarded `e.cause`, collapsing every fetch failure into one indistinguishable state (THE-922, #861). | CHANGELOG.md (1.23.3) | 4 |
 | THE-923 | _internal planning reference — see repo history_ | — | 7 |
+| THE-924 | _internal planning reference — see repo history_ | — | 3 |
 
-339 distinct ticket(s) across 481 source file(s) under
-`packages/*/src`; 270 resolved to a public summary, 69
+340 distinct ticket(s) across 481 source file(s) under
+`packages/*/src`; 270 resolved to a public summary, 70
 fall back to the internal-reference placeholder above.
