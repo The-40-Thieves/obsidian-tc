@@ -11,7 +11,13 @@ export function requirePlugin(snap: CapabilitySnapshot, plugin: string): { versi
   if (status.kind === "available")
     return status.version !== undefined ? { version: status.version } : {};
   if (status.kind === "plugin_unreachable")
-    throw err.pluginUnreachable("plugin bridge unreachable", { plugin });
+    throw err.pluginUnreachable("plugin bridge unreachable", {
+      plugin,
+      // THE-923: the TLS/ECONNREFUSED/abort cause from the probe snapshot, exactly as doFetch
+      // attaches it — so a plugin-proxy tool call carries the real cause instead of the static
+      // "reload the plugin" hint alone.
+      ...(status.cause ? { cause_code: status.cause } : {}),
+    });
   throw err.pluginMissing(
     status.reason === "companion_missing"
       ? "companion plugin not detected"

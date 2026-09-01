@@ -59,7 +59,13 @@ export function applyOverrides(snap: CapabilitySnapshot, ov: PluginOverrides): C
 export type PluginStatus =
   | { kind: "available"; version?: string }
   | { kind: "plugin_missing"; reason: "companion_missing" | "plugin_not_installed" }
-  | { kind: "plugin_unreachable" };
+  | {
+      kind: "plugin_unreachable";
+      /** THE-923: snap.unreachableCause carried through, so requirePlugin's thrown error has the
+       *  same TLS/ECONNREFUSED/abort detail bridgeState already gets. Absent when the snapshot
+       *  recorded no usable cause. */
+      cause?: string;
+    };
 
 /**
  * Decide whether a bridge tool may call into `plugin` for this vault. Companion
@@ -67,7 +73,12 @@ export type PluginStatus =
  * plugin not installed degrades to plugin_missing.
  */
 export function pluginStatus(snap: CapabilitySnapshot, plugin: string): PluginStatus {
-  if (snap.companion === "unreachable") return { kind: "plugin_unreachable" };
+  if (snap.companion === "unreachable") {
+    return {
+      kind: "plugin_unreachable",
+      ...(snap.unreachableCause ? { cause: snap.unreachableCause } : {}),
+    };
+  }
   if (snap.companion === "missing") return { kind: "plugin_missing", reason: "companion_missing" };
   const cap = snap.plugins[plugin];
   if (cap?.installed)

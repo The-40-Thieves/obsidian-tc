@@ -21,6 +21,15 @@ function thrownCode(fn: () => unknown): string {
   throw new Error("expected a throw");
 }
 
+function thrown(fn: () => unknown): { code: string; details?: Record<string, unknown> } {
+  try {
+    fn();
+  } catch (e) {
+    return e as { code: string; details?: Record<string, unknown> };
+  }
+  throw new Error("expected a throw");
+}
+
 describe("requirePlugin degradation gate", () => {
   const reachable: CapabilitySnapshot = {
     companion: "reachable",
@@ -45,6 +54,25 @@ describe("requirePlugin degradation gate", () => {
     expect(
       thrownCode(() => requirePlugin({ companion: "unreachable", plugins: {} }, "dataview")),
     ).toBe("plugin_unreachable");
+  });
+
+  // THE-923: requirePlugin previously dropped snap.unreachableCause on the floor, so a
+  // plugin-proxy tool call saw only the static "reload the plugin" text even when the snapshot
+  // already knew the real fetch cause (e.g. a TLS trust failure).
+  it("carries cause_code from snap.unreachableCause when the companion is unreachable", () => {
+    const e = thrown(() =>
+      requirePlugin(
+        { companion: "unreachable", plugins: {}, unreachableCause: "DEPTH_ZERO_SELF_SIGNED_CERT" },
+        "dataview",
+      ),
+    );
+    expect(e.code).toBe("plugin_unreachable");
+    expect(e.details?.cause_code).toBe("DEPTH_ZERO_SELF_SIGNED_CERT");
+  });
+
+  it("omits cause_code when the snapshot recorded no unreachable cause", () => {
+    const e = thrown(() => requirePlugin({ companion: "unreachable", plugins: {} }, "dataview"));
+    expect(e.details && "cause_code" in e.details).toBe(false);
   });
 });
 

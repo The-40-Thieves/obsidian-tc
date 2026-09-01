@@ -1,4 +1,4 @@
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, extractCauseCode } from "@the-40-thieves/obsidian-tc-shared";
 export type FetchFn = typeof fetch;
 /** Which config block actually holds this endpoint's credential (THE-680).
  *
@@ -92,10 +92,14 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
   } catch (e) {
     if ((e as Error).name === "AbortError")
       throw err.operationTimeout("timed out", { provider: o.provider, url: o.url });
+    // THE-923: the fetch cause (TLS trust, ECONNREFUSED, ENOTFOUND, ...), same shared unwrapper
+    // as the bridge transport — this catch previously discarded it entirely.
+    const causeCode = extractCauseCode(e);
     throw err.embeddingProviderError("request failed", {
       provider: o.provider,
       url: o.url,
       hint: providerHint(o),
+      ...(causeCode ? { cause_code: causeCode } : {}),
     });
   } finally {
     clearTimeout(timer);
