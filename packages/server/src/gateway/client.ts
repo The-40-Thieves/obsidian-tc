@@ -1,4 +1,4 @@
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, extractCauseCode, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 
 export type GatewayRole = "extract" | "synthesize" | "judge";
 
@@ -172,11 +172,15 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
         });
       } catch (e) {
         // A network-level throw or our own per-attempt timeout — both transient by nature.
+        // THE-923: cause_code (same shared unwrapper as the bridge transport and embeddings
+        // client) replaces the old `cause: (e as Error).message`, which was always the
+        // constant "fetch failed" string, never the actual reason.
+        const causeCode = extractCauseCode(e);
         lastError =
           (e as Error).name === "AbortError"
             ? err.operationTimeout("gateway timed out")
             : new ObsidianTcError("internal", "gateway request failed", {
-                cause: (e as Error).message,
+                ...(causeCode ? { cause_code: causeCode } : {}),
               });
       } finally {
         clearTimeout(timer);

@@ -127,6 +127,32 @@ describe("gateway client", () => {
     }
   });
 
+  // THE-923: post's catch previously attached `cause: (e as Error).message`, which was always
+  // the constant "fetch failed" string, never the actual reason. cause_code (the shared
+  // extractCauseCode unwrapper) replaces it.
+  it("attaches cause_code from a rejection carrying cause.code", async () => {
+    const fetchFn = (async () =>
+      Promise.reject(
+        Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } }),
+      )) as unknown as typeof fetch;
+    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 1 });
+    await expect(client.extract({ messages: [] })).rejects.toMatchObject({
+      code: "internal",
+      details: { cause_code: "ECONNREFUSED" },
+    });
+  });
+
+  it("omits cause_code when the rejection's .code is a URL-bearing string, not a code", async () => {
+    const fetchFn = (async () =>
+      Promise.reject(
+        Object.assign(new Error("boom"), { code: "https://user:secret@host/leaky?x=1" }),
+      )) as unknown as typeof fetch;
+    const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 1 });
+    const e = await client.extract({ messages: [] }).catch((err) => err);
+    expect(e.code).toBe("internal");
+    expect(e.details && "cause_code" in e.details).toBe(false);
+  });
+
   it("throws when no base URL is configured", () => {
     const prev = process.env.OBSIDIAN_TC_GATEWAY_URL;
     delete process.env.OBSIDIAN_TC_GATEWAY_URL;

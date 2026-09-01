@@ -179,6 +179,48 @@ describe("provider adapters over a stub fetch", () => {
       }),
     ).rejects.toMatchObject({ code: "operation_timeout" });
   });
+
+  // THE-923: postJson's rejection catch previously discarded the fetch cause entirely.
+  it("attaches cause_code from a rejection carrying cause.code", async () => {
+    const rejectingFetch: typeof fetch = (async () =>
+      Promise.reject(
+        Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } }),
+      )) as unknown as typeof fetch;
+    try {
+      await postJson({
+        url: "http://127.0.0.1:0/embed",
+        body: {},
+        provider: "ollama",
+        credentialSlot: "none",
+        fetchFn: rejectingFetch,
+      });
+      throw new Error("expected postJson to throw");
+    } catch (e) {
+      expect((e as ObsidianTcError).code).toBe("embedding_provider_error");
+      expect((e as ObsidianTcError).details?.cause_code).toBe("ECONNREFUSED");
+    }
+  });
+
+  it("omits cause_code when the rejection's .code is a URL-bearing string, not a code", async () => {
+    const rejectingFetch: typeof fetch = (async () =>
+      Promise.reject(
+        Object.assign(new Error("boom"), { code: "https://user:secret@host/leaky?x=1" }),
+      )) as unknown as typeof fetch;
+    try {
+      await postJson({
+        url: "http://127.0.0.1:0/embed",
+        body: {},
+        provider: "ollama",
+        credentialSlot: "none",
+        fetchFn: rejectingFetch,
+      });
+      throw new Error("expected postJson to throw");
+    } catch (e) {
+      const err = e as ObsidianTcError;
+      expect(err.code).toBe("embedding_provider_error");
+      expect(err.details && "cause_code" in err.details).toBe(false);
+    }
+  });
 });
 
 // THE-680: postJson is shared by the embedding adapters, BOTH reranker adapters and the two

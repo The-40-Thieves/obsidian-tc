@@ -387,6 +387,45 @@ describe("M4 integration: M2 search_dql + nine M4 domains on one registry and br
     expect(hitCompanion).toBe(false);
   });
 
+  // THE-923: the wiring gap THE-922 left behind — requirePlugin/openCompanionBridge had the
+  // fetch cause available on the snapshot, but nothing threaded it through to the WIRE error a
+  // real MCP tool call returns. A unit test on requirePlugin/pluginStatus in isolation cannot
+  // catch this: it has to go through dispatch, exactly as a client would see it.
+  it("carries cause_code on the wire for a plugin-proxy tool call (openBridge path)", async () => {
+    v = makeVault({
+      snapshot: {
+        companion: "unreachable",
+        plugins: {},
+        unreachableCause: "DEPTH_ZERO_SELF_SIGNED_CERT",
+      },
+    });
+    const res = await v.call("read_excalidraw", {
+      vault: "test",
+      path: "Drawings/Plan.excalidraw.md",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("plugin_unreachable");
+      expect(res.error.details?.cause_code).toBe("DEPTH_ZERO_SELF_SIGNED_CERT");
+    }
+  });
+
+  it("carries cause_code on the wire for list_commands (openCompanionBridge path)", async () => {
+    v = makeVault({
+      snapshot: {
+        companion: "unreachable",
+        plugins: {},
+        unreachableCause: "DEPTH_ZERO_SELF_SIGNED_CERT",
+      },
+    });
+    const res = await v.call("list_commands", { vault: "test" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("plugin_unreachable");
+      expect(res.error.details?.cause_code).toBe("DEPTH_ZERO_SELF_SIGNED_CERT");
+    }
+  });
+
   it("keeps the command palette deny-by-default even with a token on the shared registry", async () => {
     // The companion is reachable and the caller confirms — but execution is not
     // enabled, so the most dangerous tool stays inert and never reaches the bridge.

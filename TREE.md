@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,228 tracked code files · 198,967 lines.
+**Scale:** 1,230 tracked code files · 199,192 lines.
 
-TypeScript 183,723 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 183,948 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 90 | 18,004 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 90 | 18,010 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,156 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 25 | 6,321 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 18 | 4,715 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
@@ -102,17 +102,17 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `providers/` | 6 | 997 |  |
 | `workspace/` | 3 | 964 | session tracking |
 | `metrics/` | 4 | 841 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
-| `bridge/` | 8 | 818 | Obsidian plugin bridge clients |
+| `bridge/` | 8 | 822 | Obsidian plugin bridge clients |
 | `capture/` | 5 | 768 | the capture queue |
 | `transports/` | 3 | 704 | stdio, HTTP and the shared serve loop |
-| `embeddings/` | 6 | 695 | providers incl. the deterministic fake used in tests |
+| `embeddings/` | 6 | 699 | providers incl. the deterministic fake used in tests |
 | `model/` | 7 | 646 | model-service clients |
 | `capability/` | 6 | 610 | `defineTool` and the capability registry |
 | `memory/` | 2 | 544 | entity extraction and materialization for the memory folder |
 | `auth/` | 4 | 485 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
 | `graph/` | 1 | 381 | graph analytics (centrality, components) behind the health tools |
 | `config/` | 3 | 337 | config load, `explain`, and the security-profile resolver |
-| `gateway/` | 2 | 285 | inference-gateway client — the `judge`/`synthesize` roles |
+| `gateway/` | 2 | 289 | inference-gateway client — the `judge`/`synthesize` roles |
 | `plur/` | 2 | 214 | PLUR client (local + remote) for the experiential plane |
 | `otel/` | 3 | 190 | OpenTelemetry tracing, attributes, context propagation |
 | `util/` | 4 | 116 | concurrency, error shapes, ISO week, pagination |
@@ -284,7 +284,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**442 modules · 1987 dependencies · 123 distinct subsystem pairs · 891 cross-subsystem imports.**
+**443 modules · 1988 dependencies · 123 distinct subsystem pairs · 891 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it

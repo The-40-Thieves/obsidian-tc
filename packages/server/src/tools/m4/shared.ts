@@ -136,6 +136,12 @@ export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: Br
       plugin: "obsidian-tc-companion",
       companion: snap.companion,
       hint,
+      // THE-923: same fetch cause requirePlugin threads through — otherwise list_commands/
+      // execute_command see only the static hint above even when the snapshot already knows
+      // the companion is answering but untrusted (a TLS cause), not merely absent.
+      ...(snap.companion === "unreachable" && snap.unreachableCause
+        ? { cause_code: snap.unreachableCause }
+        : {}),
     });
   }
   assertCompanionApiCompat(snap);
