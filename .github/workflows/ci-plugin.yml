@@ -46,6 +46,11 @@ jobs:
         # shape, request parsing, and the safeHandler invariant that every one of the 28 handlers
         # answers rather than hanging the bridge. Removing the wrap at routes.ts:952 fails 28 of
         # them, which is how that assertion was verified.
+        #
+        # THE-929: `bun run test` now runs `vitest run --coverage`, enforcing the ratchet floor in
+        # vitest.config.ts (statements 50 / branches 20 / functions 80 / lines 50 — see that file
+        # for the measured baseline). Matches how packages/server enforces its own floor via `bun
+        # run test` in ci-server.yml.
         run: bun run test
         working-directory: packages/plugin
       - name: build plugin
