@@ -8,10 +8,11 @@
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "builtin-modules": "^4.0.0",
     "esbuild": "^0.28.1",
     "obsidian": "^1.13.1",
