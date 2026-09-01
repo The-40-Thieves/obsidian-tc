@@ -101,6 +101,10 @@ const BASE: Omit<GraphSearchOptions, "queryVec"> = {
   temporal: { enabled: true, count: 30, nowMs: 1_000_000 },
   bubbleSafe: { enabled: true, k: 0.2 },
   summaries: { enabled: true },
+  // THE-635: the point-in-time PRE-filter changes which candidates ever enter the pool, so both
+  // must be keyed — two calls differing only here are different retrievals, never a cache HIT.
+  asOf: 200,
+  since: 50,
 };
 
 /** One mutation per keyed field. Each must change the cache key. */
@@ -145,6 +149,10 @@ const MUTATIONS: Array<[string, Partial<Omit<GraphSearchOptions, "queryVec">>]> 
   // THE-628 (first PR): enabling the summary stream changes which candidates enter the pool, so
   // it must be keyed — two calls differing only here are different retrievals.
   ["summaries", { summaries: { enabled: false } }],
+  // THE-635: as_of/since PRE-filter the candidate set in candidateAssembly — a different boundary
+  // or window floor is a genuinely different retrieval, never a shared cache entry.
+  ["asOf", { asOf: 201 }],
+  ["since", { since: 51 }],
 ];
 
 describe("THE-497 graph-search cache key covers every option", () => {

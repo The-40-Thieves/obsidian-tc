@@ -124,6 +124,23 @@ describe("graphSearch options threading (THE-545)", () => {
     for (const key of ["rrfK", "densify", "adaptiveRrf", "metadataPrior", "activationFor"]) {
       expect(Object.hasOwn(opts, key)).toBe(false);
     }
+    // THE-635: asOf/since are per-call site values (like query/finalTopK), not config-derived, so
+    // they are not in the KNOBS table above — but they must still be an exact no-op when the
+    // tool handler never passed them, matching every other knob's "absent means absent" contract.
+    expect(Object.hasOwn(opts, "asOf")).toBe(false);
+    expect(Object.hasOwn(opts, "since")).toBe(false);
+  });
+
+  it("THE-635: threads site.asOf/site.since to the built options for every call-site shape", () => {
+    for (const site of SITES) {
+      const opts = buildGraphSearchOptions(depsWith({}), {
+        ...siteArgs(site.finalTopK),
+        asOf: 200,
+        since: 50,
+      } as never) as unknown as Record<string, unknown>;
+      expect(opts.asOf).toBe(200);
+      expect(opts.since).toBe(50);
+    }
   });
 
   it("preserves the per-site reranker decision rather than defaulting it", () => {

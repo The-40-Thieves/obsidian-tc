@@ -26,6 +26,12 @@ export interface GraphSearchResult {
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
   rerank_score: number;
+  /** THE-635: present ONLY on an as_of (point-in-time) search — see Candidate.changedSinceD and
+   *  search/point_in_time.ts's module doc for the honest-history contract. false = the content
+   *  returned IS what existed at D; true = the chunk existed at D but has since been edited, so the
+   *  content shown is CURRENT, not the D-state. Absent on every non-as_of search, byte-identical to
+   *  before THE-635. */
+  changed_since_d?: boolean;
 }
 
 /** THE-631: an ADDITIVE, non-ranking-affecting coverage/confidence estimate for one graphSearch()
@@ -339,6 +345,22 @@ export interface GraphSearchOptions {
    *  off-by-default shape. NOTE: the same bubbleSafeRerank primitive also composes a metadata-prior
    *  signal (separate PR); here it is wired only to the existing activation signal. */
   bubbleSafe?: { enabled?: boolean; k?: number };
+  /** THE-635: point-in-time PRE-filter, applied inside candidateAssembly BEFORE fusion/ranking —
+   *  see search/point_in_time.ts's module doc for the design ("why it is harder than it looks",
+   *  the honest FILTER+FLAG contract). `asOf` is the point-in-time boundary D (epoch ms): a
+   *  candidate chunk with `created_at > asOf` did not exist yet at D and is dropped from the
+   *  candidate set entirely, before any stream's rank/score can rescue it. A survivor is flagged
+   *  via Candidate.changedSinceD / GraphSearchResult.changed_since_d rather than ever silently
+   *  presenting its CURRENT content as the D-state. Absent (default) is an exact no-op — the
+   *  filter never runs and candidateAssembly is byte-identical to before THE-635. Reuses
+   *  point_in_time.ts's filterChunksAsOf/changedSinceD directly rather than reimplementing the
+   *  existence/flag SQL a second time. */
+  asOf?: number;
+  /** THE-635: the window floor for the point-in-time filter (applied to `updated_at`) — the same
+   *  TemporalRange.start meaning point_in_time.ts already documents. Only meaningful together with
+   *  `asOf`; ignored when `asOf` is absent. The tool-input layer defaults this to 0 (no lower
+   *  bound) when `asOf` is given without an explicit `since`. */
+  since?: number;
 }
 
 /** One retrieval candidate as it flows through the pipeline, before final projection to
@@ -363,6 +385,11 @@ export interface Candidate {
   via_edge: { type: string; source_path: string; provenance: string | null } | null;
   root_seed: string | null;
   streamRank: number;
+  /** THE-635: set only when opts.asOf filtered this candidate set (see GraphSearchOptions.asOf) —
+   *  see search/point_in_time.ts's changedSinceD for exactly what true/false mean. Absent on every
+   *  non-as_of search. Carried through fusion/diversity/rerank by object reference (none of those
+   *  stages clone a Candidate), so it survives unchanged to projection.ts's toResult. */
+  changedSinceD?: boolean;
 }
 
 export interface ChunkEmbRow {

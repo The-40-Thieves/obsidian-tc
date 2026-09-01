@@ -35,12 +35,33 @@ export function createKnowledgeSearchTool(
         vault: VaultId,
         query: z.string().min(1),
         final_top_k: z.number().int().positive().max(100).default(20),
+        // THE-635: point-in-time filter — see search/point_in_time.ts's module doc for the "why"
+        // and the honest-history contract (a chunk existing at D but edited since is INCLUDED and
+        // flagged `changed_since_d: true`, never silently presented as the D-state). Absent
+        // (default): today's behavior, byte-for-byte unchanged — the filter never runs.
+        as_of: z.number().int().nonnegative().optional(),
+        // Window floor (applied to updated_at); only meaningful paired with `as_of` — validated in
+        // the handler below. Defaults to 0 (no lower bound) when `as_of` is given without it.
+        since: z.number().int().nonnegative().optional(),
       })
       .strict(),
     outputSchema: KnowledgeSearchOutput,
     requiredScopes: ["read:docs"],
     tags: ["docs", "search", "knowledge"],
     handler: async (input, ctx) => {
+      // THE-635: validate before any DB/embedding work — a clean error, never a silently-ignored
+      // or silently-clamped input.
+      if (input.since !== undefined && input.as_of === undefined) {
+        throw err.invalidInput("since requires as_of", { since: input.since });
+      }
+      if (input.as_of !== undefined && input.since !== undefined && input.since > input.as_of) {
+        throw err.invalidInput("since must be <= as_of", {
+          since: input.since,
+          as_of: input.as_of,
+        });
+      }
+      const asOf = input.as_of;
+      const since = asOf !== undefined ? (input.since ?? 0) : undefined;
       const v = deps.vaultRegistry.resolve(input.vault);
       // P1.5: the read:docs surface is code-bound to a docs-kind vault, so a misprovisioned
       // docs token cannot read the private vault even if it names its id.
@@ -49,13 +70,20 @@ export function createKnowledgeSearchTool(
           vault: v.id,
           kind: v.kind,
         });
-      const route = deps.classRouter
+      let route = deps.classRouter
         ? routeQuery(ctx.db, v.id, input.query, {
             isReadable: (p) => readableRel(ctx.acl, p),
             // THE-694: the rare-term probe is only issued for callers who can read everything.
             readUnrestricted: readEnumerationUnrestricted(ctx.acl),
           })
         : { class: "standard" as const, signals: [] as string[] };
+      // THE-635: the lexical short-circuit below bypasses candidateAssembly entirely, which is
+      // where the point-in-time PRE-filter lives — an as_of query must never take that route, or a
+      // chunk that did not exist at D would leak through unfiltered. Force the graph/fusion path
+      // instead; classRouter is dark by default so this branch is inert on most deployments.
+      if (asOf !== undefined && route.class === "lexical") {
+        route = { class: "standard", signals: route.signals };
+      }
       const policy = capturePolicy(deps, v.id, route.class);
       const coverage = captureCoverage();
       if (route.class === "lexical") {
@@ -101,6 +129,7 @@ export function createKnowledgeSearchTool(
           grantedScopes: ctx.grantedScopes,
           onFusionWeights: policy.sink,
           onCoverage: coverage.sink,
+          ...(asOf !== undefined ? { asOf, since } : {}),
         }),
         () => retrieval.embedAll(input.query, input.query),
         cacheContextFor(deps, ctx, v.id, input.query),

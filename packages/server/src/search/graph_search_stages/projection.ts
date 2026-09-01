@@ -17,6 +17,9 @@ export function toResult(c: Candidate, score: number): GraphSearchResult {
     via_edge: c.via_edge,
     root_seed: c.root_seed,
     rerank_score: score,
+    // THE-635: present only on an as_of search, where candidateAssembly stamped every surviving
+    // candidate with changedSinceD — see Candidate.changedSinceD's doc.
+    ...(c.changedSinceD !== undefined ? { changed_since_d: c.changedSinceD } : {}),
   };
 }
 

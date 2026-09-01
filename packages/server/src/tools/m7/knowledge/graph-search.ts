@@ -73,18 +73,25 @@ async function searchOneVault(
   ctx: CallerContext,
   vaultId: string,
   acl: FolderAcl | undefined,
-  query: { text: string; finalTopK: number },
+  query: { text: string; finalTopK: number; asOf?: number; since?: number },
   denseText: string,
   variants: string[],
   cache: QueryCacheContext | undefined,
 ): Promise<VaultLegResult> {
-  const route = deps.classRouter
+  let route = deps.classRouter
     ? routeQuery(ctx.db, vaultId, query.text, {
         isReadable: (p) => readableRel(acl, p),
         // THE-694: the rare-term probe is only issued for callers who can read everything.
         readUnrestricted: readEnumerationUnrestricted(acl),
       })
     : { class: "standard" as const, signals: [] as string[] };
+  // THE-635: the lexical short-circuit below bypasses candidateAssembly entirely, which is where
+  // the point-in-time PRE-filter lives — an as_of query must never take that route, or a chunk
+  // that did not exist at D would leak through unfiltered. Force the graph/fusion path instead;
+  // classRouter is dark by default so this branch is inert on most deployments.
+  if (query.asOf !== undefined && route.class === "lexical") {
+    route = { class: "standard", signals: route.signals };
+  }
   const policy = capturePolicy(deps, vaultId, route.class);
   const coverage = captureCoverage();
   if (route.class === "lexical") {
@@ -127,6 +134,7 @@ async function searchOneVault(
     grantedScopes: ctx.grantedScopes,
     onFusionWeights: policy.sink,
     onCoverage: coverage.sink,
+    ...(query.asOf !== undefined ? { asOf: query.asOf, since: query.since } : {}),
   });
   const fanOut = variants.length > 1;
   let results: GraphSearchResult[];
@@ -206,12 +214,33 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
         // THE-630. See this file's header for the security invariants this field's presence gates.
         vaults: z.array(VaultId).max(8).optional(),
         final_top_k: z.number().int().positive().max(100).default(30),
+        // THE-635: point-in-time filter — see search/point_in_time.ts's module doc for the "why"
+        // and the honest-history contract (a chunk existing at D but edited since is INCLUDED and
+        // flagged `changed_since_d: true`, never silently presented as the D-state). Absent
+        // (default): today's behavior, byte-for-byte unchanged — the filter never runs.
+        as_of: z.number().int().nonnegative().optional(),
+        // Window floor (applied to updated_at); only meaningful paired with `as_of` — validated in
+        // the handler below. Defaults to 0 (no lower bound) when `as_of` is given without it.
+        since: z.number().int().nonnegative().optional(),
       })
       .strict(),
     outputSchema: VaultGraphSearchOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search"],
     handler: async (input, ctx) => {
+      // THE-635: validate before any DB/embedding work — a clean error, never a silently-ignored
+      // or silently-clamped input.
+      if (input.since !== undefined && input.as_of === undefined) {
+        throw err.invalidInput("since requires as_of", { since: input.since });
+      }
+      if (input.as_of !== undefined && input.since !== undefined && input.since > input.as_of) {
+        throw err.invalidInput("since must be <= as_of", {
+          since: input.since,
+          as_of: input.as_of,
+        });
+      }
+      const asOf = input.as_of;
+      const since = asOf !== undefined ? (input.since ?? 0) : undefined;
       // THE-630 AC2 / invariant 3: refuse a vault-bound caller BEFORE any DB/embedding work, on
       // the PRESENCE of a non-empty `vaults` field alone — never on its content (`vaults:
       // [ctx.vaultId]` is refused too). Central dispatch's enforceVaultBinding only inspects the
@@ -258,7 +287,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
           ctx,
           v.id,
           ctx.acl,
-          { text: input.query, finalTopK: input.final_top_k },
+          { text: input.query, finalTopK: input.final_top_k, asOf, since },
           denseText,
           variants,
           cacheContextFor(deps, ctx, v.id, denseText),
@@ -294,7 +323,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
             ctx,
             vaultId,
             acl,
-            { text: input.query, finalTopK: perVaultTopK },
+            { text: input.query, finalTopK: perVaultTopK, asOf, since },
             denseText,
             variants,
             cache,
