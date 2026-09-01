@@ -19,13 +19,14 @@ import type { TemporalRange } from "./temporal";
 
 export interface PointInTimeChunk {
   id: string;
-  path: string;
-  content: string;
   createdAt: number;
   updatedAt: number;
-  /** false = "unchanged since D": the content returned IS what existed at D.
-   *  true  = "existed at D but has been edited since": the content returned is CURRENT, not the
-   *  D-state — callers must surface this rather than presenting it as historical. */
+  /** false = "unchanged since D": this chunk's content still IS what existed at D.
+   *  true  = "existed at D but has been edited since": whatever content a caller renders for this
+   *  chunk is CURRENT, not the D-state — it must surface this rather than presenting it as
+   *  historical. The flag is the honest-history mechanism; this function returns id + timestamps
+   *  only (the sole caller, the as_of pre-filter, needs an id -> changedSinceD lookup), so a caller
+   *  wanting the text reads it from its own already-retrieved chunk, not from here. */
   changedSinceD: boolean;
 }
 
@@ -50,15 +51,16 @@ export function filterChunksAsOf(
 ): PointInTimeChunk[] {
   const rows = db
     .prepare(
-      `SELECT id, path, content, created_at AS createdAt, updated_at AS updatedAt
+      // id + timestamps only: the caller builds an id -> changedSinceD lookup and never reads
+      // content, so selecting the (large) content column for every chunk in the window was pure
+      // waste (THE-932). ORDER BY id keeps the result deterministic without reading `path`.
+      `SELECT id, created_at AS createdAt, updated_at AS updatedAt
        FROM chunks
        WHERE vault_id = ? AND created_at <= ? AND updated_at >= ?
-       ORDER BY path, chunk_index`,
+       ORDER BY id`,
     )
     .all(vaultId, range.end, range.start) as Array<{
     id: string;
-    path: string;
-    content: string;
     createdAt: number;
     updatedAt: number;
   }>;
