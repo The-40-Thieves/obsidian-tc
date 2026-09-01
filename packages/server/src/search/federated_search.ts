@@ -28,6 +28,7 @@
 // Deliberately does NOT do content-hash dedup across vaults (v1 scope decision, THE-630): two
 // vaults holding the same note is a fact worth surfacing, not noise to silently collapse. Every
 // vault's hit for a shared note is returned as a separate, distinctly-tagged entry.
+import { isLoudRefusal } from "@the-40-thieves/obsidian-tc-shared";
 import { runWithConcurrency } from "../util/concurrency";
 import type { GraphSearchResult } from "./graph_search_stages/types";
 
@@ -65,21 +66,51 @@ export interface FederatedLegOutcome<Meta = undefined> {
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_FAN_OUT_RRF_K = 10;
 
+/** THE-926: why a leg contributed nothing to the fused result, reported through `onLegOutcome`
+ *  (mirrors search/rerank.ts's `RerankOutcome`/`onOutcome` shape, and multi_query.ts's own
+ *  `OnVariantOutcome` on the vault axis) — "swallowed a transient error" is otherwise
+ *  indistinguishable from "this vault genuinely had nothing". */
+export type LegOutcome = "ok" | "swallowed_error";
+
+export interface LegOutcomeEvent {
+  vaultId: string;
+  outcome: LegOutcome;
+}
+
+export type OnLegOutcome = (event: LegOutcomeEvent) => void;
+
+/** Best-effort report, same guard as rerank.ts's `reportRerankOutcome`: a throwing sink must
+ *  never affect the fan-out it is observing. */
+function reportLegOutcome(onLegOutcome: OnLegOutcome | undefined, event: LegOutcomeEvent): void {
+  try {
+    onLegOutcome?.(event);
+  } catch {
+    /* observability must never break retrieval */
+  }
+}
+
 /**
- * Run every vault leg with bounded concurrency (default 3). A leg that throws contributes an empty
- * result set rather than failing the whole federated call — the same per-leg isolation
- * multiQueryGraphSearch already gives per-variant.
+ * Run every vault leg with bounded concurrency (default 3). A leg that throws a genuinely
+ * transient error contributes an empty result set rather than failing the whole federated call —
+ * the same per-leg isolation multiQueryGraphSearch already gives per-variant (`onLegOutcome`
+ * reports it as `"swallowed_error"` when supplied). THE-926: a leg whose thrown error is a
+ * deliberate, structural refusal (e.g. chunk_fts.ts's THE-750 guard) is NOT swallowed —
+ * `isLoudRefusal` rethrows it, failing the whole federated call loudly.
  */
 export async function runFederatedLegs<Meta = undefined>(
   legs: FederatedLeg<Meta>[],
   fanOutOpts?: FederatedFanOutOptions,
+  onLegOutcome?: OnLegOutcome,
 ): Promise<FederatedLegOutcome<Meta>[]> {
   const concurrency = Math.max(1, fanOutOpts?.concurrency ?? DEFAULT_CONCURRENCY);
   return runWithConcurrency(legs, concurrency, async (leg) => {
     try {
       const { results, meta } = await leg.run();
+      reportLegOutcome(onLegOutcome, { vaultId: leg.vaultId, outcome: "ok" });
       return { vaultId: leg.vaultId, results, meta };
-    } catch {
+    } catch (e) {
+      if (isLoudRefusal(e)) throw e;
+      reportLegOutcome(onLegOutcome, { vaultId: leg.vaultId, outcome: "swallowed_error" });
       return { vaultId: leg.vaultId, results: [] as GraphSearchResult[] };
     }
   });
@@ -145,9 +176,10 @@ export async function federatedGraphSearch<Meta = undefined>(
   legs: FederatedLeg<Meta>[],
   finalTopK: number,
   fanOutOpts?: FederatedFanOutOptions,
+  onLegOutcome?: OnLegOutcome,
 ): Promise<{ legOutcomes: FederatedLegOutcome<Meta>[]; fused: TaggedGraphSearchResult[] }> {
   const rrfK = fanOutOpts?.rrfK ?? DEFAULT_FAN_OUT_RRF_K;
-  const legOutcomes = await runFederatedLegs(legs, fanOutOpts);
+  const legOutcomes = await runFederatedLegs(legs, fanOutOpts, onLegOutcome);
   const fused = fuseFederatedResults(legOutcomes, rrfK, finalTopK);
   return { legOutcomes, fused };
 }

@@ -310,6 +310,9 @@ export const VaultGraphSearchOutput = z.object({
   query: z.string().optional(),
   hyde: z.literal(true).optional(),
   variants_used: z.number().optional(),
+  // THE-926: count of variants whose graphSearch call swallowed a transient error (never 0/absent
+  // when every variant succeeded) — see search/multi_query.ts's OnVariantOutcome.
+  failed_variants: z.number().optional(),
   // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
   coverage: CoverageEstimateSchema.optional(),
   // THE-630: present ONLY when `vaults` federated across more than one distinct vault (an absent
@@ -319,12 +322,17 @@ export const VaultGraphSearchOutput = z.object({
   // meaning from before this ticket; `per_vault` is the per-leg breakdown across every target vault
   // (never a single fabricated cross-vault number — same principle THE-631 states for `coverage`).
   vaults_used: z.number().optional(),
+  // THE-926: count of vault legs that swallowed a transient error (see federated_search.ts's
+  // OnLegOutcome). Never 0/absent when every leg succeeded.
+  failed_vaults: z.number().optional(),
   per_vault: z
     .record(
       z.string(),
       z.object({
         mode_used: z.enum(["lexical-route", "graph"]),
         coverage: CoverageEstimateSchema.optional(),
+        // THE-926: this vault's own `failed_variants`, scoped to this one leg.
+        failed_variants: z.number().optional(),
       }),
     )
     .optional(),

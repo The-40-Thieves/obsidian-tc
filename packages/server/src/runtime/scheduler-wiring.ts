@@ -41,7 +41,7 @@ export interface SchedulerWiringDeps {
   roles: GatewayRoles | null;
   jobQueue: JobQueue;
   jobRunner: ReturnType<typeof makeJobRunner>;
-  runReconcile: () => Promise<void>;
+  runReconcile: (signal: AbortSignal) => Promise<void>;
   /** THE-719: the gap sweep embeds each query it sweeps, so it needs the live provider. Also THE-634:
    *  the advisory sweep's goal/candidate similarity uses the same live provider. */
   embeddingProvider: EmbeddingProvider;
@@ -174,7 +174,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     scheduler.register({
       name: "vault-reconcile",
       intervalMs: config.maintenance.reconcileIntervalMinutes * 60_000,
-      run: () => deps.runReconcile(),
+      run: (signal) => deps.runReconcile(signal),
     });
   }
 

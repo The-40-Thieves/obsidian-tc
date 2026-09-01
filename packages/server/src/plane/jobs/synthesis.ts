@@ -5,6 +5,7 @@
 // open contradictions" (folder taxonomy is vault-specific and lands at integration).
 
 import { trimToBoundary } from "../../search/evidence";
+import { errorMessage } from "../../util/errors";
 import { type IsoWeek, isoWeek } from "../../util/iso-week";
 import {
   type ContradictionCoverage,
@@ -273,7 +274,7 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
     try {
       synthesis = parseSynthesis(res.text);
     } catch (e) {
-      return { ok: false, detail: { vault_id: vaultId, error: (e as Error).message } };
+      return { ok: false, detail: { vault_id: vaultId, error: errorMessage(e) } };
     }
 
     ctx.db

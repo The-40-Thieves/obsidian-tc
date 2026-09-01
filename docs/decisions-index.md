@@ -134,7 +134,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-441 | Vendor / external-docs read surface (THE-444). | CHANGELOG.md (1.11.0) | 2 |
 | THE-445 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 2 |
 | THE-447 | _internal planning reference — see repo history_ | — | 1 |
-| THE-448 | Multi-query fan-out | CHANGELOG.md (1.12.0) | 8 |
+| THE-448 | Multi-query fan-out | CHANGELOG.md (1.12.0) | 9 |
 | THE-450 | _internal planning reference — see repo history_ | — | 5 |
 | THE-451 | Graph Search — vault_graph_search tool | docs/design/graph-search.md | 3 |
 | THE-452 | Graph analytics | CHANGELOG.md (1.12.0) | 3 |
@@ -237,7 +237,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-627 | Client software identity | CHANGELOG.md (1.12.0) | 9 |
 | THE-628 | Note-level and cluster-level summary tiers, dark by default (#817, #818, THE-628). | CHANGELOG.md (1.22.0) | 19 |
 | THE-629 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 2 |
-| THE-630 | Federated multi-vault search with per-vault ACL (#809, THE-630). | CHANGELOG.md (1.22.0) | 8 |
+| THE-630 | Federated multi-vault search with per-vault ACL (#809, THE-630). | CHANGELOG.md (1.22.0) | 9 |
 | THE-631 | Per-vault score calibration, and the confidence it makes possible (#711, THE-733, THE-631 item 1). | CHANGELOG.md (1.20.0) | 12 |
 | THE-632 | `diagnose_retrieval` — ask why an expected note was *not* returned (THE-632, #644). | CHANGELOG.md (1.14.0) | 16 |
 | THE-633 | Five new tools (157 total). | CHANGELOG.md (1.17.0) | 9 |
@@ -326,7 +326,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-747 | `reflect --max-judged` outlived the judge it capped (#724, THE-747). | CHANGELOG.md (1.20.0) | 2 |
 | THE-748 | _internal planning reference — see repo history_ | — | 1 |
 | THE-749 | `/makemd/spaces` no longer silently degrades to an empty list (#837, THE-860). | CHANGELOG.md (1.23.0) | 1 |
-| THE-750 | Read-only consumers refuse a stale `chunk_fts` instead of silently mis-joining it (#755, THE-750). | CHANGELOG.md (1.21.0) | 1 |
+| THE-750 | Read-only consumers refuse a stale `chunk_fts` instead of silently mis-joining it (#755, THE-750). | CHANGELOG.md (1.21.0) | 4 |
 | THE-752 | A writer for `agent_episodes.summary` — Tier 0, deterministic (#819, THE-752). | CHANGELOG.md (1.22.0) | 4 |
 | THE-804 | The coverage-gap sweep scopes its query source per vault (#776, THE-804). | CHANGELOG.md (1.22.0) | 2 |
 | THE-805 | _internal planning reference — see repo history_ | — | 1 |
@@ -355,7 +355,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-923 | _internal planning reference — see repo history_ | — | 7 |
 | THE-924 | _internal planning reference — see repo history_ | — | 3 |
 | THE-925 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 5 |
+| THE-926 | _internal planning reference — see repo history_ | — | 10 |
 
-341 distinct ticket(s) across 481 source file(s) under
-`packages/*/src`; 272 resolved to a public summary, 69
+342 distinct ticket(s) across 481 source file(s) under
+`packages/*/src`; 272 resolved to a public summary, 70
 fall back to the internal-reference placeholder above.

@@ -92,4 +92,85 @@ describe("searchRegex", () => {
     expect(hits.length).toBeGreaterThan(0);
     v.cleanup();
   }, 20_000);
+
+  // THE-926: hasNestedQuantifier only looks at GROUPS, so a flat chain of bare quantified atoms
+  // slips it entirely — `a*a*a*a*a*a*a*b` is measured exponential in V8 against a non-matching
+  // input, with no group anywhere in the pattern. hasSequentialQuantifiers closes this gap.
+  describe("hasSequentialQuantifiers guard (THE-926, amended after adversarial review)", () => {
+    // Adversarial review of the first version of this guard found it flagged mere ADJACENCY of
+    // 3+ quantified atoms, never checking whether their character classes actually overlap — the
+    // real precondition for catastrophic backtracking — so it false-rejected safe, linear-time
+    // patterns like `a+b+c+`. The fix requires the run to be the SAME atom repeated (raw source
+    // text, exact match); every case below is checked directly against `searchRegex`, the way the
+    // review verified the bug.
+    it("REJECTS a run of 3+ identical adjacent quantified single-char atoms", async () => {
+      const v = makeM2Vault({ files: { "a.md": "x" } });
+      await expect(searchRegex(v.root, { pattern: "a*a*a*a*b", limit: 10 })).rejects.toMatchObject({
+        code: "invalid_input",
+      });
+      v.cleanup();
+    });
+
+    it("REJECTS a run of 3+ identical adjacent quantified escaped-class atoms", async () => {
+      const v = makeM2Vault({ files: { "a.md": "x" } });
+      await expect(
+        searchRegex(v.root, { pattern: "\\w+\\w+\\w+x", limit: 10 }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+      await expect(
+        searchRegex(v.root, { pattern: "\\s*\\s*\\s*$", limit: 10 }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+      v.cleanup();
+    });
+
+    it("ADMITS disjoint-atom patterns that a mere-adjacency check false-rejected (THE-926 regression)", async () => {
+      const v = makeM2Vault({ files: { "a.md": "aabbccc CamelCase123 3.14" } });
+      const admitted = ["a+b+c+", "\\w+\\s+\\w+", "[A-Z]+[a-z]+\\d+", "\\d+\\.\\d+", "a+b+c+d+e+"];
+      for (const pattern of admitted) {
+        await expect(searchRegex(v.root, { pattern, limit: 10 })).resolves.toBeInstanceOf(Array);
+      }
+      v.cleanup();
+    });
+
+    it("the disjoint patterns above actually MATCH what they are supposed to (not just 'did not throw')", async () => {
+      const v = makeM2Vault({ files: { "a.md": "aabbccc CamelCase123 3.14" } });
+      expect((await searchRegex(v.root, { pattern: "a+b+c+", limit: 10 })).length).toBeGreaterThan(
+        0,
+      );
+      expect(
+        (await searchRegex(v.root, { pattern: "[A-Z]+[a-z]+\\d+", limit: 10 })).length,
+      ).toBeGreaterThan(0);
+      expect((await searchRegex(v.root, { pattern: "\\d+\\.\\d+", limit: 10 })).length).toBe(1);
+      v.cleanup();
+    });
+
+    it("admitted disjoint-atom patterns are genuinely linear, not just no-longer-rejected", async () => {
+      // `a+b+c+` against a long run of pure 'a' (never matching, since no 'b'/'c' follows) is the
+      // adversarial shape for THIS pattern: if disjoint atoms still backtracked exponentially, an
+      // ADMIT would just be moving the false-reject line rather than fixing the guard. Disjoint
+      // character classes give the engine nothing to backtrack over, so this resolves in
+      // milliseconds regardless of engine/worker-availability path.
+      const v = makeM2Vault({ files: { "big.md": "a".repeat(20_000) } });
+      const start = Date.now();
+      const hits = await searchRegex(v.root, { pattern: "a+b+c+", timeoutMs: 2000, limit: 10 });
+      const elapsed = Date.now() - start;
+      expect(hits).toEqual([]);
+      expect(elapsed).toBeLessThan(1500);
+      v.cleanup();
+    }, 10_000);
+
+    it("a separator between quantified atoms resets the run — a date-shaped pattern is admitted", async () => {
+      const v = makeM2Vault({ files: { "a.md": "2026-08-31" } });
+      const hits = await searchRegex(v.root, { pattern: "\\d+-\\d+-\\d+", limit: 10 });
+      expect(hits.length).toBeGreaterThan(0);
+      v.cleanup();
+    });
+
+    it("still admits the repo's other real regex patterns (1-2 quantified atoms)", async () => {
+      const v = makeM2Vault({ files: { "a.md": "cat1 la99 aaa [x]" } });
+      for (const pattern of ["cat\\d", "la\\w+", "a+", "[ab]+", "a*b*"]) {
+        await expect(searchRegex(v.root, { pattern, limit: 10 })).resolves.toBeInstanceOf(Array);
+      }
+      v.cleanup();
+    });
+  });
 });

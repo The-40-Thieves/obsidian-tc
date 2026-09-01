@@ -229,6 +229,36 @@ export class ObsidianTcError extends Error {
   }
 }
 
+/**
+ * THE-926: does `e` represent a failure that a per-leg/per-variant fan-out isolation layer (THE-448's
+ * multiQueryGraphSearch, THE-630's runFederatedLegs) must NOT silently swallow into an empty result
+ * set for that leg?
+ *
+ * The obvious first attempt — "rethrow when `!e.retryable`" — does NOT work: `retryable` says
+ * whether *retrying the same call* is worth trying, which is orthogonal to whether a fan-out layer
+ * may treat the failure as "this one leg found nothing" and move on. `chunk_fts.ts`'s
+ * `assertContentlessChunkFts` (THE-750) is the case that proves it — it throws `code: "internal"`,
+ * which `RETRYABLE` lists (a generic "unexpected failure, retryable once" default), yet it is
+ * exactly the deliberate, permanent refusal this predicate exists to let through: re-running the
+ * same query re-hits the same pre-migration table shape and refuses identically every time.
+ *
+ * So the actual split is: an ObsidianTcError with code `"internal"` (the generic bucket for
+ * "something the caller could not have anticipated went wrong," which in this codebase only ever
+ * covers unexpected/structural failures — never a domain-specific transient one, which gets its own
+ * code) OR one that is `retryable === false` (a domain-specific permanent refusal — validation,
+ * ACL, budget-exceeded, poison-scan, ...) must propagate. Only the domain-specific RETRYABLE codes
+ * (`embedding_provider_error`, `operation_timeout`, `plugin_unreachable`, `concurrent_modification`,
+ * `idempotency_in_flight`, `throttled`, `aborted`) describe a genuinely transient per-leg hiccup
+ * that a fan-out may swallow and still make forward progress on the other legs.
+ *
+ * A non-`ObsidianTcError` (a bare `Error`, a rejected promise from something outside this error
+ * taxonomy) is never "loud" by this predicate — it is exactly the unmodeled, per-leg transient case
+ * the existing swallow-and-continue behavior was built for.
+ */
+export function isLoudRefusal(e: unknown): e is ObsidianTcError {
+  return e instanceof ObsidianTcError && (e.code === "internal" || !e.retryable);
+}
+
 type Mk = (message?: string, details?: Record<string, unknown>) => ObsidianTcError;
 const mk =
   (code: ErrorCode, fallback: string): Mk =>

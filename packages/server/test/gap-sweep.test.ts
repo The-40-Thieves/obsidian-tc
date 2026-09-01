@@ -165,18 +165,18 @@ describe("recentQueries — the scheduled pass's query source", () => {
 describe("registerGapSweep", () => {
   /** Capture the registered task instead of driving a real Scheduler: the behaviour under test is
    *  the task body, and a fake registrar lets it be invoked directly without a tick loop. */
-  function capture(): { task: { name: string; intervalMs: number; run: () => unknown } | null } {
-    const box: { task: { name: string; intervalMs: number; run: () => unknown } | null } = {
-      task: null,
-    };
+  type Task = { name: string; intervalMs: number; run: (signal: AbortSignal) => unknown };
+  function capture(): { task: Task | null } {
+    const box: { task: Task | null } = { task: null };
     return box;
   }
   const fakeScheduler = (box: ReturnType<typeof capture>) =>
     ({
-      register: (t: { name: string; intervalMs: number; run: () => unknown }) => {
+      register: (t: Task) => {
         box.task = t;
       },
     }) as never;
+  const NOT_ABORTED = new AbortController().signal;
 
   it("registers under the name job_schedule reports, at the configured interval", () => {
     // entrypoints.liveness (#674) keys on the scheduler's registered name, so a rename silently
@@ -217,9 +217,43 @@ describe("registerGapSweep", () => {
       maxQueries: 50,
       now: () => NOW,
     });
-    await box.task?.run();
+    await box.task?.run(NOT_ABORTED);
     // Not merely "no report": no gateway traffic either. An empty log must cost nothing.
     expect(embedCalls).toBe(0);
     expect(readLatestGapReport(edb, V)).toBeNull();
+  });
+
+  // THE-926: scheduler.ts passes its own AbortSignal to every job's run(signal), but this sweep
+  // used to discard it — so stores.close() during a graceful shutdown could tear down the shared
+  // connection while the sweep was mid-write. It must now bail BETWEEN vaults instead of pressing
+  // on regardless.
+  it("THE-926: stops sweeping further vaults once the signal is already aborted", async () => {
+    const edb = edb0();
+    const cdb = cdb0();
+    addChunk(cdb, "c1", V);
+    logQuery(edb, "a", "real query", NOW);
+    const box = capture();
+    let embedCalls = 0;
+    registerGapSweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: {
+        id: "test",
+        embed: async () => {
+          embedCalls++;
+          return [];
+        },
+      } as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      maxQueries: 50,
+      now: () => NOW,
+    });
+    const aborted = new AbortController();
+    aborted.abort();
+    await box.task?.run(aborted.signal);
+    // The aborted run must not have swept the vault it would otherwise have swept — a query is
+    // logged for V above, so a non-aborted run would have called embed at least once.
+    expect(embedCalls).toBe(0);
   });
 });

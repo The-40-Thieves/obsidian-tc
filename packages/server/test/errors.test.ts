@@ -1,4 +1,9 @@
-import { err, ObsidianTcError, recoveryFor } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  err,
+  isLoudRefusal,
+  ObsidianTcError,
+  recoveryFor,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 
 describe("error taxonomy", () => {
@@ -38,5 +43,51 @@ describe("error taxonomy", () => {
     expect(e).toBeInstanceOf(ObsidianTcError);
     expect(e.code).toBe("elicit_required");
     expect(e.message.length).toBeGreaterThan(0);
+  });
+});
+
+// THE-926: multi_query.ts and federated_search.ts's per-leg fan-out isolation must rethrow a
+// deliberate/structural refusal (chunk_fts.ts's THE-750 guard) rather than swallowing it into
+// "this leg found nothing" — isLoudRefusal is the predicate that draws that line.
+describe("isLoudRefusal (THE-926 fan-out swallow guard)", () => {
+  it("is true for code 'internal' even though the taxonomy marks it retryable", () => {
+    // The premise a naive `!e.retryable` predicate would get wrong: THE-750's refusal throws
+    // `err.internal(...)`, and `internal` IS in RETRYABLE (a generic "unexpected failure, worth
+    // one retry" default) — yet re-running the SAME query re-hits the same table shape and
+    // refuses identically every time, so it must still be treated as loud.
+    const e = err.internal("pre-THE-711 chunk_fts shape");
+    expect(e.retryable).toBe(true);
+    expect(isLoudRefusal(e)).toBe(true);
+  });
+
+  it("is true for a non-retryable domain-specific code (e.g. a THE-293 ReDoS budget refusal)", () => {
+    expect(isLoudRefusal(err.computeBudgetExceeded("x"))).toBe(true);
+    expect(isLoudRefusal(err.validation("bad input"))).toBe(true);
+    expect(isLoudRefusal(err.contentRejected("x"))).toBe(true);
+  });
+
+  it("is false for the domain-specific codes a fan-out leg may legitimately swallow", () => {
+    // These ARE retryable AND not the generic "internal" bucket — a genuine per-leg transient
+    // hiccup (embedding backend, a timeout, an unreachable plugin, ...) that must not sink the
+    // whole fan-out call.
+    for (const code of [
+      "embedding_provider_error",
+      "operation_timeout",
+      "plugin_unreachable",
+      "concurrent_modification",
+      "idempotency_in_flight",
+      "throttled",
+      "aborted",
+    ] as const) {
+      const e = new ObsidianTcError(code, "x");
+      expect(e.retryable).toBe(true);
+      expect(isLoudRefusal(e)).toBe(false);
+    }
+  });
+
+  it("is false for a bare Error or any other non-ObsidianTcError throw", () => {
+    expect(isLoudRefusal(new Error("boom"))).toBe(false);
+    expect(isLoudRefusal("boom")).toBe(false);
+    expect(isLoudRefusal(undefined)).toBe(false);
   });
 });

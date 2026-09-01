@@ -26,11 +26,14 @@ const OUTCOME = readFileSync(
 /** Minimal Scheduler stand-in: capture the registered run() so the test can fire it directly
  *  instead of waiting on a 240-minute interval. */
 function captureScheduler() {
-  const runs: Array<() => void> = [];
+  const runs: Array<(signal: AbortSignal) => void> = [];
+  const notAborted = new AbortController().signal;
   return {
-    scheduler: { register: (s: { run: () => void }) => runs.push(s.run) } as never,
+    scheduler: {
+      register: (s: { run: (signal: AbortSignal) => void }) => runs.push(s.run),
+    } as never,
     fire: () => {
-      for (const r of runs) r();
+      for (const r of runs) r(notAborted);
     },
   };
 }

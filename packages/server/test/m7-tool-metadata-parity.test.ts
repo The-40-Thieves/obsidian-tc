@@ -114,6 +114,8 @@ const EXPECTED: ToolSnapshot[] = [
     inputKeys: ["final_top_k", "hypothetical_answer", "queries", "query", "vault", "vaults"],
     outputKeys: [
       "coverage",
+      "failed_variants",
+      "failed_vaults",
       "hyde",
       "mode_used",
       "per_vault",

@@ -7,6 +7,7 @@
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import type { JobHandler } from "../scheduler/job-runner";
+import { errorMessage } from "../util/errors";
 import type { GatewayRoles } from "./gateway";
 
 export interface JobContext {
@@ -65,7 +66,7 @@ export function wrapPlaneJob(
     } catch (e) {
       // A thrown job is still a run, and it is the one you most want in the log. Recorded BEFORE
       // the rethrow — after it, this line never executes.
-      recordRun(rec, name, startedAt, { ok: false, detail: { error: (e as Error).message } });
+      recordRun(rec, name, startedAt, { ok: false, detail: { error: errorMessage(e) } });
       throw e;
     }
     recordRun(rec, name, startedAt, r);
@@ -96,7 +97,7 @@ export class SleepTimePlane {
     try {
       result = await job.run(ctx);
     } catch (e) {
-      result = { ok: false, detail: { error: (e as Error).message } };
+      result = { ok: false, detail: { error: errorMessage(e) } };
     }
     recordRun(ctx, name, startedAt, result);
     return result;

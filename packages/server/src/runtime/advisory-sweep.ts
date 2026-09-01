@@ -300,8 +300,11 @@ export function registerAdvisorySweep(scheduler: Scheduler, deps: AdvisorySweepD
   scheduler.register({
     name: "advisory-sweep",
     intervalMs: deps.intervalMs,
-    run: async () => {
+    run: async (signal) => {
       for (const vaultId of deps.vaultIds) {
+        // THE-926: cooperate with graceful shutdown between vaults — same cheap per-iteration
+        // check job-runner.ts uses; a vault already mid-sweep still finishes.
+        if (signal.aborted) return;
         const sessions = openSessions(deps.cacheDb, vaultId);
         if (sessions.length === 0) continue;
 

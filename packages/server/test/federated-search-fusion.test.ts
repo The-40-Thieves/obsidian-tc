@@ -8,6 +8,7 @@
 //    must both survive fusion as distinct, correctly-tagged entries, never merged into one).
 //  - `runFederatedLegs`/`federatedGraphSearch` orchestration tests: synthetic `run` thunks prove
 //    bounded concurrency and per-leg error isolation without a live DB or graphSearch call.
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import {
   type FederatedLeg,
@@ -128,6 +129,88 @@ describe("runFederatedLegs / federatedGraphSearch orchestration", () => {
     ];
     const outcomes = await runFederatedLegs(legs);
     expect(outcomes.find((o) => o.vaultId === "bad")?.results).toEqual([]);
+    expect(outcomes.find((o) => o.vaultId === "good")?.results.map((r) => r.path)).toEqual([
+      "ok.md",
+    ]);
+  });
+
+  // THE-926: a THE-750-shaped structural refusal (chunk_fts.ts's assertContentlessChunkFts) must
+  // fail the WHOLE federated call loudly, not be swallowed into "this vault found nothing" the
+  // way a genuinely transient error is.
+  it("a THE-750-shaped refusal (err.internal) is RETHROWN — it does not sink into an empty leg", async () => {
+    const refusal = err.internal("chunk_fts is the pre-THE-711 content-storing shape");
+    const legs: FederatedLeg[] = [
+      {
+        vaultId: "refused",
+        run: async () => {
+          throw refusal;
+        },
+      },
+      { vaultId: "good", run: async () => ({ results: [result("ok.md")] }) },
+    ];
+    await expect(runFederatedLegs(legs)).rejects.toBe(refusal);
+  });
+
+  it("a non-retryable domain error is also rethrown loudly, not swallowed", async () => {
+    const refusal = err.computeBudgetExceeded("regex execution exceeded its time budget");
+    const legs: FederatedLeg[] = [
+      {
+        vaultId: "refused",
+        run: async () => {
+          throw refusal;
+        },
+      },
+      { vaultId: "good", run: async () => ({ results: [result("ok.md")] }) },
+    ];
+    await expect(runFederatedLegs(legs)).rejects.toBe(refusal);
+  });
+
+  it("onLegOutcome reports 'ok' for a succeeding leg and 'swallowed_error' for a swallowed one", async () => {
+    const legs: FederatedLeg[] = [
+      {
+        vaultId: "bad",
+        run: async () => {
+          throw new Error("embedding provider down for this vault");
+        },
+      },
+      { vaultId: "good", run: async () => ({ results: [result("ok.md")] }) },
+    ];
+    const events: Array<{ vaultId: string; outcome: string }> = [];
+    const outcomes = await runFederatedLegs(legs, undefined, (e) => events.push(e));
+    expect(outcomes.find((o) => o.vaultId === "bad")?.results).toEqual([]);
+    expect(events).toContainEqual({ vaultId: "bad", outcome: "swallowed_error" });
+    expect(events).toContainEqual({ vaultId: "good", outcome: "ok" });
+  });
+
+  it("federatedGraphSearch threads onLegOutcome through to runFederatedLegs", async () => {
+    const legs: FederatedLeg[] = [
+      {
+        vaultId: "bad",
+        run: async () => {
+          throw new Error("transient");
+        },
+      },
+      { vaultId: "good", run: async () => ({ results: [result("ok.md")] }) },
+    ];
+    const events: Array<{ vaultId: string; outcome: string }> = [];
+    const { fused } = await federatedGraphSearch(legs, 30, undefined, (e) => events.push(e));
+    expect(fused.map((r) => r.path)).toEqual(["ok.md"]);
+    expect(events).toContainEqual({ vaultId: "bad", outcome: "swallowed_error" });
+  });
+
+  it("a throwing onLegOutcome sink never breaks retrieval", async () => {
+    const legs: FederatedLeg[] = [
+      {
+        vaultId: "bad",
+        run: async () => {
+          throw new Error("transient");
+        },
+      },
+      { vaultId: "good", run: async () => ({ results: [result("ok.md")] }) },
+    ];
+    const outcomes = await runFederatedLegs(legs, undefined, () => {
+      throw new Error("observability sink exploded");
+    });
     expect(outcomes.find((o) => o.vaultId === "good")?.results.map((r) => r.path)).toEqual([
       "ok.md",
     ]);

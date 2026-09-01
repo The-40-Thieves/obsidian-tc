@@ -15,6 +15,7 @@
 //    graphSearch.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
@@ -194,6 +195,64 @@ describe("multiQueryGraphSearch orchestration (graphSearch mocked)", () => {
       "empty variant",
       "good variant",
     ]);
+    expect(out.map((r) => r.path)).toEqual(["ok.md"]);
+  });
+
+  // THE-926: a THE-750-shaped structural refusal (chunk_fts.ts's assertContentlessChunkFts) must
+  // fail the WHOLE fan-out loudly, not be swallowed into "this variant found nothing" the way a
+  // genuinely transient error is.
+  it("a THE-750-shaped refusal (err.internal) is RETHROWN — it does not sink into an empty variant", async () => {
+    const refusal = err.internal("chunk_fts is the pre-THE-711 content-storing shape");
+    graphSearchSpy.mockImplementation(async (_db: Database, opts: { query: string }) => {
+      if (opts.query === "refused variant") throw refusal;
+      return [result("ok.md")];
+    });
+    await expect(
+      multiQueryGraphSearch({} as Database, BASE_OPTS, ["refused variant", "good variant"]),
+    ).rejects.toBe(refusal);
+  });
+
+  it("a non-retryable domain error is also rethrown loudly, not swallowed", async () => {
+    const refusal = err.computeBudgetExceeded("regex execution exceeded its time budget");
+    graphSearchSpy.mockImplementation(async (_db: Database, opts: { query: string }) => {
+      if (opts.query === "refused variant") throw refusal;
+      return [result("ok.md")];
+    });
+    await expect(
+      multiQueryGraphSearch({} as Database, BASE_OPTS, ["refused variant", "good variant"]),
+    ).rejects.toBe(refusal);
+  });
+
+  it("onVariantOutcome reports 'ok' for a succeeding variant and 'swallowed_error' for a swallowed one", async () => {
+    graphSearchSpy.mockImplementation(async (_db: Database, opts: { query: string }) => {
+      if (opts.query === "bad variant") throw new Error("embedding provider down");
+      return [result("ok.md")];
+    });
+    const events: Array<{ index: number; query: string; outcome: string }> = [];
+    const out = await multiQueryGraphSearch(
+      {} as Database,
+      BASE_OPTS,
+      ["bad variant", "good variant"],
+      (e) => events.push(e),
+    );
+    expect(out.map((r) => r.path)).toEqual(["ok.md"]);
+    expect(events).toContainEqual({ index: 0, query: "bad variant", outcome: "swallowed_error" });
+    expect(events).toContainEqual({ index: 1, query: "good variant", outcome: "ok" });
+  });
+
+  it("a throwing onVariantOutcome sink never breaks retrieval", async () => {
+    graphSearchSpy.mockImplementation(async (_db: Database, opts: { query: string }) => {
+      if (opts.query === "bad variant") throw new Error("transient");
+      return [result("ok.md")];
+    });
+    const out = await multiQueryGraphSearch(
+      {} as Database,
+      BASE_OPTS,
+      ["bad variant", "good variant"],
+      () => {
+        throw new Error("observability sink exploded");
+      },
+    );
     expect(out.map((r) => r.path)).toEqual(["ok.md"]);
   });
 
