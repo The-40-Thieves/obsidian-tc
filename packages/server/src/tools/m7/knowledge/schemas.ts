@@ -55,6 +55,8 @@ export const GraphSearchResultSchema = z.object({
   root_seed: z.string().nullable(),
   rerank_score: z.number(),
   vault: z.string().optional(),
+  // THE-635: present only on an as_of search — see GraphSearchResult.changed_since_d's doc.
+  changed_since_d: z.boolean().optional(),
 });
 
 /** THE-631: mirrors search/graph_search_stages/types.ts's CoverageEstimate. Additive and

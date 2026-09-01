@@ -325,6 +325,11 @@ export function buildGraphSearchOptions(
      *  production path is byte-identical to before. */
     traceNotePath?: GraphSearchOptions["traceNotePath"];
     onRetrievalTrace?: GraphSearchOptions["onRetrievalTrace"];
+    /** THE-635: point-in-time PRE-filter — per-call, not config-derived (like `query`/`finalTopK`
+     *  above), so it is threaded straight through rather than gated on a `deps.retrieval` flag.
+     *  Absent (the default) reaches graphSearch as `undefined`, an exact no-op. */
+    asOf?: GraphSearchOptions["asOf"];
+    since?: GraphSearchOptions["since"];
   },
 ): Omit<GraphSearchOptions, "queryVec"> & { queryVec?: number[] } {
   return {
@@ -393,6 +398,12 @@ export function buildGraphSearchOptions(
     // path has nothing to follow. Gating them together keeps that unrepresentable.
     ...(site.traceNotePath && site.onRetrievalTrace
       ? { traceNotePath: site.traceNotePath, onRetrievalTrace: site.onRetrievalTrace }
+      : {}),
+    // THE-635: point-in-time PRE-filter. `since` only travels alongside `asOf` — the tool handlers
+    // resolve its default (0) before calling this builder, so an absent `asOf` here is always an
+    // exact no-op regardless of `since`.
+    ...(site.asOf !== undefined
+      ? { asOf: site.asOf, ...(site.since !== undefined ? { since: site.since } : {}) }
       : {}),
     // THE-424 Part A: the serve path now APPLIES the ACT-R bubble pass, not just the lookup.
     // `activationFor` is built only under config.experiential.activationRerank (runtime/stores.ts),

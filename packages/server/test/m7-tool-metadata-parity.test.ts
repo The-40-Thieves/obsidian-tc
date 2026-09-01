@@ -111,7 +111,16 @@ const EXPECTED: ToolSnapshot[] = [
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["final_top_k", "hypothetical_answer", "queries", "query", "vault", "vaults"],
+    inputKeys: [
+      "as_of",
+      "final_top_k",
+      "hypothetical_answer",
+      "queries",
+      "query",
+      "since",
+      "vault",
+      "vaults",
+    ],
     outputKeys: [
       "coverage",
       "failed_variants",
@@ -163,7 +172,7 @@ const EXPECTED: ToolSnapshot[] = [
     requiredScopes: ["read:docs"],
     tags: ["docs", "knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["final_top_k", "query", "vault"],
+    inputKeys: ["as_of", "final_top_k", "query", "since", "vault"],
     outputKeys: ["coverage", "mode_used", "results", "route", "vault"],
   },
   {

@@ -8,6 +8,7 @@ import { allChunkPaths } from "../acl_path_set";
 import type { LexicalHit } from "../chunk_fts";
 import type { ClusterSummaryHit } from "../cluster-summaries";
 import type { SummaryHit } from "../note-summaries";
+import { filterChunksAsOf } from "../point_in_time";
 import type { SemanticHit } from "../semantic";
 import type { SparseHit } from "../sparse";
 import { noteDateMs, parseTemporalIntent } from "../temporal";
@@ -245,8 +246,31 @@ export function assembleCandidates(input: CandidateAssemblyInput): CandidateAsse
       }
     }
   }
+  // 4f. THE-635 point-in-time PRE-filter (see GraphSearchOptions.asOf's doc): runs LAST, over the
+  // fully-merged candidate set from every stream above, so it can never be bypassed by a stream
+  // that assembles candidates its own way — a chunk excluded here never reaches fusion/ranking,
+  // which is what makes this a pre-filter rather than a post-hoc drop of ranked results. Composes
+  // WITH the ACL filtering each stream above already applied rather than instead of it: this pass
+  // only ever REMOVES candidates that survived those checks, never readmits one they excluded.
+  //
+  // filterChunksAsOf's existence check is scoped to the `chunks` table, so a synthetic
+  // "summary"/"cluster_summary" candidate (chunk_id is not a real chunk row — see those streams'
+  // own comments above) is never present in its result and is therefore excluded here too: there
+  // is no created_at/updated_at for a synthetic id to have "existed at D" against, so exclusion is
+  // the honest answer, not an oversight.
+  let finalCandidates = candidates;
+  if (opts.asOf !== undefined) {
+    const asOfChunks = filterChunksAsOf(db, opts.vaultId, {
+      start: opts.since ?? 0,
+      end: opts.asOf,
+    });
+    const changedSinceDById = new Map(asOfChunks.map((c) => [c.id, c.changedSinceD]));
+    finalCandidates = candidates
+      .filter((c) => changedSinceDById.has(c.chunk_id))
+      .map((c) => ({ ...c, changedSinceD: changedSinceDById.get(c.chunk_id) }));
+  }
   return {
-    candidates,
+    candidates: finalCandidates,
     lexRankById,
     lexScoreById,
     sparseRankById,
