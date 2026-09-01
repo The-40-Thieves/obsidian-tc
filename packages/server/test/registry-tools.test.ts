@@ -24,6 +24,36 @@ describe("Domain 1: multi-vault registry", () => {
     }
   });
 
+  it("THE-924: a vaultBound caller sees only its own vault; an unbound caller sees all", async () => {
+    const v = makeTestVault();
+    const dir = mkdtempSync(join(tmpdir(), "obtc-vaultbound-"));
+    try {
+      const add = await v.call("add_vault", { vault_id: "other", path: dir });
+      expect(add.ok).toBe(true);
+
+      const unbound = await v.call("list_vaults", {});
+      expect(unbound.ok).toBe(true);
+      if (unbound.ok) {
+        const ids = (unbound.data as { vaults: Array<{ id: string }> }).vaults.map((x) => x.id);
+        expect(ids.sort()).toEqual(["other", "test"]);
+      }
+
+      const bound = await v.call("list_vaults", {}, { vaultBound: true, vaultId: "test" });
+      expect(bound.ok).toBe(true);
+      if (bound.ok) {
+        const d = bound.data as { vaults: Array<{ id: string; path: string }> };
+        expect(d.vaults).toHaveLength(1);
+        expect(d.vaults[0]?.id).toBe("test");
+        // Must not leak the other vault's id or absolute path.
+        expect(d.vaults.some((x) => x.id === "other")).toBe(false);
+        expect(d.vaults.some((x) => x.path === dir)).toBe(false);
+      }
+    } finally {
+      v.cleanup();
+      rmTemp(dir);
+    }
+  });
+
   it("get_vault reports acl and 404s an unknown vault", async () => {
     const v = makeTestVault({ acl: { writePaths: ["notes/**"] } });
     try {

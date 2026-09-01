@@ -222,8 +222,17 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["admin:config"],
       handler: (_input, ctx) => {
         const t = deps.throttle;
+        // THE-924: zero-arg input means central dispatch's enforceVaultBinding has nothing to
+        // police (it only inspects a tool's declared `vaultArg`) — this tool must scope itself,
+        // the same idiom list_vaults (tools/m1/registry-tools.ts) uses. A bound (HTTP-token)
+        // caller gets only its own vault's id + plugin list; the trusted, unbound caller keeps
+        // the full per-vault view.
+        const vaultsForOutput =
+          ctx.vaultBound === true
+            ? [deps.vaultRegistry.resolve(ctx.vaultId)]
+            : deps.vaultRegistry.list();
         const pluginsDetected: Record<string, string[]> = {};
-        for (const v of deps.vaultRegistry.list()) {
+        for (const v of vaultsForOutput) {
           const snap = deps.capabilities?.(v.id);
           pluginsDetected[v.id] = snap
             ? Object.entries(snap.plugins)
@@ -239,7 +248,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
           // (cli.ts), so these are top-level rather than misleadingly per-vault.
           read_only: ctx.acl?.readOnly ?? false,
           embeddings_provider: deps.embeddingsProvider,
-          vaults_summary: deps.vaultRegistry.list().map((v) => ({ id: v.id })),
+          vaults_summary: vaultsForOutput.map((v) => ({ id: v.id })),
           // The three spec'd limits headline the bulk tier (the only class M6
           // enforces): per-minute = sustained rate, per-second = burst capacity.
           // Full per-class detail follows under throttle_tiers (additive).
@@ -425,14 +434,21 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["admin:metrics"],
       handler: (input, ctx) => {
         const now = (ctx.now ?? Date.now)();
+        // THE-924: `vault` is OPTIONAL, so central dispatch's enforceVaultBinding only fires when
+        // a vault-bound caller supplies a DIFFERENT vault explicitly — omitting the arg entirely
+        // skips that guard, and would otherwise aggregate every vault's per-(vault,tool,status)
+        // counters and rate-limit-hit rows under a caller bound to just one of them. A bound
+        // caller is pinned to its own vault regardless of what it passes (or omits); an unbound
+        // caller keeps the existing "optional filter, absent = every vault" behavior.
+        const vaultFilter = ctx.vaultBound === true ? ctx.vaultId : input.vault;
         const metrics: Metric[] = [
-          ...invocationCounters(ctx.db, input.vault),
+          ...invocationCounters(ctx.db, vaultFilter),
           // THE-507: ingest work counters, additive to the stderr lines the indexer already writes.
-          ...ingestCounters(ctx.db, input.vault),
+          ...ingestCounters(ctx.db, vaultFilter),
         ];
 
         for (const row of deps.rateLimiter.snapshot()) {
-          if (input.vault && row.vault !== input.vault) continue;
+          if (vaultFilter && row.vault !== vaultFilter) continue;
           metrics.push({
             name: "obsidian_tc_rate_limit_hits_total",
             type: "counter",
