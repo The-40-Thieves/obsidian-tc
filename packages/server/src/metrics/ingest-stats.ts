@@ -42,6 +42,9 @@ export function recordIngestStats(
       (v, n) => metrics.incEmbedBatchRejections(v, n),
     ],
     ["index_write_failures", s.notes_embed_failed, (v, n) => metrics.incIndexWriteFailures(v, n)],
+    // THE-925: notes an indexVault batch skipped because a concurrent write_note/watcher commit
+    // raced its apply — not a failure, so a separate event_type from index_write_failures above.
+    ["index_stale_skipped", s.notes_stale_skipped, (v, n) => metrics.incIndexStaleSkipped(v, n)],
   ];
   for (const [eventType, count, inc] of events) {
     if (count <= 0) continue;

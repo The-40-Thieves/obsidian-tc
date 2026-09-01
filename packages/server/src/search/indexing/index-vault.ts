@@ -47,9 +47,11 @@ import {
 import { deindexNote } from "./index-note";
 import {
   computeNotePlan,
+  existingRowsMatch,
   hasBodyShaColumn,
   hasDerivedEdgeColumns,
   preloadChunkState,
+  readExistingChunkRows,
   readNoteTags,
 } from "./note-plan";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
@@ -158,6 +160,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     chunks_dedup_reused: 0,
     chunks_dedup_unresolved: 0,
     embed_batch_rejections: 0,
+    notes_stale_skipped: 0,
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -166,8 +169,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const noteLinks = new Map<string, ExtractedLink[]>();
   // Two-phase batching: PLAN each note (including its embed() network call) with no transaction,
   // then APPLY a batch of plans in ONE transaction. A mid-batch failure rolls the whole batch back
-  // (idempotent reconcile, never a correctness issue). Safe because indexVault is the sole writer
-  // on this connection during the reconcile. See docs/design/search-indexing-and-cache.md.
+  // (idempotent reconcile, never a correctness issue). THE-925 correction: this was previously
+  // "safe because indexVault is the sole writer on this connection during the reconcile" — that
+  // stopped holding once THE-455 routed write_note/the vault watcher through IndexCoordinator ->
+  // indexNote on the SAME connection, unserialized against indexVault. The apply loop below guards
+  // against that with a freshness re-check immediately before writing each plan. See
+  // docs/design/search-indexing-and-cache.md.
   const BATCH = args.batch?.maxNotes ?? DEFAULT_BATCH_MAX_NOTES;
   const BATCH_MAX_BYTES = args.batch?.maxBytes ?? DEFAULT_BATCH_MAX_BYTES;
   let batch: NoteWritePlan[] = [];
@@ -221,11 +228,33 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-588: paths with at least one unresolved dedup skip this batch (owner had no stored vector
     // to copy) — sampled into the stderr warning below, same shape as the failed/rejected warnings.
     const unresolvedPaths: string[] = [];
+    // THE-925: paths this flush skipped because a concurrent write_note/watcher commit changed them
+    // after their plan was computed — sampled into the stderr warning below.
+    const staleSkippedPaths: string[] = [];
+    // THE-925: only plans actually WRITTEN this flush feed changedChunkPaths/fireIndexHook below —
+    // a plan the guard skips must not be reported as a committed change.
+    const appliedPlans: NoteWritePlan[] = [];
     inWriteTransaction(
       args.db,
       "index_batch",
       () => {
         for (const plan of toApply) {
+          // THE-925 invariant: indexVault plans+embeds a whole batch OUTSIDE any transaction, then
+          // applies it here, inside one. That gap is a real race window on this connection —
+          // write_note/the vault watcher (THE-455's IndexCoordinator -> indexNote) write the SAME
+          // cache.db and are not serialized against indexVault. Immediately before writing THIS
+          // plan, re-read the path's current chunk rows and compare them to the `existing` snapshot
+          // the plan was computed against (see readExistingChunkRows/existingRowsMatch, note-plan.ts).
+          // A mismatch means a concurrent commit landed in the gap: applying the stale plan anyway
+          // would either revert that commit's fresher content back to what this plan saw, or prune
+          // chunk ids it already rewrote. Skip instead — the concurrent writer already left this
+          // path correct, and the next index_vault re-plans it against current content either way.
+          const current = readExistingChunkRows(args.db, args.vaultId, plan.path);
+          if (!existingRowsMatch(plan.existing, current)) {
+            staleSkippedPaths.push(plan.path);
+            stats.notes_stale_skipped += 1;
+            continue;
+          }
           const r = applyNoteWrites(
             args.db,
             args.provider,
@@ -243,6 +272,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           stats.chunks_dedup_unresolved += r.dedupUnresolved;
           if (r.dedupUnresolved > 0) unresolvedPaths.push(plan.path);
           if (r.upserted > 0 || r.deleted > 0) stats.notes_indexed += 1;
+          appliedPlans.push(plan);
         }
       },
       args.sql,
@@ -255,12 +285,21 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           `— those chunks are FTS-only until the owner re-embeds successfully.\n`,
       );
     }
+    if (staleSkippedPaths.length > 0) {
+      const sample = staleSkippedPaths.slice(0, 3).join(", ");
+      process.stderr.write(
+        `[index] vault "${args.vaultId}": ${staleSkippedPaths.length} note(s) skipped this pass — a ` +
+          `concurrent write_note/watcher commit changed the path's chunks after this plan was ` +
+          `computed (${sample}${staleSkippedPaths.length > 3 ? ", ..." : ""}); the next index_vault ` +
+          `reconciles them against current content.\n`,
+      );
+    }
     // THE-486: a committed plan means this note's chunk embeddings changed this pass (toEmbed
     // non-empty and/or a prune) — computeNotePlan never returns a plan otherwise (see its
     // toEmbed.length === 0 && !willPrune early return). This is the kNN delta's change signal,
     // reusing the SAME plan data fireIndexHook already reports rather than threading a new seam.
-    for (const plan of toApply) changedChunkPaths.add(plan.path);
-    for (const plan of toApply) fireIndexHook(args.onIndexed, plan);
+    for (const plan of appliedPlans) changedChunkPaths.add(plan.path);
+    for (const plan of appliedPlans) fireIndexHook(args.onIndexed, plan);
     // THE-645: once per completed batch (never per-chunk, per the perf-gate note on IndexVaultArgs)
     // — a straight projection of the running `stats` accumulator, no new counters. `notesSeen` is
     // the streaming path's honest "unknown" (-1): the eager total isn't known until the walk

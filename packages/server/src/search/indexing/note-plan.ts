@@ -57,6 +57,40 @@ export function preloadChunkState(db: Database, vaultId: string): Map<string, Ex
   return byPath;
 }
 
+// The chunk-row query a single path's plan is computed against — factored out so THE-925's
+// concurrent-writer guard (index-vault.ts, applied immediately before a batched plan is written)
+// can re-read the SAME rows a plan's `existing` snapshot came from, at apply time, and compare.
+export function readExistingChunkRows(db: Database, vaultId: string, path: string): ExistingRow[] {
+  return db
+    .prepare(
+      "SELECT c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
+    )
+    .all(vaultId, path) as ExistingRow[];
+}
+
+// THE-925: true when `current` (a fresh read of a path's chunk rows) still matches `planned` (the
+// `existing` snapshot a plan was computed against) — same set of chunk ids, each with the same
+// content_hash and active_model. A batched apply (index-vault.ts) must check this immediately
+// before writing a plan: a concurrent index-on-write commit (write_note / the vault watcher,
+// routed through THE-455's IndexCoordinator to indexNote, on the SAME cache.db connection) can land
+// between a plan's pre-read and its apply, since indexVault plans+embeds a whole batch outside any
+// transaction before applying it inside one. Applying a plan whose `existing` no longer matches
+// would either revert the concurrent writer's fresher content back to what this plan saw, or prune
+// chunk ids the concurrent writer already rewrote — invisibly, since neither writer takes a lock
+// against the other. indexNote itself has the same plan-then-await-then-apply shape, but never
+// needs this guard: IndexCoordinator is the only production caller and serializes same-path work
+// (THE-455), so no second write for the SAME path can land inside one indexNote call's own await.
+export function existingRowsMatch(planned: ExistingRow[], current: ExistingRow[]): boolean {
+  if (planned.length !== current.length) return false;
+  const byId = new Map(current.map((r) => [r.id, r]));
+  return planned.every((p) => {
+    const c = byId.get(p.id);
+    return (
+      c !== undefined && c.content_hash === p.content_hash && c.active_model === p.active_model
+    );
+  });
+}
+
 // Compute a note's write plan WITHOUT embedding — NO network, NO database writes, NO transaction.
 // Vectors are filled later by embedPlans, which batches the embed() calls across many notes so a
 // reconcile does not pay one serial round-trip per note. Returns { plan: null } when the note is
@@ -139,13 +173,7 @@ export function computeNotePlan(
   // THE-501: on a full reconcile the caller preloads the whole vault's chunk state in ONE query and
   // passes this note's slice, so computeNotePlan issues no per-note chunk query (N queries -> 1). The
   // single-note path passes no preload and keeps the targeted per-note query.
-  const existing =
-    preloadedExisting?.get(path) ??
-    (db
-      .prepare(
-        "SELECT c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
-      )
-      .all(vaultId, path) as ExistingRow[]);
+  const existing = preloadedExisting?.get(path) ?? readExistingChunkRows(db, vaultId, path);
   const existingById = new Map(existing.map((e) => [e.id, e]));
   // Re-embed when the content changed OR (THE-531) the stored active model differs from the current
   // one. When `model` is undefined the model check is skipped (back-compat, content-hash-only gate).

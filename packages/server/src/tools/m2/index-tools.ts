@@ -31,6 +31,7 @@ const IndexVaultOutput = z.object({
   chunks_dedup_reused: z.number(),
   chunks_dedup_unresolved: z.number(),
   embed_batch_rejections: z.number(),
+  notes_stale_skipped: z.number(),
   model: z.string(),
   dimensions: z.number(),
 });
