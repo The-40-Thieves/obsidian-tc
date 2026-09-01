@@ -6,9 +6,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.23.5] - 2026-09-01
+
 ### Fixed
 
-- **The v1.22.0 point-in-time filter (#824, THE-635) was announced as shipped but had zero production callers** — `search/point_in_time.ts`'s `filterChunksAsOf`/`changedSinceD` were fully unit-tested (`test/point_in_time.test.ts`) yet unreachable from any tool, an over-claim the module boundary gate had to allowlist as "genuinely unreachable, tracked work" rather than catch as a defect. `knowledge_search` and `vault_graph_search` now accept optional `as_of`/`since` (epoch ms); when `as_of` is given, `graph_search_stages/candidate_assembly.ts` PRE-filters the merged candidate set (before fusion/ranking, not a post-hoc drop of ranked results) by calling `filterChunksAsOf` directly, and every surviving result carries `changed_since_d` so a chunk edited after the cutoff is never silently served as the historical state. Composes with ACL (the pre-filter only ever removes candidates, never readmits one ACL already excluded) and forces the lexical-route short-circuit off for an `as_of` query, since that route bypasses `candidateAssembly` entirely. Absent `as_of`: byte-identical to before this change. `point_in_time.ts` is no longer in the boundary gate's unreachable allowlist.
+- **The v1.22.0 point-in-time filter (#824, THE-635) was announced as shipped but had zero production callers** — `search/point_in_time.ts`'s `filterChunksAsOf`/`changedSinceD` were fully unit-tested (`test/point_in_time.test.ts`) yet unreachable from any tool, an over-claim the module boundary gate had to allowlist as "genuinely unreachable, tracked work" rather than catch as a defect. **`knowledge_search` and `vault_graph_search` now accept optional `as_of`/`since` (epoch ms) (#872)**; when `as_of` is given, `graph_search_stages/candidate_assembly.ts` PRE-filters the merged candidate set (before fusion/ranking, not a post-hoc drop of ranked results) by calling `filterChunksAsOf` directly, and every surviving result carries `changed_since_d` so a chunk edited after the cutoff is never silently served as the historical state. Composes with ACL (the pre-filter only ever removes candidates, never readmits one ACL already excluded) and forces the lexical-route short-circuit off for an `as_of` query, since that route bypasses `candidateAssembly` entirely. Absent `as_of`: byte-identical to before this change. `point_in_time.ts` is no longer in the boundary gate's unreachable allowlist.
+
+### Internal
+
+- Maintainability and CI-reliability pass from the v1.23.4 whole-repo health analysis: an honest coverage floor added to `packages/plugin`, which had none (#869); real-timer test flakes removed — `perf-isolate` gets a platform-aware timeout and event-wait tests poll with `vi.waitFor` instead of racing fixed sleeps (#870); knip config false-positives trimmed and four confirmed-dead internal exports demoted (#871). No runtime behavior change.
 
 ## [1.23.4] - 2026-09-01
 
