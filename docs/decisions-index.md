@@ -242,7 +242,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-632 | `diagnose_retrieval` — ask why an expected note was *not* returned (THE-632, #644). | CHANGELOG.md (1.14.0) | 16 |
 | THE-633 | Five new tools (157 total). | CHANGELOG.md (1.17.0) | 9 |
 | THE-634 | Proactive advisory surfacing, off by default (#779, #810, THE-634). | CHANGELOG.md (1.22.0) | 16 |
-| THE-635 | Point-in-time `since`/`until` retrieval filter (#824, THE-635). | CHANGELOG.md (1.22.0) | 1 |
+| THE-635 | The v1.22.0 point-in-time filter (#824, THE-635) was announced as shipped but had zero production callers | CHANGELOG.md (Unreleased) | 8 |
 | THE-636 | Vendor-neutral export/import of the derived plane (#808, THE-636). | CHANGELOG.md (1.22.0) | 10 |
 | THE-639 | A sanctioned, poison-scanned path for agent-synthesised notes (#814, THE-639). | CHANGELOG.md (1.22.0) | 7 |
 | THE-641 | _internal planning reference — see repo history_ | — | 1 |
