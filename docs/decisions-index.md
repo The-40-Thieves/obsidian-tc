@@ -282,7 +282,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-692 | `--max-per-cluster` in the eval harness (THE-692, #646). | CHANGELOG.md (1.14.0) | 2 |
 | THE-693 | `retrieval.graphStream` config surface (THE-693, #650). | CHANGELOG.md (1.14.0) | 4 |
 | THE-694 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 10 |
-| THE-695 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 10 |
+| THE-695 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 9 |
 | THE-696 | `notes_fts` integrity is checkable, and repairable (THE-696, #648). | CHANGELOG.md (1.14.0) | 5 |
 | THE-697 | `obsidian-tc index` — the derived-state command that was missing (THE-697, #648). | CHANGELOG.md (1.14.0) | 4 |
 | THE-698 | Scheduled episode evaluation (THE-698, #648). | CHANGELOG.md (1.14.0) | 6 |
@@ -341,8 +341,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-837 | The `ollama` embeddings built-in is deprecated (THE-837), and still fully functional. | CHANGELOG.md (1.22.0) | 8 |
 | THE-838 | The task-verdict producer for `agent_episodes.task_result` (#804, THE-726). | CHANGELOG.md (1.22.0) | 2 |
 | THE-839 | `episode_type` is a structural value, not a rendered literal (#802, THE-839). | CHANGELOG.md (1.22.0) | 10 |
-| THE-852 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 9 |
-| THE-853 | The adaptive-RRF IDF path is ACL-partitioned, closing a cross-ACL term-presence oracle (#830, THE-853). | CHANGELOG.md (1.22.0) | 8 |
+| THE-852 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 10 |
+| THE-853 | The adaptive-RRF IDF path is ACL-partitioned, closing a cross-ACL term-presence oracle (#830, THE-853). | CHANGELOG.md (1.22.0) | 9 |
 | THE-854 | Superseded `cluster_summary` rows are garbage-collected (#829, THE-854). | CHANGELOG.md (1.22.0) | 2 |
 | THE-855 | Source-agnostic highlight-import format + Readwise adapter, staged via `capture_queue` (#839, THE-650). | CHANGELOG.md (1.23.0) | 9 |
 | THE-858 | Captured content is poison-scanned at enqueue, and at commit (#823, #827, THE-855, THE-858). | CHANGELOG.md (1.22.0) | 1 |
