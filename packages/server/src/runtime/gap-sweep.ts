@@ -147,8 +147,12 @@ export function registerGapSweep(scheduler: Scheduler, deps: GapSweepDeps): void
   scheduler.register({
     name: "gap-sweep",
     intervalMs: deps.intervalMs,
-    run: async () => {
+    run: async (signal) => {
       for (const vaultId of deps.vaultIds) {
+        // THE-926: cooperate with graceful shutdown between vaults — the same cheap
+        // check-per-iteration-unit job-runner.ts uses, letting whichever vault is already
+        // mid-sweep finish rather than starting the next one after the drain has begun.
+        if (signal.aborted) return;
         // THE-804: scoped per vault. Hoisting this out of the loop would restore the leak.
         const queries = recentQueries(deps.experientialDb, deps.cacheDb, vaultId, deps.maxQueries);
         // Nothing logged yet is not a failure and must not write an empty report: a gap_reports row

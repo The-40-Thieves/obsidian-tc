@@ -45,6 +45,10 @@ interface VaultLegResult {
   route?: string[];
   coverage?: CoverageEstimate;
   results: GraphSearchResult[];
+  // THE-926: set only on the fan-out path (variants.length > 1), and only when at least one
+  // variant's graphSearch call threw a swallowed (genuinely transient) error — see
+  // search/multi_query.ts's OnVariantOutcome. Absent, never 0, otherwise.
+  failedVariants?: number;
 }
 
 /** THE-630: resolve a target vault's ACL the same way governance.ts's own `aclResolver` and
@@ -126,6 +130,7 @@ async function searchOneVault(
   });
   const fanOut = variants.length > 1;
   let results: GraphSearchResult[];
+  let failedVariants = 0;
   if (fanOut) {
     // The fan-out varies query TEXT, never the embedding: every variant runs against the same
     // vectors (multi_query.ts's module header explains why, and why that still changes the
@@ -135,7 +140,12 @@ async function searchOneVault(
     // graphSearch directly, so a fan-out neither reads nor populates it.
     const vectors = await retrieval.embedAll(denseText, query.text);
     const fanOutOptions = { ...searchOptions, ...vectors };
-    results = await multiQueryGraphSearch(ctx.db, fanOutOptions, variants);
+    // THE-926: the smallest honest signal that a variant's own graphSearch call swallowed a
+    // transient error rather than genuinely finding nothing — a deliberate/structural refusal
+    // (isLoudRefusal) is never swallowed at all; it propagates out of this call instead.
+    results = await multiQueryGraphSearch(ctx.db, fanOutOptions, variants, (event) => {
+      if (event.outcome === "swallowed_error") failedVariants += 1;
+    });
   } else {
     results = await cachedGraphSearch(
       ctx.db,
@@ -153,7 +163,12 @@ async function searchOneVault(
     // The lexical class returned early above, so this path always fused.
     policy: policy.record("static"),
   });
-  return { mode_used: "graph", results, coverage: coverage.get() };
+  return {
+    mode_used: "graph",
+    results,
+    coverage: coverage.get(),
+    ...(fanOut && failedVariants > 0 ? { failedVariants } : {}),
+  };
 }
 
 // THE-630 fan-out convention (same rrfK default as THE-448's fuseVariants, kept local so this
@@ -254,6 +269,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
           ...(leg.route ? { route: leg.route } : {}),
           ...(hydeActive ? { query: input.query, hyde: true } : {}),
           ...(fanOut ? { variants_used: variants.length } : {}),
+          ...(leg.failedVariants ? { failed_variants: leg.failedVariants } : {}),
           ...(leg.coverage ? { coverage: leg.coverage } : {}),
           results: leg.results,
         };
@@ -287,9 +303,17 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
         },
       }));
 
-      const { legOutcomes, fused } = await federatedGraphSearch(legs, input.final_top_k, {
-        rrfK: FEDERATED_RRF_K,
-      });
+      // THE-926: the smallest honest signal that a whole vault leg swallowed a transient error
+      // (isLoudRefusal-class errors are never swallowed — they propagate out of this call instead).
+      let failedVaults = 0;
+      const { legOutcomes, fused } = await federatedGraphSearch(
+        legs,
+        input.final_top_k,
+        { rrfK: FEDERATED_RRF_K },
+        (event) => {
+          if (event.outcome === "swallowed_error") failedVaults += 1;
+        },
+      );
 
       // Top-level `vault`/`mode_used`/`route`/`coverage` keep describing the PRIMARY vault only —
       // unchanged in meaning from before this ticket. `per_vault` is the full per-leg breakdown;
@@ -298,13 +322,18 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
       const primaryMeta = legOutcomes.find((o) => o.vaultId === v.id)?.meta;
       const perVault: Record<
         string,
-        { mode_used: "lexical-route" | "graph"; coverage?: CoverageEstimate }
+        {
+          mode_used: "lexical-route" | "graph";
+          coverage?: CoverageEstimate;
+          failed_variants?: number;
+        }
       > = {};
       for (const o of legOutcomes) {
         if (!o.meta) continue;
         perVault[o.vaultId] = {
           mode_used: o.meta.mode_used,
           ...(o.meta.coverage ? { coverage: o.meta.coverage } : {}),
+          ...(o.meta.failedVariants ? { failed_variants: o.meta.failedVariants } : {}),
         };
       }
 
@@ -316,6 +345,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
         ...(fanOut ? { variants_used: variants.length } : {}),
         ...(primaryMeta?.coverage ? { coverage: primaryMeta.coverage } : {}),
         vaults_used: targetVaultIds.length,
+        ...(failedVaults > 0 ? { failed_vaults: failedVaults } : {}),
         per_vault: perVault,
         results: fused,
       };

@@ -58,8 +58,17 @@ interface Pending {
 
 let worker: Worker | null = null;
 let seq = 0;
-// null = not probed yet; false = this runtime cannot run the eval worker (fall back inline).
+// null = not probed yet; false = the last probe failed (see UNAVAILABLE_COOLDOWN_MS below).
 let capable: boolean | null = null;
+// THE-926: `capable = false` used to latch for the life of the process — one 1s ping timeout
+// (a transient hiccup: GC pause, resource pressure under load) permanently disabled the worker
+// and left the inline fallback (no per-exec bound) as the ONLY ReDoS defense for every subsequent
+// call, forever. A `false` result is now re-probed after this cooldown instead of trusted
+// indefinitely; a runtime that genuinely cannot run the eval worker just keeps failing the probe
+// every cooldown window, which is the same fallback behavior as before, paid for periodically
+// rather than assumed permanently.
+const UNAVAILABLE_COOLDOWN_MS = 30_000;
+let capableCheckedAt = 0;
 const pending = new Map<number, Pending>();
 
 function failAll(reason: string): void {
@@ -124,17 +133,25 @@ function post(
 }
 
 /**
- * One-time readiness handshake. Construction alone is not enough — the realistic failure mode
- * is the embedded source failing at runtime inside the worker — so a ping must round-trip
- * before the worker path is trusted. Latched: probed once per process.
+ * Readiness handshake. Construction alone is not enough — the realistic failure mode is the
+ * embedded source failing at runtime inside the worker — so a ping must round-trip before the
+ * worker path is trusted. A successful probe latches permanently (a working worker stays working;
+ * a later in-flight failure terminates and lazily recreates it via `failAll`, independent of this
+ * cache). A FAILED probe latches only for `UNAVAILABLE_COOLDOWN_MS` (THE-926) — see that
+ * constant's comment for why an indefinite latch was wrong.
+ *
+ * `now` is injectable so tests can drive the cooldown without a real 30s wait; production passes
+ * nothing and gets `Date.now`.
  */
-export async function regexWorkerAvailable(): Promise<boolean> {
-  if (capable !== null) return capable;
+export async function regexWorkerAvailable(now: () => number = Date.now): Promise<boolean> {
+  if (capable === true) return true;
+  if (capable === false && now() - capableCheckedAt < UNAVAILABLE_COOLDOWN_MS) return false;
   try {
     await post({ ping: true }, 1000, "");
     capable = true;
   } catch {
     capable = false;
+    capableCheckedAt = now();
     const dead = worker;
     worker = null;
     if (dead) void dead.terminate();

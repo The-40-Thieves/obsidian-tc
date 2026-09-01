@@ -288,15 +288,17 @@ describe("buildSimilarityFn", () => {
 });
 
 describe("registerAdvisorySweep", () => {
-  function capture(): { task: { name: string; intervalMs: number; run: () => unknown } | null } {
+  type Task = { name: string; intervalMs: number; run: (signal: AbortSignal) => unknown };
+  function capture(): { task: Task | null } {
     return { task: null };
   }
   const fakeScheduler = (box: ReturnType<typeof capture>) =>
     ({
-      register: (t: { name: string; intervalMs: number; run: () => unknown }) => {
+      register: (t: Task) => {
         box.task = t;
       },
     }) as never;
+  const NOT_ABORTED = new AbortController().signal;
 
   it("registers under the name advisory-sweep, at the configured interval", () => {
     const box = capture();
@@ -332,7 +334,7 @@ describe("registerAdvisorySweep", () => {
       publish: (e) => published.push(e),
       now: () => NOW,
     });
-    await box.task?.run();
+    await box.task?.run(NOT_ABORTED);
     expect(provider.calls).toEqual([]);
     expect(published).toEqual([]);
     expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 0 });
@@ -354,7 +356,7 @@ describe("registerAdvisorySweep", () => {
       publish: () => {},
       now: () => NOW,
     });
-    await box.task?.run();
+    await box.task?.run(NOT_ABORTED);
     expect(provider.calls).toEqual([]);
   });
 
@@ -392,7 +394,7 @@ describe("registerAdvisorySweep", () => {
       publish: (e) => published.push(e),
       now: () => NOW,
     });
-    await box.task?.run();
+    await box.task?.run(NOT_ABORTED);
 
     const rows = edb
       .prepare(
@@ -442,8 +444,8 @@ describe("registerAdvisorySweep", () => {
       publish: () => {},
       now: () => NOW,
     });
-    await box.task?.run();
-    await box.task?.run();
+    await box.task?.run(NOT_ABORTED);
+    await box.task?.run(NOT_ABORTED);
     expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 1 });
   });
 
@@ -478,7 +480,7 @@ describe("registerAdvisorySweep", () => {
       publish: () => {},
       now: () => NOW,
     });
-    await box.task?.run();
+    await box.task?.run(NOT_ABORTED);
 
     const before = sessionAdvisoryState(edb, "s1");
     expect(remainingBudget(POLICY, before)).toBe(POLICY.maxPerSession - 1); // 1 emitted, 0 dismissed
@@ -503,5 +505,39 @@ describe("registerAdvisorySweep", () => {
     const after = sessionAdvisoryState(edb, "s1");
     expect(after.dismissed).toBe(1);
     expect(remainingBudget(POLICY, after)).toBe(POLICY.maxPerSession - POLICY.dismissalPenalty - 1);
+  });
+
+  // THE-926: scheduler.ts passes its own AbortSignal to every job's run(signal), but this sweep
+  // used to discard it — so stores.close() during a graceful shutdown could tear down the shared
+  // connection while the sweep was mid-write. It must now bail BETWEEN vaults instead of pressing
+  // on regardless.
+  it("THE-926: stops sweeping further vaults once the signal is already aborted", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, { id: "hit", vaultId: V, path: "a.md", content: "relevant", updatedAt: NOW });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { "a.md\nrelevant": [1, 0] },
+    });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+    });
+    const aborted = new AbortController();
+    aborted.abort();
+    await box.task?.run(aborted.signal);
+    // The aborted run must not have scored this vault at all — an open session + open goal +
+    // candidate are all present, so a non-aborted run would have.
+    expect(provider.calls).toHaveLength(0);
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 0 });
   });
 });

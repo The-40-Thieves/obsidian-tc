@@ -337,7 +337,7 @@ export async function buildServerRuntime(
   // the read after try/catch never actually fires in production.
   let postCore:
     | {
-        runReconcile: () => Promise<void>;
+        runReconcile: (signal: AbortSignal) => Promise<void>;
         scheduler: Scheduler;
         server: ReturnType<typeof createMcpServer>;
         transports: Awaited<ReturnType<typeof wireTransports>>;
@@ -599,8 +599,11 @@ export async function buildServerRuntime(
   let closed = false;
 
   const start = async (): Promise<void> => {
-    // Boot pass: backgrounded so it never blocks stdio, exactly as before.
-    void runReconcile();
+    // Boot pass: backgrounded so it never blocks stdio, exactly as before. Runs before the
+    // scheduler (and its AbortController) exists, so there is nothing to abort it with yet — a
+    // fresh, never-aborted signal, the same stand-in plane-wiring.ts's createReconcileRunner uses
+    // for its own post-reconcile drainOnce call.
+    void runReconcile(new AbortController().signal);
 
     morgiana.emit(firstVault.id, "tc.server.start");
 

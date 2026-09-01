@@ -293,8 +293,16 @@ export interface ReconcileRunnerDeps {
  * best-effort — an embedding-backend or fs hiccup degrades the index, never startup. THE-458 item
  * 6: extracted so the SAME pass can run both at boot (fire-and-forget) and on the scheduler.
  */
-export function createReconcileRunner(deps: ReconcileRunnerDeps): () => Promise<void> {
-  return async (): Promise<void> => {
+export function createReconcileRunner(
+  deps: ReconcileRunnerDeps,
+): (signal: AbortSignal) => Promise<void> {
+  return async (signal: AbortSignal): Promise<void> => {
+    // THE-926: cooperate with graceful shutdown. The per-vault passes below still run concurrently
+    // (Promise.all, unchanged — reconcile has no cheap intra-vault checkpoint to bail at without
+    // threading the signal into indexVaultRecorded's own walk, out of scope here), so this can only
+    // stop a reconcile from STARTING once shutdown has begun; a reconcile already in flight when the
+    // signal fires still runs to completion, same as before this ticket.
+    if (signal.aborted) return;
     await Promise.all(
       deps.vaults.map((v) =>
         deps
@@ -342,7 +350,10 @@ export function createReconcileRunner(deps: ReconcileRunnerDeps): () => Promise<
       // without the gateway. Fire-and-forget by design; the jobs are durable, so a crash before
       // this runs loses nothing — the next tick or process restart picks them up.
       if (!deps.roles) return;
-      await deps.jobRunner.drainOnce(new AbortController().signal);
+      // THE-926: the REAL signal, not a fresh never-aborted one — drainOnce already checks
+      // `signal.aborted` between claimed jobs (job-runner.ts), so threading this one through lets a
+      // shutdown mid-reconcile stop the sweep from claiming further jobs instead of running unbounded.
+      await deps.jobRunner.drainOnce(signal);
     });
   };
 }
@@ -366,7 +377,10 @@ export function registerPlaneSchedule(
   scheduler.register({
     name: "plane-enqueue",
     intervalMs: deps.plane.intervalMinutes * 60_000,
-    run: () => {
+    // THE-926: honor a shutdown already in flight rather than enqueueing new durable work into a
+    // store that may be about to close.
+    run: (signal) => {
+      if (signal.aborted) return;
       const iso = isoWeek(new Date());
       // `replaceIfFailed`, NOT `replaceIfTerminal`: these keys name a PERIOD, and
       // `replaceIfTerminal` also replaces `complete`, so it would delete and re-run already
@@ -439,7 +453,9 @@ export function registerNoteQualitySchedule(
   scheduler.register({
     name: "note-quality-enqueue",
     intervalMs: deps.intervalMs,
-    run: () => {
+    // THE-926: same shutdown-cooperation guard as plane-enqueue above.
+    run: (signal) => {
+      if (signal.aborted) return;
       deps.jobQueue.enqueue("note-quality", {
         class: "plane",
         idempotencyKey: `note-quality:${new Date().toISOString().slice(0, 10)}`,
@@ -461,7 +477,9 @@ export function registerNoteQualitySchedule(
     scheduler.register({
       name: "citation-enqueue",
       intervalMs: bucketMs,
-      run: () => {
+      // THE-926: same shutdown-cooperation guard as plane-enqueue above.
+      run: (signal) => {
+        if (signal.aborted) return;
         deps.jobQueue.enqueue("citation", {
           class: "plane",
           idempotencyKey: `citation:${Math.floor(Date.now() / bucketMs)}`,
@@ -481,7 +499,9 @@ export function registerNoteQualitySchedule(
   scheduler.register({
     name: "goal-expiry",
     intervalMs: deps.intervalMs,
-    run: () => {
+    // THE-926: same shutdown-cooperation guard as plane-enqueue above.
+    run: (signal) => {
+      if (signal.aborted) return;
       expireOverdueGoals(deps.experientialDb, Date.now());
     },
     onError: stderrOnError("goal-expiry"),

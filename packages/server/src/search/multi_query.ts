@@ -24,6 +24,7 @@
 // wired into graphSearch itself, and not yet exposed on any tool's Zod schema — see THE-448
 // follow-up). Absent/empty/single-element `queries` is an EXACT no-op, delegating straight to
 // graphSearch with no fan-out, no over-fetch, and no fusion pass.
+import { isLoudRefusal } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import { runWithConcurrency } from "../util/concurrency";
 import { type GraphSearchOptions, type GraphSearchResult, graphSearch } from "./graph_search";
@@ -52,11 +53,42 @@ const DEFAULT_FAN_OUT_RRF_K = 10;
 // graph_search.ts does not export it and this ticket keeps graph_search.ts untouched.
 const DEFAULT_FINAL_TOP_K = 30;
 
+/** THE-926: why a variant contributed nothing to the fused result, reported through
+ *  `onVariantOutcome` (mirrors search/rerank.ts's `RerankOutcome`/`onOutcome` shape) — "swallowed
+ *  a transient error" is otherwise indistinguishable from "the search genuinely found nothing". */
+export type VariantOutcome = "ok" | "swallowed_error";
+
+export interface VariantOutcomeEvent {
+  index: number;
+  query: string;
+  outcome: VariantOutcome;
+}
+
+export type OnVariantOutcome = (event: VariantOutcomeEvent) => void;
+
+/** Best-effort report, same guard as rerank.ts's `reportRerankOutcome`: a throwing sink must
+ *  never affect the fan-out it is observing. */
+function reportVariantOutcome(
+  onVariantOutcome: OnVariantOutcome | undefined,
+  event: VariantOutcomeEvent,
+): void {
+  try {
+    onVariantOutcome?.(event);
+  } catch {
+    /* observability must never break retrieval */
+  }
+}
+
 /**
  * Fan out ONE query into several phrasing variants, run graphSearch per variant (bounded
  * concurrency, default limit 3), and fuse the per-variant ranked lists by rank-based RRF,
- * deduping by `path` and keeping the best (highest-ranked) hit per path. A variant that throws or
- * returns no results simply contributes nothing — it never fails the whole fan-out.
+ * deduping by `path` and keeping the best (highest-ranked) hit per path. A variant that returns no
+ * results simply contributes nothing — it never fails the whole fan-out. Nor does a variant that
+ * throws a genuinely transient error (`onVariantOutcome` reports it as `"swallowed_error"` when
+ * supplied) — but THE-926: a variant whose `graphSearch` call threw a deliberate, structural
+ * refusal (e.g. chunk_fts.ts's THE-750 guard) is NOT swallowed — `isLoudRefusal` (see the shared
+ * error taxonomy) rethrows it, failing the whole call loudly rather than silently returning fewer
+ * results for a reason the caller can never see.
  *
  * `queries` absent, empty, or a single element is an EXACT no-op: delegates straight to
  * graphSearch (unmodified opts for absent/empty; only `query` swapped for a single element,
@@ -66,6 +98,7 @@ export async function multiQueryGraphSearch(
   db: Database,
   opts: MultiQueryGraphSearchOptions,
   queries?: string[],
+  onVariantOutcome?: OnVariantOutcome,
 ): Promise<GraphSearchResult[]> {
   if (!queries || queries.length === 0) return graphSearch(db, opts);
   if (queries.length === 1) return graphSearch(db, { ...opts, query: queries[0] as string });
@@ -78,14 +111,32 @@ export async function multiQueryGraphSearch(
   const concurrency = Math.max(1, opts.multiQueryFanOut?.concurrency ?? DEFAULT_CONCURRENCY);
   const rrfK = opts.multiQueryFanOut?.rrfK ?? DEFAULT_FAN_OUT_RRF_K;
 
-  const perVariantResults = await runWithConcurrency(queries, concurrency, async (variantQuery) => {
-    try {
-      return await graphSearch(db, { ...opts, query: variantQuery, finalTopK: perQueryK });
-    } catch {
-      // A single bad variant (transient error, degenerate phrasing) must not sink the others.
-      return [] as GraphSearchResult[];
-    }
-  });
+  const perVariantResults = await runWithConcurrency(
+    queries,
+    concurrency,
+    async (variantQuery, index) => {
+      try {
+        const results = await graphSearch(db, {
+          ...opts,
+          query: variantQuery,
+          finalTopK: perQueryK,
+        });
+        reportVariantOutcome(onVariantOutcome, { index, query: variantQuery, outcome: "ok" });
+        return results;
+      } catch (e) {
+        // THE-926: a deliberate/structural refusal must fail the whole call loudly, not be
+        // swallowed as "this variant found nothing" — see isLoudRefusal's doc comment.
+        if (isLoudRefusal(e)) throw e;
+        // A single bad variant (transient error, degenerate phrasing) must not sink the others.
+        reportVariantOutcome(onVariantOutcome, {
+          index,
+          query: variantQuery,
+          outcome: "swallowed_error",
+        });
+        return [] as GraphSearchResult[];
+      }
+    },
+  );
 
   return fuseVariants(perVariantResults, rrfK, finalTopK);
 }

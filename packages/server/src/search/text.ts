@@ -157,6 +157,79 @@ function hasNestedQuantifier(p: string): boolean {
   return false;
 }
 
+/**
+ * THE-926 (amended after adversarial review): flag a run of 3+ ADJACENT quantified atoms that
+ * are the SAME atom repeated (`a*a*a*`, `\w+\w+\w+`, ...) with no intervening unquantified token —
+ * the clearest sequential-ReDoS signature, measured exponential in V8 for `a*a*a*a*a*a*a*b`
+ * against a non-matching input. This is a SIBLING to `hasNestedQuantifier` above, not a
+ * replacement: nesting/alternation inside groups is that function's job, this one's job is a flat
+ * chain of bare atoms `hasNestedQuantifier` never looks at (no group is ever opened). Matters only
+ * when the worker thread (THE-293's real execution timeout) is unavailable — this heuristic is
+ * the ENTIRE defense on the inline fallback path, which runs on the main event loop with no
+ * per-exec bound.
+ *
+ * The real precondition for catastrophic backtracking is that consecutive quantified atoms'
+ * character classes OVERLAP, not merely that they are adjacent — `a+b+c+`, `\w+\s+\w+`, and
+ * `[A-Z]+[a-z]+\d+` are disjoint at every step and run in LINEAR time, so adjacency alone
+ * (the first version of this guard) false-rejected them. Comparing the atoms' raw SOURCE TEXT for
+ * exact equality is the conservative stand-in for a full overlap check: two identical atoms
+ * obviously overlap (this still catches `a*a*a*`, `\w+\w+\w+`), while two atoms with different
+ * source text are treated as non-overlapping even when they truly do overlap semantically
+ * (`\w+\d+` — \d is a subset of \w — is NOT flagged here). That under-detection is deliberate: the
+ * THE-293 worker timeout is the real backstop for whatever this heuristic misses, whereas a
+ * false-reject breaks a real, safe search outright. A separator between two quantified atoms (a
+ * literal, an anchor, a group boundary, or simply a different atom) resets the run. A bare `?`
+ * (optional-once) does not compound and is treated as a non-quantified atom for run-counting
+ * purposes.
+ */
+function hasSequentialQuantifiers(p: string): boolean {
+  const THRESHOLD = 3;
+  let run = 0;
+  let lastAtomText: string | null = null;
+  let i = 0;
+  while (i < p.length) {
+    const c = p[i];
+    if (c === "(" || c === ")" || c === "|" || c === "^" || c === "$") {
+      run = 0;
+      lastAtomText = null;
+      i += 1;
+      continue;
+    }
+    const atomStart = i;
+    let atomEnd: number;
+    if (c === "\\") {
+      atomEnd = i + 2; // an escaped char/class shorthand is one atom, two characters wide.
+    } else if (c === "[") {
+      let j = i + 1;
+      if (p[j] === "^") j += 1; // negated class
+      if (p[j] === "]") j += 1; // a leading `]` inside a class is literal, not the closer
+      while (j < p.length && p[j] !== "]") j += p[j] === "\\" ? 2 : 1;
+      atomEnd = j + 1; // include the closing `]` (or end-of-string if unterminated)
+    } else {
+      atomEnd = i + 1; // a single literal character, including `.`
+    }
+    const quant = p[atomEnd];
+    if (quant === "*" || quant === "+" || quant === "{") {
+      let k = atomEnd + 1;
+      if (quant === "{") {
+        const close = p.indexOf("}", atomEnd);
+        k = close === -1 ? atomEnd + 1 : close + 1;
+      }
+      if (p[k] === "?") k += 1; // absorb a lazy-quantifier modifier, not a new atom
+      const atomText = p.slice(atomStart, atomEnd);
+      run = atomText === lastAtomText ? run + 1 : 1;
+      lastAtomText = atomText;
+      if (run >= THRESHOLD) return true;
+      i = k;
+    } else {
+      run = 0;
+      lastAtomText = null;
+      i = quant === "?" ? atomEnd + 1 : atomEnd; // `?` (optional-once) does not compound
+    }
+  }
+  return false;
+}
+
 export async function searchRegex(root: string, opts: RegexOptions): Promise<RegexHit[]> {
   const flags = opts.flags ?? "i";
   // ReDoS / misuse guards (F2): bound pattern length, whitelist flags (g is added
@@ -171,6 +244,11 @@ export async function searchRegex(root: string, opts: RegexOptions): Promise<Reg
   if (hasNestedQuantifier(opts.pattern))
     throw err.invalidInput(
       "regex rejected: a quantifier on a nested quantifier or an alternation may cause catastrophic backtracking",
+      { pattern: opts.pattern },
+    );
+  if (hasSequentialQuantifiers(opts.pattern))
+    throw err.invalidInput(
+      "regex rejected: 3 or more adjacent quantified atoms (e.g. a*a*a*) may cause catastrophic backtracking",
       { pattern: opts.pattern },
     );
   let re: RegExp;
