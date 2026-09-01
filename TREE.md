@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,228 tracked code files · 198,962 lines.
+**Scale:** 1,228 tracked code files · 198,967 lines.
 
-TypeScript 183,718 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 183,723 · JavaScript 10,605 · SQL 1,897 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 90 | 17,999 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 90 | 18,004 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,156 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 25 | 6,321 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 18 | 4,715 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |

@@ -24,17 +24,22 @@
 //   is ACL-filtered before it exists, an unreadable note is genuinely absent from all of them, and
 //   it falls out as the REAL never-a-candidate answer rather than a manufactured one.
 //
-// TWO RESIDUALS, both pre-existing and both confirmed by cross-vendor review of this PR. Neither is
-// introduced here and neither returns unreadable CONTENT, but both mean stage COUNTS are not fully
-// noninterfering, so this comment must not claim they are:
+// ONE RESIDUAL remains, pre-existing and confirmed by cross-vendor review of the PR that added it.
+// It does not return unreadable CONTENT, but it means stage COUNTS are not fully noninterfering,
+// so this comment must not claim they are:
 //
-//   1. GRAPH EXPANSION DOES NOT FILTER IN ITS WALK (THE-695). An earlier draft of this comment said
-//      it did. It does not: expandGraphLiteral's recursive CTE traverses vault_edges with no ACL
-//      at all, and graph_expansion.ts filters isReadable only on the hydrated chunk rows AFTER the
-//      walk. So on `readable A -> unreadable S -> readable B`, S is a hidden bridge that makes B
-//      reachable at hop 2; delete S and B is unreachable. The presence of an unreadable note
-//      therefore changes the READABLE result set.
-//   2. The BM25 over-fetch boundary — see the residual note in chunk_fts.ts.
+//   The BM25 over-fetch boundary — see the residual note in chunk_fts.ts. Even that is
+//   unreachable for a restricted caller here: buildGraphSearchOptions resolves an aclSetId
+//   whenever the caller's ACL set resolves, routing bm25Chunks through the exact SQL join+LIMIT
+//   path instead of the over-fetch fallback (THE-853); when no set can be resolved,
+//   seed_generation.ts's lexHits and router.ts's lexicalRouteResults both fail closed to an empty
+//   lexical arm rather than ever reaching the fallback.
+//
+// The graph-expansion residual an earlier version of this comment described here — the recursive
+// CTE walking vault_edges with no ACL at all, filtering isReadable only on the hydrated chunk rows
+// after the walk, letting an unreadable note act as a hidden bridge between two readable ones — is
+// closed by THE-852 (v1.22.0): the graph-walk ACL join is threaded into buildGraphSearchOptions and
+// defaults on for every M7 surface including this one, with no config flag to disable it.
 //
 // There is deliberately NO up-front readability check on the target path, and this comment
 // previously said there was. That earlier version short-circuited with a hand-written envelope, and

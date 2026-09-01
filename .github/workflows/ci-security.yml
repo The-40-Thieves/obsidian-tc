@@ -274,13 +274,27 @@ jobs:
         if: always()
         run: bun audit
         working-directory: docs
+      # packages/reranker-local is a THIRD separate bun workspace (its own lockfile, not a root
+      # workspace member — see reranker-local's job in ci-server.yml), so it is invisible to both
+      # audits above for the same reason docs/ was: `bun audit` only walks the lockfile it runs
+      # against. `if: always()` for the same reason as the docs steps — a JOB-level
+      # `continue-on-error` does not survive a failed STEP, so without it a failure in the root or
+      # docs audit above would skip this one and leave this workspace unscanned.
+      - if: always()
+        run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: packages/reranker-local
+      - name: bun audit (reranker-local workspace)
+        if: always()
+        run: bun audit
+        working-directory: packages/reranker-local
 
   osv-scanner:
     # Cross-ecosystem dependency scan, complementing bun-audit/cargo-audit above rather than
     # replacing them. Those each walk ONE lockfile in ONE ecosystem and depend on step ordering to
     # cover the second workspace (see the `if: always()` note above). osv-scanner walks the tree and
     # scans EVERY manifest it finds in a single invocation — root bun.lock, docs/bun.lock,
-    # packages/native/Cargo.lock and the service requirements files — against the OSV database,
+    # packages/reranker-local/bun.lock, packages/native/Cargo.lock and the service requirements
+    # files — against the OSV database,
     # which is a different feed from bun's. A local run over this repo covered 1183 packages across
     # 4 ecosystems in ~600ms and reported postcss once PER WORKSPACE, so a per-workspace regression
     # cannot hide behind a passing root scan.
