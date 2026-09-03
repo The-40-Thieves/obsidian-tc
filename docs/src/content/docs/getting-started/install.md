@@ -3,6 +3,16 @@ title: Installation
 description: Install the obsidian-tc MCP server via npm, a standalone binary, or Docker.
 ---
 
+The fastest way to try it, no install step and no config file:
+
+```sh
+npx obsidian-tc /path/to/vault
+```
+
+Lexical search and every note tool work immediately; semantic and graph-seeded
+retrieval need an embeddings backend (Ollama by default), which is the upgrade a
+config file buys you — see [First Run](/getting-started/first-run/).
+
 obsidian-tc ships in several forms. All of them run the same server; pick whichever
 fits your environment.
 
