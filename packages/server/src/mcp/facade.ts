@@ -86,23 +86,33 @@ export const CALL_CAPABILITY_SCHEMA = z.strictObject({
   args: z.record(z.string(), z.unknown()).default({}),
 });
 
-// THE-463: the triad catalog is immutable after module load (three meta-tools, module-constant
-// schemas, memoized toJson) and is the DEFAULT facade, so tools/list rebuilt it on every request.
-// Build it once. Frozen so a caller cannot mutate the shared instance.
-let triadCache: Tool[] | null = null;
+// THE-463: the triad catalog is immutable after module load for a GIVEN `hasResources` (three
+// meta-tools, module-constant schemas, memoized toJson) — the DEFAULT facade, so tools/list
+// rebuilt it every request. Build each variant once; frozen so a caller cannot mutate it.
+// THE-937: `hasResources` (a vaultRegistry present, mcp/server.ts's own gate for `resources/*`)
+// selects whether find_capability's description names a resource that might not exist. Keyed on
+// the boolean, not computed at the call site, so both variants stay memoized after first use.
+const triadCache = new Map<boolean, Tool[]>();
 
-export function triadTools(): Tool[] {
-  if (triadCache === null) triadCache = Object.freeze(buildTriadTools()) as unknown as Tool[];
-  return triadCache;
+export function triadTools(hasResources = true): Tool[] {
+  let cached = triadCache.get(hasResources);
+  if (cached === undefined) {
+    cached = Object.freeze(buildTriadTools(hasResources)) as unknown as Tool[];
+    triadCache.set(hasResources, cached);
+  }
+  return cached;
 }
 
-function buildTriadTools(): Tool[] {
+function buildTriadTools(hasResources: boolean): Tool[] {
   return [
     {
       name: "find_capability",
       title: "Find capability",
       description:
-        "Search this server's full tool catalog by natural-language query and return the best-matching capabilities (name + one-line summary). Use it to discover which tool to call, then describe_capability for its schema and call_capability to run it. To enumerate the whole caller-visible catalog grouped by domain instead of searching it, read the obsidian-tc://catalog resource.",
+        "Search this server's full tool catalog by natural-language query and return the best-matching capabilities (name + one-line summary). Use it to discover which tool to call, then describe_capability for its schema and call_capability to run it." +
+        (hasResources
+          ? " To enumerate the whole caller-visible catalog grouped by domain instead of searching it, read the obsidian-tc://catalog resource."
+          : ""),
       inputSchema: toJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -400,7 +410,7 @@ export function renderCatalogResource(
 // THE-937: a STATIC seed (live episode_stats would make instructions non-deterministic per
 // install), seeded from the reporter's top nine (GH #877), filled to 3-4 per domain with the
 // tools whose descriptions best summarize it. `read_notes` dropped to keep `notes` at four.
-const TOP_TOOLS_BY_DOMAIN: Record<ToolDomain, readonly string[]> = {
+export const TOP_TOOLS_BY_DOMAIN: Record<ToolDomain, readonly string[]> = {
   notes: ["list_notes", "read_note", "write_note", "patch_note"],
   metadata: ["read_frontmatter", "update_frontmatter", "add_tag", "find_notes_by_property"],
   links: ["get_backlinks", "get_outgoing_links", "find_orphans", "vault_health_score"],
@@ -442,14 +452,23 @@ export function renderInstructions(groups: CatalogGroup[]): string {
 // instruction surfaces in mcp/server.ts (the Server constructor's static `instructions` option,
 // answering legacy `initialize`; and the per-request `server/discover` override) render
 // byte-identical prose for the same tool set and cannot drift apart.
-export function buildInstructions(name: string, version: string, tools: ToolDefinition[]): string {
+export function buildInstructions(
+  name: string,
+  version: string,
+  tools: ToolDefinition[],
+  hasResources = true,
+): string {
   const preamble =
     `${name} ${version} — an MCP server over Obsidian vaults. ` +
     `Tools are authorized per call (scopes + folder ACL); resources are vault notes. ` +
     `After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback ` +
     `— retrieval quality is learned from that signal and nothing else supplies it.`;
+  // THE-937: the pointer only makes sense when resources are wired -- see triadTools()'s same gate.
+  const catalogPointer = hasResources
+    ? " (read obsidian-tc://catalog for the full caller-visible list)"
+    : "";
   return (
-    `${preamble}\n\nCapabilities by domain (read obsidian-tc://catalog for the full ` +
-    `caller-visible list):\n${renderInstructions(buildCatalog(tools))}`
+    `${preamble}\n\nCapabilities by domain${catalogPointer}:\n` +
+    `${renderInstructions(buildCatalog(tools))}`
   );
 }

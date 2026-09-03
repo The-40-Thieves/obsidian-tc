@@ -180,7 +180,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       name: "read_base",
       domain: "structured",
       pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Read a .base file's structure (source, views, formulas).",
+      description: "Read a .base file's structure (source, views, formulas). Domain: structured.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       outputSchema: ReadBaseOutput,
       requiredScopes: ["read:bases"],

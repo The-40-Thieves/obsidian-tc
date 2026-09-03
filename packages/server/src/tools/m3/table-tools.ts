@@ -199,7 +199,7 @@ export function buildTableTools(deps: M3Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
-        "Reformat a GFM markdown table in a note: realign columns to a uniform width, honoring the delimiter row's alignment. Addressed by 0-based table_index within the note.",
+        "Reformat a GFM markdown table in a note: realign columns to a uniform width, honoring the delimiter row's alignment. Addressed by 0-based table_index within the note. Domain: structured.",
       inputSchema: z.object({ ...Base, prev_hash: z.string().optional() }).strict(),
       outputSchema: TableMutationOutput,
       requiredScopes: ["write:notes"],

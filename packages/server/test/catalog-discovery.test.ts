@@ -12,6 +12,7 @@ import {
   MAX_INSTRUCTIONS_CHARS,
   renderCatalogResource,
   renderInstructions,
+  TOP_TOOLS_BY_DOMAIN,
 } from "../src/mcp/facade";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { CATALOG_RESOURCE_URI } from "../src/mcp/resources";
@@ -124,18 +125,36 @@ describe("renderInstructions (THE-937)", () => {
     expect(text.length).toBeLessThanOrEqual(MAX_INSTRUCTIONS_CHARS);
   });
 
-  it("every TOP_TOOLS_BY_DOMAIN name is a real, currently-registered tool in that domain", () => {
-    // Guards the static allowlist against a rename or a domain move: if a name in the allowlist
-    // no longer exists (or moved domains), it silently stops appearing in the instructions text
-    // rather than failing loudly — this test is the loud failure.
+  it("every TOP_TOOLS_BY_DOMAIN entry names a real, currently-registered tool in that domain", () => {
+    // Guards the static allowlist against a rename or a domain move. THIS MUST NOT go through
+    // renderInstructions: that function already filters the allowlist against the caller-visible
+    // set (facade.ts's TOP_TOOLS_BY_DOMAIN.filter((n) => visible.has(n))), so a renamed, removed,
+    // or domain-moved entry is silently DROPPED before it ever reaches rendered text — a test that
+    // parses the text can never observe the failure it exists to catch. Assert directly against
+    // the allowlist and the real registry instead.
+    const byName = new Map(
+      buildFullRegistry()
+        .list()
+        .map((t) => [t.name, t.domain]),
+    );
+    for (const [domain, names] of Object.entries(TOP_TOOLS_BY_DOMAIN)) {
+      for (const name of names) {
+        expect(byName.get(name), `${name} (listed under "${domain}") is not registered`).toBe(
+          domain,
+        );
+      }
+    }
+  });
+
+  it("every rendered '(e.g. ...)' name also resolves to a real tool (second check, on text)", () => {
+    // Kept alongside the direct check above: this one exercises renderInstructions' actual output
+    // shape, which the direct check does not touch.
     const full = buildFullRegistry();
     const byName = new Map(full.list().map((t) => [t.name, t.domain]));
     const text = renderInstructions(buildCatalog(full.listVisible()));
-    // Every "(e.g. ...)" name mentioned must resolve to a real tool whose domain matches the line
-    // it appears on.
     for (const line of text.split("\n")) {
       const m = line.match(/^- ([^:]+): .*\(e\.g\. (.+)\)$/);
-      if (!m) continue; // a domain whose allowlist entries are all absent from the real registry
+      if (!m) continue;
       const names = m[2]?.split(", ") ?? [];
       for (const n of names) expect(byName.has(n), `${n} is not a registered tool`).toBe(true);
     }
@@ -157,7 +176,11 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     return r;
   }
 
-  async function connect(scopes: string[], vaultRegistry?: VaultRegistry) {
+  async function connect(
+    scopes: string[],
+    vaultRegistry?: VaultRegistry,
+    registry: ToolRegistry = reg(),
+  ) {
     const context = (): CallerContext => ({
       caller: "t",
       authenticated: true,
@@ -168,7 +191,7 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     const server = createMcpServer({
       name: "x",
       version: "0",
-      registry: reg(),
+      registry,
       context,
       vaultRegistry,
       facadeMode: "triad",
@@ -181,7 +204,7 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
   }
 
   it("find_capability's description names the obsidian-tc://catalog resource", async () => {
-    const { client, server } = await connect(["*"]);
+    const { client, server } = await connect(["*"], tempVault());
     const tools = (await client.listTools()).tools;
     const find = tools.find((t) => t.name === "find_capability");
     expect(find?.description).toContain("obsidian-tc://catalog");
@@ -238,6 +261,21 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     await server.close();
   });
 
+  it("honors a lowered registry maxResponseBytes ceiling on the catalog resource too", async () => {
+    // THE-937 fix round 1 (minor): readCatalogResource previously ignored maxResponseBytes while
+    // the adjacent vault-note path (readResource) threaded it. A ceiling far below the catalog's
+    // real size must now be refused the same way an oversized note read is.
+    const tinyRegistry = (): ToolRegistry => {
+      const r = new ToolRegistry({ maxResponseBytes: 10 });
+      for (const t of fixtureTools()) r.register(t);
+      return r;
+    };
+    const { client, server } = await connect(["*"], tempVault(), tinyRegistry());
+    await expect(client.readResource({ uri: CATALOG_RESOURCE_URI })).rejects.toThrow(/exceeds/);
+    await client.close();
+    await server.close();
+  });
+
   it("a caller without read:notes cannot list or read the catalog either", async () => {
     const { client, server } = await connect([], tempVault());
     // resources/list is scope-gated on read:notes for the WHOLE surface, catalog included.
@@ -252,9 +290,25 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     // The SDK v1 client only ever produces the legacy 2025-11-25 handshake (initialize), whose
     // `instructions` is the Server constructor's static option — mcp/server.ts computes it once
     // from `registry.listVisible()`. getInstructions() is populated from that handshake response.
-    const { client, server } = await connect(["*"]);
+    const { client, server } = await connect(["*"], tempVault());
     expect(client.getInstructions()).toContain("Capabilities by domain");
     expect(client.getInstructions()).toContain("obsidian-tc://catalog");
+    await client.close();
+    await server.close();
+  });
+
+  it("without a vaultRegistry, neither instruction surface mentions the catalog, and resources is not declared", async () => {
+    // THE-937 fix round 1: McpServerOptions.vaultRegistry is optional, and resources (including
+    // the catalog handler) are wired only `if (vaultRegistry)` — a server with none never declares
+    // the `resources` capability, so pointing a caller at obsidian-tc://catalog would be a dead
+    // link. Both instruction surfaces must omit the pointer in that case.
+    const { client, server } = await connect(["*"]); // no vaultRegistry
+    expect(client.getServerCapabilities()?.resources).toBeUndefined();
+    expect(client.getInstructions()).not.toContain("obsidian-tc://catalog");
+    expect(client.getInstructions()).toContain("Capabilities by domain"); // the summary itself still renders
+    const tools = (await client.listTools()).tools;
+    const find = tools.find((t) => t.name === "find_capability");
+    expect(find?.description).not.toContain("obsidian-tc://catalog");
     await client.close();
     await server.close();
   });

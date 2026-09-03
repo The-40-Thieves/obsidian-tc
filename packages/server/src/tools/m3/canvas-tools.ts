@@ -220,7 +220,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       acceptsIdempotencyKey: true,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
-        "Create a new .canvas with optional initial nodes/edges. Overwriting an existing canvas requires confirmation.",
+        "Create a new .canvas with optional initial nodes/edges. Overwriting an existing canvas requires confirmation. Domain: structured.",
       inputSchema: CreateInput,
       outputSchema: CreateCanvasOutput,
       requiredScopes: ["write:canvas"],

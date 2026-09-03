@@ -172,7 +172,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "list_vaults",
       domain: "vault",
-      description: "List configured vaults and their cache state.",
+      description: "List configured vaults and their cache state. Domain: vault.",
       inputSchema: z.object({}).strict(),
       outputSchema: ListVaultsOutput,
       requiredScopes: ["read:vault"],

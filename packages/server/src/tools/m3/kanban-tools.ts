@@ -153,7 +153,8 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
       name: "read_kanban_board",
       domain: "structured",
       pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Parse a Kanban board note into its columns and cards (text + checked state).",
+      description:
+        "Parse a Kanban board note into its columns and cards (text + checked state). Domain: structured.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       outputSchema: ReadKanbanBoardOutput,
       requiredScopes: ["read:notes"],

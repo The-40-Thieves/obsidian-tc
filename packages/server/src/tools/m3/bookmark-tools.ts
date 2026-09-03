@@ -152,7 +152,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       domain: "workspace",
       pathAcl: () => [{ op: "read", path: BOOKMARKS_PATH }],
       description:
-        "List the vault's bookmarks tree (.obsidian/bookmarks.json), preserving groups and unknown fields.",
+        "List the vault's bookmarks tree (.obsidian/bookmarks.json), preserving groups and unknown fields. Domain: workspace.",
       inputSchema: z.object({ vault: VaultId }).strict(),
       outputSchema: ListBookmarksOutput,
       requiredScopes: ["read:bookmarks"],
@@ -178,7 +178,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: () => [{ op: "write", path: BOOKMARKS_PATH }],
       description:
-        "Add a bookmark (optionally into a named group, created if absent). A duplicate is a no-op unless allow_duplicate is set.",
+        "Add a bookmark (optionally into a named group, created if absent). A duplicate is a no-op unless allow_duplicate is set. Domain: workspace.",
       inputSchema: z
         .object({
           vault: VaultId,

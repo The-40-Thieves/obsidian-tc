@@ -105,7 +105,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
       name: "list_commands",
       domain: "automation",
       description:
-        "Enumerate available Obsidian commands (optional substring filter). Uses the companion plugin, falling back to Local REST API's native /commands/ route when the companion is unreachable.",
+        "Enumerate available Obsidian commands (optional substring filter). Uses the companion plugin, falling back to Local REST API's native /commands/ route when the companion is unreachable. Domain: automation.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -157,7 +157,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
       domain: "automation",
       vaultArg: "vault",
       description:
-        "Fire an Obsidian command by id. Deny-by-default and triple-gated: requires human confirmation (execute:command is a HITL floor), command execution must be enabled for the vault, and the id must be on the vault allowlist. Falls back to Local REST API's native /commands/{id}/ route when the companion is unreachable. Never silently runnable.",
+        "Fire an Obsidian command by id. Deny-by-default and triple-gated: requires human confirmation (execute:command is a HITL floor), command execution must be enabled for the vault, and the id must be on the vault allowlist. Falls back to Local REST API's native /commands/{id}/ route when the companion is unreachable. Never silently runnable. Domain: automation.",
       inputSchema: z
         .object({
           vault: VaultId,

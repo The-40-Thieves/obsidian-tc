@@ -29,7 +29,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
       name: "list_templates",
       domain: "automation",
       description:
-        "List available Templater templates with parsed metadata (user functions, parameters), via the companion bridge.",
+        "List available Templater templates with parsed metadata (user functions, parameters), via the companion bridge. Domain: automation.",
       inputSchema: z.object({ vault: VaultId }).strict(),
       outputSchema: ListTemplatesOutput,
       requiredScopes: ["read:templater"],
@@ -62,7 +62,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         { op: "write", path: input.target },
       ],
       description:
-        "Run a Templater template and write the expanded output to a target path. Always requires human confirmation (write:templater is a HITL floor) because templates can execute arbitrary user JavaScript.",
+        "Run a Templater template and write the expanded output to a target path. Always requires human confirmation (write:templater is a HITL floor) because templates can execute arbitrary user JavaScript. Domain: automation.",
       inputSchema: z
         .object({
           vault: VaultId,

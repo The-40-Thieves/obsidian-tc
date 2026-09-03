@@ -213,7 +213,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
-        "Add a tag to a note's frontmatter `tags` list or inline in the body (idempotent).",
+        "Add a tag to a note's frontmatter `tags` list or inline in the body (idempotent). Domain: metadata.",
       inputSchema: AddInput,
       outputSchema: AddTagOutput,
       requiredScopes: ["write:notes"],

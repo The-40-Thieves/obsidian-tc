@@ -45,17 +45,27 @@ export function catalogResourceEntry(): {
  * `dispatchResource`'s `requiredScopes` parameter (mcp/server.ts) is audit/rate-limit metadata
  * ONLY — resources.ts owns AUTHORIZATION for every resource, same as readResource below — so this
  * asserts the scope itself rather than trusting the caller to have gated it.
+ *
+ * `maxResourceBytes` threads the registry's configured ceiling the same way readResource's does
+ * (THE-514 item 2) — a lowered ceiling applies to the catalog too, not just vault notes. There is
+ * no cheap pre-check here (no stat to read before building, unlike a vault file): the caller-visible
+ * catalog is already bounded by the registered tool count, so building it first and checking the
+ * serialized size is cheap in practice, not the multi-hundred-MB risk readResource's stat guards.
  */
 export function readCatalogResource(
   ctx: CallerContext,
   tools: ToolDefinition[],
+  maxResourceBytes: number,
 ): ReadResourceResult {
   assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
   const entries = renderCatalogResource(buildCatalog(tools));
+  const text = JSON.stringify({ tools: entries });
+  if (Buffer.byteLength(text, "utf8") > maxResourceBytes)
+    throw err.invalidInput(`resource exceeds ${maxResourceBytes} bytes`, {
+      uri: CATALOG_RESOURCE_URI,
+    });
   return {
-    contents: [
-      { uri: CATALOG_RESOURCE_URI, mimeType: MIME_JSON, text: JSON.stringify({ tools: entries }) },
-    ],
+    contents: [{ uri: CATALOG_RESOURCE_URI, mimeType: MIME_JSON, text }],
   };
 }
 

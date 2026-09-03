@@ -307,15 +307,14 @@ export function toMcpTool(def: ToolDefinition): Tool {
  */
 export function createMcpServer(opts: McpServerOptions): Server {
   // THE-937: legacy `initialize` (SDK-internal `_oninitialize`) owns protocol-version negotiation
-  // and connection state a hand-rolled replacement handler cannot reproduce from outside the
-  // class, so it gets no per-request override. Its `instructions` are computed here ONCE from
-  // `registry.listVisible()` with no caller — the static visibility-CONFIG layer only, per-caller
-  // scope/ACL skipped (see visibility.ts's "omitting the caller" note). `server/discover` below IS
-  // fully caller-filtered, recomputed per request — the closest the SDK allows for legacy.
+  // a hand-rolled override cannot reproduce, so `instructions` here is computed ONCE from
+  // `registry.listVisible()` with no caller (the static visibility-CONFIG layer only — see
+  // visibility.ts). `server/discover` below IS fully caller-filtered, recomputed per request.
   const staticInstructions = buildInstructions(
     opts.name,
     opts.version,
     opts.registry.listVisible(),
+    Boolean(opts.vaultRegistry),
   );
   const server = new Server(
     { name: opts.name, version: opts.version },
@@ -396,14 +395,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // note for the history behind that requirement.
   //
   // THE-718's feedback clause is here because a client in triad/domain facade mode never sees
-  // record_retrieval_feedback's own description — tools/list advertises three meta-tools. The
-  // handshake is the one surface every client reads regardless of mode, and the emitter decision
-  // put the obligation on the acting agent, so it has to be stated somewhere a facade caller will
-  // encounter it. THE-937 adds the 13-domain catalog summary alongside it (buildInstructions),
-  // recomputed per request from THIS caller's visible catalog — unlike the constructor's static
-  // `instructions` (answering legacy `initialize`), this handler has the real per-request caller,
-  // so it is the fully caller-filtered surface Gate 2 asks for. Per-caller means PRIVATE, not the
-  // PUBLIC this carried before THE-937 (see the cache-hints doc comment above).
+  // record_retrieval_feedback's own description; this is the one surface every client reads
+  // regardless of mode. THE-937 adds the 13-domain catalog summary alongside it
+  // (buildInstructions), recomputed per request from THIS caller's visible catalog — the fully
+  // caller-filtered surface, hence PRIVATE now rather than the PUBLIC this carried before THE-937.
   server.setRequestHandler("server/discover", (_req, extra) => {
     const dctx = opts.context(extra.mcpReq.signal);
     const dvisible = opts.registry.listVisible({
@@ -415,7 +410,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
       {
         supportedVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
         capabilities: server.getCapabilities(),
-        instructions: buildInstructions(opts.name, opts.version, dvisible),
+        instructions: buildInstructions(
+          opts.name,
+          opts.version,
+          dvisible,
+          Boolean(opts.vaultRegistry),
+        ),
       },
       CACHE_PRIVATE,
     );
@@ -425,7 +425,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
     // surface. Every registered tool stays callable by name via call_capability, so nothing is
     // hidden; flat mode is the back-compat full-surface behavior.
-    if (facadeMode === "triad") return withCacheHint({ tools: triadTools() }, CACHE_PRIVATE);
+    if (facadeMode === "triad")
+      return withCacheHint({ tools: triadTools(Boolean(opts.vaultRegistry)) }, CACHE_PRIVATE);
     if (facadeMode === "domain") {
       const dctx = opts.context(extra.mcpReq.signal);
       const dvisible = opts.registry.listVisible({
@@ -717,9 +718,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
           { cursor: req.params?.cursor ?? null },
           () => {
             const notes = listResources(vaultRegistry, ctx, req.params?.cursor);
-            // THE-937: the catalog resource is listed FIRST, ahead of the paginated vault notes —
-            // one row, only on the first page (a cursor mid-walk must not re-emit it), and only for
-            // a caller who could read it — the same read:notes gate listResources applies to notes.
+            // THE-937: catalog listed FIRST, one row, only on the first page (no re-emitting it
+            // per cursor page) and only for a caller who could read it (same gate as notes).
             if (req.params?.cursor || !canReadNotes(ctx)) return notes;
             return {
               resources: [catalogResourceEntry(), ...notes.resources],
@@ -746,8 +746,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
     );
     server.setRequestHandler("resources/read", (req, extra): Promise<ReadResourceResult> => {
       const ctx = opts.context(extra.mcpReq.signal);
-      // THE-937: the catalog resource caches an hour (CACHE_CATALOG), not the 60s vault notes get
-      // (CACHE_PRIVATE) — the tool surface is fixed for a process lifetime; a vault note is not.
+      // THE-937: caches an hour (CACHE_CATALOG), not the 60s notes get (CACHE_PRIVATE) — the
+      // tool surface is fixed for a process lifetime; a vault note is not.
       const isCatalog = req.params.uri === CATALOG_RESOURCE_URI;
       return opts.registry
         .dispatchResource(
@@ -766,7 +766,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
                 readOnly: ctx.acl?.readOnly,
                 toolVisibility: ctx.toolVisibility,
               });
-              return readCatalogResource(ctx, visible);
+              return readCatalogResource(ctx, visible, opts.registry.maxResponseBytes);
             }
             // Synchronous, so a try/catch rather than .catch — the miss must surface as -32602.
             try {

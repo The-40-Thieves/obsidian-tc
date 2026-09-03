@@ -192,7 +192,8 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       name: "read_frontmatter",
       domain: "metadata",
       pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Read a note's parsed YAML frontmatter (null when the note has none).",
+      description:
+        "Read a note's parsed YAML frontmatter (null when the note has none). Domain: metadata.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       outputSchema: ReadFrontmatterOutput,
       requiredScopes: ["read:notes"],
@@ -429,7 +430,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       name: "find_notes_by_property",
       domain: "metadata",
       description:
-        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value). Set nested=true to match a dotted key path.",
+        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value). Set nested=true to match a dotted key path. Domain: metadata.",
       inputSchema: FindInput,
       outputSchema: FindNotesByPropertyOutput,
       requiredScopes: ["read:notes"],

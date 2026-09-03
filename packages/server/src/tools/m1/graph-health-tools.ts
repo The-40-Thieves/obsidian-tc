@@ -212,7 +212,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       name: "vault_health_score",
       domain: "links",
       description:
-        "Composite vault link-health score (0-100) with a breakdown: orphan count, unresolved-link count, hub density, and cycle count over the readable note graph.",
+        "Composite vault link-health score (0-100) with a breakdown: orphan count, unresolved-link count, hub density, and cycle count over the readable note graph. Domain: links.",
       inputSchema: z
         .object({
           vault: VaultId,

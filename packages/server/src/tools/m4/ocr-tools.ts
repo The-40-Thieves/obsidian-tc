@@ -30,7 +30,7 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
       domain: "attachments",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Run OCR on a single image or PDF attachment via the Text Extractor bridge. Returns extracted text (cached by the plugin per file+model).",
+        "Run OCR on a single image or PDF attachment via the Text Extractor bridge. Returns extracted text (cached by the plugin per file+model). Domain: attachments.",
       inputSchema: z
         .object({ vault: VaultId, path: VaultPath, force: z.boolean().default(false) })
         .strict(),
