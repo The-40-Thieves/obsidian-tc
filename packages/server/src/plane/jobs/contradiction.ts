@@ -9,6 +9,7 @@ import type { Database } from "../../db/types";
 import { semanticSearch } from "../../search/semantic";
 import { blobToFloats } from "../../search/vec";
 import { contentHash } from "../../vault/paths";
+import { type EgressFilter, isExcludedPath } from "../egress-filter";
 import { type GatewayRoles, prompt } from "../gateway";
 
 const COSINE_THRESHOLD = 0.85;
@@ -120,7 +121,16 @@ export interface ContradictionStats {
 }
 
 export async function checkContradictions(
-  ctx: { db: Database; roles: GatewayRoles | null; now: () => number; model?: string },
+  ctx: {
+    db: Database;
+    roles: GatewayRoles | null;
+    now: () => number;
+    model?: string;
+    /** THE-934: egress.excludePaths, compiled. Absent -> nothing excluded (back-compat). A pair
+     *  with either side under an excluded path is dropped BEFORE the judge call — never
+     *  candidate-counted, never sent. */
+    excludeFilter?: EgressFilter;
+  },
   vaultId: string,
   chunks: IndexedChunk[],
 ): Promise<ContradictionStats> {
@@ -132,6 +142,9 @@ export async function checkContradictions(
     judgeErrors: 0,
   };
   if (!ctx.roles) return stats; // generative disabled -> nothing to judge
+  const excludeFilter = ctx.excludeFilter;
+  const excluded = (path: string): boolean =>
+    excludeFilter !== undefined && isExcludedPath(excludeFilter, path);
   const insert = ctx.db.prepare(
     "INSERT OR IGNORE INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, cosine_similarity, judge_verdict, judge_rationale, judge_model, status, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
   );
@@ -148,12 +161,26 @@ export async function checkContradictions(
   const tasks: JudgeTask[] = [];
   for (const chunk of chunks) {
     stats.checked += 1;
+    // THE-934: the chunk being judged is never itself under an excluded path in production (an
+    // excluded chunk is never embedded, so it never reaches semanticSearch or fires onIndexed —
+    // see search/indexing/embed-batches.ts). Checked here anyway as the chokepoint's own
+    // enforcement, not merely a consequence of the index-time side effect.
+    if (excluded(chunk.path)) {
+      stats.skipped += 1;
+      continue;
+    }
     const neighbors = semanticSearch(ctx.db, vaultId, chunk.embedding, {
       k: TOP_K + 1,
       returnContent: true,
       ...(ctx.model !== undefined ? { model: ctx.model } : {}),
     }).filter(
-      (n) => n.chunk_id !== chunk.id && n.score >= COSINE_THRESHOLD && n.score < NEAR_DUPE_CEILING,
+      (n) =>
+        n.chunk_id !== chunk.id &&
+        n.score >= COSINE_THRESHOLD &&
+        n.score < NEAR_DUPE_CEILING &&
+        // THE-934: a pair with an excluded neighbor is dropped wholesale, not merely un-judged —
+        // it must never reach the tasks list a judge request is built from.
+        !excluded(n.path),
     );
     if (neighbors.length === 0) {
       stats.skipped += 1;
@@ -178,12 +205,16 @@ export async function checkContradictions(
   // the floor. Null is counted as `unjudged` below and reaches the caller.
   const verdicts = await mapLimit(tasks, JUDGE_CONCURRENCY, async (t) => {
     try {
-      const res = await roles.judge(
-        prompt(
+      const res = await roles.judge({
+        ...prompt(
           JUDGE_SYSTEM,
           `FRAGMENT A:\n${t.chunk.content}\n\nFRAGMENT B:\n${t.neighborContent}`,
         ),
-      );
+        // THE-934: the egress guard's defence-in-depth check reads this — both fragments' paths,
+        // already filtered above, are declared so a future change to the filtering logic above
+        // (not this line) is what the guard exists to catch.
+        sourcePaths: [t.chunk.path, t.neighborPath],
+      });
       // `threw: false` even when parseVerdict returns null — the judge ANSWERED, its reply was
       // just unusable. This is the only place that can still tell the two apart.
       return { verdict: parseVerdict(res.text), model: res.model, threw: false };

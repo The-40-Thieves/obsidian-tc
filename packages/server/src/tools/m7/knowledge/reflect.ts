@@ -7,6 +7,7 @@ import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { challengeProposal, type EvidenceChunk, isDecisionChunk } from "../../../plane/challenge";
+import { isExcludedPath } from "../../../plane/egress-filter";
 import { prompt } from "../../../plane/gateway";
 import { buildEvidence } from "../../../search/evidence";
 import type { GraphSearchResult } from "../../../search/graph_search";
@@ -148,11 +149,12 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
           readableRel(ctx.acl, rel),
         );
-        const { output, model } = await challengeProposal(
+        const { output, model, excludedCount } = await challengeProposal(
           deps.roles,
           input.query,
           evidence,
           contradictions,
+          deps.excludeFilter,
         );
         return {
           vault: v.id,
@@ -162,15 +164,26 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           model,
           challenge: output,
           sources,
+          ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
         };
       }
+      // THE-934 fix round 1 (Blocking-3): an excluded chunk is dropped BEFORE it can become
+      // synthesis evidence — reflect retrieves through the ordinary (lexical-inclusive) recall
+      // path, so an excluded chunk is a first-class hit here even though semantic_search never
+      // surfaces it.
+      const excludeFilter = deps.excludeFilter;
+      const notExcludedResults =
+        excludeFilter === undefined
+          ? results
+          : results.filter((r) => !isExcludedPath(excludeFilter, r.path));
+      const synthesisExcludedCount = results.length - notExcludedResults.length;
       // Selection through the shared builder; the RENDER stays this path's terse
       // `[n] path\ncontent` shape rather than adopting challenge's `path:/headings:/tags:/content:`
       // envelope. Unifying the two prompts' wording would change what the synthesis model reads,
       // and prompt wording is an evaluated change here — the builder unifies WHICH chunks are shown
       // and how they are numbered, not how they are phrased.
       const synthesis = buildEvidence(
-        results.map((r) => ({
+        notExcludedResults.map((r) => ({
           path: r.path,
           chunkId: r.chunk_id,
           content: r.content ?? "",
@@ -180,12 +193,15 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       const evidenceBlock = synthesis.items
         .map((e) => `[${e.citation}] ${e.path}\n${e.content}`)
         .join("\n\n");
-      const res = await deps.roles.synthesize(
-        prompt(
+      const res = await deps.roles.synthesize({
+        ...prompt(
           REFLECT_SYSTEM_PROMPT,
           `Question:\n${input.query}\n\nEvidence chunks:\n${evidenceBlock}`,
         ),
-      );
+        // THE-934: the egress guard's backstop check — every path here already cleared
+        // notExcludedResults above.
+        sourcePaths: synthesis.items.map((e) => e.path),
+      });
       // Traceable derived memory (the Hindsight "update in a traceable way" requirement):
       // provenance frontmatter carries the model + the exact source chunk ids and paths.
       let persisted: { path: string } | undefined;
@@ -210,8 +226,11 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           `generated_at: ${new Date(nowMs).toISOString()}`,
           `source_model: ${res.model}`,
           `query: ${JSON.stringify(input.query)}`,
-          `source_chunks: ${JSON.stringify(results.slice(0, 20).map((r) => r.chunk_id))}`,
-          `source_paths: ${JSON.stringify([...new Set(results.slice(0, 20).map((r) => r.path))])}`,
+          // THE-934: provenance reflects what actually informed the answer — notExcludedResults,
+          // not the raw retrieval set — so a persisted reflection never claims an excluded chunk
+          // as one of its sources.
+          `source_chunks: ${JSON.stringify(notExcludedResults.slice(0, 20).map((r) => r.chunk_id))}`,
+          `source_paths: ${JSON.stringify([...new Set(notExcludedResults.slice(0, 20).map((r) => r.path))])}`,
           "---",
           "",
           res.text,
@@ -233,6 +252,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         model: res.model,
         sources,
         ...(persisted ? { persisted } : {}),
+        ...(synthesisExcludedCount > 0 ? { excluded_count: synthesisExcludedCount } : {}),
       };
     },
   });

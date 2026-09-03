@@ -102,7 +102,7 @@ describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
       const reranker = resolution.mod?.createReranker({}, stubLoadSession);
       expect(typeof reranker).toBe("function");
 
-      const hits = await reranker?.("what is a vault", ["doc a", "doc b", "doc c"], 0);
+      const hits = await reranker?.("what is a vault", ["doc a", "doc b", "doc c"], 0, []);
       expect(hits?.map((h) => h.index)).toEqual([1, 2, 0]);
       expect(hits?.[0]?.relevanceScore).toBeGreaterThan(hits?.[1]?.relevanceScore ?? 1);
     });

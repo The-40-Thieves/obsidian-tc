@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
 import { ensureChunkFts } from "../src/search/chunk_fts";
 import { registerM7Tools } from "../src/tools/m7";
@@ -174,5 +175,66 @@ describe("reflect tool (THE-222)", () => {
     );
     expect(res.persisted?.path).toMatch(/^memory\/reflections\/\d{4}-\d{2}-\d{2}-quorble\.md$/);
     expect(existsSync(join(root, res.persisted?.path ?? ""))).toBe(true);
+  });
+});
+
+describe("reflect tool — egress exclusion skip-and-report (THE-934 fix round 2, N1)", () => {
+  it("an excluded note's content never reaches gateway.synthesize; excluded_count reports the skip", async () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const ins = db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, 0, '[]', ?, ?, 40, ?, ?)",
+    );
+    ins.run("pub1", "Public/note.md", "vorplequonk term public content", "hpub", NOW, NOW);
+    ins.run(
+      "priv1",
+      "Private/secret.md",
+      "vorplequonk term SECRET_MARKER content",
+      "hpriv",
+      NOW,
+      NOW,
+    );
+    ensureChunkFts(db, { now: () => NOW, enrich: false });
+
+    const registry = new ToolRegistry({});
+    const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
+    let capturedPrompt = "";
+    const capturingRoles: GatewayRoles = {
+      extract: async () => ({ text: "{}", model: "mock" }),
+      synthesize: async (req) => {
+        capturedPrompt = req.messages.map((m) => m.content).join("\n");
+        return { text: "the grounded answer", model: "mock-synth" };
+      },
+      judge: mockRoles.judge,
+    };
+    registerM7Tools(registry, {
+      vaultRegistry,
+      embeddingProvider: {
+        provider: "ollama",
+        model: "stub",
+        embed: async () => {
+          throw new Error("embed must not be called");
+        },
+      } as any,
+      reranker: null,
+      roles: capturingRoles,
+      classRouter: true,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    const ctx = {
+      caller: "tester",
+      authenticated: true,
+      grantedScopes: new Set(["read:notes"]),
+      vaultId: "main",
+      db,
+      now: () => NOW,
+    };
+    const res = un<ReflectData & { excluded_count?: number }>(
+      await registry.dispatch("reflect", { vault: "main", query: "vorplequonk term" }, ctx),
+    );
+    expect(res.available).toBe(true);
+    expect(capturedPrompt).not.toContain("SECRET_MARKER");
+    expect(capturedPrompt).toContain("public content");
+    expect(res.excluded_count).toBe(1);
   });
 });

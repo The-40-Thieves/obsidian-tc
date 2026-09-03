@@ -45,15 +45,34 @@ export interface AdvisoryGoal {
 }
 
 /** Something that happened and might be worth mentioning: a changed note, or derived-plane output.
- *  `text` is what gets compared to the goal — a title plus a snippet, not a whole note. */
-export interface AdvisoryCandidate {
-  kind: "note_changed" | "contradiction" | "synthesis";
-  /** Vault-relative path, or the derived row's id. Identifies the thing, and is what a caller
-   *  would resolve to check readability before anything is shown. */
-  ref: string;
-  text: string;
-  at: number;
-}
+ *  `text` is what gets compared to the goal — a title plus a snippet, not a whole note.
+ *
+ *  THE-934 fix round 2 follow-up (NB2): a DISCRIMINATED union, not one shape with an optional
+ *  `path` — round 2 made `path` optional on all three kinds, and `path ?? ""` at the one call site
+ *  that read it was fail-OPEN (an absent path cleared the exclusion filter instead of tripping it).
+ *  Requiring `path` on exactly the "note_changed" variant makes a pathless note-changed candidate a
+ *  TYPE ERROR at every construction site, not merely a runtime possibility a filter has to guess
+ *  about; the "contradiction"/"synthesis" variants correctly carry no `path` field at all, since
+ *  their `ref` was never a vault path to begin with. */
+export type AdvisoryCandidate =
+  | {
+      kind: "note_changed";
+      /** The chunk_retrievals FK identity — a real chunk id, a content hash, NOT a vault path. */
+      ref: string;
+      /** The real vault-relative path, for the egress exclusion filter and the embedding port's
+       *  `sourcePaths` backstop. Required, not optional — see the type-level doc comment above. */
+      path: string;
+      text: string;
+      at: number;
+    }
+  | {
+      kind: "contradiction" | "synthesis";
+      /** A derived-row id (e.g. a contradiction id or `synthesis-<year>-<week>`) — never a vault
+       *  path, so this kind carries no `path` field to be fail-open (or fail-closed) about. */
+      ref: string;
+      text: string;
+      at: number;
+    };
 
 /** One scored (goal, candidate) pair. Not yet a thing to send — see advisory-policy.ts. */
 export interface ScoredAdvisory {

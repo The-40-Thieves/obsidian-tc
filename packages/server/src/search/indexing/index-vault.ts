@@ -359,6 +359,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.provider.id, // THE-531: re-embed a model-superseded chunk even when content is unchanged
       preloadedExisting, // THE-501: plan from the bulk chunk-state load, no per-note query
       args.chunkTokens, // THE-424: indexing.chunkTokens; undefined -> the chunker's 512 default
+      args.isEgressExcluded, // THE-934: egress.excludePaths; undefined -> nothing excluded
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;

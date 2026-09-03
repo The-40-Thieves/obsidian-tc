@@ -516,6 +516,8 @@ async function graphSearchCore(
       Math.min(finalTopK, candidates.length),
       opts.reranker,
       opts.onRerankOutcome,
+      undefined,
+      opts.rerankExcludeFilter,
     );
     return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
   }
@@ -588,6 +590,8 @@ async function graphSearchCore(
     Math.min(finalTopK, pool.length),
     opts.reranker,
     opts.onRerankOutcome,
+    undefined,
+    opts.rerankExcludeFilter,
   );
   return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
 }

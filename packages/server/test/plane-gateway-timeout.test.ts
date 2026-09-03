@@ -70,7 +70,7 @@ describe("THE-709 — plane gateway per-attempt timeout", () => {
 
     const started = Date.now();
     await expect(
-      roles?.synthesize({ messages: [{ role: "user", content: "hello" }] }),
+      roles?.synthesize({ messages: [{ role: "user", content: "hello" }], sourcePaths: [] }),
     ).rejects.toThrow();
     const elapsed = Date.now() - started;
 
@@ -88,7 +88,7 @@ describe("THE-709 — plane gateway per-attempt timeout", () => {
     const roles = planeRoles(3, 30);
 
     await expect(
-      roles?.synthesize({ messages: [{ role: "user", content: "hello" }] }),
+      roles?.synthesize({ messages: [{ role: "user", content: "hello" }], sourcePaths: [] }),
     ).rejects.toThrow();
 
     // Each attempt must time out on its own controller. One abort would mean retries inherited a

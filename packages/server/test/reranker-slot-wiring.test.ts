@@ -59,14 +59,14 @@ describe("reranker slot", () => {
   it("sends EXACTLY {model, query, documents} when topN is 0", async () => {
     const { fetchFn, bodies } = capture();
     const r = await resolveReranker(CFG, { fetchFn });
-    await r?.("q", ["a", "b"], 0);
+    await r?.("q", ["a", "b"], 0, []);
     expect(Object.keys(bodies[0] ?? {}).sort()).toEqual(["documents", "model", "query"]);
   });
 
   it("adds top_n only when positive, never a truncation parameter", async () => {
     const { fetchFn, bodies, urls } = capture();
     const r = await resolveReranker(CFG, { fetchFn });
-    const hits = await r?.("q", ["a", "b"], 2);
+    const hits = await r?.("q", ["a", "b"], 2, []);
     expect(Object.keys(bodies[0] ?? {}).sort()).toEqual(["documents", "model", "query", "top_n"]);
     expect(bodies[0]).not.toHaveProperty("max_tokens_per_doc");
     expect(bodies[0]).not.toHaveProperty("max_chunks_per_doc");
@@ -187,7 +187,7 @@ describe("reranker slot", () => {
       },
       { fetchFn },
     );
-    await r?.("q", ["a", "b"], 1);
+    await r?.("q", ["a", "b"], 1, []);
     expect(urls[0]).toBe("http://gw/rerank");
     expect(bodies[0]?.model).toBe("my-declared-rerank-model");
     expect(headers[0]?.authorization).toBe("Bearer sekret");
@@ -203,7 +203,7 @@ describe("reranker slot", () => {
       { provider: "gateway", model: "m", baseUrl: "http://gw", timeoutMs: 5 },
       { fetchFn: hangingFetch },
     );
-    await expect(r?.("q", ["a", "b"], 1)).rejects.toMatchObject({ code: "operation_timeout" });
+    await expect(r?.("q", ["a", "b"], 1, [])).rejects.toMatchObject({ code: "operation_timeout" });
   });
 });
 
@@ -347,14 +347,14 @@ describe("cohere-compatible forwards apiKey and timeoutMs (not just model/baseUr
   it("forwards apiKey as a Bearer authorization header", async () => {
     const { fetchFn, headers } = capture();
     const r = await resolveReranker({ ...CFG, apiKey: "top-secret" }, { fetchFn });
-    await r?.("q", ["a", "b"], 1);
+    await r?.("q", ["a", "b"], 1, []);
     expect(headers[0]?.authorization).toBe("Bearer top-secret");
   });
 
   it("omits the authorization header entirely when no apiKey is configured", async () => {
     const { fetchFn, headers } = capture();
     const r = await resolveReranker(CFG, { fetchFn });
-    await r?.("q", ["a", "b"], 1);
+    await r?.("q", ["a", "b"], 1, []);
     expect(headers[0]).not.toHaveProperty("authorization");
   });
 
@@ -362,7 +362,7 @@ describe("cohere-compatible forwards apiKey and timeoutMs (not just model/baseUr
   // dropped, this would hang until postJson's default 30s timeout instead of failing fast.
   it("forwards timeoutMs into the per-request budget", async () => {
     const r = await resolveReranker({ ...CFG, timeoutMs: 5 }, { fetchFn: hangingFetch });
-    await expect(r?.("q", ["a", "b"], 1)).rejects.toMatchObject({ code: "operation_timeout" });
+    await expect(r?.("q", ["a", "b"], 1, [])).rejects.toMatchObject({ code: "operation_timeout" });
   });
 });
 
@@ -424,7 +424,7 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
       }),
     );
     const { reranker } = await wireGatewaySeams(embeddingsWith("http://model-tier-full"));
-    await reranker?.("q", ["a"], 1);
+    await reranker?.("q", ["a"], 1, []);
     // If precedence flipped (?? swapped for the gateway fallback, or the model-tier branch
     // dropped), this would hit http://gw/rerank instead.
     expect(hits).toEqual(["http://model-tier-full/v1/rerank"]);
@@ -452,7 +452,7 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
       embeddingsWith("http://model-tier-full"),
       rerankerCfg,
     );
-    await reranker?.("q", ["a"], 1);
+    await reranker?.("q", ["a"], 1, []);
     expect(hits).toEqual(["http://declared/v2/rerank"]);
   });
 });

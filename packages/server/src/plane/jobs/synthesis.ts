@@ -13,6 +13,8 @@ import {
   coverageCaveat,
   NO_COVERAGE_LOSS,
 } from "../contradiction-coverage";
+import type { EgressFilter } from "../egress-filter";
+import { isExcludedPath } from "../egress-filter";
 import { type GatewayRoles, prompt } from "../gateway";
 import type { JobContext, JobResult } from "../plane";
 
@@ -131,6 +133,9 @@ export interface BuiltMessage {
   chunksDropped: number;
   contradictionsUsed: number;
   contradictionsDropped: number;
+  /** THE-934: every path that actually landed in `message` — the egress guard's sourcePaths. Not
+   *  the paths of the FULL `recent`/`contradictions` inputs, only what survived the budget. */
+  pathsUsed: string[];
 }
 
 /**
@@ -171,6 +176,7 @@ export function buildUserMessage(
     CHUNK_HEADER.length + CONTRA_HEADER.length + NONE.length + (caveat ? caveat.length + 2 : 0);
 
   const contraParts: string[] = [];
+  const pathsUsed: string[] = [];
   let contradictionsUsed = 0;
   for (const c of contradictions) {
     const rendered = renderContradiction(c);
@@ -178,6 +184,7 @@ export function buildUserMessage(
     contraParts.push(rendered);
     spent += rendered.length + 2;
     contradictionsUsed++;
+    pathsUsed.push(c.source_path, c.conflict_path);
   }
 
   const chunkParts: string[] = [];
@@ -188,6 +195,7 @@ export function buildUserMessage(
     chunkParts.push(rendered);
     spent += rendered.length + 2;
     chunksUsed++;
+    pathsUsed.push(c.path);
   }
 
   const message = [
@@ -206,7 +214,80 @@ export function buildUserMessage(
     chunksDropped: recent.length - chunksUsed,
     contradictionsUsed,
     contradictionsDropped: contradictions.length - contradictionsUsed,
+    pathsUsed,
   };
+}
+
+/** THE-934: drop every recent chunk / open contradiction with a path under `egress.excludePaths`
+ *  BEFORE they are candidates for the prompt at all — the chokepoint, not a request-time check.
+ *  A contradiction with EITHER side excluded is dropped as a pair, matching the rule
+ *  checkContradictions itself applies when the pair is first detected. */
+function filterExcluded(
+  recent: ChunkRow[],
+  contradictions: ContradictionRow[],
+  excludeFilter: EgressFilter | undefined,
+): { recent: ChunkRow[]; contradictions: ContradictionRow[] } {
+  if (excludeFilter === undefined) return { recent, contradictions };
+  const excluded = (p: string) => isExcludedPath(excludeFilter, p);
+  return {
+    recent: recent.filter((c) => !excluded(c.path)),
+    contradictions: contradictions.filter(
+      (c) => !excluded(c.source_path) && !excluded(c.conflict_path),
+    ),
+  };
+}
+
+export interface SynthesisPlan {
+  vault_id: string;
+  chunks_candidate: number;
+  contradictions_candidate: number;
+  /** Gateway calls a real run would make for this vault: exactly 1 (a single synthesize call). */
+  estimated_calls: number;
+}
+
+/**
+ * THE-934: the `consolidate --once --dry-run` read side. Runs the SAME per-vault gather + filter +
+ * budget logic runSynthesis does, and stops before the one place that calls the gateway
+ * (roles.synthesize) — so this makes ZERO gateway calls regardless of whether `ctx.roles` is
+ * configured. Kept side-by-side with runSynthesis (not a mode flag threaded through it) so a
+ * reader can see the whole zero-call contract in one function without tracing a branch.
+ */
+export function planSynthesis(ctx: JobContext): SynthesisPlan[] {
+  const vaults = (
+    ctx.db.prepare("SELECT DISTINCT vault_id FROM chunks").all() as { vault_id: string }[]
+  ).map((r) => r.vault_id);
+  const hasContradictions =
+    ctx.db
+      .prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'contradictions'")
+      .get() !== undefined;
+  const plans: SynthesisPlan[] = [];
+  for (const vaultId of vaults) {
+    const recentAll = ctx.db
+      .prepare(
+        "SELECT path, chunk_index, headings, content FROM chunks WHERE vault_id = ? ORDER BY updated_at DESC LIMIT ?",
+      )
+      .all(vaultId, RECENT_LIMIT) as ChunkRow[];
+    if (recentAll.length === 0) continue;
+    const contradictionsAll = hasContradictions
+      ? (ctx.db
+          .prepare(
+            "SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions WHERE status = 'open' AND vault_id = ? ORDER BY detected_at DESC LIMIT ?",
+          )
+          .all(vaultId, CONTRADICTION_LIMIT) as ContradictionRow[])
+      : [];
+    const { recent, contradictions } = filterExcluded(
+      recentAll,
+      contradictionsAll,
+      ctx.excludeFilter,
+    );
+    plans.push({
+      vault_id: vaultId,
+      chunks_candidate: recent.length,
+      contradictions_candidate: contradictions.length,
+      estimated_calls: 1,
+    });
+  }
+  return plans;
 }
 
 export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
@@ -237,20 +318,27 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
   }> = [];
 
   for (const vaultId of vaults) {
-    const recent = ctx.db
+    const recentAll = ctx.db
       .prepare(
         "SELECT path, chunk_index, headings, content FROM chunks WHERE vault_id = ? ORDER BY updated_at DESC LIMIT ?",
       )
       .all(vaultId, RECENT_LIMIT) as ChunkRow[];
-    if (recent.length === 0) continue;
+    if (recentAll.length === 0) continue;
 
-    const contradictions = hasContradictions
+    const contradictionsAll = hasContradictions
       ? (ctx.db
           .prepare(
             "SELECT id, source_path, conflict_path, judge_verdict, judge_rationale FROM contradictions WHERE status = 'open' AND vault_id = ? ORDER BY detected_at DESC LIMIT ?",
           )
           .all(vaultId, CONTRADICTION_LIMIT) as ContradictionRow[])
       : [];
+    // THE-934: the chokepoint — dropped BEFORE they are candidates for the budget/prompt at all.
+    const { recent, contradictions } = filterExcluded(
+      recentAll,
+      contradictionsAll,
+      ctx.excludeFilter,
+    );
+    if (recent.length === 0) continue;
 
     // The budget bounds the WHOLE request, so the system prompt is charged against it here rather
     // than left as invisible overhead the caller cannot see.
@@ -269,7 +357,12 @@ export async function runSynthesis(ctx: JobContext): Promise<JobResult> {
         `synthesis: prompt budget dropped ${built.chunksDropped} chunk(s) and ${built.contradictionsDropped} contradiction(s) for vault ${vaultId} — raise plane.maxPromptChars if the synthesize role has a larger context`,
       );
     }
-    const res = await roles.synthesize(prompt(SYSTEM_PROMPT, built.message));
+    const res = await roles.synthesize({
+      ...prompt(SYSTEM_PROMPT, built.message),
+      // THE-934: exactly the paths that survived the budget and landed in `built.message` — the
+      // egress guard's defence-in-depth check.
+      sourcePaths: built.pathsUsed,
+    });
     let synthesis: SynthesisOutput;
     try {
       synthesis = parseSynthesis(res.text);

@@ -3,8 +3,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
-import { isoWeek, parseSynthesis, runSynthesis } from "../src/plane/jobs/synthesis";
+import { isoWeek, parseSynthesis, planSynthesis, runSynthesis } from "../src/plane/jobs/synthesis";
 import { openMemoryDb } from "./helpers";
 
 const INIT = readFileSync(
@@ -143,5 +144,129 @@ describe("synthesis job (kb-synthesis-worker collapse)", () => {
       db.prepare("SELECT vault_id FROM syntheses ORDER BY vault_id").all() as { vault_id: string }[]
     ).map((r) => r.vault_id);
     expect(vaults).toEqual(["v1", "v2"]);
+  });
+});
+
+describe("synthesis — egress.excludePaths (THE-934)", () => {
+  function seedChunk(db: Database, id: string, path: string, content: string, ts: number): void {
+    db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'v1', ?, '0', '[]', ?, ?, 1, 0, ?)",
+    ).run(id, path, content, `h-${id}`, ts);
+  }
+
+  it("drops an excluded chunk before it is a synthesis candidate — no excluded text in the request", async () => {
+    const db = withChunksDb();
+    seedChunk(db, "a", "Public/A.md", "public note", 1);
+    seedChunk(db, "p", "Private/P.md", "private secret note", 2);
+    let seenMessage = "";
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      judge: async () => ({ text: "", model: "m" }),
+      synthesize: async (req) => {
+        seenMessage = req.messages.map((m) => m.content).join("");
+        return { text: '{"patterns":[],"clusters":[]}', model: "m" };
+      },
+    };
+    const res = await runSynthesis({
+      db,
+      roles,
+      now: () => 1,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(res.ok).toBe(true);
+    expect(seenMessage).toContain("public note");
+    expect(seenMessage).not.toContain("private secret note");
+    expect(seenMessage).not.toContain("Private/P.md");
+  });
+
+  it("skips a vault entirely when every chunk is excluded — zero gateway calls for it", async () => {
+    const db = withChunksDb();
+    seedChunk(db, "p", "Private/P.md", "private secret note", 1);
+    let calls = 0;
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      judge: async () => ({ text: "", model: "m" }),
+      synthesize: async () => {
+        calls += 1;
+        return { text: '{"patterns":[],"clusters":[]}', model: "m" };
+      },
+    };
+    const res = await runSynthesis({
+      db,
+      roles,
+      now: () => 1,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(calls).toBe(0);
+    expect(res.detail?.skipped).toBe("no chunks");
+  });
+
+  it("sourcePaths on the request is exactly what landed in the message", async () => {
+    const db = withChunksDb();
+    seedChunk(db, "a", "Public/A.md", "public note", 1);
+    seedChunk(db, "p", "Private/P.md", "private secret note", 2);
+    let seenSourcePaths: string[] = [];
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      judge: async () => ({ text: "", model: "m" }),
+      synthesize: async (req) => {
+        seenSourcePaths = req.sourcePaths ?? [];
+        return { text: '{"patterns":[],"clusters":[]}', model: "m" };
+      },
+    };
+    await runSynthesis({
+      db,
+      roles,
+      now: () => 1,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(seenSourcePaths).toEqual(["Public/A.md"]);
+  });
+
+  it("planSynthesis: dry-run candidate counts reflect the exclusion, with ZERO gateway calls", async () => {
+    const db = withChunksDb();
+    seedChunk(db, "a", "Public/A.md", "public note", 1);
+    seedChunk(db, "p", "Private/P.md", "private secret note", 2);
+    let calls = 0;
+    const countingRoles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      judge: async () => ({ text: "", model: "m" }),
+      synthesize: async () => {
+        calls += 1;
+        return { text: '{"patterns":[],"clusters":[]}', model: "m" };
+      },
+    };
+    const plans = planSynthesis({
+      db,
+      roles: countingRoles,
+      now: () => 1,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(calls).toBe(0); // planSynthesis never touches ctx.roles
+    expect(plans).toEqual([
+      { vault_id: "v1", chunks_candidate: 1, contradictions_candidate: 0, estimated_calls: 1 },
+    ]);
+  });
+
+  it("planSynthesis matches runSynthesis' own candidate count (no double-filtering drift)", async () => {
+    const db = withChunksDb();
+    for (let i = 0; i < 5; i++) seedChunk(db, `c${i}`, `N${i}.md`, `note ${i}`, i);
+    seedChunk(db, "p", "Private/P.md", "excluded", 100);
+    const filter = compileEgressFilter(["Private/**"]);
+    const plans = planSynthesis({ db, roles: null, now: () => 1, excludeFilter: filter });
+    expect(plans[0]?.chunks_candidate).toBe(5);
+
+    let chunksUsed = 0;
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      judge: async () => ({ text: "", model: "m" }),
+      synthesize: async () => ({ text: '{"patterns":[],"clusters":[]}', model: "m" }),
+    };
+    // Re-run for real (unbounded budget) and confirm the SAME count actually got used.
+    const res = await runSynthesis({ db, roles, now: () => 1, excludeFilter: filter });
+    expect(res.ok).toBe(true);
+    const detail = res.detail as { vaults: Array<{ chunks_used: number }> };
+    chunksUsed = detail.vaults[0]?.chunks_used ?? 0;
+    expect(chunksUsed).toBe(5);
   });
 });

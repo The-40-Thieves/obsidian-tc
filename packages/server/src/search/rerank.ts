@@ -17,17 +17,59 @@
  * `onOutcome` close that gap additively: the return shape and the fallback SCORES are
  * unchanged for every existing caller, this only adds a best-effort side-channel report.
  */
+import {
+  assertSourcePathsAllowed,
+  type EgressFilter,
+  isExcludedPath,
+} from "../plane/egress-filter";
 
 export interface RerankHit {
   index: number;
   relevanceScore: number;
 }
 
-/** Scores documents against a query, returning hits by descending relevance. */
-export type Reranker = (query: string, documents: string[], topN: number) => Promise<RerankHit[]>;
+/** Scores documents against a query, returning hits by descending relevance. `sourcePaths`
+ *  (THE-934) is parallel to `documents`. Fix round 2 (N3): every `Reranker` VALUE a consumer can
+ *  obtain is wrapped by `guardReranker` before it is handed out (providers/registry.ts's
+ *  `resolveReranker`, and runtime/tool-wiring.ts's `wireGatewaySeams` for the no-declared-block
+ *  default) — a hosted reranker is a content-bearing egress leg exactly like
+ *  extract/synthesize/judge, and it is a THIRD port (neither `createGatewayClient` nor
+ *  `createEmbeddingProvider` construct one), so it needed its own guard rather than inheriting
+ *  either factory's. `rerankWithScores` below is the ONE call site every guarded reranker is
+ *  invoked from in production, and it has already dropped excluded-path docs before this is
+ *  called — see its own doc comment; the guard is the backstop, not the primary filter. */
+export type Reranker = (
+  query: string,
+  documents: string[],
+  topN: number,
+  sourcePaths: string[],
+) => Promise<RerankHit[]>;
+
+/**
+ * THE-934 fix round 2 (N3): the reranker PORT guard. Wraps any `Reranker` VALUE — regardless of
+ * which transport built it (gateway passthrough, model-tier, the generic cohere-compatible HTTP
+ * adapter, the local package, or the profile-gated module hatch) — so every one of them refuses a
+ * call whose `sourcePaths` is undeclared or names an excluded path, the same unconditional
+ * declaration requirement `guardGatewayClient`/`withEgressGuard` apply to their own ports. `async`
+ * deliberately (not a plain arrow returning `reranker(...)`) so a thrown guard check becomes a
+ * rejected promise, never a synchronous throw at the call site — see embeddings/index.ts's
+ * `withEgressGuard` for the bug this exact shape was written to avoid.
+ */
+export function guardReranker(reranker: Reranker, filter: EgressFilter): Reranker {
+  return async (query, documents, topN, sourcePaths) => {
+    assertSourcePathsAllowed(filter, "rerank", sourcePaths);
+    return reranker(query, documents, topN, sourcePaths);
+  };
+}
 
 export interface RankableDoc {
   content: string;
+  /** THE-934 fix round 1 (I2): required so rerankWithScores can drop an excluded-path doc before
+   *  it ever reaches a reranker implementation — a hosted reranker is a content-bearing egress
+   *  leg exactly like extract/synthesize/judge. Every real candidate type in the retrieval
+   *  pipeline already carries a path (a cluster_summary candidate's `path` is its cluster_key,
+   *  never a real vault path, and so never matches an exclude glob — harmless). */
+  path: string;
 }
 
 /** the reason `rerankWithScores` returned what it returned, reported through `onOutcome`
@@ -111,6 +153,8 @@ export async function rerankWithScores<T extends RankableDoc>(
   reranker: Reranker | null | undefined,
   onOutcome?: OnRerankOutcome,
   timeoutMs: number | undefined = DEFAULT_RERANK_TIMEOUT_MS,
+  /** THE-934 fix round 1 (I2): egress.excludePaths, compiled. Undefined -> nothing excluded. */
+  excludeFilter?: EgressFilter,
 ): Promise<Array<{ item: T; score: number }>> {
   const fallback = (): Array<{ item: T; score: number }> =>
     docs.slice(0, topN).map((item, i) => ({ item, score: 1 - i * 0.01 }));
@@ -123,23 +167,72 @@ export async function rerankWithScores<T extends RankableDoc>(
     reportRerankOutcome(onOutcome, "fallback_used");
     return fallback();
   }
+  // THE-934 fix round 1 (I2): split BEFORE the reranker ever sees anything — a hosted reranker is
+  // a content-bearing egress leg exactly like extract/synthesize/judge, and an excluded doc's
+  // TEXT must never reach it. An excluded doc keeps the SAME synthetic fusion-order score the
+  // plain fallback() above already uses (never reordered by the model) and is spliced back in
+  // after the real reranker call below.
+  const excludedIdx = new Set<number>();
+  if (excludeFilter !== undefined) {
+    docs.forEach((d, i) => {
+      if (isExcludedPath(excludeFilter, d.path)) excludedIdx.add(i);
+    });
+  }
+  const excludedScored: Array<{ item: T; score: number }> = [...excludedIdx].map((i) => ({
+    item: docs[i] as T,
+    score: 1 - i * 0.01,
+  }));
+  const keep = docs.filter((_, i) => !excludedIdx.has(i));
+  if (keep.length === 0) {
+    // Every candidate was excluded — nothing left that may reach the reranker at all.
+    reportRerankOutcome(onOutcome, "fallback_used");
+    return excludedScored.slice(0, topN);
+  }
   try {
     const call = reranker(
       query,
-      docs.map((d) => d.content),
-      topN,
+      keep.map((d) => d.content),
+      Math.min(topN, keep.length),
+      // THE-934: the egress guard's backstop check — every path here already cleared the filter.
+      keep.map((d) => d.path),
     );
     // No timeout unless the caller asked for one — see DEFAULT_RERANK_TIMEOUT_MS above. Awaiting
     // the bare promise keeps the pre-change bound (provider/gateway budget) exactly as it was.
     const hits = timeoutMs === undefined ? await call : await withTimeout(call, timeoutMs);
     const out: Array<{ item: T; score: number }> = [];
     for (const h of hits) {
-      const item = docs[h.index];
+      const item = keep[h.index];
       if (item !== undefined) out.push({ item, score: h.relevanceScore });
     }
+    // Sorted explicitly rather than trusting the provider's response order — most rerank APIs
+    // already return descending-by-relevance, but nothing here is entitled to assume that of an
+    // arbitrary Reranker implementation (the local package, a module-hatch reranker, ...).
+    out.sort((a, b) => b.score - a.score);
     if (out.length > 0) {
       reportRerankOutcome(onOutcome, "executed");
-      return out;
+      // THE-934 fix round 2 (N4): APPENDED after the reranked set, in original fusion order — NOT
+      // merged by score comparison. Round 1 sorted the union by score, which put excluded docs
+      // (synthetic scores starting at 1.0, decaying by 0.01) ahead of essentially every REAL
+      // cross-encoder relevance score, so turning exclusion ON systematically PROMOTED the
+      // excluded folder to the top of every reranked search — the opposite of what an operator
+      // enabling exclusion would expect, and strictly worse than merely "interleaved". There is no
+      // principled common scale between an opaque, vendor/model-specific relevance score and a
+      // synthetic index-based fallback score, so comparing them numerically is unsound regardless
+      // of the scale chosen; appending is the one merge rule that is correct BY CONSTRUCTION,
+      // never by a scale that happens to work for today's reranker. `out` is already sorted
+      // descending by the reranker's own score; `excludedScored` stays in the fusion (input)
+      // order it was collected in, never reordered by a model that never saw it.
+      //
+      // Follow-up (NB3): append alone only holds THIS return's order — the excluded score FIELD
+      // still carried the synthetic fallback (~1.0), above most real scores on paper, so a later
+      // re-sort (activationRerank's bubbleSafeRerank, ships false) could still promote one.
+      // Rescaling below the reranked floor makes that unrepresentable by the number itself.
+      const floor = Math.min(...out.map((o) => o.score));
+      const rescaledExcluded = excludedScored.map((e, i) => ({
+        item: e.item,
+        score: floor - 0.0001 * (i + 1),
+      }));
+      return [...out, ...rescaledExcluded].slice(0, topN);
     }
     // Non-empty docs but no usable hit (empty response, or every index out of range): a working
     // reranker call has no legitimate reason to say nothing about a non-empty candidate set, so

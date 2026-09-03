@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
 import { checkContradictions, parseVerdict } from "../src/plane/jobs/contradiction";
 import { floatBlob } from "../src/search/vec";
@@ -137,5 +138,76 @@ describe("contradiction detector (judge seam + sqlite-vec neighbors)", () => {
     // exists for: same `unjudged` total, opposite remedy.
     expect(stats.judgeErrors).toBe(0);
     expect(stats.flagged).toBe(0);
+  });
+});
+
+describe("contradiction detector — egress.excludePaths (THE-934)", () => {
+  it("drops a pair with an excluded NEIGHBOR before it is a judge candidate", async () => {
+    const db = baseDb();
+    addChunk(db, "a", "A.md", [1, 0, 0]);
+    addChunk(db, "b", "Private/B.md", [0.95, 0.312, 0]); // in the judge band, but excluded
+    const seenRequests: unknown[] = [];
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      synthesize: async () => ({ text: "", model: "m" }),
+      judge: async (req) => {
+        seenRequests.push(req);
+        return { text: '{"kind":"contradiction","rationale":"x"}', model: "mock" };
+      },
+    };
+    const stats = await checkContradictions(
+      { db, roles, now: () => 1, excludeFilter: compileEgressFilter(["Private/**"]) },
+      "v1",
+      [{ id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] }],
+    );
+    // No excluded text ever reached the fake gateway client — asserted on the request payload.
+    expect(seenRequests).toHaveLength(0);
+    expect(stats.flagged).toBe(0);
+    expect(stats.skipped).toBe(1);
+  });
+
+  it("drops a chunk whose OWN path is excluded, never checking it at all", async () => {
+    const db = baseDb();
+    addChunk(db, "a", "Private/A.md", [1, 0, 0]);
+    addChunk(db, "b", "B.md", [0.95, 0.312, 0]);
+    const seenRequests: unknown[] = [];
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      synthesize: async () => ({ text: "", model: "m" }),
+      judge: async (req) => {
+        seenRequests.push(req);
+        return { text: '{"kind":"contradiction","rationale":"x"}', model: "mock" };
+      },
+    };
+    const stats = await checkContradictions(
+      { db, roles, now: () => 1, excludeFilter: compileEgressFilter(["Private/**"]) },
+      "v1",
+      [{ id: "a", path: "Private/A.md", content: "alpha", embedding: [1, 0, 0] }],
+    );
+    expect(seenRequests).toHaveLength(0);
+    expect(stats.skipped).toBe(1);
+    expect(stats.checked).toBe(1); // counted as checked, just excluded from judging
+  });
+
+  it("a clean pair still reaches the judge with sourcePaths for the egress guard", async () => {
+    const db = baseDb();
+    addChunk(db, "a", "A.md", [1, 0, 0]);
+    addChunk(db, "b", "B.md", [0.95, 0.312, 0]);
+    const seenRequests: Array<{ sourcePaths?: string[] }> = [];
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      synthesize: async () => ({ text: "", model: "m" }),
+      judge: async (req) => {
+        seenRequests.push(req);
+        return { text: '{"kind":"no_conflict","rationale":"x"}', model: "mock" };
+      },
+    };
+    await checkContradictions(
+      { db, roles, now: () => 1, excludeFilter: compileEgressFilter(["Private/**"]) },
+      "v1",
+      [{ id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] }],
+    );
+    expect(seenRequests).toHaveLength(1);
+    expect(seenRequests[0]?.sourcePaths).toEqual(["A.md", "B.md"]);
   });
 });

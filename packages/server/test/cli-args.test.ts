@@ -904,3 +904,43 @@ describe("parseCliArgs — note-quality --suggest (THE-643)", () => {
     });
   });
 });
+
+describe("THE-934 — parseCliArgs consolidate", () => {
+  it("bare consolidate carries no once/dryRun (run_consolidate enforces --once)", () => {
+    expect(parseCliArgs(["consolidate"])).toStrictEqual({ kind: "consolidate" });
+  });
+
+  it("--once is captured", () => {
+    expect(parseCliArgs(["consolidate", "--once"])).toStrictEqual({
+      kind: "consolidate",
+      once: true,
+    });
+  });
+
+  it("--once --dry-run together", () => {
+    expect(parseCliArgs(["consolidate", "--once", "--dry-run"])).toStrictEqual({
+      kind: "consolidate",
+      once: true,
+      dryRun: true,
+    });
+  });
+
+  it("a positional becomes the config path, same as every other command", () => {
+    expect(parseCliArgs(["consolidate", "--once", "/etc/otc.json"])).toStrictEqual({
+      kind: "consolidate",
+      configPath: "/etc/otc.json",
+      once: true,
+    });
+  });
+
+  it("--config is honoured the same as a positional config path", () => {
+    expect(
+      parseCliArgs(["consolidate", "--once", "--dry-run", "--config", "/etc/otc.json"]),
+    ).toStrictEqual({
+      kind: "consolidate",
+      configPath: "/etc/otc.json",
+      once: true,
+      dryRun: true,
+    });
+  });
+});

@@ -1,4 +1,5 @@
 import { CliError } from "./cli-error";
+import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
 
@@ -113,6 +114,9 @@ export type CliCommand =
   // in capture_queue (source: "import") for commit_capture review. Parser: ./parse-import-highlights.ts.
   | ImportHighlightsCommand
   | ImportAmbientCommand // THE-175: same shape, ambient screen observations. ./parse-import-ambient.ts.
+  // THE-934: evaluate or run one ambient consolidation pass without arming the recurring schedule.
+  // Parser: ./parse-consolidate.ts.
+  | ConsolidateCommand
   | { kind: "error"; message: string };
 
 // Re-exported so every existing `import { CliError } from "../args"` keeps working unchanged —
@@ -539,6 +543,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
     // see args.ts's top-of-file import comment for why it lives there rather than inline here.
     if (first === "import-highlights") return parseImportHighlights(rest);
     if (first === "import-ambient") return parseImportAmbient(rest);
+    // THE-934: consolidate --once [--dry-run] [--config <path>].
+    if (first === "consolidate") return parseConsolidate(rest);
     // THE-48: knowledge-gap detector over a batch of queries, or golden-set calibration.
     if (first === "gaps") {
       const num = (flag: string): number | undefined => {

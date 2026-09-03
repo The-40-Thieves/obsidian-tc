@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GatewayClient } from "../src/gateway/client";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { runLlmDensify } from "../src/search/densify-runner";
 import { openMemoryDb } from "./helpers";
 
@@ -176,5 +177,25 @@ describe("runLlmDensify", () => {
     } as unknown as GatewayClient;
     await runLlmDensify(d, "v1", spy, { batchSize: 10 });
     expect(seen[0]).toEqual(["A.md", "B.md"]); // ORDER BY path, not incidental row order
+  });
+
+  it("egress.excludePaths: an excluded note never reaches gateway.extract; the report only counts public notes (THE-934 fix round 2, N1)", async () => {
+    const d = makeDb();
+    const ins = d.prepare("INSERT INTO chunks (id, vault_id, path, content) VALUES (?,?,?,?)");
+    ins.run("4", "v1", "Private/secret.md", "SECRET_MARKER content");
+    let seenText = "";
+    const gateway = {
+      extract: async (req: any) => {
+        seenText += req.messages.map((m: { content: string }) => m.content).join("\n");
+        return { text: "[]", model: "m" };
+      },
+    } as unknown as GatewayClient;
+    const res = await runLlmDensify(d, "v1", gateway, {
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    // A.md + B.md only — Private/secret.md dropped before it could become a batch member.
+    expect(res.notes).toBe(2);
+    expect(seenText).not.toContain("SECRET_MARKER");
+    expect(seenText).not.toContain("Private/secret.md");
   });
 });

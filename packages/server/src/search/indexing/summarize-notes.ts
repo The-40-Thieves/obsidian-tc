@@ -24,6 +24,7 @@ import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { GatewayClient } from "../../gateway";
+import { type EgressFilter, isExcludedPath } from "../../plane/egress-filter";
 import { runWithConcurrency } from "../../util/concurrency";
 import { existingSummaryHash, upsertNoteSummary } from "../note-summaries";
 
@@ -44,6 +45,8 @@ export interface SummarizeNotesOptions {
   /** Cap on the note content sent to the summarizer, mirrors densify-runner's maxContentChars. */
   maxContentChars?: number;
   now?: () => number;
+  /** THE-934 fix round 1: egress.excludePaths, compiled. Undefined -> nothing excluded. */
+  excludeFilter?: EgressFilter;
 }
 
 export interface SummarizeNotesStats {
@@ -93,7 +96,16 @@ export async function summarizeNotes(
     .prepare("SELECT path, content_hash AS contentHash FROM notes WHERE vault_id = ? ORDER BY path")
     .all(vaultId) as Array<{ path: string; contentHash: string }>;
 
-  const toSummarize = notes.filter(
+  // THE-934 fix round 1 (Blocking-4): an excluded note is never summarised at all -- dropped
+  // BEFORE gateway.extract is ever built, same "consumer filters first" chokepoint the four
+  // original assemblers use. Counted as `skipped`, not `failed` (it is a deliberate exclusion, not
+  // an error), and re-evaluated every pass (no persisted "excluded" state), so a rename out of the
+  // excluded folder is picked up on the very next run.
+  const excludeFilter = opts.excludeFilter;
+  const notExcluded = notes.filter(
+    (n) => excludeFilter === undefined || !isExcludedPath(excludeFilter, n.path),
+  );
+  const toSummarize = notExcluded.filter(
     (n) => existingSummaryHash(db, vaultId, n.path) !== n.contentHash,
   );
   let skipped = notes.length - toSummarize.length;
@@ -127,6 +139,9 @@ export async function summarizeNotes(
           ],
           temperature: 0,
           maxTokens: 256,
+          // THE-934: the egress guard's backstop check -- this note already cleared the
+          // notExcluded filter above.
+          sourcePaths: [note.path],
         });
         const summaryText = completion.text.trim();
         if (summaryText.length === 0) {
@@ -159,7 +174,12 @@ export async function summarizeNotes(
     const texts = batch.map((p) => p.summaryText);
     let vectors: number[][] | null = null;
     try {
-      vectors = await embedProvider.embed(texts, { input: "document" });
+      // THE-934: sourcePaths declares exactly the notes this batch's summary texts were derived
+      // from -- every one already cleared the notExcluded filter above.
+      vectors = await embedProvider.embed(texts, {
+        input: "document",
+        sourcePaths: batch.map((p) => p.path),
+      });
     } catch {
       vectors = null; // whole-batch failure -> this batch's summaries land without embeddings
     }
@@ -202,6 +222,8 @@ export async function maybeSummarizeVault(
   cfg: NoteSummaryPassConfig,
   makeGateway: () => GatewayClient,
   embedProvider: EmbeddingProvider,
+  /** THE-934 fix round 1: egress.excludePaths, compiled. Undefined -> nothing excluded. */
+  excludeFilter?: EgressFilter,
 ): Promise<SummarizeNotesStats | null> {
   if (!cfg.enabled) return null;
   const gateway = makeGateway();
@@ -209,5 +231,6 @@ export async function maybeSummarizeVault(
     ...(cfg.maxConcurrency !== undefined ? { maxConcurrency: cfg.maxConcurrency } : {}),
     ...(cfg.maxContentChars !== undefined ? { maxContentChars: cfg.maxContentChars } : {}),
     ...(cfg.now !== undefined ? { now: cfg.now } : {}),
+    ...(excludeFilter !== undefined ? { excludeFilter } : {}),
   });
 }

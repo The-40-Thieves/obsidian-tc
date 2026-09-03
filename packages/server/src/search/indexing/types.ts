@@ -75,6 +75,13 @@ export interface ExistingRow {
   /** THE-531: the model of this chunk's ACTIVE embedding, or null when it has none. A mismatch with
    *  the current provider forces a re-embed even when content_hash is unchanged. */
   active_model: string | null;
+  /** THE-934: 1 when this chunk was last (re)planned under an excluded path (egress.excludePaths),
+   *  0 otherwise. Undefined on a cache.db that predates migration 20260903_001 — see
+   *  hasEmbeddingExcludedColumn (note-plan.ts), which gates whether this is even queried. Read back
+   *  so computeNotePlan can detect a TRANSITION (excluded -> included or the reverse) and force a
+   *  re-plan even when content_hash is unchanged — without it, an already-embedded chunk under a
+   *  newly-excluded folder would keep its real vector forever. */
+  embedding_excluded?: number;
 }
 
 // A note's chunk after secret-gating, carrying its stable chunk id. embedText (THE-406) is the
@@ -88,6 +95,13 @@ export type PlannedChunk = ReturnType<typeof chunkNote>[number] & {
   embedText?: string;
   bodySha: string;
   skipEmbed?: boolean;
+  /** THE-934: this chunk's NOTE is currently under an egress.excludePaths glob. Set once per note
+   *  by computeNotePlan (a note's chunks share one path, so this is uniform across a plan's
+   *  toEmbed array). embedPlans (embed-batches.ts) never sends it to the provider — same
+   *  no-network-call treatment as skipEmbed, but for the opposite reason: skipEmbed reuses an
+   *  identical sibling's vector, this withholds a vector entirely. persist-note-plan.ts writes NO
+   *  chunk_embeddings row and stamps chunks.embedding_excluded = 1 instead. */
+  excludedFromEmbed?: boolean;
 };
 
 // A note's pending writes, computed (including the embed() network call) WITHOUT touching the
@@ -145,6 +159,11 @@ export interface IndexVaultArgs {
   root: string;
   sub?: string;
   isReadable: (rel: string) => boolean;
+  /** THE-934: egress.excludePaths, as a per-path predicate — parallels `isReadable` (a read-ACL
+   *  concern) but decides a DIFFERENT question: whether this note's chunks may be embedded at all.
+   *  Absent -> nothing excluded (back-compat). See note-plan.ts's computeNotePlan, which is the
+   *  only consumer. */
+  isEgressExcluded?: (rel: string) => boolean;
   now?: () => number;
   onIndexed?: IndexHook;
   /** GH #171/#172: embed-batch tuning; each field falls back to its module default. Callers thread

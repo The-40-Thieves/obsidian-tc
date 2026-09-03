@@ -22,6 +22,7 @@ import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { experientialTableSpec } from "../../doctor/table-spec";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
+import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
 import { embeddingsDeprecation, resolveLocalRerankerModule } from "../../providers/registry";
 import type { ProviderDescriptor } from "../../providers/types";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
@@ -50,10 +51,15 @@ function restApiOnDisk(
  */
 async function probeDenseProvider(
   embeddings: Parameters<typeof createEmbeddingProvider>[0],
+  /** THE-934 fix round 2 (N2): threaded for consistency — createQueryEncoder's dense() call is
+   *  query-role only (a literal probe string, never vault text), which the port guard exempts
+   *  unconditionally, but this keeps "every createEmbeddingProvider call site threads
+   *  excludeFilter" true by construction rather than a documented exception. */
+  excludeFilter?: EgressFilter,
 ): Promise<DenseProbeResult> {
   const started = Date.now();
   try {
-    const encoder = createQueryEncoder(createEmbeddingProvider(embeddings));
+    const encoder = createQueryEncoder(createEmbeddingProvider(embeddings, { excludeFilter }));
     const vector = await encoder.dense("obsidian-tc doctor probe");
     const ms = Date.now() - started;
     // `dense()` DEGRADES an absent vector to [] rather than throwing (deliberate, so a retrieval
@@ -628,7 +634,15 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
         // THE-688 fix 2: attached ONLY under --probe, so the default run stays offline.
-        ...(cmd.probe ? { probe: () => probeDenseProvider(config.embeddings) } : {}),
+        ...(cmd.probe
+          ? {
+              probe: () =>
+                probeDenseProvider(
+                  config.embeddings,
+                  compileEgressFilter(config.egress.excludePaths),
+                ),
+            }
+          : {}),
       },
       // THE-648: snapshots default to enabled; surface the effective posture either way.
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },

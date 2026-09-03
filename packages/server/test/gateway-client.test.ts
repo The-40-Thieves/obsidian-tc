@@ -24,14 +24,17 @@ describe("gateway client", () => {
     }) as unknown as typeof fetch;
 
     const client = createGatewayClient({ baseUrl: "http://gw", token: "k", fetchFn });
-    const r = await client.extract({ messages: [{ role: "user", content: "hi" }] });
+    const r = await client.extract({
+      messages: [{ role: "user", content: "hi" }],
+      sourcePaths: [],
+    });
     expect(r.text).toBe("ok");
     // the gateway's resolved model is surfaced for attestation, not the role alias
     expect(r.model).toBe("anthropic/claude-x");
     expect(r.finishReason).toBe("stop");
 
-    await client.synthesize({ messages: [{ role: "user", content: "s" }] });
-    await client.judge({ messages: [{ role: "user", content: "j" }] });
+    await client.synthesize({ messages: [{ role: "user", content: "s" }], sourcePaths: [] });
+    await client.judge({ messages: [{ role: "user", content: "j" }], sourcePaths: [] });
 
     expect(calls.map((c) => c.url)).toEqual([
       "http://gw/chat/completions",
@@ -53,7 +56,7 @@ describe("gateway client", () => {
       fetchFn,
       models: { judge: "judge-strong" },
     });
-    await client.judge({ messages: [{ role: "user", content: "?" }] });
+    await client.judge({ messages: [{ role: "user", content: "?" }], sourcePaths: [] });
     expect(sentModel).toBe("judge-strong");
   });
 
@@ -71,7 +74,7 @@ describe("gateway client", () => {
       });
     }) as unknown as typeof fetch;
     const client = createGatewayClient({ baseUrl: "http://gw", fetchFn });
-    const r = await client.rerank({ query: "q", documents: ["a", "b"], topN: 2 });
+    const r = await client.rerank({ query: "q", documents: ["a", "b"], topN: 2, sourcePaths: [] });
     expect(r.results).toEqual([
       { index: 1, relevanceScore: 0.9 },
       { index: 0, relevanceScore: 0.4 },
@@ -86,7 +89,7 @@ describe("gateway client", () => {
       return jsonResponse({ model: "m", choices: [{ message: { content: "x" } }] });
     }) as unknown as typeof fetch;
     const client = createGatewayClient({ baseUrl: "http://gw/", fetchFn });
-    await client.extract({ messages: [] });
+    await client.extract({ messages: [], sourcePaths: [] });
     expect(calledUrl).toBe("http://gw/chat/completions");
   });
 
@@ -95,7 +98,9 @@ describe("gateway client", () => {
     // maxAttempts: 1 — this test is about the status->error mapping, not retry; THE-615's retry
     // behavior gets its own describe block below.
     const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 1 });
-    await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
+    await expect(client.extract({ messages: [], sourcePaths: [] })).rejects.toMatchObject({
+      code: "internal",
+    });
   });
 
   it("maps an abort to operation_timeout", async () => {
@@ -110,7 +115,7 @@ describe("gateway client", () => {
       timeoutMs: 5,
       maxAttempts: 1,
     });
-    await expect(client.judge({ messages: [] })).rejects.toMatchObject({
+    await expect(client.judge({ messages: [], sourcePaths: [] })).rejects.toMatchObject({
       code: "operation_timeout",
     });
   });
@@ -136,7 +141,7 @@ describe("gateway client", () => {
         Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" } }),
       )) as unknown as typeof fetch;
     const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 1 });
-    await expect(client.extract({ messages: [] })).rejects.toMatchObject({
+    await expect(client.extract({ messages: [], sourcePaths: [] })).rejects.toMatchObject({
       code: "internal",
       details: { cause_code: "ECONNREFUSED" },
     });
@@ -148,7 +153,7 @@ describe("gateway client", () => {
         Object.assign(new Error("boom"), { code: "https://user:secret@host/leaky?x=1" }),
       )) as unknown as typeof fetch;
     const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 1 });
-    const e = await client.extract({ messages: [] }).catch((err) => err);
+    const e = await client.extract({ messages: [], sourcePaths: [] }).catch((err) => err);
     expect(e.code).toBe("internal");
     expect(e.details && "cause_code" in e.details).toBe(false);
   });
@@ -183,7 +188,7 @@ describe("gateway client retry (THE-615)", () => {
       retryBaseDelayMs: 1,
       sleepFn: async () => {},
     });
-    const r = await client.extract({ messages: [] });
+    const r = await client.extract({ messages: [], sourcePaths: [] });
     expect(r.text).toBe("ok");
     expect(calls).toBe(2);
   });
@@ -217,7 +222,7 @@ describe("gateway client retry (THE-615)", () => {
         retryBaseDelayMs: 1,
         sleepFn: async () => {},
       });
-      const r = await client.extract({ messages: [] });
+      const r = await client.extract({ messages: [], sourcePaths: [] });
       expect(r.text).toBe("ok");
       expect(calls).toBe(2);
     },
@@ -240,7 +245,9 @@ describe("gateway client retry (THE-615)", () => {
         delays.push(ms);
       },
     });
-    await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
+    await expect(client.extract({ messages: [], sourcePaths: [] })).rejects.toMatchObject({
+      code: "internal",
+    });
     expect(calls).toBe(3);
     expect(delays).toEqual([100, 200]); // base * 2^(attempt-1), same formula as job-queue.ts
   });
@@ -252,7 +259,9 @@ describe("gateway client retry (THE-615)", () => {
       return jsonResponse({}, 400);
     }) as unknown as typeof fetch;
     const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 3 });
-    await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
+    await expect(client.extract({ messages: [], sourcePaths: [] })).rejects.toMatchObject({
+      code: "internal",
+    });
     expect(calls).toBe(1);
   });
 
@@ -263,7 +272,9 @@ describe("gateway client retry (THE-615)", () => {
       return jsonResponse({}, 429);
     }) as unknown as typeof fetch;
     const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 3 });
-    await expect(client.extract({ messages: [] })).rejects.toMatchObject({ code: "internal" });
+    await expect(client.extract({ messages: [], sourcePaths: [] })).rejects.toMatchObject({
+      code: "internal",
+    });
     expect(calls).toBe(1);
   });
 
@@ -289,7 +300,7 @@ describe("gateway client retry (THE-615)", () => {
         delays.push(ms);
       },
     });
-    const r = await client.extract({ messages: [] });
+    const r = await client.extract({ messages: [], sourcePaths: [] });
     expect(r.text).toBe("ok");
     expect(calls).toBe(2);
     expect(delays).toEqual([2000]); // Retry-After: 2 (seconds) wins over the 100ms backoff base

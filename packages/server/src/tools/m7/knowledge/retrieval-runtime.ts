@@ -373,6 +373,10 @@ export function buildGraphSearchOptions(
     ...(site.querySparse ? { querySparse: site.querySparse } : {}),
     ...(site.queryColbert ? { queryColbert: site.queryColbert } : {}),
     reranker: site.reranker,
+    // THE-934 fix round 1 (I2): every M7 surface gets this by construction, same rule as the ACL
+    // walk filter just below — a candidate under an excluded path must never reach the hosted
+    // reranker regardless of which tool assembled it.
+    rerankExcludeFilter: deps.excludeFilter,
     isReadable: site.isReadable,
     // THE-852: default-on graph-walk ACL filter — see resolveAclWalkFilter's own header for the
     // fail-closed contract. Unconditional (not gated by deps.retrieval), same as the rest of this

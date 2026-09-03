@@ -27,7 +27,7 @@ describe("THE-395 bge-m3 provider", () => {
     const fetchFn = mockFetch({ embeddings: { data: [{ embedding: [0.1, 0.2, 0.3] }] } });
     const p = createEmbeddingProvider(CFG, { fetchFn });
     expect(p.provider).toBe("bge-m3");
-    expect(await p.embed(["hello"])).toEqual([[0.1, 0.2, 0.3]]);
+    expect(await p.embed(["hello"], { sourcePaths: [] })).toEqual([[0.1, 0.2, 0.3]]);
   });
 
   it("embedFull() returns all three heads with the dense width asserted", async () => {
@@ -48,7 +48,7 @@ describe("THE-395 bge-m3 provider", () => {
     });
     const p = createEmbeddingProvider(CFG, { fetchFn });
     expect(p.embedFull).toBeDefined();
-    const [out] = (await p.embedFull?.(["hello"])) ?? [];
+    const [out] = (await p.embedFull?.(["hello"], { sourcePaths: [] })) ?? [];
     expect(out?.dense).toEqual([0.1, 0.2, 0.3]);
     expect(out?.sparse).toEqual({ "7": 0.9, "8": 0.5 });
     expect(out?.colbert).toEqual([

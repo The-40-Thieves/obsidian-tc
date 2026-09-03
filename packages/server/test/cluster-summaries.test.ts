@@ -15,6 +15,7 @@ import { CACHE_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import type { GatewayClient } from "../src/gateway/client";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import {
   clusterKeyOf,
   clusterSummaryId,
@@ -522,6 +523,45 @@ describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
       gced: 0,
     });
     expect(gateway.extract).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildClusterSummaries — egress exclusion skip-and-report (THE-934 fix round 2, N1)", () => {
+  it("a cluster with an excluded-path member is skipped whole; a public-only cluster still reaches the gateway", async () => {
+    const db = makeDb();
+    upsertNoteSummary(db, "v1", {
+      path: "Private/secret.md",
+      contentHash: "hP",
+      summary: "SECRET_MARKER content",
+      model: "note-model",
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    upsertNoteSummary(db, "v1", {
+      path: "Public/note.md",
+      contentHash: "hQ",
+      summary: "public content",
+      model: "note-model",
+      embedding: [0, 1, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    const gateway = fakeGateway("A summary.");
+    const embed = fakeEmbedProvider();
+    const stats = await buildClusterSummaries(db, "v1", gateway, embed, {
+      k: 2,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(stats.clusters).toBe(2);
+    expect(stats.summarized).toBe(1);
+    expect(stats.skipped).toBe(1); // the excluded-member cluster, reported — not a `failed`
+    expect(gateway.extract).toHaveBeenCalledTimes(1);
+    const call = (gateway.extract as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    const userMsg = call.messages.find((m: { role: string }) => m.role === "user")
+      .content as string;
+    expect(userMsg).not.toContain("SECRET_MARKER");
+    expect(userMsg).toContain("public content");
   });
 });
 

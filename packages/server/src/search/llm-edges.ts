@@ -255,6 +255,9 @@ export async function extractSemanticEdges(
       const res = await client.extract({
         messages: buildExtractionMessages(batch),
         temperature: 0,
+        // THE-934: the egress guard's backstop check — every note in `batch` already cleared
+        // runLlmDensify's exclusion filter (search/densify-runner.ts) before reaching here.
+        sourcePaths: batch.map((n) => n.path),
       });
       text = res.text ?? "";
     } catch {

@@ -7,6 +7,7 @@ import { createEmbeddingProvider } from "../../embeddings";
 import { type InferCitationsOptions, inferCitations } from "../../experiential/citation";
 import { runCitationIndexPasses } from "../../experiential/citation-index";
 import { createGatewayClient, type GatewayClient } from "../../gateway";
+import { compileEgressFilter } from "../../plane/egress-filter";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
@@ -38,13 +39,18 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
+  // THE-934 fix round 1 (Blocking-2): egress.excludePaths — obsidian-tc citation-infer runs the
+  // SAME pass runtime/plane-wiring.ts's citation job schedules, which round 0 guarded; this CLI
+  // entry point had not been. `excludeFilter` below both filters candidates (citation.ts's own
+  // chokepoint, already wired to accept it) and guards the gateway/embedding ports.
+  const egressFilter = compileEgressFilter(cfg.egress.excludePaths);
   let gwc: GatewayClient | null = null;
   try {
-    gwc = createGatewayClient({});
+    gwc = createGatewayClient({ excludeFilter: egressFilter });
   } catch {
     gwc = null;
   }
-  const provider = createEmbeddingProvider(cfg.embeddings);
+  const provider = createEmbeddingProvider(cfg.embeddings, { excludeFilter: egressFilter });
   // EXPLICITLY TYPED, and that annotation is load-bearing. THE-621 put `judgeConcurrency` and
   // `minJudgedForKill` as direct properties of the literal passed to inferCitations precisely
   // because TypeScript excess-property-checks a fresh literal but NOT spread-in properties — a
@@ -60,6 +66,7 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
     | "minJudgedForKill"
     | "allowUncertain"
     | "log"
+    | "excludeFilter"
   > = {
     embed: (texts) => provider.embed(texts, { input: "query" }),
     judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
@@ -68,6 +75,7 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
     minJudgedForKill: cmd.minJudgedForKill,
     ...(cmd.allowUncertain ? { allowUncertain: true } : {}),
     log: (s) => process.stderr.write(`${s}\n`),
+    excludeFilter: egressFilter,
   };
   try {
     if (cmd.transcriptIndex) {

@@ -188,6 +188,24 @@ by content it retrieves.
   notes, Dataview/Tasks bridge output, and OCR text can all carry adversarial instructions.
 - **Deny sensitive folders by ACL, not by prompt.** A system-prompt rule ("never read
   Journal/") is one injection away from ignored; a `readPaths` whitelist is not.
+- **`readPaths` and `egress.excludePaths` answer different questions (THE-934).** `readPaths` is a
+  read-visibility whitelist — what a caller (human or agent) may read and see in search results.
+  `egress.excludePaths` is a separate, narrower control: vault-relative glob patterns withheld
+  from every content-bearing gateway and embedding call the server makes, regardless of what
+  `readPaths` allows — not only the ambient consolidation plane's own jobs (contradiction judging,
+  synthesis, citation inference, index-time embedding on both the batched reconcile and the
+  single-note write path), but also `reflect`/`knowledge_challenge`, the note- and cluster-level
+  summarizers, `densify-llm`, the hosted reranker passthrough, and the scheduled proactive-advisory
+  sweep. Enforced at the PORT (`createGatewayClient` / `createEmbeddingProvider(Async)` — the only
+  two factories in the tree that construct one), not merely by each caller: every consumer filters
+  its own candidates first, and the port refuses any request that does not declare which vault
+  paths its text came from, or that names an excluded one, so a call site that forgets to filter
+  fails loudly instead of leaking. A folder outside `readPaths` is invisible to callers; a folder
+  in `egress.excludePaths` is still readable and locally searchable (text/regex, not semantic) but
+  never leaves the machine through any of the above. Neither substitutes for the other.
+  Best-effort like every comparable exclusion mechanism (`.gitignore`, `.cursorignore`): it stops
+  the server from SENDING excluded text to a model, not from a caller with direct read access
+  seeing it.
 - **Keep HITL as the last gate.** Even a fully steered agent cannot run a destructive
   operation without a human-approved elicit token.
 - Injection cannot mint elicit tokens or bypass scopes: tokens are issued server-side,

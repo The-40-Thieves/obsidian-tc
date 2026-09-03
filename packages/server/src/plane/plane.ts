@@ -8,6 +8,7 @@ import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import type { JobHandler } from "../scheduler/job-runner";
 import { errorMessage } from "../util/errors";
+import type { EgressFilter } from "./egress-filter";
 import type { GatewayRoles } from "./gateway";
 
 export interface JobContext {
@@ -22,6 +23,10 @@ export interface JobContext {
    *  job's own conservative default. Exists because the model behind a gateway ROLE is swappable
    *  at the gateway, so this side cannot know the context window. */
   maxPromptChars?: number | undefined;
+  /** THE-934: egress.excludePaths, compiled. Absent -> nothing excluded (back-compat). Every
+   *  plane job that assembles a gateway request from vault content must drop rows under an
+   *  excluded path before building it — see plane/egress-filter.ts's isExcludedPath. */
+  excludeFilter?: EgressFilter;
 }
 
 export interface JobResult {

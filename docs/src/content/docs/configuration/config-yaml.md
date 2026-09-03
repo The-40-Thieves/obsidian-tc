@@ -253,6 +253,9 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
     "gatewayTimeoutMs": 300000,
     "maxPromptChars": 45535
   },
+  "egress": {
+    "excludePaths": []
+  },
   "sessions": {
     "autoOpen": false,
     "traceContent": true,

@@ -33,7 +33,7 @@ function goal(id: string, text: string, status = "open"): AdvisoryGoal {
 }
 
 function cand(ref: string, text: string, at = 100): AdvisoryCandidate {
-  return { kind: "note_changed", ref, text, at };
+  return { kind: "note_changed", ref, path: `${ref}.md`, text, at };
 }
 
 /** A scored item straight into the policy layer, bypassing similarity. */

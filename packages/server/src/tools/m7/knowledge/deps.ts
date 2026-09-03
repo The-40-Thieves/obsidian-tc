@@ -4,6 +4,7 @@ import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
 import type { EmbeddingProvider } from "../../../embeddings";
 import type { RetrievalLogger } from "../../../experiential/log";
+import type { EgressFilter } from "../../../plane/egress-filter";
 import type { GatewayRoles } from "../../../plane/gateway";
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
 import type { RetrievalCaches } from "../../../search/query_cache";
@@ -140,4 +141,10 @@ export interface M7Deps {
    *  call touches N vaults, so `ctx.acl` can describe at most one of them correctly. */
   acl?: FolderAcl;
   aclByVault?: Map<string, FolderAcl>;
+  /** THE-934 fix round 1 (Blocking-3): egress.excludePaths, compiled. Undefined -> nothing
+   *  excluded. `reflect`'s synthesize/challenge calls and `knowledge_challenge` both retrieve
+   *  through the ordinary recall path (lexical-inclusive), so an excluded chunk can surface as a
+   *  first-class hit even though it has no vector — this is what makes it a gateway leg, not the
+   *  embedding one. */
+  excludeFilter?: EgressFilter;
 }

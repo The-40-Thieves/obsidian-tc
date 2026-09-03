@@ -5,6 +5,11 @@ import { openDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import { createGatewayClient } from "../../gateway";
 import { MetricsRecorder } from "../../metrics/registry";
+import {
+  compileEgressFilter,
+  EgressViolationError,
+  isExcludedPath,
+} from "../../plane/egress-filter";
 import { wireIndexResources } from "../../runtime/indexing-wiring";
 import { maybeSummarizeVault } from "../../search/indexing/summarize-notes";
 import { normalizeVaultPath } from "../../vault/paths";
@@ -65,6 +70,12 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
     // A process-local recorder. Its Prometheus counters are discarded when this process exits —
     // there is no /metrics endpoint on a one-shot CLI — but recordIngestStats ALSO writes
     // event_log rows, and those are durable and are the point.
+    // THE-934: egress.excludePaths — an operator-invoked reindex must withhold the same folders
+    // from embedding/summarizing that the ambient plane withholds from generative jobs. Computed
+    // BEFORE wireIndexResources (fix round 1) so the embedding PORT it constructs is guarded from
+    // the start, not only the indexVault call below.
+    const egressFilter = compileEgressFilter(cfg.egress.excludePaths);
+    const isEgressExcluded = (rel: string): boolean => isExcludedPath(egressFilter, rel);
     const resources = await wireIndexResources({
       db,
       metrics: new MetricsRecorder(),
@@ -73,6 +84,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         process.stdout.write(`index: vec_chunks rebuilt (${event.reason ?? "representation"})\n`),
       ...(configPath !== undefined ? { configDir: dirname(configPath) } : {}),
       ...(cfg.securityProfile !== undefined ? { securityProfile: cfg.securityProfile } : {}),
+      excludeFilter: egressFilter,
     });
 
     const sub = cmd.folder ? normalizeVaultPath(cmd.folder) : undefined;
@@ -93,6 +105,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         // No ACL narrowing: this is an operator-invoked local command, not a scoped agent request.
         // The MCP tool path applies the caller's folder ACL; there is no caller here to scope to.
         isReadable: () => true,
+        isEgressExcluded, // THE-934
         walk: { streaming: cfg.indexing.streamingWalk },
       });
       totalChunks += stats.chunks_upserted;
@@ -120,12 +133,14 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
               maxConcurrency: cfg.retrieval.summaries.maxConcurrency,
             },
             () =>
-              createGatewayClient(
-                cfg.retrieval.summaries.model
+              createGatewayClient({
+                ...(cfg.retrieval.summaries.model
                   ? { models: { extract: cfg.retrieval.summaries.model } }
-                  : {},
-              ),
+                  : {}),
+                excludeFilter: egressFilter,
+              }),
             resources.embeddingProvider,
+            egressFilter,
           );
           if (summaryStats) {
             process.stdout.write(
@@ -135,6 +150,13 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
             );
           }
         } catch (e) {
+          // THE-934 fix round 2 (N1): an EgressViolationError here means the port's guard fired
+          // on content that the consumer-side pre-filter (summarize-notes.ts's own excludeFilter
+          // check, above the gateway call) should already have dropped -- i.e. that pre-filter
+          // itself is broken. That is a security-relevant defect, not an operational hiccup like
+          // an unreachable gateway, so it must NOT be swallowed into the same warning line as a
+          // dead endpoint -- it propagates and fails the run (see cli.ts's main().catch).
+          if (e instanceof EgressViolationError) throw e;
           process.stderr.write(
             `index: summaries[${v.id}] skipped — ${e instanceof Error ? e.message : String(e)}\n`,
           );

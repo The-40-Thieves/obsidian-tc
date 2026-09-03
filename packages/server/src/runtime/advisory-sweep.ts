@@ -42,6 +42,7 @@ import {
 } from "../experiential/advisory-policy";
 import { listGoals } from "../experiential/goals";
 import type { AdvisoryBus, AdvisoryPushItem } from "../mcp/advisories";
+import { type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import type { Scheduler } from "../scheduler/scheduler";
 import { cosineSimilarity } from "../search/native";
 import { stderrOnError } from "../util/errors";
@@ -101,6 +102,9 @@ export function recentNoteChanges(
   return rows.map((r) => ({
     kind: "note_changed",
     ref: r.id,
+    // THE-934 fix round 2 (N1): the real vault path, distinct from `ref` (a chunk id) — see
+    // AdvisoryCandidate's doc comment for why this field exists.
+    path: r.path,
     text: `${r.path}\n${r.content}`,
     at: r.updated_at,
   }));
@@ -209,7 +213,19 @@ export async function buildSimilarityFn(
   );
   const candidateVecs = await provider.embed(
     candidates.map((c) => c.text),
-    { input: "document" },
+    {
+      input: "document",
+      // THE-934 fix round 2 (N1, narrowed in the NB2 follow-up): the egress guard's backstop
+      // check. `path` (not `ref` — a chunk id, never a glob match) is the real vault path for
+      // "note_changed" candidates, now REQUIRED by AdvisoryCandidate's discriminated union rather
+      // than an optional field a `?? fallback` could silently paper over; the caller
+      // (registerAdvisorySweep below) has already dropped any excluded (or malformed) one before
+      // this runs. A "contradiction"/"synthesis" candidate carries no `path` field at all — its
+      // `ref` is a derived-row id, never a vault path — so it falls through to `ref` here purely
+      // as a stable non-empty placeholder string, not as something the filter is expected to match
+      // against.
+      sourcePaths: candidates.map((c) => (c.kind === "note_changed" ? c.path : c.ref)),
+    },
   );
   const goalVecByText = new Map(goals.map((g, i) => [g.text, goalVecs[i]]));
   // Document side converts to Float32Array once at map build — the native cosine requires it
@@ -282,6 +298,10 @@ export interface AdvisorySweepDeps {
   publish: AdvisoryBus["publish"];
   /** Injected for tests; production passes nothing and gets Date.now. */
   now?: () => number;
+  /** THE-934 fix round 1 (I3): egress.excludePaths, compiled. Undefined -> nothing excluded. A
+   *  "note_changed" candidate under an excluded path is dropped before it can become embed
+   *  input — this sweep runs on a SCHEDULE with no human in the loop reviewing it. */
+  excludeFilter?: EgressFilter;
 }
 
 /**
@@ -311,11 +331,33 @@ export function registerAdvisorySweep(scheduler: Scheduler, deps: AdvisorySweepD
         const goals = listGoals(deps.experientialDb, vaultId); // defaults to status: "open"
         if (goals.length === 0) continue;
 
-        const candidates: AdvisoryCandidate[] = [
+        const excludeFilter = deps.excludeFilter;
+        const allCandidates: AdvisoryCandidate[] = [
           ...recentNoteChanges(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
           ...openContradictions(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
           ...recentSyntheses(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
         ];
+        // THE-934 fix round 1 (I3), corrected in fix round 2 (N1), narrowed further in a
+        // follow-up (NB2): a "note_changed" candidate under an excluded path is dropped BEFORE it
+        // can become embed input — the chokepoint every other assembler uses. Round 1 checked
+        // `c.ref`, which is the chunk id (a content hash) for "note_changed", never a glob match —
+        // the filter was silently inert. Round 2 fixed that by checking `c.path`, but `path` was
+        // still an OPTIONAL field with a `?? ""` fallback here — fail-OPEN if a malformed
+        // candidate ever reached this code without one (an empty string matches no real glob).
+        // `path` is now REQUIRED by AdvisoryCandidate's discriminated union for every "note_changed"
+        // candidate, so a missing path is a type error at every construction site; this filter
+        // additionally fails CLOSED (treats it as excluded) on a falsy `path` that somehow reaches
+        // here anyway (e.g. a future producer built with an `as` cast), rather than silently
+        // treating "no path" as "not excluded". contradiction/synthesis candidates carry no `path`
+        // field at all, so the filter never touches them.
+        const candidates =
+          excludeFilter === undefined
+            ? allCandidates
+            : allCandidates.filter((c) => {
+                if (c.kind !== "note_changed") return true;
+                if (!c.path) return false; // fail CLOSED on a malformed/pathless candidate
+                return !isExcludedPath(excludeFilter, c.path);
+              });
         if (candidates.length === 0) continue;
 
         const similarity = await buildSimilarityFn(deps.provider, goals, candidates);

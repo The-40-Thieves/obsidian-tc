@@ -171,7 +171,7 @@ describe("buildModelTierReranker (live Reranker seam via /v1/rerank)", () => {
       { fetchFn },
     );
     expect(rerank).not.toBeNull();
-    const hits = await rerank?.("q", ["a", "b"], 5);
+    const hits = await rerank?.("q", ["a", "b"], 5, []);
     expect(hits).toEqual([{ index: 1, relevanceScore: 0.8 }]);
   });
 

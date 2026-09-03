@@ -25,6 +25,7 @@ import { remainingBudget } from "../src/experiential/advisory-policy";
 import { setGoal } from "../src/experiential/goals";
 import { createAdvisoryBus } from "../src/mcp/advisories";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import {
   buildSimilarityFn,
   openContradictions,
@@ -256,7 +257,7 @@ describe("buildSimilarityFn", () => {
     const fn = await buildSimilarityFn(
       provider,
       [{ id: "g1", text: "ship the parser", status: "open" }],
-      [{ kind: "note_changed", ref: "c1", text: "parser notes", at: NOW }],
+      [{ kind: "note_changed", ref: "c1", path: "c1.md", text: "parser notes", at: NOW }],
     );
     expect(fn("ship the parser", "parser notes")).toBeCloseTo(1, 5);
     expect(provider.calls).toEqual([
@@ -270,7 +271,7 @@ describe("buildSimilarityFn", () => {
     const fn = await buildSimilarityFn(
       provider,
       [],
-      [{ kind: "note_changed", ref: "c1", text: "x", at: 0 }],
+      [{ kind: "note_changed", ref: "c1", path: "c1.md", text: "x", at: 0 }],
     );
     expect(fn("anything", "anything")).toBe(0);
     expect(provider.calls).toEqual([]);
@@ -281,7 +282,7 @@ describe("buildSimilarityFn", () => {
     const fn = await buildSimilarityFn(
       provider,
       [{ id: "g1", text: "g", status: "open" }],
-      [{ kind: "note_changed", ref: "c1", text: "c", at: 0 }],
+      [{ kind: "note_changed", ref: "c1", path: "c1.md", text: "c", at: 0 }],
     );
     expect(fn("never seen", "c")).toBe(0);
   });
@@ -539,5 +540,155 @@ describe("registerAdvisorySweep", () => {
     // candidate are all present, so a non-aborted run would have.
     expect(provider.calls).toHaveLength(0);
     expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 0 });
+  });
+
+  it("egress.excludePaths: an excluded note_changed candidate never reaches the embed port; a public one still scores (THE-934 fix round 2, N1)", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, {
+      id: "pub",
+      vaultId: V,
+      path: "Public/a.md",
+      content: "relevant",
+      updatedAt: NOW,
+    });
+    addChunk(cdb, {
+      id: "priv",
+      vaultId: V,
+      path: "Private/b.md",
+      content: "SECRET_MARKER relevant",
+      updatedAt: NOW - 1,
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: {
+        "Public/a.md\nrelevant": [1, 0],
+        "Private/b.md\nSECRET_MARKER relevant": [1, 0],
+      },
+    });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    await box.task?.run(NOT_ABORTED);
+
+    // The port (provider.embed) never saw the excluded candidate's text at all.
+    const documentCall = provider.calls.find((c) => c.input === "document");
+    expect(documentCall?.texts).toEqual(["Public/a.md\nrelevant"]);
+    expect(documentCall?.texts.join("\n")).not.toContain("SECRET_MARKER");
+
+    // The result reports the skip: only the public chunk was ever inserted as an advisory.
+    const rows = edb.prepare("SELECT chunk_id FROM chunk_retrievals").all() as Array<{
+      chunk_id: string;
+    }>;
+    expect(rows).toEqual([{ chunk_id: "pub" }]);
+  });
+
+  it("a malformed note_changed candidate with a falsy path fails CLOSED (treated as excluded), not open (THE-934 fix round 2, NB2 follow-up)", async () => {
+    // AdvisoryCandidate's discriminated union now REQUIRES `path` on every "note_changed" variant
+    // (a pathless one is a type error at every construction site — see advisory.ts), but this
+    // proves the runtime backstop too: if a malformed candidate ever reached the filter anyway
+    // (e.g. a future producer built with an `as` cast, or — as simulated here — a chunk row with
+    // an empty `path` column), it must be excluded, not silently treated as "not excluded" the way
+    // the old `c.path ?? ""` fallback did (an empty string matches no real glob, so it used to
+    // clear the filter).
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, {
+      id: "pub",
+      vaultId: V,
+      path: "Public/a.md",
+      content: "relevant",
+      updatedAt: NOW,
+    });
+    // A chunk row with an empty path — pathological, but a real value SQLite will happily store —
+    // simulating a malformed candidate reaching the exclusion filter with no usable path.
+    addChunk(cdb, {
+      id: "malformed",
+      vaultId: V,
+      path: "",
+      content: "SECRET_MARKER relevant",
+      updatedAt: NOW - 1,
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: {
+        "Public/a.md\nrelevant": [1, 0],
+        "\nSECRET_MARKER relevant": [1, 0],
+      },
+    });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+      // ANY excludeFilter arms the fail-closed check — the malformed candidate has no pattern that
+      // needs to match it; a missing path alone is disqualifying once filtering is active at all.
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    await box.task?.run(NOT_ABORTED);
+
+    const documentCall = provider.calls.find((c) => c.input === "document");
+    expect(documentCall?.texts).toEqual(["Public/a.md\nrelevant"]);
+    expect(documentCall?.texts.join("\n")).not.toContain("SECRET_MARKER");
+    const rows = edb.prepare("SELECT chunk_id FROM chunk_retrievals").all() as Array<{
+      chunk_id: string;
+    }>;
+    expect(rows).toEqual([{ chunk_id: "pub" }]);
+  });
+
+  it("flag off (no excludeFilter): the SAME malformed pathless candidate is NOT dropped — 'no filter configured' must stay a true no-op, not a side-channel exclusion (THE-934 fix round 2, NB2 follow-up)", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addChunk(cdb, {
+      id: "malformed",
+      vaultId: V,
+      path: "",
+      content: "unlabeled",
+      updatedAt: NOW,
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { "\nunlabeled": [1, 0] },
+    });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+      // No excludeFilter at all: `egress.excludePaths` is unconfigured, so nothing is excluded.
+    });
+    await box.task?.run(NOT_ABORTED);
+
+    const documentCall = provider.calls.find((c) => c.input === "document");
+    expect(documentCall?.texts).toEqual(["\nunlabeled"]);
+    const rows = edb.prepare("SELECT chunk_id FROM chunk_retrievals").all() as Array<{
+      chunk_id: string;
+    }>;
+    expect(rows).toEqual([{ chunk_id: "malformed" }]);
   });
 });

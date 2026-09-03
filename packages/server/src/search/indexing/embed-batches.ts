@@ -45,19 +45,24 @@ interface SubBatchOut {
 async function embedSubBatch(
   provider: EmbeddingProvider,
   batch: string[],
+  /** THE-934 fix round 1: parallel to `batch` -- the vault path each text was drawn from. Every
+   *  text here already passed note-plan.ts's exclusion filter (embedPlans below never pushes an
+   *  excludedFromEmbed/skipEmbed chunk's text), so declaring these is always safe -- it is the
+   *  embedding PORT guard's (embeddings/index.ts) OWN backstop check, not a second filter. */
+  sourcePaths: string[],
   useFull: boolean,
   counters: { rejections: number },
 ): Promise<SubBatchOut> {
   try {
     if (useFull && provider.embedFull) {
-      const full = await provider.embedFull(batch);
+      const full = await provider.embedFull(batch, { input: "document", sourcePaths });
       return {
         dense: full.map((f) => f.dense),
         sparse: full.map((f) => f.sparse),
         colbert: full.map((f) => f.colbert),
       };
     }
-    return { dense: await provider.embed(batch) };
+    return { dense: await provider.embed(batch, { input: "document", sourcePaths }) };
   } catch (e) {
     if (!isEmbedRejection(e)) throw e;
     counters.rejections += 1;
@@ -65,8 +70,20 @@ async function embedSubBatch(
       return useFull ? { dense: [null], sparse: [null], colbert: [null] } : { dense: [null] };
     }
     const mid = Math.ceil(batch.length / 2);
-    const left = await embedSubBatch(provider, batch.slice(0, mid), useFull, counters);
-    const right = await embedSubBatch(provider, batch.slice(mid), useFull, counters);
+    const left = await embedSubBatch(
+      provider,
+      batch.slice(0, mid),
+      sourcePaths.slice(0, mid),
+      useFull,
+      counters,
+    );
+    const right = await embedSubBatch(
+      provider,
+      batch.slice(mid),
+      sourcePaths.slice(mid),
+      useFull,
+      counters,
+    );
     return {
       dense: left.dense.concat(right.dense),
       ...(useFull
@@ -92,13 +109,19 @@ export async function embedPlans(
   maxBatchTokens: number = EMBED_MAX_BATCH_TOKENS,
 ): Promise<EmbedReport> {
   const contents: string[] = [];
+  // THE-934: parallel to `contents` — the vault path each text came from, one entry per pushed
+  // text (a plan's toEmbed chunks all share `p.path`).
+  const contentPaths: string[] = [];
   // THE-406: embed the enriched text when present; c.content remains the stored display text.
   // Cross-path dedup (migration 20260719_001): a skipEmbed chunk's identical body is already embedded
   // at another path, so it is NOT sent to the provider — its vector slot is filled below.
   for (const p of plans)
     for (const c of p.toEmbed) {
-      if (c.skipEmbed) continue;
+      // THE-934: skipEmbed (dedup reuse) and excludedFromEmbed (egress.excludePaths) both mean
+      // "never send this to the provider" — the chokepoint for index-time embedding.
+      if (c.skipEmbed || c.excludedFromEmbed) continue;
       contents.push(c.embedText ?? c.content);
+      contentPaths.push(p.path);
     }
   if (contents.length === 0) return { failed: [], rejections: 0 };
   // Pack sub-batches greedily under BOTH caps: at most `batchSize` inputs and at most
@@ -106,19 +129,27 @@ export async function embedPlans(
   // tokens into one call and crashed a stock local runner). A single text that alone exceeds the
   // token cap still goes in its own batch: never split, never dropped.
   const subBatches: string[][] = [];
+  const subBatchPaths: string[][] = [];
   let cur: string[] = [];
+  let curPaths: string[] = [];
   let curTokens = 0;
-  for (const text of contents) {
+  for (const [i, text] of contents.entries()) {
     const t = estimateEmbedTokens(text);
     if (cur.length > 0 && (cur.length >= batchSize || curTokens + t > maxBatchTokens)) {
       subBatches.push(cur);
+      subBatchPaths.push(curPaths);
       cur = [];
+      curPaths = [];
       curTokens = 0;
     }
     cur.push(text);
+    curPaths.push(contentPaths[i] as string);
     curTokens += t;
   }
-  if (cur.length > 0) subBatches.push(cur);
+  if (cur.length > 0) {
+    subBatches.push(cur);
+    subBatchPaths.push(curPaths);
+  }
   // THE-388: when the provider emits embedFull() (bge-m3), collect the sparse + ColBERT heads per
   // sub-batch alongside the dense vector; dense-only providers take the embed() path unchanged.
   const hasFull = typeof provider.embedFull === "function";
@@ -127,7 +158,13 @@ export async function embedPlans(
   let next = 0;
   const worker = async (): Promise<void> => {
     for (let i = next++; i < subBatches.length; i = next++) {
-      results[i] = await embedSubBatch(provider, subBatches[i] as string[], hasFull, counters);
+      results[i] = await embedSubBatch(
+        provider,
+        subBatches[i] as string[],
+        subBatchPaths[i] as string[],
+        hasFull,
+        counters,
+      );
     }
   };
   await Promise.all(
@@ -148,7 +185,7 @@ export async function embedPlans(
     const colbert: ColbertMatrix[] = [];
     let quarantined = false;
     for (const c of p.toEmbed) {
-      if (c.skipEmbed) {
+      if (c.skipEmbed || c.excludedFromEmbed) {
         dense.push([]);
         if (flatSparse) sparse.push({} as SparseVec);
         if (flatColbert) colbert.push([] as unknown as ColbertMatrix);

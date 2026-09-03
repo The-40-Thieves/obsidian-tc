@@ -39,10 +39,29 @@ async function planNoteWrites(
   raw: string,
   ts: number,
   enrich: boolean,
+  /** THE-934 fix round 1 (Blocking-1): egress.excludePaths, as a per-path predicate. Undefined ->
+   *  nothing excluded. Without this, the single-note index-on-write path (write_note/append_note/
+   *  patch_note, the vault watcher, and a move/rename INTO an excluded folder) sent excluded note
+   *  text to the embedding provider — the batched indexVault reconcile got this in round 0, this
+   *  path did not. */
+  isExcluded?: (rel: string) => boolean,
 ): Promise<PlanResult> {
   // THE-531: pass the active model so an unchanged note whose vectors are from a superseded model is
   // still re-embedded.
-  const res = computeNotePlan(db, vaultId, path, raw, ts, enrich, undefined, false, provider.id);
+  const res = computeNotePlan(
+    db,
+    vaultId,
+    path,
+    raw,
+    ts,
+    enrich,
+    undefined,
+    false,
+    provider.id,
+    undefined,
+    undefined,
+    isExcluded,
+  );
   if (res.plan) {
     const { failed } = await embedPlans(provider, [res.plan], EMBED_BATCH, EMBED_CONCURRENCY);
     // Index-on-write is a single note: a quarantined chunk means the note cannot be applied,
@@ -75,6 +94,9 @@ export async function indexNote(
    *  are the ones that show a live tool call blocking behind a running reindex — the contention
    *  THE-467/468 is actually about. */
   sql?: WriteTxnHooks,
+  /** THE-934 fix round 1 (Blocking-1): egress.excludePaths, as a per-path predicate. Threaded
+   *  through to planNoteWrites/computeNotePlan — see that function's doc comment. */
+  isExcluded?: (rel: string) => boolean,
 ): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
   const { plan, unchanged, secretsSkipped, flagged } = await planNoteWrites(
     db,
@@ -84,6 +106,7 @@ export async function indexNote(
     raw,
     now(),
     enrich,
+    isExcluded,
   );
   // THE-291: the metadata/FTS row rides the same write (skip empty content — a true delete goes
   // through deindexNote; an empty note has nothing to index).

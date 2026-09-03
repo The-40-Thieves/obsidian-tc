@@ -1,4 +1,9 @@
 import { err, extractCauseCode, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  assertSourcePathsAllowed,
+  compileEgressFilter,
+  type EgressFilter,
+} from "../plane/egress-filter";
 
 export type GatewayRole = "extract" | "synthesize" | "judge";
 
@@ -13,6 +18,11 @@ export interface CompletionRequest {
   maxTokens?: number;
   /** Pass-through OpenAI `response_format`, e.g. `{ type: "json_object" }`. */
   responseFormat?: Record<string, unknown>;
+  /** THE-934: vault-relative paths this request's content was assembled from, for
+   *  plane/egress-guard.ts's fail-closed check. Never read by createGatewayClient below -- the
+   *  wire body is built field-by-field from `messages`/`temperature`/`maxTokens`/`responseFormat`
+   *  only, so this never reaches the network. */
+  sourcePaths?: string[];
 }
 
 export interface CompletionResult {
@@ -32,6 +42,10 @@ export interface RerankRequest {
   query: string;
   documents: string[];
   topN?: number;
+  /** THE-934: vault-relative paths of every document in `documents`, in the SAME order -- the
+   *  port guard checks this the same way it checks a completion request's sourcePaths. A hosted
+   *  reranker is a content-bearing egress leg exactly like extract/synthesize/judge (I2). */
+  sourcePaths?: string[];
 }
 
 export interface RerankResult {
@@ -87,6 +101,13 @@ export interface GatewayClientOptions {
   retryMaxDelayMs?: number;
   /** Delay seam for tests — default a real setTimeout-based wait. */
   sleepFn?: (ms: number) => Promise<void>;
+  /** THE-934 fix round 1: egress.excludePaths, compiled. Absent -> an empty filter (excludes
+   *  nothing) -- but the sourcePaths DECLARATION requirement below is unconditional regardless,
+   *  so every caller of the returned client must still declare sourcePaths on every
+   *  extract/synthesize/judge/rerank call, empty array or not. This is the PORT: every
+   *  GatewayClient the server constructs comes from this one function, so there is no way to
+   *  obtain an unguarded handle. */
+  excludeFilter?: EgressFilter;
 }
 
 /** Prefer the explicit URL, then OBSIDIAN_TC_GATEWAY_URL. Undefined if neither is set. */
@@ -133,6 +154,35 @@ function parseRetryAfterMs(value: string | null): number | null {
   if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
   const dateMs = Date.parse(value);
   return Number.isNaN(dateMs) ? null : Math.max(0, dateMs - Date.now());
+}
+
+/**
+ * THE-934 fix round 1: the PORT guard. `client` here is the raw, unwrapped implementation this
+ * function builds from `opts` -- wrapping it before returning is what makes every
+ * `createGatewayClient` caller (there is no other way to build a `GatewayClient` in this repo)
+ * get a handle that refuses an undeclared or excluded-path request, unconditionally. `ping`
+ * passes through unchanged (a liveness probe carries no vault content).
+ */
+function guardGatewayClient(client: GatewayClient, filter: EgressFilter): GatewayClient {
+  return {
+    extract: async (req) => {
+      assertSourcePathsAllowed(filter, "extract", req.sourcePaths);
+      return client.extract(req);
+    },
+    synthesize: async (req) => {
+      assertSourcePathsAllowed(filter, "synthesize", req.sourcePaths);
+      return client.synthesize(req);
+    },
+    judge: async (req) => {
+      assertSourcePathsAllowed(filter, "judge", req.sourcePaths);
+      return client.judge(req);
+    },
+    rerank: async (req) => {
+      assertSourcePathsAllowed(filter, "rerank", req.sourcePaths);
+      return client.rerank(req);
+    },
+    ping: () => client.ping(),
+  };
 }
 
 export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayClient {
@@ -233,7 +283,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
     };
   }
 
-  return {
+  const rawClient: GatewayClient = {
     extract: (req) => complete("extract", req),
     synthesize: (req) => complete("synthesize", req),
     judge: (req) => complete("judge", req),
@@ -273,4 +323,5 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
       }
     },
   };
+  return guardGatewayClient(rawClient, opts.excludeFilter ?? compileEgressFilter([]));
 }

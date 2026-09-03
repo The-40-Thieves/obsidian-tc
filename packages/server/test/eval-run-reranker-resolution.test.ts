@@ -54,7 +54,7 @@ describe("buildEvalReranker (THE-806 step 2)", () => {
     );
     expect(resolveRerankerFn).not.toHaveBeenCalled();
     expect(reranker).not.toBeNull();
-    const hits = await reranker?.("q", ["a", "b"], 1);
+    const hits = await reranker?.("q", ["a", "b"], 1, []);
     expect(hits).toEqual([{ index: 1, relevanceScore: 0.9 }]);
     expect(fetchFn).toHaveBeenCalledWith(
       "http://127.0.0.1:9/rerank",

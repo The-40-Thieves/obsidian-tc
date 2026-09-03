@@ -38,7 +38,7 @@ describe("the hint each ADAPTER produces names its own config block", () => {
       baseUrl: "http://127.0.0.1:9/v2",
       fetchFn: unauthorized,
     });
-    const hint = await hintFrom(() => rerank("q", ["a", "b"], 2));
+    const hint = await hintFrom(() => rerank("q", ["a", "b"], 2, []));
     expect(hint).toContain("reranker.apiKey");
     // The regression itself: this adapter used to send its operator to the embeddings block.
     expect(hint).not.toContain("embeddings.apiKey");
@@ -111,7 +111,7 @@ describe("the hint each ADAPTER produces names its own config block", () => {
       { provider: "ollama", model: "nomic-embed-text", dimensions: 768 },
       { fetchFn: unauthorized },
     );
-    const hint = await hintFrom(() => p.embed(["a"]));
+    const hint = await hintFrom(() => p.embed(["a"], { sourcePaths: [] }));
     expect(hint).toContain("ollama pull");
     expect(hint).not.toContain("apiKey");
   });
@@ -121,7 +121,7 @@ describe("the hint each ADAPTER produces names its own config block", () => {
       { provider: "cohere", model: "embed-v4.0", dimensions: 1024 },
       { fetchFn: unauthorized },
     );
-    const hint = await hintFrom(() => p.embed(["a"]));
+    const hint = await hintFrom(() => p.embed(["a"], { sourcePaths: [] }));
     expect(hint).toContain("embeddings.apiKey");
     expect(hint).not.toContain("reranker.apiKey");
   });

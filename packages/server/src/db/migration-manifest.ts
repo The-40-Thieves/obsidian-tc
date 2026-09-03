@@ -63,6 +63,11 @@ export const CACHE_MIGRATION_FILES = [
   // enqueueCapture (THE-238's scanner, previously only reachable from write_note/append_note per
   // THE-639). capture_queue is created in 20260519_001 above, so this stays in the CACHE chain.
   "20260819_003_capture_queue_poison_scan.sql",
+  // THE-934: 20260903_001 adds chunks.embedding_excluded -- the marker that keeps a chunk withheld
+  // from embedding by egress.excludePaths from reading as a null-embedding DEFECT in the audit job
+  // (plane/jobs/audit.ts). chunks lives in the CACHE chain. See the migration's own header for the
+  // re-evaluation rationale.
+  "20260903_001_chunk_embedding_excluded.sql",
 ] as const;
 
 /**

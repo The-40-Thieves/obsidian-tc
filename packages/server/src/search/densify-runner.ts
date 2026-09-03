@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Database } from "../db/types";
 import type { GatewayClient } from "../gateway/client";
+import { type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import { reconcileDerivedEdges } from "./derived-edges";
 import { extractSemanticEdges, type SourceNote } from "./llm-edges";
 
@@ -23,7 +24,13 @@ export async function runLlmDensify(
   db: Database,
   vaultId: string,
   client: GatewayClient,
-  opts: { batchSize?: number; confidenceFloor?: number; maxContentChars?: number } = {},
+  opts: {
+    batchSize?: number;
+    confidenceFloor?: number;
+    maxContentChars?: number;
+    /** THE-934 fix round 1: egress.excludePaths, compiled. Undefined -> nothing excluded. */
+    excludeFilter?: EgressFilter;
+  } = {},
 ): Promise<{ notes: number; edges: number; batches: number }> {
   const maxChars = opts.maxContentChars ?? 4000;
   const rows = db
@@ -31,14 +38,21 @@ export async function runLlmDensify(
       "SELECT path, group_concat(content, char(10)) AS content FROM chunks WHERE vault_id = ? GROUP BY path ORDER BY path",
     )
     .all(vaultId) as Array<{ path: string; content: string | null }>;
-  const notes: SourceNote[] = rows.map((r) => {
-    const content = (r.content ?? "").slice(0, maxChars);
-    return {
-      path: r.path,
-      content,
-      sha: createHash("sha256").update(content).digest("hex").slice(0, 16),
-    };
-  });
+  // THE-934 fix round 1 (Blocking-4 sibling): an excluded note is dropped BEFORE it can be a
+  // batch member at all — the same "consumer filters first" chokepoint every other assembler
+  // uses. Full-state reconcile only ever sees edges among the SURVIVING notes, so an excluded
+  // note can neither be a source nor a target of a semantically_similar_to edge.
+  const excludeFilter = opts.excludeFilter;
+  const notes: SourceNote[] = rows
+    .filter((r) => excludeFilter === undefined || !isExcludedPath(excludeFilter, r.path))
+    .map((r) => {
+      const content = (r.content ?? "").slice(0, maxChars);
+      return {
+        path: r.path,
+        content,
+        sha: createHash("sha256").update(content).digest("hex").slice(0, 16),
+      };
+    });
 
   const { edges, totalBatches, failedBatches, unparseableBatches } = await extractSemanticEdges(
     client,

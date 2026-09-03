@@ -19,6 +19,7 @@ import { run_citation_infer } from "./cli/commands/citation-infer";
 import { run_cluster } from "./cli/commands/cluster";
 import { run_config_explain } from "./cli/commands/config-explain";
 import { run_config_show } from "./cli/commands/config-show";
+import { run_consolidate } from "./cli/commands/consolidate";
 import { run_context_export } from "./cli/commands/context-export";
 import { run_context_import } from "./cli/commands/context-import";
 import { run_contribution_report } from "./cli/commands/contribution-report";
@@ -60,7 +61,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // DERIVED state (cluster, activation-recompute, densify-llm, citation-infer, contribution-report,
 // note-quality, gaps, metrics, reflect) — real writes, but of RECOMPUTABLE state: a re-run
 // reproduces it, so an audit row would be noise (a rewritten cluster assignment is not a loss
-// event). `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
+// event). `consolidate` (THE-934) joins that recompute bucket for the same reason — the syntheses/
+// audit_reports rows it writes are reproduced by the next scheduled pass, and `--dry-run` writes
+// nothing at all. `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
 // free. `forget`, `elicit` (THE-826), `context-export`/`context-import` (THE-636) and
 // `import-highlights` (THE-650) and `import-ambient` (THE-175) are the commands that write
 // `audit_events` directly rather than through `runDispatch` — `forget` for true vault-destructive
@@ -120,6 +123,8 @@ async function main(): Promise<void> {
       return run_import_highlights(cmd);
     case "import-ambient":
       return run_import_ambient(cmd);
+    case "consolidate":
+      return run_consolidate(cmd);
     case "gaps":
       return run_gaps(cmd);
     case "index":

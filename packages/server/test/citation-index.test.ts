@@ -44,7 +44,9 @@ function edb0(): Database {
 
 function cacheDb0(): Database {
   const db = openMemoryDb();
-  db.exec("CREATE TABLE chunks (id TEXT PRIMARY KEY, content TEXT NOT NULL)");
+  db.exec(
+    "CREATE TABLE chunks (id TEXT PRIMARY KEY, content TEXT NOT NULL, path TEXT NOT NULL DEFAULT 'unknown.md')",
+  );
   return db;
 }
 

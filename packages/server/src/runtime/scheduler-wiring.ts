@@ -11,6 +11,7 @@ import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import type { AdvisoryBus } from "../mcp/advisories";
 import type { MorgianaEmitter } from "../morgiana/emitter";
+import { compileEgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { makeJobRunner } from "../scheduler/job-runner";
@@ -158,6 +159,9 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       experientialDb: deps.experientialDb,
       provider: deps.embeddingProvider,
       vaultIds: deps.vaults.map((v) => v.id),
+      // THE-934 fix round 1 (I3): dropped BEFORE it can become embed input, on top of the
+      // embedding PORT guard deps.embeddingProvider already carries.
+      excludeFilter: compileEgressFilter(config.egress.excludePaths),
       // THE-719's gapSweep names its own interval field; proactive has none in its config surface
       // (§5 of the verified brief lists exactly enabled/minScore/topK/maxPerSession/
       // dismissalPenalty) — it rides the existing maintenance cadence instead, the same interval

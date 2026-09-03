@@ -269,6 +269,8 @@ export const ReflectOutput = z.object({
   challenge: challengeOutputSchema.optional(),
   sources: z.array(SourceRef),
   persisted: z.object({ path: z.string() }).optional(),
+  /** THE-934: candidates egress.excludePaths dropped. Omitted (not zero) when nothing excluded. */
+  excluded_count: z.number().int().nonnegative().optional(),
 });
 
 /** vault_graph_search: `route` appears only on the lexical arm; hyde/variants_used are spread in
@@ -366,8 +368,6 @@ export const KnowledgeCriticalOutput = z.object({
   ),
 });
 
-/** knowledge_challenge: three arms, and the degraded one is only the shared triple — deliberately
- *  narrower than reflect's, which is exactly the inconsistency THE-548 surfaced. */
 /** knowledge_challenge. Same widening reason as ReflectOutput. Its degraded arm is only
  *  `{ vault, available: false, message }` — deliberately NARROWER than reflect's, which is exactly
  *  the surface inconsistency THE-548 surfaced and this ticket is making legible. */
@@ -380,6 +380,8 @@ export const KnowledgeChallengeOutput = z.object({
   // null on the no-evidence arm, a full ChallengeOutput on success, absent when degraded.
   output: challengeOutputSchema.nullable().optional(),
   model: z.string().optional(),
+  /** THE-934: evidence/contradictions egress.excludePaths dropped. Omitted when nothing excluded. */
+  excluded_count: z.number().int().nonnegative().optional(),
 });
 
 export const ListContradictionsOutput = z.object({

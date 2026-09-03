@@ -13,6 +13,7 @@
 // survivor rows NULL for a clean rerun. Stage-1 negatives are always safe to stamp cited=0.
 // Correlation is by session_id or a retrieved_at window (THE-228's capture bus).
 import type { Database } from "../db/types";
+import { type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
 import { cosineBatch, cosineSimilarity, rougeLLcs } from "../search/native";
@@ -271,6 +272,11 @@ export interface InferCitationsOptions {
    *  abstention without it will read every abstention as a PARSE FAILURE. */
   judgeSystem?: string;
   log?: (line: string) => void;
+  /** THE-934: egress.excludePaths, compiled. Absent -> nothing excluded (back-compat). A chunk
+   *  under an excluded path is dropped from the candidate set before stage 1 — it is never scored,
+   *  never judged, and its retrieval row is left NULL (a later un-excluded pass can still process
+   *  it, exactly like any other unprocessed row). */
+  excludeFilter?: EgressFilter;
 }
 
 export interface InferCitationsStats {
@@ -285,6 +291,35 @@ export interface InferCitationsStats {
    *  folded into `parseFailures`, which sent operators to debug prompts during an endpoint outage. */
   judgeErrors: number;
   aborted: boolean;
+}
+
+/**
+ * THE-934 — `consolidate --once --dry-run`'s read side for citation candidates. GLOBAL, unscoped
+ * count (no sessionId/windowMs — the CLI has neither): every unprocessed, non-advisory retrieval
+ * row, minus any whose chunk is deleted or under an excluded path. Read-only, zero gateway calls
+ * (it does not import a judge or embedder), so it makes NO promise about what a real (scoped) pass
+ * would actually judge on any given run — it is visibility into the backlog, not a plan for it.
+ */
+export function countCitationCandidates(
+  edb: Database,
+  cacheDb: Database,
+  excludeFilter?: EgressFilter,
+): number {
+  const rows = edb
+    .prepare(
+      "SELECT DISTINCT chunk_id AS id FROM chunk_retrievals WHERE cited_in_response IS NULL AND (surface_type IS NULL OR surface_type <> 'advisory')",
+    )
+    .all() as Array<{ id: string }>;
+  if (rows.length === 0) return 0;
+  const pathStmt = cacheDb.prepare("SELECT path FROM chunks WHERE id = ?");
+  let count = 0;
+  for (const r of rows) {
+    const row = pathStmt.get(r.id) as { path: string } | undefined;
+    if (!row) continue; // chunk deleted since retrieval
+    if (excludeFilter !== undefined && isExcludedPath(excludeFilter, row.path)) continue;
+    count += 1;
+  }
+  return count;
 }
 
 export async function inferCitations(opts: InferCitationsOptions): Promise<InferCitationsStats> {
@@ -357,7 +392,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     };
   }
 
-  const contentStmt = opts.cacheDb.prepare("SELECT content FROM chunks WHERE id = ?");
+  const contentStmt = opts.cacheDb.prepare("SELECT content, path FROM chunks WHERE id = ?");
   const embStmt = opts.cacheDb.prepare(
     "SELECT embedding FROM chunk_embeddings WHERE chunk_id = ? AND is_active = 1",
   );
@@ -381,6 +416,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   interface Assessment {
     chunkId: string;
     content: string;
+    path: string;
     rouge: number;
     cosine: number | null;
     pass: boolean;
@@ -395,8 +431,12 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   // routes the loop back to the per-pair scorer.
   const preparedBlocks = blockVecs.length > 0 ? prepareBlocks(blockVecs) : null;
   for (const chunkId of chunkIds) {
-    const row = contentStmt.get(chunkId) as { content: string } | undefined;
+    const row = contentStmt.get(chunkId) as { content: string; path: string } | undefined;
     if (!row) continue; // chunk deleted since retrieval — nothing to compare
+    // THE-934: the chokepoint — an excluded chunk is never a citation candidate, never scored,
+    // never reaches the judge. Its retrieval row stays NULL (unprocessed), same as a chunk this
+    // pass simply had no budget for; a later un-excluded pass can still process it.
+    if (opts.excludeFilter !== undefined && isExcludedPath(opts.excludeFilter, row.path)) continue;
     const rouge = rougeLPrepared(row.content, preparedTranscript);
     let cosine: number | null = null;
     if (blockVecs.length > 0) {
@@ -419,7 +459,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
       }
     }
     const pass = rouge >= th.rouge || (cosine !== null && cosine >= th.cosine);
-    assessments.push({ chunkId, content: row.content, rouge, cosine, pass });
+    assessments.push({ chunkId, content: row.content, path: row.path, rouge, cosine, pass });
   }
 
   const passers = assessments.filter((a) => a.pass);
@@ -452,6 +492,9 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
             `SOURCE:\n${a.content.slice(0, 1500)}\n\nRESPONSE:\n${opts.transcript.slice(0, 4000)}`,
           ),
           responseFormat: { type: "json_object" },
+          // THE-934: the egress guard's defence-in-depth check — the candidate's path, already
+          // filtered above.
+          sourcePaths: [a.path],
         };
         // THE-717 follow-up: a judge that never ANSWERED and a judge that answered UNPARSEABLY
         // are different faults with opposite remedies — an endpoint/credential vs a prompt/model.

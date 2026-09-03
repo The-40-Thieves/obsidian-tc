@@ -205,7 +205,19 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // THE-726 review round 1: rebaselined deliberately AGAIN — the SAME key's `.describe()` text
   // grew the owner-settled dependency statement (this axis acts only on sessions that exist and
   // end). Still no key/type/default/constraint moved.
-  "323a9dd8887ef635d9d5c8dc93523e4901939362c05d6fe3fe5c26f865967628";
+  // THE-934: rebaselined deliberately. Adds ONE new top-level block, `egress` (a single key,
+  // `excludePaths`, string array, default []) — vault-relative glob patterns withheld from the
+  // inference gateway and the embedding provider by the ambient consolidation plane (contradiction
+  // judging, synthesis, citation inference, index-time embedding); see
+  // packages/shared/src/config/observability.schema.ts's EgressConfigSchema for the full
+  // description text. No existing key, type, default or constraint moved.
+  // THE-934 fix round 1: rebaselined again — the SAME key's .describe() text was rewritten to
+  // state the guard is enforced at the PORT (createGatewayClient / createEmbeddingProvider(Async))
+  // rather than only at the four original consumers, and to enumerate every egress leg it now
+  // covers (reflect/knowledge_challenge, the note/cluster summarizers, densify-llm, the hosted
+  // reranker, the advisory sweep, and the single-note write path). No key, type, default or
+  // constraint moved — text only.
+  "f999ed4704dcee3af592cf3153503b61b0f4e83d92fb2b0a311c836d15ba7642";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

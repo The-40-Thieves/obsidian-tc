@@ -17,6 +17,26 @@ export function chunkId(vaultId: string, path: string, index: string): string {
   return "chk_".concat(contentHash(key).slice(0, 24));
 }
 
+// THE-934: does chunks carry embedding_excluded (migration 20260903_001)? Mirrors hasBodyShaColumn
+// below exactly (same memoization, same reason) — a pre-migration db or hand-built test chain
+// lacks it, and every consumer must degrade rather than throw "no such column".
+const embeddingExcludedCache = new WeakMap<Database, boolean>();
+
+/** @internal exported for the memoization test; production callers use it directly. */
+export function hasEmbeddingExcludedColumn(db: Database): boolean {
+  const cached = embeddingExcludedCache.get(db);
+  if (cached !== undefined) return cached;
+  let ok = false;
+  try {
+    const cols = db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>;
+    ok = cols.some((c) => c.name === "embedding_excluded");
+  } catch {
+    ok = false;
+  }
+  embeddingExcludedCache.set(db, ok);
+  return ok;
+}
+
 // THE-487: token estimate for the embed batch budget. chars/4 is the right rule-of-thumb for prose,
 // but link-dense Markdown ([[...]], tables, URLs) fragments into ~2-2.5x more tokens, so a chars/4
 // budget overflowed the provider's n_ctx and forced a bisect+retry. We tighten the divisor toward 3
@@ -37,9 +57,13 @@ export function estimateEmbedTokens(text: string): number {
 // query, grouped by path, so a full reconcile plans every note without a per-note chunk query. Never
 // loads content or vectors — memory stays bounded to identifiers and hashes.
 export function preloadChunkState(db: Database, vaultId: string): Map<string, ExistingRow[]> {
+  // THE-934: read back only when the column exists (hasEmbeddingExcludedColumn); pre-migration -> 0.
+  const excludedCol = hasEmbeddingExcludedColumn(db)
+    ? ", c.embedding_excluded AS embedding_excluded"
+    : "";
   const rows = db
     .prepare(
-      "SELECT c.path AS path, c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? ORDER BY c.path",
+      `SELECT c.path AS path, c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model${excludedCol} FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? ORDER BY c.path`,
     )
     .all(vaultId) as Array<ExistingRow & { path: string }>;
   const byPath = new Map<string, ExistingRow[]>();
@@ -50,6 +74,7 @@ export function preloadChunkState(db: Database, vaultId: string): Map<string, Ex
       id: r.id,
       content_hash: r.content_hash,
       active_model: r.active_model,
+      embedding_excluded: r.embedding_excluded,
     };
     if (list) list.push(row);
     else byPath.set(r.path, [row]);
@@ -61,9 +86,12 @@ export function preloadChunkState(db: Database, vaultId: string): Map<string, Ex
 // concurrent-writer guard (index-vault.ts, applied immediately before a batched plan is written)
 // can re-read the SAME rows a plan's `existing` snapshot came from, at apply time, and compare.
 export function readExistingChunkRows(db: Database, vaultId: string, path: string): ExistingRow[] {
+  const excludedCol = hasEmbeddingExcludedColumn(db)
+    ? ", c.embedding_excluded AS embedding_excluded"
+    : "";
   return db
     .prepare(
-      "SELECT c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?",
+      `SELECT c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model${excludedCol} FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? AND c.path = ?`,
     )
     .all(vaultId, path) as ExistingRow[];
 }
@@ -126,8 +154,14 @@ export function computeNotePlan(
   preloadedExisting?: Map<string, ExistingRow[]>,
   /** THE-424: indexing.chunkTokens. Undefined -> the chunker's own DEFAULT_CHUNK_TOKENS, which is
    *  what every caller got before this parameter existed, so an un-updated caller is unchanged
-   *  rather than silently re-chunked. Last in the list for the same reason. */
+   *  rather than silently re-chunked. */
   chunkTokens?: number,
+  /** THE-934: egress.excludePaths, as a per-path predicate (IndexVaultArgs.isEgressExcluded).
+   *  Undefined -> nothing excluded (back-compat). True for THIS note's path stamps every toEmbed
+   *  chunk `excludedFromEmbed: true` (respected by embed-batches.ts/persist-note-plan.ts) and
+   *  forces a re-plan on a status change (see the toEmbed filter below), so a rename into or out
+   *  of an excluded folder lands on the next pass even when content_hash is unchanged. */
+  isExcluded?: (rel: string) => boolean,
 ): PlanResult {
   // THE-823: `path` is already this function's own parameter — pass it through so a malformed note
   // reached via computeNotePlan (rather than index-vault.ts's earlier parseNote call) still names
@@ -175,13 +209,18 @@ export function computeNotePlan(
   // single-note path passes no preload and keeps the targeted per-note query.
   const existing = preloadedExisting?.get(path) ?? readExistingChunkRows(db, vaultId, path);
   const existingById = new Map(existing.map((e) => [e.id, e]));
-  // Re-embed when the content changed OR (THE-531) the stored active model differs from the current
-  // one. When `model` is undefined the model check is skipped (back-compat, content-hash-only gate).
+  // THE-934: this note's CURRENT exclusion status (a note's chunks share one path). Re-embed below
+  // also fires when the STORED embedding_excluded disagrees with it — without that, a chunk
+  // embedded before its folder was excluded would keep its real vector forever (content_hash
+  // unchanged), and un-excluding a folder would leave a chunk permanently un-embedded.
+  const excludedNow = isExcluded?.(path) === true;
   const toEmbed = desired.filter((d) => {
     const ex = existingById.get(d.id);
     if (!ex || ex.content_hash !== d.contentHash) return true;
-    return model !== undefined && ex.active_model !== model;
+    if (model !== undefined && ex.active_model !== model) return true;
+    return excludedNow !== (ex.embedding_excluded === 1);
   });
+  if (excludedNow) for (const d of toEmbed) d.excludedFromEmbed = true;
   const unchanged = desired.length - toEmbed.length;
   const willPrune = existing.some((e) => !desiredIds.has(e.id));
   // Cross-path embedding dedup (migration 20260719_001). Register EVERY desired chunk's raw-body
@@ -201,6 +240,8 @@ export function computeNotePlan(
       if (!dedupRegistry.has(d.contentHash)) dedupRegistry.set(d.contentHash, path);
     }
     for (const d of toEmbed) {
+      // THE-934: never dedup-copy a vector onto an excluded chunk — that would defeat the exclusion.
+      if (d.excludedFromEmbed) continue;
       const firstPath = dedupRegistry.get(d.contentHash);
       if (firstPath !== undefined && firstPath !== path) {
         d.skipEmbed = true;

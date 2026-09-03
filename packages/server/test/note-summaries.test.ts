@@ -13,6 +13,7 @@ import { CACHE_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import type { GatewayClient } from "../src/gateway/client";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { assembleCandidates } from "../src/search/graph_search_stages/candidate_assembly";
 import { maybeSummarizeVault, summarizeNotes } from "../src/search/indexing/summarize-notes";
 import {
@@ -188,6 +189,28 @@ describe("summarizeNotes (index-time pass)", () => {
     expect(gateway.extract).toHaveBeenCalledTimes(1);
     expect(embed.embed).toHaveBeenCalledTimes(1);
     expect(existingSummaryHash(db, "v1", "A.md")).toBe("hashA");
+  });
+
+  it("egress.excludePaths: an excluded note never reaches gateway.extract; the report counts it skipped (THE-934 fix round 2, N1)", async () => {
+    const db = makeDb();
+    insertNote(db, "v1", "Public/A.md", "hashA");
+    insertChunk(db, "v1", "Public/A.md", "public content about retrieval systems.");
+    insertNote(db, "v1", "Private/B.md", "hashB");
+    insertChunk(db, "v1", "Private/B.md", "SECRET_MARKER content that must never egress.");
+    const gateway = fakeGateway("A summary.");
+    const embed = fakeEmbedProvider();
+    const stats = await summarizeNotes(db, "v1", gateway, embed, {
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(stats).toEqual({ considered: 2, summarized: 1, skipped: 1, failed: 0 });
+    expect(gateway.extract).toHaveBeenCalledTimes(1);
+    const call = (gateway.extract as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    const userMsg = call.messages.find((m: { role: string }) => m.role === "user")
+      .content as string;
+    expect(userMsg).not.toContain("SECRET_MARKER");
+    expect(userMsg).toContain("public content");
+    expect(existingSummaryHash(db, "v1", "Public/A.md")).toBe("hashA");
+    expect(existingSummaryHash(db, "v1", "Private/B.md")).toBeNull(); // never written
   });
 
   it("is SKIPPED (no gateway call) when content_hash is unchanged from a prior pass", async () => {

@@ -74,7 +74,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-269 | Unicode-normalization-insensitive folder ACL (THE-272). | CHANGELOG.md (1.3.0) | 2 |
 | THE-270 | Bridge tools fail closed under a read whitelist (THE-270). | CHANGELOG.md (1.3.0) | 4 |
 | THE-271 | DNS-rebinding / cross-origin protection on the HTTP transport (THE-271). | CHANGELOG.md (1.3.0) | 2 |
-| THE-272 | Intermediate-directory symlink-swap TOCTOU closed (THE-272). | CHANGELOG.md (1.3.5) | 3 |
+| THE-272 | Intermediate-directory symlink-swap TOCTOU closed (THE-272). | CHANGELOG.md (1.3.5) | 4 |
 | THE-273 | SQLite per-connection baseline + prepared-statement cache (THE-273). | CHANGELOG.md (1.3.0) | 4 |
 | THE-275 | Domain-verb facade mode (shipped under THE-275 — see correction). | CHANGELOG.md (1.3.0) | 3 |
 | THE-277 | vec0 index: per-vault partition key + metadata aux columns (THE-277). | CHANGELOG.md (1.8.0) | 6 |
@@ -298,7 +298,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-714 | `record_retrieval_feedback` was unreachable, and failed silently (#677, THE-718). | CHANGELOG.md (1.17.0) | 6 |
 | THE-715 | A nameless job spec is refused at registration (#701, THE-715 item 3). | CHANGELOG.md (1.20.0) | 4 |
 | THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 5 |
-| THE-717 | `experiential.citationPreferences` folds retrieval-level citation outcomes into learned preferences (#836, THE-644). | CHANGELOG.md (1.23.0) | 24 |
+| THE-717 | `experiential.citationPreferences` folds retrieval-level citation outcomes into learned preferences (#836, THE-644). | CHANGELOG.md (1.23.0) | 25 |
 | THE-718 | `chunk_retrievals.outcome` is RETIRED (#731, THE-718). | CHANGELOG.md (1.20.0) | 16 |
 | THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 7 |
 | THE-720 | Liveness reporting: three new `doctor --probe` checks. | CHANGELOG.md (1.17.0) | 9 |
@@ -357,8 +357,9 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 5 |
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
+| THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (THE-934, #880). | CHANGELOG.md (Unreleased) | 54 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (Unreleased) | 5 |
 
-344 distinct ticket(s) across 484 source file(s) under
-`packages/*/src`; 277 resolved to a public summary, 67
+345 distinct ticket(s) across 489 source file(s) under
+`packages/*/src`; 278 resolved to a public summary, 67
 fall back to the internal-reference placeholder above.

@@ -35,6 +35,7 @@ import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { GatewayClient } from "../../gateway";
+import { type EgressFilter, isExcludedPath } from "../../plane/egress-filter";
 import { runWithConcurrency } from "../../util/concurrency";
 import { defaultK, kmeans } from "../cluster";
 import {
@@ -76,6 +77,8 @@ export interface BuildClusterSummariesOptions {
   maxIters?: number;
   seed?: number;
   now?: () => number;
+  /** THE-934 fix round 1: egress.excludePaths, compiled. Undefined -> nothing excluded. */
+  excludeFilter?: EgressFilter;
 }
 
 export interface BuildClusterSummariesStats {
@@ -165,10 +168,20 @@ export async function buildClusterSummaries(
   // whose key is absent from this set belongs to no cluster this pass produced.
   const currentClusterKeys = new Set<string>();
   let skipped = 0;
+  const excludeFilter = opts.excludeFilter;
   for (const members of groups.values()) {
     const clusterKey = clusterKeyOf(members.map((m) => m.contentHash));
     currentClusterKeys.add(clusterKey);
     if (existingKeys.has(clusterKey)) {
+      skipped += 1;
+      continue;
+    }
+    // THE-934 fix round 1 (Blocking-4): a cluster with ANY excluded-path member is dropped
+    // wholesale, not merely the excluded member's text — matching the pair-drop rule
+    // checkContradictions already applies (plane/jobs/contradiction.ts). Counted as `skipped`:
+    // a deliberate exclusion, not a failure; re-evaluated every pass, so a rename out of the
+    // excluded folder produces a NEW cluster_key (membership changed) and is picked up then.
+    if (excludeFilter !== undefined && members.some((m) => isExcludedPath(excludeFilter, m.path))) {
       skipped += 1;
       continue;
     }
@@ -198,6 +211,9 @@ export async function buildClusterSummaries(
           ],
           temperature: 0,
           maxTokens: 320,
+          // THE-934: the egress guard's backstop check — every member already cleared the
+          // exclusion filter above.
+          sourcePaths: cluster.memberPaths,
         });
         const summaryText = completion.text.trim();
         if (summaryText.length === 0) {
@@ -224,7 +240,12 @@ export async function buildClusterSummaries(
     const texts = batch.map((p) => p.summaryText);
     let vecs: number[][] | null = null;
     try {
-      vecs = await embedProvider.embed(texts, { input: "document" });
+      // THE-934: sourcePaths declares every member path across the batch's clusters — all
+      // already cleared the exclusion filter above.
+      vecs = await embedProvider.embed(texts, {
+        input: "document",
+        sourcePaths: batch.flatMap((p) => p.memberPaths),
+      });
     } catch {
       vecs = null; // whole-batch failure -> this batch's cluster summaries land without embeddings
     }
@@ -279,6 +300,8 @@ export async function maybeBuildClusterSummaries(
   cfg: ClusterSummaryPassConfig,
   makeGateway: () => GatewayClient,
   embedProvider: EmbeddingProvider,
+  /** THE-934 fix round 1: egress.excludePaths, compiled. Undefined -> nothing excluded. */
+  excludeFilter?: EgressFilter,
 ): Promise<BuildClusterSummariesStats | null> {
   if (!cfg.enabled) return null;
   const gateway = makeGateway();
@@ -288,5 +311,6 @@ export async function maybeBuildClusterSummaries(
     ...(cfg.k !== undefined ? { k: cfg.k } : {}),
     ...(cfg.seed !== undefined ? { seed: cfg.seed } : {}),
     ...(cfg.now !== undefined ? { now: cfg.now } : {}),
+    ...(excludeFilter !== undefined ? { excludeFilter } : {}),
   });
 }
