@@ -282,9 +282,10 @@ Where the others win, plainly:
 - **Offline retrieval quality, as core rather than opt-in.** `engraph` ships cross-encoder
   reranking and a query orchestrator as core, on local models, everywhere it runs. obsidian-tc's
   cross-encoder reranker is now also local and gateway-free — an optional npm package
-  (`@the-40-thieves/obsidian-tc-reranker-local`), auto-selected when no gateway is configured,
-  that fetches and checksum-verifies its weights on first use — but it is opt-in machinery, not
-  core: the standalone compiled binaries, musl (Alpine) installs, and macOS x64 can't reach it.
+  (`@the-40-thieves/obsidian-tc-reranker-local`), auto-selected when no `reranker` block, no
+  `embeddings.modelTier.full`, and no gateway URL are configured, that fetches and
+  checksum-verifies its weights on first use — but it is opt-in machinery, not core: the
+  standalone compiled binaries, musl (Alpine) installs, and macOS x64 can't reach it.
 - **Memory as a portable KB.** `basic-memory` keeps memory in its own markdown store that
   syncs to any vault. If you want memory decoupled from one vault, that is the better fit.
 
@@ -308,7 +309,8 @@ Honest guidance — obsidian-tc is deliberately a heavier product:
 - **You want the best search with no setup and no network.** [engraph](https://github.com/devwhodevs/engraph)
   is a single binary with local models and no configuration. Our retrieval goes further on
   fusion and diversity and is gated by a statistical ship rule, but it asks more of you and
-  its rerank stage currently wants an inference gateway.
+  its rerank stage is opt-in machinery today, not core: unreachable from the standalone
+  compiled binaries, musl (Alpine) installs, or macOS x64.
 - **You want agent memory that is not tied to one vault.** [basic-memory](https://github.com/basicmachines-co/basic-memory)
   keeps memory in its own portable markdown KB. Ours is deliberately *inside* the vault, so
   it inherits the vault's ACL and audit trail — a different trade, not a strictly better one.

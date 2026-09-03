@@ -112,14 +112,14 @@ surface until a companion-backed active-file bridge ships; everything else cuts 
 
 Since v5.0, the Local REST API plugin itself ships an MCP server exposing 18 tools at
 `https://127.0.0.1:27124/mcp/` — the same plugin the obsidian-tc companion rides as a
-transport (§7 below), now with its own agent surface layered on top. This is a different,
+transport (step 7 below), now with its own agent surface layered on top. This is a different,
 newer surface than the "LRA-MCP" projection retired in §2a above.
 
 | LRA built-in MCP tool | obsidian-tc equivalent |
 |---|---|
 | `command_execute` | `execute_command` (companion-backed, policy-gated) |
 | `command_list` | `list_commands` |
-| `search_query` | `search_dql`, `search_jsonlogic` — native evaluators, no plugin required |
+| `search_query` | closest are `search_dql`, `search_jsonlogic` — native evaluators, no plugin required, though neither is a strict 1:1 (LRA's query format maps loosely onto both) |
 | `search_simple` | `search_text` / `search_vault(mode: text)` |
 | `tag_list` | `list_tags` |
 | `vault_append` | `append_note` |
