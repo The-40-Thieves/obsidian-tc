@@ -15,6 +15,7 @@ import {
   deriveClosedWindows,
   deriveWindowVerdict,
   READ_FAMILY_TOOLS,
+  TERMINAL_DRAIN_POLICY,
   type WindowRow,
 } from "../src/experiential/derive-verdict";
 import {
@@ -58,6 +59,10 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
   // why (structural-field reads, not "looked at a note the search found"). Pinned as a literal list
   // rather than "everything else": a NEW tool must be added here (or to READ_FAMILY_TOOLS) by a
   // reviewed decision, and this array going stale is exactly the failure mode #8 exists to catch.
+  // THE-726 fix round 2: this partition is computed purely over NAME, tools starting `read_` or
+  // `get_`. A future read tool named outside that convention (`fetch_note`, say) would slip both
+  // buckets silently and must be added here by hand; the test below only catches the ones the
+  // naming filter already surfaces.
   const DELIBERATELY_EXCLUDED_READ_TOOLS = [
     "get_attachment",
     "get_backlinks",
@@ -414,7 +419,7 @@ describe("deriveClosedWindows", () => {
 
     const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
     expect(out.sessionsSeen).toBe(1);
-    expect(out.stamped).toEqual({ minus: 0, zero: 0, plus: 1 }); // search then read, ends ok -> +1
+    expect(out.stamped).toEqual({ minus: 0, zero: 0, plus: 1, drained: 0 }); // search then read, ends ok -> +1
     expect(episodeRow(edb, closedRow).task_result).toBe(1);
     expect(episodeRow(edb, readRow).task_result).toBe(1);
     expect(episodeRow(edb, liveRow).task_result).toBeNull(); // untouched — its session never ended
@@ -429,7 +434,7 @@ describe("deriveClosedWindows", () => {
     expect(first.sessionsSeen).toBe(1);
     const second = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
     expect(second.sessionsSeen).toBe(0);
-    expect(second.stamped).toEqual({ minus: 0, zero: 0, plus: 0 });
+    expect(second.stamped).toEqual({ minus: 0, zero: 0, plus: 0, drained: 0 });
   });
 
   it("verdict_source = 'derived' and verdict_policy = DERIVATION_POLICY_VERSION land on every stamped row; verdict_at = ended_at", async () => {
@@ -512,6 +517,10 @@ describe("deriveClosedWindows", () => {
   // be re-selected as a candidate and re-derive null on every future pass, permanently starving the
   // oldest-first cap. The fix widens the ceiling to `nowMs` and stamps a NEUTRAL terminal verdict so
   // the rows leave the debt set.
+  //
+  // THE-726 fix round 2: this drain stamp writes `verdict_policy = TERMINAL_DRAIN_POLICY` (0), not
+  // `DERIVATION_POLICY_VERSION`, and lands in `stamped.drained`, not `stamped.zero`. It is
+  // structurally distinct from a rule genuinely returning 0, which the next test pins.
   it("a window entirely past its session's ended_at gets a NEUTRAL terminal stamp (verdict_at = nowMs), not left open forever", async () => {
     const { cacheDb, edb } = stores();
     const endedAt = NOW - 5000;
@@ -522,10 +531,11 @@ describe("deriveClosedWindows", () => {
     const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
     expect(out.sessionsSeen).toBe(1);
     expect(out.skipped).toBe(0); // it WAS stamped — terminal, not skipped
-    expect(out.stamped).toEqual({ minus: 0, zero: 1, plus: 0 });
+    expect(out.stamped).toEqual({ minus: 0, zero: 0, plus: 0, drained: 1 });
     const r = episodeRow(edb, id);
     expect(r.task_result).toBe(0);
     expect(r.verdict_source).toBe("derived");
+    expect(r.verdict_policy).toBe(TERMINAL_DRAIN_POLICY);
     const verdictAt = (
       edb.prepare("SELECT verdict_at AS v FROM agent_episodes WHERE id = ?").get(id) as {
         v: number;
@@ -538,6 +548,24 @@ describe("deriveClosedWindows", () => {
     expect(second.sessionsSeen).toBe(0);
   });
 
+  // THE-726 fix round 2: the counterpart to the drain test above. A window IN BOUNDS that a rule
+  // genuinely derives as 0 (no F1/F2/S1/S2 evidence either way) lands under DERIVATION_POLICY_VERSION
+  // and `stamped.zero`, never `TERMINAL_DRAIN_POLICY`/`stamped.drained`. Same `task_result = 0`,
+  // different provenance: this is the distinction the fix exists to make queryable.
+  it("a rules-judged neutral window (no F/S evidence) lands under DERIVATION_POLICY_VERSION and stamped.zero, not the drain bucket", async () => {
+    const { cacheDb, edb } = stores();
+    seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
+    // In bounds (ts <= ended_at), no search/read/error signal at all -> deriveWindowVerdict returns
+    // 0 by rule, not null.
+    const id = seedEpisode(edb, { session: "sess_a", tool: "write_note", ts: NOW - 8000 });
+
+    const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
+    expect(out.stamped).toEqual({ minus: 0, zero: 1, plus: 0, drained: 0 });
+    const r = episodeRow(edb, id);
+    expect(r.task_result).toBe(0);
+    expect(r.verdict_policy).toBe(DERIVATION_POLICY_VERSION);
+  });
+
   it("a stuck (permanently-empty-window) session no longer starves a newer derivable one at limit: 1", async () => {
     // Reproduces the reviewer's probe: over several passes at limit 1, a stuck oldest session used
     // to be re-selected and re-skipped forever, and a newer, perfectly derivable session was NEVER
@@ -546,14 +574,24 @@ describe("deriveClosedWindows", () => {
     const { cacheDb, edb } = stores();
     const stuckEndedAt = NOW - 9000;
     seedSession(cacheDb, "stuck", { endedAt: stuckEndedAt });
-    seedEpisode(edb, { session: "stuck", tool: "read_note", ts: stuckEndedAt + 500 }); // postdates ended_at
+    const stuckRow = seedEpisode(edb, {
+      session: "stuck",
+      tool: "read_note",
+      ts: stuckEndedAt + 500,
+    }); // postdates ended_at
     seedSession(cacheDb, "newer", { endedAt: NOW - 1000 });
     const newerRow = seedEpisode(edb, { session: "newer", tool: "read_note", ts: NOW - 2000 });
 
+    let firstPass: Awaited<ReturnType<typeof deriveClosedWindows>> | undefined;
     for (let pass = 0; pass < 5; pass++) {
-      await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, limit: 1 });
+      const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, limit: 1 });
+      if (pass === 0) firstPass = out;
     }
     expect(episodeRow(edb, newerRow).task_result).not.toBeNull();
+    // THE-726 fix round 2: the stuck row lands with verdict_policy = TERMINAL_DRAIN_POLICY (0), and
+    // pass 1's own outcome counts it under `drained`, not `zero`.
+    expect(firstPass?.stamped).toEqual({ minus: 0, zero: 0, plus: 0, drained: 1 });
+    expect(episodeRow(edb, stuckRow).verdict_policy).toBe(TERMINAL_DRAIN_POLICY);
   });
 
   it("does not write to cache.db — workspace_sessions is untouched", async () => {
@@ -599,7 +637,11 @@ describe("deriveClosedWindows", () => {
     seedEpisode(edb, { session: "sess_a", tool: "read_note" });
 
     const out = await deriveClosedWindows(edb, bareCacheDb, { nowMs: NOW });
-    expect(out).toEqual({ sessionsSeen: 0, stamped: { minus: 0, zero: 0, plus: 0 }, skipped: 0 });
+    expect(out).toEqual({
+      sessionsSeen: 0,
+      stamped: { minus: 0, zero: 0, plus: 0, drained: 0 },
+      skipped: 0,
+    });
   });
 
   // THE-726 review round 1 BLOCKING #4 (second half): candidateIds is bounded IN THE SQL (a LIMIT

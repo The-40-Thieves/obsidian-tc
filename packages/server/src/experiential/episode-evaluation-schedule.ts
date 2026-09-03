@@ -16,10 +16,13 @@ import { type EvaluateStats, evaluateEpisodes } from "./reflect";
  *  would put reflect.ts's own consumers one hop from a cycle for no real benefit. TypeScript's
  *  structural typing means the real `DeriveClosedWindowsOutcome` object satisfies this shape with
  *  no shared declaration — the wiring layer (runtime/plane-wiring.ts) is the one place that
- *  imports BOTH modules and connects them. Keep the two in sync by hand if either changes. */
+ *  imports BOTH modules and connects them. THE-726 fix round 2: kept in sync by hand is no longer
+ *  just a promise. `episode-evaluation-schedule.test.ts` carries a compile-time bidirectional
+ *  assignability assertion between this type and `DeriveClosedWindowsOutcome`, so a field added to
+ *  one and not the other fails typecheck instead of silently drifting. */
 export interface DerivedVerdictSummary {
   sessionsSeen: number;
-  stamped: { minus: number; zero: number; plus: number };
+  stamped: { minus: number; zero: number; plus: number; drained: number };
   skipped: number;
 }
 

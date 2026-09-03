@@ -68,7 +68,7 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
       );
     }
     const derivedLine = derived
-      ? `reflect: derived_sessions=${derived.sessionsSeen} derived_stamped=-1:${derived.stamped.minus} 0:${derived.stamped.zero} +1:${derived.stamped.plus} derived_skipped=${derived.skipped}\n`
+      ? `reflect: derived_sessions=${derived.sessionsSeen} derived_stamped=-1:${derived.stamped.minus} 0:${derived.stamped.zero} +1:${derived.stamped.plus} drained:${derived.stamped.drained} derived_skipped=${derived.skipped}\n`
       : "reflect: derived-verdict pass failed (see stderr) — eligibility pass ran anyway\n";
     process.stdout.write(
       derivedLine +

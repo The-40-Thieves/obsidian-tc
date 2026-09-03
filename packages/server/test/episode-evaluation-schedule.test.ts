@@ -12,9 +12,25 @@ import { describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
-import { registerEpisodeEvaluation } from "../src/experiential/episode-evaluation-schedule";
+import type { DeriveClosedWindowsOutcome } from "../src/experiential/derive-verdict";
+import {
+  type DerivedVerdictSummary,
+  registerEpisodeEvaluation,
+} from "../src/experiential/episode-evaluation-schedule";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
+
+// THE-726 fix round 2: `DerivedVerdictSummary` is a hand-maintained structural copy of
+// `DeriveClosedWindowsOutcome` (see that type's own comment for why it is declared, not imported,
+// in production code). This assertion is the compile-time enforcement that keeps them honest: a
+// field added to one and not the other fails HERE, at `bun run typecheck`, instead of drifting
+// silently until a caller passes one where the other was expected. Test-only, so importing both
+// production types in one file cannot create the import cycle production code avoids.
+function _pinDerivedVerdictSummaryMirrorsDeriveClosedWindowsOutcome() {
+  const _a: DerivedVerdictSummary = {} as DeriveClosedWindowsOutcome;
+  const _b: DeriveClosedWindowsOutcome = {} as DerivedVerdictSummary;
+  return { _a, _b };
+}
 
 // THE-538 idiom: derived from the manifest, not hand-listed, so a new migration cannot break this
 // file for a reason that reads as unrelated. Hand-listing two files here initially failed with
@@ -194,11 +210,7 @@ describe("THE-698 registerEpisodeEvaluation", () => {
     vi.useFakeTimers();
     try {
       const db = edb();
-      const derivedResults: Array<{
-        sessionsSeen: number;
-        stamped: { minus: number; zero: number; plus: number };
-        skipped: number;
-      }> = [];
+      const derivedResults: DerivedVerdictSummary[] = [];
       const sched = new Scheduler();
       registerEpisodeEvaluation(sched, {
         edb: db,
@@ -206,7 +218,7 @@ describe("THE-698 registerEpisodeEvaluation", () => {
         now: () => NOW,
         deriveClosedWindows: async () => ({
           sessionsSeen: 3,
-          stamped: { minus: 1, zero: 1, plus: 1 },
+          stamped: { minus: 1, zero: 1, plus: 1, drained: 0 },
           skipped: 0,
         }),
         onDerive: (r) => derivedResults.push(r),
@@ -215,7 +227,7 @@ describe("THE-698 registerEpisodeEvaluation", () => {
       await vi.advanceTimersByTimeAsync(1000);
 
       expect(derivedResults).toEqual([
-        { sessionsSeen: 3, stamped: { minus: 1, zero: 1, plus: 1 }, skipped: 0 },
+        { sessionsSeen: 3, stamped: { minus: 1, zero: 1, plus: 1, drained: 0 }, skipped: 0 },
       ]);
       await sched.stop();
     } finally {

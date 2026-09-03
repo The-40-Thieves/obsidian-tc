@@ -55,6 +55,10 @@
 // remainder — and that is not a race or a defect: `(session_id, verdict_at)` is the window identity
 // precisely so two judgements on one session are two distinct, disjoint observations, never merged
 // or overwritten.
+//
+// THE-726 fix round 2: a live-store query that groups derived windows to measure this pass (the
+// -1 share, say) must filter `verdict_policy >= 1`. A row stamped under `TERMINAL_DRAIN_POLICY`
+// was never judged by any rule, and its `task_result = 0` is a structural closure, not evidence.
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import { SEARCH_FAMILY_TOOLS } from "./reflect";
@@ -69,6 +73,12 @@ import { stampOpenWindow, type TaskResult, UNSTAMPED_DEBT_CLAUSES } from "./verd
  *  let an ERRORED search seed a browse, so a failed search followed by an unrelated successful read
  *  derived +1 and fed a positive `preferred.search_mode` delta for the tool that just failed. */
 export const DERIVATION_POLICY_VERSION = 2;
+
+/** THE-726 fix round 2: the drain stamp's own policy value, distinct from any real derivation
+ *  rule version. Policy 0 means no derivation rule judged the window; the row was closed to stop
+ *  it starving the oldest-first limit (see the TERMINAL STATE note on `deriveClosedWindows`), not
+ *  because F1/F2/S1/S2 evaluated it and found nothing. Real rule versions start at 1. */
+export const TERMINAL_DRAIN_POLICY = 0;
 
 /** THE-726: the read-family tools S1's "browse" signal counts as consuming a search result.
  *
@@ -165,7 +175,11 @@ export interface DeriveClosedWindowsOutcome {
   /** Closed sessions considered this pass (had at least one open judgeable row, oldest ended_at
    *  first, capped at `opts.limit`). */
   sessionsSeen: number;
-  stamped: { minus: number; zero: number; plus: number };
+  /** THE-726 fix round 2: `drained` counts the terminal-drain stamp (see the TERMINAL STATE note
+   *  below), stamped under `TERMINAL_DRAIN_POLICY`. It no longer falls into `zero`, because a
+   *  rules-judged neutral `0` and an unjudged drain are not the same observation, and blending them
+   *  contaminated a live-store query grouping derived windows by outcome. */
+  stamped: { minus: number; zero: number; plus: number; drained: number };
   /** THE-726 review round 1: a considered session where, by the time this pass tried to stamp it,
    *  nothing remained to stamp (a race with another writer resolved it first — see the terminal-0
    *  fallback below for the "genuinely empty window" case, which is NOT this counter: that case
@@ -213,6 +227,12 @@ const MAX_CANDIDATE_SESSIONS = 2000;
  * gap rather than scoring the work, and it moves the rows out of the debt set so the session stops
  * being a candidate.
  *
+ * THE-726 fix round 2: this terminal stamp writes `verdict_policy = TERMINAL_DRAIN_POLICY` (0), not
+ * `DERIVATION_POLICY_VERSION`. A rules-judged neutral `0` and this drain are structurally
+ * different rows (one is a rule's verdict, the other is none), and writing them under the same
+ * policy value made them indistinguishable in a live-store query grouping derived windows. It
+ * lands in `outcome.stamped.drained`, not `.zero`, for the same reason.
+ *
  * Idempotent: a session's open rows are stamped (`task_result` no longer NULL), so a second pass
  * finds no open rows for it and does nothing.
  */
@@ -225,7 +245,7 @@ export async function deriveClosedWindows(
   const debtWhere = UNSTAMPED_DEBT_CLAUSES.join(" AND ");
   const outcome: DeriveClosedWindowsOutcome = {
     sessionsSeen: 0,
-    stamped: { minus: 0, zero: 0, plus: 0 },
+    stamped: { minus: 0, zero: 0, plus: 0, drained: 0 },
     skipped: 0,
   };
 
@@ -265,10 +285,14 @@ export async function deriveClosedWindows(
     const rows = loadWindow.all(session.id, session.ended_at) as WindowRow[];
     let verdict = deriveWindowVerdict(rows);
     let asOf = session.ended_at;
+    // THE-726 fix round 2: `drained` distinguishes THIS branch (no rule judged the window) from a
+    // rule genuinely returning 0 below: same `task_result`, different `verdict_policy`.
+    let drained = false;
     if (verdict === null) {
       // See the function header's TERMINAL STATE note.
       verdict = 0;
       asOf = opts.nowMs;
+      drained = true;
     }
     const out = stampOpenWindow(edb, {
       sessionId: session.id,
@@ -276,14 +300,15 @@ export async function deriveClosedWindows(
       now: asOf,
       asOf,
       source: "derived",
-      policy: DERIVATION_POLICY_VERSION,
+      policy: drained ? TERMINAL_DRAIN_POLICY : DERIVATION_POLICY_VERSION,
     });
     if (out.stamped === 0) {
       // Nothing left to stamp by the time we got here (a race resolved it first) — not an error.
       outcome.skipped++;
       continue;
     }
-    if (verdict === -1) outcome.stamped.minus++;
+    if (drained) outcome.stamped.drained++;
+    else if (verdict === -1) outcome.stamped.minus++;
     else if (verdict === 1) outcome.stamped.plus++;
     else outcome.stamped.zero++;
   }
