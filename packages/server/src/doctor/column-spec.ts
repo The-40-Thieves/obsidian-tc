@@ -77,8 +77,40 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       // independent per-dispatch judgements double-counts: `(session_id, verdict_at)` is what
       // identifies the rows sharing one opinion.
       writer: on ? "enabled" : "disabled",
+      // THE-726 fix round 3: this used to name only the operator writer. There are TWO: an agent
+      // calling work_result after finishing a task, and the derived-verdict pass inferring a
+      // verdict from a closed session's tool-call log (CLI reflect / the scheduled reflect tick)
+      // when the caller never called work_result itself. Naming only one made the lever describe
+      // a deployment that stamps nothing but runs the scheduled pass as "enabled" for a reason
+      // that is not actually why the column has values.
       lever:
-        "an agent calling work_result after finishing a task (THE-726). The verdict is rendered at SESSION grain and PROJECTED onto the window's judgeable rows, so these are not independent per-dispatch judgements: (session_id, verdict_at) identifies the rows sharing one opinion, and a consumer that ignores it double-counts.",
+        "an agent calling work_result after finishing a task, OR the derived-verdict pass inferring a verdict from a closed session's tool-call log when the caller never did (THE-726). The verdict is rendered at SESSION grain and PROJECTED onto the window's judgeable rows, so these are not independent per-dispatch judgements: (session_id, verdict_at) identifies the rows sharing one opinion, and a consumer that ignores it double-counts.",
+    },
+    // THE-726 (on-demand derivation): the two writers of task_result are now distinguishable.
+    // `verdict_source` is 'operator' (work_result, a first-person judgement) or 'derived' (the
+    // scheduled/CLI pass inferring a verdict from a closed session's tool-call log); a row stamped
+    // before this migration has neither, and NULL correctly reports that rather than guessing which
+    // writer it was.
+    {
+      table: "agent_episodes",
+      column: "verdict_source",
+      writer: on ? "enabled" : "disabled",
+      lever:
+        "work_result (writes 'operator') or the derived-verdict pass, CLI reflect / the scheduled reflect tick (writes 'derived') over a closed session's tool-call log (THE-726).",
+    },
+    {
+      table: "agent_episodes",
+      column: "verdict_policy",
+      // THE-726 review round 1: "on-demand", not "enabled" — an operator-only store (every stamp
+      // via work_result, the derived pass never having found a closed session to act on) writes
+      // verdict_source on every row and verdict_policy on NONE of them, by design: there is no rule
+      // to version for a first-person judgement. Classifying this "enabled" made a correct,
+      // operator-only deployment report SILENT (a warning), the exact cry-wolf failure this doctor
+      // check exists to avoid — the same reasoning chunk_retrievals.feedback above is on-demand,
+      // not enabled, despite having a real producer.
+      writer: on ? "on-demand" : "disabled",
+      lever:
+        "the derived-verdict pass stamping DERIVATION_POLICY_VERSION alongside a derived verdict (THE-726) — an agent calling work_result never writes this column at all.",
     },
     {
       table: "agent_episodes",

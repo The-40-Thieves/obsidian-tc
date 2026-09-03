@@ -1,0 +1,27 @@
+-- 20260903_001_episode_verdict_provenance.sql
+-- THE-726 (on-demand derivation): `work_result` is the whole writer, and it is idle. Measured on
+-- the live store 14 days after deploy: 2 stamped rows (the operator smoke test) against 620
+-- unstamped tool rows, 128 of them post-deploy. The pre-registered kill condition fired; the owner
+-- chose ON-DEMAND — the server derives a verdict from the closed-session episode log and writes it
+-- through the SAME window rule (`stampOpenWindow`), so both existing readers (the hold in
+-- reflect.ts's partitionPending, the evidence gate in extractPreferences) keep working unchanged.
+--
+-- This migration adds the PROVENANCE that distinguishes the two writers, because they must not be
+-- trusted the same way: an operator's `-1` is a first-person judgement of the task it just ran; a
+-- derived `-1` is a structural inference over the tool-call log (retries, terminal errors, an
+-- absent browse). Folding a derived `-1` into the existing unconditional hold would silently widen
+-- what the hold rule trusts. `verdict_source` is that distinction; `verdict_policy` is the
+-- derivation RULE VERSION that produced it, so a later rule change is distinguishable from a data
+-- change — the same reason `eligibility_policy` exists beside `eligibility_reason`
+-- (20260806_006). NOT the same column: `eligibility_policy` versions evaluateEpisodes' hold/promote
+-- rules, a different policy over a different question, and overloading it would make a policy bump
+-- on one axis look like a bump on the other.
+--
+-- Both NULLABLE, no default: an operator stamp (`work_result`) writes `verdict_source = 'operator'`
+-- and `verdict_policy = NULL` (the operator IS the policy — there is no rule version to record); a
+-- row stamped before this migration has neither, and NULL means exactly that, not an invented
+-- classification. `verdict_source` is CHECK-constrained to the two known writers so a third,
+-- unregistered value can never appear silently — SQLite treats a NULL as satisfying the CHECK, so
+-- existing and operator-only rows are unaffected.
+ALTER TABLE agent_episodes ADD COLUMN verdict_source TEXT CHECK (verdict_source IN ('operator', 'derived'));
+ALTER TABLE agent_episodes ADD COLUMN verdict_policy INTEGER;

@@ -6,13 +6,50 @@
 // live rows. These tests pin the writer, and specifically the four things v2's first draft got
 // wrong badly enough to be rejected — each is a case where a plausible implementation passes the
 // obvious test and is still broken.
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
+import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { stampOpenWindow, UNSTAMPED_DEBT_CLAUSES } from "../src/experiential/verdict";
+import type { CallerContext } from "../src/mcp/registry/types";
+import { buildVerdictTools } from "../src/tools/m8/verdict-tools";
+import { insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
+
+// THE-726 fix round 3 (G7): a full structural + content fingerprint of a database, not one row -
+// see derive-verdict.test.ts's own copy of this helper (kept local rather than shared, matching
+// this repo's per-file fixture convention) for why a single-row before/after compare misses writes
+// to OTHER tables or a second row in the SAME table.
+function dbFingerprint(db: Database): {
+  tables: string[];
+  rowCounts: Record<string, number>;
+  hash: string;
+} {
+  const tables = (
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{
+      name: string;
+    }>
+  ).map((r) => r.name);
+  const rowCounts: Record<string, number> = {};
+  const hash = createHash("sha256");
+  for (const t of tables) {
+    let rows: unknown[];
+    try {
+      rows = db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all();
+    } catch {
+      // A `WITHOUT ROWID` table (e.g. acl_path_members, cache.db) has no `rowid` - its natural scan
+      // order is already primary-key order, deterministic without an explicit ORDER BY.
+      rows = db.prepare(`SELECT * FROM ${t}`).all();
+    }
+    rowCounts[t] = rows.length;
+    hash.update(t);
+    hash.update(JSON.stringify(rows));
+  }
+  return { tables, rowCounts, hash: hash.digest("hex") };
+}
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -25,6 +62,10 @@ const CHAIN = [
   { version: "20260806_006", sql: read("20260806_006_episode_eligibility_reason.sql") },
   { version: "20260816_001", sql: read("20260816_001_episode_type_structural.sql") },
   { version: "20260816_002", sql: read("20260816_002_episode_verdict_at.sql") },
+  {
+    version: "20260903_001",
+    sql: read("20260903_001_episode_verdict_provenance.sql"),
+  },
 ];
 
 function db(): Database {
@@ -77,7 +118,12 @@ describe("THE-726: the window", () => {
     seed(d, { session: "sess_a" });
     seed(d, { session: "sess_a" });
     seed(d, { session: "sess_b" }); // another session
-    const out = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 });
+    const out = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 1,
+      now: 5000,
+      source: "operator",
+    });
     expect(out.stamped).toBe(2);
     const rows = results(d);
     expect(rows.map((r) => r.task_result)).toEqual([1, 1, null]);
@@ -90,17 +136,21 @@ describe("THE-726: the window", () => {
     // UPDATE, reopening the window, so a second call reported 1 and stamped the bookkeeping.
     const d = db();
     seed(d);
-    expect(stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 }).stamped).toBe(1);
-    expect(stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 6000 }).stamped).toBe(0);
+    expect(
+      stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, source: "operator" }).stamped,
+    ).toBe(1);
+    expect(
+      stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 6000, source: "operator" }).stamped,
+    ).toBe(0);
     d.close?.();
   });
 
   it("partitions a session: two stamps, two verdicts, two distinct verdict_at", () => {
     const d = db();
     const a = seed(d, { ts: 1000 });
-    stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 });
+    stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, source: "operator" });
     const b = seed(d, { ts: 6000 });
-    stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 7000 });
+    stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 7000, source: "operator" });
     const by = Object.fromEntries(results(d).map((r) => [r.id, r]));
     expect(by[a]?.task_result).toBe(1);
     expect(by[b]?.task_result).toBe(-1);
@@ -114,7 +164,13 @@ describe("THE-726: the window", () => {
     const d = db();
     const early = seed(d, { ts: 1000 });
     const late = seed(d, { ts: 4000 });
-    const out = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, asOf: 2000 });
+    const out = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 1,
+      now: 5000,
+      asOf: 2000,
+      source: "operator",
+    });
     expect(out.stamped).toBe(1);
     const by = Object.fromEntries(results(d).map((r) => [r.id, r]));
     expect(by[early]?.task_result).toBe(1);
@@ -129,7 +185,9 @@ describe("THE-726: judgeability is structural (THE-839)", () => {
     const tool = seed(d, { kind: "tool_call" });
     const proto = seed(d, { kind: "protocol", tool: "prompts/list" });
     const verdict = seed(d, { kind: "verdict", tool: "work_result" });
-    expect(stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 }).stamped).toBe(1);
+    expect(
+      stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, source: "operator" }).stamped,
+    ).toBe(1);
     const by = Object.fromEntries(results(d).map((r) => [r.id, r]));
     expect(by[tool]?.task_result).toBe(1);
     expect(by[proto]?.task_result).toBeNull();
@@ -143,7 +201,9 @@ describe("THE-726: judgeability is structural (THE-839)", () => {
     // which would have excluded it from judgement forever and silently.
     const d = db();
     const id = seed(d, { kind: "tool_call", tool: "user-profile/update" });
-    expect(stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 }).stamped).toBe(1);
+    expect(
+      stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, source: "operator" }).stamped,
+    ).toBe(1);
     expect(results(d).find((r) => r.id === id)?.task_result).toBe(1);
     d.close?.();
   });
@@ -156,7 +216,12 @@ describe("THE-726: a -1 demotes, so the hold rule is order-independent", () => {
     // task's episodes would stay retrievable — the exact outcome that rule exists to prevent.
     const d = db();
     const id = seed(d, { eligibility: "eligible" });
-    const out = stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 5000 });
+    const out = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: -1,
+      now: 5000,
+      source: "operator",
+    });
     expect(out.demoted).toBe(1);
     const row = results(d).find((r) => r.id === id);
     expect(row?.task_result).toBe(-1);
@@ -167,7 +232,9 @@ describe("THE-726: a -1 demotes, so the hold rule is order-independent", () => {
   it("a 0 or +1 verdict demotes nothing", () => {
     const d = db();
     seed(d, { eligibility: "eligible" });
-    expect(stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 }).demoted).toBe(0);
+    expect(
+      stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, source: "operator" }).demoted,
+    ).toBe(0);
     expect(results(d)[0]?.eligibility).toBe("eligible");
     d.close?.();
   });
@@ -179,7 +246,13 @@ describe("THE-726: the debt predicate", () => {
     const open = seed(d, { kind: "tool_call" });
     seed(d, { kind: "protocol", tool: "resources/list" });
     const stamped = seed(d, { kind: "tool_call" });
-    stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, asOf: 1000 });
+    stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 1,
+      now: 5000,
+      asOf: 1000,
+      source: "operator",
+    });
     // Re-open one so there is a genuine mix.
     d.prepare("UPDATE agent_episodes SET task_result = NULL WHERE id = ?").run(open);
 
@@ -213,9 +286,19 @@ describe("THE-726: (session_id, verdict_at) is a REAL key", () => {
     // verdict_at and a wall-clock millisecond is not unique.
     const d = db();
     const a = seed(d, { ts: 1000, eligibility: "eligible" });
-    const first = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 });
+    const first = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 1,
+      now: 5000,
+      source: "operator",
+    });
     const b = seed(d, { ts: 2000, eligibility: "eligible" });
-    const second = stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 5000 });
+    const second = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: -1,
+      now: 5000,
+      source: "operator",
+    });
 
     expect(second.verdictAt).not.toBe(first.verdictAt);
     expect(second.demoted).toBe(1); // only its OWN row
@@ -230,11 +313,26 @@ describe("THE-726: (session_id, verdict_at) is a REAL key", () => {
   it("verdict_at stays monotonic per session", () => {
     const d = db();
     seed(d, { ts: 1000 });
-    const first = stampOpenWindow(d, { sessionId: "sess_a", result: 0, now: 5000 });
+    const first = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 0,
+      now: 5000,
+      source: "operator",
+    });
     seed(d, { ts: 2000 });
-    const second = stampOpenWindow(d, { sessionId: "sess_a", result: 0, now: 5000 });
+    const second = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 0,
+      now: 5000,
+      source: "operator",
+    });
     seed(d, { ts: 3000 });
-    const third = stampOpenWindow(d, { sessionId: "sess_a", result: 0, now: 5000 });
+    const third = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 0,
+      now: 5000,
+      source: "operator",
+    });
     expect(second.verdictAt).toBeGreaterThan(first.verdictAt);
     expect(third.verdictAt).toBeGreaterThan(second.verdictAt);
     d.close?.();
@@ -245,8 +343,8 @@ describe("THE-726: (session_id, verdict_at) is a REAL key", () => {
     const d = db();
     seed(d, { session: "sess_a", ts: 1000 });
     seed(d, { session: "sess_b", ts: 1000 });
-    const a = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000 });
-    const b = stampOpenWindow(d, { sessionId: "sess_b", result: 1, now: 5000 });
+    const a = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, source: "operator" });
+    const b = stampOpenWindow(d, { sessionId: "sess_b", result: 1, now: 5000, source: "operator" });
     expect(a.verdictAt).toBe(5000);
     expect(b.verdictAt).toBe(5000);
     d.close?.();
@@ -262,7 +360,7 @@ describe("THE-726: findings from the cross-vendor pass", () => {
     const d = db();
     const id = seed(d, { eligibility: "pending" });
     // Simulate the verdict landing after the classify but before the promote.
-    stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 5000 });
+    stampOpenWindow(d, { sessionId: "sess_a", result: -1, now: 5000, source: "operator" });
     const promoted = d
       .prepare(
         `UPDATE agent_episodes SET eligibility = 'eligible'
@@ -279,9 +377,100 @@ describe("THE-726: findings from the cross-vendor pass", () => {
     // different question than the caller asked. "Judge nothing" is a legitimate request.
     const d = db();
     seed(d, { ts: 1000 });
-    const out = stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, asOf: 500 });
+    const out = stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: 1,
+      now: 5000,
+      asOf: 500,
+      source: "operator",
+    });
     expect(out.stamped).toBe(0);
     expect(results(d)[0]?.task_result).toBeNull();
     d.close?.();
+  });
+});
+
+// THE-726 (on-demand derivation): the provenance columns. `work_result` (verdict-tools.ts) is the
+// caller these pin — it always writes `source: "operator"` and never supplies a policy, because
+// there is no rule to version for a first-person judgement.
+describe("THE-726: verdict provenance (verdict_source / verdict_policy)", () => {
+  const provenance = (d: Database, id: string) =>
+    d.prepare("SELECT verdict_source, verdict_policy FROM agent_episodes WHERE id = ?").get(id) as {
+      verdict_source: string | null;
+      verdict_policy: number | null;
+    };
+
+  it("an operator stamp writes verdict_source = 'operator', verdict_policy NULL", () => {
+    const d = db();
+    const id = seed(d);
+    stampOpenWindow(d, { sessionId: "sess_a", result: 1, now: 5000, source: "operator" });
+    expect(provenance(d, id)).toEqual({ verdict_source: "operator", verdict_policy: null });
+    d.close?.();
+  });
+
+  it("a derived stamp carries its policy version through verbatim", () => {
+    const d = db();
+    const id = seed(d);
+    stampOpenWindow(d, {
+      sessionId: "sess_a",
+      result: -1,
+      now: 5000,
+      source: "derived",
+      policy: 1,
+    });
+    expect(provenance(d, id)).toEqual({ verdict_source: "derived", verdict_policy: 1 });
+    d.close?.();
+  });
+
+  it("an unregistered verdict_source is rejected by the column CHECK", () => {
+    const d = db();
+    seed(d);
+    expect(() =>
+      d
+        .prepare("UPDATE agent_episodes SET verdict_source = 'judge' WHERE session_id = 'sess_a'")
+        .run(),
+    ).toThrow();
+    d.close?.();
+  });
+
+  // The actual tool, not just the shared mechanism: `work_result`'s handler is a thin wrapper
+  // around stampOpenWindow, and this pins that the wrapper really does pass `source: "operator"`
+  // and no `policy` — the tool-boundary call the two describes above only infer.
+  it("the work_result TOOL handler writes verdict_source = 'operator', verdict_policy NULL", async () => {
+    const d = db();
+    const id = seed(d, { session: "sess_a" });
+    const cacheDb = openMemoryDb();
+    provisionCacheDb(cacheDb);
+    insertSession(cacheDb, {
+      id: "sess_a",
+      vaultId: "main",
+      caller: null,
+      startedAt: 4000,
+      tracePath: "trace.jsonl",
+      principal: "tester",
+    });
+    const tools = buildVerdictTools({ edb: d });
+    const workResult = tools.find((t) => t.name === "work_result");
+    if (!workResult || typeof workResult.handler !== "function") {
+      throw new Error("work_result not found or has no handler");
+    }
+    const ctx: CallerContext = {
+      caller: "tester",
+      authenticated: true,
+      grantedScopes: new Set(["*"]),
+      vaultId: "main",
+      db: cacheDb,
+      now: () => 5000,
+    };
+    const before = dbFingerprint(cacheDb);
+    const out = await workResult.handler({ result: -1 }, ctx);
+    expect(out).toMatchObject({ available: true, stamped: 1 });
+    expect(provenance(d, id)).toEqual({ verdict_source: "operator", verdict_policy: null });
+    // THE-726 fix round 3 (G7): work_result writes ONLY to experiential.db (the same THE-838
+    // cross-store isolation boundary deriveClosedWindows keeps) - a full snapshot, not one row,
+    // confirms cache.db (the session store) is completely untouched by the operator writer too.
+    expect(dbFingerprint(cacheDb)).toEqual(before);
+    d.close?.();
+    cacheDb.close?.();
   });
 });

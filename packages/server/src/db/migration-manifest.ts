@@ -181,6 +181,12 @@ export const EXPERIENTIAL_MIGRATION_FILES = [
   // backfills (20260724_001/20260803_001 precedent). See design note for the NULL-caller mapping
   // rationale.
   "20260820_001_preference_scope_caller.sql",
+  // THE-726 (on-demand derivation): 20260903_001 adds verdict_source ('operator' | 'derived') and
+  // verdict_policy (the derivation rule version) to agent_episodes, distinguishing a first-person
+  // work_result stamp from a structural inference over the closed-session tool-call log — the hold
+  // rule in reflect.ts must not trust them identically. See the migration header for why this is
+  // not folded into eligibility_policy.
+  "20260903_001_episode_verdict_provenance.sql",
 ] as const;
 
 /** Registered migration version = the first two underscore-delimited segments of the filename. */

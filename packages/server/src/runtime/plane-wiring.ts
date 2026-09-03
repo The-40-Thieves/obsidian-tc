@@ -14,9 +14,10 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { runCitationIndexPasses } from "../experiential/citation-index";
+import { deriveClosedWindows } from "../experiential/derive-verdict";
+import { registerEpisodeEvaluation } from "../experiential/episode-evaluation-schedule";
 import { expireOverdueGoals } from "../experiential/goals";
 import { recomputeNoteQualityAll } from "../experiential/note-quality";
-import { registerEpisodeEvaluation } from "../experiential/reflect";
 import type { ToolRegistry } from "../mcp/registry";
 import { TASK_CALL_JOB_TYPE } from "../mcp/tasks";
 import type { GatewayRoles } from "../plane/gateway";
@@ -429,6 +430,16 @@ export function registerNoteQualitySchedule(
      *  rather than defaulted here: `recomputeActivation` owns the default, and a second copy of it
      *  in the wiring is how two defaults drift apart. */
     activationDecay?: number | undefined;
+    /** THE-726: cache.db — ALWAYS the live handle (`SchedulerWiringDeps.db`), NOT the
+     *  `citationPreferences`-gated one `wireJobHandlers` builds. `workspace_sessions.ended_at`
+     *  must be reachable regardless of that unrelated flag. */
+    cacheDb: Database;
+    /** config.experiential.derivedVerdictHold. */
+    derivedVerdictHold?: boolean;
+    /** THE-726 review round 1: injectable clock, shared by the derive step and the evaluate step
+     *  below (both read the SAME instant) — a hardcoded `Date.now()` inside the derive closure was
+     *  the one place in this pair that could not be faked by a test. Absent -> `Date.now`. */
+    now?: () => number;
   },
 ): void {
   if (!deps.experientialOpen) return;
@@ -444,9 +455,18 @@ export function registerNoteQualitySchedule(
   // deterministic promotion, never raise one, so the deterministic layer is the whole job. Same
   // no-gateway-dependency posture as note-quality-enqueue below — a derived-state tick must not
   // depend on the generative plane being configured. Wire `judge` here if that changes.
+  // THE-726: the derived-verdict pass, run in the SAME tick immediately before evaluateEpisodes
+  // (deriveClosedWindows below is called from registerEpisodeEvaluation's own `run`, not here — see
+  // that function's own comment for why the closure crosses the module boundary this way).
+  // `cacheDb` is `deps.cacheDb` — the ALWAYS-open handle, independent of `citationPreferences` —
+  // so this step never depends on that unrelated flag.
   registerEpisodeEvaluation(scheduler, {
     edb: deps.experientialDb,
     intervalMs: deps.intervalMs,
+    derivedVerdictHold: deps.derivedVerdictHold,
+    now: deps.now,
+    deriveClosedWindows: () =>
+      deriveClosedWindows(deps.experientialDb, deps.cacheDb, { nowMs: (deps.now ?? Date.now)() }),
     onError: stderrOnError("episode-evaluation"),
   });
   // THE-643: own cadence, not the roles-gated plane-enqueue above — no gateway dependency.

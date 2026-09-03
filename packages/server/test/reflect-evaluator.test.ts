@@ -62,6 +62,13 @@ function edb0(): Database {
     // THE-891: the per-key caller partition. Same reasoning as THE-710 above — every assertion
     // below runs against the fully-partitioned schema, not an intermediate one.
     { version: "20260820_001", sql: sql("20260820_001_preference_scope_caller.sql") },
+    // THE-726 (on-demand derivation): verdict_source / verdict_policy. evaluateEpisodes now SELECTs
+    // verdict_source to decide whether a -1 holds — agent_episodes-only, composes onto this prefix
+    // like the three THE-726/THE-746 migrations above.
+    {
+      version: "20260903_001",
+      sql: sql("20260903_001_episode_verdict_provenance.sql"),
+    },
   ]);
   return db;
 }
@@ -86,11 +93,15 @@ function seed(
     // keeps each of those rows its own one-row window, same as before THE-726 added the columns.
     session_id: string | null;
     verdict_at: number | null;
+    // THE-726: `undefined` -> NULL (a legacy/never-stamped row, treated as unconditional-hold the
+    // same as 'operator' — see holdsBadResult's own comment). Pass 'operator' or 'derived'
+    // explicitly to exercise the provenance-aware hold rule.
+    verdict_source: string | null;
   }> = {},
 ): void {
   db.prepare(
-    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from, vault_id, session_id, verdict_at)
-     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from, vault_id, session_id, verdict_at, verdict_source)
+     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     NOW,
@@ -107,6 +118,7 @@ function seed(
     over.vault_id === undefined ? V1 : over.vault_id,
     over.session_id ?? null,
     over.verdict_at ?? null,
+    over.verdict_source ?? null,
   );
 }
 
@@ -116,6 +128,52 @@ function elig(db: Database, id: string): string {
       e: string;
     }
   ).e;
+}
+
+/** THE-726 review round 1: a thin `Database` wrapper whose ONLY job is to run `onRace` once,
+ *  immediately after `evaluateEpisodes`' own pending-rows SELECT returns — modelling a verdict
+ *  landing in the exact gap between that read and the promote UPDATE, driven through the REAL
+ *  `evaluateEpisodes` rather than a parallel re-typed copy of its WHERE clause (a copy can silently
+ *  drift from the real predicate and would never catch a regression in it). Delegates every other
+ *  call straight to `db` — explicit method-by-method, not `{ ...db }`: the real handle is a native
+ *  class instance whose methods live on the prototype, so a plain object spread would silently drop
+ *  them. Matches on a substring unique to that one SELECT (its own WHERE clause), not on the whole
+ *  statement, so it stays correct if unrelated columns are added to the SELECT list.
+ *
+ *  THE-726 fix round 3 (G7): returns a `fired()` accessor alongside the wrapped `db` now - every
+ *  race test asserts it, so a future refactor of `evaluateEpisodes`'s pending-SELECT text (breaking
+ *  the `MATCH` substring above) makes the race silently NEVER FIRE and every one of these tests
+ *  goes red for the RIGHT reason (an unfired race, not a real regression) instead of quietly
+ *  degrading into a non-race test that still happens to pass. */
+function raceAfterPendingSelect(
+  db: Database,
+  onRace: () => void,
+): { db: Database; fired: () => boolean } {
+  let armed = true;
+  let didFire = false;
+  const MATCH = "WHERE eligibility = 'pending' AND blocked = 0";
+  const wrapped: Database = {
+    exec: (sql: string) => db.exec(sql),
+    prepare: (sqlText: string) => {
+      const stmt = db.prepare(sqlText);
+      if (!sqlText.includes(MATCH)) return stmt;
+      return {
+        run: (...args: unknown[]) => stmt.run(...args),
+        get: (...args: unknown[]) => stmt.get(...args),
+        all: (...args: unknown[]) => {
+          const result = stmt.all(...args);
+          if (armed) {
+            armed = false;
+            didFire = true;
+            onRace();
+          }
+          return result;
+        },
+      };
+    },
+    close: () => db.close?.(),
+  };
+  return { db: wrapped, fired: () => didFire };
 }
 
 describe("evaluateEpisodes (THE-222)", () => {
@@ -401,6 +459,128 @@ describe("evaluateEpisodes (THE-222)", () => {
         }
       ).n,
     ).toBe(1);
+  });
+});
+
+// THE-726 (on-demand derivation): a derived -1 must NOT be trusted the same way an operator -1
+// always is. The hold rule is order-independent on the SOURCE axis too: verdict_source alone
+// decides, never the presence of a policy version or any other column.
+describe("evaluateEpisodes: verdict_source-aware hold (THE-726)", () => {
+  // THE-726 fix round 3 (G7): the title claimed "flag off or on" but the body only ever ran
+  // `derivedVerdictHold: false` - a regression that made an operator -1 stop holding when the flag
+  // was ON would have passed this test unnoticed. Both values are now actually exercised, on
+  // separate databases so a still-pending row from the first pass cannot inflate the second pass's
+  // `scanned`/`held` counts.
+  it("an operator -1 holds unconditionally, flag off or on", async () => {
+    const dbOff = edb0();
+    seed(dbOff, "op-off", { task_result: -1, verdict_source: "operator" });
+    const offStats = await evaluateEpisodes(dbOff, {
+      nowMs: NOW + 1000,
+      derivedVerdictHold: false,
+    });
+    expect(offStats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(dbOff, "op-off")).toBe("pending");
+
+    const dbOn = edb0();
+    seed(dbOn, "op-on", { task_result: -1, verdict_source: "operator" });
+    const onStats = await evaluateEpisodes(dbOn, { nowMs: NOW + 1000, derivedVerdictHold: true });
+    expect(onStats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(dbOn, "op-on")).toBe("pending");
+  });
+
+  it("a derived -1 does NOT hold when the flag is off — it promotes like any other verdict", async () => {
+    const db = edb0();
+    seed(db, "der", { task_result: -1, verdict_source: "derived" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(stats).toMatchObject({ promoted: 1, held: 0 });
+    expect(elig(db, "der")).toBe("eligible");
+  });
+
+  it("a derived -1 holds the same way an operator one does when the flag is on", async () => {
+    const db = edb0();
+    seed(db, "der", { task_result: -1, verdict_source: "derived" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: true });
+    expect(stats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(db, "der")).toBe("pending");
+    const reason = (
+      db.prepare("SELECT eligibility_reason AS r FROM agent_episodes WHERE id = 'der'").get() as {
+        r: string;
+      }
+    ).r;
+    expect(reason).toBe("held_bad_task_result");
+  });
+
+  it("a legacy row (verdict_source NULL, predates the provenance migration) holds unconditionally, same as an operator stamp", async () => {
+    const db = edb0();
+    seed(db, "legacy", { task_result: -1 }); // verdict_source defaults to NULL
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(stats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(db, "legacy")).toBe("pending");
+  });
+
+  it("the default (derivedVerdictHold omitted) behaves as flag-off", async () => {
+    const db = edb0();
+    seed(db, "der", { task_result: -1, verdict_source: "derived" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+    expect(stats).toMatchObject({ promoted: 1, held: 0 });
+  });
+
+  it("evaluateEpisodes itself promotes a row a DERIVED -1 condemned mid-pass, flag off — exercised through the REAL function, not a re-typed WHERE clause", async () => {
+    // THE-726 review round 1: the previous version of this test re-typed the promote UPDATE's WHERE
+    // as a string literal, so it could never fail if the REAL predicate in evaluateEpisodes ever
+    // regressed (e.g. reverted to a plain `<> -1`) — it was testing its own copy, not the shipped
+    // code. This drives the race through evaluateEpisodes itself via a thin Database wrapper that
+    // mutates the row the instant the pass's own pending-rows SELECT returns, landing the verdict in
+    // the exact gap between that read and the promote UPDATE.
+    const db = edb0();
+    seed(db, "race", { eligibility: "pending", task_result: null });
+    const { db: raced, fired } = raceAfterPendingSelect(db, () => {
+      db.prepare(
+        "UPDATE agent_episodes SET task_result = -1, verdict_source = 'derived' WHERE id = 'race'",
+      ).run();
+    });
+    const stats = await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(fired()).toBe(true);
+    expect(stats.promoted).toBe(1); // flag off -> the derived -1 does not block promotion
+    expect(elig(db, "race")).toBe("eligible");
+  });
+
+  it("evaluateEpisodes itself still BLOCKS an OPERATOR -1 condemned mid-pass, exercised the same way", async () => {
+    const db = edb0();
+    seed(db, "race-op", { eligibility: "pending", task_result: null });
+    const { db: raced, fired } = raceAfterPendingSelect(db, () => {
+      db.prepare(
+        "UPDATE agent_episodes SET task_result = -1, verdict_source = 'operator' WHERE id = 'race-op'",
+      ).run();
+    });
+    // `stats.promoted` increments per CANDIDATE (decided from the pre-race in-memory read), not per
+    // row actually changed — that is the existing, pre-THE-726 quirk the race-guard WHERE exists to
+    // route around, and it is unaffected by this fix. The authoritative check is the row's real
+    // eligibility in the DB, same as task-verdict.test.ts's own precedent for this exact race.
+    await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(fired()).toBe(true);
+    expect(elig(db, "race-op")).toBe("pending");
+  });
+
+  // THE-726 fix round 3 (G7): the missing race - a DERIVED -1 condemning the row mid-pass while
+  // `derivedVerdictHold` is ON. This is precisely what the promote UPDATE's own
+  // `(verdict_source = 'derived' AND ? = 0)` term (reflect.ts) exists to guard: with the flag on,
+  // that clause is false for a derived verdict, so the re-check WHERE excludes the row from the
+  // promote UPDATE the same way it does for an operator -1. A mutation that dropped that clause
+  // (or hardcoded the bind parameter to 0) would promote this row and this test would go red.
+  it("evaluateEpisodes itself BLOCKS a DERIVED -1 condemned mid-pass when derivedVerdictHold is on", async () => {
+    const db = edb0();
+    seed(db, "race-derived-hold", { eligibility: "pending", task_result: null });
+    const { db: raced, fired } = raceAfterPendingSelect(db, () => {
+      db.prepare(
+        "UPDATE agent_episodes SET task_result = -1, verdict_source = 'derived' WHERE id = 'race-derived-hold'",
+      ).run();
+    });
+    await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: true });
+    expect(fired()).toBe(true);
+    // Same `stats.promoted`-counts-the-candidate-decision quirk as the operator race above - the
+    // row's own eligibility in the DB is the authoritative check.
+    expect(elig(db, "race-derived-hold")).toBe("pending");
   });
 });
 

@@ -196,7 +196,16 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // derivation: the char budget now targets the SAME ~14,554-token output reserve for every vault
   // shape (derived from the worst-case 2.5 chars/token density this job already documented),
   // instead of a budget anchored to one vault's own measured prose density.
-  "8e5c0f452bad88766a2e74326079aa7ecc803f06c5908b79f0552c68811a5260";
+  // THE-726: rebaselined deliberately. Adds ONE new key, `experiential.derivedVerdictHold`
+  // (boolean, default false) — whether a DERIVED task verdict (-1, inferred from a closed
+  // session's tool-call log) holds an episode out of promotion the same way an OPERATOR
+  // work_result(-1) unconditionally does; see packages/shared/src/config/retrieval.schema.ts's
+  // ExperientialConfigSchema for the full description text. No existing key, type, default or
+  // constraint moved.
+  // THE-726 review round 1: rebaselined deliberately AGAIN — the SAME key's `.describe()` text
+  // grew the owner-settled dependency statement (this axis acts only on sessions that exist and
+  // end). Still no key/type/default/constraint moved.
+  "323a9dd8887ef635d9d5c8dc93523e4901939362c05d6fe3fe5c26f865967628";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

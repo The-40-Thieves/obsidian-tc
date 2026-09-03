@@ -114,6 +114,11 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     // both existed — and nothing ever supplied it, so the only way to change the constant was the
     // eval harness's `seed-activation.ts --decay`, a script rather than a shipped surface.
     activationDecay: config.experiential.activationDecay,
+    // THE-726: `deps.db` — cache.db, open unconditionally since boot (wireStores.ts) — NOT the
+    // `citationPreferences`-gated handle `wireJobHandlers` builds for the citation job. The
+    // derived-verdict pass needs `workspace_sessions.ended_at` regardless of that unrelated flag.
+    cacheDb: deps.db,
+    derivedVerdictHold: config.experiential.derivedVerdictHold,
   });
 
   // #14: job-queue runner tick. Unconditional — makeJobRunner no-ops with zero handlers, so this

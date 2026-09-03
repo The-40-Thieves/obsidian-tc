@@ -47,6 +47,18 @@ describe("derived.column-liveness spec", () => {
     expect(byName("agent_episodes.summary")?.writer).toBe("enabled");
   });
 
+  // THE-726 (on-demand derivation): verdict_source is written on EVERY stamp (operator or
+  // derived), classified the same way task_result is. verdict_policy is DERIVED-only — an
+  // operator-only store (review round 1 correction) writes it on NONE of its rows by design, so it
+  // is "on-demand" like the client-driven columns below, not "enabled" (which would warn a correct
+  // operator-only deployment as SILENT).
+  it("names and classifies the THE-726 provenance columns", () => {
+    const spec = experientialColumnSpec({ experiential: true });
+    const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);
+    expect(byName("agent_episodes.verdict_source")?.writer).toBe("enabled");
+    expect(byName("agent_episodes.verdict_policy")?.writer).toBe("on-demand");
+  });
+
   // The emitter for feedback is a client action (THE-718: the acting agent stamps it), so
   // an unstamped column is "awaiting its first use", not a fault. Classifying it "enabled" would
   // warn on day one of a correct deployment — the exact cry-wolf failure derived.liveness was
@@ -64,6 +76,17 @@ describe("derived.column-liveness spec", () => {
     // which stay structurally unwritten regardless of configuration.
     for (const s of spec) expect(["disabled", "none"]).toContain(s.writer);
     expect(spec.some((s) => s.writer === "disabled")).toBe(true);
+  });
+
+  // THE-726 fix round 3: the lever text used to name only work_result, the operator writer - the
+  // derived-verdict pass writes this column too when the caller never calls work_result itself.
+  it("names BOTH task_result writers in its lever text", () => {
+    const spec = experientialColumnSpec({ experiential: true });
+    const lever = spec.find(
+      (s) => s.table === "agent_episodes" && s.column === "task_result",
+    )?.lever;
+    expect(lever).toContain("work_result");
+    expect(lever).toContain("derived-verdict pass");
   });
 
   it("gives every column a lever an operator can act on", () => {
