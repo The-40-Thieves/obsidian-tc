@@ -10,7 +10,8 @@ import type { Tool } from "@modelcontextprotocol/server";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
-import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain } from "./registry";
+import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
+import type { VisibilityCaller } from "./visibility";
 
 export type FacadeMode = "triad" | "domain" | "flat";
 
@@ -89,9 +90,8 @@ export const CALL_CAPABILITY_SCHEMA = z.strictObject({
 // THE-463: the triad catalog is immutable after module load for a GIVEN `hasResources` (three
 // meta-tools, module-constant schemas, memoized toJson) — the DEFAULT facade, so tools/list
 // rebuilt it every request. Build each variant once; frozen so a caller cannot mutate it.
-// THE-937: `hasResources` (a vaultRegistry present, mcp/server.ts's own gate for `resources/*`)
-// selects whether find_capability's description names a resource that might not exist. Keyed on
-// the boolean, not computed at the call site, so both variants stay memoized after first use.
+// THE-937: `hasResources` (a vaultRegistry present) selects whether find_capability names a
+// resource that might not exist; keyed on the boolean so both variants stay memoized.
 const triadCache = new Map<boolean, Tool[]>();
 
 export function triadTools(hasResources = true): Tool[] {
@@ -364,10 +364,9 @@ export function domainTools(tools: ToolDefinition[]): Tool[] {
 
 // ---- Catalog discovery (THE-937) ---------------------------------------------------------------
 // find_capability answers "which tool does X", not "what exists". Two layers close that gap over
-// ONE source of truth, buildCatalog: an instructions category summary (renderInstructions, every
-// session, no call) and the full catalog as a resource (obsidian-tc://catalog, resources.ts's
-// readCatalogResource, read on demand). The two are formatters over buildCatalog's output so they
-// cannot drift apart.
+// ONE source of truth, buildCatalog: an instructions summary (renderInstructions, every session,
+// no call) and the full catalog as a resource (obsidian-tc://catalog, resources.ts's
+// readCatalogResource, read on demand) — both formatters over buildCatalog's output.
 
 export interface CatalogGroup {
   domain: ToolDomain;
@@ -407,9 +406,8 @@ export function renderCatalogResource(
   return groups.flatMap((g) => g.tools.map((t) => ({ domain: g.domain, ...t })));
 }
 
-// THE-937: a STATIC seed (live episode_stats would make instructions non-deterministic per
-// install), seeded from the reporter's top nine (GH #877), filled to 3-4 per domain with the
-// tools whose descriptions best summarize it. `read_notes` dropped to keep `notes` at four.
+// THE-937: a STATIC seed (live episode_stats varies per install), from the reporter's top nine
+// (GH #877), filled to 3-4/domain with the tools whose descriptions best summarize it.
 export const TOP_TOOLS_BY_DOMAIN: Record<ToolDomain, readonly string[]> = {
   notes: ["list_notes", "read_note", "write_note", "patch_note"],
   metadata: ["read_frontmatter", "update_frontmatter", "add_tag", "find_notes_by_property"],
@@ -428,9 +426,10 @@ export const TOP_TOOLS_BY_DOMAIN: Record<ToolDomain, readonly string[]> = {
 
 /**
  * Renders the 13-domain category summary embedded in `instructions` (THE-937): one line per
- * domain (title + blurb) plus the allowlisted names present in `groups` — a caller never sees a
- * name it cannot call, and a domain with none still gets its blurb line. Approximates tokens as
- * chars/4; the capping test asserts on chars directly against MAX_INSTRUCTIONS_CHARS.
+ * domain (title + blurb) plus the allowlisted names present in `groups`, a domain with none still
+ * getting its blurb line. `groups` MUST already be caller-filtered — this function cannot filter,
+ * and buildInstructions below (its only production caller) guarantees that by construction.
+ * Approximates tokens as chars/4; the cap test asserts on chars against MAX_INSTRUCTIONS_CHARS.
  */
 export const MAX_INSTRUCTIONS_CHARS = 2_000;
 
@@ -448,22 +447,26 @@ export function renderInstructions(groups: CatalogGroup[]): string {
   return lines.join("\n");
 }
 
-// THE-718's feedback clause plus THE-937's 13-domain catalog summary. One function so the two
-// instruction surfaces in mcp/server.ts (the Server constructor's static `instructions` option,
-// answering legacy `initialize`; and the per-request `server/discover` override) render
-// byte-identical prose for the same tool set and cannot drift apart.
+// THE-718's feedback clause plus THE-937's catalog summary, for the SAME caller both instruction
+// surfaces in mcp/server.ts serve (the constructor's static `instructions`, legacy `initialize`;
+// the per-request `server/discover`), so they cannot drift. Takes the REGISTRY and the CALLER, not
+// a tool list: a prior version took a raw list and trusted it pre-filtered, and the constructor
+// call site didn't filter it (round 2) — `instructions` named tools an HTTP caller with a scoped
+// JWT could not call. Filtering happens INSIDE now, so no parameter can carry an unfiltered set.
 export function buildInstructions(
   name: string,
   version: string,
-  tools: ToolDefinition[],
+  registry: ToolRegistry,
+  caller: VisibilityCaller | undefined,
   hasResources = true,
 ): string {
+  const tools = registry.listVisible(caller);
   const preamble =
     `${name} ${version} — an MCP server over Obsidian vaults. ` +
     `Tools are authorized per call (scopes + folder ACL); resources are vault notes. ` +
     `After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback ` +
     `— retrieval quality is learned from that signal and nothing else supplies it.`;
-  // THE-937: the pointer only makes sense when resources are wired -- see triadTools()'s same gate.
+  // The pointer only makes sense when resources are wired — see triadTools()'s same gate.
   const catalogPointer = hasResources
     ? " (read obsidian-tc://catalog for the full caller-visible list)"
     : "";

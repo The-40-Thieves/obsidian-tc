@@ -59,6 +59,7 @@ import {
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
+import type { VisibilityCaller } from "./visibility";
 
 /**
  * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
@@ -305,15 +306,23 @@ export function toMcpTool(def: ToolDefinition): Tool {
  * resources enforce the same read scope + folder ACL inline, since they do not
  * pass through registry.dispatch. The assembly is transport-agnostic.
  */
+function visibilityCallerOf(ctx: CallerContext): VisibilityCaller {
+  return {
+    grantedScopes: ctx.grantedScopes,
+    readOnly: ctx.acl?.readOnly,
+    toolVisibility: ctx.toolVisibility,
+  };
+}
+
 export function createMcpServer(opts: McpServerOptions): Server {
-  // THE-937: legacy `initialize` (SDK-internal `_oninitialize`) owns protocol-version negotiation
-  // a hand-rolled override cannot reproduce, so `instructions` here is computed ONCE from
-  // `registry.listVisible()` with no caller (the static visibility-CONFIG layer only — see
-  // visibility.ts). `server/discover` below IS fully caller-filtered, recomputed per request.
+  // THE-937: legacy `initialize` gets no per-request override (SDK-private handshake state), so
+  // `instructions` builds ONCE here WITH the caller `opts.context()` gives at construction — HTTP
+  // builds a fresh server per request with auth resolved; stdio's `context` is fixed either way.
   const staticInstructions = buildInstructions(
     opts.name,
     opts.version,
-    opts.registry.listVisible(),
+    opts.registry,
+    visibilityCallerOf(opts.context()),
     Boolean(opts.vaultRegistry),
   );
   const server = new Server(
@@ -391,21 +400,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
 
   // SEP-2575: `server/discover` REPLACES the removed initialize/initialized handshake, and the
   // spec makes it mandatory. Reachable only when served through `createMcpHandler`, which
-  // classifies the era per request — asserted end to end by mcp-protocol-eras.test.ts. See design
-  // note for the history behind that requirement.
+  // classifies the era per request — asserted end to end by mcp-protocol-eras.test.ts.
   //
-  // THE-718's feedback clause is here because a client in triad/domain facade mode never sees
-  // record_retrieval_feedback's own description; this is the one surface every client reads
-  // regardless of mode. THE-937 adds the 13-domain catalog summary alongside it
-  // (buildInstructions), recomputed per request from THIS caller's visible catalog — the fully
-  // caller-filtered surface, hence PRIVATE now rather than the PUBLIC this carried before THE-937.
+  // THE-718's feedback clause: a client in triad/domain mode never sees record_retrieval_feedback's
+  // own description. THE-937 adds the catalog summary too, recomputed per caller — hence PRIVATE.
   server.setRequestHandler("server/discover", (_req, extra) => {
     const dctx = opts.context(extra.mcpReq.signal);
-    const dvisible = opts.registry.listVisible({
-      grantedScopes: dctx.grantedScopes,
-      readOnly: dctx.acl?.readOnly,
-      toolVisibility: dctx.toolVisibility,
-    });
     return withCacheHint(
       {
         supportedVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
@@ -413,7 +413,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
         instructions: buildInstructions(
           opts.name,
           opts.version,
-          dvisible,
+          opts.registry,
+          visibilityCallerOf(dctx),
           Boolean(opts.vaultRegistry),
         ),
       },

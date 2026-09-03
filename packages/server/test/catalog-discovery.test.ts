@@ -3,10 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
+import { FolderAcl } from "../src/acl";
+import { provisionCacheDb } from "../src/db/provision";
 import {
   buildCatalog,
   MAX_INSTRUCTIONS_CHARS,
@@ -17,7 +20,9 @@ import {
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { CATALOG_RESOURCE_URI } from "../src/mcp/resources";
 import { createMcpServer } from "../src/mcp/server";
+import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
+import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
 
 const tmpDirs: string[] = [];
@@ -312,4 +317,141 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     await client.close();
     await server.close();
   });
+});
+
+describe("legacy initialize instructions are caller-filtered over HTTP (THE-937 round 2)", () => {
+  // The round-0/round-1 tests above build a server directly and connect an in-memory transport,
+  // which never exercises `transports/http.ts`'s per-request server construction — the exact
+  // mechanism this round's fix depends on (a fresh server per request, with THAT request's
+  // resolved auth already available at `createMcpServer`'s construction time). Real HTTP + a real
+  // JWT is the only way to prove the fix works on the path the finding was measured against.
+  const SECRET = "test-only-secret-not-a-real-credential-0123456789";
+  const LEGACY = "2025-11-25";
+  const MODERN = "2026-07-28";
+
+  async function bootHttp() {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const registry = buildFullRegistry();
+    const dir = tmpDir("otc-catalog-http-");
+    const vaultRegistry = new VaultRegistry(
+      ServerConfigSchema.parse({ vaults: [{ id: "t", path: dir }] }).vaults,
+    );
+    const auth: ServerConfig["auth"] = ServerConfigSchema.parse({
+      vaults: [{ id: "t", path: dir }],
+      auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
+    }).auth;
+    return startHttp({
+      name: "obsidian-tc",
+      version: "0.0.0-test",
+      registry,
+      auth,
+      db,
+      vaultId: "t",
+      vaultRegistry,
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      host: "127.0.0.1",
+      port: 0,
+    });
+  }
+
+  async function tokenFor(scopes: string[]): Promise<string> {
+    const now = Math.floor(Date.now() / 1000);
+    return new SignJWT({ sub: "t", scopes, aud: "http://test", iat: now, exp: now + 600 })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .sign(new TextEncoder().encode(SECRET));
+  }
+
+  async function post(
+    port: number,
+    body: unknown,
+    headers: Record<string, string>,
+  ): Promise<{ status: number; json: { result?: { instructions?: string } } }> {
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    const line = text.split("\n").find((l) => l.startsWith("data: "));
+    const payload = line ? line.slice(6) : text;
+    let json: unknown;
+    try {
+      json = JSON.parse(payload);
+    } catch {
+      json = { raw: text };
+    }
+    return { status: res.status, json: json as { result?: { instructions?: string } } };
+  }
+
+  it("legacy initialize's instructions omit out-of-scope tool names for a read:notes-only caller", async () => {
+    const h = await bootHttp();
+    try {
+      const jwt = await tokenFor(["read:notes"]);
+      const res = await post(
+        h.port,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY,
+            capabilities: {},
+            clientInfo: { name: "round2-test", version: "0" },
+          },
+        },
+        { authorization: `Bearer ${jwt}`, "mcp-protocol-version": LEGACY },
+      );
+      expect(res.status).toBe(200);
+      const instructions = res.json.result?.instructions;
+      expect(instructions).toBeDefined();
+      // admin:acl and execute:git — neither granted by a read:notes-only token.
+      expect(instructions).not.toContain("inspect_acl");
+      expect(instructions).not.toContain("git_commit");
+      // read_note requires read:notes, which this token DOES hold, and is TOP_TOOLS_BY_DOMAIN's
+      // "notes" entry — it must still be named.
+      expect(instructions).toContain("read_note");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("server/discover's instructions omit out-of-scope tool names for a read:notes-only caller", async () => {
+    const h = await bootHttp();
+    try {
+      const jwt = await tokenFor(["read:notes"]);
+      const res = await post(
+        h.port,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "server/discover",
+          params: {
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": MODERN,
+              "io.modelcontextprotocol/clientInfo": { name: "round2-test", version: "0" },
+              "io.modelcontextprotocol/clientCapabilities": {},
+            },
+          },
+        },
+        {
+          authorization: `Bearer ${jwt}`,
+          "mcp-protocol-version": MODERN,
+          "mcp-method": "server/discover",
+        },
+      );
+      expect(res.status).toBe(200);
+      const instructions = res.json.result?.instructions;
+      expect(instructions).toBeDefined();
+      expect(instructions).not.toContain("inspect_acl");
+      expect(instructions).not.toContain("git_commit");
+      expect(instructions).toContain("read_note");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
 });
