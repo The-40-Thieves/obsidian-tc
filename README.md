@@ -11,6 +11,22 @@ npm install -g obsidian-tc      # Node >= 24 or Bun >= 1.1
 
 Also ships as a Docker image (`ghcr.io/the-40-thieves/obsidian-tc`), a one-click `.mcpb` bundle, and standalone binaries.
 
+Since v5.0 (2026-07-24), the Local REST API plugin ships its own built-in MCP server — 18
+tools at `https://127.0.0.1:27124/mcp/` for vault CRUD, search, and commands. obsidian-tc adds
+three things it doesn't have: **governed writes** (folder ACLs, human-in-the-loop confirmation,
+compare-and-swap, an audit log), **fused retrieval** (BM25 + vector + graph, RRF-fused and
+reranked), and **memory that lives in the vault** — episodes, activation decay, and explicit
+forgetting, under the same ACL as every other write.
+
+The fastest way to try it, no install step and no config file:
+
+```sh
+npx obsidian-tc /path/to/vault
+```
+
+Lexical search and every note tool work immediately; semantic and graph-seeded retrieval need
+an embeddings backend (Ollama by default), which is the upgrade a config file buys you.
+
 ## Why this exists
 
 An AI agent with raw filesystem access to your Obsidian vault can do real damage: overwrite years of notes, delete the wrong folder, read the journal you never meant to expose, or quietly leak plugin API keys sitting in `.obsidian/`. Most Obsidian MCP servers hand an agent that access with little more than an API key between it and everything you have written.
@@ -68,7 +84,7 @@ The v1.6–v1.7 line turned the server into a **measured memory engine** (full d
 - **Dependency-aware deletion** — `forget` propagates a deletion through derived state, with tombstone-vs-erase modes and a hash-chained audit log where tampering with any entry breaks verification.
 - **New companion bridges** — Obsidian Git (status/diff/log/stage, with commits behind a hardcoded human-confirmation floor) and Remotely Save (independent backup verification).
 - **A knowledge-flywheel CLI family** — `metrics`, `gaps` (calibrated coverage floor), `prefetch`, `reflect`, `forget`, `citation-infer`, `contribution-report`, `activation-recompute`, `cluster`.
-- **Retrieval measured, not asserted** — a statistical ship rule (paired permutation test + bootstrap CI, both unit-tested in CI) gates every ranking change against an n=250 golden set, which lives in a private vault and is **not checked in**. This bullet used to quote headline retrieval figures. **They have been withdrawn** (2026-08-07, THE-748): they entered the README before the oldest surviving eval artifact and could not be reproduced from anything on the eval host, so their provenance is unrecoverable. Trying to re-derive them also surfaced a harness defect — one flag was widening the graph arm's retrieval depth without widening the baseline's — now fixed, with each arm's depth recorded in every artifact. What ships in this repo is the *machinery*, and it is the part worth judging: the method, the ship rule, and the negative results are all in [docs/EVALUATION.md](./docs/EVALUATION.md). Contextual chunk enrichment's **+0.223 nDCG** stands — it is a paired single-knob A/B, unaffected by the above. Mechanisms that lost their A/B ship dark behind flags with the numbers recorded. The vec0 index carries a per-vault partition key and metadata aux columns, rebuilt in place from stored embeddings (no re-embed).
+- **Retrieval measured, not asserted** — a statistical ship rule (paired permutation test + bootstrap CI, both unit-tested in CI) gates every ranking change against an n=250 golden set, which lives in a private vault and is **not checked in**. This bullet used to quote headline retrieval figures. **They have been withdrawn** (2026-08-07, THE-748): they entered the README before the oldest surviving eval artifact and could not be reproduced from anything on the eval host, so their provenance is unrecoverable. Trying to re-derive them also surfaced a harness defect — one flag was widening the graph arm's retrieval depth without widening the baseline's — now fixed, with each arm's depth recorded in every artifact. What ships in this repo is the *machinery*, and it is the part worth judging: the method, the ship rule, and the negative results are all in [docs/EVALUATION.md](./docs/EVALUATION.md). A reproducible retrieval result on a public corpus, dated 2026-08-07, lives there too, beside its own power analysis — no figure repeated here. Contextual chunk enrichment's **+0.223 nDCG** stands — it is a paired single-knob A/B, unaffected by the above. Mechanisms that lost their A/B ship dark behind flags with the numbers recorded. The vec0 index carries a per-vault partition key and metadata aux columns, rebuilt in place from stored embeddings (no re-embed).
 
 Earlier v1.3.x hardening (per-vault ACLs, symlink-canonical enforcement, trigram FTS5 substrate, vec0 KNN pushdown, Bases expression-DSL evaluator, compute-abuse budgets, asymmetric JWT via local JWKS, the sleep-time consolidation scheduler, AGPL-3.0 relicense) is recorded in the CHANGELOG.
 
@@ -186,6 +202,11 @@ once at server start; without the keys, bridge tools return the typed
 `requires_live_obsidian` while every filesystem tool keeps working. Setup walkthrough:
 [docs/QUICKSTART.md](./docs/QUICKSTART.md) step 6.
 
+> **The companion plugin was renamed.** It is now `tc-bridge` ("TC Bridge"), not `obsidian-tc`
+> ("Obsidian Turbocharged") — the community plugin directory bans "obsidian" in a plugin id. If
+> you installed it before this rename, your settings migrate automatically on first load after
+> upgrading; see [docs/CUTOVER.md](./docs/CUTOVER.md) and `packages/plugin/README.md`.
+
 ## Install in Cursor / VS Code
 
 One-click install (launches via `npx`; after installing, set the config path to your
@@ -233,29 +254,37 @@ forgetting with a hash-chained log, contradiction detection).
 That is a narrow claim, deliberately. Several of the projects below do specific things as
 well as or better than we do, and the honest comparison says so.
 
-Features as of **2026-08-02**; these projects move quickly, so check their repos rather
+Features as of **2026-09-03**; these projects move quickly, so check their repos rather
 than trusting this table. Tool counts are omitted where a project's README and its code
 disagree.
 
 | | Tools | Group | Retrieval | Governance | Memory engine |
 |---|---|---|---|---|---|
 | **obsidian-tc** | 163 (3-tool facade) | all three | BM25 (FTS5) · vector (vec0) · graph · RRF fusion · diversity | JWT (HS256/JWKS) · per-vault folder ACL · HITL elicit · CAS · idempotency · snapshots · audit log | episodes · activation · forgetting · contradictions |
+| [coddingtonbear/obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api) (built-in MCP, v5.0+) | 18 | access | text (`search_query`/`search_simple`) | single REST API bearer key (full vault admin) | — |
 | [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | access | text / regex | JWT/OAuth · folder-scoped path policy · read-only mode · elicited delete confirmation showing blast radius | — |
 | [aaronsb/obsidian-mcp-plugin](https://github.com/aaronsb/obsidian-mcp-plugin) | 8 families | access | text · graph traversal · Dataview/Bases | path allow/block lists · read-only mode · per-operation controls · API key | — |
 | [bitbonsai/mcpvault](https://github.com/bitbonsai/mcpvault) | ~14 | access | BM25 | traversal + symlink protection · delete confirmation | — |
 | [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian) | ~13 | access | text · JsonLogic / DQL | Local REST API key | — |
+| [jacksteamdev/obsidian-mcp-tools](https://github.com/jacksteamdev/obsidian-mcp-tools) — **archived** (last push 2026-05-13) | — | access | DQL · JsonLogic · semantic (via Smart Connections) | Local REST API key | — |
 | [engraph](https://github.com/devwhodevs/engraph) | — | retrieval | 5-lane RRF: semantic · BM25 · graph · cross-encoder rerank · temporal, fully local | API keys with read/write levels · rate limit · operation log | — |
 | [basic-memory](https://github.com/basicmachines-co/basic-memory) | ~35 | memory | semantic + keyword | path containment | entities · observations · relations, in a separate markdown KB |
 
 Where the others win, plainly:
 
 - **Zero-config start.** `mcpvault` is one `npx` line and `engraph` is one `brew install`
-  with local models bundled. obsidian-tc needs a config file.
+  with local models bundled — no config file, no separate embeddings pull. obsidian-tc's
+  `npx obsidian-tc /path/to/vault` matches that for a single vault (lexical search and every
+  note tool work immediately); multi-vault, ACLs, and custom embeddings still want a config
+  file, and semantic/graph retrieval still wants an embeddings backend.
 - **Nothing outside Obsidian.** `aaronsb/obsidian-mcp-plugin` runs *inside* the app — no
   external process at all. obsidian-tc is a standalone server.
-- **Offline retrieval quality.** `engraph` ships cross-encoder reranking and a query
-  orchestrator as core, on local models. Our equivalents exist but currently need an
-  inference gateway, so an offline install does not get them.
+- **Offline retrieval quality, as core rather than opt-in.** `engraph` ships cross-encoder
+  reranking and a query orchestrator as core, on local models, everywhere it runs. obsidian-tc's
+  cross-encoder reranker is now also local and gateway-free — an optional npm package
+  (`@the-40-thieves/obsidian-tc-reranker-local`), auto-selected when no gateway is configured,
+  that fetches and checksum-verifies its weights on first use — but it is opt-in machinery, not
+  core: the standalone compiled binaries, musl (Alpine) installs, and macOS x64 can't reach it.
 - **Memory as a portable KB.** `basic-memory` keeps memory in its own markdown store that
   syncs to any vault. If you want memory decoupled from one vault, that is the better fit.
 

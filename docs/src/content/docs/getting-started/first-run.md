@@ -3,6 +3,16 @@ title: First Run
 description: Write a minimal config, start the server, and connect an MCP client.
 ---
 
+The fastest way to try it, no install step and no config file:
+
+```sh
+npx obsidian-tc /path/to/vault
+```
+
+Lexical search and every note tool work immediately; semantic and graph-seeded retrieval need
+an embeddings backend (Ollama by default), which is the upgrade a config file buys you — the
+rest of this page walks through that path.
+
 ## 1. Write a config
 
 obsidian-tc is launched with a path to a **JSON** config file. A minimal

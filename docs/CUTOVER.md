@@ -108,6 +108,48 @@ full obsidian-tc equivalent today:
 If active-file workflows are load-bearing for you, keep that one workflow on the old
 surface until a companion-backed active-file bridge ships; everything else cuts over now.
 
+### 2d. From the Local REST API's built-in MCP (v5.0+, 2026-07-24)
+
+Since v5.0, the Local REST API plugin itself ships an MCP server exposing 18 tools at
+`https://127.0.0.1:27124/mcp/` — the same plugin the obsidian-tc companion rides as a
+transport (§7 below), now with its own agent surface layered on top. This is a different,
+newer surface than the "LRA-MCP" projection retired in §2a above.
+
+| LRA built-in MCP tool | obsidian-tc equivalent |
+|---|---|
+| `command_execute` | `execute_command` (companion-backed, policy-gated) |
+| `command_list` | `list_commands` |
+| `search_query` | `search_dql`, `search_jsonlogic` — native evaluators, no plugin required |
+| `search_simple` | `search_text` / `search_vault(mode: text)` |
+| `tag_list` | `list_tags` |
+| `vault_append` | `append_note` |
+| `vault_copy` | `copy_note` |
+| `vault_delete` | `delete_note` (HITL-gated, delete-tier throttled) |
+| `vault_list` | `list_notes` |
+| `vault_move` | `move_note` (backlink rewrite + reindex) |
+| `vault_patch` | `patch_note` |
+| `vault_read` | `read_note`, `read_notes` |
+| `vault_read_binary` | `get_attachment` |
+| `vault_write` | `write_note` (CAS via `prev_hash`) |
+
+No obsidian-tc equivalent:
+
+- **`active_file_get_path`.** UI-coupled to the currently-open note; see §2c above —
+  obsidian-tc tools are path-addressed, not session-addressed.
+- **`open_file`.** Partially covered: `generate_uri` (action `open`) builds the exact
+  `obsidian://` URI, but it is a pure string builder — the server does not launch it, the
+  same caveat as `show_file_in_obsidian` in §2c.
+- **`vault_get_document_map`.** No note-outline/heading-discovery tool exists today;
+  `patch_note` targets a heading, block, or frontmatter path directly instead of requiring a
+  prior structure lookup.
+- **`vault_write_binary`.** Attachments are read (`get_attachment`), listed, moved, and
+  deleted through obsidian-tc; there is no tool that creates or overwrites an attachment's
+  binary content.
+
+Beyond this list, §2a and §2b above still apply in full: obsidian-tc adds links, canvas,
+Bases, bookmarks, workspaces, bulk ops, a multi-vault registry, OCR, Tasks, capture, and the
+governed dispatch pipeline none of the LRA built-in MCP tools run through.
+
 ## 3. Cutover steps
 
 1. **Install the server.**
@@ -150,13 +192,26 @@ surface until a companion-backed active-file bridge ships; everything else cuts 
    obsidian-tc plugin install --vault "C:/path/to/your/vault"
    ```
    This copies the vendored `manifest.json` + `main.js` into
-   `<vault>/.obsidian/plugins/obsidian-tc/` (plugin id `obsidian-tc`, name "Obsidian
-   Turbocharged"; re-running is an in-place upgrade). Then enable it in Obsidian's
-   Community Plugins. It requires the **Local REST API** plugin installed and enabled —
-   the companion extends LRA's HTTP server; without LRA it logs a warning and registers
-   no bridge routes. The server enforces a companion API floor via `/probe` (THE-282): an
-   incompatible companion degrades bridge tools with a typed `plugin_incompatible` error
-   and an update hint, never silent divergence.
+   `<vault>/.obsidian/plugins/tc-bridge/` (plugin id `tc-bridge`, name "TC Bridge" — renamed
+   from `obsidian-tc` / "Obsidian Turbocharged" so it can list in Obsidian's community
+   directory, THE-943; re-running is an in-place upgrade). Existing installs migrate
+   automatically: on first load TC Bridge copies `.obsidian/plugins/obsidian-tc/data.json` to
+   its own `data.json` if present, and refuses to start if the old `obsidian-tc` plugin is
+   still enabled. Then enable it in Obsidian's Community Plugins. It requires the **Local
+   REST API** plugin installed and enabled — the companion extends LRA's HTTP server;
+   without LRA it logs a warning and registers no bridge routes. The server enforces a
+   companion API floor via `/probe` (THE-282): an incompatible companion degrades bridge
+   tools with a typed `plugin_incompatible` error and an update hint, never silent divergence.
+
+   **Upgrading an existing BRAT or direct install:** BRAT tracks the repository, not the
+   plugin id, so no BRAT-entry change is needed — the next update installs under the new id
+   automatically (if BRAT complains about an id mismatch, remove and re-add the plugin from
+   BRAT once). Direct/zip installs: download the new release's `main.js`, `manifest.json`,
+   `styles.css`, create a `tc-bridge` folder under `<vault>/.obsidian/plugins/` (Obsidian
+   requires the folder name to match the manifest `id`), place the three files there, remove
+   the old `obsidian-tc` folder (or just disable it — see the conflict guard above), and
+   enable "TC Bridge" in Community Plugins. Settings carry over automatically the first time
+   TC Bridge loads, as long as the old `obsidian-tc/data.json` is still present at that point.
 
 4. **Verify `server_health`.** Start the server (`obsidian-tc ./obsidian-tc.config.json`)
    and call `server_health`. Expect:

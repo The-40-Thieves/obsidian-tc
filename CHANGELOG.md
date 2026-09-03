@@ -6,6 +6,53 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **MCP Registry publish from CI (#TBD, THE-940).** `server.json` is now published to the
+  official MCP Registry (`registry.modelcontextprotocol.io`) automatically on every tagged
+  release, via GitHub OIDC (no stored secret); `packages/server/package.json` carries the
+  `mcpName` ownership marker proving npm-package ownership, and every PR validates
+  `server.json` against the registry schema (`mcp-publisher validate`).
+- **Local reranker reachable without a source checkout (#TBD, THE-944).** The optional
+  offline cross-encoder reranker (`@the-40-thieves/obsidian-tc-reranker-local`) is now
+  auto-selected when no reranker/model-tier/gateway is configured — no
+  `reranker.provider: "local"` needed — and fetches and sha256-verifies its pinned model
+  weights automatically on first use instead of requiring a prior manual `bun run
+  fetch-model` run. A `publish-reranker-local` CI job is prepared to publish the package to
+  npm on future releases; the package itself is not yet published — that first publish
+  remains a deferred, one-time owner action (npm trusted publishing cannot create a
+  brand-new package on its first release). `retrieval.gatedRerank` stays dark; no retrieval
+  numbers change.
+
+### Changed
+
+- **Companion plugin renamed to TC Bridge (#888, THE-943).** New plugin id `tc-bridge`,
+  new name "TC Bridge" (dropping "obsidian" from both — required for Obsidian's community
+  plugin directory). Existing installs migrate their settings automatically on first load;
+  the old `obsidian-tc` plugin, if still enabled, blocks TC Bridge from starting until it is
+  disabled. A final release under the old id ships a notice-only build pointing at the new
+  one.
+
+### Documentation
+
+- **README front door, comparison table, and cutover path refreshed (#TBD, THE-942).** The
+  first screen now names the Local REST API plugin's built-in MCP server (18 tools since
+  v5.0) and what obsidian-tc adds over it — governed writes, fused retrieval, memory in the
+  vault — followed by the zero-config `npx obsidian-tc /path/to/vault` command. The
+  comparison table is redated, gained a Local REST API 5.x row, marked
+  `jacksteamdev/obsidian-mcp-tools` archived, and corrected the local-reranker claim against
+  `engraph`. `docs/CUTOVER.md` gained a section mapping the Local REST API's 18 built-in MCP
+  tools to obsidian-tc equivalents and naming what has none.
+
+### Internal
+
+- **Zero-config front door proven in CI (#TBD, THE-941).** `npx obsidian-tc /path/to/vault`
+  already booted a single vault with no config file; a new CI smoke job now asserts
+  `initialize`, the triad `tools/list`, a seeded `search_text` hit, a degraded (not errored)
+  embeddings status with no reachable Ollama, and a clean exit on SIGTERM — proven red
+  against a removed fixture phrase and against a config that requires Ollama, so a green run
+  cannot be one that skipped the no-config path. No runtime behavior change.
+
 ## [1.25.0] - 2026-09-03
 
 ### Added
