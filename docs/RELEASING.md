@@ -114,6 +114,12 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
      `obsidian`, `obsidian-md`, `rust`, `typescript` as of this task) and add any newly-relevant
      one; there is no automated coherence gate for topics the way there is for the tool count.
 
+8. **Fire the directory listings (THE-945).** Not automated, and not on the critical path of the
+   tag itself — the registry entry from step 6 only reaches an aggregator that scrapes it (Glama,
+   PulseMCP); Smithery and mcp.so each need their own submission, and the companion plugin's
+   community-store PR is separate again. Full steps, commands, and verification URLs for every one
+   of them: `docs/superpowers/plans/2026-09-03-listings/checklist.md`.
+
 ## What a tag produces
 
 - **npm** — three umbrella packages (`obsidian-tc`, `@the-40-thieves/obsidian-tc-shared`,
