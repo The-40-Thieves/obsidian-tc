@@ -70,14 +70,23 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
 6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
    and its own job log is the primary signal, but confirm the entry actually landed rather than
    trusting a green job in isolation (the same "red job can still have shipped almost everything, and
-   a green one is not proof either" caution as step 5):
+   a green one is not proof either" caution as step 5). Use the exact-match endpoint, not
+   `?search=` (review finding G3): `?search=` is a fuzzy substring match over every registered
+   server, which can both over-match (a name that merely contains the search text) and
+   under-match (registry-side tokenization quirks) — it is exactly what `publish-registry`'s own
+   preflight step deliberately does NOT use, for the same reason. This is that same exact-match
+   endpoint, run by hand instead of by the job:
 
    ```sh
-   curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.The-40-Thieves%2Fobsidian-tc" | jq .
+   curl -sS -o /dev/null -w "%{http_code}\n" \
+     "https://registry.modelcontextprotocol.io/v0/servers/io.github.The-40-Thieves%2Fobsidian-tc/versions/<x.y.z>"
    ```
 
-   An empty `"servers":[]` means **not published** — not a stale entry, an absent one. Otherwise, the
-   returned entry's `version` must equal `<x.y.z>`.
+   **200** means `<x.y.z>` is published — pipe through `| jq .` (drop `-o /dev/null -w ...`) to
+   see the full entry and confirm its `version` field. **404** means it is NOT published — not a
+   stale entry, an absent one; the response body is `{"title":"Not Found","status":404,
+   "detail":"Server not found"}`. Anything else (a 5xx, a connection error) means the check
+   itself failed to run, not that the entry is absent — retry the curl before concluding anything.
 
    **Registry versions are immutable — there is no "just re-run it" fix for a bad entry.** A second
    publish attempt at the same name+version fails hard: `mcp-publisher publish` returns
@@ -157,6 +166,17 @@ alone. If a future change ever adds it (or any other npm package) to `server.jso
 two things move together: add that package's publish job to `publish-registry`'s `needs:` list, and
 know that step 2's propagation wait needs **no corresponding edit** — it already loops every
 `packages[]` npm entry, because it derives the list from `server.json` rather than a hardcoded name.
+That claim is true precisely BECAUSE the encoding is scope-aware (THE-940 review finding G1):
+reranker-local's actual npm package is `@the-40-thieves/obsidian-tc-reranker-local`, a SCOPED
+name, and the wait loop encodes only the `/` in an identifier (leaving a leading `@` literal —
+matching the registry's own npm validator, which builds the version-document URL with Go's
+`url.PathEscape`) rather than percent-encoding `@` too. An earlier version of this loop used
+jq's `@uri`, which encodes every RFC 3986 reserved character including `@`. npm's registry
+happens to tolerate that over-encoding today (measured: both forms return 200) — but relying on
+CDN leniency instead of building the URL the registry's own validator actually builds is exactly
+the kind of "works by accident" this runbook should not promise. `scripts/check-
+npm-identifier-encoding.test.mjs` pins the corrected shape against both an unscoped and a scoped
+identifier, run against the real, embedded `jq` filter rather than a reimplementation.
 
 Gated on `github.event_name == 'push'` only — unlike every other job downstream of `build-native`,
 it has no `workflow_dispatch`/`dry_run` path at all, because a dispatched dry run never has a real

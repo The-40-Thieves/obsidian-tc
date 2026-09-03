@@ -44,11 +44,33 @@ test("multiple steps each contribute their own block", () => {
   assert.equal(blocks[1].script, "echo second\n");
 });
 
-test("an inline `run: cmd` (not a block scalar) is skipped, not mis-parsed", () => {
+test("an inline `run: cmd` is extracted as its own one-line block (G5 fix), alongside a block scalar", () => {
   const yaml = ["steps:", "  - run: echo inline", "  - run: |", "      echo block"].join("\n");
   const blocks = extractRunBlocks(yaml);
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0].script, "echo inline\n");
+  assert.equal(blocks[1].script, "echo block\n");
+});
+
+test("an inline run:'s startLine points at the run: line itself (no separate body line exists)", () => {
+  const yaml = ["name: x", "steps:", "  - run: echo hi"].join("\n");
+  const blocks = extractRunBlocks(yaml);
   assert.equal(blocks.length, 1);
-  assert.equal(blocks[0].script, "echo block\n");
+  assert.equal(blocks[0].startLine, 3);
+});
+
+test("multiple inline run: steps each contribute their own block", () => {
+  const yaml = ["steps:", "  - run: echo one", "  - run: echo two"].join("\n");
+  const blocks = extractRunBlocks(yaml);
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0].script, "echo one\n");
+  assert.equal(blocks[1].script, "echo two\n");
+});
+
+test("a bare run: with nothing after it and no following indented lines is not treated as inline", () => {
+  const yaml = ["steps:", "  - run:", "  - name: next step"].join("\n");
+  const blocks = extractRunBlocks(yaml);
+  assert.deepEqual(blocks, []);
 });
 
 test("a run: block scalar immediately followed by a shallower line extracts an empty script, not a crash", () => {

@@ -328,7 +328,7 @@ jobs:
       # instead of re-hardcoding "$RUNNER_TEMP/mcp-publisher" a second time.
       - uses: ./.github/actions/install-mcp-publisher
         id: install-mcp-publisher
-      - name: validate server.json against the MCP Registry schema (retry network/5xx, fail fast on 4xx)
+      - name: validate server.json against the MCP Registry schema (retry network/5xx/429, fail fast on 4xx or a local failure)
         shell: bash
         env:
           MCP_PUBLISHER_BIN: ${{ steps.install-mcp-publisher.outputs.bin }}
@@ -342,22 +342,41 @@ jobs:
             fi
             echo "$out"
             # mcp-publisher's HTTP-error message shape is "... server returned status <code>: ...".
-            # A matched 4xx is the registry actually rejecting server.json — real, not transient, do
-            # not retry. Anything else (no status matched at all: a network error, DNS failure,
-            # timeout; a matched 5xx; or 429) is the registry or network being flaky, which a retry
-            # can plausibly fix. N3 fix: 429 is excluded from the 4xx-is-fatal rule on purpose —
-            # rate limiting is transient BY DEFINITION, and the registry's own npm validator agrees
-            # in its own error text ("NPM rate-limited … Likely transient, retry later").
+            # A matched 4xx (other than 429 — N3 fix, rate limiting is transient BY DEFINITION, and
+            # the registry's own npm validator agrees in its own error text: "NPM rate-limited …
+            # Likely transient, retry later") is the registry actually rejecting server.json — real,
+            # not transient, do not retry.
             code=$(printf '%s' "$out" | grep -oE 'status [0-9]{3}' | grep -oE '[0-9]{3}' | head -1 || true)
             if [ -n "$code" ] && [ "$code" -ge 400 ] && [ "$code" -lt 500 ] && [ "$code" != 429 ]; then
               echo "::error::server.json failed MCP Registry validation (HTTP $code) — not retrying, this is a real rejection, not a transient failure."
               exit 1
             fi
-            if [ "$attempt" -eq 5 ]; then
-              echo "::error::mcp-publisher validate failed after 5 attempts with no 4xx seen (network error or registry outage, not a content rejection) — see the captured output above."
+            if [ -n "$code" ] && { [ "$code" -ge 500 ] || [ "$code" = 429 ]; }; then
+              retryable=true
+            elif [ -z "$code" ] && printf '%s' "$out" | grep -qiE 'error sending request|dial tcp|connection (refused|reset)|no such host|i/o timeout|context deadline exceeded|tls handshake|network is unreachable|temporary failure|EOF'; then
+              # G2 fix: NO status code was matched here, so this branch is reached by two very
+              # different failure classes that used to be treated identically (both fell through
+              # to "retry"): a genuine network-level failure (Go's http client never got an HTTP
+              # response at all — reproduced locally via HTTPS_PROXY pointed at an unreachable/
+              # nonexistent host: "error sending request: ... dial tcp ...") versus a LOCAL failure
+              # (a malformed or missing server.json — reproduced locally: "nonexistent-server.json
+              # not found", "invalid JSON: invalid character ...") that will fail identically on
+              # every one of five attempts, burning CI minutes to report what is really a content
+              # problem as if it were a registry outage. This branch's grep pattern is the network
+              # signature specifically; only a MATCH here is retryable.
+              retryable=true
+            else
+              retryable=false
+            fi
+            if [ "$retryable" != "true" ]; then
+              echo "::error::mcp-publisher validate failed with no HTTP status and no recognized network-error signature — this is a local failure (a malformed server.json, a missing file, or a binary error), not an outage. Not retrying; see the captured output above."
               exit 1
             fi
-            echo "attempt $attempt failed (network or 5xx, not a 4xx) — retrying in ${delay}s..."
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::mcp-publisher validate failed after 5 attempts (network error, 5xx, or 429 — never a local failure, which would have failed fast above) — see the captured output above."
+              exit 1
+            fi
+            echo "attempt $attempt failed (network error, 5xx, or 429) — retrying in ${delay}s..."
             sleep "$delay"
             delay=$((delay * 2))
           done

@@ -436,7 +436,13 @@ jobs:
           enc_name=$(jq -rn --arg n "$name" '$n|@uri')
           enc_version=$(jq -rn --arg v "$version" '$v|@uri')
           url="https://registry.modelcontextprotocol.io/v0/servers/$enc_name/versions/$enc_version"
-          status=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+          # G4 fix: --connect-timeout / --max-time bound how long a STALLED connection can hang
+          # this step — without them, a connection that opens but never responds blocks until the
+          # JOB's own timeout (default 6h), not until this step's own retry/backoff logic ever
+          # gets a chance to run. A DNS/TCP failure that curl detects immediately was already
+          # handled (this step aborts on purpose — see the comment above); this closes the gap
+          # where curl does NOT fail immediately: a connection that hangs mid-request.
+          status=$(curl -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "$url")
           case "$status" in
             200)
               echo "$url -> 200: $name@$version is already registered — resumed release, skipping the publish steps (registry versions are immutable; a second publish would fail with 'cannot publish duplicate version')."
@@ -481,7 +487,16 @@ jobs:
             # a future packages[] entry that omits it gets the real npm registry URL instead of the
             # literal string "null" (jq -r's rendering of a JSON null) baked into $url.
             base=$(jq -r '.registryBaseUrl // "https://registry.npmjs.org"' <<<"$row")
-            enc_id=$(jq -rn --arg n "$identifier" '$n|@uri')
+            # G1 fix: jq's `@uri` percent-encodes EVERY reserved character per RFC 3986,
+            # including `@` — so a scoped npm identifier ("@the-40-thieves/obsidian-tc-shared")
+            # became "%40the-40-thieves%2Fobsidian-tc-shared". That is not what the registry
+            # itself sends: its own npm validator builds the URL with Go's `url.PathEscape`,
+            # which leaves `@` literal (it is a valid `pchar` — RFC 3986 allows `@` unescaped
+            # in a path segment) and escapes only `/` (the one character that would otherwise
+            # be read as a path separator, splitting a scoped identifier into two segments).
+            # Encode ONLY the slash, matching that exactly — an npm package name cannot
+            # contain any other character `url.PathEscape` would touch.
+            enc_id=$(jq -rn --arg n "$identifier" '$n | gsub("/";"%2F")')
             url="$base/$enc_id/$version"
             echo "waiting for $identifier@$version to resolve at $url (the exact document the registry itself fetches to validate npm ownership)..."
             resolved=false
@@ -496,7 +511,11 @@ jobs:
               # non-zero — measured: that shape yields the string "000000", not "000"). `000` is
               # not a real HTTP status, so it always falls through to the "retry in 10s" branch
               # below rather than being mistaken for success.
-              status=$(curl -sS -o /dev/null -w '%{http_code}' "$url") || status="000"
+              # G4 fix: same --connect-timeout/--max-time bound as the preflight curl above — a
+              # stalled connection (not a fast DNS/TCP failure, which the `|| status="000"`
+              # fallback already covers) would otherwise hang this attempt indefinitely instead of
+              # counting as one of the ten and moving on to the next.
+              status=$(curl -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "$url") || status="000"
               if [ "$status" = "200" ]; then
                 echo "  attempt $i: $url -> 200, resolved"
                 resolved=true

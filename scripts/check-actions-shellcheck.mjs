@@ -23,15 +23,20 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /**
- * Extract every `run:` block-scalar body from a composite action's YAML text, dedented to column
- * 0. Pure and filesystem-free so it is directly testable. The block-scalar-by-indentation loop
- * mirrors check-workflow-injection.mjs's own extraction; the dedent amount is deliberately the
- * block's OWN first content line's indent, not the `run:` key's indent — those differ whenever
- * (as is universal in this repo's style) the body sits two spaces deeper than its key, and slicing
- * by the key's indent alone would leave every extracted line with leftover leading whitespace.
- * Inline `run: cmd` forms are skipped as not worth a synthetic one-line script — every step this
- * gate exists for uses a block scalar. Returns `[{ startLine, script }]`, `startLine` being the
- * first line of the script body (1-based, for a readable failure message).
+ * Extract every `run:` body from a composite action's YAML text — both block-scalar
+ * (`run: |`) and inline (`run: <cmd>`) forms, dedented to column 0. Pure and filesystem-free
+ * so it is directly testable. The block-scalar-by-indentation loop mirrors
+ * check-workflow-injection.mjs's own extraction; the dedent amount is deliberately the
+ * block's OWN first content line's indent, not the `run:` key's indent — those differ
+ * whenever (as is universal in this repo's style) the body sits two spaces deeper than its
+ * key, and slicing by the key's indent alone would leave every extracted line with leftover
+ * leading whitespace.
+ *
+ * G5 fix: inline forms are a one-line shell script too, and were previously skipped
+ * entirely — this repo's own setup-repo/action.yml has two of them
+ * (`run: bun install --frozen-lockfile --ignore-scripts`), which sat unchecked the whole
+ * time this gate existed. Returns `[{ startLine, script }]`, `startLine` being the first
+ * line of the script body (1-based, for a readable failure message).
  */
 export function extractRunBlocks(text) {
   const lines = text.split("\n");
@@ -62,6 +67,11 @@ export function extractRunBlocks(text) {
     if (/^[|>][-+]?\d*$/.test(rest)) {
       runIndent = indentOf(line);
       current = { startLine: i + 2, script: "" };
+    } else if (rest !== "") {
+      // G5 fix: inline `run: <cmd>` — a complete one-line script, extracted as its own block
+      // rather than skipped. `startLine` points at the `run:` line itself (there is no
+      // separate body line to point at, unlike a block scalar).
+      blocks.push({ startLine: i + 1, script: `${rest}\n` });
     }
   }
   if (current) blocks.push(current);
