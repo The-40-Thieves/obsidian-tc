@@ -227,7 +227,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
       name: "get_periodic_note",
       domain: "workspace",
       description:
-        "Get the periodic note for a period + date (no creation). Resolves the path from the vault's daily/periodic config or Obsidian defaults.",
+        "Get the periodic note for a period + date (no creation). Resolves the path from the vault's daily/periodic config or Obsidian defaults. Domain: workspace.",
       inputSchema: z
         .object({
           vault: VaultId,

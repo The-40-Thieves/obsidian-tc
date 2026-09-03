@@ -28,6 +28,7 @@ async function connect(registry: ToolRegistry, toolsPageSize?: number) {
     version: "0.0.0-test",
     registry,
     context,
+    visibility: { grantedScopes: new Set(["*"]) },
     toolsPageSize,
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

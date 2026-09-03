@@ -35,6 +35,7 @@ import {
   serveTaskSubscription,
   subscribesToTasks,
 } from "../mcp/tasks";
+import type { VisibilityCaller } from "../mcp/visibility";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
@@ -208,6 +209,29 @@ async function resolveAuth(
  * when the response closes. Node req/res are bridged from Hono's Fetch Request
  * by createMcpHandler, which classifies the protocol era per request and serves both.
  */
+type HttpAuthInfo = { scopes?: string[]; extra?: Record<string, unknown> } | undefined;
+
+/**
+ * THE-937 round 3: PURE — reads `authInfo` and `opts.acl` only, no DB, no session. Returns
+ * exactly what `McpServerOptions.visibility` needs. A prior fix called the FULL `context` factory
+ * (below) at server construction to build that value, and `context` is NOT pure on HTTP: it
+ * resolves, and with `sessions.autoOpen` on OPENS, a workspace session as a side effect — so a
+ * bare `initialize` or a bare triad `tools/list` opened a session before any dispatch happened.
+ * `contextFromAuthInfo` calls this and layers vault/session/DB resolution on top, so the two
+ * cannot drift apart.
+ */
+function visibilityFromAuthInfo(opts: HttpAppOptions, authInfo: HttpAuthInfo): VisibilityCaller {
+  if (authInfo === undefined) {
+    throw new Error("unauthenticated request reached the MCP handler");
+  }
+  const extra = authInfo.extra as { toolVisibility?: ToolVisibilityConfig } | undefined;
+  return {
+    grantedScopes: new Set(authInfo.scopes ?? []),
+    readOnly: opts.acl?.readOnly,
+    ...(extra?.toolVisibility !== undefined ? { toolVisibility: extra.toolVisibility } : {}),
+  };
+}
+
 /**
  * Rebuild a caller context from the request's pass-through `authInfo`.
  *
@@ -218,30 +242,31 @@ async function resolveAuth(
  */
 function contextFromAuthInfo(
   opts: HttpAppOptions,
-  authInfo: { scopes?: string[]; extra?: Record<string, unknown> } | undefined,
+  authInfo: HttpAuthInfo,
 ): (signal?: AbortSignal) => CallerContext {
   return (signal?: AbortSignal): CallerContext => {
     if (authInfo === undefined) {
       throw new Error("unauthenticated request reached the MCP handler");
     }
+    const visibility = visibilityFromAuthInfo(opts, authInfo);
     const extra = authInfo.extra as
-      | {
-          caller?: string | null;
-          vault?: string;
-          persona?: string;
-          toolVisibility?: ToolVisibilityConfig;
-        }
+      | { caller?: string | null; vault?: string; persona?: string }
       | undefined;
     return {
       caller: extra?.caller ?? null,
       authenticated: true,
-      grantedScopes: new Set(authInfo.scopes ?? []),
+      // VisibilityCaller.grantedScopes is typed Iterable<string> (visibility.ts's own
+      // grantsAll/grantsScope contract); CallerContext wants the concrete Set. Cheap: it's a
+      // freshly-built Set already, this just re-asserts the concrete type.
+      grantedScopes: new Set(visibility.grantedScopes),
       // THE-647 item 2: `authInfo.scopes` above ALREADY carries the persona's resolved scopes —
       // resolveAuth replaced them, never unioned — so this context needs no persona-specific
       // scope handling. `persona`/`toolVisibility` ride along for tracing and the visibility
       // composition (mcp/visibility.ts); both undefined for every non-persona caller.
       ...(extra?.persona !== undefined ? { persona: extra.persona } : {}),
-      ...(extra?.toolVisibility !== undefined ? { toolVisibility: extra.toolVisibility } : {}),
+      ...(visibility.toolVisibility !== undefined
+        ? { toolVisibility: visibility.toolVisibility }
+        : {}),
       // Bind the caller to its token's vault (or the server default when the token carries no
       // `vault` claim). vaultBound makes dispatch reject a tool call naming a different vault
       // (THE-267), so an HTTP token cannot reach every configured vault via the `vault` argument.
@@ -326,6 +351,9 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         version: opts.version,
         registry: opts.registry,
         context: contextFromAuthInfo(opts, mcpCtx.authInfo),
+        // THE-937 round 3: the PURE half of the same authInfo — see visibilityFromAuthInfo's
+        // doc comment for why this must not be `contextFromAuthInfo`'s own resolver.
+        visibility: visibilityFromAuthInfo(opts, mcpCtx.authInfo),
         vaultRegistry: opts.vaultRegistry,
         facadeMode: opts.facadeMode,
         // The SDK's own classification, not a header we re-interpret.

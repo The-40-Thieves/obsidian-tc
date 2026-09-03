@@ -10,7 +10,8 @@ import type { Tool } from "@modelcontextprotocol/server";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
-import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain } from "./registry";
+import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
+import type { VisibilityCaller } from "./visibility";
 
 export type FacadeMode = "triad" | "domain" | "flat";
 
@@ -86,23 +87,32 @@ export const CALL_CAPABILITY_SCHEMA = z.strictObject({
   args: z.record(z.string(), z.unknown()).default({}),
 });
 
-// THE-463: the triad catalog is immutable after module load (three meta-tools, module-constant
-// schemas, memoized toJson) and is the DEFAULT facade, so tools/list rebuilt it on every request.
-// Build it once. Frozen so a caller cannot mutate the shared instance.
-let triadCache: Tool[] | null = null;
+// THE-463: the triad catalog is immutable after module load for a GIVEN `hasResources` (three
+// meta-tools, module-constant schemas, memoized toJson) — the DEFAULT facade, so tools/list
+// rebuilt it every request. Build each variant once; frozen so a caller cannot mutate it.
+// THE-937: `hasResources` (a vaultRegistry present) selects whether find_capability names a
+// resource that might not exist; keyed on the boolean so both variants stay memoized.
+const triadCache = new Map<boolean, Tool[]>();
 
-export function triadTools(): Tool[] {
-  if (triadCache === null) triadCache = Object.freeze(buildTriadTools()) as unknown as Tool[];
-  return triadCache;
+export function triadTools(hasResources = true): Tool[] {
+  let cached = triadCache.get(hasResources);
+  if (cached === undefined) {
+    cached = Object.freeze(buildTriadTools(hasResources)) as unknown as Tool[];
+    triadCache.set(hasResources, cached);
+  }
+  return cached;
 }
 
-function buildTriadTools(): Tool[] {
+function buildTriadTools(hasResources: boolean): Tool[] {
   return [
     {
       name: "find_capability",
       title: "Find capability",
       description:
-        "Search this server's full tool catalog by natural-language query and return the best-matching capabilities (name + one-line summary). Use it to discover which tool to call, then describe_capability for its schema and call_capability to run it.",
+        "Search this server's full tool catalog by natural-language query and return the best-matching capabilities (name + one-line summary). Use it to discover which tool to call, then describe_capability for its schema and call_capability to run it." +
+        (hasResources
+          ? " To enumerate the whole caller-visible catalog grouped by domain instead of searching it, read the obsidian-tc://catalog resource."
+          : ""),
       inputSchema: toJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
@@ -350,4 +360,118 @@ export function domainTools(tools: ToolDefinition[]): Tool[] {
     });
   }
   return out;
+}
+
+// ---- Catalog discovery (THE-937) ---------------------------------------------------------------
+// find_capability answers "which tool does X", not "what exists". Two layers close that gap over
+// ONE source of truth, buildCatalog: an instructions summary (renderInstructions, every session,
+// no call) and the full catalog as a resource (obsidian-tc://catalog, resources.ts's
+// readCatalogResource, read on demand) — both formatters over buildCatalog's output.
+
+export interface CatalogGroup {
+  domain: ToolDomain;
+  title: string;
+  tools: { name: string; summary: string }[];
+}
+
+/**
+ * Groups the caller-visible catalog by domain: {domain, title, tools: [{name, summary}]}, in
+ * TOOL_DOMAINS order. A domain with no caller-visible member is dropped (mirrors domainTools()'s
+ * ACL filtering) — a caller never sees a domain it holds nothing in.
+ */
+export function buildCatalog(tools: ToolDefinition[]): CatalogGroup[] {
+  const groups = new Map<ToolDomain, { name: string; summary: string }[]>();
+  for (const t of tools) {
+    if (!t.domain) continue; // sink-type fixtures with no domain never reach a real registry
+    const entry = { name: t.name, summary: summarize(t.description) };
+    const arr = groups.get(t.domain);
+    if (arr) arr.push(entry);
+    else groups.set(t.domain, [entry]);
+  }
+  const out: CatalogGroup[] = [];
+  for (const dom of TOOL_DOMAINS) {
+    const members = groups.get(dom);
+    if (!members || members.length === 0) continue;
+    members.sort((a, b) => a.name.localeCompare(b.name));
+    out.push({ domain: dom, title: DOMAIN_META[dom].title, tools: members });
+  }
+  return out;
+}
+
+/** Flattens buildCatalog's grouped output for the obsidian-tc://catalog resource: one row per
+ *  tool, `{domain, name, summary}`, ordered by domain then name — no schemas. */
+export function renderCatalogResource(
+  groups: CatalogGroup[],
+): { domain: ToolDomain; name: string; summary: string }[] {
+  return groups.flatMap((g) => g.tools.map((t) => ({ domain: g.domain, ...t })));
+}
+
+// THE-937: a STATIC seed (live episode_stats varies per install), from the reporter's top nine
+// (GH #877), filled to 3-4/domain with the tools whose descriptions best summarize it.
+export const TOP_TOOLS_BY_DOMAIN: Record<ToolDomain, readonly string[]> = {
+  notes: ["list_notes", "read_note", "write_note", "patch_note"],
+  metadata: ["read_frontmatter", "update_frontmatter", "add_tag", "find_notes_by_property"],
+  links: ["get_backlinks", "get_outgoing_links", "find_orphans", "vault_health_score"],
+  search: ["search_text", "search_regex", "search_semantic", "search_vault"],
+  vault: ["add_vault", "list_vaults", "index_vault", "reload_vault"],
+  attachments: ["list_attachments", "get_attachment", "ocr_attachment"],
+  structured: ["read_base", "create_canvas", "read_kanban_board", "format_table"],
+  workspace: ["list_bookmarks", "add_bookmark", "list_workspaces", "get_periodic_note"],
+  automation: ["list_commands", "execute_command", "list_templates", "execute_template"],
+  git: ["git_status", "git_diff", "git_log", "git_commit"],
+  knowledge: ["create_entity", "link_entities", "add_observation", "query_entity_graph"],
+  docs: ["knowledge_search", "knowledge_get_critical"],
+  admin: ["server_health", "get_index_status", "inspect_acl", "get_metrics"],
+};
+
+/**
+ * Renders the 13-domain category summary embedded in `instructions` (THE-937): one line per
+ * domain (title + blurb) plus the allowlisted names present in `groups`, a domain with none still
+ * getting its blurb line. `groups` MUST already be caller-filtered — this function cannot filter,
+ * and buildInstructions below (its only production caller) guarantees that by construction.
+ * Approximates tokens as chars/4; the cap test asserts on chars against MAX_INSTRUCTIONS_CHARS.
+ */
+export const MAX_INSTRUCTIONS_CHARS = 2_000;
+
+export function renderInstructions(groups: CatalogGroup[]): string {
+  const visibleByDomain = new Map<ToolDomain, Set<string>>(
+    groups.map((g) => [g.domain, new Set(g.tools.map((t) => t.name))]),
+  );
+  const lines = TOOL_DOMAINS.map((dom) => {
+    const meta = DOMAIN_META[dom];
+    const visible = visibleByDomain.get(dom);
+    const names = visible ? TOP_TOOLS_BY_DOMAIN[dom].filter((n) => visible.has(n)) : [];
+    const suffix = names.length > 0 ? ` (e.g. ${names.join(", ")})` : "";
+    return `- ${meta.title}: ${meta.blurb}${suffix}`;
+  });
+  return lines.join("\n");
+}
+
+// THE-718's feedback clause plus THE-937's catalog summary, for the SAME caller both instruction
+// surfaces in mcp/server.ts serve (the constructor's static `instructions`, legacy `initialize`;
+// the per-request `server/discover`), so they cannot drift. Takes the REGISTRY and the CALLER, not
+// a tool list: a prior version took a raw list and trusted it pre-filtered, and the constructor
+// call site didn't filter it (round 2) — `instructions` named tools an HTTP caller with a scoped
+// JWT could not call. Filtering happens INSIDE now, so no parameter can carry an unfiltered set.
+export function buildInstructions(
+  name: string,
+  version: string,
+  registry: ToolRegistry,
+  caller: VisibilityCaller | undefined,
+  hasResources = true,
+): string {
+  const tools = registry.listVisible(caller);
+  const preamble =
+    `${name} ${version} — an MCP server over Obsidian vaults. ` +
+    `Tools are authorized per call (scopes + folder ACL); resources are vault notes. ` +
+    `After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback ` +
+    `— retrieval quality is learned from that signal and nothing else supplies it.`;
+  // The pointer only makes sense when resources are wired — see triadTools()'s same gate.
+  const catalogPointer = hasResources
+    ? " (read obsidian-tc://catalog for the full caller-visible list)"
+    : "";
+  return (
+    `${preamble}\n\nCapabilities by domain${catalogPointer}:\n` +
+    `${renderInstructions(buildCatalog(tools))}`
+  );
 }

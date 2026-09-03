@@ -513,6 +513,9 @@ export async function buildServerRuntime(
       version: VERSION,
       registry,
       context,
+      // THE-937 round 3: stdio's own visibility, no `context()` call — see the field's doc
+      // comment. Stdio's is a fixed literal (never varies), so no readOnly/toolVisibility gap.
+      visibility: { grantedScopes: new Set(["*"]), readOnly: acl?.readOnly },
       vaultRegistry,
       facadeMode: config.toolFacade.mode,
     });

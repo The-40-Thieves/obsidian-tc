@@ -116,7 +116,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       domain: "knowledge",
       vaultArg: "vault",
       description:
-        "Create a typed memory entity (optionally materialized as a vault .md note). SQLite is the source of truth.",
+        "Create a typed memory entity (optionally materialized as a vault .md note). SQLite is the source of truth. Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -241,7 +241,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       vaultArg: "vault",
       acceptsIdempotencyKey: true,
       description:
-        "Append a fact to a memory entity (re-materializing its note when materialized).",
+        "Append a fact to a memory entity (re-materializing its note when materialized). Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -330,7 +330,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       domain: "knowledge",
       vaultArg: "vault",
       description:
-        "Create a typed relation between two memory entities (idempotent; re-materializes the source's [[links]]).",
+        "Create a typed relation between two memory entities (idempotent; re-materializes the source's [[links]]). Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -380,7 +380,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       name: "query_entity_graph",
       domain: "knowledge",
       description:
-        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set (THE-833) — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered.",
+        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set (THE-833) — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,

@@ -273,7 +273,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       name: "inspect_acl",
       domain: "admin",
       description:
-        "Test whether a (vault, path, op, scopes) tuple would be permitted. Shares the live path evaluator (read-only kill switch + per-op whitelist) so it cannot drift from enforcement, then checks the op-family scope grant and the path-required rule-scopes (P1.4: a matching rule's scopes must all be held). Reports the matched path rule, the rule-based effective_scopes, and what denied it.",
+        "Test whether a (vault, path, op, scopes) tuple would be permitted. Shares the live path evaluator (read-only kill switch + per-op whitelist) so it cannot drift from enforcement, then checks the op-family scope grant and the path-required rule-scopes (P1.4: a matching rule's scopes must all be held). Reports the matched path rule, the rule-based effective_scopes, and what denied it. Domain: admin.",
       inputSchema: InspectAclInput,
       outputSchema: InspectAclOutput,
       requiredScopes: ["admin:acl"],
@@ -428,7 +428,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       name: "get_metrics",
       domain: "admin",
       description:
-        "Snapshot Prometheus-style metrics as structured JSON: per-(vault,tool,status) invocation counters and rate-limit-hit counters aggregated from the local event_log + live limiter, plus uptime/registered-vault/registered-tool gauges. Optionally filter to one vault.",
+        "Snapshot Prometheus-style metrics as structured JSON: per-(vault,tool,status) invocation counters and rate-limit-hit counters aggregated from the local event_log + live limiter, plus uptime/registered-vault/registered-tool gauges. Optionally filter to one vault. Domain: admin.",
       inputSchema: z.object({ vault: VaultId.optional() }).strict(),
       outputSchema: GetMetricsOutput,
       requiredScopes: ["admin:metrics"],

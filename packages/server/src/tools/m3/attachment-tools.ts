@@ -194,7 +194,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       domain: "attachments",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes.",
+        "Read an attachment's bytes (base64) plus MIME type and size. Fails with invalid_input when the file exceeds max_bytes. Domain: attachments.",
       inputSchema: GetInput,
       outputSchema: GetAttachmentOutput,
       requiredScopes: ["read:attachments"],

@@ -178,7 +178,7 @@ export function createIndexStatusTool(opts: {
     name: "get_index_status",
     domain: "admin",
     description:
-      "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, chunks_upserted from the last index_vault call, and in-flight progress while one is currently running. Read-only — self-diagnose before spending on an expensive search.",
+      "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, chunks_upserted from the last index_vault call, and in-flight progress while one is currently running. Read-only — self-diagnose before spending on an expensive search. Domain: admin.",
     inputSchema: z.object({}).strict(),
     outputSchema: IndexStatusOutput,
     requiredScopes: [],
@@ -225,7 +225,7 @@ export function createHealthTool(opts: {
     name: "server_health",
     domain: "admin",
     description:
-      "Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path.",
+      "Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path. Domain: admin.",
     inputSchema: z.object({}).strict(),
     outputSchema: HealthInfoOutput,
     requiredScopes: [],
