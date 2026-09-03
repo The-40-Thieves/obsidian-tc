@@ -319,7 +319,11 @@ export function normalizeEgressExcludePattern(pattern: string): string {
  */
 export function isUnusableEgressExcludePattern(pattern: string): boolean {
   if (pattern.trim().length === 0) return true;
-  return normalizeEgressExcludePattern(pattern).replace(/\/+$/, "") === "";
+  // Trailing slashes are stripped with a loop, not a regex: CodeQL flags `/\/+$/` as polynomial
+  // on inputs with many repeated slashes, and this runs on operator-supplied config.
+  let p = normalizeEgressExcludePattern(pattern);
+  while (p.endsWith("/")) p = p.slice(0, -1);
+  return p === "";
 }
 
 export const EgressConfigSchema = z

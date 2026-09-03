@@ -160,7 +160,7 @@ describe("agent_episodes.summary has ONE content-bearing writer (THE-934 fix rou
     ]);
   });
 
-  it("reflect.ts's two summary UPDATEs are BOUND to serializeEpisodeSummary — no second value can reach the column", () => {
+  it("reflect.ts's two summary UPDATE statements are BOUND to serializeEpisodeSummary — no second value can reach the column", () => {
     const src = readFileSync(join(SRC_ROOT, "experiential/reflect.ts"), "utf8");
     expect(src).toMatch(/const summaryFor[\s\S]{0,160}serializeEpisodeSummary\(/);
     // Exactly two prepared writes assign the column, and both take their value from summaryFor.
