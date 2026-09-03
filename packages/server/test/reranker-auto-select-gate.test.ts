@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   autoSelectLocalRerankerApplies,
+  autoSelectLocalRerankerConfigAllows,
   type RerankerPreflightEmbeddings,
 } from "../src/providers/reranker-preflight";
 
@@ -95,12 +96,17 @@ describe("doctor and boot share the SAME auto-select rule (source-scan pin)", ()
         /import\s*\{[^}]*autoSelectLocalRerankerApplies[^}]*\}\s*from\s*"\.\.\/providers\/reranker-preflight";/,
       callSubstring: "autoSelectLocalRerankerApplies(undefined, embeddings, {",
     },
+    // THE-944 review round 2: doctor.ts no longer calls autoSelectLocalRerankerApplies directly —
+    // that call moved into providers/registry.ts's buildRerankerDoctorProbes (extracted once G3's
+    // autoSelectBlockedByPlatform distinction pushed doctor.ts over biome's 700-line file cap).
+    // doctor.ts now calls buildRerankerDoctorProbes; THAT function is what must still call the
+    // shared rule — so this pin follows the call to where it actually lives.
     {
-      file: "src/cli/commands/doctor.ts",
+      file: "src/providers/registry.ts",
       importPattern:
-        /import\s*\{[^}]*autoSelectLocalRerankerApplies[^}]*\}\s*from\s*"\.\.\/\.\.\/providers\/reranker-preflight";/,
+        /import\s*\{[^}]*autoSelectLocalRerankerApplies[^}]*\}\s*from\s*"\.\/reranker-preflight";/,
       callSubstring:
-        "autoSelectLocalRerankerApplies(config.reranker?.provider, config.embeddings, {",
+        "autoSelectLocalRerankerApplies(rerankerProvider, opts.embeddings, gatewayOpts)",
     },
   ] as const;
 
@@ -120,6 +126,18 @@ describe("doctor and boot share the SAME auto-select rule (source-scan pin)", ()
       ).toContain(site.callSubstring);
     });
   }
+
+  // Completes the chain for doctor.ts specifically: it no longer calls
+  // autoSelectLocalRerankerApplies directly (pinned above at src/providers/registry.ts), it calls
+  // buildRerankerDoctorProbes, which is what calls the shared rule. Without this link, the
+  // registry.ts pin alone would not prove doctor.ts is actually WIRED to it.
+  it("src/cli/commands/doctor.ts imports AND calls buildRerankerDoctorProbes (the wrapper that calls the shared rule)", () => {
+    const src = readSrc("src/cli/commands/doctor.ts");
+    expect(src).toMatch(
+      /import\s*\{[^}]*buildRerankerDoctorProbes[^}]*\}\s*from\s*"\.\.\/\.\.\/providers\/registry";/,
+    );
+    expect(src).toContain("...buildRerankerDoctorProbes({");
+  });
 });
 
 // Documents WHY the mutation the reviewer reproduced (autoSelectLocalRerankerApplies's gateway
@@ -156,3 +174,68 @@ describe("why a broken gateway check inside the gate is invisible to wireGateway
     expect(thirdOperandEvaluated).toBe(false);
   });
 });
+
+// THE-944 review round 2 (G3): platform support is now part of the SAME shared rule — a platform
+// with no onnxruntime-node native prebuild must never auto-select "local", regardless of how
+// permissive the config is, because the registry would wire a reranker guaranteed to throw on its
+// first real call. `autoSelectLocalRerankerConfigAllows` is the config-only half doctor still
+// needs (see its own doc comment) for a platform-specific "why not" message instead of the generic
+// one — its OWN table proves it stays platform-blind on purpose.
+describe("autoSelectLocalRerankerApplies now folds in platform support (THE-944 review round 2, G3)", () => {
+  it("false on darwin-x64 even though config alone would have said yes", () => {
+    expect(
+      autoSelectLocalRerankerApplies(undefined, NONE, {
+        platformOverride: { platform: "darwin", arch: "x64" },
+      }),
+    ).toBe(false);
+  });
+
+  it("false on musl linux even though config alone would have said yes", () => {
+    expect(
+      autoSelectLocalRerankerApplies(undefined, NONE, {
+        platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => true },
+      }),
+    ).toBe(false);
+  });
+
+  it("true on a supported platform (linux glibc x64) with permissive config — unchanged from round 1", () => {
+    expect(
+      autoSelectLocalRerankerApplies(undefined, NONE, {
+        platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+      }),
+    ).toBe(true);
+  });
+
+  it("a declared block still wins over platform — false for the SAME reason as before, not a platform reason", () => {
+    expect(
+      autoSelectLocalRerankerApplies("local", NONE, {
+        platformOverride: { platform: "darwin", arch: "x64" },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("autoSelectLocalRerankerConfigAllows — the config-only half (THE-944 review round 2, G3)", () => {
+  it("stays platform-BLIND on purpose — true on darwin-x64 with permissive config", () => {
+    // Deliberately does NOT accept a platformOverride param at all: this function answers "would
+    // auto-select apply from config alone", which is exactly what doctor needs to distinguish
+    // "config says no" (silent) from "config says yes, platform says no" (worth a message).
+    expect(autoSelectLocalRerankerConfigAllows(undefined, NONE, {})).toBe(true);
+  });
+
+  it("mirrors autoSelectLocalRerankerApplies's config-only conditions exactly", () => {
+    expect(autoSelectLocalRerankerConfigAllows("local", NONE, {})).toBe(false);
+    expect(autoSelectLocalRerankerConfigAllows(undefined, MODEL_TIER_FULL, {})).toBe(false);
+    expect(
+      autoSelectLocalRerankerConfigAllows(undefined, NONE, { gatewayBaseUrl: "http://gw" }),
+    ).toBe(false);
+    expect(
+      autoSelectLocalRerankerConfigAllows(undefined, NONE, { gatewayUrlEnv: "http://gw" }),
+    ).toBe(false);
+  });
+});
+
+// Mutation evidence (G3): a version of autoSelectLocalRerankerApplies that never checked platform
+// (i.e. round 1's implementation) would leave the FIRST test above green-when-it-should-be-red —
+// this table is what actually pins the platform fold-in; see the fix-round report for the observed
+// red/green transcript.

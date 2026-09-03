@@ -138,3 +138,128 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     });
   });
 });
+
+// THE-944 review round 2 (G3): boot must SKIP auto-select entirely on a platform with no
+// onnxruntime-node native prebuild — never wire a reranker guaranteed to throw on first use.
+// Uses the injected `resolveLocalReranker` (always resolves, matching a fully-working deployment)
+// alongside `platformOverride`, so these tests are decoupled from packages/reranker-local/dist's
+// real on-disk state entirely — the platform check must short-circuit BEFORE resolution is ever
+// attempted, so a stub that WOULD succeed proves the skip is real, not incidental.
+describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-select on an unsupported platform", () => {
+  it("darwin-x64: reranker stays null and resolution is NEVER attempted, even though it would succeed", async () => {
+    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const resolveLocalReranker = vi.fn(async () => ({
+      ok: true as const,
+      mod: { createReranker: () => async () => [] },
+      attempts: [{ route: "bare-specifier" as const, target: "x", ok: true }],
+    }));
+    const { reranker } = await wireGatewaySeams(
+      ollamaEmbeddings(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      resolveLocalReranker,
+      { platform: "darwin", arch: "x64" },
+    );
+    expect(reranker).toBeNull();
+    expect(resolveLocalReranker).not.toHaveBeenCalled();
+  });
+
+  it("musl linux: same skip, same never-attempted proof", async () => {
+    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const resolveLocalReranker = vi.fn(async () => ({
+      ok: true as const,
+      mod: { createReranker: () => async () => [] },
+      attempts: [],
+    }));
+    const { reranker } = await wireGatewaySeams(
+      ollamaEmbeddings(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      resolveLocalReranker,
+      { platform: "linux", arch: "x64", isMuslRuntime: () => true },
+    );
+    expect(reranker).toBeNull();
+    expect(resolveLocalReranker).not.toHaveBeenCalled();
+  });
+
+  it("logs the remedy naming the platform, only when config alone would have auto-selected", async () => {
+    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await wireGatewaySeams(
+        ollamaEmbeddings(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { platform: "darwin", arch: "x64" },
+      );
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      const logged = String(consoleSpy.mock.calls[0]?.[0]);
+      expect(logged).toMatch(/auto-select: skipped/);
+      expect(logged).toMatch(/darwin-x64/);
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("does NOT log on an unsupported platform when a gateway is configured — platform is not why it's skipped", async () => {
+    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://gw";
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ results: [] }), { status: 200 })),
+      );
+      const { reranker } = await wireGatewaySeams(
+        ollamaEmbeddings(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { platform: "darwin", arch: "x64" },
+      );
+      expect(reranker).not.toBeNull(); // gateway wins, as always
+      expect(consoleSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("does NOT log on a SUPPORTED platform even though config alone would auto-select (nothing to remedy)", async () => {
+    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const resolveLocalReranker = vi.fn(async () => ({
+        ok: true as const,
+        mod: { createReranker: () => async () => [] },
+        attempts: [],
+      }));
+      const { reranker } = await wireGatewaySeams(
+        ollamaEmbeddings(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resolveLocalReranker,
+        { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+      );
+      expect(reranker).not.toBeNull();
+      expect(resolveLocalReranker).toHaveBeenCalled();
+      expect(consoleSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+});

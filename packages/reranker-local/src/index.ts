@@ -12,7 +12,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchAndVerifyModel, modelDirFor } from "./model-fetch.js";
+import { assertVerified, fetchAndVerifyModel, modelDirFor } from "./model-fetch.js";
 import { MODEL_DTYPE, PINNED_FILES } from "./model-info.js";
 
 export interface RerankHit {
@@ -113,6 +113,13 @@ async function loadSession(localModelPath: string): Promise<Session> {
       // an opaque "file not found" from deep inside Transformers.js. Already-verified files short
       // -circuit this with zero network calls — the common case after the first successful call.
       const modelDir = await fetchAndVerifyModel(localModelPath);
+      // THE-944 review round 2 (G2): re-verify the FINAL directory immediately before use, as a
+      // step DISTINCT from whatever fetchAndVerifyModel itself just checked — closes the TOCTOU
+      // window between that verification and the from_pretrained calls below: a byte swapped on
+      // disk in that gap (or a symlink planted after the fact) is caught here, before the runtime
+      // import even happens, rather than silently loaded. Cheap (a handful of small files plus one
+      // ~23 MB sha256, no network) — see model-fetch.ts's assertVerified for the full contract.
+      await assertVerified(modelDir);
       // The dynamic import target is a VARIABLE, not a string literal — TypeScript only attempts to
       // resolve a literal specifier's module/type declarations for a dynamic import, so this line
       // typechecks whether or not @huggingface/transformers is installed. That is deliberate: this

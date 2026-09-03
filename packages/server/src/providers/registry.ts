@@ -19,6 +19,11 @@ import { guardReranker, type Reranker } from "../search/rerank";
 import { openAiCompatibleProvider } from "./http-embeddings";
 import { cohereCompatibleReranker } from "./http-rerank";
 import { loadProviderModule } from "./module-loader";
+import {
+  autoSelectLocalRerankerApplies,
+  autoSelectLocalRerankerConfigAllows,
+  type RerankerPreflightEmbeddings,
+} from "./reranker-preflight";
 import type {
   EmbeddingsConfigLike,
   EmbeddingsEntry,
@@ -461,6 +466,52 @@ export async function probeLocalRerankerResolution(
     attempts: r.attempts.map((a) =>
       a.ok ? `${a.route}: ${a.target} — resolved` : `${a.route}: ${a.target} — ${a.error}`,
     ),
+  };
+}
+
+/** THE-944 review round 2: extracted from cli/commands/doctor.ts's `rerankerBuildable` view
+ *  construction (which crossed biome's 700-line file cap once G3's `autoSelectBlockedByPlatform`
+ *  distinction was added) — the SAME motivation as round 1's own extraction of
+ *  `probeLocalRerankerResolution` out of that file. Builds the three probe-related fields
+ *  `RerankerBuildableView` accepts: `probeLocalReranker` (declared "local" only),
+ *  `probeAutoSelectLocalReranker` (only when `autoSelectLocalRerankerApplies` — the shared
+ *  boot/doctor rule — says auto-select would actually be attempted), and
+ *  `autoSelectBlockedByPlatform` (only in the ELSE branch, so doctor can still name platform
+ *  specifically as the reason when config alone would have auto-selected). */
+export function buildRerankerDoctorProbes(opts: {
+  rerankerCfg?: ProviderDescriptor;
+  embeddings?: RerankerPreflightEmbeddings;
+  gatewayBaseUrl?: string;
+  gatewayUrlEnv?: string;
+  configDir?: string;
+  securityProfile?: "hardened" | "trusted-local";
+}): {
+  probeLocalReranker?: () => Promise<{ ok: boolean; route?: string; attempts: string[] }>;
+  probeAutoSelectLocalReranker?: () => Promise<{ ok: boolean; route?: string; attempts: string[] }>;
+  autoSelectBlockedByPlatform?: boolean;
+} {
+  const ctx = { configDir: opts.configDir, securityProfile: opts.securityProfile };
+  const gatewayOpts = { gatewayBaseUrl: opts.gatewayBaseUrl, gatewayUrlEnv: opts.gatewayUrlEnv };
+  const rerankerProvider = opts.rerankerCfg?.provider;
+  return {
+    ...(rerankerProvider === "local"
+      ? {
+          probeLocalReranker: () =>
+            probeLocalRerankerResolution(opts.rerankerCfg as ProviderDescriptor, ctx),
+        }
+      : {}),
+    ...(autoSelectLocalRerankerApplies(rerankerProvider, opts.embeddings, gatewayOpts)
+      ? {
+          probeAutoSelectLocalReranker: () =>
+            probeLocalRerankerResolution({ provider: "local" }, ctx),
+        }
+      : {
+          autoSelectBlockedByPlatform: autoSelectLocalRerankerConfigAllows(
+            rerankerProvider,
+            opts.embeddings,
+            gatewayOpts,
+          ),
+        }),
   };
 }
 

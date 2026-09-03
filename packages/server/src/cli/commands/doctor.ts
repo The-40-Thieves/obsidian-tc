@@ -23,8 +23,7 @@ import { experientialTableSpec } from "../../doctor/table-spec";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
-import { embeddingsDeprecation, probeLocalRerankerResolution } from "../../providers/registry";
-import { autoSelectLocalRerankerApplies } from "../../providers/reranker-preflight";
+import { buildRerankerDoctorProbes, embeddingsDeprecation } from "../../providers/registry";
 import type { ProviderDescriptor } from "../../providers/types";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
@@ -700,9 +699,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       // "local" (THE-705 round 2) and THE-944's auto-select case, both of which get a real
       // resolution probe via the shared `probeLocalRerankerResolution` — see
       // RerankerBuildableView.probeLocalReranker's comment for why that's not a "no filesystem,
-      // no dynamic import" violation of this check's usual posture. `autoSelectLocalRerankerApplies`
-      // is the SAME gate runtime/tool-wiring.ts's wireGatewaySeams uses for its own auto-select, so
-      // doctor cannot disagree with boot about whether the fallback would even be attempted.
+      // no dynamic import" violation of this check's usual posture. The probe fields themselves are
+      // built by `buildRerankerDoctorProbes` (providers/registry.ts) — extracted from here in
+      // review round 2 once G3's `autoSelectBlockedByPlatform` distinction pushed this file over
+      // biome's line cap; that function's own doc comment covers the auto-select/platform logic.
       rerankerBuildable: {
         ...(config.reranker?.provider !== undefined
           ? { rerankerProvider: config.reranker.provider }
@@ -714,27 +714,14 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ...(process.env.OBSIDIAN_TC_GATEWAY_URL !== undefined
           ? { gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL }
           : {}),
-        ...(config.reranker?.provider === "local"
-          ? {
-              probeLocalReranker: () =>
-                probeLocalRerankerResolution(config.reranker as ProviderDescriptor, {
-                  configDir,
-                  securityProfile: config.securityProfile,
-                }),
-            }
-          : {}),
-        ...(autoSelectLocalRerankerApplies(config.reranker?.provider, config.embeddings, {
+        ...buildRerankerDoctorProbes({
+          rerankerCfg: config.reranker as ProviderDescriptor | undefined,
+          embeddings: config.embeddings,
           gatewayBaseUrl: config.gateway?.baseUrl,
           gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
-        })
-          ? {
-              probeAutoSelectLocalReranker: () =>
-                probeLocalRerankerResolution(
-                  { provider: "local" },
-                  { configDir, securityProfile: config.securityProfile },
-                ),
-            }
-          : {}),
+          configDir,
+          securityProfile: config.securityProfile,
+        }),
       },
     },
     profile,

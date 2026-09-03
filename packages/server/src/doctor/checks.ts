@@ -5,6 +5,7 @@ import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import type { EpisodeBacklog } from "../experiential/reflect";
 import {
+  onnxNativePrebuildStatus,
   type RerankerPreflightEmbeddings,
   rerankerBuildBlocker,
 } from "../providers/reranker-preflight";
@@ -332,66 +333,6 @@ export interface LocalRerankerProbeResult {
   attempts: string[];
 }
 
-/** THE-944: whether onnxruntime-node (a transitive dependency of the optional
- *  @the-40-thieves/obsidian-tc-reranker-local package, via @huggingface/transformers) ships a
- *  native prebuilt binary for THIS process's platform/arch/libc — confirmed against onnxruntime-node
- *  4.x's published npm platform packages: linux x64 + arm64 (glibc only), darwin arm64, win32 x64 +
- *  arm64. musl libc (Alpine and similar) and darwin x64 (Intel Mac) ship NONE.
- *
- *  Deliberately independent of whether `resolveLocalRerankerModule` actually resolved the JS
- *  package: that resolution only proves reranker-local's own small dist/index.js is importable — it
- *  never imports @huggingface/transformers itself (see that package's own header comment), so it
- *  cannot detect a missing NATIVE binary. A musl/darwin-x64 deployment can resolve the package via
- *  route (i)/(iii) and still hard-fail the moment a real rerank() call tries to load onnxruntime-node
- *  — this function is what lets doctor say so up front, on either verdict, rather than only after
- *  that first real failure in production.
- *
- *  musl detection: `process.report`'s own header carries `glibcVersionRuntime` on a glibc build and
- *  omits it on musl (Node's own diagnostic report already draws this distinction) — a known,
- *  dependency-free technique; not 100% infallible against an unusual custom Node build, but accurate
- *  for every Node distribution this repo ships or tests against.
- *
- *  `platform`/`arch`/`isMuslRuntime` are injectable (defaulting to the REAL `process.platform` /
- *  `process.arch` / the report heuristic above) purely for test determinism — this repo's CI and
- *  every contributor's machine is glibc, so a test asserting the musl/darwin-x64 CASE cannot rely on
- *  ambient `process.platform` and must be able to fake it. Production callers never pass these. */
-export function onnxNativePrebuildStatus(
-  opts: { platform?: NodeJS.Platform; arch?: string; isMuslRuntime?: () => boolean } = {},
-): { supported: boolean; note?: string } {
-  const platform = opts.platform ?? process.platform;
-  const arch = opts.arch ?? process.arch;
-  if (platform === "darwin" && arch === "x64") {
-    return {
-      supported: false,
-      note:
-        "this platform (darwin-x64 / Intel Mac) has NO onnxruntime-node prebuilt binary — the " +
-        '"local" reranker cannot run here regardless of whether the package resolves; it is not a ' +
-        "configuration gap.",
-    };
-  }
-  const isMuslRuntime =
-    opts.isMuslRuntime ??
-    (() => {
-      try {
-        // biome-ignore lint/suspicious/noExplicitAny: process.report's type is loosely typed upstream.
-        const header = (process.report?.getReport() as any)?.header;
-        return header !== undefined && header.glibcVersionRuntime === undefined;
-      } catch {
-        return false;
-      }
-    });
-  if (platform === "linux" && isMuslRuntime()) {
-    return {
-      supported: false,
-      note:
-        "this platform (linux musl libc, e.g. Alpine) has NO onnxruntime-node prebuilt binary — the " +
-        '"local" reranker cannot run here regardless of whether the package resolves; it is not a ' +
-        "configuration gap.",
-    };
-  }
-  return { supported: true };
-}
-
 /** THE-679 view: enough to answer "would this declared reranker block build?" without executing
  *  anything. Absent `rerankerProvider` means no block is declared, which is always fine. */
 export interface RerankerBuildableView {
@@ -417,6 +358,13 @@ export interface RerankerBuildableView {
    *  reports its unchanged "default precedence applies" summary — doctor must never claim a
    *  fallback was attempted when the real precedence chain never reaches it. */
   probeAutoSelectLocalReranker?: () => Promise<LocalRerankerProbeResult>;
+  /** THE-944 review round 2 (G3): true when `autoSelectLocalRerankerConfigAllows` says config alone
+   *  would have auto-selected "local" (no block declared, no model-tier, no gateway) but the
+   *  platform is what actually blocks it — i.e. exactly the case where `probeAutoSelectLocalReranker`
+   *  above is withheld (auto-select would never reach the registry at all) FOR A REASON WORTH
+   *  NAMING, as opposed to model-tier/gateway winning instead (an ordinary, silent precedence
+   *  outcome that needs no comment). Real caller: cli/commands/doctor.ts. */
+  autoSelectBlockedByPlatform?: boolean;
   /** THE-944: forwarded verbatim to `onnxNativePrebuildStatus` — real callers never set this (it
    *  reads the REAL process); tests use it to exercise the musl/darwin-x64 branches without faking
    *  ambient `process.platform`, which this repo's CI and every contributor machine cannot do. */
@@ -469,9 +417,18 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
         if (view.probeAutoSelectLocalReranker) {
           const probe = await view.probeAutoSelectLocalReranker();
           if (probe.ok) {
+            // THE-944 review round 2 (G3): resolving the small JS package is NOT the same fact as
+            // being able to run inference — an unsupported platform still reports the resolution
+            // (details.platform, via platformDetails below) but the STATUS itself must say so too,
+            // because the auto-select boot path (runtime/tool-wiring.ts) now REFUSES to wire this
+            // provider on such a platform (see autoSelectLocalRerankerApplies) — "ok" here would
+            // claim a live provider that boot deliberately never builds.
+            const platform = onnxNativePrebuildStatus(view.platformOverride);
             return {
-              status: "ok" as CheckStatus,
-              summary: `reranker: no block declared; auto-selected "local" via ${probe.route ?? "an unknown route"}`,
+              status: (platform.supported ? "ok" : "warning") as CheckStatus,
+              summary: platform.supported
+                ? `reranker: no block declared; auto-selected "local" via ${probe.route ?? "an unknown route"}`
+                : `reranker: no block declared; "local" resolved via ${probe.route ?? "an unknown route"} but auto-select is skipped — ${platform.note}`,
               details: {
                 provider: "local (auto-selected)",
                 route: probe.route ?? "unknown",
@@ -495,6 +452,20 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
               'To enable it: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/obsidian-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local. See that package\'s README for the model-weights download step — no longer required up front (THE-944 fetches on first use), but still available offline via "bun run fetch-model".',
           };
         }
+        // THE-944 review round 2 (G3): the probe above is withheld whenever
+        // autoSelectLocalRerankerApplies (the shared rule) is false — which now includes an
+        // unsupported platform. `autoSelectBlockedByPlatform` distinguishes THAT specific reason
+        // (worth naming) from model-tier/gateway winning instead (an ordinary, silent outcome).
+        if (view.autoSelectBlockedByPlatform) {
+          const platform = onnxNativePrebuildStatus(view.platformOverride);
+          return {
+            status: "warning" as CheckStatus,
+            summary: `reranker: no block declared; auto-select "local" is skipped on this platform — ${platform.note ?? "unsupported platform"}`,
+            details: { provider: "local (auto-select)", ...platformDetails(view) },
+            remediation:
+              "No remediation available on this platform: onnxruntime-node ships no native prebuild here. Deploy on linux x64/arm64 glibc, darwin arm64, or win32 x64/arm64 to use the local reranker, or ignore this — retrieval stays RRF-only.",
+          };
+        }
         return {
           status: "ok" as CheckStatus,
           summary: "reranker: no block declared (default precedence applies)",
@@ -503,9 +474,18 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
       if (view.rerankerProvider === "local" && view.probeLocalReranker) {
         const probe = await view.probeLocalReranker();
         if (probe.ok) {
+          // THE-944 review round 2 (G3): a declared "local" block that RESOLVES on darwin-x64/musl
+          // still cannot serve inference — resolving the small JS package never imports
+          // @huggingface/transformers, so it cannot see the missing native onnxruntime-node binary.
+          // The first real rerank() call refuses (fetchAndVerifyModel's own platform gate, or a
+          // hard failure inside Transformers.js if weights were pre-staged) — "ok" here would hide
+          // that from an operator who only checks doctor.
+          const platform = onnxNativePrebuildStatus(view.platformOverride);
           return {
-            status: "ok" as CheckStatus,
-            summary: `reranker: "local" resolved via ${probe.route ?? "an unknown route"}`,
+            status: (platform.supported ? "ok" : "warning") as CheckStatus,
+            summary: platform.supported
+              ? `reranker: "local" resolved via ${probe.route ?? "an unknown route"}`
+              : `reranker: "local" resolved via ${probe.route ?? "an unknown route"} but cannot run on this platform — ${platform.note}`,
             details: {
               provider: "local",
               route: probe.route ?? "unknown",

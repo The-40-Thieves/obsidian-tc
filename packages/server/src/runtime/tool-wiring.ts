@@ -23,6 +23,8 @@ import { createPlurBackend } from "../plur/client";
 import { buildLocalReranker, resolveReranker } from "../providers/registry";
 import {
   autoSelectLocalRerankerApplies,
+  autoSelectLocalRerankerConfigAllows,
+  onnxNativePrebuildStatus,
   rerankerBuildBlocker,
 } from "../providers/reranker-preflight";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
@@ -207,6 +209,12 @@ export async function wireGatewaySeams(
    *  needs a DETERMINISTIC "local never resolves" (or "always resolves") outcome should inject a
    *  stub here instead of depending on ambient filesystem state. */
   resolveLocalReranker?: Parameters<typeof buildLocalReranker>[2],
+  /** THE-944 review round 2 (G3): test-only override for the auto-select platform-support check
+   *  (forwarded to `autoSelectLocalRerankerApplies` and the remedy-log's `onnxNativePrebuildStatus`
+   *  call). Production callers never pass this — it defaults to reading the REAL process. This
+   *  repo's CI and every contributor's machine is glibc, so a test asserting the darwin-x64/musl
+   *  SKIP case cannot rely on ambient `process.platform` and must be able to fake it. */
+  platformOverride?: Parameters<typeof onnxNativePrebuildStatus>[0],
 ): Promise<GatewaySeams> {
   let gateway: GatewayClient | null = null;
   try {
@@ -242,7 +250,31 @@ export async function wireGatewaySeams(
     autoSelectLocalRerankerApplies(undefined, embeddings, {
       gatewayBaseUrl: gatewayCfg?.baseUrl,
       gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+      platformOverride,
     });
+  // THE-944 review round 2 (G3): log the remedy specifically when CONFIG ALONE would have
+  // auto-selected "local" (autoSelectLocalRerankerConfigAllows — the same three conditions
+  // autoSelectLocalRerankerApplies checked before platform support was folded into its answer)
+  // but the platform is what actually blocks it. Never logs for the OTHER reasons autoSelectLocal
+  // can be false (a declared block, model-tier, or a gateway configured are ordinary precedence
+  // outcomes, not something to remedy) — a log line that fires on every ordinary boot would be
+  // exactly the noise that trains an operator to stop reading server logs.
+  if (
+    !rerankerCfg &&
+    !autoSelectLocal &&
+    autoSelectLocalRerankerConfigAllows(undefined, embeddings, {
+      gatewayBaseUrl: gatewayCfg?.baseUrl,
+      gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+    })
+  ) {
+    const platform = onnxNativePrebuildStatus(platformOverride);
+    console.error(
+      `reranker "local" auto-select: skipped — ${platform.note ?? "unsupported platform"} ` +
+        "No remedy on this platform; deploy on linux x64/arm64 glibc, darwin arm64, or win32 " +
+        "x64/arm64 to use it, or ignore this — retrieval stays RRF-only, exactly like an absent " +
+        "reranker block always has.",
+    );
+  }
   const rerankerRaw: Reranker | null = rerankerCfg
     ? await resolveDeclaredReranker(rerankerCfg, {
         embeddings,

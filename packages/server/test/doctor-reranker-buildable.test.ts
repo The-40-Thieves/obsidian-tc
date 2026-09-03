@@ -140,6 +140,46 @@ describe("reranker auto-select 'local' (THE-944)", () => {
     expect(r.status).toBe("ok");
     expect(r.summary).toBe("reranker: no block declared (default precedence applies)");
   });
+
+  // THE-944 review round 2 (G3): resolving the small JS package is NOT the same fact as being
+  // able to run inference — auto-select's SUCCESS status must warn, not claim "ok", on a platform
+  // with no onnxruntime-node prebuild.
+  it("auto-select WARNS (not ok) when the probe resolves but the platform cannot run it", async () => {
+    const r = await rerankerBuildableCheck({
+      probeAutoSelectLocalReranker: async () => ({
+        ok: true,
+        route: "source-checkout",
+        attempts: [],
+      }),
+      platformOverride: { platform: "darwin", arch: "x64" },
+    }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(r.summary).toMatch(/resolved via source-checkout but auto-select is skipped/);
+    expect(r.details?.platform).toMatch(/darwin-x64/);
+  });
+
+  // THE-944 review round 2 (G3): cli/commands/doctor.ts withholds probeAutoSelectLocalReranker
+  // ENTIRELY on an unsupported platform (autoSelectLocalRerankerApplies now folds in platform
+  // support) — this is the case `autoSelectBlockedByPlatform` exists to distinguish from
+  // model-tier/gateway winning (an ordinary, silent outcome that needs no comment).
+  it("when the probe is withheld because of the platform specifically, reports a platform-specific message, not the generic 'default precedence applies' one", async () => {
+    const r = await rerankerBuildableCheck({
+      autoSelectBlockedByPlatform: true,
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => true },
+    }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(r.summary).toMatch(/auto-select "local" is skipped on this platform/);
+    expect(r.summary).toMatch(/musl libc/i);
+    expect(String(r.remediation)).toMatch(/No remediation available on this platform/);
+  });
+
+  it("autoSelectBlockedByPlatform false (or absent) still falls back to the generic message — unchanged from round 1", async () => {
+    const r1 = await rerankerBuildableCheck({ autoSelectBlockedByPlatform: false }).run(ctx);
+    expect(r1.status).toBe("ok");
+    expect(r1.summary).toBe("reranker: no block declared (default precedence applies)");
+    const r2 = await rerankerBuildableCheck({}).run(ctx);
+    expect(r2.summary).toBe(r1.summary);
+  });
 });
 
 // THE-944 test requirement: "doctor output per platform" — musl and darwin-x64 have NO
@@ -147,13 +187,18 @@ describe("reranker auto-select 'local' (THE-944)", () => {
 // small JS package resolves. `platformOverride` fakes `process.platform`/`arch`/libc so this is
 // assertable without the CI runner actually being on one of these platforms.
 describe("reranker 'local' platform reporting (THE-944)", () => {
-  it("darwin-x64: unsupported, named specifically, even when the probe itself resolves", async () => {
+  // THE-944 review round 2 (G3): resolving the small JS package is NOT the same fact as being
+  // able to run inference — status must WARN, not claim "ok", on a platform with no
+  // onnxruntime-node prebuild, because the first real rerank() call cannot serve it regardless of
+  // whether the package resolved.
+  it("darwin-x64: WARNS (not ok) even when the probe itself resolves — resolving is not the same as being able to run", async () => {
     const r = await rerankerBuildableCheck({
       rerankerProvider: "local",
       probeLocalReranker: async () => ({ ok: true, route: "localModulePath", attempts: [] }),
       platformOverride: { platform: "darwin", arch: "x64" },
     }).run(ctx);
-    expect(r.status).toBe("ok"); // resolution succeeded; the platform caveat rides along as detail.
+    expect(r.status).toBe("warning");
+    expect(r.summary).toMatch(/resolved via localModulePath but cannot run on this platform/);
     expect(r.details?.platform).toMatch(/darwin-x64/);
     expect(r.details?.platform).toMatch(/no onnxruntime-node prebuilt binary/i);
   });
