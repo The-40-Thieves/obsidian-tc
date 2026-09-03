@@ -570,6 +570,20 @@ describe("symlink and extraneous-entry hardening (THE-944 review round 2, G2)", 
     expect(bad).toContain("thumbs.db.bak");
   });
 
+  it("a SYMLINK that borrows an OS-junk basename is still refused — the allowlist covers regular files only", async () => {
+    const dir = modelDirFor(root, SPEC);
+    await mkdir(join(dir, "sub"), { recursive: true });
+    await writeFile(join(dir, "a.txt"), A_CONTENT);
+    await writeFile(join(dir, "sub", "b.txt"), B_CONTENT);
+    const target = join(root, "elsewhere.txt");
+    await writeFile(target, "bytes that live outside the model directory");
+    await symlink(target, join(dir, ".DS_Store"));
+
+    const results = await verifyModelDir(dir, SPEC);
+    const bad = results.filter((r) => !r.ok).map((r) => r.file.path);
+    expect(bad).toContain(".DS_Store");
+  });
+
   it("fetchAndVerifyModel's fast path is unaffected by OS junk — an offline pre-staged cache with a .DS_Store still short-circuits with zero network calls", async () => {
     const dir = modelDirFor(root, SPEC);
     await mkdir(join(dir, "sub"), { recursive: true });
@@ -634,8 +648,9 @@ describe("redirect host pinning (THE-944 review round 2 G4, pre-connect check ad
       /evil\.example\.com|unexpected host/,
     );
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls.every((u) => !u.includes("evil.example.com"))).toBe(true);
-    expect(calls.every((u) => u.includes("huggingface.co"))).toBe(true);
+    const hosts = calls.map((u) => new URL(u).hostname);
+    expect(hosts).not.toContain("evil.example.com");
+    expect(hosts.every((h) => h === "huggingface.co")).toBe(true);
   });
 
   it("refuses a redirect to a lookalike host (huggingface.co.evil.example.com — suffix match must anchor at a dot)", async () => {
@@ -647,7 +662,9 @@ describe("redirect host pinning (THE-944 review round 2 G4, pre-connect check ad
     await expect(fetchAndVerifyModel(root, { ...SPEC, fetchFn })).rejects.toThrow(
       /unexpected host/,
     );
-    expect(calls.every((u) => !u.includes("huggingface.co.evil.example.com"))).toBe(true);
+    const hosts = calls.map((u) => new URL(u).hostname);
+    expect(hosts).not.toContain("huggingface.co.evil.example.com");
+    expect(hosts.every((h) => h === "huggingface.co")).toBe(true);
   });
 
   it("refuses a redirect response with no Location header at all", async () => {

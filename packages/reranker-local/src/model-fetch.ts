@@ -125,8 +125,8 @@ async function sha256File(path: string): Promise<string> {
  *  pointing elsewhere). Missing `dir` -> empty list, not an error: a not-yet-created target
  *  directory is simply "nothing here yet", which `verifyModelDir`'s per-pinned-file loop already
  *  reports as "missing" on its own. */
-async function listRelativeEntries(dir: string): Promise<string[]> {
-  const out: string[] = [];
+async function listRelativeEntries(dir: string): Promise<{ rel: string; symlink: boolean }[]> {
+  const out: { rel: string; symlink: boolean }[] = [];
   async function walk(sub: string): Promise<void> {
     let entries: Dirent[];
     try {
@@ -137,11 +137,11 @@ async function listRelativeEntries(dir: string): Promise<string[]> {
     for (const e of entries) {
       const rel = sub ? `${sub}/${e.name}` : e.name;
       if (e.isSymbolicLink()) {
-        out.push(rel);
+        out.push({ rel, symlink: true });
       } else if (e.isDirectory()) {
         await walk(rel);
       } else {
-        out.push(rel);
+        out.push({ rel, symlink: false });
       }
     }
   }
@@ -221,8 +221,10 @@ export async function verifyModelDir(
     results.push({ file: f, ok: true });
   }
   const present = await listRelativeEntries(modelDir);
-  for (const rel of present) {
-    if (expected.has(rel) || isIgnoredOsJunk(rel)) continue;
+  for (const { rel, symlink } of present) {
+    // The OS-junk allowlist applies to REGULAR files only: a symlink that merely borrows a junk
+    // basename is still a symlink planted in the model directory, and is refused like any other.
+    if (expected.has(rel) || (!symlink && isIgnoredOsJunk(rel))) continue;
     results.push({
       file: { path: rel, sha256: "", sizeBytes: -1 },
       ok: false,
