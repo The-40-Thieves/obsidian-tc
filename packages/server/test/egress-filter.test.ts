@@ -10,8 +10,17 @@
 // the path) nor any actual rename I/O, so it proved only that isExcludedPath is a pure function of
 // its two arguments, already implied by every other test here. Removed per fix round 3 (H)'s
 // "test the claim it documents or delete it" instruction.
+import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { compileEgressFilter, isExcludedPath } from "../src/plane/egress-filter";
+import { createEmbeddingProvider } from "../src/embeddings";
+import type { FetchFn } from "../src/embeddings/http";
+import {
+  assertSourcePathsAllowed,
+  compileEgressFilter,
+  EgressViolationError,
+  hasExcludePatterns,
+  isExcludedPath,
+} from "../src/plane/egress-filter";
 
 describe("egress filter (THE-934)", () => {
   it("matches a vault-relative path against a **-glob", () => {
@@ -93,5 +102,146 @@ describe("egress filter (THE-934)", () => {
         if (p !== "Private") expect(isExcludedPath(glob, p)).toBe(b);
       }
     });
+  });
+});
+
+// THE-934 fix round 4 (1) — the round-3 widening closed two SPELLINGS of the fail-open, not the
+// class. `/Private`, `./Private`, `**/Private`, `Private//`, `Private*/`, `*/Private/` and
+// `Private/*` all still compiled to a pattern that matched nothing under the folder, and two of
+// them (`/Private`, `**/Private`) are ordinary gitignore that the `.describe()` invites an
+// operator to write. This table is the CLASS: one expectation set, asserted against both consumers
+// that can act on it -- the reconcile-side predicate (`isExcludedPath`, what
+// IndexVaultArgs.isEgressExcluded wraps) and the PORT (a provider built through the real
+// `createEmbeddingProvider`, whose guard is the last line of defence). They cannot disagree,
+// because a disagreement is exactly the round-0 defect this ticket exists to close.
+const PATHS = [
+  "Private/journal.md",
+  "Nested/Private/journal.md",
+  "Private.md",
+  "Privateer.md",
+] as const;
+
+/** pattern -> which of PATHS it must exclude, in the same order. */
+const NORMALISATION_TABLE: ReadonlyArray<readonly [string, readonly boolean[], string]> = [
+  ["Private", [true, false, false, false], "a bare folder name is root-anchored (round 3)"],
+  ["Private/", [true, false, false, false], "a trailing slash changes nothing (round 3)"],
+  ["Private/**", [true, false, false, false], "the explicit glob, unchanged"],
+  ["/Private", [true, false, false, false], "a leading slash is stripped — gitignore root anchor"],
+  ["./Private", [true, false, false, false], "a leading ./ is stripped the same way"],
+  ["Private//", [true, false, false, false], "repeated separators collapse"],
+  [
+    "**/Private",
+    [true, true, false, false],
+    "matches a Private folder at ANY depth, root included, and its subtree",
+  ],
+  [
+    "Private*/",
+    [true, false, true, true],
+    // Over-exclusion, stated rather than glossed: widening a folder-shaped pattern also matches a
+    // FILE of that name, so `Private*` catches Private.md and Privateer.md at the root. That is the
+    // SAFE direction for an egress control (excluding a public note costs recall; missing a private
+    // one leaks) and it is the same trade round 3 already made for `Private/`, which likewise
+    // matches a file named exactly `Private`.
+    "a metacharacter folder pattern widens too — and over-matches root files of that shape",
+  ],
+  [
+    "*/Private/",
+    [false, true, false, false],
+    "one level deep exactly: Nested/Private/... matches, a root Private/ does not",
+  ],
+  [
+    "Private/*",
+    [true, false, false, false],
+    "direct children AND deeper — gitignore never descends into an excluded directory either",
+  ],
+];
+
+describe("pattern normalisation, the whole class (THE-934 fix round 4, 1)", () => {
+  const fetchFn = (async () =>
+    new Response(JSON.stringify({ embeddings: [[0.1, 0.2]] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as unknown as FetchFn;
+
+  for (const [pattern, expected, why] of NORMALISATION_TABLE) {
+    it(`${pattern} — ${why}`, async () => {
+      const filter = compileEgressFilter([pattern]);
+      const provider = createEmbeddingProvider(
+        { provider: "ollama", model: "nomic-embed-text", dimensions: 2 },
+        { fetchFn, excludeFilter: filter },
+      );
+      for (const [i, path] of PATHS.entries()) {
+        const want = expected[i] as boolean;
+        // 1. the reconcile-side predicate
+        expect(isExcludedPath(filter, path), `isExcludedPath(${pattern}, ${path})`).toBe(want);
+        // 2. the one predicate every port guard calls
+        const assertion = () => assertSourcePathsAllowed(filter, "embed", [path]);
+        if (want) expect(assertion).toThrow(EgressViolationError);
+        else expect(assertion).not.toThrow();
+        // 3. the real port, end to end — a declaration naming this path is refused iff excluded
+        const call = provider.embed(["text"], { input: "document", sourcePaths: [path] });
+        if (want) await expect(call).rejects.toBeInstanceOf(EgressViolationError);
+        else await expect(call).resolves.toBeDefined();
+      }
+    });
+  }
+
+  it("Private/* covers the whole subtree, not only direct children", () => {
+    const filter = compileEgressFilter(["Private/*"]);
+    expect(isExcludedPath(filter, "Private/journal.md")).toBe(true);
+    expect(isExcludedPath(filter, "Private/deep/nested/x.md")).toBe(true);
+  });
+
+  it("a literal FILE pattern is untouched by the widening — no sibling is swept in", () => {
+    const filter = compileEgressFilter(["Private/a.md"]);
+    expect(isExcludedPath(filter, "Private/a.md")).toBe(true);
+    expect(isExcludedPath(filter, "Private/a.md.bak")).toBe(false);
+    expect(isExcludedPath(filter, "Private/journal.md")).toBe(false);
+  });
+});
+
+// THE-934 fix round 4 (1) — the two degenerate spellings are REFUSED, not compiled. `""` (and a
+// leading-slash-only or whitespace-only variant of it) protects nothing while looking like a
+// configured exclusion; `**` withholds the entire vault from every plane job, which is a
+// whole-feature off switch that belongs in `plane.enabled`. Both must fail at CONFIG LOAD, and the
+// schema's refine and the compiler must agree on the set — a compiler that throws on a pattern the
+// schema accepts turns a typo into a boot crash, and the reverse leaves the compiler unreachable.
+describe("unusable patterns are refused at config load AND by the compiler (THE-934 fix round 4, 1)", () => {
+  const UNUSABLE = ["", " ", "   ", "/", "./", "//", "**", "**/"];
+  const USABLE = ["Private", "Private/", "Private/**", "/Private", "**/Private", "*", "Private/*"];
+
+  const parseWith = (excludePaths: string[]) =>
+    ServerConfigSchema.safeParse({
+      vaults: [{ id: "v", path: "/tmp/vault" }],
+      egress: { excludePaths },
+    });
+
+  for (const pattern of UNUSABLE) {
+    it(`${JSON.stringify(pattern)} is refused by both the schema and compileEgressFilter`, () => {
+      expect(parseWith([pattern]).success).toBe(false);
+      expect(() => compileEgressFilter([pattern])).toThrow(/unusable pattern/);
+    });
+  }
+
+  for (const pattern of USABLE) {
+    it(`${JSON.stringify(pattern)} is accepted by both`, () => {
+      expect(parseWith([pattern]).success).toBe(true);
+      expect(() => compileEgressFilter([pattern])).not.toThrow();
+    });
+  }
+
+  it("the refusal names the offending pattern, so an operator can find it in their config", () => {
+    expect(() => compileEgressFilter(["Private/**", "**"])).toThrow(/"\*\*"/);
+  });
+});
+
+// THE-934 fix round 4 (4) — `compileEgressFilter([])` is a real filter that excludes nothing, and
+// every production wiring builds one unconditionally. Consumers that FAIL CLOSED on unprovable
+// provenance must be able to tell "no filter threaded" from "a filter with no patterns"; see
+// advisory-sweep.test.ts for the behaviour that depends on it.
+describe("hasExcludePatterns (THE-934 fix round 4, 4)", () => {
+  it("is false for an empty configuration and true once anything is configured", () => {
+    expect(hasExcludePatterns(compileEgressFilter([]))).toBe(false);
+    expect(hasExcludePatterns(compileEgressFilter(["Private"]))).toBe(true);
   });
 });

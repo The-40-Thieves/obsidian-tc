@@ -95,12 +95,10 @@ export type PlannedChunk = ReturnType<typeof chunkNote>[number] & {
   embedText?: string;
   bodySha: string;
   skipEmbed?: boolean;
-  /** THE-934: this chunk's NOTE is currently under an egress.excludePaths glob. Set once per note
-   *  by computeNotePlan (a note's chunks share one path, so this is uniform across a plan's
-   *  toEmbed array). embedPlans (embed-batches.ts) never sends it to the provider — same
-   *  no-network-call treatment as skipEmbed, but for the opposite reason: skipEmbed reuses an
-   *  identical sibling's vector, this withholds a vector entirely. persist-note-plan.ts writes NO
-   *  chunk_embeddings row and stamps chunks.embedding_excluded = 1 instead. */
+  /** THE-934: this chunk's NOTE is under an egress.excludePaths glob (set once per note by
+   *  computeNotePlan, uniform across a plan's toEmbed). embedPlans never sends it to the provider
+   *  and persist-note-plan.ts stamps chunks.embedding_excluded = 1 with no chunk_embeddings row —
+   *  skipEmbed's no-network treatment, for the opposite reason: it withholds a vector. */
   excludedFromEmbed?: boolean;
 };
 
@@ -111,6 +109,9 @@ export interface NoteWritePlan {
   existing: ExistingRow[];
   desiredIds: Set<string>;
   toEmbed: PlannedChunk[];
+  /** THE-934 fix round 4 (2): the NOTE's exclusion status. A prune-only plan has an EMPTY toEmbed,
+   *  so keying the note_summaries cleanup on `toEmbed[0]` (round 3) silently skipped it. */
+  excluded: boolean;
   vectors: number[][];
   /** THE-388: filled by embedPlans only when the provider emits embedFull() (bge-m3), parallel to
    *  vectors; written to chunk_sparse / chunk_colbert. Absent for dense-only providers. */

@@ -36,6 +36,7 @@ import {
   upsertNoteRow,
 } from "../fts";
 import { bumpGeneration } from "../generation";
+import { deleteNoteSummary } from "../note-summaries";
 import { ensureChunkSparse } from "../sparse";
 import { ensureVecChunks } from "../vec";
 import {
@@ -167,6 +168,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // Collect each note's links during the index walk so vault_edges is reconciled in one
   // full-state pass — the undirected links_to graph W-RETRIEVAL walks (THE-233 W-INGEST).
   const noteLinks = new Map<string, ExtractedLink[]>();
+  // THE-934 fix round 4 (2): vault-relative paths under egress.excludePaths seen by this walk.
+  const egressExcludedPaths = new Set<string>();
   // Two-phase batching: PLAN each note (including its embed() network call) with no transaction,
   // then APPLY a batch of plans in ONE transaction. A mid-batch failure rolls the whole batch back
   // (idempotent reconcile, never a correctness issue). THE-925 correction: this was previously
@@ -343,6 +346,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-823: `rel` must be threaded into link extraction here, not left for the caller to infer.
     // See docs/design/search-indexing-and-cache.md.
     noteLinks.set(rel, extractLinks(parseNote(raw, rel).body));
+    // THE-934 fix round 4 (2): every walked note that is currently excluded, whether or not this
+    // pass produces a write plan for it. computeNotePlan returns `plan: null` when nothing about a
+    // note's chunks changed, which is the STEADY state for an already-excluded note -- so a
+    // cleanup hung off the plan (persist-note-plan.ts's own DELETE) fires on the exclusion
+    // TRANSITION and never again. Collected here and swept once below, so a note stamped excluded
+    // by an earlier reconcile still loses its summary row on the next one.
+    if (args.isEgressExcluded?.(rel) === true) egressExcludedPaths.add(rel);
     // THE-486: capture this pass's tags straight from the raw content (no DB round-trip) so the
     // tag-cooccurrence delta can diff against oldNotesTagsSnapshot below — a note's frontmatter tags
     // can change with NO chunk content change, so this must NOT be gated on `plan` existing.
@@ -395,6 +405,33 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   }
   stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
   flushNotes();
+  // THE-934 fix round 4 (2): the note_summaries sweep for EVERY excluded note this pass walked,
+  // not only the ones whose exclusion status just changed. A note_summaries row is model-generated
+  // text derived from the note, is searchable through searchNoteSummaries, and feeds
+  // buildClusterSummaries' k-means membership, so an excluded note must own none.
+  //
+  // This is the walk's own copy of a cleanup applyNoteWrites (persist-note-plan.ts) also performs,
+  // and the redundancy is deliberate rather than accidental. applyNoteWrites covers the common
+  // case only because an excluded note happens to re-plan on every pass — an excluded chunk can
+  // never hold an active embedding, so computeNotePlan's THE-531 model gate keeps it in `toEmbed`
+  // forever. That is a property of a DIFFERENT feature, and a note with no chunks at all (emptied
+  // on disk, or every chunk secret-gated) already falls outside it: `computeNotePlan` returns
+  // `plan: null`, nothing downstream of it runs, and only this sweep can reach the row. Both are
+  // tested (test/egress-index-embedding.test.ts).
+  //
+  // Unconditional and idempotent (a DELETE matching nothing costs an index seek), bounded by the
+  // number of EXCLUDED notes rather than by vault size, and batched into one transaction the same
+  // way the notes flush above is.
+  if (egressExcludedPaths.size > 0) {
+    inWriteTransaction(
+      args.db,
+      "index_egress_summaries",
+      () => {
+        for (const rel of egressExcludedPaths) deleteNoteSummary(args.db, args.vaultId, rel);
+      },
+      args.sql,
+    );
+  }
   // THE-291: stale-path sweep — ONLY on unscoped runs (a folder-scoped index_vault call must
   // never deindex the rest of the vault), and diffed against the UNFILTERED walk so files an
   // ACL-restricted caller cannot see are not destroyed.

@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,250 tracked code files · 208,351 lines.
+**Scale:** 1,251 tracked code files · 209,509 lines.
 
-TypeScript 193,068 · JavaScript 10,601 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 194,226 · JavaScript 10,601 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -87,16 +87,16 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
 | `tools/` | 90 | 18,198 | domains m1–m8 + admin. The MCP tool surface |
-| `search/` | 61 | 12,841 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
+| `search/` | 61 | 12,932 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 27 | 6,941 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 18 | 4,963 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 37 | 4,617 | arg parsing + subcommands |
-| `runtime/` | 19 | 4,184 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 19 | 4,195 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 13 | 2,186 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 1,950 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `migrations/` | 53 | 1,940 | hand-registered SQL. **Two chains** — see below |
-| `db/` | 15 | 1,474 | provisioning, migrate runner, experiential store |
-| `plane/` | 9 | 1,433 | generative plane; `jobs/` holds the contradiction detector |
+| `plane/` | 9 | 1,494 | generative plane; `jobs/` holds the contradiction detector |
+| `db/` | 15 | 1,479 | provisioning, migrate runner, experiential store |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `providers/` | 6 | 1,011 |  |
@@ -152,17 +152,17 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 627 | `packages/server/src/metrics/registry.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 612 | `packages/server/src/transports/http.ts` |
-| 604 | `packages/server/src/search/graph_search.ts` |
+| 611 | `packages/server/src/search/graph_search.ts` |
 | 599 | `packages/server/src/tools/m3/base-tools.ts` |
 | 587 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 578 | `packages/server/src/runtime/tool-wiring.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 569 | `packages/server/src/runtime/plane-wiring.ts` |
+| 557 | `packages/server/src/search/indexing/index-vault.ts` |
 | 535 | `packages/server/src/tools/m7/knowledge/retrieval-runtime.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 531 | `packages/server/src/providers/registry.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
-| 520 | `packages/server/src/search/indexing/index-vault.ts` |
 | 510 | `packages/server/src/experiential/note-quality.ts` |
 | 509 | `packages/server/src/tools/m8/experiential-tools.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
@@ -286,7 +286,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**449 modules · 2063 dependencies · 129 distinct subsystem pairs · 941 cross-subsystem imports.**
+**449 modules · 2066 dependencies · 129 distinct subsystem pairs · 942 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -355,11 +355,11 @@ flowchart LR
   model -->|8| embeddings
   runtime -->|8| metrics
   runtime -->|8| vault
+  search -->|8| plane
   tools -->|8| plane
   tools -->|8| formats
   providers -->|7| embeddings
   runtime -->|7| embeddings
-  search -->|7| plane
   search -->|7| embeddings
   tools -->|7| bridge
   runtime -->|6| util
@@ -384,7 +384,7 @@ flowchart LR
 | `vault` | 235 | `tools` | 391 |
 | `db` | 184 | `runtime` | 161 |
 | `search` | 110 | `cli` | 116 |
-| `mcp` | 101 | `search` | 92 |
+| `mcp` | 101 | `search` | 93 |
 | `experiential` | 51 | `experiential` | 36 |
 <!-- END GENERATED: tree-fan -->
 

@@ -409,13 +409,16 @@ describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
     expect(existingClusterKeys(db, "v1").has("k1")).toBe(false);
   });
 
-  // THE-934 fix round 3 (D): a note EXCLUDED (rather than merely edited) has its note_summaries
-  // row DELETED by persist-note-plan.ts's own fix (not this file) — this proves the k-means
-  // membership consequence that deletion produces: a cluster whose membership shrank regenerates
-  // under a NEW cluster_key rather than being skipped as unchanged, exactly like the content-change
-  // case above. Without a note_summaries cleanup, an excluded note would keep feeding this
-  // clustering pass forever, which is the defect this whole item exists to close.
-  it("THE-934 fix round 3 (D): a member note excluded (its note_summaries row deleted) triggers cluster regeneration with fewer members", async () => {
+  // THE-934 fix round 3 (D), renamed in fix round 4 (6) to what it actually checks. This test does
+  // NOT exercise the production DELETE — it performs the delete by hand and then asserts the
+  // CONSEQUENCE for clustering. The production write path is covered where it lives, by
+  // egress-index-embedding.test.ts, which drives the real indexVault reconcile for both the
+  // exclusion TRANSITION and the already-excluded steady state, and by note-summaries.test.ts for
+  // the summarize pass; removing either production DELETE goes red there, not here. Kept because
+  // the consequence is worth its own oracle: a cluster whose membership shrank must regenerate
+  // under a NEW cluster_key rather than be skipped as unchanged, which is what stops an excluded
+  // note's content from continuing to influence a cluster summary that IS still surfaced.
+  it("THE-934 fix round 3 (D): a note_summaries row DISAPPEARING (however it was deleted) shrinks the cluster and forces regeneration under a new key", async () => {
     const db = makeDb();
     seedNoteSummaries(db, "v1", [
       ["A.md", "hA", "content A"],
@@ -428,8 +431,9 @@ describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
     expect(gateway.extract).toHaveBeenCalledTimes(1);
     const oldKey = [...existingClusterKeys(db, "v1")][0] as string;
 
-    // Simulate exclusion taking effect: A.md's note_summaries row is gone (persist-note-plan.ts's
-    // own DELETE, not exercised here directly — see egress-index-embedding.test.ts for that).
+    // Exclusion taking effect, simulated: A.md's note_summaries row is gone. The three production
+    // deletes that produce this state (the reconcile walk, the single-note write, the summarize
+    // pass) are each tested where they live — see this test's header.
     db.prepare("DELETE FROM note_summaries WHERE vault_id = ? AND path = ?").run("v1", "A.md");
 
     const second = await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });

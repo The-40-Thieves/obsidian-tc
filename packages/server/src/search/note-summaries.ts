@@ -10,6 +10,7 @@
 // OBSERVABLE instead of a silent latency creep.
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import { contentHash } from "../vault/paths";
 import { cosineBatch } from "./native";
 import { blobToFloats, floatBlob } from "./vec";
@@ -74,6 +75,19 @@ export function upsertNoteSummary(db: Database, vaultId: string, rec: NoteSummar
   );
 }
 
+/** THE-934 fix round 4 (2): drop a note's summary row. Idempotent (a DELETE that matches nothing
+ *  is a no-op) and callable on any pass, which is what lets the three cleanup sites — the reconcile
+ *  walk (search/indexing/index-vault.ts), the single-note write path
+ *  (search/indexing/persist-note-plan.ts) and the summarizer itself
+ *  (search/indexing/summarize-notes.ts) — share ONE statement instead of three hand-written copies
+ *  that can disagree about the key. A note under `egress.excludePaths` must own no summary row:
+ *  the row is model-generated text derived from that note, it is searchable through
+ *  searchNoteSummaries, and it feeds buildClusterSummaries' k-means membership. */
+export function deleteNoteSummary(db: Database, vaultId: string, path: string): void {
+  if (!hasNoteSummaries(db)) return;
+  db.prepare("DELETE FROM note_summaries WHERE vault_id = ? AND path = ?").run(vaultId, path);
+}
+
 /**
  * Where a per-note brute-force cosine scan stops being "cheap enough to ignore."
  *
@@ -128,17 +142,34 @@ export function searchNoteSummaries(
   db: Database,
   vaultId: string,
   queryVec: number[],
-  opts: { k: number; isReadable?: (path: string) => boolean; minScore?: number },
+  opts: {
+    k: number;
+    isReadable?: (path: string) => boolean;
+    minScore?: number;
+    /** THE-934 fix round 4 (2): egress.excludePaths, compiled. A note summary is model-generated
+     *  text DERIVED from one note, so an excluded note's summary must never become a retrieval
+     *  candidate -- and a candidate is downstream input to the reranker and to reflect, both of
+     *  which are themselves egress legs. The write path now deletes an excluded note's row (three
+     *  sites: the reconcile walk, the single-note write, and the summarizer itself), so a row here
+     *  under an excluded path means the row PREDATES the exclusion, which is exactly the case that
+     *  must not leak: this is the query-time backstop for it, matching the one
+     *  searchClusterSummaries got in fix round 3. Undefined -> nothing excluded (back-compat). */
+    excludeFilter?: EgressFilter;
+  },
 ): SummaryHit[] {
   if (opts.k <= 0 || !hasNoteSummaries(db)) return [];
   const readable = opts.isReadable ?? (() => true);
+  const excludeFilter = opts.excludeFilter;
   const rows = (
     db
       .prepare(
         "SELECT path, summary, embedding FROM note_summaries WHERE vault_id = ? AND embedding IS NOT NULL",
       )
       .all(vaultId) as SummaryRow[]
-  ).filter((r) => readable(r.path));
+  ).filter(
+    (r) =>
+      readable(r.path) && (excludeFilter === undefined || !isExcludedPath(excludeFilter, r.path)),
+  );
   if (rows.length === 0) return [];
   const dim = queryVec.length;
   const same = rows.filter((r) => r.embedding.byteLength === dim * 4);

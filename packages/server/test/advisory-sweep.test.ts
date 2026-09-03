@@ -25,7 +25,7 @@ import { remainingBudget } from "../src/experiential/advisory-policy";
 import { setGoal } from "../src/experiential/goals";
 import { createAdvisoryBus } from "../src/mcp/advisories";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { compileEgressFilter } from "../src/plane/egress-filter";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import {
   buildSimilarityFn,
   openContradictions,
@@ -166,10 +166,13 @@ function stubProvider(vectors: {
   provider: string;
   model: string;
   dimensions: number;
-  embed: (texts: string[], opts?: { input?: "query" | "document" }) => Promise<number[][]>;
-  calls: Array<{ texts: string[]; input?: string }>;
+  embed: (
+    texts: string[],
+    opts?: { input?: "query" | "document"; sourcePaths?: string[] },
+  ) => Promise<number[][]>;
+  calls: Array<{ texts: string[]; input?: string; sourcePaths?: string[] }>;
 } {
-  const calls: Array<{ texts: string[]; input?: string }> = [];
+  const calls: Array<{ texts: string[]; input?: string; sourcePaths?: string[] }> = [];
   return {
     id: "stub",
     provider: "stub",
@@ -177,11 +180,27 @@ function stubProvider(vectors: {
     dimensions: 2,
     calls,
     embed: async (texts, opts) => {
-      calls.push({ texts, input: opts?.input });
+      calls.push({ texts, input: opts?.input, sourcePaths: opts?.sourcePaths });
+      // THE-934 fix round 4 (6): the stub REFUSES an undeclared content call, exactly as the real
+      // port does (embeddings/index.ts's withEgressGuard -> assertSourcePathsAllowed: `undefined`
+      // throws, `[]` passes, `input: "query"` is exempt). Round 3's stub accepted anything, so a
+      // regression that dropped the sourcePaths declaration here would have kept every test in
+      // this file green while failing against the provider production actually builds.
+      if (opts?.input !== "query" && opts?.sourcePaths === undefined) {
+        throw new EgressViolationError("stub port: content call declared no sourcePaths");
+      }
       const table = opts?.input === "query" ? (vectors.query ?? {}) : (vectors.document ?? {});
       return texts.map((t) => table[t] ?? [0, 0]);
     },
   };
+}
+
+/** THE-934 fix round 4 (6): every text this sweep handed the provider, on EVERY call regardless of
+ *  `input`. Round 3's assertions read only the FIRST `input === "document"` call and defaulted a
+ *  missing one to `""` — so a sweep that sent excluded text on a second document call, or on a
+ *  call with the role omitted entirely, passed with a vacuously-empty haystack. */
+function allEmbeddedText(provider: { calls: Array<{ texts: string[] }> }): string {
+  return provider.calls.flatMap((c) => c.texts).join("\n");
 }
 
 const POLICY: AdvisoryPolicy = { minScore: 0.6, topK: 2, maxPerSession: 3, dismissalPenalty: 1 };
@@ -282,8 +301,10 @@ describe("buildSimilarityFn", () => {
     );
     expect(fn("ship the parser", "parser notes")).toBeCloseTo(1, 5);
     expect(provider.calls).toEqual([
-      { texts: ["ship the parser"], input: "query" },
-      { texts: ["parser notes"], input: "document" },
+      // The query leg is exempt from the declaration requirement (a goal string is not vault
+      // content); the document leg declares the candidate's real path — fix round 4 (6) pins both.
+      { texts: ["ship the parser"], input: "query", sourcePaths: undefined },
+      { texts: ["parser notes"], input: "document", sourcePaths: ["c1.md"] },
     ]);
   });
 
@@ -606,7 +627,7 @@ describe("registerAdvisorySweep", () => {
     // The port (provider.embed) never saw the excluded candidate's text at all.
     const documentCall = provider.calls.find((c) => c.input === "document");
     expect(documentCall?.texts).toEqual(["Public/a.md\nrelevant"]);
-    expect(documentCall?.texts.join("\n")).not.toContain("SECRET_MARKER");
+    expect(allEmbeddedText(provider)).not.toContain("SECRET_MARKER");
 
     // The result reports the skip: only the public chunk was ever inserted as an advisory.
     const rows = edb.prepare("SELECT chunk_id FROM chunk_retrievals").all() as Array<{
@@ -668,7 +689,7 @@ describe("registerAdvisorySweep", () => {
 
     const documentCall = provider.calls.find((c) => c.input === "document");
     expect(documentCall?.texts).toEqual(["Public/a.md\nrelevant"]);
-    expect(documentCall?.texts.join("\n")).not.toContain("SECRET_MARKER");
+    expect(allEmbeddedText(provider)).not.toContain("SECRET_MARKER");
     const rows = edb.prepare("SELECT chunk_id FROM chunk_retrievals").all() as Array<{
       chunk_id: string;
     }>;
@@ -742,10 +763,11 @@ describe("registerAdvisorySweep", () => {
     await box.task?.run(NOT_ABORTED);
 
     // Either no document call happened at all (the only candidate was excluded), or one happened
-    // and its texts never carried the private path or rationale.
-    const documentCall = provider.calls.find((c) => c.input === "document");
-    expect(documentCall?.texts.join("\n") ?? "").not.toContain("SECRET_MARKER");
-    expect(documentCall?.texts.join("\n") ?? "").not.toContain("Private/journal.md");
+    // and its texts never carried the private path or rationale. Asserted over EVERY call, not
+    // only the first `input: "document"` one, and with no `?? ""` default that could make the
+    // haystack vacuously empty (fix round 4, 6).
+    expect(allEmbeddedText(provider)).not.toContain("SECRET_MARKER");
+    expect(allEmbeddedText(provider)).not.toContain("Private/journal.md");
     expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({
       n: 0,
     });
@@ -785,8 +807,7 @@ describe("registerAdvisorySweep", () => {
     });
     await box.task?.run(NOT_ABORTED);
 
-    const documentCall = provider.calls.find((c) => c.input === "document");
-    expect(documentCall?.texts.join("\n") ?? "").not.toContain("SECRET_MARKER");
+    expect(allEmbeddedText(provider)).not.toContain("SECRET_MARKER");
     expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({
       n: 0,
     });
@@ -819,5 +840,185 @@ describe("registerAdvisorySweep", () => {
     expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({
       n: 0,
     });
+  });
+
+  // THE-934 fix round 4 (3) — a blank path is MISSING provenance, not a path. Round 3 accepted any
+  // string, so a row whose declared provenance was `[""]` cleared the "no provenance -> fail
+  // closed" check and then matched no glob: a candidate that proves nothing about itself was
+  // embedded as if it had proved everything.
+  const blankSweep = (
+    cdb: Database,
+    edb: Database,
+    provider: ReturnType<typeof stubProvider>,
+    excludeFilter = compileEgressFilter(["Private/**"]),
+  ) => {
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+      excludeFilter,
+    });
+    return box;
+  };
+
+  for (const [label, evidence] of [
+    ["an EMPTY-STRING evidence path", [""]],
+    ["a WHITESPACE-ONLY evidence path", ["  "]],
+  ] as const) {
+    it(`a synthesis whose provenance is ${label} fails CLOSED — it is not provenance (THE-934 fix round 4, 3)`, async () => {
+      const cdb = cdb0();
+      addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+      addSynthesis(cdb, {
+        vaultId: V,
+        isoYear: 2026,
+        isoWeek: 2,
+        generatedAt: NOW,
+        patterns: JSON.stringify([
+          {
+            title: "SECRET_MARKER pattern",
+            summary: "a pattern with unprovable provenance",
+            evidence_paths: evidence,
+            contradiction_ids: [],
+          },
+        ]),
+      });
+      const edb = edb0();
+      setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+      const provider = stubProvider({ query: { "goal text": [1, 0] } });
+      await blankSweep(cdb, edb, provider).task?.run(NOT_ABORTED);
+
+      expect(provider.calls.some((c) => c.input === "document")).toBe(false);
+      expect(allEmbeddedText(provider)).not.toContain("SECRET_MARKER");
+      expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({
+        n: 0,
+      });
+    });
+  }
+
+  it("a contradiction with an EMPTY side fails CLOSED — NOT NULL is not the same as non-empty (THE-934 fix round 4, 3)", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addContradiction(cdb, {
+      id: "k-blank",
+      vaultId: V,
+      sourcePath: "", // the column is NOT NULL, which says nothing about it being a real path
+      conflictPath: "Public/other.md",
+      rationale: "SECRET_MARKER rationale written from BOTH notes",
+      detectedAt: NOW,
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({ query: { "goal text": [1, 0] } });
+    await blankSweep(cdb, edb, provider).task?.run(NOT_ABORTED);
+
+    expect(provider.calls.some((c) => c.input === "document")).toBe(false);
+    expect(allEmbeddedText(provider)).not.toContain("SECRET_MARKER");
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 0 });
+  });
+
+  // THE-934 fix round 4 (4) — the fail-closed rule is keyed on the filter having PATTERNS, not on
+  // a filter object existing. scheduler-wiring.ts builds compileEgressFilter(config.egress
+  // .excludePaths) unconditionally, so on a default install (`excludePaths: []`) round 3's
+  // `excludeFilter !== undefined` test was TRUE and every provenance-less candidate was dropped —
+  // on installs that had configured no exclusion at all.
+  it("with a filter that has NO patterns (the default install), a provenance-less candidate is NOT dropped (THE-934 fix round 4, 4)", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addSynthesis(cdb, { vaultId: V, isoYear: 2026, isoWeek: 3, generatedAt: NOW }); // no evidence
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { '{"note":"weekly pattern"}': [1, 0] },
+    });
+    // Exactly what scheduler-wiring.ts passes when egress.excludePaths is unset.
+    await blankSweep(cdb, edb, provider, compileEgressFilter([])).task?.run(NOT_ABORTED);
+
+    expect(provider.calls.some((c) => c.input === "document")).toBe(true);
+    expect(
+      (edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get() as { n: number }).n,
+    ).toBe(1);
+  });
+
+  it("the SAME candidate IS dropped once one pattern is configured — the rule fires on a real exclusion, not on the filter's existence", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addSynthesis(cdb, { vaultId: V, isoYear: 2026, isoWeek: 3, generatedAt: NOW });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { '{"note":"weekly pattern"}': [1, 0] },
+    });
+    await blankSweep(cdb, edb, provider, compileEgressFilter(["Unrelated/**"])).task?.run(
+      NOT_ABORTED,
+    );
+
+    expect(provider.calls.some((c) => c.input === "document")).toBe(false);
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({ n: 0 });
+  });
+
+  // THE-934 fix round 4 (6): the positive control the exclusion tests above need to mean anything.
+  // Every one of them asserts an ABSENCE, so a sweep that skipped all document embedding whenever
+  // a filter existed would satisfy the lot. This asserts the presence: with a real filter
+  // configured, a PUBLIC contradiction and a PUBLIC synthesis are embedded and delivered.
+  it("positive control: under a live filter, a public contradiction AND a public synthesis ARE embedded and delivered", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addContradiction(cdb, {
+      id: "k-public",
+      vaultId: V,
+      sourcePath: "Public/a.md",
+      conflictPath: "Public/b.md",
+      rationale: "they disagree",
+      detectedAt: NOW,
+    });
+    addSynthesis(cdb, {
+      vaultId: V,
+      isoYear: 2026,
+      isoWeek: 4,
+      generatedAt: NOW,
+      patterns: JSON.stringify([
+        {
+          title: "public pattern",
+          summary: "drawn from public notes only",
+          evidence_paths: ["Public/a.md"],
+          contradiction_ids: [],
+        },
+      ]),
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const contradictionText = "Public/a.md vs Public/b.md: they disagree";
+    const synthesisText = JSON.stringify([
+      {
+        title: "public pattern",
+        summary: "drawn from public notes only",
+        evidence_paths: ["Public/a.md"],
+        contradiction_ids: [],
+      },
+    ]);
+    const provider = stubProvider({
+      query: { "goal text": [1, 0] },
+      document: { [contradictionText]: [1, 0], [synthesisText]: [1, 0] },
+    });
+    await blankSweep(cdb, edb, provider).task?.run(NOT_ABORTED);
+
+    const embedded = allEmbeddedText(provider);
+    expect(embedded).toContain(contradictionText);
+    expect(embedded).toContain("public pattern");
+    // And the declaration carried the real paths, not the row ids.
+    const docCall = provider.calls.find((c) => c.input === "document");
+    expect(docCall?.sourcePaths).toEqual(["Public/a.md", "Public/b.md", "Public/a.md"]);
+    const rows = edb.prepare("SELECT chunk_id FROM chunk_retrievals").all() as Array<{
+      chunk_id: string;
+    }>;
+    expect(rows.map((r) => r.chunk_id).sort()).toEqual(["k-public", "synthesis-2026-4"]);
   });
 });

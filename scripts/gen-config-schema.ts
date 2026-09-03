@@ -223,7 +223,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // "Private/", also matches everything nested under it, identically to "Private/**"; a literal
   // FILE pattern like "Private/a.md" still matches only that exact file). No key, type, default
   // or constraint moved — text only.
-  "a162653e4f237db86cb6504aa9268c4faf545e28099962c2b0868b2c5db0cd20";
+  // THE-934 fix round 4 (2026-09-03), item 1: rebaselined again, and this time NOT text only —
+  // the same key gains a per-item CONSTRAINT (a refine that refuses a pattern normalising to
+  // nothing, or to the whole vault), and its .describe() text was rewritten to state the full
+  // normalisation rule the round-3 clause described only one spelling of: a leading "/" or "./" is
+  // stripped, repeated separators collapse, and EVERY pattern also matches its subtree (so
+  // "/Private", "**/Private", "Private*/" and "Private/*" stop matching nothing). No key, type or
+  // default moved; the added constraint rejects only inputs that were previously accepted and then
+  // silently excluded nothing.
+  "890e776b81a44e27947e57b306cfaa46031239b3b6144d47b9dae31f47472612";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

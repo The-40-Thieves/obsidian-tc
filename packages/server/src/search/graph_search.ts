@@ -331,6 +331,13 @@ async function graphSearchCore(
       ? searchNoteSummaries(db, opts.vaultId, opts.queryVec, {
           k: seedCount,
           ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+          // THE-934 fix round 4 (2): the same query-time backstop searchClusterSummaries got in
+          // fix round 3. A note summary DOES carry a real vault path, so a downstream
+          // isExcludedPath check could in principle catch it -- but only the reranker's does, and
+          // only when a reranker is configured, so an excluded note's summary would otherwise
+          // reach reflect and the fused result set on a default install. Reuses
+          // `rerankExcludeFilter`: same config value, already threaded here.
+          ...(opts.rerankExcludeFilter ? { excludeFilter: opts.rerankExcludeFilter } : {}),
         })
       : [];
   // THE-628: cluster-summary stream, dark behind opts.summaries?.clusters?.enabled — a separate

@@ -3,9 +3,9 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 449,
-    "dependencies": 2063,
+    "dependencies": 2066,
     "subsystemPairs": 129,
-    "crossSubsystemImports": 941
+    "crossSubsystemImports": 942
   },
   "subsystems": {
     "auth": 4,
@@ -163,6 +163,11 @@
       "weight": 8
     },
     {
+      "from": "search",
+      "to": "plane",
+      "weight": 8
+    },
+    {
       "from": "tools",
       "to": "plane",
       "weight": 8
@@ -180,11 +185,6 @@
     {
       "from": "runtime",
       "to": "embeddings",
-      "weight": 7
-    },
-    {
-      "from": "search",
-      "to": "plane",
       "weight": 7
     },
     {

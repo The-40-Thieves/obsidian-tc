@@ -309,9 +309,13 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
     expect(found).toEqual(RERANKER_RAW_BUILDER_ALLOWLIST);
   });
 
-  it("every file calling a raw reranker builder also calls guardReranker — the wrap is paired, not merely present somewhere", () => {
+  // THE-934 fix round 4 (5): reads `nonCommentSource`, not the raw file. Round 3 hardened every
+  // OTHER source-scan assertion in this file against a comment that reads like code and left this
+  // one scanning raw text, so deleting the real wrap and leaving a commented-out `guardReranker(`
+  // behind kept it green — the exact spoof round 2's NB1 caught one assertion away from here.
+  it("every file calling a raw reranker builder also calls guardReranker — the wrap is paired, not merely present somewhere, and not merely present in a COMMENT", () => {
     for (const f of RERANKER_RAW_BUILDER_ALLOWLIST) {
-      const text = readFileSync(join(SRC_ROOT, f), "utf8");
+      const text = nonCommentSource(readFileSync(join(SRC_ROOT, f), "utf8"));
       expect(text, `${f} builds a raw reranker but never calls guardReranker`).toMatch(
         /guardReranker\(/,
       );

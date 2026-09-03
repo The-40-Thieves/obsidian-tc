@@ -16,6 +16,7 @@ import type { EmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter, isExcludedPath } from "../src/plane/egress-filter";
 import { runAudit } from "../src/plane/jobs/audit";
 import { indexNote, indexVault } from "../src/search/indexer";
+import { applyNoteWrites } from "../src/search/indexing/persist-note-plan";
 import { existingSummaryHash, upsertNoteSummary } from "../src/search/note-summaries";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
@@ -292,6 +293,196 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
         .prepare("SELECT * FROM note_summaries WHERE vault_id = 'v1' AND path = 'Journal.md'")
         .get();
       expect(row).toBeUndefined();
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  // THE-934 fix round 4 (2): the round-3 cleanup fired only on the exclusion TRANSITION. It hung
+  // off `plan.toEmbed[0]?.excludedFromEmbed`, and computeNotePlan returns NO PLAN AT ALL for a note
+  // whose chunks are unchanged -- which is the steady state of a note already stamped
+  // `embedding_excluded = 1` by an earlier reconcile. So a vault that was already excluded before
+  // this ticket shipped (or before the summary row was written) kept that row for ever, searchable
+  // through searchNoteSummaries and feeding buildClusterSummaries' membership. This test starts
+  // from the ALREADY-excluded state -- no transition anywhere in it.
+  it("an ALREADY-excluded note (stamped on a previous pass, no transition) loses its summary on the NEXT reconcile", async () => {
+    const db = baseDb();
+    const root = mkdtempSync(join(tmpdir(), "obtc-egress-stale-summary-"));
+    try {
+      writeFileSync(join(root, "Journal.md"), "stable content, never edited");
+      const args = {
+        db,
+        provider: fakeProvider,
+        representation: buildRepresentationManifest(fakeProvider, {}),
+        vaultId: "v1",
+        root,
+        isReadable: () => true,
+        isEgressExcluded: () => true,
+        now: () => 1,
+      };
+      // Pass 1: the note is excluded from the start, so it is stamped and never embedded.
+      await indexVault(args);
+      expect(
+        (db.prepare("SELECT embedding_excluded AS e FROM chunks").get() as { e: number }).e,
+      ).toBe(1);
+
+      // A summary row exists anyway -- exactly what a pre-THE-934 install has: written by an
+      // earlier summarize pass, or by a reconcile that ran before the folder was excluded.
+      upsertNoteSummary(db, "v1", {
+        path: "Journal.md",
+        contentHash: "stale-hash",
+        summary: "a note summary written before the exclusion was configured",
+        model: "m",
+        embedding: [1, 0, 0, 0],
+        embeddingModel: "e",
+        createdAt: 1,
+      });
+      expect(existingSummaryHash(db, "v1", "Journal.md")).toBe("stale-hash");
+
+      // Pass 2: nothing changed -- same content, same exclusion status. computeNotePlan produces
+      // NO plan, so the cleanup must come from the walk itself.
+      await indexVault(args);
+      expect(existingSummaryHash(db, "v1", "Journal.md")).toBeNull();
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  // THE-934 fix round 4 (2): the reconcile WALK's own sweep, isolated from applyNoteWrites. An
+  // excluded note normally still produces a write plan on every pass (an excluded chunk can never
+  // hold an active embedding, so computeNotePlan's THE-531 model gate keeps re-planning it), which
+  // is why persist-note-plan.ts's DELETE covers the common case. A note with NO chunks at all --
+  // emptied on disk, or every chunk secret-gated -- produces `plan: null`, so nothing downstream of
+  // computeNotePlan runs for it and only the walk can clean up. Its summary row is real: it was
+  // written when the note still had content.
+  it("an excluded note with NO chunks at all (plan: null) still loses its summary — the walk sweeps it", async () => {
+    const db = baseDb();
+    const root = mkdtempSync(join(tmpdir(), "obtc-egress-empty-"));
+    try {
+      writeFileSync(join(root, "Emptied.md"), "");
+      upsertNoteSummary(db, "v1", {
+        path: "Emptied.md",
+        contentHash: "hash-from-when-it-had-content",
+        summary: "a summary of the note's PREVIOUS, non-empty content",
+        model: "m",
+        embedding: [1, 0, 0, 0],
+        embeddingModel: "e",
+        createdAt: 1,
+      });
+      await indexVault({
+        db,
+        provider: fakeProvider,
+        representation: buildRepresentationManifest(fakeProvider, {}),
+        vaultId: "v1",
+        root,
+        isReadable: () => true,
+        isEgressExcluded: () => true,
+        now: () => 1,
+      });
+      expect(db.prepare("SELECT COUNT(*) AS n FROM chunks").get()).toMatchObject({ n: 0 });
+      expect(existingSummaryHash(db, "v1", "Emptied.md")).toBeNull();
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  // THE-934 fix round 4 (2): the SINGLE-NOTE write path (write_note/append_note/patch_note and the
+  // filesystem watcher) does not go through index-vault.ts's walk, so it carries its own cleanup —
+  // persist-note-plan.ts's DELETE, now keyed on the note-level `plan.excluded`.
+  it("indexNote: writing a note under an excluded folder deletes its summary row too", async () => {
+    const db = baseDb();
+    const isExcluded = (rel: string) => isExcludedPath(compileEgressFilter(["Private/**"]), rel);
+    upsertNoteSummary(db, "v1", {
+      path: "Private/secret.md",
+      contentHash: "stale-hash",
+      summary: "a summary written before the folder was excluded",
+      model: "m",
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    await indexNote(
+      db,
+      fakeProvider,
+      "v1",
+      "Private/secret.md",
+      "a private secret about oranges",
+      false,
+      () => 1,
+      undefined,
+      false,
+      undefined,
+      isExcluded,
+    );
+    expect(existingSummaryHash(db, "v1", "Private/secret.md")).toBeNull();
+  });
+
+  // THE-934 fix round 4 (2): the note-level flag itself. A plan with an EMPTY toEmbed is a real
+  // plan (a prune with no re-embed), and round 3 read `plan.toEmbed[0]?.excludedFromEmbed`, which
+  // is `undefined` for exactly that plan — so the cleanup silently did not run. Asserted directly
+  // against applyNoteWrites so the pin is on the condition, not on a pipeline that happens to
+  // produce a non-empty toEmbed.
+  it("applyNoteWrites deletes the summary for an excluded note even when the plan re-embeds NOTHING", () => {
+    const db = baseDb();
+    upsertNoteSummary(db, "v1", {
+      path: "Private/secret.md",
+      contentHash: "stale-hash",
+      summary: "a summary that must not survive an excluded note's prune-only plan",
+      model: "m",
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    applyNoteWrites(
+      db,
+      fakeProvider,
+      "v1",
+      {
+        path: "Private/secret.md",
+        existing: [],
+        desiredIds: new Set<string>(),
+        toEmbed: [], // nothing changed about this note's chunks
+        excluded: true,
+        vectors: [],
+        ts: 1,
+      },
+      false,
+      false,
+      false,
+      false,
+      false,
+      new Map(),
+    );
+    expect(existingSummaryHash(db, "v1", "Private/secret.md")).toBeNull();
+  });
+
+  it("control: a note that is NOT excluded keeps its summary row across reconciles", async () => {
+    const db = baseDb();
+    const root = mkdtempSync(join(tmpdir(), "obtc-egress-keep-summary-"));
+    try {
+      writeFileSync(join(root, "Journal.md"), "stable content, never edited");
+      const args = {
+        db,
+        provider: fakeProvider,
+        representation: buildRepresentationManifest(fakeProvider, {}),
+        vaultId: "v1",
+        root,
+        isReadable: () => true,
+        isEgressExcluded: () => false,
+        now: () => 1,
+      };
+      await indexVault(args);
+      upsertNoteSummary(db, "v1", {
+        path: "Journal.md",
+        contentHash: "live-hash",
+        summary: "a summary of a perfectly public note",
+        model: "m",
+        embedding: [1, 0, 0, 0],
+        embeddingModel: "e",
+        createdAt: 1,
+      });
+      await indexVault(args);
+      expect(existingSummaryHash(db, "v1", "Journal.md")).toBe("live-hash");
     } finally {
       rmTemp(root);
     }

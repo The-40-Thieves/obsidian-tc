@@ -213,6 +213,57 @@ describe("summarizeNotes (index-time pass)", () => {
     expect(existingSummaryHash(db, "v1", "Private/B.md")).toBeNull(); // never written
   });
 
+  // THE-934 fix round 4 (2): "never written" was only half the requirement. Skipping an excluded
+  // note leaves an EXISTING row in place for ever -- and this pass can run with no reconcile
+  // before it (the `obsidian-tc index` summarize phase, a cluster build), so it cannot delegate
+  // the cleanup to index-vault.ts. A row is model-generated text derived from the note; while it
+  // exists it is searchable through searchNoteSummaries and feeds buildClusterSummaries.
+  it("egress.excludePaths: a summarize pass DELETES an excluded note's existing summary row, with no reconcile in front of it (THE-934 fix round 4, 2)", async () => {
+    const db = makeDb();
+    insertNote(db, "v1", "Private/B.md", "hashB");
+    insertChunk(db, "v1", "Private/B.md", "SECRET_MARKER content that must never egress.");
+    // A row written before the folder was excluded (or by a pre-THE-934 build).
+    upsertNoteSummary(db, "v1", {
+      path: "Private/B.md",
+      contentHash: "hashB",
+      summary: "a stale summary of a now-excluded note",
+      model: "m",
+      embedding: [0.5, 0.5, 0.5, 0.5],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    expect(existingSummaryHash(db, "v1", "Private/B.md")).toBe("hashB");
+
+    const gateway = fakeGateway("A summary.");
+    const embed = fakeEmbedProvider();
+    await summarizeNotes(db, "v1", gateway, embed, {
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(existingSummaryHash(db, "v1", "Private/B.md")).toBeNull();
+    expect(gateway.extract).not.toHaveBeenCalled(); // and it was never re-summarized to get there
+  });
+
+  it("control: a summarize pass leaves a NON-excluded note's existing row alone (the cleanup narrows, it does not blind)", async () => {
+    const db = makeDb();
+    insertNote(db, "v1", "Public/A.md", "hashA");
+    insertChunk(db, "v1", "Public/A.md", "public content.");
+    upsertNoteSummary(db, "v1", {
+      path: "Public/A.md",
+      contentHash: "hashA",
+      summary: "a perfectly good summary",
+      model: "m",
+      embedding: [0.5, 0.5, 0.5, 0.5],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    const gateway = fakeGateway("A summary.");
+    await summarizeNotes(db, "v1", gateway, fakeEmbedProvider(), {
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(existingSummaryHash(db, "v1", "Public/A.md")).toBe("hashA");
+    expect(gateway.extract).not.toHaveBeenCalled(); // content_hash unchanged: still a skip
+  });
+
   it("is SKIPPED (no gateway call) when content_hash is unchanged from a prior pass", async () => {
     const db = makeDb();
     insertNote(db, "v1", "A.md", "hashA");
@@ -401,5 +452,76 @@ describe("assembleCandidates — the summary stream (tests c, d)", () => {
     expect(result.candidates.map((c) => c.path)).toEqual(["open.md"]);
     expect(result.candidates.every((c) => c.path !== "secret.md")).toBe(true);
     expect(result.candidates[0]?.source).toBe("summary");
+  });
+});
+
+// THE-934 fix round 4 (2) — the query-time backstop searchClusterSummaries got in fix round 3.
+// The write path now deletes an excluded note's summary row at three sites, so a row here under an
+// excluded path is one that PREDATES the exclusion -- the case that must not leak. A note summary
+// does carry a real vault path, so a downstream isExcludedPath check could in principle catch it,
+// but only the reranker performs one and only when a reranker is configured; on a default install
+// the summary would reach the fused result set and reflect unchecked.
+describe("searchNoteSummaries — egress.excludePaths (THE-934 fix round 4, 2)", () => {
+  function seedTwo(db: Database): void {
+    for (const [path, summary] of [
+      ["Public/a.md", "a public summary"],
+      ["Private/secret.md", "SECRET_MARKER a private summary"],
+    ] as const) {
+      upsertNoteSummary(db, "v1", {
+        path,
+        contentHash: `h_${path}`,
+        summary,
+        model: "m",
+        embedding: [1, 0, 0, 0],
+        embeddingModel: "e",
+        createdAt: 1,
+      });
+    }
+  }
+
+  it("never returns a row under an excluded path, and never scores one", () => {
+    const db = makeDb();
+    seedTwo(db);
+    const hits = searchNoteSummaries(db, "v1", [1, 0, 0, 0], {
+      k: 10,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(hits.map((h) => h.path)).toEqual(["Public/a.md"]);
+    expect(hits.some((h) => h.content.includes("SECRET_MARKER"))).toBe(false);
+  });
+
+  it("control: with no filter configured, BOTH rows surface — the filter narrows, it does not blind", () => {
+    const db = makeDb();
+    seedTwo(db);
+    const hits = searchNoteSummaries(db, "v1", [1, 0, 0, 0], { k: 10 });
+    expect(hits.map((h) => h.path).sort()).toEqual(["Private/secret.md", "Public/a.md"]);
+  });
+
+  it("holds through the REAL graphSearch wiring, not only when called directly", async () => {
+    const db = makeDb();
+    seedTwo(db);
+    const { graphSearch } = await import("../src/search/graph_search");
+    const excludedId = noteSummaryId("v1", "Private/secret.md");
+    const filtered = await graphSearch(db, {
+      query: "q",
+      queryVec: [1, 0, 0, 0],
+      vaultId: "v1",
+      isReadable: () => true,
+      summaries: { enabled: true },
+      rerankExcludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(filtered.some((r) => r.chunk_id === excludedId)).toBe(false);
+    expect(filtered.some((r) => r.content?.includes("SECRET_MARKER"))).toBe(false);
+
+    // Control through the same wiring: with no filter the summary IS a candidate, so the assertion
+    // above is the filter working rather than an empty query.
+    const unfiltered = await graphSearch(db, {
+      query: "q",
+      queryVec: [1, 0, 0, 0],
+      vaultId: "v1",
+      isReadable: () => true,
+      summaries: { enabled: true },
+    });
+    expect(unfiltered.some((r) => r.chunk_id === excludedId)).toBe(true);
   });
 });

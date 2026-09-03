@@ -15,6 +15,7 @@ import { cachedPrepare, type Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import { deleteChunkColbert, upsertChunkColbert } from "../chunk_colbert";
 import { deleteChunkFtsRow, upsertChunkFtsRow } from "../chunk_fts";
+import { deleteNoteSummary } from "../note-summaries";
 import { deleteChunkSparse, upsertChunkSparse } from "../sparse";
 import { floatBlob, upsertVec } from "../vec";
 import { copyDedupVectors } from "./dedup";
@@ -214,12 +215,14 @@ export function applyNoteWrites(
   // CHANGE forces toEmbed to be non-empty even when content_hash is unchanged, so checking the
   // first entry here reliably fires exactly when this note's exclusion status just took effect —
   // deleting the row is a safe no-op on every other pass (idempotent, unconditional on `path`).
-  if (plan.toEmbed[0]?.excludedFromEmbed && tableExists(db, "note_summaries")) {
-    cachedPrepare(db, "DELETE FROM note_summaries WHERE vault_id = ? AND path = ?").run(
-      vaultId,
-      plan.path,
-    );
-  }
+  //
+  // THE-934 fix round 4 (2): keyed on the NOTE-level `plan.excluded`, not on the first toEmbed
+  // chunk's per-chunk flag. `toEmbed` is empty whenever nothing about this note's chunks changed
+  // (a prune-only plan), so round 3's `plan.toEmbed[0]?.excludedFromEmbed` fired ONLY on the
+  // exclusion TRANSITION -- a note already stamped `embedding_excluded = 1` by an earlier
+  // reconcile kept its summary row for ever. index-vault.ts additionally prunes every excluded
+  // note it walks, which covers the case where computeNotePlan returns no plan at all.
+  if (plan.excluded) deleteNoteSummary(db, vaultId, plan.path);
   return { upserted: plan.toEmbed.length, deleted, dedupUnresolved };
 }
 

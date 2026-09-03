@@ -259,7 +259,7 @@ export function computeNotePlan(
     return { plan: null, unchanged, secretsSkipped, flagged, dedupSkipped };
   }
   return {
-    plan: { path, existing, desiredIds, toEmbed, vectors: [], ts },
+    plan: { path, existing, desiredIds, toEmbed, excluded: excludedNow, vectors: [], ts },
     unchanged,
     secretsSkipped,
     flagged,

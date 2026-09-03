@@ -26,7 +26,7 @@ import type { EmbeddingProvider } from "../../embeddings";
 import type { GatewayClient } from "../../gateway";
 import { type EgressFilter, EgressViolationError, isExcludedPath } from "../../plane/egress-filter";
 import { runWithConcurrency } from "../../util/concurrency";
-import { existingSummaryHash, upsertNoteSummary } from "../note-summaries";
+import { deleteNoteSummary, existingSummaryHash, upsertNoteSummary } from "../note-summaries";
 
 const DEFAULT_MAX_CONCURRENCY = 12; // research brief: 8-16 in-flight extract() calls
 const DEFAULT_MAX_CONTENT_CHARS = 8000;
@@ -105,6 +105,18 @@ export async function summarizeNotes(
   const notExcluded = notes.filter(
     (n) => excludeFilter === undefined || !isExcludedPath(excludeFilter, n.path),
   );
+  // THE-934 fix round 4 (2): skipping the excluded notes is not enough -- an EXISTING row for one
+  // of them survived every pass, because nothing in this module ever removed a summary and the
+  // reconcile-side cleanup (search/indexing/index-vault.ts) only runs on a reconcile. This pass
+  // can run alone (the `obsidian-tc index` summarize phase, a cluster build), so it owns the same
+  // cleanup: a note excluded NOW loses its summary row here, whether or not it was ever
+  // re-summarized. Idempotent, and re-evaluated every pass, so a rename back out of the excluded
+  // folder simply re-summarizes on the next run.
+  if (excludeFilter !== undefined) {
+    for (const n of notes) {
+      if (isExcludedPath(excludeFilter, n.path)) deleteNoteSummary(db, vaultId, n.path);
+    }
+  }
   const toSummarize = notExcluded.filter(
     (n) => existingSummaryHash(db, vaultId, n.path) !== n.contentHash,
   );
