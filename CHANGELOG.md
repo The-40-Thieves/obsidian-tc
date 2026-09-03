@@ -6,6 +6,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Catalog discovery on the triad facade (#877, THE-937).** `find_capability` is query-only — it answers "which tool does X" but not "what exists", and an external report measured 97 of 163 tools never called in one deployment against 79% of calls spent on `resources/list`/`prompts/list` chatter. Two additions close the enumeration gap without a fourth meta-tool or changing what `tools/list` advertises: `instructions` (both legacy `initialize` and `server/discover` under MCP 2026-07-28) now carries a 13-domain category summary — one line per domain plus its three or four most-used tool names from a static allowlist, capped under 500 tokens (~2,000 chars) — and a new resource, `obsidian-tc://catalog`, returns the full caller-visible catalog as `{domain, name, summary}` JSON grouped by domain, listed first in `resources/list` ahead of the paginated vault notes and cached an hour (`ttlMs`/`cacheScope: private`). Both surfaces are filtered to the caller-visible catalog exactly the way `find_capability` is — a caller never sees a name it could not call — and `find_capability`'s own description now names the resource.
+
 ## [1.24.0] - 2026-09-03
 
 ### Added

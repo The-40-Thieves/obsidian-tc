@@ -26,6 +26,15 @@ meta-tools taking `{ action, args }`; **`flat`** advertises every tool. In every
 mode each tool stays callable by name, and `tools/list` is further filtered per
 caller scopes + tool-visibility ACL.
 
+`find_capability` is query-only — it answers "which tool does X", not "what
+exists". Two additions close that gap without a fourth meta-tool or any change to
+`tools/list`: the server's `instructions` (returned at connection time) carry a
+13-domain category summary, one line each with the three or four most-used tool
+names per domain; and the `obsidian-tc://catalog` resource returns the full
+caller-visible catalog as `{domain, name, summary}` JSON grouped by domain — no
+schemas, read only on demand. Both are filtered to what the caller can actually
+call, the same way `find_capability` is.
+
 ## The memory engine
 
 Beyond vault access, the server maintains a **quarantined experiential store**

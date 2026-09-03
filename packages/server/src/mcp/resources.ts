@@ -5,11 +5,59 @@ import { readableRel } from "../vault/acl-read-filter";
 import { readNote, statNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
-import { assertScopesGranted, type CallerContext } from "./registry";
+import { buildCatalog, renderCatalogResource } from "./facade";
+import { assertScopesGranted, type CallerContext, type ToolDefinition } from "./registry";
 
 /** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links. */
 export const RESOURCE_SCHEME = "obsidian-tc";
 const MIME_MARKDOWN = "text/markdown";
+const MIME_JSON = "application/json";
+
+// THE-937: the tool catalog resource. Not a vault URI — `<scheme>://catalog`, with no vault
+// segment — so it is matched by identity BEFORE parseResourceUri (which requires a
+// `<vault>/<path>` shape and would reject this as malformed).
+export const CATALOG_RESOURCE_URI = `${RESOURCE_SCHEME}://catalog`;
+
+/** The `resources/list` row advertising the catalog resource. Listed first (mcp/server.ts), ahead
+ *  of the paginated vault notes — one row, no pagination cost. */
+export function catalogResourceEntry(): {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+} {
+  return {
+    uri: CATALOG_RESOURCE_URI,
+    name: "Tool catalog",
+    description:
+      "Every capability visible to this caller, grouped by domain (name + one-line summary, no schemas). See also find_capability for a query-driven search over the same catalog.",
+    mimeType: MIME_JSON,
+  };
+}
+
+/**
+ * resources/read for the catalog URI: the caller-visible catalog (buildCatalog, THE-937) as
+ * `{domain, name, summary}[]` JSON. Filtered exactly the way find_capability is (mcp/server.ts
+ * passes the same `registry.listVisible(...)` result in), so a caller never sees a name it could
+ * not call. The one-hour `ttlMs` / `cacheScope: private` cache hint is applied by the caller
+ * (mcp/server.ts), which knows the URI and can set it only for this resource, not every read.
+ *
+ * `dispatchResource`'s `requiredScopes` parameter (mcp/server.ts) is audit/rate-limit metadata
+ * ONLY — resources.ts owns AUTHORIZATION for every resource, same as readResource below — so this
+ * asserts the scope itself rather than trusting the caller to have gated it.
+ */
+export function readCatalogResource(
+  ctx: CallerContext,
+  tools: ToolDefinition[],
+): ReadResourceResult {
+  assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
+  const entries = renderCatalogResource(buildCatalog(tools));
+  return {
+    contents: [
+      { uri: CATALOG_RESOURCE_URI, mimeType: MIME_JSON, text: JSON.stringify({ tools: entries }) },
+    ],
+  };
+}
 
 export function buildResourceUri(vaultId: string, relPath: string): string {
   // Percent-encode each path segment so names containing %, spaces, #, or ? round-trip through
@@ -42,7 +90,11 @@ export function parseResourceUri(uri: string): { vaultId: string; relPath: strin
   return { vaultId: rest.slice(0, slash), relPath };
 }
 
-function canReadNotes(ctx: CallerContext): boolean {
+// THE-937: exported so mcp/server.ts's resources/list handler can gate the catalog row by the same
+// check listResources applies to notes below — without it, a caller lacking read:notes would see
+// the catalog resource ADVERTISED (though still refused on resources/read, which asserts the scope
+// itself) while every note is correctly absent.
+export function canReadNotes(ctx: CallerContext): boolean {
   return grantsAll(ctx.grantedScopes, ["read:notes"]);
 }
 

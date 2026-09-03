@@ -27,6 +27,7 @@ import {
 } from "./client-features";
 import { extractClientInfo } from "./client-info";
 import {
+  buildInstructions,
   CALL_CAPABILITY_SCHEMA,
   DESCRIBE_CAPABILITY_SCHEMA,
   describeCapability,
@@ -43,7 +44,14 @@ import {
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
-import { listResources, readResource } from "./resources";
+import {
+  CATALOG_RESOURCE_URI,
+  canReadNotes,
+  catalogResourceEntry,
+  listResources,
+  readCatalogResource,
+  readResource,
+} from "./resources";
 import {
   clientSupportsTasks,
   TASK_CALL_JOB_TYPE,
@@ -75,12 +83,15 @@ const MODERN_PROTOCOL_VERSION = "2026-07-28";
  *   * `prompts/list` returns the built-in templates with no filtering and no required scope, so it
  *     is identical for every caller. PUBLIC — asserted by test, because if prompts ever become
  *     vault-derived or caller-scoped this becomes a cross-caller leak.
+ *   * `server/discover`'s `instructions` names the caller-visible catalog (THE-937): moved from
+ *     PUBLIC to PRIVATE like tools/list — a shared cache must not hand one caller's list to another.
  *
- * TTLs are deliberately short. The tool surface is fixed for a process lifetime, but the vault is
- * not, and a stale `resources/list` is a correctness bug in a client that trusts it.
+ * TTLs are deliberately short, except the catalog resource (CACHE_CATALOG): the tool surface is
+ * fixed for a process lifetime, unlike a note's content.
  */
 const CACHE_PRIVATE = { ttlMs: 60_000, cacheScope: "private" } as const;
 const CACHE_PUBLIC = { ttlMs: 300_000, cacheScope: "public" } as const;
+const CACHE_CATALOG = { ttlMs: 3_600_000, cacheScope: "private" } as const; // THE-937, one hour
 
 // tools/list returns at most this many tools per page; the client follows nextCursor for the
 // rest. Set well above the current tool surface (~103) so the whole surface fits one page — a
@@ -285,6 +296,7 @@ export function toMcpTool(def: ToolDefinition): Tool {
   mcpToolMemo.set(def, tool);
   return tool;
 }
+
 /**
  * Assemble a low-level MCP Server bound to a ToolRegistry. ListTools is sourced
  * from the registry; CallTool routes through registry.dispatch so validation,
@@ -294,12 +306,24 @@ export function toMcpTool(def: ToolDefinition): Tool {
  * pass through registry.dispatch. The assembly is transport-agnostic.
  */
 export function createMcpServer(opts: McpServerOptions): Server {
+  // THE-937: legacy `initialize` (SDK-internal `_oninitialize`) owns protocol-version negotiation
+  // and connection state a hand-rolled replacement handler cannot reproduce from outside the
+  // class, so it gets no per-request override. Its `instructions` are computed here ONCE from
+  // `registry.listVisible()` with no caller — the static visibility-CONFIG layer only, per-caller
+  // scope/ACL skipped (see visibility.ts's "omitting the caller" note). `server/discover` below IS
+  // fully caller-filtered, recomputed per request — the closest the SDK allows for legacy.
+  const staticInstructions = buildInstructions(
+    opts.name,
+    opts.version,
+    opts.registry.listVisible(),
+  );
   const server = new Server(
     { name: opts.name, version: opts.version },
     // Advertise resources only when a vaultRegistry is present: without it the resource
     // handlers serve an empty list / throw, so declaring the capability would mislead a client
     // that inspects capabilities to enumerate resources or subscribe to change notifications.
     {
+      instructions: staticInstructions,
       // THE-583: `logging` is advertised because the SDK still implements it and SEP-2577 gave it
       // a >=12-month window — a client mid-migration can still ask for it. roots/sampling are
       // CLIENT capabilities, so they are never declared here; they are consulted per connection.
@@ -370,25 +394,32 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // spec makes it mandatory. Reachable only when served through `createMcpHandler`, which
   // classifies the era per request — asserted end to end by mcp-protocol-eras.test.ts. See design
   // note for the history behind that requirement.
-  server.setRequestHandler("server/discover", () =>
-    withCacheHint(
+  //
+  // THE-718's feedback clause is here because a client in triad/domain facade mode never sees
+  // record_retrieval_feedback's own description — tools/list advertises three meta-tools. The
+  // handshake is the one surface every client reads regardless of mode, and the emitter decision
+  // put the obligation on the acting agent, so it has to be stated somewhere a facade caller will
+  // encounter it. THE-937 adds the 13-domain catalog summary alongside it (buildInstructions),
+  // recomputed per request from THIS caller's visible catalog — unlike the constructor's static
+  // `instructions` (answering legacy `initialize`), this handler has the real per-request caller,
+  // so it is the fully caller-filtered surface Gate 2 asks for. Per-caller means PRIVATE, not the
+  // PUBLIC this carried before THE-937 (see the cache-hints doc comment above).
+  server.setRequestHandler("server/discover", (_req, extra) => {
+    const dctx = opts.context(extra.mcpReq.signal);
+    const dvisible = opts.registry.listVisible({
+      grantedScopes: dctx.grantedScopes,
+      readOnly: dctx.acl?.readOnly,
+      toolVisibility: dctx.toolVisibility,
+    });
+    return withCacheHint(
       {
         supportedVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
         capabilities: server.getCapabilities(),
-        // THE-718: the feedback clause is here because a client in triad/domain facade mode never
-        // sees record_retrieval_feedback's own description — tools/list advertises three
-        // meta-tools. The handshake is the one surface every client reads regardless of mode, and
-        // the emitter decision put the obligation on the acting agent, so it has to be stated
-        // somewhere a facade caller will encounter it.
-        instructions:
-          `${opts.name} ${opts.version} — an MCP server over Obsidian vaults. ` +
-          `Tools are authorized per call (scopes + folder ACL); resources are vault notes. ` +
-          `After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback ` +
-          `— retrieval quality is learned from that signal and nothing else supplies it.`,
+        instructions: buildInstructions(opts.name, opts.version, dvisible),
       },
-      CACHE_PUBLIC,
-    ),
-  );
+      CACHE_PRIVATE,
+    );
+  });
 
   server.setRequestHandler("tools/list", (req, extra): ListToolsResult => {
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
@@ -684,7 +715,17 @@ export function createMcpServer(opts: McpServerOptions): Server {
           ctx,
           ["read:notes"],
           { cursor: req.params?.cursor ?? null },
-          () => listResources(vaultRegistry, ctx, req.params?.cursor),
+          () => {
+            const notes = listResources(vaultRegistry, ctx, req.params?.cursor);
+            // THE-937: the catalog resource is listed FIRST, ahead of the paginated vault notes —
+            // one row, only on the first page (a cursor mid-walk must not re-emit it), and only for
+            // a caller who could read it — the same read:notes gate listResources applies to notes.
+            if (req.params?.cursor || !canReadNotes(ctx)) return notes;
+            return {
+              resources: [catalogResourceEntry(), ...notes.resources],
+              ...(notes.nextCursor ? { nextCursor: notes.nextCursor } : {}),
+            };
+          },
         )
         .then((r) => withCacheHint(r, CACHE_PRIVATE));
     });
@@ -705,6 +746,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
     );
     server.setRequestHandler("resources/read", (req, extra): Promise<ReadResourceResult> => {
       const ctx = opts.context(extra.mcpReq.signal);
+      // THE-937: the catalog resource caches an hour (CACHE_CATALOG), not the 60s vault notes get
+      // (CACHE_PRIVATE) — the tool surface is fixed for a process lifetime; a vault note is not.
+      const isCatalog = req.params.uri === CATALOG_RESOURCE_URI;
       return opts.registry
         .dispatchResource(
           "resources/read",
@@ -715,6 +759,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
           // applies to resources too, not just tools — resources.ts no longer holds its own
           // unconfigurable fixed copy of the default.
           () => {
+            if (isCatalog) {
+              // Filtered exactly the way find_capability is (same listVisible call, same inputs).
+              const visible = opts.registry.listVisible({
+                grantedScopes: ctx.grantedScopes,
+                readOnly: ctx.acl?.readOnly,
+                toolVisibility: ctx.toolVisibility,
+              });
+              return readCatalogResource(ctx, visible);
+            }
             // Synchronous, so a try/catch rather than .catch — the miss must surface as -32602.
             try {
               return readResource(
@@ -728,7 +781,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
             }
           },
         )
-        .then((r) => withCacheHint(r, CACHE_PRIVATE));
+        .then((r) => withCacheHint(r, isCatalog ? CACHE_CATALOG : CACHE_PRIVATE));
     });
   }
 
