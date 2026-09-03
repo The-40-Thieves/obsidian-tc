@@ -476,13 +476,27 @@ jobs:
           for row in "${rows[@]}"; do
             identifier=$(jq -r '.identifier' <<<"$row")
             version=$(jq -r '.version' <<<"$row")
-            base=$(jq -r '.registryBaseUrl' <<<"$row")
+            # N4 fix: registryBaseUrl is OPTIONAL in the registry schema (npm.go defaults it
+            # server-side when absent) — `.registryBaseUrl // "..."` mirrors that default here, so
+            # a future packages[] entry that omits it gets the real npm registry URL instead of the
+            # literal string "null" (jq -r's rendering of a JSON null) baked into $url.
+            base=$(jq -r '.registryBaseUrl // "https://registry.npmjs.org"' <<<"$row")
             enc_id=$(jq -rn --arg n "$identifier" '$n|@uri')
             url="$base/$enc_id/$version"
             echo "waiting for $identifier@$version to resolve at $url (the exact document the registry itself fetches to validate npm ownership)..."
             resolved=false
             for i in $(seq 1 10); do
-              status=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+              # N1 fix: `|| status="000"` is load-bearing under `set -euo pipefail` — without
+              # it, a DNS or TCP blip on curl itself (not an HTTP error, a connection failure —
+              # exit 6, "Could not resolve host") aborts this whole step immediately, so the
+              # ten-attempt retry loop whose entire purpose is tolerating exactly that never runs a
+              # second time. The fallback is on the ASSIGNMENT, not inside the command
+              # substitution (`|| echo 000` there would double up with curl's own `-w` output,
+              # which already prints a literal "000" on a connection-level failure before exiting
+              # non-zero — measured: that shape yields the string "000000", not "000"). `000` is
+              # not a real HTTP status, so it always falls through to the "retry in 10s" branch
+              # below rather than being mistaken for success.
+              status=$(curl -sS -o /dev/null -w '%{http_code}' "$url") || status="000"
               if [ "$status" = "200" ]; then
                 echo "  attempt $i: $url -> 200, resolved"
                 resolved=true
@@ -498,22 +512,29 @@ jobs:
           done
       # Review finding M1: shared with ci-server.yml's registry-validate job so the pinned version
       # + checksum can drift in exactly one place. See that action's header comment for the
-      # checksum's verification sources.
+      # checksum's verification sources. `id:` so the two steps below can consume its `bin` output
+      # (review finding N5) instead of re-hardcoding "$RUNNER_TEMP/mcp-publisher" a second time.
       - uses: ./.github/actions/install-mcp-publisher
+        id: install-mcp-publisher
         if: steps.preflight.outputs.already_published != 'true'
       # No secret exchanged here: this trades the job's own GitHub OIDC token for a short-lived MCP
-      # Registry credential.
+      # Registry credential. `env:` per THE-541 (check-workflow-injection.mjs's own rule) rather
+      # than inlining `${{ }}` directly into the script text.
       - name: authenticate to the MCP Registry (GitHub OIDC)
         if: steps.preflight.outputs.already_published != 'true'
         shell: bash
+        env:
+          MCP_PUBLISHER_BIN: ${{ steps.install-mcp-publisher.outputs.bin }}
         run: |
-          "$RUNNER_TEMP/mcp-publisher" login github-oidc
+          "$MCP_PUBLISHER_BIN" login github-oidc
       # Reads server.json from the repo root (checked out above) by default — no path argument.
       - name: publish server.json to the MCP Registry
         if: steps.preflight.outputs.already_published != 'true'
         shell: bash
+        env:
+          MCP_PUBLISHER_BIN: ${{ steps.install-mcp-publisher.outputs.bin }}
         run: |
-          "$RUNNER_TEMP/mcp-publisher" publish
+          "$MCP_PUBLISHER_BIN" publish
 
   build-binaries:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of

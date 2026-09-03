@@ -324,15 +324,19 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       # Review finding M1: shared with publish.yml's publish-registry job so the pinned version +
       # checksum can drift in exactly one place, not two workflow files a reviewer has to remember
-      # to grep together.
+      # to grep together. `id:` so the step below can consume its `bin` output (review finding N5)
+      # instead of re-hardcoding "$RUNNER_TEMP/mcp-publisher" a second time.
       - uses: ./.github/actions/install-mcp-publisher
+        id: install-mcp-publisher
       - name: validate server.json against the MCP Registry schema (retry network/5xx, fail fast on 4xx)
         shell: bash
+        env:
+          MCP_PUBLISHER_BIN: ${{ steps.install-mcp-publisher.outputs.bin }}
         run: |
           set -euo pipefail
           delay=5
           for attempt in 1 2 3 4 5; do
-            if out=$("$RUNNER_TEMP/mcp-publisher" validate server.json 2>&1); then
+            if out=$("$MCP_PUBLISHER_BIN" validate server.json 2>&1); then
               echo "$out"
               exit 0
             fi
@@ -340,10 +344,12 @@ jobs:
             # mcp-publisher's HTTP-error message shape is "... server returned status <code>: ...".
             # A matched 4xx is the registry actually rejecting server.json — real, not transient, do
             # not retry. Anything else (no status matched at all: a network error, DNS failure,
-            # timeout; or a matched 5xx) is the registry or network being flaky, which a retry can
-            # plausibly fix.
+            # timeout; a matched 5xx; or 429) is the registry or network being flaky, which a retry
+            # can plausibly fix. N3 fix: 429 is excluded from the 4xx-is-fatal rule on purpose —
+            # rate limiting is transient BY DEFINITION, and the registry's own npm validator agrees
+            # in its own error text ("NPM rate-limited … Likely transient, retry later").
             code=$(printf '%s' "$out" | grep -oE 'status [0-9]{3}' | grep -oE '[0-9]{3}' | head -1 || true)
-            if [ -n "$code" ] && [ "$code" -ge 400 ] && [ "$code" -lt 500 ]; then
+            if [ -n "$code" ] && [ "$code" -ge 400 ] && [ "$code" -lt 500 ] && [ "$code" != 429 ]; then
               echo "::error::server.json failed MCP Registry validation (HTTP $code) — not retrying, this is a real rejection, not a transient failure."
               exit 1
             fi

@@ -25,6 +25,7 @@
   "scripts": {
     "build": "bun run --filter='*' build",
     "bundle": "bun scripts/bundle-mcpb.ts",
+    "check:actions-shellcheck": "node scripts/check-actions-shellcheck.mjs",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "check:comment-style": "node scripts/check-comment-style.mjs",
     "check:config-paths": "node scripts/check-config-paths.mjs",

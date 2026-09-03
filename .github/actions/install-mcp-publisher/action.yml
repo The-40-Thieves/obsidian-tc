@@ -10,6 +10,12 @@ description: >-
 # caller today. Bump VERSION and CHECKSUM together when upgrading; re-verify the checksum against
 # the new release's own registry_<version>_checksums.txt (sigstore-signed) AND the GitHub Releases
 # API's own asset digest before trusting it — see THE-940's task report for the exact commands.
+# N5 fix: the `bin` output below is CONSUMED by both callers (routed through `env:` at each
+# call site, per this repo's own THE-541 rule for shell steps — see
+# check-workflow-injection.mjs), not hardcoded a second time as "$RUNNER_TEMP/mcp-publisher". That
+# makes this action the single source of truth for its own install path too, not only for the
+# pinned version/checksum: moving the binary elsewhere inside this action would need no caller
+# edit, whereas a caller that hardcoded the path would silently break.
 outputs:
   bin:
     description: Absolute path to the installed mcp-publisher binary.
