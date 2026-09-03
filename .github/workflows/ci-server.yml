@@ -297,6 +297,32 @@ jobs:
         run: bun test bun-smoke
         working-directory: packages/server
 
+  # THE-941: proves the documented front door -- `npx obsidian-tc /path/to/vault`, no config file
+  # -- actually works with Ollama absent, rather than merely being a README claim. Builds the
+  # exact artifact `obsidian-tc`'s `bin` field points to (dist/cli.js), generates a five-note
+  # fixture vault, confirms the default embeddings port is closed, then drives the real CLI over
+  # stdio with the MCP client SDK: initialize, tools/list (the triad), search_text for a seeded
+  # phrase, get_index_status (degraded, never an error), then SIGTERM. The THE-941 task report
+  # captures two red runs proving this fails for the right reason: the fixture phrase removed, and
+  # the CLI pointed at a config file that names the `ollama` provider and expects "ok" health --
+  # which Ollama's absence on this runner cannot satisfy either way.
+  zero-config-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: build shared
+        run: bun run build
+        working-directory: packages/shared
+      - name: build server
+        run: bun run build
+        working-directory: packages/server
+      - name: zero-config smoke (stdio, no config file, Ollama absent)
+        run: bun run smoke:zero-config
+        working-directory: packages/server
+
   # THE-940: PR-time pre-flight for the MCP Registry publish that publish.yml's `publish-registry`
   # job performs on a tag. `mcp-publisher` has no `--dry-run` flag — `validate` against the
   # repo-root server.json is the closest equivalent, and it is schema/business-rule validation
