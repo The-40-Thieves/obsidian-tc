@@ -62,6 +62,13 @@ function edb0(): Database {
     // THE-891: the per-key caller partition. Same reasoning as THE-710 above — every assertion
     // below runs against the fully-partitioned schema, not an intermediate one.
     { version: "20260820_001", sql: sql("20260820_001_preference_scope_caller.sql") },
+    // THE-726 (on-demand derivation): verdict_source / verdict_policy. evaluateEpisodes now SELECTs
+    // verdict_source to decide whether a -1 holds — agent_episodes-only, composes onto this prefix
+    // like the three THE-726/THE-746 migrations above.
+    {
+      version: "20260903_001",
+      sql: sql("20260903_001_episode_verdict_provenance.sql"),
+    },
   ]);
   return db;
 }
@@ -86,11 +93,15 @@ function seed(
     // keeps each of those rows its own one-row window, same as before THE-726 added the columns.
     session_id: string | null;
     verdict_at: number | null;
+    // THE-726: `undefined` -> NULL (a legacy/never-stamped row, treated as unconditional-hold the
+    // same as 'operator' — see holdsBadResult's own comment). Pass 'operator' or 'derived'
+    // explicitly to exercise the provenance-aware hold rule.
+    verdict_source: string | null;
   }> = {},
 ): void {
   db.prepare(
-    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from, vault_id, session_id, verdict_at)
-     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO agent_episodes (id, ts, caller, channel, episode_type, tool, status, args_hash, task_result, eligibility, blocked, valid_from, vault_id, session_id, verdict_at, verdict_source)
+     VALUES (?, ?, ?, 'dispatch', 'tool_call', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     NOW,
@@ -107,6 +118,7 @@ function seed(
     over.vault_id === undefined ? V1 : over.vault_id,
     over.session_id ?? null,
     over.verdict_at ?? null,
+    over.verdict_source ?? null,
   );
 }
 
@@ -401,6 +413,91 @@ describe("evaluateEpisodes (THE-222)", () => {
         }
       ).n,
     ).toBe(1);
+  });
+});
+
+// THE-726 (on-demand derivation): a derived -1 must NOT be trusted the same way an operator -1
+// always is. The hold rule is order-independent on the SOURCE axis too: verdict_source alone
+// decides, never the presence of a policy version or any other column.
+describe("evaluateEpisodes: verdict_source-aware hold (THE-726)", () => {
+  it("an operator -1 holds unconditionally, flag off or on", async () => {
+    const db = edb0();
+    seed(db, "op", { task_result: -1, verdict_source: "operator" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(stats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(db, "op")).toBe("pending");
+  });
+
+  it("a derived -1 does NOT hold when the flag is off — it promotes like any other verdict", async () => {
+    const db = edb0();
+    seed(db, "der", { task_result: -1, verdict_source: "derived" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(stats).toMatchObject({ promoted: 1, held: 0 });
+    expect(elig(db, "der")).toBe("eligible");
+  });
+
+  it("a derived -1 holds the same way an operator one does when the flag is on", async () => {
+    const db = edb0();
+    seed(db, "der", { task_result: -1, verdict_source: "derived" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: true });
+    expect(stats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(db, "der")).toBe("pending");
+    const reason = (
+      db.prepare("SELECT eligibility_reason AS r FROM agent_episodes WHERE id = 'der'").get() as {
+        r: string;
+      }
+    ).r;
+    expect(reason).toBe("held_bad_task_result");
+  });
+
+  it("a legacy row (verdict_source NULL, predates the provenance migration) holds unconditionally, same as an operator stamp", async () => {
+    const db = edb0();
+    seed(db, "legacy", { task_result: -1 }); // verdict_source defaults to NULL
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(stats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(db, "legacy")).toBe("pending");
+  });
+
+  it("the default (derivedVerdictHold omitted) behaves as flag-off", async () => {
+    const db = edb0();
+    seed(db, "der", { task_result: -1, verdict_source: "derived" });
+    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000 });
+    expect(stats).toMatchObject({ promoted: 1, held: 0 });
+  });
+
+  it("evaluateEpisodes promotes a row a DERIVED -1 condemned between its read and its write, flag off — the race-guard predicate agrees with partitionPending", async () => {
+    // Mirrors task-verdict.test.ts's own TOCTOU pin, for the NEW predicate: the promote UPDATE's
+    // re-check must match partitionPending's holdsBadResult exactly, not just `task_result <> -1`,
+    // or a derived -1 landing mid-pass would be wrongly blocked from promoting even with the flag
+    // off — the same class of bug the original re-check was added to close for operator verdicts.
+    const db = edb0();
+    seed(db, "race", { eligibility: "pending", task_result: null });
+    // Simulate the verdict landing after evaluateEpisodes' SELECT but before its UPDATE: mutate the
+    // row directly rather than going through evaluateEpisodes' own single pass.
+    db.prepare(
+      "UPDATE agent_episodes SET task_result = -1, verdict_source = 'derived' WHERE id = 'race'",
+    ).run();
+    const promoted = db
+      .prepare(
+        `UPDATE agent_episodes SET eligibility = 'eligible'
+          WHERE id = 'race' AND eligibility = 'pending'
+            AND (task_result IS NULL OR task_result <> -1 OR (verdict_source = 'derived' AND ? = 0))`,
+      )
+      .run(0).changes;
+    expect(promoted).toBe(1); // flag off (0) -> the derived -1 does not block promotion
+    // The mirror case: an OPERATOR -1 landing the same way must still be blocked, flag or no flag.
+    seed(db, "race-op", { eligibility: "pending", task_result: null });
+    db.prepare(
+      "UPDATE agent_episodes SET task_result = -1, verdict_source = 'operator' WHERE id = 'race-op'",
+    ).run();
+    const blocked = db
+      .prepare(
+        `UPDATE agent_episodes SET eligibility = 'eligible'
+          WHERE id = 'race-op' AND eligibility = 'pending'
+            AND (task_result IS NULL OR task_result <> -1 OR (verdict_source = 'derived' AND ? = 0))`,
+      )
+      .run(0).changes;
+    expect(blocked).toBe(0);
   });
 });
 

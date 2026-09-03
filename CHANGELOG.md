@@ -6,6 +6,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`agent_episodes.task_result` gets an on-demand writer (THE-726).** `work_result` had exactly one caller (itself): measured on the live store 14 days after deploy, 2 stamped rows (the operator smoke test) against 620 unstamped tool rows, 128 of them post-deploy — the pre-registered kill condition. The server now derives a verdict from a closed session's tool-call log (a terminal error, a retried args_hash that never recovers, or a search followed by a read that ends cleanly) and writes it through the same `stampOpenWindow` window rule the operator tool uses, on the scheduled reflect tick and the CLI `reflect` command. New `verdict_source`/`verdict_policy` provenance columns on `agent_episodes` distinguish a first-person `operator` stamp from a `derived` one. New flag `experiential.derivedVerdictHold` (default off) controls whether a derived `-1` can hold an episode out of promotion the way an operator `-1` always does; off, a derived `-1` is still written and still feeds `preferred.search_mode` evidence, it just does not hold.
+
 ## [1.23.6] - 2026-09-01
 
 ### Changed

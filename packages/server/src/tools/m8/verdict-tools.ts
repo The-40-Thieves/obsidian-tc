@@ -132,6 +132,9 @@ export function buildVerdictTools(deps: M8Deps): ToolDefinition[] {
           result: input.result,
           now,
           asOf,
+          // THE-726: a first-person judgement, never the derived writer's kind. No policy — there
+          // is no rule to version, the operator IS the judgement.
+          source: "operator",
         });
         return {
           available: true as const,

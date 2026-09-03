@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
-import type { Database } from "../../db/types";
+import { deriveClosedWindows } from "../../experiential/derive-verdict";
 import { evaluateEpisodes, extractPreferences } from "../../experiential/reflect";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
@@ -13,25 +13,37 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  // THE-644: `experiential.citationPreferences` is the ship-dark gate on the citation evidence
-  // source in extractPreferences — off by default. cache.db is only opened when the flag is on,
-  // so an off deployment pays no extra handle or query cost, not merely an unused one.
-  const cacheDb: Database | undefined = cfg.experiential.citationPreferences
-    ? await openDatabase(join(cfg.cacheDir, "cache.db"))
-    : undefined;
+  // THE-726: the derived-verdict pass needs `workspace_sessions.ended_at`, in cache.db, regardless
+  // of `experiential.citationPreferences` — it must not depend on that unrelated flag. cache.db is
+  // therefore opened unconditionally here now, one handle, closed in the same `finally` below.
+  // `citationPreferences` still gates only whether extractPreferences is HANDED this connection.
+  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
   try {
     const nowMs = Date.now();
+    // THE-726: derive verdicts for every ended session with open judgeable rows BEFORE the
+    // eligibility pass runs, so a freshly-derived -1 is held in the same pass when
+    // derivedVerdictHold is on (evaluateEpisodes below re-reads task_result/verdict_source fresh).
+    const derived = await deriveClosedWindows(edb, cacheDb, { nowMs });
     // THE-701 removed the eligibility pass's judge; THE-673 removed extractPreferences' judge too
     // (a deterministic counter over typed evidence, see that file) — this command no longer needs
     // a GatewayClient at all.
-    const stats = await evaluateEpisodes(edb, { nowMs });
+    const stats = await evaluateEpisodes(edb, {
+      nowMs,
+      derivedVerdictHold: cfg.experiential.derivedVerdictHold,
+    });
     // THE-710: the preference plane is partitioned by vault, so extraction fans out per configured
     // vault the way the note-quality job does. Reported PER VAULT rather than summed: a single
     // "applied=N" across vaults would hide that one vault produced everything and another nothing,
     // which is exactly the blend the partition exists to make visible.
     const lines: string[] = [];
     for (const v of cfg.vaults) {
-      const prefs = await extractPreferences(edb, v.id, { nowMs, cacheDb });
+      const prefs = await extractPreferences(edb, v.id, {
+        nowMs,
+        // THE-644: `experiential.citationPreferences` is the ship-dark gate on the citation
+        // evidence source in extractPreferences — off by default. Handing it `cacheDb` only when
+        // the flag is on keeps that gate byte-identical; cache.db itself is now always open above.
+        cacheDb: cfg.experiential.citationPreferences ? cacheDb : undefined,
+      });
       lines.push(
         `preferences[${v.id}]: ${
           prefs.skipped
@@ -41,12 +53,13 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
       );
     }
     process.stdout.write(
-      `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied}\n` +
+      `reflect: derived_sessions=${derived.sessionsSeen} derived_stamped=-1:${derived.stamped.minus} 0:${derived.stamped.zero} +1:${derived.stamped.plus} derived_skipped=${derived.skipped}\n` +
+        `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied}\n` +
         `${lines.join("\n")}\n`,
     );
   } finally {
     edb.close?.();
-    cacheDb?.close?.();
+    cacheDb.close?.();
   }
   return;
 }

@@ -47,6 +47,15 @@ describe("derived.column-liveness spec", () => {
     expect(byName("agent_episodes.summary")?.writer).toBe("enabled");
   });
 
+  // THE-726 (on-demand derivation): the two new provenance columns must be present and classified
+  // the same way task_result is — a real producer exists, config gates it.
+  it("names and classifies the THE-726 provenance columns", () => {
+    const spec = experientialColumnSpec({ experiential: true });
+    const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);
+    expect(byName("agent_episodes.verdict_source")?.writer).toBe("enabled");
+    expect(byName("agent_episodes.verdict_policy")?.writer).toBe("enabled");
+  });
+
   // The emitter for feedback is a client action (THE-718: the acting agent stamps it), so
   // an unstamped column is "awaiting its first use", not a fault. Classifying it "enabled" would
   // warn on day one of a correct deployment — the exact cry-wolf failure derived.liveness was

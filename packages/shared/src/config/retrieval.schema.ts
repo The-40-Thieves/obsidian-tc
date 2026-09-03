@@ -573,6 +573,26 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "Fold chunk_retrievals citation verdicts (citation_state / cited_in_response) into the deterministic preferred.search_mode preference counter, alongside episode task_result evidence: a search-family tool whose retrievals are CONFIRMED cited strengthens the key, one whose retrievals are REJECTED weakens it. Off by default — ranking-adjacent, needs a pre-registered eval before defaulting on. Needs citationInfer.enabled (or another citation_state producer) to have any effect.",
     ),
+  /** THE-726: `work_result` (the operator's first-person task-verdict tool) had exactly one caller —
+   *  itself. Measured on the live store 14 days after deploy: 2 stamped rows (the smoke test)
+   *  against 620 unstamped tool rows, 128 of them post-deploy. The derived-verdict pass (CLI
+   *  `reflect` and the scheduled reflect tick) closes that gap by inferring a verdict from a closed
+   *  session's tool-call log — always ON, always written, because it is real evidence for
+   *  `extractPreferences` regardless of this flag.
+   *
+   *  This flag governs ONE thing: whether a DERIVED `-1` holds an episode out of promotion the same
+   *  way an OPERATOR `-1` unconditionally does (reflect.ts's `partitionPending`). OFF by default,
+   *  matching `activationRerank`/`citationPreferences` above — a structural inference (retries, a
+   *  terminal error, an absent browse) is a different kind of evidence than a first-person
+   *  judgement, and widening what silently withholds retrieval needs the same pre-registered review
+   *  those flags require before defaulting on. With the flag off, a derived `-1` is written and
+   *  feeds the preference extractor exactly like any other verdict; it just does not hold. */
+  derivedVerdictHold: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Let a DERIVED task verdict (-1, inferred from a closed session's tool-call log — retries, a terminal error, no browse after search) hold an episode out of promotion the same way an OPERATOR work_result(-1) unconditionally does. Off by default: a derived -1 is still written and still feeds preferred.search_mode evidence, it just does not hold. The derivation itself always runs; this flag only governs whether its -1 verdicts gate retrieval.",
+    ),
   /** THE-717: the scheduled citation pass. `inferCitations` had exactly one caller — the offline
    *  `obsidian-tc citation-infer` CLI — so every citation column was NULL on 105 of 105 live rows:
    *  correct code, complete tests, no scheduled caller. Same shape as gapSweep below, and named

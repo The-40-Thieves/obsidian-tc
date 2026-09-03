@@ -80,6 +80,29 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       lever:
         "an agent calling work_result after finishing a task (THE-726). The verdict is rendered at SESSION grain and PROJECTED onto the window's judgeable rows, so these are not independent per-dispatch judgements: (session_id, verdict_at) identifies the rows sharing one opinion, and a consumer that ignores it double-counts.",
     },
+    // THE-726 (on-demand derivation): the two writers of task_result are now distinguishable.
+    // `verdict_source` is 'operator' (work_result, a first-person judgement) or 'derived' (the
+    // scheduled/CLI pass inferring a verdict from a closed session's tool-call log); a row stamped
+    // before this migration has neither, and NULL correctly reports that rather than guessing which
+    // writer it was.
+    {
+      table: "agent_episodes",
+      column: "verdict_source",
+      writer: on ? "enabled" : "disabled",
+      lever:
+        "work_result (writes 'operator') or the derived-verdict pass, CLI reflect / the scheduled reflect tick (writes 'derived') over a closed session's tool-call log (THE-726).",
+    },
+    {
+      table: "agent_episodes",
+      column: "verdict_policy",
+      // Only the DERIVED writer versions its rule set — an operator stamp is a first-person
+      // judgement with no rule to version, so it always writes NULL here even while enabled. A
+      // store with only operator stamps therefore reports this column NULL correctly, not as a
+      // sign the derivation pass never ran.
+      writer: on ? "enabled" : "disabled",
+      lever:
+        "the derived-verdict pass stamping DERIVATION_POLICY_VERSION alongside a derived verdict (THE-726); NULL on every operator stamp by design.",
+    },
     {
       table: "agent_episodes",
       column: "summary",

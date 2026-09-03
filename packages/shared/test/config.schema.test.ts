@@ -224,6 +224,21 @@ describe("ExperientialConfigSchema.citationPreferences (THE-644)", () => {
   });
 });
 
+// THE-726: the derived-verdict hold flag — same ship-dark shape as citationPreferences/
+// activationRerank above (default false; a derived -1 is still written and still feeds
+// extractPreferences either way — this flag governs only whether it can also HOLD an episode).
+describe("ExperientialConfigSchema.derivedVerdictHold (THE-726)", () => {
+  it("defaults to false on a minimal config", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.experiential.derivedVerdictHold).toBe(false);
+  });
+
+  it("is settable to true and round-trips through ServerConfigSchema", () => {
+    const c = ServerConfigSchema.parse({ ...base, experiential: { derivedVerdictHold: true } });
+    expect(c.experiential.derivedVerdictHold).toBe(true);
+  });
+});
+
 // THE-591: closes the same "built and dark" gap THE-535 (above) documents for
 // experiential.activationRerank — retrieval.gatedRerank and indexing.streamingWalk existed as
 // fully-implemented, fully-tested code paths with NO config key at all, reachable only from the

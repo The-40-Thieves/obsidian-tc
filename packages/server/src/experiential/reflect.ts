@@ -37,6 +37,10 @@ interface PendingRow {
   /** Task result (-1 | 0 | +1 | null), renamed from `outcome` in 20260806_002. -1 (known-bad)
    *  is held; see the invariants. */
   task_result: number | null;
+  /** THE-726: which writer produced `task_result`. NULL for a row stamped before the provenance
+   *  migration, or never stamped at all — `holdsBadResult` below treats NULL the same as
+   *  'operator' (unconditional hold), preserving the pre-THE-726 behaviour for every legacy row. */
+  verdict_source: string | null;
 }
 
 /**
@@ -68,6 +72,12 @@ export type EligibilityReason =
 // still calls this with plain `PendingRow & { ts }` and is unaffected.
 export function partitionPending<T extends PendingRow>(
   pending: T[],
+  opts?: {
+    /** THE-726: `experiential.derivedVerdictHold`. When true, a 'derived' -1 holds the same way an
+     *  'operator' one always does; when false (the default), a derived -1 is written and feeds
+     *  extractPreferences but does NOT hold — only a first-person operator judgement does. */
+    derivedVerdictHold?: boolean;
+  },
 ): {
   candidates: T[];
   held: number;
@@ -94,6 +104,16 @@ export function partitionPending<T extends PendingRow>(
     const s = statusesByKey.get(k);
     return s?.has("ok") === true && s.has("error");
   };
+  // THE-726: a -1 holds when it is an OPERATOR judgement (or predates the provenance column
+  // entirely — NULL is treated the same as 'operator', which is exactly the unconditional-hold
+  // behaviour every row had before this axis existed) or when it is a DERIVED inference AND the
+  // flag opts into trusting derived evidence the same way. A derived -1 with the flag off is real
+  // evidence — extractPreferences still sees it — it just does not hold.
+  const holdsBadResult = (r: PendingRow): boolean => {
+    if (r.task_result !== -1) return false;
+    if (r.verdict_source === "derived") return opts?.derivedVerdictHold === true;
+    return true;
+  };
   const candidates: T[] = [];
   const holds: Array<{ row: T; reason: EligibilityReason }> = [];
   for (const r of pending) {
@@ -104,7 +124,7 @@ export function partitionPending<T extends PendingRow>(
     // fact is the more useful one to surface, and the narrower one is still recoverable from the
     // row's own column.
     if (unstable(r)) holds.push({ row: r, reason: "held_unstable_evidence" });
-    else if (r.task_result === -1) holds.push({ row: r, reason: "held_bad_task_result" });
+    else if (holdsBadResult(r)) holds.push({ row: r, reason: "held_bad_task_result" });
     else candidates.push(r);
   }
   return { candidates, held: holds.length, holds };
@@ -165,11 +185,16 @@ function toolTalliesBySession(
  *  columns (stable, not churn) unless the underlying data actually changed. */
 export async function evaluateEpisodes(
   edb: Database,
-  opts: { nowMs: number },
+  opts: {
+    nowMs: number;
+    /** THE-726: `experiential.derivedVerdictHold`, forwarded to `partitionPending` and to the
+     *  promote UPDATE's own TOCTOU re-check below. Absent -> false, matching the flag's default. */
+    derivedVerdictHold?: boolean;
+  },
 ): Promise<EvaluateStats> {
   const pending = edb
     .prepare(
-      `SELECT id, caller, tool, status, args_hash, summary, task_result, tags, session_id
+      `SELECT id, caller, tool, status, args_hash, summary, task_result, verdict_source, tags, session_id
          FROM agent_episodes
        WHERE eligibility = 'pending' AND blocked = 0
          AND (valid_until IS NULL OR valid_until > ?)
@@ -184,7 +209,9 @@ export async function evaluateEpisodes(
   };
   if (pending.length === 0) return stats;
 
-  const { candidates, held, holds } = partitionPending(pending);
+  const { candidates, held, holds } = partitionPending(pending, {
+    derivedVerdictHold: opts.derivedVerdictHold,
+  });
   stats.held = held;
   const tallies = toolTalliesBySession(edb, pending);
   const summaryFor = (r: PendingRowWithSummarySource): string =>
@@ -200,10 +227,16 @@ export async function evaluateEpisodes(
   // read and this UPDATE. Without the re-check that race promotes the row anyway and it is never
   // re-inspected (the next pass selects only `pending`). See
   // docs/design/experiential-reflection.md for the full race sequence.
+  //
+  // The re-check now mirrors `holdsBadResult` exactly, not a plain `<> -1`: a DERIVED -1 with the
+  // flag off is a legitimate promotion (it never held in the first place), so the race-guard must
+  // not block it just because the column reads -1. `?` (0/1) carries `derivedVerdictHold` into the
+  // same predicate `partitionPending` used above, so the two can never disagree.
   const promote = edb.prepare(
     `UPDATE agent_episodes
         SET eligibility = 'eligible', eligibility_reason = ?, eligibility_policy = ?, summary = ?
-      WHERE id = ? AND eligibility = 'pending' AND (task_result IS NULL OR task_result <> -1)`,
+      WHERE id = ? AND eligibility = 'pending'
+        AND (task_result IS NULL OR task_result <> -1 OR (verdict_source = 'derived' AND ? = 0))`,
   );
   // THE-746: a HELD row keeps `eligibility = 'pending'` — being held is not a state change, it is
   // the absence of one — but it still records WHY it was passed over. Without this the two reasons
@@ -219,8 +252,15 @@ export async function evaluateEpisodes(
   // Kept in the stats shape because doctor's experiential.evaluator signal and the reflect CLI both
   // read it, and because a future deterministic deny rule belongs in this counter rather than a new
   // one.
+  const derivedHoldFlag = opts.derivedVerdictHold ? 1 : 0;
   for (const r of candidates) {
-    promote.run("promoted_stable", ELIGIBILITY_POLICY_VERSION, summaryFor(r), r.id);
+    promote.run(
+      "promoted_stable",
+      ELIGIBILITY_POLICY_VERSION,
+      summaryFor(r),
+      r.id,
+      derivedHoldFlag,
+    );
     stats.promoted++;
   }
   for (const h of holds) {
@@ -465,8 +505,12 @@ function scopeCallerFor(key: string, windowCaller: string | null): string {
 /** THE-673: the search-family tools `preferred.search_mode` counts over. Closed list rather than
  *  "any tool that ran", because the point of this key is revealed *choice among alternatives* —
  *  counting every dispatch would fold in tools with no comparable substitute and dilute the
- *  signal this axis exists to carry. */
-const SEARCH_FAMILY_TOOLS: ReadonlySet<string> = new Set([
+ *  signal this axis exists to carry.
+ *
+ *  Exported (THE-726): `derive-verdict.ts`'s S1 "browse" signal — a search-family call followed
+ *  later in the window by a read-family one — reuses this SAME set rather than keeping its own
+ *  copy, so the two producers can never classify a tool differently. */
+export const SEARCH_FAMILY_TOOLS: ReadonlySet<string> = new Set([
   "search_text",
   "search_regex",
   "search_vault",
@@ -748,6 +792,16 @@ export interface EpisodeEvaluationDeps {
   // to a lazy gateway lookup, now true by construction rather than by discipline.
   onEvaluate?: (stats: EvaluateStats) => void;
   onError?: (e: unknown) => void;
+  /** THE-726: `experiential.derivedVerdictHold`, forwarded to `evaluateEpisodes`. */
+  derivedVerdictHold?: boolean;
+  /** THE-726: run the derived-verdict pass (derive-verdict.ts's `deriveClosedWindows`)
+   *  IMMEDIATELY BEFORE this tick's `evaluateEpisodes`, so a freshly-derived -1 is held in the SAME
+   *  pass rather than waiting for the next tick. Injected as a closure, not imported directly:
+   *  derive-verdict.ts already imports `SEARCH_FAMILY_TOOLS` from this module, and importing it
+   *  back here would be a cycle. The wiring layer (runtime/plane-wiring.ts) builds the closure and
+   *  decides whether to supply it at all — absent (no cache.db handle available) means this step
+   *  no-ops, which the wiring layer is responsible for logging once. */
+  deriveClosedWindows?: () => Promise<unknown>;
 }
 
 /**
@@ -767,7 +821,13 @@ export function registerEpisodeEvaluation(scheduler: Scheduler, deps: EpisodeEva
     name: "episode-evaluation",
     intervalMs: deps.intervalMs,
     run: async () => {
-      const stats = await evaluateEpisodes(deps.edb, { nowMs: (deps.now ?? Date.now)() });
+      // THE-726: derive first, in the SAME tick — a derived -1 must be visible to this pass's own
+      // read of task_result/verdict_source when derivedVerdictHold is on.
+      await deps.deriveClosedWindows?.();
+      const stats = await evaluateEpisodes(deps.edb, {
+        nowMs: (deps.now ?? Date.now)(),
+        derivedVerdictHold: deps.derivedVerdictHold,
+      });
       deps.onEvaluate?.(stats);
     },
     onError: (e) => deps.onError?.(e),
@@ -792,10 +852,19 @@ export interface EpisodeBacklog {
  * docs/design/experiential-reflection.md for why a plain `pending` count was tried first and found
  * wrong.
  */
-export function readEpisodeBacklog(edb: Database, nowMs: number): EpisodeBacklog {
+/** THE-726: `derivedVerdictHold` mirrors `experiential.derivedVerdictHold` so this diagnostic
+ *  agrees with what the evaluator would actually promote; the doctor probe (cli/commands/doctor.ts)
+ *  opens a bare handle with no config in scope and passes nothing, which defaults to the flag's own
+ *  default (false) — the same value an unconfigured deployment runs with. */
+export function readEpisodeBacklog(
+  edb: Database,
+  nowMs: number,
+  derivedVerdictHold?: boolean,
+): EpisodeBacklog {
   const pending = edb
     .prepare(
-      `SELECT id, caller, tool, status, args_hash, summary, task_result, ts FROM agent_episodes
+      `SELECT id, caller, tool, status, args_hash, summary, task_result, verdict_source, ts
+         FROM agent_episodes
        WHERE eligibility = 'pending' AND blocked = 0
          AND (valid_until IS NULL OR valid_until > ?)
        ORDER BY ts ASC`,
@@ -806,7 +875,7 @@ export function readEpisodeBacklog(edb: Database, nowMs: number): EpisodeBacklog
       .prepare("SELECT COUNT(*) AS n FROM agent_episodes WHERE eligibility = 'eligible'")
       .get() as { n: number }
   ).n;
-  const { candidates } = partitionPending(pending);
+  const { candidates } = partitionPending(pending, { derivedVerdictHold });
   // Rows come back ts ASC, so the first candidate is the oldest promotable one.
   const oldest = candidates[0] as (PendingRow & { ts: number }) | undefined;
   return {

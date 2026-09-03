@@ -57,7 +57,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-230 | Experiential caller-partition is now an authorization boundary, not a default filter | CHANGELOG.md (1.11.0) | 13 |
 | THE-231 | Proactive lesson surfacing in vault_context (THE-231). | CHANGELOG.md (1.7.0) | 4 |
 | THE-232 | _internal planning reference — see repo history_ | — | 3 |
-| THE-233 | Retrieval claims corrected to match the code (external claim audit). | CHANGELOG.md (1.3.5) | 26 |
+| THE-233 | Retrieval claims corrected to match the code (external claim audit). | CHANGELOG.md (1.3.5) | 27 |
 | THE-235 | _internal planning reference — see repo history_ | — | 4 |
 | THE-237 | _internal planning reference — see repo history_ | — | 2 |
 | THE-238 | A sanctioned, poison-scanned path for agent-synthesised notes (#814, THE-639). | CHANGELOG.md (1.22.0) | 11 |
@@ -306,7 +306,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-722 | `audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722). | CHANGELOG.md (1.17.1) | 4 |
 | THE-723 | The scheduler's backoff cap had become a global 5-minute ceiling on every background job (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
 | THE-725 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
-| THE-726 | The task-verdict producer for `agent_episodes.task_result` (#804, THE-726). | CHANGELOG.md (1.22.0) | 23 |
+| THE-726 | `agent_episodes.task_result` gets an on-demand writer (THE-726). | CHANGELOG.md (Unreleased) | 29 |
 | THE-727 | Operation-aware authorization (#697, THE-727). | CHANGELOG.md (1.20.0) | 3 |
 | THE-730 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 1 |
 | THE-732 | _internal planning reference — see repo history_ | — | 1 |
@@ -339,7 +339,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-832 | A root `gateway` config block (`baseUrl`/`token`) (#792, THE-832). | CHANGELOG.md (1.22.0) | 3 |
 | THE-833 | Memory entities get a lifecycle — retire, rename, unlink, delete (#795, THE-833). | CHANGELOG.md (1.22.0) | 8 |
 | THE-837 | The `ollama` embeddings built-in is deprecated (THE-837), and still fully functional. | CHANGELOG.md (1.22.0) | 8 |
-| THE-838 | The task-verdict producer for `agent_episodes.task_result` (#804, THE-726). | CHANGELOG.md (1.22.0) | 2 |
+| THE-838 | The task-verdict producer for `agent_episodes.task_result` (#804, THE-726). | CHANGELOG.md (1.22.0) | 3 |
 | THE-839 | `episode_type` is a structural value, not a rendered literal (#802, THE-839). | CHANGELOG.md (1.22.0) | 10 |
 | THE-852 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 10 |
 | THE-853 | The adaptive-RRF IDF path is ACL-partitioned, closing a cross-ACL term-presence oracle (#830, THE-853). | CHANGELOG.md (1.22.0) | 9 |
@@ -358,6 +358,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 
-343 distinct ticket(s) across 481 source file(s) under
+343 distinct ticket(s) across 483 source file(s) under
 `packages/*/src`; 276 resolved to a public summary, 67
 fall back to the internal-reference placeholder above.

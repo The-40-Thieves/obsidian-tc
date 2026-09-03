@@ -1101,6 +1101,11 @@
           "description": "Fold chunk_retrievals citation verdicts (citation_state / cited_in_response) into the deterministic preferred.search_mode preference counter, alongside episode task_result evidence: a search-family tool whose retrievals are CONFIRMED cited strengthens the key, one whose retrievals are REJECTED weakens it. Off by default — ranking-adjacent, needs a pre-registered eval before defaulting on. Needs citationInfer.enabled (or another citation_state producer) to have any effect.",
           "type": "boolean"
         },
+        "derivedVerdictHold": {
+          "default": false,
+          "description": "Let a DERIVED task verdict (-1, inferred from a closed session's tool-call log — retries, a terminal error, no browse after search) hold an episode out of promotion the same way an OPERATOR work_result(-1) unconditionally does. Off by default: a derived -1 is still written and still feeds preferred.search_mode evidence, it just does not hold. The derivation itself always runs; this flag only governs whether its -1 verdicts gate retrieval.",
+          "type": "boolean"
+        },
         "citationInfer": {
           "description": "THE-717: scheduled citation-inference pass over a transcript index. Needs an out-of-tree producer for transcriptIndex — no MCP surface gives a server the assistant's answer.",
           "default": {},

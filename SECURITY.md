@@ -244,7 +244,12 @@ so operators can reason about them rather than discover them.
   and never raised; an unstable cluster (the same caller+tool+args_hash showing both `ok` and
   `error`) is held; a row already marked a bad result (`task_result = -1`, THE-565 — the column was
   named `outcome` before 20260806_003) is held; and an optional model judge can only **lower** a
-  promotion (a parse failure aborts the judge, so the deterministic promotions stand). A plain
+  promotion (a parse failure aborts the judge, so the deterministic promotions stand). Since
+  THE-726, `task_result = -1` can come from two writers distinguished by `verdict_source`: an
+  `operator` stamp (`work_result`, a first-person judgement) always holds, but a `derived` one — the
+  server inferring a verdict from a closed session's tool-call log — holds only when
+  `experiential.derivedVerdictHold` is on (default off); with the flag off a derived `-1` is written
+  and still feeds the preference extractor, it just does not gate promotion. A plain
   `error` dispatch with no bad-result stamp
   **is** promoted — a failed action is a lesson. Retrieval is then gated by the reader trust floor +
   eligible-only contract (layer 6, THE-229/237). Operators relying on the experiential tier should

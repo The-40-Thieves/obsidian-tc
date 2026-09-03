@@ -37,6 +37,14 @@ import type { Database } from "../db/types";
 /** -1 bad, 0 neutral, +1 good. Mirrors the column's documented domain. */
 export type TaskResult = -1 | 0 | 1;
 
+/** THE-726 (on-demand derivation): which of the two writers produced this verdict.
+ *  'operator' — work_result, a first-person judgement of the task the caller just ran.
+ *  'derived'  — the derived-verdict pass, inferring a verdict from a closed session's tool-call
+ *               log (see derive-verdict.ts). The two are not interchangeable evidence: reflect.ts's
+ *               hold rule trusts an operator '-1' unconditionally and a derived '-1' only when
+ *               `experiential.derivedVerdictHold` is on. */
+export type VerdictSource = "operator" | "derived";
+
 export interface StampOptions {
   sessionId: string;
   result: TaskResult;
@@ -44,6 +52,14 @@ export interface StampOptions {
   now: number;
   /** Ceiling on `ts`. Defaults to `now`. Clamped by the caller, not here. */
   asOf?: number;
+  /** THE-726: which writer produced this verdict. Required, not defaulted — a caller must state
+   *  which kind of evidence it is producing rather than one falling silently into the other's
+   *  column. */
+  source: VerdictSource;
+  /** THE-726: the derivation rule version, for a 'derived' verdict only. `stampOpenWindow` writes
+   *  it verbatim (NULL when absent) — an 'operator' stamp never carries one, because there is no
+   *  rule to version; the operator IS the judgement. */
+  policy?: number;
 }
 
 export interface StampOutcome {
@@ -102,13 +118,14 @@ export function stampOpenWindow(edb: Database, opts: StampOptions): StampOutcome
     const stamped = edb
       .prepare(
         `UPDATE agent_episodes
-            SET task_result = ?, verdict_at = ?
+            SET task_result = ?, verdict_at = ?, verdict_source = ?, verdict_policy = ?
           WHERE session_id = ?
             AND task_result IS NULL
             AND episode_type = 'tool_call'
             AND ts <= ?`,
       )
-      .run(opts.result, verdictAt, opts.sessionId, asOf).changes as number;
+      .run(opts.result, verdictAt, opts.source, opts.policy ?? null, opts.sessionId, asOf)
+      .changes as number;
 
     // THE-726 review finding: `reflect.ts`'s hold rule is ORDER-DEPENDENT, and close-time stamping
     // is exactly the order that defeats it. `evaluateEpisodes` selects `eligibility = 'pending'`
