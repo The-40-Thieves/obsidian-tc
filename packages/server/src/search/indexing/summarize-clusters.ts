@@ -35,7 +35,7 @@ import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { GatewayClient } from "../../gateway";
-import { type EgressFilter, isExcludedPath } from "../../plane/egress-filter";
+import { type EgressFilter, EgressViolationError, isExcludedPath } from "../../plane/egress-filter";
 import { runWithConcurrency } from "../../util/concurrency";
 import { defaultK, kmeans } from "../cluster";
 import {
@@ -226,7 +226,10 @@ export async function buildClusterSummaries(
           summaryText,
           model: completion.model,
         });
-      } catch {
+      } catch (e) {
+        // THE-934 fix round 3 (B): a guard firing here means the exclusion filter above is
+        // broken -- a security defect, not an ordinary per-cluster failure.
+        if (e instanceof EgressViolationError) throw e;
         failed += 1;
       }
     },
@@ -246,7 +249,9 @@ export async function buildClusterSummaries(
         input: "document",
         sourcePaths: batch.flatMap((p) => p.memberPaths),
       });
-    } catch {
+    } catch (e) {
+      // THE-934 fix round 3 (B): same rule as phase 1's catch above.
+      if (e instanceof EgressViolationError) throw e;
       vecs = null; // whole-batch failure -> this batch's cluster summaries land without embeddings
     }
     batch.forEach((p, j) => {

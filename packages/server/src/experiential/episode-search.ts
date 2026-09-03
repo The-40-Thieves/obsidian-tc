@@ -27,6 +27,7 @@
 // calls" anti-pattern THE-616 removed elsewhere. The pool is capped by the caller (work_search),
 // so this stays one bounded-size round trip regardless of corpus size.
 import type { EmbeddingProvider } from "../embeddings/provider";
+import { EgressViolationError } from "../plane/egress-filter";
 import { cosineSimilarity } from "../search/native";
 import { createQueryEncoder } from "../search/query-encoder";
 
@@ -68,13 +69,30 @@ export async function semanticRankEpisodes(
       createQueryEncoder(provider).dense(query),
       provider.embed(
         embeddable.map((c) => c.summary),
-        { input: "document" },
+        {
+          input: "document",
+          // THE-934 fix round 3 (C): `agent_episodes.summary` is written ONLY by
+          // summarize-episode.ts's Tier-0 deterministic builder -- tool name, caller, status,
+          // task_result, tags -- copied straight off columns episodes.ts writes at capture time.
+          // It never quotes note content (args_json, the one column that could, is explicitly out
+          // of scope -- see that module's header) and so can never carry an excluded path. `[]`
+          // is the correct, permanent declaration, not a placeholder for a filter that was never
+          // wired: the egress port guard's undeclared-sourcePaths check was throwing on every
+          // call before this (a real regression this PR introduced), and the catch below silently
+          // swallowed it into "found nothing", which is why work_search's semantic arm went
+          // empty on every install regardless of whether egress.excludePaths was even configured.
+          sourcePaths: [],
+        },
       ),
     ]);
     if (!qv || qv.length === 0) return [];
     queryVec = qv;
     docVecs = docs;
-  } catch {
+  } catch (e) {
+    // A guard firing here means the sourcePaths declaration above is wrong -- a real bug, not a
+    // transient provider outage -- and must not be folded into the same "provider is down, degrade
+    // to lexical-only" path (THE-934 fix round 3, B's rule applied here too).
+    if (e instanceof EgressViolationError) throw e;
     return [];
   }
 

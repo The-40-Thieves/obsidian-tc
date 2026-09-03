@@ -4,7 +4,7 @@
 // Uses the FULL manifest chain (CACHE_MIGRATION_FILES), not a hand-built one, so migration
 // 20260903_001 is always present here — this file is exactly the "manifest-driven" test category
 // CLAUDE.md/`just migration-impact` describes.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,8 +13,10 @@ import { runMigrations } from "../src/db/migrate";
 import { CACHE_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
+import { compileEgressFilter, isExcludedPath } from "../src/plane/egress-filter";
 import { runAudit } from "../src/plane/jobs/audit";
 import { indexNote, indexVault } from "../src/search/indexer";
+import { existingSummaryHash, upsertNoteSummary } from "../src/search/note-summaries";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
@@ -48,7 +50,8 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
     const root = mkdtempSync(join(tmpdir(), "obtc-egress-"));
     try {
       writeFileSync(join(root, "Public.md"), "a public note about apples");
-      writeFileSync(join(root, "Private.md"), "a private secret about oranges");
+      mkdirSync(join(root, "Private"), { recursive: true });
+      writeFileSync(join(root, "Private", "secret.md"), "a private secret about oranges");
       const stats = await indexVault({
         db,
         provider: fakeProvider,
@@ -56,7 +59,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
         vaultId: "v1",
         root,
         isReadable: () => true,
-        isEgressExcluded: (rel) => rel.startsWith("Private"),
+        isEgressExcluded: (rel) => isExcludedPath(compileEgressFilter(["Private/**"]), rel),
         now: () => 1,
       });
       // Both notes are STORED — indexed, not skipped.
@@ -65,7 +68,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
         .prepare("SELECT path, content, embedding_excluded FROM chunks WHERE vault_id = 'v1'")
         .all() as Array<{ path: string; content: string; embedding_excluded: number }>;
       expect(chunks).toHaveLength(2);
-      const priv = chunks.find((c) => c.path === "Private.md");
+      const priv = chunks.find((c) => c.path === "Private/secret.md");
       const pub = chunks.find((c) => c.path === "Public.md");
       expect(priv?.embedding_excluded).toBe(1);
       expect(pub?.embedding_excluded).toBe(0);
@@ -79,6 +82,41 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
       // The fake provider was only ever asked to embed the PUBLIC note's text — proof by request
       // payload (the embed call count), not by a mock echo of the result.
       expect(embedCalls).toBe(1);
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  // THE-934 fix round 3 (H): the tests above re-typed the predicate as `rel.startsWith("Private")`
+  // — looser than the real glob (it would ALSO match a note literally named "Private.md" or
+  // "Privateer.md", neither of which is nested under a "Private/" folder) — so this file could
+  // never catch a regression in the actual production glob semantics. This test goes through the
+  // REAL `compileEgressFilter`/`isExcludedPath` and the real indexVault pipeline, and pins the
+  // must-NOT-match cases a substring predicate would have gotten wrong.
+  it("real glob semantics: Private.md and Privateer.md (files, not the Private/ folder) are NOT excluded", async () => {
+    embedCalls = 0;
+    const db = baseDb();
+    const root = mkdtempSync(join(tmpdir(), "obtc-egress-glob-"));
+    try {
+      writeFileSync(join(root, "Private.md"), "a file literally named Private.md");
+      writeFileSync(join(root, "Privateer.md"), "a file that merely starts with Private");
+      const filter = compileEgressFilter(["Private/**"]);
+      const stats = await indexVault({
+        db,
+        provider: fakeProvider,
+        representation: buildRepresentationManifest(fakeProvider, {}),
+        vaultId: "v1",
+        root,
+        isReadable: () => true,
+        isEgressExcluded: (rel) => isExcludedPath(filter, rel),
+        now: () => 1,
+      });
+      expect(stats.notes_indexed).toBe(2);
+      const chunks = db
+        .prepare("SELECT path, embedding_excluded FROM chunks WHERE vault_id = 'v1'")
+        .all() as Array<{ path: string; embedding_excluded: number }>;
+      expect(chunks.every((c) => c.embedding_excluded === 0)).toBe(true);
+      expect(embedCalls).toBe(2); // both notes reached the provider
     } finally {
       rmTemp(root);
     }
@@ -127,7 +165,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   it("B1 (fix round 1): a note written under an excluded folder is NEVER embedded — zero provider calls, embedding_excluded=1", async () => {
     embedCalls = 0;
     const db = baseDb();
-    const isExcluded = (rel: string) => rel.startsWith("Private/");
+    const isExcluded = (rel: string) => isExcludedPath(compileEgressFilter(["Private/**"]), rel);
     await indexNote(
       db,
       fakeProvider,
@@ -154,7 +192,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   it("B1 control: a NON-excluded note through indexNote embeds normally (the fix narrows, it doesn't blind)", async () => {
     embedCalls = 0;
     const db = baseDb();
-    const isExcluded = (rel: string) => rel.startsWith("Private/");
+    const isExcluded = (rel: string) => isExcludedPath(compileEgressFilter(["Private/**"]), rel);
     await indexNote(
       db,
       fakeProvider,
@@ -206,6 +244,54 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
       expect(embedCalls).toBe(1); // now actually embedded, despite content_hash never changing
       const embRow = db.prepare("SELECT chunk_id FROM chunk_embeddings").get();
       expect(embRow).toBeDefined();
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  // THE-934 fix round 3 (D): persist-note-plan.ts stripped a chunk's OWN vectors on exclusion but
+  // left a prior `note_summaries` row (search/indexing/summarize-notes.ts's table) untouched --
+  // summarize-notes.ts's own filter only skips REGENERATING a summary for an excluded note, never
+  // removes an existing one. A stale summary stayed searchable (searchNoteSummaries) and kept
+  // feeding buildClusterSummaries' k-means membership even after the note it came from was
+  // excluded.
+  it("a note transitioning to excluded has its note_summaries row deleted, not merely its chunk vectors", async () => {
+    const db = baseDb();
+    const root = mkdtempSync(join(tmpdir(), "obtc-egress-summary-"));
+    try {
+      writeFileSync(join(root, "Journal.md"), "stable content, never edited");
+      const args = {
+        db,
+        provider: fakeProvider,
+        representation: buildRepresentationManifest(fakeProvider, {}),
+        vaultId: "v1",
+        root,
+        isReadable: () => true,
+        now: () => 1,
+      };
+      // First pass: the note is public, indexed and embedded normally. Simulate a PRIOR
+      // summarize-notes.ts pass having already written a note_summaries row for it (a separate
+      // job from indexVault, so it does not run here).
+      await indexVault({ ...args, isEgressExcluded: () => false });
+      upsertNoteSummary(db, "v1", {
+        path: "Journal.md",
+        contentHash: "some-hash",
+        summary: "a note summary written before exclusion",
+        model: "m",
+        embedding: [1, 0, 0, 0],
+        embeddingModel: "e",
+        createdAt: 1,
+      });
+      expect(existingSummaryHash(db, "v1", "Journal.md")).toBe("some-hash");
+
+      // Second pass: the folder becomes excluded (config change, content_hash unchanged). The
+      // stale note_summaries row must be deleted, not merely the chunk's own vectors.
+      await indexVault({ ...args, isEgressExcluded: () => true });
+      expect(existingSummaryHash(db, "v1", "Journal.md")).toBeNull();
+      const row = db
+        .prepare("SELECT * FROM note_summaries WHERE vault_id = 'v1' AND path = 'Journal.md'")
+        .get();
+      expect(row).toBeUndefined();
     } finally {
       rmTemp(root);
     }

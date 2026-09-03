@@ -269,4 +269,26 @@ describe("synthesis — egress.excludePaths (THE-934)", () => {
     chunksUsed = detail.vaults[0]?.chunks_used ?? 0;
     expect(chunksUsed).toBe(5);
   });
+
+  it("THE-934 fix round 3 (G): a vault whose ONLY recent chunk is excluded reports estimated_calls: 0, matching runSynthesis' own zero-call skip", async () => {
+    const db = withChunksDb();
+    seedChunk(db, "p", "Private/P.md", "private secret note", 1); // the vault's ONLY chunk
+    const filter = compileEgressFilter(["Private/**"]);
+    const plans = planSynthesis({ db, roles: null, now: () => 1, excludeFilter: filter });
+    expect(plans).toEqual([
+      { vault_id: "v1", chunks_candidate: 0, contradictions_candidate: 0, estimated_calls: 0 },
+    ]);
+
+    let calls = 0;
+    const roles: GatewayRoles = {
+      extract: async () => ({ text: "", model: "m" }),
+      judge: async () => ({ text: "", model: "m" }),
+      synthesize: async () => {
+        calls += 1;
+        return { text: '{"patterns":[],"clusters":[]}', model: "m" };
+      },
+    };
+    await runSynthesis({ db, roles, now: () => 1, excludeFilter: filter });
+    expect(calls).toBe(0); // the plan's estimate now agrees with the real run
+  });
 });

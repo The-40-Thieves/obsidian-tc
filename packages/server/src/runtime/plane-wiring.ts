@@ -202,7 +202,14 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     // docs/design/runtime-gateway-seams.md.
     const bgRoles = guardGatewayRoles(
       (deps.gatewayMaxAttempts !== undefined
-        ? planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs)
+        ? // THE-934 fix round 3 (E): `excludeFilter` threaded here too -- planeRoles' OWN
+          // createGatewayClient call was defaulting to compileEgressFilter([]) (no-op) when this
+          // 3rd argument was omitted, so the port itself carried no real filter and the
+          // guardGatewayRoles wrap below was the ONLY thing enforcing exclusion on this
+          // client -- unlike `gatedRoles`, whose own construction (planeGatedRoles) already
+          // threads the filter into the port. Both layers now agree, matching every other
+          // production seam.
+          planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs, excludeFilter)
         : null) ?? gatedRoles,
       excludeFilter,
     );

@@ -13,7 +13,7 @@
 // survivor rows NULL for a clean rerun. Stage-1 negatives are always safe to stamp cited=0.
 // Correlation is by session_id or a retrieved_at window (THE-228's capture bus).
 import type { Database } from "../db/types";
-import { type EgressFilter, isExcludedPath } from "../plane/egress-filter";
+import { type EgressFilter, EgressViolationError, isExcludedPath } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { prompt } from "../plane/gateway";
 import { cosineBatch, cosineSimilarity, rougeLLcs } from "../search/native";
@@ -505,7 +505,11 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
           const res = await judge(req);
           const v = parseVerdict(res.text, opts.allowUncertain === true);
           return v === null ? { kind: "unparseable" as const } : { kind: "ok" as const, v };
-        } catch {
+        } catch (e) {
+          // THE-934 fix round 3 (B): a guard firing here means the candidate filter above
+          // (citation.ts's own chokepoint) is broken -- a security defect, not an ordinary
+          // transport outage.
+          if (e instanceof EgressViolationError) throw e;
           return { kind: "transport" as const };
         }
       },

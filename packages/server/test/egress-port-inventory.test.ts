@@ -26,6 +26,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const SRC_ROOT = fileURLToPath(new URL("../src", import.meta.url));
+// THE-934 fix round 3 (H): the round-1/round-2 versions of this file scanned `src/` only —
+// `eval/` (dev/golden-set tooling, not the shipped server, but still real vault-content-bearing
+// TypeScript in this package) called createEmbeddingProvider/createGatewayClient unguarded on six
+// files (densify-index.ts, run.ts, colbert_spike.ts, export-rerank-pools.ts,
+// the651-ceiling-probe.ts, reembed-graph-context.ts), every one of them already reading a real
+// `loadConfig(...)` — so threading `compileEgressFilter(config.egress.excludePaths)` was not a
+// design decision, only an omission. All six now thread it; this scan holds that in place.
+const EVAL_ROOT = fileURLToPath(new URL("../eval", import.meta.url));
 
 function listTsFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -37,35 +45,79 @@ function listTsFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** THE-934 fix round 2 (NB1): a comment line above a real argument reads exactly like the
- *  argument once round-2's naive `toMatch(/excludeFilter/)` scan sees it — the reviewer proved
- *  this by deleting `gaps.ts`'s real `excludeFilter:` argument and leaving the sentence above it
- *  that names the field, which left the "mentions excludeFilter" test green. Stripping comment
- *  lines first (the same `//` / `*` / `/**` check `callSites` below already applies per-line) means
- *  a mention has to be in actual code to count, whatever form it takes (a `key: value` argument, a
- *  shorthand `{ excludeFilter }`, or a bare reference) — matching only the property-colon form
- *  would instead have MISSED consolidate.ts's genuine `{ ..., excludeFilter }` shorthand site. */
+/** THE-934 fix round 2 (NB1), hardened in fix round 3 (H): a comment reads exactly like a real
+ *  argument once a naive `toMatch(/excludeFilter/)` scan sees it — round 2's reviewer proved this
+ *  by deleting `gaps.ts`'s real `excludeFilter:` argument and leaving the sentence above it that
+ *  names the field, which left the "mentions excludeFilter" test green. Round 2's fix stripped
+ *  only double-slash line comments (and only a slash-star-star-prefixed block whose every
+ *  continuation line happened to start with a bare star) — the round-3 reviewer proved a
+ *  single-line slash-star ... star-slash block comment still satisfied it. This is a real
+ *  character-scanning stripper instead: it walks the source once, drops a double-slash comment to
+ *  end of line and any slash-star ... star-slash span regardless of how its continuation lines are
+ *  prefixed, and is string/template-literal aware (a comment-opener sequence inside a quoted
+ *  string is never mistaken for the start of a real comment). */
+function stripComments(text: string): string {
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const c = text[i];
+    const c2 = text[i + 1];
+    if (c === "/" && c2 === "/") {
+      while (i < n && text[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && c2 === "*") {
+      i += 2;
+      while (i < n && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      const quote = c;
+      out += c;
+      i++;
+      while (i < n && text[i] !== quote) {
+        if (text[i] === "\\") {
+          out += text[i];
+          i++;
+          if (i < n) {
+            out += text[i];
+            i++;
+          }
+          continue;
+        }
+        out += text[i];
+        i++;
+      }
+      if (i < n) {
+        out += text[i];
+        i++;
+      }
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/** Kept as the name the rest of this file (and its own history) already calls this by. */
 function nonCommentSource(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim();
-      return !(trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/**"));
-    })
-    .join("\n");
+  return stripComments(text);
 }
 
 /** Files matching `pattern` at a real call site — `import` statements and comment-only mentions
- *  are excluded so this does not trip on this file's own header prose, or on a type-only import. */
-function callSites(pattern: RegExp): string[] {
+ *  are excluded so this does not trip on this file's own header prose, or on a type-only import.
+ *  THE-934 fix round 3 (H): `root` defaults to SRC_ROOT so every existing call site is unchanged,
+ *  but is now parameterized so the eval/ scan below can reuse the exact same logic instead of a
+ *  second, potentially-diverging copy. */
+function callSites(pattern: RegExp, root: string = SRC_ROOT): string[] {
   const hits: string[] = [];
-  for (const abs of listTsFiles(SRC_ROOT)) {
-    const rel = relative(SRC_ROOT, abs).replace(/\\/g, "/");
-    const text = readFileSync(abs, "utf8");
+  for (const abs of listTsFiles(root)) {
+    const rel = relative(root, abs).replace(/\\/g, "/");
+    const text = stripComments(readFileSync(abs, "utf8"));
     for (const line of text.split("\n")) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/**"))
-        continue;
       if (pattern.test(line)) {
         hits.push(rel);
         break;
@@ -99,6 +151,19 @@ const EMBEDDING_PROVIDER_ALLOWLIST = [
   "runtime/indexing-wiring.ts",
 ].sort();
 
+// THE-934 fix round 3 (H): every eval/ script that calls createEmbeddingProvider or
+// createGatewayClient directly — see EVAL_ROOT's comment for why these are threaded, not merely
+// allowlisted with a "dev tooling" exemption.
+const EVAL_EMBEDDING_PROVIDER_ALLOWLIST = [
+  "colbert_spike.ts",
+  "densify-index.ts",
+  "export-rerank-pools.ts",
+  "reembed-graph-context.ts",
+  "run.ts",
+  "the651-ceiling-probe.ts",
+].sort();
+const EVAL_GATEWAY_CLIENT_ALLOWLIST = ["the651-ceiling-probe.ts"].sort();
+
 describe("egress port inventory (THE-934 fix round 1)", () => {
   it("finds a non-trivial number of source files — a broken scan is not a clean sweep", () => {
     expect(listTsFiles(SRC_ROOT).length).toBeGreaterThan(300);
@@ -119,6 +184,28 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
     expect(found).toEqual(EMBEDDING_PROVIDER_ALLOWLIST);
   });
 
+  // THE-934 fix round 3 (H): eval/ — not scanned at all before this round.
+  it("eval/: createGatewayClient is called ONLY from the allowlisted scripts", () => {
+    const found = callSites(/createGatewayClient\(/, EVAL_ROOT);
+    expect(found).toEqual(EVAL_GATEWAY_CLIENT_ALLOWLIST);
+  });
+
+  it("eval/: createEmbeddingProvider(Async) is called ONLY from the allowlisted scripts", () => {
+    const found = callSites(/createEmbeddingProvider(Async)?\(/, EVAL_ROOT);
+    expect(found).toEqual(EVAL_EMBEDDING_PROVIDER_ALLOWLIST);
+  });
+
+  it("eval/: every allowlisted script's source actually mentions excludeFilter", () => {
+    const all = new Set([...EVAL_GATEWAY_CLIENT_ALLOWLIST, ...EVAL_EMBEDDING_PROVIDER_ALLOWLIST]);
+    for (const f of all) {
+      const text = nonCommentSource(readFileSync(join(EVAL_ROOT, f), "utf8"));
+      expect(
+        text,
+        `eval/${f} calls the port factory but never mentions excludeFilter outside a comment`,
+      ).toMatch(/excludeFilter/);
+    }
+  });
+
   // THE-934 fix round 2 (N2), gate corrected in a follow-up (NB1): membership in the allowlist
   // above is not proof of anything — round 1's version of this file claimed every entry threads
   // excludeFilter while three did not. This asserts the WORD actually appears in each allowlisted
@@ -128,6 +215,24 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
   // deleted argument still satisfied it -- the follow-up review proved this by deleting gaps.ts's
   // real `excludeFilter:` argument and leaving the sentence above it that names the field, which
   // stayed green. Scanning `nonCommentSource` instead means only actual code counts.
+  // THE-934 fix round 3 (H): the round-2 line-based stripper only checked whether a line's
+  // TRIMMED start was "//", "*", or "/**" -- a single-line "/* excludeFilter */" block comment
+  // starts with "/*" (not "/**"), so it sailed straight through as "real code" and the
+  // "mentions excludeFilter" check above would have stayed green even with the real argument
+  // deleted and only a block comment left in its place. Proven directly against the stripper.
+  it("nonCommentSource strips a single-line block comment too, not only // lines and /**-prefixed blocks", () => {
+    const src = [
+      "const provider = createEmbeddingProvider(cfg.embeddings, {});",
+      "/* excludeFilter: compileEgressFilter(cfg.egress.excludePaths) */",
+    ].join("\n");
+    expect(nonCommentSource(src)).not.toMatch(/excludeFilter/);
+  });
+
+  it("nonCommentSource never strips a comment-opener sequence that appears inside a real string literal", () => {
+    const src = 'const url = "http://example.com/*not-a-comment*/still-here";';
+    expect(nonCommentSource(src)).toContain("still-here");
+  });
+
   it("every allowlisted gateway-client site's source actually mentions excludeFilter", () => {
     for (const f of GATEWAY_CLIENT_ALLOWLIST) {
       const text = nonCommentSource(readFileSync(join(SRC_ROOT, f), "utf8"));
@@ -211,5 +316,24 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
         /guardReranker\(/,
       );
     }
+  });
+
+  // THE-934 fix round 3 (E, gate for it added in H): plane-wiring.ts's `bgRoles` used to call
+  // `planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs)` WITHOUT the 3rd `excludeFilter`
+  // argument — planeRoles' own createGatewayClient call then defaulted to compileEgressFilter([])
+  // (a no-op), so the PORT carried no real filter and the outer guardGatewayRoles wrap was the
+  // ONLY thing enforcing exclusion on that client. `nonCommentSource`'s "mentions excludeFilter"
+  // checks elsewhere in this file are satisfied by the word appearing ANYWHERE in a file, which
+  // would have stayed green through that exact regression (excludeFilter is mentioned all over
+  // plane-wiring.ts for its OTHER seams). This asserts the word is inside the planeRoles(...) call
+  // ITSELF — the argument list, not merely the file.
+  it("plane-wiring.ts threads excludeFilter INTO the planeRoles(...) call itself, not merely somewhere in the file", () => {
+    const text = nonCommentSource(readFileSync(join(SRC_ROOT, "runtime/plane-wiring.ts"), "utf8"));
+    const call = /planeRoles\(([^)]*)\)/.exec(text);
+    expect(call, "runtime/plane-wiring.ts never calls planeRoles(...) at all").not.toBeNull();
+    expect(
+      call?.[1],
+      "runtime/plane-wiring.ts's planeRoles(...) call does not pass excludeFilter as an argument",
+    ).toMatch(/excludeFilter/);
   });
 });

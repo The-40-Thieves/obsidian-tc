@@ -24,7 +24,7 @@ import { tableExists } from "../../db/introspect";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { GatewayClient } from "../../gateway";
-import { type EgressFilter, isExcludedPath } from "../../plane/egress-filter";
+import { type EgressFilter, EgressViolationError, isExcludedPath } from "../../plane/egress-filter";
 import { runWithConcurrency } from "../../util/concurrency";
 import { existingSummaryHash, upsertNoteSummary } from "../note-summaries";
 
@@ -154,7 +154,11 @@ export async function summarizeNotes(
           summaryText,
           model: completion.model,
         });
-      } catch {
+      } catch (e) {
+        // THE-934 fix round 3 (B): a guard firing here means notExcluded's own pre-filter above
+        // is broken -- a security defect, not an ordinary per-note failure like a malformed
+        // completion -- so it must propagate rather than be folded into `failed`.
+        if (e instanceof EgressViolationError) throw e;
         failed += 1;
       }
     },
@@ -180,7 +184,10 @@ export async function summarizeNotes(
         input: "document",
         sourcePaths: batch.map((p) => p.path),
       });
-    } catch {
+    } catch (e) {
+      // THE-934 fix round 3 (B): same rule as phase 1's catch above -- a guard firing here is a
+      // broken pre-filter, not a transient embed failure.
+      if (e instanceof EgressViolationError) throw e;
       vectors = null; // whole-batch failure -> this batch's summaries land without embeddings
     }
     batch.forEach((p, j) => {

@@ -11,6 +11,7 @@ import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { graphSearch } from "../src/search/graph_search";
 import { GoldenSetSchema } from "./metrics";
 
@@ -29,7 +30,12 @@ async function main(): Promise<void> {
   const config = loadConfig(configPath as string);
   const vault = config.vaults[0];
   if (!vault) throw new Error("config.vaults is empty");
-  const provider = createEmbeddingProvider(config.embeddings);
+  const provider = createEmbeddingProvider(config.embeddings, {
+    // THE-934 fix round 3 (H): eval/ scripts operate on a real vault corpus (loadConfig
+    // reads the SAME config.egress.excludePaths a production run would), so the port must
+    // carry the same filter or an excluded note's text reaches this provider unguarded.
+    excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  });
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath as string, "utf8")));
   // chunk text lookup (raw display content — what a passage reranker should read).

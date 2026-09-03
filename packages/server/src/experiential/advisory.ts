@@ -52,8 +52,18 @@ export interface AdvisoryGoal {
  *  that read it was fail-OPEN (an absent path cleared the exclusion filter instead of tripping it).
  *  Requiring `path` on exactly the "note_changed" variant makes a pathless note-changed candidate a
  *  TYPE ERROR at every construction site, not merely a runtime possibility a filter has to guess
- *  about; the "contradiction"/"synthesis" variants correctly carry no `path` field at all, since
- *  their `ref` was never a vault path to begin with. */
+ *  about.
+ *
+ *  THE-934 fix round 3 (A): round 2 was wrong that "contradiction"/"synthesis" carry no vault path
+ *  at all — a contradiction's `text` is `${source_path} vs ${conflict_path}: ${rationale}` and a
+ *  synthesis's `text` is the judge model's own `patterns` JSON, whose `evidence_paths` name the
+ *  chunks it drew on; both were egressing real vault paths under an opaque `ref` (a row id /
+ *  `synthesis-<year>-<week>`) the exclusion filter could never match. Both variants now carry
+ *  `paths: string[]` — a contradiction's is always exactly `[source_path, conflict_path]` (both
+ *  columns are NOT NULL); a synthesis's is the union of every pattern's `evidence_paths`, which is
+ *  EMPTY when the row's `patterns` JSON fails to parse or declares no evidence — advisory-sweep.ts's
+ *  filter treats an empty `paths` on these two kinds as EXCLUDED (fail closed), never as "nothing to
+ *  check". */
 export type AdvisoryCandidate =
   | {
       kind: "note_changed";
@@ -68,8 +78,11 @@ export type AdvisoryCandidate =
   | {
       kind: "contradiction" | "synthesis";
       /** A derived-row id (e.g. a contradiction id or `synthesis-<year>-<week>`) — never a vault
-       *  path, so this kind carries no `path` field to be fail-open (or fail-closed) about. */
+       *  path itself, so exclusion is checked against `paths` below, not `ref`. */
       ref: string;
+      /** The real vault path(s) `text` was drawn from. EMPTY means "no provenance available" and
+       *  must be treated as EXCLUDED by any filtering caller — see the type-level doc comment. */
+      paths: string[];
       text: string;
       at: number;
     };

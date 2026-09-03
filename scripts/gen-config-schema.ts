@@ -217,7 +217,13 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // covers (reflect/knowledge_challenge, the note/cluster summarizers, densify-llm, the hosted
   // reranker, the advisory sweep, and the single-note write path). No key, type, default or
   // constraint moved — text only.
-  "f999ed4704dcee3af592cf3153503b61b0f4e83d92fb2b0a311c836d15ba7642";
+  // THE-934 fix round 3 (2026-09-03), item F: rebaselined again — `egress.excludePaths`'s
+  // .describe() text gained one clause stating the literal-pattern folder-widening rule
+  // compileEgressFilter now applies (a pattern with no glob metacharacters, "Private" or
+  // "Private/", also matches everything nested under it, identically to "Private/**"; a literal
+  // FILE pattern like "Private/a.md" still matches only that exact file). No key, type, default
+  // or constraint moved — text only.
+  "a162653e4f237db86cb6504aa9268c4faf545e28099962c2b0868b2c5db0cd20";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

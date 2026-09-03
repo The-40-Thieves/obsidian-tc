@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
-import { compileEgressFilter } from "../src/plane/egress-filter";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
 import { checkContradictions, parseVerdict } from "../src/plane/jobs/contradiction";
 import { floatBlob } from "../src/search/vec";
@@ -116,6 +116,22 @@ describe("contradiction detector (judge seam + sqlite-vec neighbors)", () => {
     // and nothing was written — the failure must not fabricate rows either
     const n = (db.prepare("SELECT COUNT(*) AS n FROM contradictions").get() as { n: number }).n;
     expect(n).toBe(0);
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from judge PROPAGATES, distinct from an ordinary transport failure counted as judgeErrors", async () => {
+    const db = baseDb();
+    addChunk(db, "a", "A.md", [1, 0, 0]);
+    addChunk(db, "b", "B.md", [0.95, 0.312, 0]);
+    const roles = {
+      judge: async () => {
+        throw new EgressViolationError("guard fired");
+      },
+    } as unknown as GatewayRoles;
+    await expect(
+      checkContradictions({ db, roles, now: () => 1 }, "v1", [
+        { id: "a", path: "A.md", content: "alpha", embedding: [1, 0, 0] },
+      ]),
+    ).rejects.toBeInstanceOf(EgressViolationError);
   });
 
   // The CONTROL for the assertion above, and the one that makes it mean something: a judge that

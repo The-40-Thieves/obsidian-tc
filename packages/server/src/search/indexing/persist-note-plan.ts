@@ -202,6 +202,24 @@ export function applyNoteWrites(
     if (!d.skipEmbed && !d.excludedFromEmbed && hasChunkColbert && cb && cb.length > 0)
       upsertChunkColbert(db, d.id, vaultId, cb);
   });
+  // THE-934 fix round 3 (D): a note transitioning TO excluded had its CHUNK vectors stripped above
+  // (per-chunk delEmb/delVec/etc, guarded on d.excludedFromEmbed) but its `note_summaries` row and
+  // embedding (search/indexing/summarize-notes.ts) survived untouched — summarize-notes.ts's own
+  // filter only skips REGENERATING a summary for an excluded note, it never removes an existing
+  // one. A stale summary stays searchable via searchNoteSummaries AND keeps feeding
+  // buildClusterSummaries' k-means membership, so an excluded note's content could still surface
+  // (as a note summary) or influence a cluster (whose summary in turn could surface it) after
+  // exclusion. `d.excludedFromEmbed` is uniform across every chunk of one note (note-plan.ts's own
+  // comment: the per-path predicate stamps it on every toEmbed chunk of that path) and a status
+  // CHANGE forces toEmbed to be non-empty even when content_hash is unchanged, so checking the
+  // first entry here reliably fires exactly when this note's exclusion status just took effect —
+  // deleting the row is a safe no-op on every other pass (idempotent, unconditional on `path`).
+  if (plan.toEmbed[0]?.excludedFromEmbed && tableExists(db, "note_summaries")) {
+    cachedPrepare(db, "DELETE FROM note_summaries WHERE vault_id = ? AND path = ?").run(
+      vaultId,
+      plan.path,
+    );
+  }
   return { upserted: plan.toEmbed.length, deleted, dedupUnresolved };
 }
 

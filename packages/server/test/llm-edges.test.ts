@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GatewayClient } from "../src/gateway/client";
+import { EgressViolationError } from "../src/plane/egress-filter";
 import {
   buildExtractionMessages,
   defangSentinels,
@@ -256,5 +257,17 @@ describe("extractSemanticEdges", () => {
     expect(res.failedBatches).toBe(1);
     expect(res.unparseableBatches).toBe(0);
     expect(n).toBe(2);
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from client.extract PROPAGATES, distinct from an ordinary batch failure that's merely REPORTED", async () => {
+    const client = {
+      extract: async () => {
+        throw new EgressViolationError("guard fired");
+      },
+    } as unknown as GatewayClient;
+    const notes = [{ path: "A.md", content: "a", sha: "sha-a" }];
+    await expect(extractSemanticEdges(client, notes, { batchSize: 2 })).rejects.toBeInstanceOf(
+      EgressViolationError,
+    );
   });
 });

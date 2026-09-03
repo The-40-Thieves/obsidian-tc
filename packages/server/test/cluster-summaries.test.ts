@@ -15,7 +15,7 @@ import { CACHE_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import type { GatewayClient } from "../src/gateway/client";
-import { compileEgressFilter } from "../src/plane/egress-filter";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import {
   clusterKeyOf,
   clusterSummaryId,
@@ -272,6 +272,45 @@ describe("searchClusterSummaries — THE MANDATORY SECURITY DESIGN (mixed-ACL cl
     const hits = searchClusterSummaries(db, "v1", [1, 0, 0, 0], { k: 10 }); // no isReadable
     expect(hits.map((h) => h.path)).toEqual(["k-open"]);
   });
+
+  // THE-934 fix round 3 (D): ClusterSummaryHit.path is the cluster_key, never a real vault path —
+  // a downstream isExcludedPath(excludeFilter, hit.path) check (rerank.ts, reflect.ts) can NEVER
+  // see an excluded member through that field. searchClusterSummaries is the one place with the
+  // real member-path list, so it must apply the exclusion filter itself, same fail-closed shape as
+  // isReadable above.
+  it("THE-934 fix round 3 (D): a cluster with an excluded member is excluded ENTIRELY, same fail-closed shape as the ACL check", () => {
+    const db = makeDb();
+    seedCluster(db, "v1", "k-mixed", ["Public/open.md", "Private/secret.md"], "derived text");
+    const hits = searchClusterSummaries(db, "v1", [1, 0, 0, 0], {
+      k: 10,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(hits).toEqual([]);
+  });
+
+  it("THE-934 fix round 3 (D): a fully-public cluster still returns when excludeFilter is configured", () => {
+    const db = makeDb();
+    seedCluster(db, "v1", "k-open", ["Public/a.md", "Public/b.md"], "both public");
+    const hits = searchClusterSummaries(db, "v1", [1, 0, 0, 0], {
+      k: 10,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(hits.map((h) => h.path)).toEqual(["k-open"]);
+  });
+
+  it("THE-934 fix round 3 (D): both the ACL and exclusion checks apply — a mixed-ACL cluster with no excluded member is still ACL-filtered, and vice versa", () => {
+    const db = makeDb();
+    seedCluster(db, "v1", "k-acl-denied", ["Public/a.md", "Public/secret.md"], "acl-denied");
+    seedCluster(db, "v1", "k-excluded", ["Private/x.md", "Public/y.md"], "excluded");
+    seedCluster(db, "v1", "k-open", ["Public/a.md", "Public/b.md"], "clean");
+    const isReadable = (p: string) => p !== "Public/secret.md";
+    const hits = searchClusterSummaries(db, "v1", [1, 0, 0, 0], {
+      k: 10,
+      isReadable,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(hits.map((h) => h.path)).toEqual(["k-open"]);
+  });
 });
 
 describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
@@ -368,6 +407,38 @@ describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
     // GARBAGE-COLLECTED by the same pass that wrote the new key — not left to accumulate.
     expect(existingClusterKeys(db, "v1").size).toBe(1);
     expect(existingClusterKeys(db, "v1").has("k1")).toBe(false);
+  });
+
+  // THE-934 fix round 3 (D): a note EXCLUDED (rather than merely edited) has its note_summaries
+  // row DELETED by persist-note-plan.ts's own fix (not this file) — this proves the k-means
+  // membership consequence that deletion produces: a cluster whose membership shrank regenerates
+  // under a NEW cluster_key rather than being skipped as unchanged, exactly like the content-change
+  // case above. Without a note_summaries cleanup, an excluded note would keep feeding this
+  // clustering pass forever, which is the defect this whole item exists to close.
+  it("THE-934 fix round 3 (D): a member note excluded (its note_summaries row deleted) triggers cluster regeneration with fewer members", async () => {
+    const db = makeDb();
+    seedNoteSummaries(db, "v1", [
+      ["A.md", "hA", "content A"],
+      ["B.md", "hB", "content B"],
+    ]);
+    const gateway = fakeGateway();
+    const embed = fakeEmbedProvider();
+    const first = await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+    expect(first.clusters).toBe(1);
+    expect(gateway.extract).toHaveBeenCalledTimes(1);
+    const oldKey = [...existingClusterKeys(db, "v1")][0] as string;
+
+    // Simulate exclusion taking effect: A.md's note_summaries row is gone (persist-note-plan.ts's
+    // own DELETE, not exercised here directly — see egress-index-embedding.test.ts for that).
+    db.prepare("DELETE FROM note_summaries WHERE vault_id = ? AND path = ?").run("v1", "A.md");
+
+    const second = await buildClusterSummaries(db, "v1", gateway, embed, { k: 1 });
+    expect(second.consideredNotes).toBe(1); // only B.md remains
+    expect(second.summarized).toBe(1); // a NEW cluster_key, not skipped as unchanged
+    expect(gateway.extract).toHaveBeenCalledTimes(2);
+    const newKeys = existingClusterKeys(db, "v1");
+    expect(newKeys.has(oldKey)).toBe(false); // the old (2-member) key is gone, GC'd
+    expect(newKeys.size).toBe(1);
   });
 
   it("THE-854: GC deletes the superseded row's member rows too, not just the summary row", async () => {
@@ -507,6 +578,41 @@ describe("buildClusterSummaries (offline cluster-cadence pass)", () => {
     // But the row carries no embedding, so it is invisible to the candidate stream.
     const hits = searchClusterSummaries(db, "v1", [1, 0, 0, 0], { k: 10 });
     expect(hits).toEqual([]);
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from gateway.extract PROPAGATES, distinct from an ordinary gateway failure counted as `failed`", async () => {
+    const db = makeDb();
+    seedNoteSummaries(db, "v1", [
+      ["A.md", "hA", "a"],
+      ["B.md", "hB", "b"],
+    ]);
+    const gateway = {
+      extract: vi.fn(async () => {
+        throw new EgressViolationError("guard fired");
+      }),
+    } as unknown as GatewayClient;
+    const embed = fakeEmbedProvider();
+    await expect(buildClusterSummaries(db, "v1", gateway, embed, { k: 1 })).rejects.toBeInstanceOf(
+      EgressViolationError,
+    );
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from embed.embed PROPAGATES, distinct from an ordinary embed failure that still writes the cluster summary", async () => {
+    const db = makeDb();
+    seedNoteSummaries(db, "v1", [
+      ["A.md", "hA", "a"],
+      ["B.md", "hB", "b"],
+    ]);
+    const gateway = fakeGateway("a cluster summary");
+    const embed = {
+      ...fakeEmbedProvider(),
+      embed: vi.fn(async () => {
+        throw new EgressViolationError("guard fired");
+      }),
+    };
+    await expect(buildClusterSummaries(db, "v1", gateway, embed, { k: 1 })).rejects.toBeInstanceOf(
+      EgressViolationError,
+    );
   });
 
   it("no-ops (zero calls) when there are no embedded note_summaries yet", async () => {
@@ -792,5 +898,49 @@ describe("graphSearch — E2E SECURITY: mixed-ACL exclusion through the REAL wir
       summaries: { clusters: { enabled: true } },
     });
     expect(resultsY.some((r) => r.chunk_id === expectedChunkId)).toBe(true);
+  });
+
+  // THE-934 fix round 3 (D, gated by a test per H): the ACL test above proves searchClusterSummaries'
+  // isReadable filter survives the real graphSearch wiring end to end; this is the same proof for
+  // the egress exclusion filter (D1's actual fix), through the SAME graphSearch() -> assembleCandidates
+  // -> rerank_stage.ts path a `source: "cluster_summary"` Candidate would take to the reranker.
+  it("egress.excludePaths: a cluster with an excluded member never surfaces as a candidate through the REAL graphSearch wiring", async () => {
+    const db = makeDb();
+    const clusterKey = "k-e2e-excluded";
+    upsertClusterSummary(db, "v1", {
+      clusterKey,
+      summary: "a summary spanning Public/a.md and Private/secret.md",
+      model: "m",
+      memberPaths: ["Public/a.md", "Private/secret.md"],
+      embedding: [1, 0, 0, 0],
+      embeddingModel: "e",
+      createdAt: 1,
+    });
+    const expectedChunkId = clusterSummaryId("v1", clusterKey);
+    const { graphSearch } = await import("../src/search/graph_search");
+
+    const excluded = await graphSearch(db, {
+      query: "q",
+      queryVec: [1, 0, 0, 0],
+      vaultId: "v1",
+      isReadable: () => true,
+      summaries: { clusters: { enabled: true } },
+      rerankExcludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    expect(excluded.some((r) => r.chunk_id === expectedChunkId)).toBe(false);
+    expect(
+      excluded.some((r) => r.content?.includes("spanning Public/a.md and Private/secret.md")),
+    ).toBe(false);
+
+    // Control: no excludeFilter configured at all -- the cluster surfaces normally, proving the
+    // exclusion above is the filter working, not a broken query.
+    const unfiltered = await graphSearch(db, {
+      query: "q",
+      queryVec: [1, 0, 0, 0],
+      vaultId: "v1",
+      isReadable: () => true,
+      summaries: { clusters: { enabled: true } },
+    });
+    expect(unfiltered.some((r) => r.chunk_id === expectedChunkId)).toBe(true);
   });
 });

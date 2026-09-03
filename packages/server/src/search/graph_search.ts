@@ -342,6 +342,13 @@ async function graphSearchCore(
       ? searchClusterSummaries(db, opts.vaultId, opts.queryVec, {
           k: seedCount,
           ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+          // THE-934 fix round 3 (D): a cluster summary's own `.path` is the cluster_key, not a
+          // real vault path, so a downstream isExcludedPath(excludeFilter, hit.path) check
+          // (rerank.ts, reflect.ts) can never see an excluded member -- this is the one place
+          // with the real member-path list. Reuses `rerankExcludeFilter` (same config value,
+          // already threaded here for the reranker's own backstop) rather than adding a second
+          // field for what is the same filter.
+          ...(opts.rerankExcludeFilter ? { excludeFilter: opts.rerankExcludeFilter } : {}),
         })
       : [];
   // Traced BEFORE the early return below (THE-632) so the no-seed case produces a real record

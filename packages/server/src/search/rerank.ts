@@ -20,6 +20,7 @@
 import {
   assertSourcePathsAllowed,
   type EgressFilter,
+  EgressViolationError,
   isExcludedPath,
 } from "../plane/egress-filter";
 
@@ -188,6 +189,14 @@ export async function rerankWithScores<T extends RankableDoc>(
     reportRerankOutcome(onOutcome, "fallback_used");
     return excludedScored.slice(0, topN);
   }
+  // THE-934 fix round 3 (B): `fallback()` above closes over unfiltered `docs` — correct only
+  // BEFORE the split. A fallback taken AFTER it (malformed response, timeout, provider error)
+  // must use `keep` instead, or it silently re-includes exactly what the split just excluded.
+  const postSplitFallback = (): Array<{ item: T; score: number }> =>
+    [
+      ...keep.slice(0, topN).map((item, i) => ({ item, score: 1 - i * 0.01 })),
+      ...excludedScored,
+    ].slice(0, topN);
   try {
     const call = reranker(
       query,
@@ -210,23 +219,16 @@ export async function rerankWithScores<T extends RankableDoc>(
     out.sort((a, b) => b.score - a.score);
     if (out.length > 0) {
       reportRerankOutcome(onOutcome, "executed");
-      // THE-934 fix round 2 (N4): APPENDED after the reranked set, in original fusion order — NOT
-      // merged by score comparison. Round 1 sorted the union by score, which put excluded docs
-      // (synthetic scores starting at 1.0, decaying by 0.01) ahead of essentially every REAL
-      // cross-encoder relevance score, so turning exclusion ON systematically PROMOTED the
-      // excluded folder to the top of every reranked search — the opposite of what an operator
-      // enabling exclusion would expect, and strictly worse than merely "interleaved". There is no
-      // principled common scale between an opaque, vendor/model-specific relevance score and a
-      // synthetic index-based fallback score, so comparing them numerically is unsound regardless
-      // of the scale chosen; appending is the one merge rule that is correct BY CONSTRUCTION,
-      // never by a scale that happens to work for today's reranker. `out` is already sorted
-      // descending by the reranker's own score; `excludedScored` stays in the fusion (input)
-      // order it was collected in, never reordered by a model that never saw it.
+      // THE-934 fix round 2 (N4): APPENDED after the reranked set, in fusion order — NOT merged
+      // by score. Round 1 sorted the union by score, which put excluded docs' synthetic scores
+      // (starting at 1.0) ahead of essentially every real cross-encoder score, so exclusion
+      // PROMOTED the excluded folder to the top. No common scale exists between an opaque vendor
+      // score and a synthetic fallback, so appending — never a scale-dependent merge — is correct
+      // by construction.
       //
-      // Follow-up (NB3): append alone only holds THIS return's order — the excluded score FIELD
-      // still carried the synthetic fallback (~1.0), above most real scores on paper, so a later
-      // re-sort (activationRerank's bubbleSafeRerank, ships false) could still promote one.
-      // Rescaling below the reranked floor makes that unrepresentable by the number itself.
+      // Follow-up (NB3): append alone only holds THIS return's order — the score FIELD still read
+      // ~1.0, above real scores, so a later re-sort (bubbleSafeRerank, ships false) could still
+      // promote one. Rescaling below the reranked floor makes that unrepresentable.
       const floor = Math.min(...out.map((o) => o.score));
       const rescaledExcluded = excludedScored.map((e, i) => ({
         item: e.item,
@@ -238,12 +240,15 @@ export async function rerankWithScores<T extends RankableDoc>(
     // reranker call has no legitimate reason to say nothing about a non-empty candidate set, so
     // this is treated as malformed rather than a genuine "no results" answer.
     reportRerankOutcome(onOutcome, "malformed_response");
-    return fallback();
+    return postSplitFallback();
   } catch (e) {
+    // THE-934 fix round 3 (B): a guard firing here is a security defect (the split above should
+    // already have kept this out), not an ordinary outage — it propagates, never "provider_error".
+    if (e instanceof EgressViolationError) throw e;
     reportRerankOutcome(
       onOutcome,
       e instanceof RerankTimeoutError ? "timed_out" : "provider_error",
     );
-    return fallback();
+    return postSplitFallback();
   }
 }

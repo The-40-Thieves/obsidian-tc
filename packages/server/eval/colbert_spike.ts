@@ -20,6 +20,7 @@ import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { type ColbertMatrix, colbertRerank } from "../src/search/colbert";
 import { semanticSearch } from "../src/search/semantic";
 import {
@@ -81,7 +82,12 @@ async function main(): Promise<void> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults is empty");
   const golden = GoldenSetSchema.parse(parseYaml(readGoldenOrExplain(goldenPath)));
-  const provider = createEmbeddingProvider(config.embeddings);
+  const provider = createEmbeddingProvider(config.embeddings, {
+    // THE-934 fix round 3 (H): eval/ scripts operate on a real vault corpus (loadConfig
+    // reads the SAME config.egress.excludePaths a production run would), so the port must
+    // carry the same filter or an excluded note's text reaches this provider unguarded.
+    excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  });
   const model = config.embeddings.model;
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
 

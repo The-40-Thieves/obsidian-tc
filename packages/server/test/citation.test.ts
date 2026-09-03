@@ -15,7 +15,7 @@ import {
   rougeL,
   rougeLPrepared,
 } from "../src/experiential/citation";
-import { compileEgressFilter } from "../src/plane/egress-filter";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import { cosineSimilarity } from "../src/search/native";
 import { openMemoryDb } from "./helpers";
 
@@ -313,6 +313,25 @@ describe("citation inference (THE-170)", () => {
     expect(stats.parseFailures).toBe(0);
     // ...and the CONTROL, so a passing assertion above cannot be a counter that never increments:
     // the unparseable case in the test directly above still reports parseFailures = 1, judgeErrors = 0.
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from judge PROPAGATES, distinct from an ordinary transport error counted as judgeErrors", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cA", CHUNK_CITED);
+    seedRetrieval(edb, "r1", "cA", "s1");
+    await expect(
+      inferCitations({
+        edb,
+        cacheDb,
+        transcript: TRANSCRIPT,
+        sessionId: "s1",
+        minJudgedForKill: 1,
+        judge: async () => {
+          throw new EgressViolationError("guard fired");
+        },
+      }),
+    ).rejects.toBeInstanceOf(EgressViolationError);
   });
 
   // Found by cross-vendor review, not by me: my first version logged only the DOMINANT fault, so a

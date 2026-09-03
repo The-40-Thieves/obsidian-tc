@@ -13,7 +13,7 @@ import { CACHE_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
 import type { GatewayClient } from "../src/gateway/client";
-import { compileEgressFilter } from "../src/plane/egress-filter";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import { assembleCandidates } from "../src/search/graph_search_stages/candidate_assembly";
 import { maybeSummarizeVault, summarizeNotes } from "../src/search/indexing/summarize-notes";
 import {
@@ -292,6 +292,37 @@ describe("summarizeNotes (index-time pass)", () => {
     // But the row carries no embedding, so it is invisible to the candidate stream.
     const hits = searchNoteSummaries(db, "v1", [1, 0, 0, 0], { k: 10 });
     expect(hits).toEqual([]);
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from gateway.extract PROPAGATES, distinct from an ordinary gateway failure counted as `failed`", async () => {
+    const db = makeDb();
+    insertNote(db, "v1", "A.md", "hashA");
+    insertChunk(db, "v1", "A.md", "content");
+    const gateway = {
+      extract: vi.fn(async () => {
+        throw new EgressViolationError("guard fired");
+      }),
+    } as unknown as GatewayClient;
+    const embed = fakeEmbedProvider();
+    await expect(summarizeNotes(db, "v1", gateway, embed)).rejects.toBeInstanceOf(
+      EgressViolationError,
+    );
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from embed.embed PROPAGATES, distinct from an ordinary embed failure that still writes the summary", async () => {
+    const db = makeDb();
+    insertNote(db, "v1", "A.md", "hashA");
+    insertChunk(db, "v1", "A.md", "content");
+    const gateway = fakeGateway("a summary");
+    const embed = {
+      ...fakeEmbedProvider(),
+      embed: vi.fn(async () => {
+        throw new EgressViolationError("guard fired");
+      }),
+    };
+    await expect(summarizeNotes(db, "v1", gateway, embed)).rejects.toBeInstanceOf(
+      EgressViolationError,
+    );
   });
 });
 

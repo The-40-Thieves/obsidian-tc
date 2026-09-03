@@ -284,7 +284,11 @@ export function planSynthesis(ctx: JobContext): SynthesisPlan[] {
       vault_id: vaultId,
       chunks_candidate: recent.length,
       contradictions_candidate: contradictions.length,
-      estimated_calls: 1,
+      // THE-934 fix round 3 (G): runSynthesis (below) does `if (recent.length === 0) continue`
+      // AFTER filterExcluded runs -- when exclusion drops every one of this vault's recent
+      // chunks, the real pass makes ZERO gateway calls for it. `estimated_calls` must agree, or a
+      // `--dry-run` overcounts exactly the vaults exclusion emptied out.
+      estimated_calls: recent.length > 0 ? 1 : 0,
     });
   }
   return plans;

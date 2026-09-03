@@ -133,9 +133,36 @@ export function openContradictions(
   return rows.map((r) => ({
     kind: "contradiction",
     ref: r.id,
+    // THE-934 fix round 3 (A): both columns are NOT NULL (contradictions.source_path /
+    // conflict_path) -- a contradiction always has exactly two real vault paths, and `text` above
+    // quotes BOTH of them plus the judge's rationale, so both must clear the exclusion filter.
+    paths: [r.source_path, r.conflict_path],
     text: `${r.source_path} vs ${r.conflict_path}: ${r.judge_rationale ?? ""}`,
     at: r.detected_at,
   }));
+}
+
+/** THE-934 fix round 3 (A): the union of every pattern's `evidence_paths` in a synthesis row's
+ *  `patterns` JSON (synthesis.ts's `SynthesisOutput["patterns"]` shape) -- the real vault paths
+ *  the judge model actually drew on to write the text this module embeds. Returns `[]` on
+ *  malformed JSON or when no pattern names any evidence path; the caller treats an empty result as
+ *  EXCLUDED (fail closed), never as "nothing to check" -- a synthesis row this module cannot prove
+ *  is safe must not be embedded merely because it also cannot be proven excluded. */
+function synthesisEvidencePaths(patternsJson: string): string[] {
+  try {
+    const parsed = JSON.parse(patternsJson) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const paths = new Set<string>();
+    for (const p of parsed) {
+      const evidence = (p as { evidence_paths?: unknown })?.evidence_paths;
+      if (Array.isArray(evidence)) {
+        for (const path of evidence) if (typeof path === "string") paths.add(path);
+      }
+    }
+    return [...paths];
+  } catch {
+    return [];
+  }
 }
 
 /** Candidate source 3: recent weekly syntheses (cache.db's `syntheses`). `patterns` is a JSON blob
@@ -161,6 +188,7 @@ export function recentSyntheses(
   return rows.map((r) => ({
     kind: "synthesis",
     ref: `synthesis-${r.iso_year}-${r.iso_week}`,
+    paths: synthesisEvidencePaths(r.patterns),
     text: r.patterns,
     at: r.generated_at,
   }));
@@ -215,16 +243,14 @@ export async function buildSimilarityFn(
     candidates.map((c) => c.text),
     {
       input: "document",
-      // THE-934 fix round 2 (N1, narrowed in the NB2 follow-up): the egress guard's backstop
-      // check. `path` (not `ref` — a chunk id, never a glob match) is the real vault path for
-      // "note_changed" candidates, now REQUIRED by AdvisoryCandidate's discriminated union rather
-      // than an optional field a `?? fallback` could silently paper over; the caller
-      // (registerAdvisorySweep below) has already dropped any excluded (or malformed) one before
-      // this runs. A "contradiction"/"synthesis" candidate carries no `path` field at all — its
-      // `ref` is a derived-row id, never a vault path — so it falls through to `ref` here purely
-      // as a stable non-empty placeholder string, not as something the filter is expected to match
-      // against.
-      sourcePaths: candidates.map((c) => (c.kind === "note_changed" ? c.path : c.ref)),
+      // THE-934 fix round 2 (N1), extended in fix round 3 (A): the egress guard's backstop check.
+      // `path` (a "note_changed" candidate's real vault path) or `paths` (a "contradiction"'s
+      // [source_path, conflict_path], or a "synthesis"'s parsed evidence_paths) — never `ref`,
+      // which is a row/chunk id on every kind and never a glob match. The caller
+      // (registerAdvisorySweep below) has already dropped any excluded (or unprovable) candidate
+      // of EVERY kind before this runs — this flat union is the backstop declaration of what
+      // actually made it into `texts` above.
+      sourcePaths: candidates.flatMap((c) => (c.kind === "note_changed" ? [c.path] : c.paths)),
     },
   );
   const goalVecByText = new Map(goals.map((g, i) => [g.text, goalVecs[i]]));
@@ -337,26 +363,21 @@ export function registerAdvisorySweep(scheduler: Scheduler, deps: AdvisorySweepD
           ...openContradictions(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
           ...recentSyntheses(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
         ];
-        // THE-934 fix round 1 (I3), corrected in fix round 2 (N1), narrowed further in a
-        // follow-up (NB2): a "note_changed" candidate under an excluded path is dropped BEFORE it
-        // can become embed input — the chokepoint every other assembler uses. Round 1 checked
-        // `c.ref`, which is the chunk id (a content hash) for "note_changed", never a glob match —
-        // the filter was silently inert. Round 2 fixed that by checking `c.path`, but `path` was
-        // still an OPTIONAL field with a `?? ""` fallback here — fail-OPEN if a malformed
-        // candidate ever reached this code without one (an empty string matches no real glob).
-        // `path` is now REQUIRED by AdvisoryCandidate's discriminated union for every "note_changed"
-        // candidate, so a missing path is a type error at every construction site; this filter
-        // additionally fails CLOSED (treats it as excluded) on a falsy `path` that somehow reaches
-        // here anyway (e.g. a future producer built with an `as` cast), rather than silently
-        // treating "no path" as "not excluded". contradiction/synthesis candidates carry no `path`
-        // field at all, so the filter never touches them.
+        // THE-934: history in AdvisoryCandidate's doc comment (round 1 I3 -> round 2 N1/NB2 ->
+        // round 3 A). Every kind is now checked, not only "note_changed": a "note_changed"
+        // candidate fails closed on a falsy `path`; a "contradiction"/"synthesis" candidate fails
+        // closed on an EMPTY `paths` (no provenance provable) and is otherwise excluded if ANY of
+        // its paths matches.
         const candidates =
           excludeFilter === undefined
             ? allCandidates
             : allCandidates.filter((c) => {
-                if (c.kind !== "note_changed") return true;
-                if (!c.path) return false; // fail CLOSED on a malformed/pathless candidate
-                return !isExcludedPath(excludeFilter, c.path);
+                if (c.kind === "note_changed") {
+                  if (!c.path) return false;
+                  return !isExcludedPath(excludeFilter, c.path);
+                }
+                if (c.paths.length === 0) return false; // no provenance -> fail CLOSED
+                return !c.paths.some((p) => isExcludedPath(excludeFilter, p));
               });
         if (candidates.length === 0) continue;
 

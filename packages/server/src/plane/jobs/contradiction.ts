@@ -9,7 +9,7 @@ import type { Database } from "../../db/types";
 import { semanticSearch } from "../../search/semantic";
 import { blobToFloats } from "../../search/vec";
 import { contentHash } from "../../vault/paths";
-import { type EgressFilter, isExcludedPath } from "../egress-filter";
+import { type EgressFilter, EgressViolationError, isExcludedPath } from "../egress-filter";
 import { type GatewayRoles, prompt } from "../gateway";
 
 const COSINE_THRESHOLD = 0.85;
@@ -218,7 +218,10 @@ export async function checkContradictions(
       // `threw: false` even when parseVerdict returns null — the judge ANSWERED, its reply was
       // just unusable. This is the only place that can still tell the two apart.
       return { verdict: parseVerdict(res.text), model: res.model, threw: false };
-    } catch {
+    } catch (e) {
+      // THE-934 fix round 3 (B): a guard firing here means the filtering above this call is
+      // broken -- a security defect, not an ordinary judge failure `threw: true` exists to cover.
+      if (e instanceof EgressViolationError) throw e;
       return { verdict: null, model: "", threw: true };
     }
   });

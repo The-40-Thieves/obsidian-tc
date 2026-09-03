@@ -33,6 +33,7 @@ import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { createGatewayClient } from "../src/gateway/client";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { graphSearch } from "../src/search/graph_search";
 import { GoldenSetSchema } from "./metrics";
 
@@ -100,7 +101,11 @@ async function main(): Promise<void> {
   const vault = config.vaults[0];
   if (!vault) throw new Error("config.vaults is empty");
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
-  const provider = createEmbeddingProvider(config.embeddings);
+  const provider = createEmbeddingProvider(config.embeddings, {
+    // THE-934 fix round 3 (H): same rule as every other eval/ script -- loadConfig reads the
+    // real config.egress.excludePaths, so this port must carry it too.
+    excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  });
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
 
   // --- the slice -------------------------------------------------------------------------------
@@ -169,7 +174,9 @@ async function main(): Promise<void> {
       /* first run */
     }
   }
-  const gw = createGatewayClient({});
+  const gw = createGatewayClient({
+    excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  });
   const needDecomp = process.argv.includes("--fuse") ? slice : misses;
   for (const q of needDecomp) {
     if (cache[q.id]) continue;

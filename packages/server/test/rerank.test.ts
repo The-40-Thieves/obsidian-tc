@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileEgressFilter } from "../src/plane/egress-filter";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import { type Reranker, type RerankOutcome, rerankWithScores } from "../src/search/rerank";
 
 const docs = [
@@ -220,5 +220,67 @@ describe("excluded docs never outrank reranked ones (THE-934 fix round 2, N4)", 
       compileEgressFilter(["Private/**"]),
     );
     expect(out.map((o) => o.item.path)).toEqual(["Public/a.md"]);
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from the reranker call PROPAGATES, distinct from an ordinary provider_error that falls back", async () => {
+    const mixed = [
+      { content: "PRIVATE", path: "Private/z.md" },
+      { content: "PUBLIC", path: "Public/a.md" },
+    ];
+    const reranker: Reranker = async () => {
+      throw new EgressViolationError("guard fired");
+    };
+    await expect(
+      rerankWithScores(
+        "q",
+        mixed,
+        2,
+        reranker,
+        undefined,
+        undefined,
+        compileEgressFilter(["Private/**"]),
+      ),
+    ).rejects.toBeInstanceOf(EgressViolationError);
+  });
+
+  it("THE-934 fix round 3 (B): on a genuine provider_error, the fallback still excludes — it must not fall back over the UNFILTERED original docs", async () => {
+    const mixed = [
+      { content: "PRIVATE", path: "Private/z.md" },
+      { content: "PUBLIC ONE", path: "Public/a.md" },
+      { content: "PUBLIC TWO", path: "Public/c.md" },
+    ];
+    const reranker: Reranker = async () => {
+      throw new Error("gateway unreachable");
+    };
+    const out = await rerankWithScores(
+      "q",
+      mixed,
+      3,
+      reranker,
+      undefined,
+      undefined,
+      compileEgressFilter(["Private/**"]),
+    );
+    // The private doc is present (fusion-order fallback still returns it, never sent anywhere) but
+    // strictly last, never reordered ahead of the two public docs by the buggy raw-docs fallback.
+    expect(out.map((o) => o.item.path)).toEqual(["Public/a.md", "Public/c.md", "Private/z.md"]);
+  });
+
+  it("THE-934 fix round 3 (B): on a malformed_response, the fallback still excludes — same rule as provider_error", async () => {
+    const mixed = [
+      { content: "PRIVATE", path: "Private/z.md" },
+      { content: "PUBLIC ONE", path: "Public/a.md" },
+    ];
+    const reranker: Reranker = async () => []; // non-empty docs, empty hits -> malformed_response
+    const out = await rerankWithScores(
+      "q",
+      mixed,
+      2,
+      reranker,
+      undefined,
+      undefined,
+      compileEgressFilter(["Private/**"]),
+    );
+    expect(out.map((o) => o.item.path)).toEqual(["Public/a.md", "Private/z.md"]);
   });
 });

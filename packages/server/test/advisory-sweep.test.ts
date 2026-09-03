@@ -79,6 +79,8 @@ function addContradiction(
     status?: string;
     rationale?: string;
     detectedAt: number;
+    sourcePath?: string;
+    conflictPath?: string;
   },
 ): void {
   cdb
@@ -86,11 +88,13 @@ function addContradiction(
       `INSERT INTO contradictions
          (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path,
           source_content_sha, conflict_content_sha, judge_verdict, judge_rationale, status, detected_at)
-       VALUES (?, ?, 'c1', 'a.md', 'c2', 'b.md', ?, ?, 'contradiction', ?, ?, ?)`,
+       VALUES (?, ?, 'c1', ?, 'c2', ?, ?, ?, 'contradiction', ?, ?, ?)`,
     )
     .run(
       opts.id,
       opts.vaultId,
+      opts.sourcePath ?? "a.md",
+      opts.conflictPath ?? "b.md",
       `${opts.id}-a`,
       `${opts.id}-b`,
       opts.rationale ?? "they disagree",
@@ -101,15 +105,32 @@ function addContradiction(
 
 function addSynthesis(
   cdb: Database,
-  opts: { vaultId: string; isoYear: number; isoWeek: number; generatedAt: number },
+  opts: {
+    vaultId: string;
+    isoYear: number;
+    isoWeek: number;
+    generatedAt: number;
+    /** THE-934 fix round 3 (A): the raw `patterns` JSON, in synthesis.ts's real
+     *  `SynthesisOutput["patterns"]` shape ({title, summary, evidence_paths, contradiction_ids}[])
+     *  -- defaults to a shape with NO evidence_paths at all (a row this module cannot prove is
+     *  safe), matching the pre-round-3 fixture's `{"note":"weekly pattern"}` placeholder in
+     *  spirit: still not an array, still zero provable paths. */
+    patterns?: string;
+  },
 ): void {
   cdb
     .prepare(
       `INSERT INTO syntheses
          (vault_id, iso_year, iso_week, generated_at, cluster_count, pattern_count, clusters, patterns)
-       VALUES (?, ?, ?, ?, 1, 1, '[]', '{"note":"weekly pattern"}')`,
+       VALUES (?, ?, ?, ?, 1, 1, '[]', ?)`,
     )
-    .run(opts.vaultId, opts.isoYear, opts.isoWeek, opts.generatedAt);
+    .run(
+      opts.vaultId,
+      opts.isoYear,
+      opts.isoWeek,
+      opts.generatedAt,
+      opts.patterns ?? '{"note":"weekly pattern"}',
+    );
 }
 
 function addSession(
@@ -690,5 +711,113 @@ describe("registerAdvisorySweep", () => {
       chunk_id: string;
     }>;
     expect(rows).toEqual([{ chunk_id: "malformed" }]);
+  });
+
+  it("egress.excludePaths: a contradiction candidate touching an excluded path never reaches the embed port (THE-934 fix round 3, A)", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addContradiction(cdb, {
+      id: "k1",
+      vaultId: V,
+      sourcePath: "Private/journal.md",
+      conflictPath: "Public/other.md",
+      rationale: "SECRET_MARKER private rationale",
+      detectedAt: NOW,
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({ query: { "goal text": [1, 0] } });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    await box.task?.run(NOT_ABORTED);
+
+    // Either no document call happened at all (the only candidate was excluded), or one happened
+    // and its texts never carried the private path or rationale.
+    const documentCall = provider.calls.find((c) => c.input === "document");
+    expect(documentCall?.texts.join("\n") ?? "").not.toContain("SECRET_MARKER");
+    expect(documentCall?.texts.join("\n") ?? "").not.toContain("Private/journal.md");
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({
+      n: 0,
+    });
+  });
+
+  it("egress.excludePaths: a synthesis candidate whose evidence_paths touch an excluded path never reaches the embed port (THE-934 fix round 3, A)", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    addSynthesis(cdb, {
+      vaultId: V,
+      isoYear: 2026,
+      isoWeek: 1,
+      generatedAt: NOW,
+      patterns: JSON.stringify([
+        {
+          title: "SECRET_MARKER pattern",
+          summary: "a private pattern",
+          evidence_paths: ["Private/journal.md"],
+          contradiction_ids: [],
+        },
+      ]),
+    });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({ query: { "goal text": [1, 0] } });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    await box.task?.run(NOT_ABORTED);
+
+    const documentCall = provider.calls.find((c) => c.input === "document");
+    expect(documentCall?.texts.join("\n") ?? "").not.toContain("SECRET_MARKER");
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({
+      n: 0,
+    });
+  });
+
+  it("a synthesis row with NO parseable evidence_paths fails CLOSED (excluded) once a filter is configured — a row this module cannot prove safe is never embedded merely because it also cannot be proven excluded (THE-934 fix round 3, A)", async () => {
+    const cdb = cdb0();
+    addSession(cdb, { id: "s1", vaultId: V, principal: "alice" });
+    // The pre-round-3 fixture default: `patterns` is not an array at all, so
+    // synthesisEvidencePaths yields [] -- no provenance provable.
+    addSynthesis(cdb, { vaultId: V, isoYear: 2026, isoWeek: 1, generatedAt: NOW });
+    const edb = edb0();
+    setGoal(edb, { id: "g1", vaultId: V, text: "goal text", createdAt: NOW });
+    const provider = stubProvider({ query: { "goal text": [1, 0] } });
+    const box = capture();
+    registerAdvisorySweep(fakeScheduler(box), {
+      cacheDb: cdb,
+      experientialDb: edb,
+      provider: provider as never,
+      vaultIds: [V],
+      intervalMs: 1000,
+      policy: POLICY,
+      publish: () => {},
+      now: () => NOW,
+      excludeFilter: compileEgressFilter(["Private/**"]),
+    });
+    await box.task?.run(NOT_ABORTED);
+
+    expect(provider.calls.some((c) => c.input === "document")).toBe(false);
+    expect(edb.prepare("SELECT COUNT(*) AS n FROM chunk_retrievals").get()).toMatchObject({
+      n: 0,
+    });
   });
 });
