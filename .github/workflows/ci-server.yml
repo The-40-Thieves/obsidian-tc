@@ -303,23 +303,58 @@ jobs:
   # only (no OIDC, no npm ownership check, no publish), so it needs no permissions beyond the
   # default checkout. Proven to fail red on a broken file, not just pass on a good one — see the
   # THE-940 task report for both runs' captured output.
+  #
+  # Review finding I4: `validate` is a LIVE call to registry.modelcontextprotocol.io (the CI log
+  # literally prints "Validating against https://registry.modelcontextprotocol.io..."), so this job
+  # depends on a third-party service's uptime in a way no other check in this repo does. The step
+  # below retries with backoff on a network failure or a 5xx, but treats a 4xx (the registry
+  # actually rejecting server.json's content, e.g. 422 on a broken file) as an immediate hard
+  # failure — that is not transient, and retrying it would only burn CI minutes to fail the same
+  # way five times over.
+  #
+  # This job MUST stay advisory — never promoted to a required status check the way
+  # `version-coherence` is. Every currently-required check in this repo builds/tests/lints THIS
+  # repo's own code; this one can go red on a registry outage that has nothing to do with the PR.
+  # THE-599's comment a few hundred lines up (`ci-server.yml:3-18`) is a written history of checks
+  # getting promoted to required by someone reading the workflow later without this context — that
+  # is exactly the mistake this comment exists to head off.
   registry-validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      # Same pinned binary + checksum as publish.yml's publish-registry job — kept identical on
-      # purpose so a version bump only ever needs to change in one place at a time (grep both).
-      - name: install mcp-publisher v1.8.1 (pinned binary + checksum)
+      # Review finding M1: shared with publish.yml's publish-registry job so the pinned version +
+      # checksum can drift in exactly one place, not two workflow files a reviewer has to remember
+      # to grep together.
+      - uses: ./.github/actions/install-mcp-publisher
+      - name: validate server.json against the MCP Registry schema (retry network/5xx, fail fast on 4xx)
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSL --fail -o "$RUNNER_TEMP/mcp-publisher.tar.gz" \
-            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
-          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  $RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
-      - name: validate server.json against the MCP Registry schema
-        run: |
-          "$RUNNER_TEMP/mcp-publisher" validate server.json
+          delay=5
+          for attempt in 1 2 3 4 5; do
+            if out=$("$RUNNER_TEMP/mcp-publisher" validate server.json 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            echo "$out"
+            # mcp-publisher's HTTP-error message shape is "... server returned status <code>: ...".
+            # A matched 4xx is the registry actually rejecting server.json — real, not transient, do
+            # not retry. Anything else (no status matched at all: a network error, DNS failure,
+            # timeout; or a matched 5xx) is the registry or network being flaky, which a retry can
+            # plausibly fix.
+            code=$(printf '%s' "$out" | grep -oE 'status [0-9]{3}' | grep -oE '[0-9]{3}' | head -1 || true)
+            if [ -n "$code" ] && [ "$code" -ge 400 ] && [ "$code" -lt 500 ]; then
+              echo "::error::server.json failed MCP Registry validation (HTTP $code) — not retrying, this is a real rejection, not a transient failure."
+              exit 1
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::mcp-publisher validate failed after 5 attempts with no 4xx seen (network error or registry outage, not a content rejection) — see the captured output above."
+              exit 1
+            fi
+            echo "attempt $attempt failed (network or 5xx, not a 4xx) — retrying in ${delay}s..."
+            sleep "$delay"
+            delay=$((delay * 2))
+          done
 
   # THE-705 round 2 (adversarial review, confirmed finding 2): the optional local-reranker
   # package's 16 tests ran in no CI workflow — this job closes that. Deliberately NOT folded into

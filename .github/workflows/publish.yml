@@ -378,21 +378,34 @@ jobs:
   # entry has been missing since. mcp-publisher's own ownership check reads the LIVE npm package
   # description (via the `mcpName` marker in packages/server/package.json, asserted equal to
   # server.json's `name` by ci-version.yml's check-mcp-name gate), so this job must run only after
-  # `obsidian-tc` is actually resolvable on npmjs — a publish attempted before propagation 404s,
-  # which is why `needs: publish-npm` is not treated as sufficient on its own; see the propagation
-  # wait step below. `if: github.event_name == 'push'` (no `workflow_dispatch` path at all, unlike
-  # publish-npm's `|| !inputs.dry_run`) is deliberate and stricter than every other job in this
-  # workflow: a dispatched dry run never has a real npm-published version for the registry to point
-  # at, and the task brief that added this job is explicit that it "must run only on v* tags" —
-  # `on.push.tags` already restricts `github.event_name == 'push'` to exactly that.
+  # every npm package server.json references is actually resolvable on npmjs — a publish attempted
+  # before propagation 404s; see the propagation-wait step below. `if: github.event_name == 'push'`
+  # (no `workflow_dispatch` path at all, unlike publish-npm's `|| !inputs.dry_run`) is deliberate
+  # and stricter than every other job in this workflow: a dispatched dry run never has a real
+  # npm-published version for the registry to point at, and the task brief that added this job is
+  # explicit that it "must run only on v* tags" — `on.push.tags` already restricts
+  # `github.event_name == 'push'` to exactly that.
+  #
+  # `needs: publish-npm` ONLY, not a list — review question, ruled by the controller: server.json's
+  # `packages[]` today lists exactly one npm package (`obsidian-tc`), and `packages/reranker-local`
+  # is deliberately NOT one of them — it is an optional add-on resolved at runtime (its own README),
+  # not how the server is launched, so the registry validates nothing about it and no publish job
+  # for it needs to feed into this one. If `server.json`'s `packages[]` ever DOES grow a second npm
+  # entry (reranker-local or otherwise), add that package's publish job to this `needs:` list — the
+  # propagation-wait step below already loops every `packages[]` npm entry (derived from
+  # server.json, not hardcoded; review finding I3), so it needs no corresponding edit. See
+  # RELEASING.md's "MCP Registry publish" section for the same note.
   publish-registry:
     if: github.event_name == 'push'
     needs: publish-npm
     runs-on: ubuntu-latest
-    # Mirrors the `mcp-registry` GitHub Environment convention from the sibling codecalc repo's
-    # release.yml: scopes the OIDC token's `sub` claim to `...:environment:mcp-registry` instead of
-    # the bare ref, and lets an owner attach required-reviewer / ref-protection rules to it later.
-    # Auto-created on first use — nothing to provision up front.
+    # Review finding M4: the comment here previously claimed this scopes the OIDC token's `sub`
+    # claim — false. The registry's GitHub-OIDC handler
+    # (internal/api/handlers/v0/auth/github_oidc.go) validates issuer, audience, and a non-empty
+    # `repository_owner` claim; it never reads `sub`. What this environment DOES buy: a named,
+    # empty-today surface (auto-created on first use — nothing to provision up front) that an owner
+    # can later attach required-reviewer / ref-protection rules to. It changes nothing about the
+    # OIDC exchange itself today.
     environment: mcp-registry
     # Job-scoped, narrower than the workflow-level block above: id-token mints the OIDC token
     # mcp-publisher exchanges for a short-lived registry credential (no stored PAT/secret — see
@@ -403,53 +416,101 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      # publish-npm already published `obsidian-tc` (dependency order, umbrella last — see
-      # RELEASING.md's "Ordered npm publish"), or the F3 preflight found it already published on a
-      # resumed release. Either way this is a load-bearing wait, not decoration: registry.
-      # modelcontextprotocol.io validates package ownership against LIVE npmjs data at publish time
-      # (a 404 there is a hard failure per the task brief), and npm's own registry is not
-      # read-your-writes consistent immediately after `npm publish` returns. Polls rather than
-      # sleeping a fixed amount so a fast-propagating publish does not pay a needless delay.
-      - name: wait for obsidian-tc to resolve on npmjs
+      # Review finding I1: mirrors publish-npm's F3 classification (`already_published`, checked
+      # by every downstream step's `if:` below) so a re-run on a resumed release is clean rather
+      # than red. Registry versions are IMMUTABLE — a second `mcp-publisher publish` at the same
+      # name+version fails hard ("cannot publish duplicate version"; registry v1.8.1,
+      # internal/database/database.go's ErrInvalidVersion) — so this has to be a real check against
+      # the registry itself, not an optimistic retry. `GET /v0/servers/{name}/versions/{version}`
+      # is the exact-match endpoint (200 = published, 404 = not) — deliberately NOT the `?search=`
+      # endpoint RELEASING.md's confirmation step uses, which is fuzzy and can both over- and
+      # under-match. A non-200/404 status (network error, registry outage, unexpected 5xx) fails
+      # the job rather than guessing either way.
+      - name: preflight — is this exact name+version already registered? (I1, resumed-release contract)
+        id: preflight
         shell: bash
         run: |
           set -euo pipefail
-          version=$(node -p "require('./packages/server/package.json').version")
-          echo "waiting for obsidian-tc@$version to resolve on npmjs..."
-          for i in $(seq 1 10); do
-            if npm view "obsidian-tc@$version" version >/dev/null 2>&1; then
-              echo "obsidian-tc@$version is live on npmjs (attempt $i)"
-              exit 0
+          name=$(jq -r '.name' server.json)
+          version=$(jq -r '.version' server.json)
+          enc_name=$(jq -rn --arg n "$name" '$n|@uri')
+          enc_version=$(jq -rn --arg v "$version" '$v|@uri')
+          url="https://registry.modelcontextprotocol.io/v0/servers/$enc_name/versions/$enc_version"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+          case "$status" in
+            200)
+              echo "$url -> 200: $name@$version is already registered — resumed release, skipping the publish steps (registry versions are immutable; a second publish would fail with 'cannot publish duplicate version')."
+              echo "already_published=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "$url -> 404: $name@$version is not yet registered — proceeding to publish."
+              echo "already_published=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::unexpected HTTP $status checking whether $name@$version is already registered ($url) — refusing to guess whether this is a resumed release; a registry outage or auth problem should fail loud here, not silently pick a side."
+              exit 1
+              ;;
+          esac
+      # Review findings I2 + I3: publish-npm already published every npm package server.json
+      # references (dependency order — see RELEASING.md's "Ordered npm publish"), or the F3
+      # preflight found them already published on a resumed release. Either way this is a
+      # load-bearing wait, not decoration: registry.modelcontextprotocol.io validates package
+      # ownership by fetching the exact npm VERSION document for each `packages[]` npm entry
+      # (`<registryBaseUrl>/<identifier>/<version>` — e.g. https://registry.npmjs.org/obsidian-tc/1.25.0),
+      # not the packument `npm view`/`GET /<name>` fetches. Those are separate CDN objects with
+      # independent propagation — polling the packument (as an earlier version of this job did) can
+      # go green while the version document a moment later still 404s. This polls the SAME url the
+      # registry itself builds, derived from server.json rather than hardcoded (I3), and loops
+      # every npm entry in `packages[]` (today: just `obsidian-tc`; see the `needs:` comment above
+      # for what changes if a second one is ever added).
+      - name: wait for every npm package in server.json to resolve at its exact version
+        if: steps.preflight.outputs.already_published != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t rows < <(jq -c '.packages[] | select(.registryType == "npm")' server.json)
+          if [ "${#rows[@]}" -eq 0 ]; then
+            echo "::error::server.json has no npm packages[] entries — nothing to wait for, which is unexpected for this repo."
+            exit 1
+          fi
+          for row in "${rows[@]}"; do
+            identifier=$(jq -r '.identifier' <<<"$row")
+            version=$(jq -r '.version' <<<"$row")
+            base=$(jq -r '.registryBaseUrl' <<<"$row")
+            enc_id=$(jq -rn --arg n "$identifier" '$n|@uri')
+            url="$base/$enc_id/$version"
+            echo "waiting for $identifier@$version to resolve at $url (the exact document the registry itself fetches to validate npm ownership)..."
+            resolved=false
+            for i in $(seq 1 10); do
+              status=$(curl -sS -o /dev/null -w '%{http_code}' "$url")
+              if [ "$status" = "200" ]; then
+                echo "  attempt $i: $url -> 200, resolved"
+                resolved=true
+                break
+              fi
+              echo "  attempt $i: $url -> $status, retrying in 10s..."
+              sleep 10
+            done
+            if [ "$resolved" != "true" ]; then
+              echo "::error::$identifier@$version never resolved at $url after 10 attempts (this is the exact npm version-document endpoint the registry itself fetches, not the packument) — refusing to publish, which would 404 on this same lookup."
+              exit 1
             fi
-            echo "attempt $i: not yet resolvable, retrying in 10s..."
-            sleep 10
           done
-          echo "::error::obsidian-tc@$version never resolved on npmjs after 10 attempts — refusing to publish to the MCP Registry, which would 404 on this same lookup."
-          exit 1
-      # Pinned binary + checksum, matching how this repo installs syft and actionlint elsewhere
-      # (and the sibling codecalc repo's release.yml) rather than the `curl .../latest/...` the
-      # upstream quickstart shows — a release tag can move under an unpinned URL, and this is the
-      # tool that authenticates and publishes, not a read-only report. Checksum independently
-      # verified 2026-09-03 against registry_1.8.1_checksums.txt (the maintainer-published,
-      # sigstore-signed manifest attached to this release) and against the GitHub Releases API's
-      # own asset digest — both agree.
-      - name: install mcp-publisher v1.8.1 (pinned binary + checksum)
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -sSL --fail -o "$RUNNER_TEMP/mcp-publisher.tar.gz" \
-            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
-          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  $RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
-          "$RUNNER_TEMP/mcp-publisher" --version
+      # Review finding M1: shared with ci-server.yml's registry-validate job so the pinned version
+      # + checksum can drift in exactly one place. See that action's header comment for the
+      # checksum's verification sources.
+      - uses: ./.github/actions/install-mcp-publisher
+        if: steps.preflight.outputs.already_published != 'true'
       # No secret exchanged here: this trades the job's own GitHub OIDC token for a short-lived MCP
       # Registry credential.
       - name: authenticate to the MCP Registry (GitHub OIDC)
+        if: steps.preflight.outputs.already_published != 'true'
         shell: bash
         run: |
           "$RUNNER_TEMP/mcp-publisher" login github-oidc
       # Reads server.json from the repo root (checked out above) by default — no path argument.
       - name: publish server.json to the MCP Registry
+        if: steps.preflight.outputs.already_published != 'true'
         shell: bash
         run: |
           "$RUNNER_TEMP/mcp-publisher" publish
