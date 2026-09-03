@@ -138,11 +138,21 @@ function elig(db: Database, id: string): string {
  *  call straight to `db` — explicit method-by-method, not `{ ...db }`: the real handle is a native
  *  class instance whose methods live on the prototype, so a plain object spread would silently drop
  *  them. Matches on a substring unique to that one SELECT (its own WHERE clause), not on the whole
- *  statement, so it stays correct if unrelated columns are added to the SELECT list. */
-function raceAfterPendingSelect(db: Database, onRace: () => void): Database {
+ *  statement, so it stays correct if unrelated columns are added to the SELECT list.
+ *
+ *  THE-726 fix round 3 (G7): returns a `fired()` accessor alongside the wrapped `db` now - every
+ *  race test asserts it, so a future refactor of `evaluateEpisodes`'s pending-SELECT text (breaking
+ *  the `MATCH` substring above) makes the race silently NEVER FIRE and every one of these tests
+ *  goes red for the RIGHT reason (an unfired race, not a real regression) instead of quietly
+ *  degrading into a non-race test that still happens to pass. */
+function raceAfterPendingSelect(
+  db: Database,
+  onRace: () => void,
+): { db: Database; fired: () => boolean } {
   let armed = true;
+  let didFire = false;
   const MATCH = "WHERE eligibility = 'pending' AND blocked = 0";
-  return {
+  const wrapped: Database = {
     exec: (sql: string) => db.exec(sql),
     prepare: (sqlText: string) => {
       const stmt = db.prepare(sqlText);
@@ -154,6 +164,7 @@ function raceAfterPendingSelect(db: Database, onRace: () => void): Database {
           const result = stmt.all(...args);
           if (armed) {
             armed = false;
+            didFire = true;
             onRace();
           }
           return result;
@@ -162,6 +173,7 @@ function raceAfterPendingSelect(db: Database, onRace: () => void): Database {
     },
     close: () => db.close?.(),
   };
+  return { db: wrapped, fired: () => didFire };
 }
 
 describe("evaluateEpisodes (THE-222)", () => {
@@ -454,12 +466,26 @@ describe("evaluateEpisodes (THE-222)", () => {
 // always is. The hold rule is order-independent on the SOURCE axis too: verdict_source alone
 // decides, never the presence of a policy version or any other column.
 describe("evaluateEpisodes: verdict_source-aware hold (THE-726)", () => {
+  // THE-726 fix round 3 (G7): the title claimed "flag off or on" but the body only ever ran
+  // `derivedVerdictHold: false` - a regression that made an operator -1 stop holding when the flag
+  // was ON would have passed this test unnoticed. Both values are now actually exercised, on
+  // separate databases so a still-pending row from the first pass cannot inflate the second pass's
+  // `scanned`/`held` counts.
   it("an operator -1 holds unconditionally, flag off or on", async () => {
-    const db = edb0();
-    seed(db, "op", { task_result: -1, verdict_source: "operator" });
-    const stats = await evaluateEpisodes(db, { nowMs: NOW + 1000, derivedVerdictHold: false });
-    expect(stats).toMatchObject({ promoted: 0, held: 1 });
-    expect(elig(db, "op")).toBe("pending");
+    const dbOff = edb0();
+    seed(dbOff, "op-off", { task_result: -1, verdict_source: "operator" });
+    const offStats = await evaluateEpisodes(dbOff, {
+      nowMs: NOW + 1000,
+      derivedVerdictHold: false,
+    });
+    expect(offStats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(dbOff, "op-off")).toBe("pending");
+
+    const dbOn = edb0();
+    seed(dbOn, "op-on", { task_result: -1, verdict_source: "operator" });
+    const onStats = await evaluateEpisodes(dbOn, { nowMs: NOW + 1000, derivedVerdictHold: true });
+    expect(onStats).toMatchObject({ promoted: 0, held: 1 });
+    expect(elig(dbOn, "op-on")).toBe("pending");
   });
 
   it("a derived -1 does NOT hold when the flag is off — it promotes like any other verdict", async () => {
@@ -508,12 +534,13 @@ describe("evaluateEpisodes: verdict_source-aware hold (THE-726)", () => {
     // the exact gap between that read and the promote UPDATE.
     const db = edb0();
     seed(db, "race", { eligibility: "pending", task_result: null });
-    const raced = raceAfterPendingSelect(db, () => {
+    const { db: raced, fired } = raceAfterPendingSelect(db, () => {
       db.prepare(
         "UPDATE agent_episodes SET task_result = -1, verdict_source = 'derived' WHERE id = 'race'",
       ).run();
     });
     const stats = await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(fired()).toBe(true);
     expect(stats.promoted).toBe(1); // flag off -> the derived -1 does not block promotion
     expect(elig(db, "race")).toBe("eligible");
   });
@@ -521,7 +548,7 @@ describe("evaluateEpisodes: verdict_source-aware hold (THE-726)", () => {
   it("evaluateEpisodes itself still BLOCKS an OPERATOR -1 condemned mid-pass, exercised the same way", async () => {
     const db = edb0();
     seed(db, "race-op", { eligibility: "pending", task_result: null });
-    const raced = raceAfterPendingSelect(db, () => {
+    const { db: raced, fired } = raceAfterPendingSelect(db, () => {
       db.prepare(
         "UPDATE agent_episodes SET task_result = -1, verdict_source = 'operator' WHERE id = 'race-op'",
       ).run();
@@ -531,7 +558,29 @@ describe("evaluateEpisodes: verdict_source-aware hold (THE-726)", () => {
     // route around, and it is unaffected by this fix. The authoritative check is the row's real
     // eligibility in the DB, same as task-verdict.test.ts's own precedent for this exact race.
     await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(fired()).toBe(true);
     expect(elig(db, "race-op")).toBe("pending");
+  });
+
+  // THE-726 fix round 3 (G7): the missing race - a DERIVED -1 condemning the row mid-pass while
+  // `derivedVerdictHold` is ON. This is precisely what the promote UPDATE's own
+  // `(verdict_source = 'derived' AND ? = 0)` term (reflect.ts) exists to guard: with the flag on,
+  // that clause is false for a derived verdict, so the re-check WHERE excludes the row from the
+  // promote UPDATE the same way it does for an operator -1. A mutation that dropped that clause
+  // (or hardcoded the bind parameter to 0) would promote this row and this test would go red.
+  it("evaluateEpisodes itself BLOCKS a DERIVED -1 condemned mid-pass when derivedVerdictHold is on", async () => {
+    const db = edb0();
+    seed(db, "race-derived-hold", { eligibility: "pending", task_result: null });
+    const { db: raced, fired } = raceAfterPendingSelect(db, () => {
+      db.prepare(
+        "UPDATE agent_episodes SET task_result = -1, verdict_source = 'derived' WHERE id = 'race-derived-hold'",
+      ).run();
+    });
+    await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: true });
+    expect(fired()).toBe(true);
+    // Same `stats.promoted`-counts-the-candidate-decision quirk as the operator race above - the
+    // row's own eligibility in the DB is the authoritative check.
+    expect(elig(db, "race-derived-hold")).toBe("pending");
   });
 });
 

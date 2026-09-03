@@ -799,9 +799,11 @@ export interface EpisodeBacklog {
  * wrong.
  */
 /** THE-726: `derivedVerdictHold` mirrors `experiential.derivedVerdictHold` so this diagnostic
- *  agrees with what the evaluator would actually promote; the doctor probe (cli/commands/doctor.ts)
- *  opens a bare handle with no config in scope and passes nothing, which defaults to the flag's own
- *  default (false) — the same value an unconfigured deployment runs with. */
+ *  agrees with what the evaluator would actually promote. THE-726 fix round 3: the doctor probe
+ *  (cli/commands/doctor.ts's `probeEpisodeBacklog`) now forwards `config.experiential.derivedVerdictHold`
+ *  explicitly, so this diagnostic sees the deployment's REAL configured value, not the flag's
+ *  default - this comment previously said the probe passed nothing at all, which stopped being
+ *  true in review round 1. */
 export function readEpisodeBacklog(
   edb: Database,
   nowMs: number,

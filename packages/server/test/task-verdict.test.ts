@@ -6,6 +6,7 @@
 // live rows. These tests pin the writer, and specifically the four things v2's first draft got
 // wrong badly enough to be rejected — each is a case where a plausible implementation passes the
 // obvious test and is still broken.
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -17,6 +18,38 @@ import type { CallerContext } from "../src/mcp/registry/types";
 import { buildVerdictTools } from "../src/tools/m8/verdict-tools";
 import { insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
+
+// THE-726 fix round 3 (G7): a full structural + content fingerprint of a database, not one row -
+// see derive-verdict.test.ts's own copy of this helper (kept local rather than shared, matching
+// this repo's per-file fixture convention) for why a single-row before/after compare misses writes
+// to OTHER tables or a second row in the SAME table.
+function dbFingerprint(db: Database): {
+  tables: string[];
+  rowCounts: Record<string, number>;
+  hash: string;
+} {
+  const tables = (
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{
+      name: string;
+    }>
+  ).map((r) => r.name);
+  const rowCounts: Record<string, number> = {};
+  const hash = createHash("sha256");
+  for (const t of tables) {
+    let rows: unknown[];
+    try {
+      rows = db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all();
+    } catch {
+      // A `WITHOUT ROWID` table (e.g. acl_path_members, cache.db) has no `rowid` - its natural scan
+      // order is already primary-key order, deterministic without an explicit ORDER BY.
+      rows = db.prepare(`SELECT * FROM ${t}`).all();
+    }
+    rowCounts[t] = rows.length;
+    hash.update(t);
+    hash.update(JSON.stringify(rows));
+  }
+  return { tables, rowCounts, hash: hash.digest("hex") };
+}
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -429,9 +462,14 @@ describe("THE-726: verdict provenance (verdict_source / verdict_policy)", () => 
       db: cacheDb,
       now: () => 5000,
     };
+    const before = dbFingerprint(cacheDb);
     const out = await workResult.handler({ result: -1 }, ctx);
     expect(out).toMatchObject({ available: true, stamped: 1 });
     expect(provenance(d, id)).toEqual({ verdict_source: "operator", verdict_policy: null });
+    // THE-726 fix round 3 (G7): work_result writes ONLY to experiential.db (the same THE-838
+    // cross-store isolation boundary deriveClosedWindows keeps) - a full snapshot, not one row,
+    // confirms cache.db (the session store) is completely untouched by the operator writer too.
+    expect(dbFingerprint(cacheDb)).toEqual(before);
     d.close?.();
     cacheDb.close?.();
   });

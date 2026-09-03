@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
+import type { Database } from "../../db/types";
 import {
   type DeriveClosedWindowsOutcome,
   deriveClosedWindows,
@@ -17,11 +18,14 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  // THE-726: the derived-verdict pass needs `workspace_sessions.ended_at`, in cache.db, regardless
-  // of `experiential.citationPreferences` — it must not depend on that unrelated flag. cache.db is
-  // therefore opened unconditionally here now, one handle, closed in the same `finally` below.
-  // `citationPreferences` still gates only whether extractPreferences is HANDED this connection.
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  // THE-726 fix round 3: cache.db is now opened INSIDE the guarded derive step below, not
+  // unconditionally here. Opening it here (round 1) meant an unreadable or corrupt cache.db (bad
+  // permissions, a stale lock, disk error) aborted the WHOLE command before evaluateEpisodes ever
+  // ran - a regression from before this pass existed, when `citationPreferences` off meant
+  // eligibility never touched cache.db at all. `cacheDb` stays `undefined` on any open failure;
+  // every downstream use already tolerates that (extractPreferences already accepts
+  // `cacheDb: undefined` when `citationPreferences` is off).
+  let cacheDb: Database | undefined;
   try {
     const nowMs = Date.now();
     // THE-726: derive verdicts for every ended session with open judgeable rows BEFORE the
@@ -32,9 +36,12 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
     // working eligibility pass below, and a throw here (a cache.db this process never provisioned,
     // a lock, anything else) must not take that pass down with it. `deriveClosedWindows` itself now
     // guards the specific "cache.db exists but was never provisioned" case (no `workspace_sessions`
-    // table) and no-ops; this catch is the net for everything else.
+    // table) and no-ops; this catch is the net for everything else, INCLUDING the open itself now
+    // (round 3) - `openDatabase` throwing lands here exactly the same way as `deriveClosedWindows`
+    // throwing always did.
     let derived: DeriveClosedWindowsOutcome | undefined;
     try {
+      cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
       derived = await deriveClosedWindows(edb, cacheDb, { nowMs });
     } catch (e) {
       process.stderr.write(`reflect: derived-verdict pass failed: ${errorMessage(e)}\n`);
@@ -77,7 +84,7 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
     );
   } finally {
     edb.close?.();
-    cacheDb.close?.();
+    cacheDb?.close?.();
   }
   return;
 }

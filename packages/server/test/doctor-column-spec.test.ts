@@ -78,6 +78,17 @@ describe("derived.column-liveness spec", () => {
     expect(spec.some((s) => s.writer === "disabled")).toBe(true);
   });
 
+  // THE-726 fix round 3: the lever text used to name only work_result, the operator writer - the
+  // derived-verdict pass writes this column too when the caller never calls work_result itself.
+  it("names BOTH task_result writers in its lever text", () => {
+    const spec = experientialColumnSpec({ experiential: true });
+    const lever = spec.find(
+      (s) => s.table === "agent_episodes" && s.column === "task_result",
+    )?.lever;
+    expect(lever).toContain("work_result");
+    expect(lever).toContain("derived-verdict pass");
+  });
+
   it("gives every column a lever an operator can act on", () => {
     for (const s of experientialColumnSpec({ experiential: true })) {
       expect(s.lever.length).toBeGreaterThan(10);

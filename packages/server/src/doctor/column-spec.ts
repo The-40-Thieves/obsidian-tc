@@ -77,8 +77,14 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       // independent per-dispatch judgements double-counts: `(session_id, verdict_at)` is what
       // identifies the rows sharing one opinion.
       writer: on ? "enabled" : "disabled",
+      // THE-726 fix round 3: this used to name only the operator writer. There are TWO: an agent
+      // calling work_result after finishing a task, and the derived-verdict pass inferring a
+      // verdict from a closed session's tool-call log (CLI reflect / the scheduled reflect tick)
+      // when the caller never called work_result itself. Naming only one made the lever describe
+      // a deployment that stamps nothing but runs the scheduled pass as "enabled" for a reason
+      // that is not actually why the column has values.
       lever:
-        "an agent calling work_result after finishing a task (THE-726). The verdict is rendered at SESSION grain and PROJECTED onto the window's judgeable rows, so these are not independent per-dispatch judgements: (session_id, verdict_at) identifies the rows sharing one opinion, and a consumer that ignores it double-counts.",
+        "an agent calling work_result after finishing a task, OR the derived-verdict pass inferring a verdict from a closed session's tool-call log when the caller never did (THE-726). The verdict is rendered at SESSION grain and PROJECTED onto the window's judgeable rows, so these are not independent per-dispatch judgements: (session_id, verdict_at) identifies the rows sharing one opinion, and a consumer that ignores it double-counts.",
     },
     // THE-726 (on-demand derivation): the two writers of task_result are now distinguishable.
     // `verdict_source` is 'operator' (work_result, a first-person judgement) or 'derived' (the

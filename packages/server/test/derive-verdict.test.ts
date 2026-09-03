@@ -2,9 +2,10 @@
 // tested in isolation first; `deriveClosedWindows` is the cross-store (cache.db + experiential.db)
 // wiring on top of it, tested against real migration chains via `provisionCacheDb`/`runMigrations`
 // (the reflect-citation-preferences.test.ts pattern for a cross-store fixture).
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
@@ -14,15 +15,19 @@ import {
   DERIVATION_POLICY_VERSION,
   deriveClosedWindows,
   deriveWindowVerdict,
+  MAX_CANDIDATE_SESSIONS,
   READ_FAMILY_TOOLS,
   TERMINAL_DRAIN_POLICY,
   type WindowRow,
 } from "../src/experiential/derive-verdict";
+import { registerEpisodeEvaluation } from "../src/experiential/episode-evaluation-schedule";
 import {
+  applyPreferenceDeltas,
   evaluateEpisodes,
   extractPreferences,
   SEARCH_FAMILY_TOOLS,
 } from "../src/experiential/reflect";
+import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
 
 const read = (name: string) =>
@@ -37,10 +42,16 @@ const NOW = 1_900_000_000_000;
 // ---------------------------------------------------------------------------
 // deriveWindowVerdict — pure, one rule at a time.
 
+// THE-726 fix round 3 (G2b): `seq` defaults to the CALL order (mirrors `rowid`, real capture
+// order), independently of `id` - a test that wants ids to sort AGAINST capture order overrides
+// `id` alone and leaves `seq` at its natural default, exactly the shape the tiebreak fix needs to
+// be tested against.
 let rowSeq = 0;
 function row(over: Partial<WindowRow> = {}): WindowRow {
+  const n = ++rowSeq;
   return {
-    id: over.id ?? `r-${++rowSeq}`,
+    id: over.id ?? `r-${n}`,
+    seq: over.seq ?? n,
     tool: over.tool ?? "read_note",
     status: over.status ?? "ok",
     error_code: over.error_code ?? null,
@@ -134,7 +145,13 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
     for (const t of READ_FAMILY_TOOLS) expect(SEARCH_FAMILY_TOOLS.has(t)).toBe(false);
   });
 
-  it("reuses reflect.ts's own SEARCH_FAMILY_TOOLS set, not a duplicate", () => {
+  // THE-726 fix round 3 (G7): retitled - the previous title claimed this proves S1 "reuses
+  // reflect.ts's own SEARCH_FAMILY_TOOLS set, not a duplicate", but the assertions below only check
+  // two known names are present; they say nothing about object identity and would pass identically
+  // against an independent set someone hand-copied with the same two names in it. The import at the
+  // top of this file (`SEARCH_FAMILY_TOOLS` from `../src/experiential/reflect`) is what actually
+  // guarantees no duplicate exists - this test just spot-checks the imported set's contents.
+  it("the imported SEARCH_FAMILY_TOOLS names the two search tools these other tests rely on", () => {
     expect(SEARCH_FAMILY_TOOLS.has("search_text")).toBe(true);
     expect(SEARCH_FAMILY_TOOLS.has("vault_graph_search")).toBe(true);
   });
@@ -172,6 +189,25 @@ describe("deriveWindowVerdict: F2 retry-after-error", () => {
       row({ tool: "write_note", args_hash: "h1", status: "error", ts: 2 }),
     ];
     expect(deriveWindowVerdict(rows)).toBe(-1);
+  });
+
+  // THE-726 fix round 3 (G7): a `null` args_hash cannot be correlated across calls
+  // (`hasRetryAfterErrorNoRecovery`'s own `if (!r.args_hash) continue;` guard, and the module
+  // header, both say so) - this pins the CONSEQUENCE directly rather than trusting the guard exists.
+  // A LAST row that is itself `ok` is essential here: two null-hash errors alone would also satisfy
+  // F1 (last call error) regardless of F2, so this would derive -1 either way and prove nothing
+  // about the guard specifically. With the guard removed, a buggy implementation would group both
+  // null-hash rows under one key, see "recurs, never reaches ok" (within that GROUP, not the whole
+  // window), and wrongly derive -1 via F2 even though the window's actual last call is ok.
+  it("two errors with args_hash: null do not form an F2 retry group, even though they would match if hashed", () => {
+    const rows = [
+      row({ tool: "write_note", args_hash: null, status: "error", ts: 1 }),
+      row({ tool: "write_note", args_hash: null, status: "error", ts: 2 }),
+      row({ tool: "read_note", args_hash: null, status: "ok", ts: 3 }), // unrelated, ends the window ok
+    ];
+    // Not F1 (last call is ok), not F2 (args_hash: null excludes both errors from any retry group),
+    // not S1 (no search precedes the read) -> 0.
+    expect(deriveWindowVerdict(rows)).toBe(0);
   });
 
   it("a retried args_hash that eventually succeeds is NOT F2", () => {
@@ -268,6 +304,35 @@ describe("deriveWindowVerdict: S1 browse / S2 clean end", () => {
     ];
     expect(deriveWindowVerdict(rows)).toBe(1);
   });
+
+  // THE-726 fix round 3, G1 (cross-vendor finding on PR #882, same class of defect as BLOCKING #1
+  // above, on the OTHER side of S1): an OK search followed by an ERRORED read still satisfied S1 as
+  // long as a LATER, unrelated call happened to end `ok` - `search ok, read error, write ok (last)`
+  // derived +1 and fed a positive `preferred.search_mode` delta for a browse that never actually
+  // succeeded. Reproduced exactly as the finding's own scenario.
+  it("an OK search followed by an ERRORED read does NOT satisfy S1 by itself - no longer derives +1", () => {
+    const rows = [
+      row({ tool: "search_text", status: "ok", ts: 1 }),
+      row({ tool: "read_note", status: "error", ts: 2 }),
+      row({ tool: "write_note", status: "ok", ts: 3 }),
+    ];
+    // Not F1 (last call is ok), not F2 (no recurring args_hash), not S1 (the read that followed the
+    // ok search itself errored) -> S2 is false -> 0, not +1. The LAST call being ok is not enough;
+    // the read that actually satisfies S1 must be the one that ends ok.
+    expect(deriveWindowVerdict(rows)).toBe(0);
+  });
+
+  it("an OK search, an ERRORED read, then a LATER OK read still derives +1 - the later successful read satisfies S1", () => {
+    const rows = [
+      row({ tool: "search_text", status: "ok", ts: 1 }),
+      row({ tool: "read_note", status: "error", ts: 2 }),
+      row({ tool: "read_note", status: "ok", ts: 3 }),
+    ];
+    // The errored read does not clear `sawOkSearch`; the SECOND read (ok) satisfies S1, and it is
+    // also the last call -> S2 -> +1. Distinguishes "the errored read itself is excluded" from "no
+    // read after an errored one can ever seed S1".
+    expect(deriveWindowVerdict(rows)).toBe(1);
+  });
 });
 
 describe("deriveWindowVerdict: precedence", () => {
@@ -311,26 +376,48 @@ describe("deriveWindowVerdict: ordering is by ts, not insertion order", () => {
 // THE-726 review round 1 BLOCKING #2: `a.ts - b.ts` alone has no tiebreaker, so two rows sharing
 // one `ts` sorted DIFFERENTLY depending on which order the array (or the DB) happened to hand them
 // back — the reviewer reproduced opposite verdicts for the identical pair (ok@5, error@5) in
-// opposite array order. The fix breaks the tie on `id`, deterministically, regardless of input
-// order.
-describe("deriveWindowVerdict: tied ts is broken deterministically by id (THE-726 review round 1)", () => {
+// opposite array order. The round-1 fix broke the tie on `id`, deterministically.
+//
+// THE-726 fix round 3, G2b (cross-vendor finding): `id` is `genEpisodeId()` - random hex - so it is
+// STABLE (same input always sorts the same way) but not CAUSAL: it has no relationship to the
+// actual dispatch order. A same-millisecond dispatch of `search_text ok` then `write_note error`
+// (in that order) must derive -1 (F1: the error really was last), but with an id-based tiebreak the
+// verdict depended on which random id happened to sort last - reproducibly WRONG whenever the
+// error's id sorted first. The fix breaks the tie on `seq` (SQL `rowid`, real capture order)
+// instead; these tests now pick ids that sort AGAINST the intended seq/capture order specifically
+// to prove `id` no longer participates in the comparison at all.
+describe("deriveWindowVerdict: tied ts is broken deterministically by seq/capture order, not id (THE-726 fix round 3)", () => {
   it("a tied pair (ok, error at the same ts) derives the SAME verdict in both array orders", () => {
-    const ok = row({ id: "a", tool: "write_note", status: "ok", ts: 5 });
-    const err = row({ id: "b", tool: "write_note", status: "error", ts: 5 });
-    // "a" < "b", so (ts, id) order is [ok, error] regardless of array order -> last is the error.
+    // seq (capture order): ok=1, error=2 -> error is last, F1 -> -1. Ids deliberately sort the
+    // OPPOSITE way ("b" < ... no: chosen so id order would put error FIRST, ok LAST, the wrong
+    // answer an id-based tiebreak would have given).
+    const ok = row({ id: "z-ok", seq: 1, tool: "write_note", status: "ok", ts: 5 });
+    const err = row({ id: "a-err", seq: 2, tool: "write_note", status: "error", ts: 5 });
     const verdictOkFirst = deriveWindowVerdict([ok, err]);
     const verdictErrFirst = deriveWindowVerdict([err, ok]);
     expect(verdictOkFirst).toBe(verdictErrFirst);
-    expect(verdictOkFirst).toBe(-1); // F1: the id-broken-tie last call is the error
+    expect(verdictOkFirst).toBe(-1); // F1: the seq-broken-tie last call is the error
   });
 
-  it("a tied pair sorts by id when ts is equal, not by array position", () => {
-    // "err" < "ok" lexically, so at a shared ts the ERROR row sorts first and the OK row is last —
-    // pin the actual tiebreaker direction, not just "both orders agree with each other".
-    const okLast = row({ id: "z-ok", tool: "write_note", status: "ok", ts: 9 });
-    const errFirst = row({ id: "a-err", tool: "write_note", status: "error", ts: 9 });
-    expect(deriveWindowVerdict([okLast, errFirst])).toBe(0); // last-by-id is "z-ok" -> not F1
+  it("a tied pair sorts by seq when ts is equal, not by id or array position", () => {
+    // seq: errFirst=1, okLast=2 -> ok is last by seq -> not F1 -> 0. Ids are picked to sort the
+    // OPPOSITE way ("a-err" < "z-ok" alphabetically), so this only passes if seq, not id, decides.
+    const okLast = row({ id: "z-ok", seq: 2, tool: "write_note", status: "ok", ts: 9 });
+    const errFirst = row({ id: "a-err", seq: 1, tool: "write_note", status: "error", ts: 9 });
+    expect(deriveWindowVerdict([okLast, errFirst])).toBe(0); // last-by-seq is okLast -> not F1
     expect(deriveWindowVerdict([errFirst, okLast])).toBe(0); // same regardless of array order
+  });
+
+  // THE-726 fix round 3, G2b: the finding's own scenario, exactly. Dispatched in this order:
+  // `search_text` ok (first), `write_note` error (second), both at one millisecond. The ids are
+  // picked BY HAND to sort against that insertion order - an id-based tiebreak would put the error
+  // FIRST and the ok call LAST, deriving 0 (missing F1 entirely, and symmetrically missing S1 on a
+  // search-then-read pair). The verdict must follow capture order, not the ids.
+  it("a same-ts dispatch (search ok, then write error, in that capture order) derives -1 even when the ids sort the opposite way", () => {
+    const searchOk = row({ id: "z-search", seq: 1, tool: "search_text", status: "ok", ts: 7 });
+    const writeErr = row({ id: "a-write", seq: 2, tool: "write_note", status: "error", ts: 7 });
+    expect(deriveWindowVerdict([searchOk, writeErr])).toBe(-1); // F1: seq-order last is the error
+    expect(deriveWindowVerdict([writeErr, searchOk])).toBe(-1); // same regardless of array order
   });
 });
 
@@ -343,6 +430,40 @@ function stores(): { cacheDb: Database; edb: Database } {
   const edb = openMemoryDb();
   runMigrations(edb, EXPERIENTIAL_CHAIN);
   return { cacheDb, edb };
+}
+
+/** THE-726 fix round 3 (G7): a full structural + content fingerprint of a database, not one row -
+ *  the previous "does not write to cache.db" check only compared `workspace_sessions` row 'sess_a'
+ *  before and after, which would not have caught a write to any OTHER table, or a second row
+ *  inserted or deleted in the SAME table. Every table `sqlite_master` names, its row count, and a
+ *  content hash (so a same-count UPDATE that changes bytes still shows up) all have to match. */
+function dbFingerprint(db: Database): {
+  tables: string[];
+  rowCounts: Record<string, number>;
+  hash: string;
+} {
+  const tables = (
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{
+      name: string;
+    }>
+  ).map((r) => r.name);
+  const rowCounts: Record<string, number> = {};
+  const hash = createHash("sha256");
+  for (const t of tables) {
+    let rows: unknown[];
+    try {
+      rows = db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all();
+    } catch {
+      // A `WITHOUT ROWID` table (e.g. acl_path_members, cache.db) has no `rowid` column at all -
+      // its natural scan order is already primary-key order (it IS the b-tree keyed by PK), which
+      // is deterministic without an explicit ORDER BY.
+      rows = db.prepare(`SELECT * FROM ${t}`).all();
+    }
+    rowCounts[t] = rows.length;
+    hash.update(t);
+    hash.update(JSON.stringify(rows));
+  }
+  return { tables, rowCounts, hash: hash.digest("hex") };
 }
 
 function seedSession(
@@ -423,6 +544,30 @@ describe("deriveClosedWindows", () => {
     expect(episodeRow(edb, closedRow).task_result).toBe(1);
     expect(episodeRow(edb, readRow).task_result).toBe(1);
     expect(episodeRow(edb, liveRow).task_result).toBeNull(); // untouched — its session never ended
+  });
+
+  // THE-726 fix round 3 (G7): the boundary case for both `<=` comparisons this pass relies on -
+  // `loadWindow`'s `ts <= ?` (ended_at) and `stampOpenWindow`'s own `ts <= ?` (asOf). A row whose
+  // `ts` is EXACTLY `ended_at` must be IN bounds and genuinely stamped, not treated as past the
+  // window (which would silently starve it the same way BLOCKING #4 did) or fall into the drain
+  // path (which is for a window that is entirely OUT of bounds, not one sitting exactly on it).
+  it("a row whose ts equals ended_at exactly is in-bounds, stamped, and NOT drained", async () => {
+    const { cacheDb, edb } = stores();
+    const endedAt = NOW - 5000;
+    seedSession(cacheDb, "sess_a", { endedAt });
+    const id = seedEpisode(edb, { session: "sess_a", tool: "write_note", ts: endedAt });
+
+    const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
+    expect(out.stamped).toEqual({ minus: 0, zero: 1, plus: 0, drained: 0 });
+    const r = episodeRow(edb, id);
+    expect(r.task_result).toBe(0); // rules-judged neutral (no F/S evidence), not the drain path
+    expect(r.verdict_policy).toBe(DERIVATION_POLICY_VERSION);
+    const verdictAt = (
+      edb.prepare("SELECT verdict_at AS v FROM agent_episodes WHERE id = ?").get(id) as {
+        v: number;
+      }
+    ).v;
+    expect(verdictAt).toBe(endedAt); // the session's own ended_at, not widened to nowMs
   });
 
   it("a second pass finds no open rows — idempotent", async () => {
@@ -594,36 +739,57 @@ describe("deriveClosedWindows", () => {
     expect(episodeRow(edb, stuckRow).verdict_policy).toBe(TERMINAL_DRAIN_POLICY);
   });
 
-  it("does not write to cache.db — workspace_sessions is untouched", async () => {
+  it("does not write to cache.db - a full snapshot (every table, row counts, content hash) is unchanged", async () => {
     const { cacheDb, edb } = stores();
     seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
     seedEpisode(edb, { session: "sess_a", tool: "read_note", status: "ok" });
-    const before = cacheDb.prepare("SELECT * FROM workspace_sessions WHERE id = 'sess_a'").get();
+    const before = dbFingerprint(cacheDb);
     await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
-    const after = cacheDb.prepare("SELECT * FROM workspace_sessions WHERE id = 'sess_a'").get();
+    const after = dbFingerprint(cacheDb);
     expect(after).toEqual(before);
+    // The floor: this is a real, non-empty fixture, not an accidental pass over zero tables.
+    expect(before.tables.length).toBeGreaterThan(0);
+    expect(before.rowCounts.workspace_sessions).toBe(1);
   });
 
+  // THE-726 fix round 3 (G7): the previous version of this test only checked the STAMPED COLUMNS
+  // (task_result/session_id/verdict_at), which pins that stampOpenWindow ran but nothing about
+  // extractPreferences actually reading them the way it claims to. This drives the REAL
+  // extractPreferences and asserts the delta it produces is a "weaken" op - a regression that broke
+  // the -1 evidence path (say, groupEpisodesByVerdictWindow silently dropping derived rows) would
+  // pass the old version and fail this one.
   it("a -1 window derived here feeds extractPreferences the same way an operator -1 does (weaken)", async () => {
-    // Not a full extractPreferences round-trip (covered in reflect-evaluator.test.ts) — just pins
-    // that the derived writer produces the SAME column shape (task_result/session_id/verdict_at)
-    // that evidence gate reads, by construction of going through stampOpenWindow.
     const { cacheDb, edb } = stores();
     seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
+    // Establish the key exactly the way a prior +1 extraction would (reflect-evaluator.test.ts's own
+    // pattern for this exact assertion) - isolated via applyPreferenceDeltas directly, so the
+    // derived -1 window below is the ONLY thing this extractPreferences call re-derives.
+    applyPreferenceDeltas(
+      edb,
+      "main",
+      [{ key: "preferred.search_mode", op: "add", value: "search_text", scopeCaller: "alice" }],
+      NOW - 20_000,
+    );
     // A terminal error -> F1 -> -1.
-    const id = seedEpisode(edb, {
+    seedEpisode(edb, {
       session: "sess_a",
       tool: "search_text",
       status: "error",
       ts: NOW - 8000,
     });
     await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
-    const r = edb
-      .prepare("SELECT task_result, session_id, verdict_at FROM agent_episodes WHERE id = ?")
-      .get(id) as { task_result: number; session_id: string; verdict_at: number };
-    expect(r.task_result).toBe(-1);
-    expect(r.session_id).toBe("sess_a");
-    expect(r.verdict_at).not.toBeNull();
+    // Flag off -> the derived -1 does not hold; it promotes to 'eligible', which is the only
+    // eligibility state extractPreferences reads evidence from.
+    await evaluateEpisodes(edb, { nowMs: NOW, derivedVerdictHold: false });
+    const r = await extractPreferences(edb, "main", { nowMs: NOW });
+    expect(r).toMatchObject({ skipped: false, applied: 1 });
+
+    const weaken = edb
+      .prepare(
+        "SELECT key, op, value FROM preference_deltas WHERE vault_id = 'main' AND op = 'weaken'",
+      )
+      .get() as { key: string; op: string; value: string } | undefined;
+    expect(weaken).toEqual({ key: "preferred.search_mode", op: "weaken", value: "search_text" });
   });
 
   // THE-726 review round 1 BLOCKING #3 (second half): a cache.db that exists as a FILE but was
@@ -649,18 +815,58 @@ describe("deriveClosedWindows", () => {
   // never ask for more bind parameters than the cap regardless of backlog size.
   it("the candidate session scan is bounded — a backlog far larger than the cap does not make every session a candidate in one pass", async () => {
     const { cacheDb, edb } = stores();
-    const backlogSize = 2005; // > the module's MAX_CANDIDATE_SESSIONS (2000)
+    const backlogSize = MAX_CANDIDATE_SESSIONS + 5;
     for (let i = 0; i < backlogSize; i++) {
       const id = `bulk-${i}`;
       seedSession(cacheDb, id, { endedAt: NOW - 1000 - i }); // each with a distinct, older ended_at
       seedEpisode(edb, { session: id, tool: "read_note", ts: NOW - 5000 - i });
     }
     // A `limit` far larger than the cap: if candidateIds were unbounded, sessionsSeen would equal
-    // the whole backlog. It cannot, because the candidate SELECT itself caps at 2000.
+    // the whole backlog. It cannot, because the candidate SELECT itself caps at MAX_CANDIDATE_SESSIONS.
     const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, limit: backlogSize });
     expect(out.sessionsSeen).toBeLessThan(backlogSize);
-    expect(out.sessionsSeen).toBeLessThanOrEqual(2000);
+    expect(out.sessionsSeen).toBeLessThanOrEqual(MAX_CANDIDATE_SESSIONS);
   }, 20_000);
+
+  // THE-726 fix round 3 (G2): open sessions (cache.db `ended_at IS NULL`) used to occupy candidate
+  // slots the same as ended ones - enough of them (>= the cap) meant an ended session with real
+  // debt was NEVER reached, no matter how old its debt was. Lowers the cap via
+  // `opts.maxCandidateSessions` to make this reproducible without seeding thousands of rows.
+  it("open sessions cannot occupy every candidate slot - an ended session is still derived even when open sessions with debt outnumber the (lowered) cap", async () => {
+    const { cacheDb, edb } = stores();
+    const cap = 3;
+    // cap-plus-one OPEN sessions, each with debt OLDER than the ended session below - under the
+    // pre-fix behavior these alone would fill the entire (lowered) candidate cap.
+    for (let i = 0; i < cap + 1; i++) {
+      const id = `open-${i}`;
+      seedSession(cacheDb, id, { endedAt: null });
+      seedEpisode(edb, { session: id, tool: "read_note", ts: NOW - 9000 - i });
+    }
+    seedSession(cacheDb, "ended", { endedAt: NOW - 1000 });
+    const endedRow = seedEpisode(edb, { session: "ended", tool: "read_note", ts: NOW - 1500 });
+
+    const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, maxCandidateSessions: cap });
+    expect(out.sessionsSeen).toBe(1);
+    expect(episodeRow(edb, endedRow).task_result).not.toBeNull();
+  });
+
+  // THE-726 fix round 3 (G2b, candidate ordering): the candidate scan orders by oldest debt first
+  // (`MIN(ts) ASC`), not insertion order, so the (lowered) cap always keeps the globally oldest
+  // debt inside it even when `cap`-plus-one OTHER ended sessions are competing for the same slots.
+  it("the (lowered) candidate cap keeps the OLDEST debt inside it among cap-plus-one ended sessions", async () => {
+    const { cacheDb, edb } = stores();
+    const cap = 3;
+    seedSession(cacheDb, "s-oldest", { endedAt: NOW - 8000 });
+    const oldestRow = seedEpisode(edb, { session: "s-oldest", tool: "read_note", ts: NOW - 9000 });
+    for (let i = 0; i < cap; i++) {
+      const id = `s-newer-${i}`;
+      seedSession(cacheDb, id, { endedAt: NOW - 1000 - i });
+      seedEpisode(edb, { session: id, tool: "read_note", ts: NOW - 2000 - i });
+    }
+    // Total sessions = cap + 1 (s-oldest plus `cap` newer ones).
+    await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, maxCandidateSessions: cap });
+    expect(episodeRow(edb, oldestRow).task_result).not.toBeNull();
+  });
 
   // THE-726 review round 1 FOLD-IN #11: the module comment used to claim a session carries AT MOST
   // ONE window ever ("the two writers cannot race... the window definitions are simply disjoint").
@@ -703,45 +909,92 @@ describe("deriveClosedWindows", () => {
 
 // THE-726: the PASS-ORDERING requirement — a derived -1 written in a pass must be visible to the
 // hold rule in that SAME pass (registerEpisodeEvaluation calls deriveClosedWindows immediately
-// before evaluateEpisodes, in one `run`). These pin the two flag states end to end, not just the
-// hold-rule unit tested in reflect-evaluator.test.ts.
+// before evaluateEpisodes, in one `run`).
+//
+// THE-726 fix round 3 (G7): the previous version of this describe block called deriveClosedWindows
+// and evaluateEpisodes directly, one after the other - which pins that CALLING THEM IN THIS ORDER
+// produces the right result, but says nothing about whether registerEpisodeEvaluation's own `run`
+// (the actual production wiring, episode-evaluation-schedule.ts) really calls them in that order,
+// in ONE tick. A regression that reordered or decoupled them there would pass the old version of
+// this test and still fail in production. These now drive the REAL scheduler with a call log
+// recording which of the two ran first.
 describe("derive -> evaluate, same pass (THE-726 pass ordering)", () => {
-  it("a derived -1 is held in the same pass when derivedVerdictHold is on", async () => {
-    const { cacheDb, edb } = stores();
-    seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
-    const id = seedEpisode(edb, {
-      session: "sess_a",
-      tool: "write_note",
-      status: "error",
-      ts: NOW - 8000,
-    });
-    await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
-    const stats = await evaluateEpisodes(edb, { nowMs: NOW, derivedVerdictHold: true });
-    expect(stats).toMatchObject({ promoted: 0, held: 1 });
-    const row = edb
-      .prepare("SELECT eligibility, eligibility_reason FROM agent_episodes WHERE id = ?")
-      .get(id) as { eligibility: string; eligibility_reason: string };
-    expect(row.eligibility).toBe("pending");
-    expect(row.eligibility_reason).toBe("held_bad_task_result");
+  it("registerEpisodeEvaluation calls deriveClosedWindows before evaluateEpisodes in one tick - a derived -1 is held when derivedVerdictHold is on", async () => {
+    vi.useFakeTimers();
+    try {
+      const { cacheDb, edb } = stores();
+      seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
+      const id = seedEpisode(edb, {
+        session: "sess_a",
+        tool: "write_note",
+        status: "error",
+        ts: NOW - 8000,
+      });
+      const callLog: string[] = [];
+      const sched = new Scheduler();
+      registerEpisodeEvaluation(sched, {
+        edb,
+        intervalMs: 1000,
+        now: () => NOW,
+        derivedVerdictHold: true,
+        deriveClosedWindows: async () => {
+          callLog.push("derive");
+          return deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
+        },
+        onEvaluate: () => callLog.push("evaluate"),
+      });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(1000);
+      await sched.stop();
+
+      expect(callLog).toEqual(["derive", "evaluate"]);
+      const row = edb
+        .prepare("SELECT eligibility, eligibility_reason FROM agent_episodes WHERE id = ?")
+        .get(id) as { eligibility: string; eligibility_reason: string };
+      expect(row.eligibility).toBe("pending");
+      expect(row.eligibility_reason).toBe("held_bad_task_result");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("a derived -1 is promoted with promoted_stable in the same pass when derivedVerdictHold is off", async () => {
-    const { cacheDb, edb } = stores();
-    seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
-    const id = seedEpisode(edb, {
-      session: "sess_a",
-      tool: "write_note",
-      status: "error",
-      ts: NOW - 8000,
-    });
-    await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
-    const stats = await evaluateEpisodes(edb, { nowMs: NOW, derivedVerdictHold: false });
-    expect(stats).toMatchObject({ promoted: 1, held: 0 });
-    const row = edb
-      .prepare("SELECT eligibility, eligibility_reason FROM agent_episodes WHERE id = ?")
-      .get(id) as { eligibility: string; eligibility_reason: string };
-    expect(row.eligibility).toBe("eligible");
-    expect(row.eligibility_reason).toBe("promoted_stable");
+  it("registerEpisodeEvaluation calls deriveClosedWindows before evaluateEpisodes in one tick - a derived -1 is promoted with promoted_stable when derivedVerdictHold is off", async () => {
+    vi.useFakeTimers();
+    try {
+      const { cacheDb, edb } = stores();
+      seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
+      const id = seedEpisode(edb, {
+        session: "sess_a",
+        tool: "write_note",
+        status: "error",
+        ts: NOW - 8000,
+      });
+      const callLog: string[] = [];
+      const sched = new Scheduler();
+      registerEpisodeEvaluation(sched, {
+        edb,
+        intervalMs: 1000,
+        now: () => NOW,
+        derivedVerdictHold: false,
+        deriveClosedWindows: async () => {
+          callLog.push("derive");
+          return deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
+        },
+        onEvaluate: () => callLog.push("evaluate"),
+      });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(1000);
+      await sched.stop();
+
+      expect(callLog).toEqual(["derive", "evaluate"]);
+      const row = edb
+        .prepare("SELECT eligibility, eligibility_reason FROM agent_episodes WHERE id = ?")
+        .get(id) as { eligibility: string; eligibility_reason: string };
+      expect(row.eligibility).toBe("eligible");
+      expect(row.eligibility_reason).toBe("promoted_stable");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

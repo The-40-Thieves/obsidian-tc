@@ -23,17 +23,27 @@
 //
 // A window closes when its session's `ended_at` is set (cache.db `workspace_sessions`). The
 // verdict is derived from four structural signals over the window's `tool_call` rows, ordered by
-// `(ts, id)` — `id` is a tiebreaker, not a secondary signal: two rows can share one `ts` (same
-// millisecond), and an unordered pair must still derive the SAME verdict on every run, not one that
-// depends on which order two DB reads happened to return them in:
+// `(ts, seq)` - `seq` (the row's `rowid`, capture/insertion order) is a tiebreaker, not a secondary
+// signal: two rows can share one `ts` (same millisecond), and an unordered pair must still derive
+// the SAME verdict on every run, not one that depends on which order two DB reads happened to
+// return them in. `id` (episode id, random hex) is an IDENTIFIER only - see G2b below for why it
+// cannot also be the tiebreaker:
 //   F1 terminal error   — the window's LAST call has `status = 'error'`.
 //   F2 retry-after-error — some `args_hash` shows `status = 'error'`, recurs later in the window,
-//                          and never reaches `ok` anywhere in the window.
+//                          and never reaches `ok` anywhere in the window. Consequence, considered
+//                          and kept (THE-726 fix round 3, G4): a same-`args_hash` retry that is
+//                          ABANDONED for a different, successful call (h1 error, h1 error, h2 ok
+//                          last) still derives -1 - the caller never proved the first request's
+//                          approach actually worked, it just moved on. This is the gated rule as
+//                          confirmed; the 14-day -1 share band is the instrument that would catch
+//                          it if this reading turns out to be miscalibrated.
 //   S1 browse           — a search-family call that itself ENDED `ok` is followed LATER in the
-//                          window by a read-family call (the caller looked at what a successful
-//                          search found). An errored search proves nothing was found to look at, so
-//                          it cannot seed this signal, and a read after only an errored search does
-//                          not count as a browse.
+//                          window by a read-family call that ITSELF also ends `ok` (THE-726 fix
+//                          round 3, G1: an errored read is not evidence the caller found anything
+//                          either - the same reasoning that already excludes an errored SEARCH from
+//                          seeding this signal, round 1). An errored search proves nothing was found
+//                          to look at, so it cannot seed this signal, and a read after only an
+//                          errored search does not count as a browse.
 //   S2 clean end        — the last call is `ok` AND S1 occurred.
 //   verdict: -1 iff (F1 or F2) and not S2; +1 iff S2 and not (F1 or F2); 0 otherwise.
 //
@@ -71,8 +81,17 @@ import { stampOpenWindow, type TaskResult, UNSTAMPED_DEBT_CLAUSES } from "./verd
  *
  *  v2 (THE-726 review round 1): S1 now requires the seeding search call to have ENDED `ok` — v1
  *  let an ERRORED search seed a browse, so a failed search followed by an unrelated successful read
- *  derived +1 and fed a positive `preferred.search_mode` delta for the tool that just failed. */
-export const DERIVATION_POLICY_VERSION = 2;
+ *  derived +1 and fed a positive `preferred.search_mode` delta for the tool that just failed.
+ *
+ *  v3 (THE-726 fix round 3, cross-vendor findings on PR #882): two changes, both able to flip a
+ *  verdict on the SAME log, so one bump covers both. G1 - S1 now ALSO requires the read-family call
+ *  itself to have ended `ok`; v2 let an errored read still satisfy S1 as long as the seeding search
+ *  was ok, so `search ok, read error, write ok (last)` derived +1 for a browse that never actually
+ *  succeeded. G2b - same-`ts` ties now break on `seq` (the row's `rowid`, real capture order), not
+ *  on the episode `id` (random hex, stable but not causal): a dispatch order of `search ok` then
+ *  `write error` at one millisecond used to derive 0 or -1 depending on which id happened to sort
+ *  last, when the true last call (by capture order) was always the error. */
+export const DERIVATION_POLICY_VERSION = 3;
 
 /** THE-726 fix round 2: the drain stamp's own policy value, distinct from any real derivation
  *  rule version. Policy 0 means no derivation rule judged the window; the row was closed to stop
@@ -91,13 +110,21 @@ export const TERMINAL_DRAIN_POLICY = 0;
  * so a new read tool forces a reviewed decision instead of silently sitting in neither bucket. */
 export const READ_FAMILY_TOOLS: ReadonlySet<string> = new Set(["read_note", "read_notes"]);
 
-/** One `tool_call` episode row, exactly as needed to derive a window verdict. `id` is a tiebreaker
- *  only — two rows sharing one `ts` must still derive deterministically regardless of which order a
- *  query happens to return them in (THE-726 review round 1). Ordered by `(ts, id)` is the caller's
- *  job when it matters for a query; `deriveWindowVerdict` sorts defensively anyway (see its own
- *  note) so passing rows in insertion order is never silently wrong. */
+/** One `tool_call` episode row, exactly as needed to derive a window verdict.
+ *
+ *  THE-726 fix round 3 (G2b): the tiebreak for two rows sharing one `ts` is `seq` - the row's SQL
+ *  `rowid`, i.e. the ORDER episodes.ts actually inserted them in (mirrors `episodes.ts`'s own
+ *  `ORDER BY ts DESC, rowid DESC` prev-episode lookup, and activation.ts's identical use of rowid
+ *  as a wall-clock tiebreaker). `id` (episode id, `genEpisodeId()` - random hex) is STABLE across
+ *  re-sorts but NOT CAUSAL: two rows dispatched in a known order (search ok, then write error, at
+ *  one millisecond) must derive the verdict that order actually implies, not whichever verdict the
+ *  losing id's sort position happens to produce. `id` stays on this shape purely as an identifier;
+ *  nothing sorts on it any more. */
 export interface WindowRow {
   id: string;
+  /** THE-726 fix round 3 (G2b): SQL `rowid`, the real capture-order tiebreaker. See this
+   *  interface's own comment for why `id` cannot serve that role. */
+  seq: number;
   tool: string | null;
   status: string;
   /** Not read by any v1 rule — see the module header. */
@@ -106,20 +133,23 @@ export interface WindowRow {
   ts: number;
 }
 
-/** THE-726 review round 1: a fixed comparator, `(ts, id)`, shared by `deriveWindowVerdict`'s
+/** THE-726 fix round 3 (G2b): a fixed comparator, `(ts, seq)`, shared by `deriveWindowVerdict`'s
  *  in-memory sort and `loadWindow`'s SQL `ORDER BY` — both must agree, or a window loaded already
- *  sorted could still derive differently from one re-sorted defensively. */
-function byTsThenId(a: WindowRow, b: WindowRow): number {
+ *  sorted could still derive differently from one re-sorted defensively. Replaces the round-1
+ *  `(ts, id)` comparator: `id` is stable but not causal (see `WindowRow`'s own comment) - `seq`
+ *  (rowid) is real insertion order, which is what "the window's LAST call" is actually supposed to
+ *  mean. */
+function byTsThenSeq(a: WindowRow, b: WindowRow): number {
   if (a.ts !== b.ts) return a.ts - b.ts;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return a.seq - b.seq;
 }
 
 /** F2: some `args_hash` shows an error, recurs later in the window (any status), and the group
  *  never reaches `ok` anywhere in the window. A `null` args_hash cannot be correlated across calls
  *  and is excluded, the same way `partitionPending`'s unstable-evidence check excludes it. */
-function hasRetryAfterErrorNoRecovery(sortedByTsThenId: readonly WindowRow[]): boolean {
+function hasRetryAfterErrorNoRecovery(sortedByTsThenSeq: readonly WindowRow[]): boolean {
   const byHash = new Map<string, WindowRow[]>();
-  for (const r of sortedByTsThenId) {
+  for (const r of sortedByTsThenSeq) {
     if (!r.args_hash) continue;
     const group = byHash.get(r.args_hash);
     if (group) group.push(r);
@@ -128,7 +158,7 @@ function hasRetryAfterErrorNoRecovery(sortedByTsThenId: readonly WindowRow[]): b
   for (const group of byHash.values()) {
     if (group.length < 2) continue; // never recurs -> cannot be a retry
     if (group.some((r) => r.status === "ok")) continue; // reached ok -> not F2
-    // group is already in (ts, id) order (byHash was built from the sorted input); a retry exists
+    // group is already in (ts, seq) order (byHash was built from the sorted input); a retry exists
     // iff an error occurrence is not the LAST occurrence of its hash.
     const firstErrorIdx = group.findIndex((r) => r.status === "error");
     if (firstErrorIdx !== -1 && firstErrorIdx < group.length - 1) return true;
@@ -137,14 +167,20 @@ function hasRetryAfterErrorNoRecovery(sortedByTsThenId: readonly WindowRow[]): b
 }
 
 /** S1: a search-family call that itself ended `ok`, followed LATER in the window by a read-family
- *  call. THE-726 review round 1: an ERRORED search must not seed this — a failed search proves
- *  nothing was found, so a read afterward is not evidence of a successful browse, it is a caller
- *  recovering some other way. Single pass over `(ts, id)`-sorted rows: once an OK search call has
- *  been seen, any subsequent read call fires the signal. */
-function hasSearchThenRead(sortedByTsThenId: readonly WindowRow[]): boolean {
+ *  call that ITSELF also ends `ok` (THE-726 fix round 3, G1). THE-726 review round 1 already
+ *  excluded an ERRORED SEARCH from seeding this signal; this closes the SAME gap on the read side -
+ *  an errored read is not evidence the caller found anything either, it just means a browse was
+ *  attempted and failed partway through. `search ok, read error, write ok (last)` must not read as
+ *  a successful browse just because a later, unrelated call happened to end `ok`. Single pass over
+ *  `(ts, seq)`-sorted rows: once an OK search call has been seen, the flag stays set (an errored
+ *  read in between does not clear it) until an OK read call fires the signal - so a LATER ok read,
+ *  after an earlier errored one, still satisfies S1. */
+function hasSearchThenRead(sortedByTsThenSeq: readonly WindowRow[]): boolean {
   let sawOkSearch = false;
-  for (const r of sortedByTsThenId) {
-    if (sawOkSearch && r.tool !== null && READ_FAMILY_TOOLS.has(r.tool)) return true;
+  for (const r of sortedByTsThenSeq) {
+    if (sawOkSearch && r.status === "ok" && r.tool !== null && READ_FAMILY_TOOLS.has(r.tool)) {
+      return true;
+    }
     if (r.status === "ok" && r.tool !== null && SEARCH_FAMILY_TOOLS.has(r.tool)) sawOkSearch = true;
   }
   return false;
@@ -152,14 +188,14 @@ function hasSearchThenRead(sortedByTsThenId: readonly WindowRow[]): boolean {
 
 /**
  * Pure derivation over one window's rows — see the module header for the rule statement. Sorts by
- * `(ts, id)` internally rather than trusting the caller's order: the WHOLE point of this function
+ * `(ts, seq)` internally rather than trusting the caller's order: the WHOLE point of this function
  * is to be independently testable against hand-built fixtures, and a fixture built in narrative
  * order (not necessarily sorted) must still derive correctly and DETERMINISTICALLY — including two
- * rows sharing one `ts`, which `id` breaks the tie for.
+ * rows sharing one `ts`, which `seq` (capture order, THE-726 fix round 3) breaks the tie for.
  */
 export function deriveWindowVerdict(rows: readonly WindowRow[]): TaskResult | null {
   if (rows.length === 0) return null;
-  const sorted = [...rows].sort(byTsThenId);
+  const sorted = [...rows].sort(byTsThenSeq);
   const last = sorted[sorted.length - 1] as WindowRow;
   const f1 = last.status === "error";
   const f2 = hasRetryAfterErrorNoRecovery(sorted);
@@ -181,20 +217,31 @@ export interface DeriveClosedWindowsOutcome {
    *  contaminated a live-store query grouping derived windows by outcome. */
   stamped: { minus: number; zero: number; plus: number; drained: number };
   /** THE-726 review round 1: a considered session where, by the time this pass tried to stamp it,
-   *  nothing remained to stamp (a race with another writer resolved it first — see the terminal-0
-   *  fallback below for the "genuinely empty window" case, which is NOT this counter: that case
-   *  always stamps and lands in `stamped.zero`). Rare; not an error. */
+   *  nothing remained to stamp (a race with another writer resolved it first - see the terminal-
+   *  drain fallback below for the "genuinely empty window" case, which is NOT this counter: that
+   *  case always stamps, under `TERMINAL_DRAIN_POLICY`, and lands in `stamped.drained` [THE-726 fix
+   *  round 2 corrected this from `stamped.zero`, its round-1 destination]). Rare; not an error. */
   skipped: number;
 }
 
 /** THE-726 review round 1: a defensive cap on the candidate session_id scan, enforced IN THE SQL
  *  (not by slicing the result afterward) so the query itself never asks the next step's `IN (...)`
  *  expansion for more bind parameters than this. SQLite's compiled parameter ceiling is ~32766;
- *  this leaves generous headroom for the other bound parameters in the same statement. This is a
- *  safety floor against a pathological backlog blowing up the query, not an ordering promise — the
- *  terminal-stamp fallback below (not this cap) is what actually guarantees a stuck session cannot
- *  occupy a candidate slot forever. */
-const MAX_CANDIDATE_SESSIONS = 2000;
+ *  this leaves generous headroom for the other bound parameters in the same statement. Exported,
+ *  and also overridable via `opts.maxCandidateSessions` (THE-726 fix round 3), so a test can
+ *  exercise the cap at a scale far smaller than 2000.
+ *
+ *  THE-726 fix round 3, CORRECTION: this comment previously said the terminal-drain fallback below
+ *  was what "actually guarantees a stuck session cannot occupy a candidate slot forever" - true
+ *  only for an ENDED session whose window can never resolve. It said nothing about an OPEN session,
+ *  which never reaches `closed` at all and so never reaches the drain fallback either:
+ *  `MAX_CANDIDATE_SESSIONS` open sessions with debt used to occupy the ENTIRE cap on every single
+ *  pass, leaving `closed` permanently empty regardless of how many ended sessions were waiting -
+ *  the drain mechanism had nothing to do with that failure and could not have prevented it. The
+ *  actual fix is excluding open sessions from the candidate scan entirely and ordering what remains
+ *  by oldest debt first (both below), which makes the cap an ordering promise now: the oldest
+ *  ended-session debt is always the one inside it. */
+export const MAX_CANDIDATE_SESSIONS = 2000;
 
 /**
  * THE-726 — find sessions that have ENDED (cache.db `workspace_sessions.ended_at IS NOT NULL`) but
@@ -210,11 +257,16 @@ const MAX_CANDIDATE_SESSIONS = 2000;
  * `obsidian-tc reflect` against a cacheDir the server never booted hits it directly.
  *
  * Two-step lookup rather than one cross-store JOIN (cache.db and experiential.db are separate
- * connections/files — THE-233's membrane): first the DISTINCT session ids that still have open
- * work in experiential (capped at `MAX_CANDIDATE_SESSIONS`), then those ids' `ended_at` from
- * cache.db, oldest first, capped at `opts.limit`. `opts.nowMs` additionally excludes a session
- * whose `ended_at` is somehow in the future relative to this pass's own clock (clock skew, or a
- * test fixture) — such a session is treated as not-yet-closed rather than judged early.
+ * connections/files - THE-233's membrane): first the debt-bearing session ids from experiential
+ * (capped at `MAX_CANDIDATE_SESSIONS`, oldest debt first, EXCLUDING sessions cache.db still shows
+ * open - THE-726 fix round 3, G2), then those ids' `ended_at` from cache.db, oldest first, capped
+ * at `opts.limit`. `opts.nowMs` additionally excludes a session whose `ended_at` is somehow in the
+ * future relative to this pass's own clock (clock skew, or a test fixture) - such a session is
+ * treated as not-yet-closed rather than judged early.
+ *
+ * THE-726 fix round 3 (G2): open sessions are excluded by OVER-FETCHING rather than a bound `NOT
+ * IN (...)` list - see the candidate query's own comment for why that is actually the more robust
+ * choice, not a shortcut around one.
  *
  * TERMINAL STATE for a session whose in-bounds window is genuinely empty (THE-726 review round 1):
  * `deriveWindowVerdict` returns `null` only when every currently-open row's `ts` exceeds its own
@@ -239,9 +291,10 @@ const MAX_CANDIDATE_SESSIONS = 2000;
 export async function deriveClosedWindows(
   edb: Database,
   cacheDb: Database,
-  opts: { nowMs: number; limit?: number },
+  opts: { nowMs: number; limit?: number; maxCandidateSessions?: number },
 ): Promise<DeriveClosedWindowsOutcome> {
   const limit = opts.limit ?? 200;
+  const maxCandidates = opts.maxCandidateSessions ?? MAX_CANDIDATE_SESSIONS;
   const debtWhere = UNSTAMPED_DEBT_CLAUSES.join(" AND ");
   const outcome: DeriveClosedWindowsOutcome = {
     sessionsSeen: 0,
@@ -249,21 +302,51 @@ export async function deriveClosedWindows(
     skipped: 0,
   };
 
-  const candidateIds = (
-    edb
-      .prepare(
-        `SELECT DISTINCT session_id FROM agent_episodes
-          WHERE ${debtWhere} AND session_id IS NOT NULL
-          LIMIT ?`,
-      )
-      .all(MAX_CANDIDATE_SESSIONS) as Array<{ session_id: string }>
-  ).map((r) => r.session_id);
-  if (candidateIds.length === 0) return outcome;
-
   // THE-726 review round 1: guard against a cache.db that exists as a file but was never
   // provisioned (no migrations run) — `openDatabase` creates an empty file, and this table is the
-  // FIRST thing this function reads from it.
+  // FIRST thing this function reads from it. Moved ahead of the candidate query (THE-726 fix round
+  // 3): the candidate scan now needs cache.db's open-session ids too, so there is nothing useful to
+  // do here before this guard passes.
   if (!tableExists(cacheDb, "workspace_sessions")) return outcome;
+
+  // THE-726 fix round 3 (G2): sessions cache.db still shows OPEN have no `ended_at` to be judged
+  // against at all, so before this fix they still occupied a slot in the candidate scan below -
+  // `maxCandidates` open sessions with debt filled the ENTIRE cap on every pass, and `closed` (built
+  // from candidateIds a few lines down) was permanently empty regardless of how many ended sessions
+  // were waiting. This set is bounded by live client count, not by the debt backlog, so it is read
+  // with no LIMIT.
+  const openSessionIds = (
+    cacheDb.prepare("SELECT id FROM workspace_sessions WHERE ended_at IS NULL").all() as Array<{
+      id: string;
+    }>
+  ).map((r) => r.id);
+
+  // THE-726 fix round 3 (G2, G2b): rather than a bound `NOT IN (...openSessionIds)` list - which
+  // would need CHUNKING once `openSessionIds` grew past SQLite's ~32766 bound-parameter ceiling, and
+  // chunking a single query's WHERE clause does not actually reduce that query's total bound-
+  // parameter count - this over-fetches by `openSessionIds.length` extra rows (still a fixed,
+  // SQL-enforced LIMIT, not an unbounded scan) and filters/trims in JS. That is enough BY
+  // CONSTRUCTION: there are exactly `openSessionIds.length` open session ids, each collapsed to one
+  // row by `GROUP BY`, so at most that many rows of ANY window of this ordering can be open-session
+  // rows - filtering them out always leaves at least `maxCandidates` genuine (ended-or-unknown)
+  // candidates when that many exist, with zero parameter-count risk from `openSessionIds` at any
+  // scale. `ORDER BY MIN(ts) ASC` (not insertion order) makes the cap deterministic and puts the
+  // oldest debt inside it.
+  const candidateRows = edb
+    .prepare(
+      `SELECT session_id FROM agent_episodes
+        WHERE ${debtWhere} AND session_id IS NOT NULL
+        GROUP BY session_id
+        ORDER BY MIN(ts) ASC
+        LIMIT ?`,
+    )
+    .all(maxCandidates + openSessionIds.length) as Array<{ session_id: string }>;
+  const openSessionIdSet = new Set(openSessionIds);
+  const candidateIds = candidateRows
+    .map((r) => r.session_id)
+    .filter((id) => !openSessionIdSet.has(id))
+    .slice(0, maxCandidates);
+  if (candidateIds.length === 0) return outcome;
 
   const placeholders = candidateIds.map(() => "?").join(", ");
   const closed = cacheDb
@@ -274,10 +357,14 @@ export async function deriveClosedWindows(
     )
     .all(opts.nowMs, ...candidateIds, limit) as Array<{ id: string; ended_at: number }>;
 
+  // THE-726 fix round 3 (G2b): `rowid AS seq` is the real capture-order tiebreaker - see
+  // `WindowRow`'s own comment for why `id` (episode id, random hex) cannot serve that role. `ORDER
+  // BY ts ASC, rowid ASC` mirrors `byTsThenSeq`, the in-memory comparator `deriveWindowVerdict`
+  // sorts defensively with - both must agree.
   const loadWindow = edb.prepare(
-    `SELECT id, tool, status, error_code, args_hash, ts FROM agent_episodes
+    `SELECT id, rowid AS seq, tool, status, error_code, args_hash, ts FROM agent_episodes
       WHERE session_id = ? AND ${debtWhere} AND ts <= ?
-      ORDER BY ts ASC, id ASC`,
+      ORDER BY ts ASC, rowid ASC`,
   );
 
   for (const session of closed) {
