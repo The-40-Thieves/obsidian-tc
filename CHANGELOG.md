@@ -35,7 +35,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Documentation
 
-- **README front door, comparison table, and cutover path refreshed (#TBD, THE-942).** The
+- **README front door, comparison table, and cutover path refreshed (#892, THE-942).** The
   first screen now names the Local REST API plugin's built-in MCP server (18 tools since
   v5.0) and what obsidian-tc adds over it — governed writes, fused retrieval, memory in the
   vault — followed by the zero-config `npx obsidian-tc /path/to/vault` command. The
