@@ -289,7 +289,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-699 | `--acl-allow` — the eval harness can finally vary ACL state (THE-699, #660). | CHANGELOG.md (1.15.0) | 2 |
 | THE-700 | The plane re-ran its own completed once-per-period work on every tick (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
 | THE-701 | The episode-eligibility judge (THE-701, #661). | CHANGELOG.md (1.15.0) | 7 |
-| THE-705 | A bundled `local` cross-encoder reranker — `gatedRerank` with no gateway and no external service (#806, THE-705). | CHANGELOG.md (1.22.0) | 10 |
+| THE-705 | A bundled `local` cross-encoder reranker — `gatedRerank` with no gateway and no external service (#806, THE-705). | CHANGELOG.md (1.22.0) | 9 |
 | THE-707 | THE-707 — experiential-tier benchmark applicability assessment (no adapter built). | CHANGELOG.md (1.23.0) | 1 |
 | THE-709 | Consolidation jobs get a per-attempt gateway timeout (THE-709). | CHANGELOG.md (1.16.0) | 3 |
 | THE-710 | Five deployment-bias leaks from the THE-891 product-lens audit, corrected (#843, THE-710's recorded-lesson pattern: "single-user is not single-vault"). | CHANGELOG.md (1.23.0) | 7 |
