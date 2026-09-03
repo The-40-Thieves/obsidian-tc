@@ -1103,7 +1103,7 @@
         },
         "derivedVerdictHold": {
           "default": false,
-          "description": "Let a DERIVED task verdict (-1, inferred from a closed session's tool-call log — retries, a terminal error, no browse after search) hold an episode out of promotion the same way an OPERATOR work_result(-1) unconditionally does. Off by default: a derived -1 is still written and still feeds preferred.search_mode evidence, it just does not hold. The derivation itself always runs; this flag only governs whether its -1 verdicts gate retrieval.",
+          "description": "Let a DERIVED task verdict (-1, inferred from a closed session's tool-call log — retries, a terminal error, no browse after search) hold an episode out of promotion the same way an OPERATOR work_result(-1) unconditionally does. Off by default: a derived -1 is still written and still feeds preferred.search_mode evidence, it just does not hold. The derivation itself always runs; this flag only governs whether its -1 verdicts gate retrieval. Dependency: the derivation acts only on sessions that exist and end (HTTP with sessions.autoOpen, or explicit start_session/end_session) — on stdio with no session concept in play it is inert by design.",
           "type": "boolean"
         },
         "citationInfer": {

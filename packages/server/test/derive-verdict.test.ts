@@ -36,8 +36,10 @@ const NOW = 1_900_000_000_000;
 // ---------------------------------------------------------------------------
 // deriveWindowVerdict — pure, one rule at a time.
 
+let rowSeq = 0;
 function row(over: Partial<WindowRow> = {}): WindowRow {
   return {
+    id: over.id ?? `r-${++rowSeq}`,
     tool: over.tool ?? "read_note",
     status: over.status ?? "ok",
     error_code: over.error_code ?? null,
@@ -46,18 +48,81 @@ function row(over: Partial<WindowRow> = {}): WindowRow {
   };
 }
 
+// THE-726 review round 1 FOLD-IN #8: the previous version of this describe block only checked that
+// READ_FAMILY_TOOLS' two names still exist in the registry — it said nothing about the OTHER 20
+// read_*/get_* tools the registry exposes, so a 23rd one could appear and sit in neither bucket
+// (counted as read-family, or deliberately excluded) without any test noticing. This snapshots the
+// FULL set and partitions it, so a new tool forces a reviewed decision instead of silent drift.
 describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
+  // Deliberately excluded from S1's "browse" signal — see READ_FAMILY_TOOLS' own doc comment for
+  // why (structural-field reads, not "looked at a note the search found"). Pinned as a literal list
+  // rather than "everything else": a NEW tool must be added here (or to READ_FAMILY_TOOLS) by a
+  // reviewed decision, and this array going stale is exactly the failure mode #8 exists to catch.
+  const DELIBERATELY_EXCLUDED_READ_TOOLS = [
+    "get_attachment",
+    "get_backlinks",
+    "get_entity",
+    "get_index_status",
+    "get_link_strength",
+    "get_metrics",
+    "get_note_tags",
+    "get_outgoing_links",
+    "get_periodic_note",
+    "get_server_config",
+    "get_session_traces",
+    "get_vault",
+    "read_base",
+    "read_canvas",
+    "read_excalidraw",
+    "read_frontmatter",
+    "read_kanban_board",
+    "read_metadata_fields",
+    "read_property",
+    "read_snapshot",
+  ] as const;
+
+  function liveReadGetToolNames(): string[] {
+    return buildFullRegistry()
+      .list()
+      .map((t) => t.name)
+      .filter((n) => n.startsWith("read_") || n.startsWith("get_"))
+      .sort();
+  }
+
   it("READ_FAMILY_TOOLS names only tools that exist in the live registry", () => {
-    const names = new Set(
-      buildFullRegistry()
-        .list()
-        .map((t) => t.name),
-    );
+    const names = new Set(liveReadGetToolNames());
     for (const t of READ_FAMILY_TOOLS) {
       expect(names.has(t), `${t} is not a registered tool — READ_FAMILY_TOOLS has drifted`).toBe(
         true,
       );
     }
+  });
+
+  it("every read_*/get_* tool the registry exposes lands in EXACTLY one bucket: in-family or deliberately excluded", () => {
+    const live = liveReadGetToolNames();
+    const inFamily: string[] = [...READ_FAMILY_TOOLS];
+    const excluded: string[] = [...DELIBERATELY_EXCLUDED_READ_TOOLS];
+    const accounted = new Set([...inFamily, ...excluded]);
+
+    // Forward: every live tool is accounted for. A new (23rd) read tool fails HERE — it exists in
+    // the registry but in neither pinned bucket, forcing a reviewed decision about which one it
+    // belongs to rather than silently doing nothing.
+    const unaccounted = live.filter((n) => !accounted.has(n));
+    expect(
+      unaccounted,
+      `${unaccounted.length} read_*/get_* tool(s) are in neither READ_FAMILY_TOOLS nor the pinned exclusion list: ${unaccounted.join(", ")}`,
+    ).toEqual([]);
+
+    // Backward: nothing pinned as excluded (or in-family) has been renamed/removed out from under
+    // this list — a stale entry would make the exclusion list a lie about what is actually excluded.
+    const stale = [...excluded, ...inFamily].filter((n) => !live.includes(n));
+    expect(stale, `pinned name(s) no longer exist in the registry: ${stale.join(", ")}`).toEqual(
+      [],
+    );
+
+    // No overlap: a tool cannot be simultaneously in-family and deliberately excluded.
+    const overlap = inFamily.filter((n) => excluded.includes(n));
+    expect(overlap).toEqual([]);
   });
 
   it("READ_FAMILY_TOOLS and SEARCH_FAMILY_TOOLS never overlap", () => {
@@ -164,6 +229,40 @@ describe("deriveWindowVerdict: S1 browse / S2 clean end", () => {
     ];
     expect(deriveWindowVerdict(rows)).toBe(-1);
   });
+
+  // THE-726 review round 1 BLOCKING #1: v1 set sawSearch on ANY search-family row regardless of
+  // status, so an ERRORED search followed by an unrelated successful read derived +1 and fed a
+  // POSITIVE preferred.search_mode delta for the tool that had just failed. Reproduced exactly as
+  // the reviewer's probe: search_text status=error, then read_note ok.
+  it("an ERRORED search followed by a successful read does NOT satisfy S1 — no longer derives +1", () => {
+    const rows = [
+      row({ tool: "search_text", status: "error", ts: 1 }),
+      row({ tool: "read_note", status: "ok", ts: 2 }),
+    ];
+    // Not F1 (last call is ok), not F2 (no recurring args_hash), not S1 (the seeding search errored)
+    // -> S2 is false -> 0, not +1. This is the exact fix: a failed search proves nothing was found
+    // to look at, so a read afterward is not evidence of a successful browse.
+    expect(deriveWindowVerdict(rows)).toBe(0);
+  });
+
+  it("an errored search does not count toward S1 even when a LATER successful search seeds it", () => {
+    const rows = [
+      row({ tool: "search_text", status: "error", ts: 1 }),
+      row({ tool: "search_vault", status: "ok", ts: 2 }),
+      row({ tool: "read_note", status: "ok", ts: 3 }),
+    ];
+    // The errored search_text must not seed S1; search_vault (ok) does, and read_note follows it ->
+    // a genuine +1, distinguishing "the errored search is excluded" from "no search ever seeds it".
+    expect(deriveWindowVerdict(rows)).toBe(1);
+  });
+
+  it("an OK search followed by a read still derives +1 — the fix does not disable S1 itself", () => {
+    const rows = [
+      row({ tool: "search_text", status: "ok", ts: 1 }),
+      row({ tool: "read_note", status: "ok", ts: 2 }),
+    ];
+    expect(deriveWindowVerdict(rows)).toBe(1);
+  });
 });
 
 describe("deriveWindowVerdict: precedence", () => {
@@ -201,6 +300,32 @@ describe("deriveWindowVerdict: ordering is by ts, not insertion order", () => {
       row({ tool: "write_note", status: "error", ts: 0 }),
     ];
     expect(deriveWindowVerdict(rows)).toBe(1);
+  });
+});
+
+// THE-726 review round 1 BLOCKING #2: `a.ts - b.ts` alone has no tiebreaker, so two rows sharing
+// one `ts` sorted DIFFERENTLY depending on which order the array (or the DB) happened to hand them
+// back — the reviewer reproduced opposite verdicts for the identical pair (ok@5, error@5) in
+// opposite array order. The fix breaks the tie on `id`, deterministically, regardless of input
+// order.
+describe("deriveWindowVerdict: tied ts is broken deterministically by id (THE-726 review round 1)", () => {
+  it("a tied pair (ok, error at the same ts) derives the SAME verdict in both array orders", () => {
+    const ok = row({ id: "a", tool: "write_note", status: "ok", ts: 5 });
+    const err = row({ id: "b", tool: "write_note", status: "error", ts: 5 });
+    // "a" < "b", so (ts, id) order is [ok, error] regardless of array order -> last is the error.
+    const verdictOkFirst = deriveWindowVerdict([ok, err]);
+    const verdictErrFirst = deriveWindowVerdict([err, ok]);
+    expect(verdictOkFirst).toBe(verdictErrFirst);
+    expect(verdictOkFirst).toBe(-1); // F1: the id-broken-tie last call is the error
+  });
+
+  it("a tied pair sorts by id when ts is equal, not by array position", () => {
+    // "err" < "ok" lexically, so at a shared ts the ERROR row sorts first and the OK row is last —
+    // pin the actual tiebreaker direction, not just "both orders agree with each other".
+    const okLast = row({ id: "z-ok", tool: "write_note", status: "ok", ts: 9 });
+    const errFirst = row({ id: "a-err", tool: "write_note", status: "error", ts: 9 });
+    expect(deriveWindowVerdict([okLast, errFirst])).toBe(0); // last-by-id is "z-ok" -> not F1
+    expect(deriveWindowVerdict([errFirst, okLast])).toBe(0); // same regardless of array order
   });
 });
 
@@ -382,17 +507,53 @@ describe("deriveClosedWindows", () => {
     expect(s3).toBeNull(); // outside the cap, oldest-first — s1/s2 win, s3 waits for the next pass
   });
 
-  it("a window entirely past its session's ended_at derives null and is skipped, not stamped", async () => {
+  // THE-726 review round 1 BLOCKING #4: a genuinely empty in-bounds window (every open row's `ts`
+  // exceeds its own session's `ended_at`) used to leave the rows NULL forever — this session would
+  // be re-selected as a candidate and re-derive null on every future pass, permanently starving the
+  // oldest-first cap. The fix widens the ceiling to `nowMs` and stamps a NEUTRAL terminal verdict so
+  // the rows leave the debt set.
+  it("a window entirely past its session's ended_at gets a NEUTRAL terminal stamp (verdict_at = nowMs), not left open forever", async () => {
     const { cacheDb, edb } = stores();
     const endedAt = NOW - 5000;
     seedSession(cacheDb, "sess_a", { endedAt });
-    // Every open row postdates ended_at — nothing is in bounds to judge.
-    seedEpisode(edb, { session: "sess_a", tool: "read_note", ts: endedAt + 1000 });
+    // Every open row postdates ended_at — nothing is in the ORIGINAL bound to judge.
+    const id = seedEpisode(edb, { session: "sess_a", tool: "read_note", ts: endedAt + 1000 });
 
     const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
     expect(out.sessionsSeen).toBe(1);
-    expect(out.skipped).toBe(1);
-    expect(out.stamped).toEqual({ minus: 0, zero: 0, plus: 0 });
+    expect(out.skipped).toBe(0); // it WAS stamped — terminal, not skipped
+    expect(out.stamped).toEqual({ minus: 0, zero: 1, plus: 0 });
+    const r = episodeRow(edb, id);
+    expect(r.task_result).toBe(0);
+    expect(r.verdict_source).toBe("derived");
+    const verdictAt = (
+      edb.prepare("SELECT verdict_at AS v FROM agent_episodes WHERE id = ?").get(id) as {
+        v: number;
+      }
+    ).v;
+    expect(verdictAt).toBe(NOW); // widened to nowMs, not the session's own (too-early) ended_at
+
+    // Idempotent afterward — the row is no longer open, so a second pass finds nothing for it.
+    const second = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW + 1 });
+    expect(second.sessionsSeen).toBe(0);
+  });
+
+  it("a stuck (permanently-empty-window) session no longer starves a newer derivable one at limit: 1", async () => {
+    // Reproduces the reviewer's probe: over several passes at limit 1, a stuck oldest session used
+    // to be re-selected and re-skipped forever, and a newer, perfectly derivable session was NEVER
+    // reached. With the terminal-stamp fix, pass 1 fully resolves the stuck session (nothing left
+    // open in it), so pass 2 reaches the newer one.
+    const { cacheDb, edb } = stores();
+    const stuckEndedAt = NOW - 9000;
+    seedSession(cacheDb, "stuck", { endedAt: stuckEndedAt });
+    seedEpisode(edb, { session: "stuck", tool: "read_note", ts: stuckEndedAt + 500 }); // postdates ended_at
+    seedSession(cacheDb, "newer", { endedAt: NOW - 1000 });
+    const newerRow = seedEpisode(edb, { session: "newer", tool: "read_note", ts: NOW - 2000 });
+
+    for (let pass = 0; pass < 5; pass++) {
+      await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, limit: 1 });
+    }
+    expect(episodeRow(edb, newerRow).task_result).not.toBeNull();
   });
 
   it("does not write to cache.db — workspace_sessions is untouched", async () => {
@@ -425,6 +586,76 @@ describe("deriveClosedWindows", () => {
     expect(r.task_result).toBe(-1);
     expect(r.session_id).toBe("sess_a");
     expect(r.verdict_at).not.toBeNull();
+  });
+
+  // THE-726 review round 1 BLOCKING #3 (second half): a cache.db that exists as a FILE but was
+  // never provisioned (no migrations run — `openDatabase` creates an empty file) has no
+  // `workspace_sessions` table. Reachable today: `obsidian-tc reflect` against a cacheDir the
+  // server never booted. Mirrors maintenance.ts's `job_schedule` guard.
+  it("no-ops cleanly when cache.db has no workspace_sessions table, rather than throwing", async () => {
+    const bareCacheDb = openMemoryDb(); // NOT provisionCacheDb()'d — no tables at all
+    const edb = openMemoryDb();
+    runMigrations(edb, EXPERIENTIAL_CHAIN);
+    seedEpisode(edb, { session: "sess_a", tool: "read_note" });
+
+    const out = await deriveClosedWindows(edb, bareCacheDb, { nowMs: NOW });
+    expect(out).toEqual({ sessionsSeen: 0, stamped: { minus: 0, zero: 0, plus: 0 }, skipped: 0 });
+  });
+
+  // THE-726 review round 1 BLOCKING #4 (second half): candidateIds is bounded IN THE SQL (a LIMIT
+  // in the query, not a slice of an unbounded result), so the next step's `IN (...)` expansion can
+  // never ask for more bind parameters than the cap regardless of backlog size.
+  it("the candidate session scan is bounded — a backlog far larger than the cap does not make every session a candidate in one pass", async () => {
+    const { cacheDb, edb } = stores();
+    const backlogSize = 2005; // > the module's MAX_CANDIDATE_SESSIONS (2000)
+    for (let i = 0; i < backlogSize; i++) {
+      const id = `bulk-${i}`;
+      seedSession(cacheDb, id, { endedAt: NOW - 1000 - i }); // each with a distinct, older ended_at
+      seedEpisode(edb, { session: id, tool: "read_note", ts: NOW - 5000 - i });
+    }
+    // A `limit` far larger than the cap: if candidateIds were unbounded, sessionsSeen would equal
+    // the whole backlog. It cannot, because the candidate SELECT itself caps at 2000.
+    const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, limit: backlogSize });
+    expect(out.sessionsSeen).toBeLessThan(backlogSize);
+    expect(out.sessionsSeen).toBeLessThanOrEqual(2000);
+  }, 20_000);
+
+  // THE-726 review round 1 FOLD-IN #11: the module comment used to claim a session carries AT MOST
+  // ONE window ever ("the two writers cannot race... the window definitions are simply disjoint").
+  // False: `work_result` accepts an explicit `asOf`, so an operator can judge only PART of a
+  // session and leave the rest open for the derived pass once the session ends. This is fine
+  // (disjoint by verdict_at, per the window-identity design) but the comment overstated it — this
+  // pins the actual coexistence the corrected comment describes.
+  it("a session can carry BOTH an operator window (partial, via asOf) and a later derived window on the remainder", async () => {
+    const { cacheDb, edb } = stores();
+    const operatorAsOf = NOW - 6000;
+    seedSession(cacheDb, "sess_a", { endedAt: NOW - 1000 });
+    const early = seedEpisode(edb, { session: "sess_a", tool: "write_note", ts: NOW - 7000 });
+    const late = seedEpisode(edb, { session: "sess_a", tool: "read_note", ts: NOW - 3000 });
+    // The operator judges only up to `operatorAsOf` — `early` is in bounds, `late` is not.
+    edb
+      .prepare(
+        `UPDATE agent_episodes SET task_result = 1, verdict_at = ?, verdict_source = 'operator'
+          WHERE session_id = 'sess_a' AND ts <= ?`,
+      )
+      .run(operatorAsOf, operatorAsOf);
+    expect(episodeRow(edb, early).verdict_source).toBe("operator");
+    expect(episodeRow(edb, late).task_result).toBeNull(); // left open by the operator's asOf
+
+    // The session later ends; the derived pass picks up exactly the leftover work.
+    const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW });
+    expect(out.sessionsSeen).toBe(1);
+    const lateRow = episodeRow(edb, late);
+    expect(lateRow.verdict_source).toBe("derived");
+    expect(lateRow.task_result).not.toBeNull();
+
+    // Two distinct judgements on ONE session — disjoint verdict_at, both present, neither
+    // overwritten.
+    const verdictAts = edb
+      .prepare("SELECT DISTINCT verdict_at AS v FROM agent_episodes WHERE session_id = 'sess_a'")
+      .all() as Array<{ v: number }>;
+    expect(verdictAts).toHaveLength(2);
+    expect(episodeRow(edb, early).verdict_source).toBe("operator"); // still untouched
   });
 });
 

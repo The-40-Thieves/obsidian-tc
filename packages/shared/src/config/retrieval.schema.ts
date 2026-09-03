@@ -586,12 +586,22 @@ export const ExperientialConfigSchema = z.object({
    *  terminal error, an absent browse) is a different kind of evidence than a first-person
    *  judgement, and widening what silently withholds retrieval needs the same pre-registered review
    *  those flags require before defaulting on. With the flag off, a derived `-1` is written and
-   *  feeds the preference extractor exactly like any other verdict; it just does not hold. */
+   *  feeds the preference extractor exactly like any other verdict; it just does not hold.
+   *
+   *  DEPENDENCY (owner-settled, THE-726 review round 1): this axis, and the derivation it gates,
+   *  act only on sessions that EXIST and END. `session_id` attaches to a captured episode only when
+   *  a session is open — over HTTP that needs `sessions.autoOpen` (default false) or an explicit
+   *  `start_session`/`end_session` pair, and an implicit session opened that way is only ever closed
+   *  by the maintenance sweep's `closeStaleImplicitSessions`. On plain stdio with no session concept
+   *  in play, this flag has nothing to act on and the derivation is inert by design, not broken.
+   *  Measured on the live Cave deployment (2026-09-03): 15 sessions since 2026-08-20, 13 implicit,
+   *  12 already closed by the stale-session sweep, and 44 ended sessions carrying 249 derivable
+   *  unstamped tool rows today — the trigger fires on that deployment's actual traffic shape. */
   derivedVerdictHold: z
     .boolean()
     .default(false)
     .describe(
-      "Let a DERIVED task verdict (-1, inferred from a closed session's tool-call log — retries, a terminal error, no browse after search) hold an episode out of promotion the same way an OPERATOR work_result(-1) unconditionally does. Off by default: a derived -1 is still written and still feeds preferred.search_mode evidence, it just does not hold. The derivation itself always runs; this flag only governs whether its -1 verdicts gate retrieval.",
+      "Let a DERIVED task verdict (-1, inferred from a closed session's tool-call log — retries, a terminal error, no browse after search) hold an episode out of promotion the same way an OPERATOR work_result(-1) unconditionally does. Off by default: a derived -1 is still written and still feeds preferred.search_mode evidence, it just does not hold. The derivation itself always runs; this flag only governs whether its -1 verdicts gate retrieval. Dependency: the derivation acts only on sessions that exist and end (HTTP with sessions.autoOpen, or explicit start_session/end_session) — on stdio with no session concept in play it is inert by design.",
     ),
   /** THE-717: the scheduled citation pass. `inferCitations` had exactly one caller — the offline
    *  `obsidian-tc citation-infer` CLI — so every citation column was NULL on 105 of 105 live rows:

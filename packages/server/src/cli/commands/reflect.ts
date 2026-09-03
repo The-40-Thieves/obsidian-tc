@@ -3,8 +3,12 @@ import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openDatabase } from "../../db/open";
-import { deriveClosedWindows } from "../../experiential/derive-verdict";
+import {
+  type DeriveClosedWindowsOutcome,
+  deriveClosedWindows,
+} from "../../experiential/derive-verdict";
 import { evaluateEpisodes, extractPreferences } from "../../experiential/reflect";
+import { errorMessage } from "../../util/errors";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
 export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
@@ -23,7 +27,18 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
     // THE-726: derive verdicts for every ended session with open judgeable rows BEFORE the
     // eligibility pass runs, so a freshly-derived -1 is held in the same pass when
     // derivedVerdictHold is on (evaluateEpisodes below re-reads task_result/verdict_source fresh).
-    const derived = await deriveClosedWindows(edb, cacheDb, { nowMs });
+    //
+    // THE-726 review round 1: wrapped in its own try/catch — this is an ADDITION in front of the
+    // working eligibility pass below, and a throw here (a cache.db this process never provisioned,
+    // a lock, anything else) must not take that pass down with it. `deriveClosedWindows` itself now
+    // guards the specific "cache.db exists but was never provisioned" case (no `workspace_sessions`
+    // table) and no-ops; this catch is the net for everything else.
+    let derived: DeriveClosedWindowsOutcome | undefined;
+    try {
+      derived = await deriveClosedWindows(edb, cacheDb, { nowMs });
+    } catch (e) {
+      process.stderr.write(`reflect: derived-verdict pass failed: ${errorMessage(e)}\n`);
+    }
     // THE-701 removed the eligibility pass's judge; THE-673 removed extractPreferences' judge too
     // (a deterministic counter over typed evidence, see that file) — this command no longer needs
     // a GatewayClient at all.
@@ -52,8 +67,11 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
         }`,
       );
     }
+    const derivedLine = derived
+      ? `reflect: derived_sessions=${derived.sessionsSeen} derived_stamped=-1:${derived.stamped.minus} 0:${derived.stamped.zero} +1:${derived.stamped.plus} derived_skipped=${derived.skipped}\n`
+      : "reflect: derived-verdict pass failed (see stderr) — eligibility pass ran anyway\n";
     process.stdout.write(
-      `reflect: derived_sessions=${derived.sessionsSeen} derived_stamped=-1:${derived.stamped.minus} 0:${derived.stamped.zero} +1:${derived.stamped.plus} derived_skipped=${derived.skipped}\n` +
+      derivedLine +
         `reflect: scanned=${stats.scanned} promoted=${stats.promoted} held=${stats.held} denied=${stats.denied}\n` +
         `${lines.join("\n")}\n`,
     );

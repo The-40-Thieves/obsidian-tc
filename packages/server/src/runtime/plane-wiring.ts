@@ -15,9 +15,9 @@ import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { runCitationIndexPasses } from "../experiential/citation-index";
 import { deriveClosedWindows } from "../experiential/derive-verdict";
+import { registerEpisodeEvaluation } from "../experiential/episode-evaluation-schedule";
 import { expireOverdueGoals } from "../experiential/goals";
 import { recomputeNoteQualityAll } from "../experiential/note-quality";
-import { registerEpisodeEvaluation } from "../experiential/reflect";
 import type { ToolRegistry } from "../mcp/registry";
 import { TASK_CALL_JOB_TYPE } from "../mcp/tasks";
 import type { GatewayRoles } from "../plane/gateway";
@@ -436,6 +436,10 @@ export function registerNoteQualitySchedule(
     cacheDb: Database;
     /** config.experiential.derivedVerdictHold. */
     derivedVerdictHold?: boolean;
+    /** THE-726 review round 1: injectable clock, shared by the derive step and the evaluate step
+     *  below (both read the SAME instant) — a hardcoded `Date.now()` inside the derive closure was
+     *  the one place in this pair that could not be faked by a test. Absent -> `Date.now`. */
+    now?: () => number;
   },
 ): void {
   if (!deps.experientialOpen) return;
@@ -460,8 +464,9 @@ export function registerNoteQualitySchedule(
     edb: deps.experientialDb,
     intervalMs: deps.intervalMs,
     derivedVerdictHold: deps.derivedVerdictHold,
+    now: deps.now,
     deriveClosedWindows: () =>
-      deriveClosedWindows(deps.experientialDb, deps.cacheDb, { nowMs: Date.now() }),
+      deriveClosedWindows(deps.experientialDb, deps.cacheDb, { nowMs: (deps.now ?? Date.now)() }),
     onError: stderrOnError("episode-evaluation"),
   });
   // THE-643: own cadence, not the roles-gated plane-enqueue above — no gateway dependency.

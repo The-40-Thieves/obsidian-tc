@@ -17,7 +17,6 @@
 //     see the design note for the correction history.
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
-import type { Scheduler } from "../scheduler/scheduler";
 import { serializeEpisodeSummary, type ToolTally } from "./summarize-episode";
 
 export interface EvaluateStats {
@@ -779,59 +778,6 @@ export async function extractPreferences(
   if (deltas.length === 0) return { skipped: false, aborted: false, applied: 0, version: 0 };
   const { version, applied } = applyPreferenceDeltas(edb, vaultId, deltas, opts.nowMs);
   return { skipped: false, aborted: false, applied, version };
-}
-
-/** THE-698: deps for the periodic serve-path episode evaluation (registerEpisodeEvaluation).
- *  Mirrors ActivationRecomputeDeps — same shape, same optional clock, same onError contract. */
-export interface EpisodeEvaluationDeps {
-  edb: Database;
-  intervalMs: number;
-  now?: () => number;
-  // THE-701 removed `judge` and `maxJudged`. This pass is now purely deterministic, so it acquires
-  // no network dependency at all — which was already the stated goal of never defaulting the judge
-  // to a lazy gateway lookup, now true by construction rather than by discipline.
-  onEvaluate?: (stats: EvaluateStats) => void;
-  onError?: (e: unknown) => void;
-  /** THE-726: `experiential.derivedVerdictHold`, forwarded to `evaluateEpisodes`. */
-  derivedVerdictHold?: boolean;
-  /** THE-726: run the derived-verdict pass (derive-verdict.ts's `deriveClosedWindows`)
-   *  IMMEDIATELY BEFORE this tick's `evaluateEpisodes`, so a freshly-derived -1 is held in the SAME
-   *  pass rather than waiting for the next tick. Injected as a closure, not imported directly:
-   *  derive-verdict.ts already imports `SEARCH_FAMILY_TOOLS` from this module, and importing it
-   *  back here would be a cycle. The wiring layer (runtime/plane-wiring.ts) builds the closure and
-   *  decides whether to supply it at all — absent (no cache.db handle available) means this step
-   *  no-ops, which the wiring layer is responsible for logging once. */
-  deriveClosedWindows?: () => Promise<unknown>;
-}
-
-/**
- * THE-698 — run the evaluator pass on the maintenance cadence. Registered beside
- * activation-recompute on the same `config.maintenance.intervalMinutes` cadence and behind the
- * same `experientialOpen` gate; no gateway dependency (like note-quality-enqueue), and since
- * THE-701 removed the judge, the deterministic layer is the only thing this pass can do.
- *
- * Every safety invariant lives in evaluateEpisodes and is unchanged by scheduling it: born-
- * 'ineligible' rows are untouchable by the WHERE, contradictory ok/error clusters are held, and a
- * known-bad outcome (-1) is held. Scheduling must never become a way to launder a row the
- * pre-ingest poison scanner already refused, so that is pinned by test. See
- * docs/design/experiential-reflection.md for the measurement that motivated wiring this up.
- */
-export function registerEpisodeEvaluation(scheduler: Scheduler, deps: EpisodeEvaluationDeps): void {
-  scheduler.register({
-    name: "episode-evaluation",
-    intervalMs: deps.intervalMs,
-    run: async () => {
-      // THE-726: derive first, in the SAME tick — a derived -1 must be visible to this pass's own
-      // read of task_result/verdict_source when derivedVerdictHold is on.
-      await deps.deriveClosedWindows?.();
-      const stats = await evaluateEpisodes(deps.edb, {
-        nowMs: (deps.now ?? Date.now)(),
-        derivedVerdictHold: deps.derivedVerdictHold,
-      });
-      deps.onEvaluate?.(stats);
-    },
-    onError: (e) => deps.onError?.(e),
-  });
 }
 
 /** THE-698: the backlog an operator actually needs to see. `promotable` is the discriminating

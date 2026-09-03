@@ -95,13 +95,16 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
     {
       table: "agent_episodes",
       column: "verdict_policy",
-      // Only the DERIVED writer versions its rule set — an operator stamp is a first-person
-      // judgement with no rule to version, so it always writes NULL here even while enabled. A
-      // store with only operator stamps therefore reports this column NULL correctly, not as a
-      // sign the derivation pass never ran.
-      writer: on ? "enabled" : "disabled",
+      // THE-726 review round 1: "on-demand", not "enabled" — an operator-only store (every stamp
+      // via work_result, the derived pass never having found a closed session to act on) writes
+      // verdict_source on every row and verdict_policy on NONE of them, by design: there is no rule
+      // to version for a first-person judgement. Classifying this "enabled" made a correct,
+      // operator-only deployment report SILENT (a warning), the exact cry-wolf failure this doctor
+      // check exists to avoid — the same reasoning chunk_retrievals.feedback above is on-demand,
+      // not enabled, despite having a real producer.
+      writer: on ? "on-demand" : "disabled",
       lever:
-        "the derived-verdict pass stamping DERIVATION_POLICY_VERSION alongside a derived verdict (THE-726); NULL on every operator stamp by design.",
+        "the derived-verdict pass stamping DERIVATION_POLICY_VERSION alongside a derived verdict (THE-726) — an agent calling work_result never writes this column at all.",
     },
     {
       table: "agent_episodes",

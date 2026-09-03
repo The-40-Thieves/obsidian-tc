@@ -47,13 +47,16 @@ describe("derived.column-liveness spec", () => {
     expect(byName("agent_episodes.summary")?.writer).toBe("enabled");
   });
 
-  // THE-726 (on-demand derivation): the two new provenance columns must be present and classified
-  // the same way task_result is — a real producer exists, config gates it.
+  // THE-726 (on-demand derivation): verdict_source is written on EVERY stamp (operator or
+  // derived), classified the same way task_result is. verdict_policy is DERIVED-only — an
+  // operator-only store (review round 1 correction) writes it on NONE of its rows by design, so it
+  // is "on-demand" like the client-driven columns below, not "enabled" (which would warn a correct
+  // operator-only deployment as SILENT).
   it("names and classifies the THE-726 provenance columns", () => {
     const spec = experientialColumnSpec({ experiential: true });
     const byName = (n: string) => spec.find((s) => `${s.table}.${s.column}` === n);
     expect(byName("agent_episodes.verdict_source")?.writer).toBe("enabled");
-    expect(byName("agent_episodes.verdict_policy")?.writer).toBe("enabled");
+    expect(byName("agent_episodes.verdict_policy")?.writer).toBe("on-demand");
   });
 
   // The emitter for feedback is a client action (THE-718: the acting agent stamps it), so

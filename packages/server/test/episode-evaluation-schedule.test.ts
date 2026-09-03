@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
-import { registerEpisodeEvaluation } from "../src/experiential/reflect";
+import { registerEpisodeEvaluation } from "../src/experiential/episode-evaluation-schedule";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
 
@@ -150,6 +150,89 @@ describe("THE-698 registerEpisodeEvaluation", () => {
 
       // A scheduled derived-state job that throws must not take the scheduler (or the server) down.
       expect(errors).toHaveLength(1);
+      await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // THE-726 review round 1: the derive step is an ADDITION in front of this working pass. A throw
+  // in it must not take the pass down or trip the scheduler's own backoff for a tick that would
+  // otherwise have succeeded — reachable today (`obsidian-tc reflect` against a cacheDir the server
+  // never booted throws "no such table: workspace_sessions" without this guard).
+  it("a throwing deriveClosedWindows is routed to onError but does not block evaluateEpisodes", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = edb();
+      addEpisode(db, "e1");
+      const errors: unknown[] = [];
+      const evaluated: Array<{ promoted: number }> = [];
+      const sched = new Scheduler();
+      registerEpisodeEvaluation(sched, {
+        edb: db,
+        intervalMs: 1000,
+        now: () => NOW,
+        deriveClosedWindows: async () => {
+          throw new Error("derive boom");
+        },
+        onError: (e) => errors.push(e),
+        onEvaluate: (s) => evaluated.push(s),
+      });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(errors).toHaveLength(1);
+      expect(evaluated[0]?.promoted).toBe(1);
+      expect(countBy(db, "eligible")).toBe(1);
+      await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a successful deriveClosedWindows reaches onDerive with its full summary", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = edb();
+      const derivedResults: Array<{
+        sessionsSeen: number;
+        stamped: { minus: number; zero: number; plus: number };
+        skipped: number;
+      }> = [];
+      const sched = new Scheduler();
+      registerEpisodeEvaluation(sched, {
+        edb: db,
+        intervalMs: 1000,
+        now: () => NOW,
+        deriveClosedWindows: async () => ({
+          sessionsSeen: 3,
+          stamped: { minus: 1, zero: 1, plus: 1 },
+          skipped: 0,
+        }),
+        onDerive: (r) => derivedResults.push(r),
+      });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(derivedResults).toEqual([
+        { sessionsSeen: 3, stamped: { minus: 1, zero: 1, plus: 1 }, skipped: 0 },
+      ]);
+      await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("with no deriveClosedWindows supplied, evaluateEpisodes still runs unaffected", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = edb();
+      addEpisode(db, "e1");
+      const sched = new Scheduler();
+      registerEpisodeEvaluation(sched, { edb: db, intervalMs: 1000, now: () => NOW });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(countBy(db, "eligible")).toBe(1);
       await sched.stop();
     } finally {
       vi.useRealTimers();

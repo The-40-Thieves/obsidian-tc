@@ -130,6 +130,40 @@ function elig(db: Database, id: string): string {
   ).e;
 }
 
+/** THE-726 review round 1: a thin `Database` wrapper whose ONLY job is to run `onRace` once,
+ *  immediately after `evaluateEpisodes`' own pending-rows SELECT returns — modelling a verdict
+ *  landing in the exact gap between that read and the promote UPDATE, driven through the REAL
+ *  `evaluateEpisodes` rather than a parallel re-typed copy of its WHERE clause (a copy can silently
+ *  drift from the real predicate and would never catch a regression in it). Delegates every other
+ *  call straight to `db` — explicit method-by-method, not `{ ...db }`: the real handle is a native
+ *  class instance whose methods live on the prototype, so a plain object spread would silently drop
+ *  them. Matches on a substring unique to that one SELECT (its own WHERE clause), not on the whole
+ *  statement, so it stays correct if unrelated columns are added to the SELECT list. */
+function raceAfterPendingSelect(db: Database, onRace: () => void): Database {
+  let armed = true;
+  const MATCH = "WHERE eligibility = 'pending' AND blocked = 0";
+  return {
+    exec: (sql: string) => db.exec(sql),
+    prepare: (sqlText: string) => {
+      const stmt = db.prepare(sqlText);
+      if (!sqlText.includes(MATCH)) return stmt;
+      return {
+        run: (...args: unknown[]) => stmt.run(...args),
+        get: (...args: unknown[]) => stmt.get(...args),
+        all: (...args: unknown[]) => {
+          const result = stmt.all(...args);
+          if (armed) {
+            armed = false;
+            onRace();
+          }
+          return result;
+        },
+      };
+    },
+    close: () => db.close?.(),
+  };
+}
+
 describe("evaluateEpisodes (THE-222)", () => {
   it("promotes stable pending rows; never touches born-ineligible", async () => {
     const db = edb0();
@@ -465,39 +499,39 @@ describe("evaluateEpisodes: verdict_source-aware hold (THE-726)", () => {
     expect(stats).toMatchObject({ promoted: 1, held: 0 });
   });
 
-  it("evaluateEpisodes promotes a row a DERIVED -1 condemned between its read and its write, flag off — the race-guard predicate agrees with partitionPending", async () => {
-    // Mirrors task-verdict.test.ts's own TOCTOU pin, for the NEW predicate: the promote UPDATE's
-    // re-check must match partitionPending's holdsBadResult exactly, not just `task_result <> -1`,
-    // or a derived -1 landing mid-pass would be wrongly blocked from promoting even with the flag
-    // off — the same class of bug the original re-check was added to close for operator verdicts.
+  it("evaluateEpisodes itself promotes a row a DERIVED -1 condemned mid-pass, flag off — exercised through the REAL function, not a re-typed WHERE clause", async () => {
+    // THE-726 review round 1: the previous version of this test re-typed the promote UPDATE's WHERE
+    // as a string literal, so it could never fail if the REAL predicate in evaluateEpisodes ever
+    // regressed (e.g. reverted to a plain `<> -1`) — it was testing its own copy, not the shipped
+    // code. This drives the race through evaluateEpisodes itself via a thin Database wrapper that
+    // mutates the row the instant the pass's own pending-rows SELECT returns, landing the verdict in
+    // the exact gap between that read and the promote UPDATE.
     const db = edb0();
     seed(db, "race", { eligibility: "pending", task_result: null });
-    // Simulate the verdict landing after evaluateEpisodes' SELECT but before its UPDATE: mutate the
-    // row directly rather than going through evaluateEpisodes' own single pass.
-    db.prepare(
-      "UPDATE agent_episodes SET task_result = -1, verdict_source = 'derived' WHERE id = 'race'",
-    ).run();
-    const promoted = db
-      .prepare(
-        `UPDATE agent_episodes SET eligibility = 'eligible'
-          WHERE id = 'race' AND eligibility = 'pending'
-            AND (task_result IS NULL OR task_result <> -1 OR (verdict_source = 'derived' AND ? = 0))`,
-      )
-      .run(0).changes;
-    expect(promoted).toBe(1); // flag off (0) -> the derived -1 does not block promotion
-    // The mirror case: an OPERATOR -1 landing the same way must still be blocked, flag or no flag.
+    const raced = raceAfterPendingSelect(db, () => {
+      db.prepare(
+        "UPDATE agent_episodes SET task_result = -1, verdict_source = 'derived' WHERE id = 'race'",
+      ).run();
+    });
+    const stats = await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(stats.promoted).toBe(1); // flag off -> the derived -1 does not block promotion
+    expect(elig(db, "race")).toBe("eligible");
+  });
+
+  it("evaluateEpisodes itself still BLOCKS an OPERATOR -1 condemned mid-pass, exercised the same way", async () => {
+    const db = edb0();
     seed(db, "race-op", { eligibility: "pending", task_result: null });
-    db.prepare(
-      "UPDATE agent_episodes SET task_result = -1, verdict_source = 'operator' WHERE id = 'race-op'",
-    ).run();
-    const blocked = db
-      .prepare(
-        `UPDATE agent_episodes SET eligibility = 'eligible'
-          WHERE id = 'race-op' AND eligibility = 'pending'
-            AND (task_result IS NULL OR task_result <> -1 OR (verdict_source = 'derived' AND ? = 0))`,
-      )
-      .run(0).changes;
-    expect(blocked).toBe(0);
+    const raced = raceAfterPendingSelect(db, () => {
+      db.prepare(
+        "UPDATE agent_episodes SET task_result = -1, verdict_source = 'operator' WHERE id = 'race-op'",
+      ).run();
+    });
+    // `stats.promoted` increments per CANDIDATE (decided from the pre-race in-memory read), not per
+    // row actually changed — that is the existing, pre-THE-726 quirk the race-guard WHERE exists to
+    // route around, and it is unaffected by this fix. The authoritative check is the row's real
+    // eligibility in the DB, same as task-verdict.test.ts's own precedent for this exact race.
+    await evaluateEpisodes(raced, { nowMs: NOW + 1000, derivedVerdictHold: false });
+    expect(elig(db, "race-op")).toBe("pending");
   });
 });
 

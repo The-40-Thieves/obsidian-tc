@@ -202,7 +202,10 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // work_result(-1) unconditionally does; see packages/shared/src/config/retrieval.schema.ts's
   // ExperientialConfigSchema for the full description text. No existing key, type, default or
   // constraint moved.
-  "fb08d1cda4f9e8774db73e61542987eda727989c1f078b20ed4ca31ed41fe2ae";
+  // THE-726 review round 1: rebaselined deliberately AGAIN — the SAME key's `.describe()` text
+  // grew the owner-settled dependency statement (this axis acts only on sessions that exist and
+  // end). Still no key/type/default/constraint moved.
+  "323a9dd8887ef635d9d5c8dc93523e4901939362c05d6fe3fe5c26f865967628";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

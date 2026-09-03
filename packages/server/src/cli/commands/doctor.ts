@@ -116,6 +116,11 @@ async function probeNotesFts(
 async function probeEpisodeBacklog(
   cacheDir: string,
   nowMs: number,
+  // THE-726 review round 1: `experiential.derivedVerdictHold`, forwarded to readEpisodeBacklog so
+  // this diagnostic agrees with what the evaluator would actually promote — previously omitted,
+  // which silently defaulted to the flag's own default (false) even on a deployment running with
+  // it on, disagreeing with the real evaluator on exactly the rows the flag changes.
+  derivedVerdictHold: boolean,
 ): Promise<EpisodeBacklog | undefined> {
   const path = join(cacheDir, "experiential.db");
   if (!existsSync(path)) return undefined;
@@ -126,7 +131,7 @@ async function probeEpisodeBacklog(
     // predicates the evaluator promotes by, or the checker and the evaluator disagree about what
     // is healthy. A hand-rolled GROUP BY here counted `pending` and warned on a store that had
     // just been promoted successfully.
-    return readEpisodeBacklog(edb, nowMs);
+    return readEpisodeBacklog(edb, nowMs, derivedVerdictHold);
   } catch {
     return undefined;
   } finally {
@@ -552,7 +557,11 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     config.experiential.activationRerank;
   const backlog =
     cmd.probe && experientialEnabled
-      ? await probeEpisodeBacklog(config.cacheDir, Date.now())
+      ? await probeEpisodeBacklog(
+          config.cacheDir,
+          Date.now(),
+          config.experiential.derivedVerdictHold,
+        )
       : undefined;
   // The multi-vector gate is ONE decision that darkens two tables: chunk_sparse and chunk_colbert
   // are both written from embedFull, which only some providers emit. Mirrors the same expression

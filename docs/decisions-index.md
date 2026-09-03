@@ -285,10 +285,10 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-695 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 9 |
 | THE-696 | `notes_fts` integrity is checkable, and repairable (THE-696, #648). | CHANGELOG.md (1.14.0) | 5 |
 | THE-697 | `obsidian-tc index` — the derived-state command that was missing (THE-697, #648). | CHANGELOG.md (1.14.0) | 4 |
-| THE-698 | Scheduled episode evaluation (THE-698, #648). | CHANGELOG.md (1.14.0) | 6 |
+| THE-698 | Scheduled episode evaluation (THE-698, #648). | CHANGELOG.md (1.14.0) | 7 |
 | THE-699 | `--acl-allow` — the eval harness can finally vary ACL state (THE-699, #660). | CHANGELOG.md (1.15.0) | 2 |
 | THE-700 | The plane re-ran its own completed once-per-period work on every tick (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
-| THE-701 | The episode-eligibility judge (THE-701, #661). | CHANGELOG.md (1.15.0) | 6 |
+| THE-701 | The episode-eligibility judge (THE-701, #661). | CHANGELOG.md (1.15.0) | 7 |
 | THE-705 | A bundled `local` cross-encoder reranker — `gatedRerank` with no gateway and no external service (#806, THE-705). | CHANGELOG.md (1.22.0) | 9 |
 | THE-707 | THE-707 — experiential-tier benchmark applicability assessment (no adapter built). | CHANGELOG.md (1.23.0) | 1 |
 | THE-709 | Consolidation jobs get a per-attempt gateway timeout (THE-709). | CHANGELOG.md (1.16.0) | 3 |
@@ -306,7 +306,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-722 | `audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722). | CHANGELOG.md (1.17.1) | 4 |
 | THE-723 | The scheduler's backoff cap had become a global 5-minute ceiling on every background job (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
 | THE-725 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
-| THE-726 | `agent_episodes.task_result` gets an on-demand writer (THE-726). | CHANGELOG.md (Unreleased) | 29 |
+| THE-726 | `agent_episodes.task_result` gets an on-demand writer (THE-726). | CHANGELOG.md (Unreleased) | 30 |
 | THE-727 | Operation-aware authorization (#697, THE-727). | CHANGELOG.md (1.20.0) | 3 |
 | THE-730 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 1 |
 | THE-732 | _internal planning reference — see repo history_ | — | 1 |
@@ -358,6 +358,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 
-343 distinct ticket(s) across 483 source file(s) under
+343 distinct ticket(s) across 484 source file(s) under
 `packages/*/src`; 276 resolved to a public summary, 67
 fall back to the internal-reference placeholder above.
