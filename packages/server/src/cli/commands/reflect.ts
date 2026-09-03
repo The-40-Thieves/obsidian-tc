@@ -45,6 +45,19 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
       derived = await deriveClosedWindows(edb, cacheDb, { nowMs });
     } catch (e) {
       process.stderr.write(`reflect: derived-verdict pass failed: ${errorMessage(e)}\n`);
+      // THE-726 fix round 3 follow-up (R2): `cacheDb` staying undefined at this point means the
+      // OPEN itself failed (a successful open assigns it even if deriveClosedWindows then throws
+      // for an unrelated reason). When citationPreferences is on, that open failure silently
+      // starved extractPreferences of its citation evidence source below - the command still
+      // printed a normal-looking applied=N line for every vault, with no indication that citation
+      // evidence was never consulted this run. Naming the gap explicitly, with the same error, so
+      // an operator does not read a quiet applied=0 (or a lower applied=N) as "no evidence existed"
+      // when it actually means "cache.db could not be read".
+      if (cacheDb === undefined && cfg.experiential.citationPreferences) {
+        process.stderr.write(
+          `reflect: citation-preference evidence unavailable this run - cache.db could not be opened: ${errorMessage(e)}\n`,
+        );
+      }
     }
     // THE-701 removed the eligibility pass's judge; THE-673 removed extractPreferences' judge too
     // (a deterministic counter over typed evidence, see that file) — this command no longer needs
@@ -62,8 +75,12 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
       const prefs = await extractPreferences(edb, v.id, {
         nowMs,
         // THE-644: `experiential.citationPreferences` is the ship-dark gate on the citation
-        // evidence source in extractPreferences — off by default. Handing it `cacheDb` only when
-        // the flag is on keeps that gate byte-identical; cache.db itself is now always open above.
+        // evidence source in extractPreferences - off by default. Handing it `cacheDb` only when
+        // the flag is on keeps that gate byte-identical. THE-726 fix round 3 follow-up (R1/R2):
+        // cache.db is opened INSIDE the guarded derive step above now, not unconditionally before
+        // it, so it is NOT always open here - `cacheDb` is undefined whenever that open failed,
+        // and this expression already falls through to `undefined` in that case (never handing
+        // extractPreferences a stale or partially-opened handle), the same as when the flag is off.
         cacheDb: cfg.experiential.citationPreferences ? cacheDb : undefined,
       });
       lines.push(

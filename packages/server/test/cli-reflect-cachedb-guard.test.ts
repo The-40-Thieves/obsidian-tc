@@ -72,4 +72,49 @@ describe("run_reflect: cache.db open failure (THE-726 fix round 3)", () => {
     expect(out).toContain("reflect: scanned=");
     expect(out).toContain("reflect: derived-verdict pass failed (see stderr)");
   });
+
+  it("citationPreferences on and cache.db corrupt: eligibility still runs, and a citation-evidence-unavailable line is printed", async () => {
+    // Same corrupt-file setup as above, but this config turns citationPreferences ON - the gap
+    // this follow-up closes only shows up when that flag would otherwise have been handed a
+    // cacheDb handle.
+    const cacheDir = join(dir, "cache");
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, "cache.db"), "not a sqlite file, deliberately corrupt");
+
+    const vaultPath = join(dir, "vault");
+    const cfg = {
+      vaults: [{ id: "main", path: vaultPath }],
+      cacheDir,
+      experiential: { citationPreferences: true },
+    };
+    const citationConfigPath = join(dir, "config-citation.json");
+    writeFileSync(citationConfigPath, JSON.stringify(cfg, null, 2));
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      stdoutChunks.push(String(chunk));
+      return true;
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    });
+    try {
+      await run_reflect({ kind: "reflect", input: citationConfigPath } as Cmd<"reflect">);
+    } finally {
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+
+    const out = stdoutChunks.join("");
+    const err = stderrChunks.join("");
+    expect(err).toContain("reflect: derived-verdict pass failed");
+    expect(err).toContain("reflect: citation-preference evidence unavailable this run");
+    expect(err).toContain("cache.db could not be opened");
+    // Eligibility, and the per-vault preferences line, still ran to completion - the corrupt
+    // cache.db degrades citation evidence only, it does not abort the command.
+    expect(out).toContain("reflect: scanned=");
+    expect(out).toContain("preferences[main]:");
+  });
 });
