@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { enrichChunkText } from "../src/search/chunk";
 import { loadVec } from "../src/search/vec";
 
@@ -53,7 +54,12 @@ async function main(): Promise<void> {
   const vault = config.vaults[0];
   if (!vault) throw new Error("config.vaults is empty");
   const vaultId = vault.id;
-  const provider = createEmbeddingProvider(config.embeddings);
+  const provider = createEmbeddingProvider(config.embeddings, {
+    // THE-934 fix round 3 (H): eval/ scripts operate on a real vault corpus (loadConfig
+    // reads the SAME config.egress.excludePaths a production run would), so the port must
+    // carry the same filter or an excluded note's text reaches this provider unguarded.
+    excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  });
   const db = await openDatabase(join(config.cacheDir, "cache.db"));
 
   if (CONTROL) {

@@ -153,6 +153,10 @@ const MUTATIONS: Array<[string, Partial<Omit<GraphSearchOptions, "queryVec">>]> 
   // or window floor is a genuinely different retrieval, never a shared cache entry.
   ["asOf", { asOf: 201 }],
   ["since", { since: 51 }],
+  // THE-934 fix round 1: egress.excludePaths changes WHICH candidates the reranker may see (an
+  // excluded one is demoted to its fusion score instead of reranked) — a genuinely different
+  // retrieval, so two calls differing only in this must not share a cache entry.
+  ["rerankExcludeFilter", { rerankExcludeFilter: { patterns: ["Private/**"] } }],
 ];
 
 describe("THE-497 graph-search cache key covers every option", () => {

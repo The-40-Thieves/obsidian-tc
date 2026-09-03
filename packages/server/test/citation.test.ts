@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import {
+  countCitationCandidates,
   inferCitations,
   maxBlockCosine,
   prepareBlocks,
@@ -14,6 +15,7 @@ import {
   rougeL,
   rougeLPrepared,
 } from "../src/experiential/citation";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import { cosineSimilarity } from "../src/search/native";
 import { openMemoryDb } from "./helpers";
 
@@ -51,7 +53,7 @@ function edb0(): Database {
 function cacheDb0(): Database {
   const db = openMemoryDb();
   db.exec(
-    "CREATE TABLE chunks (id TEXT PRIMARY KEY, content TEXT NOT NULL);" +
+    "CREATE TABLE chunks (id TEXT PRIMARY KEY, content TEXT NOT NULL, path TEXT NOT NULL DEFAULT 'unknown.md');" +
       "CREATE TABLE chunk_embeddings (chunk_id TEXT NOT NULL, embedding BLOB NOT NULL, is_active INTEGER NOT NULL DEFAULT 1);",
   );
   return db;
@@ -311,6 +313,25 @@ describe("citation inference (THE-170)", () => {
     expect(stats.parseFailures).toBe(0);
     // ...and the CONTROL, so a passing assertion above cannot be a counter that never increments:
     // the unparseable case in the test directly above still reports parseFailures = 1, judgeErrors = 0.
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from judge PROPAGATES, distinct from an ordinary transport error counted as judgeErrors", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb.prepare("INSERT INTO chunks (id, content) VALUES (?, ?)").run("cA", CHUNK_CITED);
+    seedRetrieval(edb, "r1", "cA", "s1");
+    await expect(
+      inferCitations({
+        edb,
+        cacheDb,
+        transcript: TRANSCRIPT,
+        sessionId: "s1",
+        minJudgedForKill: 1,
+        judge: async () => {
+          throw new EgressViolationError("guard fired");
+        },
+      }),
+    ).rejects.toBeInstanceOf(EgressViolationError);
   });
 
   // Found by cross-vendor review, not by me: my first version logged only the DOMINANT fault, so a
@@ -883,5 +904,56 @@ describe("stage-2 preflight hardening (THE-621)", () => {
     });
     expect(seen).toContain("You judge citation");
     expect(seen).not.toContain("uncertain");
+  });
+});
+
+describe("citation inference — egress.excludePaths (THE-934)", () => {
+  it("drops an excluded chunk before it is a candidate — no excluded text reaches the judge", async () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb
+      .prepare("INSERT INTO chunks (id, content, path) VALUES (?, ?, ?)")
+      .run("cA", CHUNK_CITED, "Public/A.md");
+    cacheDb
+      .prepare("INSERT INTO chunks (id, content, path) VALUES (?, ?, ?)")
+      .run("cP", CHUNK_CITED, "Private/P.md");
+    seedRetrieval(edb, "r1", "cA", "s1");
+    seedRetrieval(edb, "r2", "cP", "s1");
+    const seenSources: string[] = [];
+    const stats = await inferCitations({
+      edb,
+      cacheDb,
+      transcript: TRANSCRIPT,
+      sessionId: "s1",
+      excludeFilter: compileEgressFilter(["Private/**"]),
+      judge: async (req) => {
+        seenSources.push(...(req.sourcePaths ?? []));
+        return { text: '{"cited": true, "score": 0.9}', model: "fake" };
+      },
+    });
+    // Only the public chunk was ever scored/judged — the private one never became a candidate.
+    expect(stats.stage1Pass).toBe(1);
+    expect(seenSources).toEqual(["Public/A.md"]);
+    const r = rows(edb);
+    expect(r.find((x) => x.id === "r1")?.cited_in_response).toBe(1);
+    // The excluded row stays NULL (unprocessed), not stamped 0 — a later un-excluded pass can
+    // still process it.
+    expect(r.find((x) => x.id === "r2")?.cited_in_response).toBeNull();
+  });
+
+  it("countCitationCandidates excludes deleted and excluded-path chunks", () => {
+    const edb = edb0();
+    const cacheDb = cacheDb0();
+    cacheDb
+      .prepare("INSERT INTO chunks (id, content, path) VALUES (?, ?, ?)")
+      .run("cA", CHUNK_CITED, "Public/A.md");
+    cacheDb
+      .prepare("INSERT INTO chunks (id, content, path) VALUES (?, ?, ?)")
+      .run("cP", CHUNK_CITED, "Private/P.md");
+    seedRetrieval(edb, "r1", "cA", "s1");
+    seedRetrieval(edb, "r2", "cP", "s1");
+    seedRetrieval(edb, "r3", "cDeleted", "s1"); // chunk row does not exist
+    expect(countCitationCandidates(edb, cacheDb)).toBe(2); // deleted chunk (cDeleted) drops out
+    expect(countCitationCandidates(edb, cacheDb, compileEgressFilter(["Private/**"]))).toBe(1);
   });
 });

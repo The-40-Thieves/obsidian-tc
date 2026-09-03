@@ -28,9 +28,10 @@ const BASE = { provider: "openai-compatible", model: "BAAI/bge-m3", dimensions: 
 describe("openai-compatible wire body", () => {
   it("sends EXACTLY {model, input}", async () => {
     const { fetchFn, bodies } = capture();
-    await createEmbeddingProvider({ ...BASE, baseUrl: "http://gw:4001/v1" }, { fetchFn }).embed([
-      "hello",
-    ]);
+    await createEmbeddingProvider({ ...BASE, baseUrl: "http://gw:4001/v1" }, { fetchFn }).embed(
+      ["hello"],
+      { sourcePaths: [] },
+    );
     expect(Object.keys(bodies[0] ?? {}).sort()).toEqual(["input", "model"]);
     expect(bodies[0]).toEqual({ model: "BAAI/bge-m3", input: ["hello"] });
   });
@@ -40,12 +41,12 @@ describe("openai-compatible wire body", () => {
     await createEmbeddingProvider(
       { ...BASE, baseUrl: "http://gw:4001/v1" },
       { fetchFn: a.fetchFn },
-    ).embed(["x"]);
+    ).embed(["x"], { sourcePaths: [] });
     const b = capture();
     await createEmbeddingProvider(
       { ...BASE, baseUrl: "http://gw:4001/v1/" },
       { fetchFn: b.fetchFn },
-    ).embed(["x"]);
+    ).embed(["x"], { sourcePaths: [] });
     expect(a.urls[0]).toBe("http://gw:4001/v1/embeddings");
     expect(b.urls[0]).toBe("http://gw:4001/v1/embeddings");
   });
@@ -70,7 +71,7 @@ describe("openai-compatible wire body", () => {
     await createEmbeddingProvider(
       { ...BASE, baseUrl: "http://gw:4001/v1", apiKey: "sk-x" },
       { fetchFn: spy },
-    ).embed(["x"]);
+    ).embed(["x"], { sourcePaths: [] });
     expect(auth).toBe("Bearer sk-x");
   });
 });

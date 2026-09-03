@@ -4,6 +4,7 @@ import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { openDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { ToolRegistry } from "../../mcp/registry";
+import { compileEgressFilter } from "../../plane/egress-filter";
 import { readGeneration } from "../../search/generation";
 import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "../../search/prefetch";
 import { registerM7Tools } from "../../tools/m7";
@@ -14,7 +15,13 @@ export async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   mkdirSync(cfg.cacheDir, { recursive: true });
   const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
-  const provider = createEmbeddingProvider(cfg.embeddings);
+  // THE-934 fix round 2 (N2): threaded for consistency — vault_context's own retrieval only ever
+  // embeds the QUERY side here (reranker/roles are both null, so neither the generative nor
+  // rerank egress legs are reachable at all), but the provider itself is real and this keeps the
+  // "every createEmbeddingProvider call site threads excludeFilter" invariant true by
+  // construction.
+  const egressFilter = compileEgressFilter(cfg.egress.excludePaths);
+  const provider = createEmbeddingProvider(cfg.embeddings, { excludeFilter: egressFilter });
   const pfVaultRegistry = new VaultRegistry(cfg.vaults);
   const memByVault = new Map<string, string>();
   for (const v of cfg.vaults) if (v.memory) memByVault.set(v.id, v.memory.folder);
@@ -24,6 +31,7 @@ export async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
     embeddingProvider: provider,
     reranker: null,
     roles: null,
+    excludeFilter: egressFilter,
     retrieval: cfg.retrieval,
     ranking: cfg.ranking,
     classRouter: cfg.retrieval.classRouter,

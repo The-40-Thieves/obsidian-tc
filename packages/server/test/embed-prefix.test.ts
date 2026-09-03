@@ -29,7 +29,7 @@ describe("THE-405 asymmetric prefix seam", () => {
       { fetchFn },
     );
     await p.embed(["what is x"], { input: "query" });
-    await p.embed(["chunk text"]); // indexing path — document by default
+    await p.embed(["chunk text"], { sourcePaths: [] }); // indexing path — document by default
     expect(bodies[0]?.input).toEqual([`${QP}what is x`]);
     expect(bodies[1]?.input).toEqual(["doc: chunk text"]);
   });
@@ -50,7 +50,7 @@ describe("THE-405 asymmetric prefix seam", () => {
       { provider: "ollama", model: "m", dimensions: 3, queryPrefix: QP },
       { fetchFn },
     );
-    await p.embed(["chunk text"]);
+    await p.embed(["chunk text"], { sourcePaths: [] });
     expect(bodies[0]?.input).toEqual(["chunk text"]);
   });
 });

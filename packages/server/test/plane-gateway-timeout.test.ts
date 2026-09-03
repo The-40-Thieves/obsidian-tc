@@ -17,6 +17,8 @@
 // client's 60s default and the first test HANGS until vitest kills it — which is the failure this
 // is meant to catch, so it is written to fail loudly rather than to assert a default.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { compileEgressFilter } from "../src/plane/egress-filter";
+import { EgressViolationError } from "../src/plane/egress-guard";
 import { planeRoles } from "../src/runtime/tool-wiring";
 
 const ENV_URL = "OBSIDIAN_TC_GATEWAY_URL";
@@ -70,7 +72,7 @@ describe("THE-709 — plane gateway per-attempt timeout", () => {
 
     const started = Date.now();
     await expect(
-      roles?.synthesize({ messages: [{ role: "user", content: "hello" }] }),
+      roles?.synthesize({ messages: [{ role: "user", content: "hello" }], sourcePaths: [] }),
     ).rejects.toThrow();
     const elapsed = Date.now() - started;
 
@@ -88,7 +90,7 @@ describe("THE-709 — plane gateway per-attempt timeout", () => {
     const roles = planeRoles(3, 30);
 
     await expect(
-      roles?.synthesize({ messages: [{ role: "user", content: "hello" }] }),
+      roles?.synthesize({ messages: [{ role: "user", content: "hello" }], sourcePaths: [] }),
     ).rejects.toThrow();
 
     // Each attempt must time out on its own controller. One abort would mean retries inherited a
@@ -109,5 +111,64 @@ describe("THE-709 — plane gateway per-attempt timeout", () => {
     delete process.env[ENV_URL];
     delete process.env[ENV_TOKEN];
     expect(planeRoles(6, 300_000)).toBeNull();
+  });
+});
+
+// THE-934 fix round 3 (E) — plane-wiring.ts's ONLY call site (wireJobHandlers' `bgRoles`) called
+// `planeRoles(attempts, timeoutMs)` without the 3rd `excludeFilter` argument, so planeRoles' own
+// createGatewayClient defaulted to `compileEgressFilter([])` (a no-op) and the PORT carried no
+// real filter -- the outer `guardGatewayRoles(bgRoles, excludeFilter)` wrap in plane-wiring.ts was
+// the ONLY thing enforcing exclusion on that specific client, unlike every other production seam
+// (gatedRoles' own construction already threads the filter into the port). This proves the PORT
+// itself is now a real backstop, independent of any consumer-level wrap: it calls planeRoles
+// DIRECTLY with a real filter and never touches guardGatewayRoles at all.
+describe("THE-934 fix round 3 (E) — planeRoles' own port enforces excludeFilter, not only the caller's guardGatewayRoles wrap", () => {
+  it("an excluded sourcePaths declaration is rejected by planeRoles' own client, with no guardGatewayRoles wrap involved", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ model: "m", choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof globalThis.fetch;
+    const roles = planeRoles(1, 5_000, compileEgressFilter(["Private/**"]));
+    expect(roles).not.toBeNull();
+    await expect(
+      roles?.judge({
+        messages: [{ role: "user", content: "x" }],
+        sourcePaths: ["Private/journal.md"],
+      }),
+    ).rejects.toBeInstanceOf(EgressViolationError);
+  });
+
+  it("an undeclared sourcePaths is ALSO rejected — the port's undeclared-egress check fires regardless of the filter's patterns", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ model: "m", choices: [{ message: { content: "ok" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof globalThis.fetch;
+    const roles = planeRoles(1, 5_000, compileEgressFilter([]));
+    expect(roles).not.toBeNull();
+    await expect(
+      roles?.judge({
+        messages: [{ role: "user", content: "x" }],
+      } as Parameters<NonNullable<typeof roles>["judge"]>[0]),
+    ).rejects.toBeInstanceOf(EgressViolationError);
+  });
+
+  it("a non-excluded declaration passes through to the real client", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({ model: "m", choices: [{ message: { content: "ok" } }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof globalThis.fetch;
+    const roles = planeRoles(1, 5_000, compileEgressFilter(["Private/**"]));
+    const res = await roles?.judge({
+      messages: [{ role: "user", content: "x" }],
+      sourcePaths: ["Public/note.md"],
+    });
+    expect(res?.text).toBe("ok");
+    expect(calls).toBe(1);
   });
 });

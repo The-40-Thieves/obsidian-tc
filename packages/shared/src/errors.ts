@@ -58,7 +58,13 @@ export type ErrorCode =
   // (assessPoison). Distinct from `invalid_input`: the argument SHAPE was fine, the CONTENT was
   // refused. Never retryable — the same content re-scans identically; the caller must revise it
   // or write it as `provenance: "authored"` if a human is vouching for it.
-  | "content_rejected";
+  | "content_rejected"
+  // THE-934 fix round 3 (H) — the egress port guard (plane/egress-filter.ts's
+  // EgressViolationError) refused a content-bearing gateway/embedding/reranker request: either it
+  // declared no sourcePaths at all, or one of its declared paths matches egress.excludePaths.
+  // Never retryable — the same request re-refuses identically until the caller fixes the
+  // declaration or the excluded path is genuinely no longer excluded.
+  | "egress_excluded";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -187,6 +193,9 @@ const RECOVERY: Record<ErrorCode, string | null> = {
   // THE-639 — poison-scan gate on agent_synthesis note writes.
   content_rejected:
     'The content tripped the poison scan (risk: high) and was not written. Revise it to remove instruction-override, persistence-directive, hidden-text, or exfiltration-like phrasing, or write it with provenance: "authored" if a human is vouching for it.',
+  // THE-934 fix round 3 (H) — the egress port guard refused a content-bearing request.
+  egress_excluded:
+    "A gateway/embedding/reranker request either declared no sourcePaths or named one under egress.excludePaths. Declare the real vault paths the text came from (an empty array is fine when there genuinely are none), or leave the excluded path out of the request.",
 };
 
 /** THE-512: the recovery hint for a code, or undefined when none is useful. */

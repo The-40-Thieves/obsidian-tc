@@ -103,7 +103,7 @@ describe("provider adapters over a stub fetch", () => {
         }),
       },
     );
-    expect(await p.embed(["a", "b"])).toEqual([
+    expect(await p.embed(["a", "b"], { sourcePaths: [] })).toEqual([
       [1, 0, 0],
       [0, 1, 0],
     ]);
@@ -114,7 +114,7 @@ describe("provider adapters over a stub fetch", () => {
       { provider: "openai", model: "m", dimensions: 2, apiKey: "secret" },
       { fetchFn: jsonFetch({ data: [{ embedding: [1, 2] }] }) },
     );
-    expect(await p.embed(["a"])).toEqual([[1, 2]]);
+    expect(await p.embed(["a"], { sourcePaths: [] })).toEqual([[1, 2]]);
   });
 
   it("parses a cohere embeddings.float response", async () => {
@@ -122,7 +122,7 @@ describe("provider adapters over a stub fetch", () => {
       { provider: "cohere", model: "m", dimensions: 2 },
       { fetchFn: jsonFetch({ embeddings: { float: [[3, 4]] } }) },
     );
-    expect(await p.embed(["a"])).toEqual([[3, 4]]);
+    expect(await p.embed(["a"], { sourcePaths: [] })).toEqual([[3, 4]]);
   });
 
   it("cohere encodes queries as search_query and documents as search_document (THE-308)", async () => {
@@ -138,7 +138,7 @@ describe("provider adapters over a stub fetch", () => {
       { provider: "cohere", model: "m", dimensions: 2 },
       { fetchFn: capturingFetch },
     );
-    await p.embed(["a document"]); // default → document
+    await p.embed(["a document"], { sourcePaths: [] }); // default → document
     await p.embed(["a query"], { input: "query" });
     expect(bodies[0]?.input_type).toBe("search_document");
     expect(bodies[1]?.input_type).toBe("search_query");
@@ -149,7 +149,9 @@ describe("provider adapters over a stub fetch", () => {
       { provider: "ollama", model: "m", dimensions: 3 },
       { fetchFn: jsonFetch({ error: "boom" }, 500) },
     );
-    await expect(p.embed(["a"])).rejects.toMatchObject({ code: "embedding_provider_error" });
+    await expect(p.embed(["a"], { sourcePaths: [] })).rejects.toMatchObject({
+      code: "embedding_provider_error",
+    });
   });
 
   it("maps a wrong-dimension vector to embedding_provider_error without leaking the key", async () => {
@@ -158,7 +160,7 @@ describe("provider adapters over a stub fetch", () => {
       { fetchFn: jsonFetch({ data: [{ embedding: [1, 2] }] }) },
     );
     try {
-      await p.embed(["a"]);
+      await p.embed(["a"], { sourcePaths: [] });
       throw new Error("expected embed to throw");
     } catch (e) {
       expect(e).toBeInstanceOf(ObsidianTcError);

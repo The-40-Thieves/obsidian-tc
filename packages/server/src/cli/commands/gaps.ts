@@ -14,6 +14,7 @@ import {
   resolveGapThreshold,
   scoreDistribution,
 } from "../../experiential/gaps";
+import { compileEgressFilter } from "../../plane/egress-filter";
 import { makeGapBatchSearch } from "../../runtime/gap-sweep";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
@@ -31,7 +32,14 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  const provider = createEmbeddingProvider(cfg.embeddings);
+  // THE-934 fix round 2 (N2): threaded for consistency, not because this ever carries vault
+  // text — every embed here runs query-role (a golden-set/probe query string, never a chunk or
+  // note), which the port guard exempts unconditionally. Threading it anyway means the invariant
+  // "every createEmbeddingProvider call site threads excludeFilter" holds by construction rather
+  // than needing a documented exception.
+  const provider = createEmbeddingProvider(cfg.embeddings, {
+    excludeFilter: compileEgressFilter(cfg.egress.excludePaths),
+  });
   const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
   // THE-616: batch-shaped — ONE provider.embed(queries[]) call per invocation instead of one per
   // query, which was the dominant cost of a pass (this is the loop that runs the full 250-query

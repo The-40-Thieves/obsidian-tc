@@ -15,6 +15,7 @@
 // edge inside a dark, down-weighted, fully rebuildable layer. Batch-only, off by default, never written
 // back into notes as wikilinks (the isnad boundary).
 import type { GatewayClient } from "../gateway/client";
+import { EgressViolationError } from "../plane/egress-filter";
 import type { DerivedEdge } from "./derived-edges";
 
 /** The discrete confidence rubric (graphify): every inferred-edge confidence snaps to one of these. */
@@ -255,9 +256,16 @@ export async function extractSemanticEdges(
       const res = await client.extract({
         messages: buildExtractionMessages(batch),
         temperature: 0,
+        // THE-934: the egress guard's backstop check — every note in `batch` already cleared
+        // runLlmDensify's exclusion filter (search/densify-runner.ts) before reaching here.
+        sourcePaths: batch.map((n) => n.path),
       });
       text = res.text ?? "";
-    } catch {
+    } catch (e) {
+      // THE-934 fix round 3 (B): a guard firing here means runLlmDensify's own exclusion filter
+      // (densify-runner.ts) is broken -- a security defect, not an ordinary unusable-batch
+      // failure runLlmDensify's own "refuse to reconcile" contract is meant to cover.
+      if (e instanceof EgressViolationError) throw e;
       failedBatches += 1;
       continue;
     }

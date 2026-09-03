@@ -160,6 +160,32 @@ describe.skipIf(!bunAvailable)(
       expect(r.stderr).toMatch(/llmEdges|disabled/i);
     });
 
+    // THE-934: consolidate --once [--dry-run]. No gateway is configured in this fixture, so a
+    // real run trivially proves zero gateway calls end to end (there is no client to call at
+    // all) — the stronger proof (a counting FAKE client with a gateway configured) lives in
+    // synthesis-job.test.ts's planSynthesis unit tests.
+    describe("consolidate (THE-934)", () => {
+      it("without --once is a usage error, exit 2 — never a silent no-op", () => {
+        const r = runCli(["consolidate", configPath]);
+        expect(r.code).toBe(2);
+        expect(r.stderr).toMatch(/--once/);
+      });
+
+      it("--once --dry-run reports candidate counts and makes zero gateway calls, exit 0", () => {
+        const r = runCli(["consolidate", "--once", "--dry-run", configPath]);
+        expect(r.code).toBe(0);
+        expect(r.stdout).toContain("0 gateway calls made");
+        expect(r.stdout).toContain("citation_candidates");
+      });
+
+      it("--once alone runs synthesis + audit exactly once and prints both reports, exit 0", () => {
+        const r = runCli(["consolidate", "--once", configPath]);
+        expect(r.code).toBe(0);
+        expect(r.stdout).toContain("synthesis");
+        expect(r.stdout).toContain("audit");
+      });
+    });
+
     // THE-636: context-export/context-import, end to end through the real subprocess.
     describe("context-export / context-import (THE-636)", () => {
       it("context-export requires --out — missing it exits 2 with usage", () => {

@@ -331,6 +331,13 @@ async function graphSearchCore(
       ? searchNoteSummaries(db, opts.vaultId, opts.queryVec, {
           k: seedCount,
           ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+          // THE-934 fix round 4 (2): the same query-time backstop searchClusterSummaries got in
+          // fix round 3. A note summary DOES carry a real vault path, so a downstream
+          // isExcludedPath check could in principle catch it -- but only the reranker's does, and
+          // only when a reranker is configured, so an excluded note's summary would otherwise
+          // reach reflect and the fused result set on a default install. Reuses
+          // `rerankExcludeFilter`: same config value, already threaded here.
+          ...(opts.rerankExcludeFilter ? { excludeFilter: opts.rerankExcludeFilter } : {}),
         })
       : [];
   // THE-628: cluster-summary stream, dark behind opts.summaries?.clusters?.enabled — a separate
@@ -342,6 +349,13 @@ async function graphSearchCore(
       ? searchClusterSummaries(db, opts.vaultId, opts.queryVec, {
           k: seedCount,
           ...(opts.isReadable ? { isReadable: opts.isReadable } : {}),
+          // THE-934 fix round 3 (D): a cluster summary's own `.path` is the cluster_key, not a
+          // real vault path, so a downstream isExcludedPath(excludeFilter, hit.path) check
+          // (rerank.ts, reflect.ts) can never see an excluded member -- this is the one place
+          // with the real member-path list. Reuses `rerankExcludeFilter` (same config value,
+          // already threaded here for the reranker's own backstop) rather than adding a second
+          // field for what is the same filter.
+          ...(opts.rerankExcludeFilter ? { excludeFilter: opts.rerankExcludeFilter } : {}),
         })
       : [];
   // Traced BEFORE the early return below (THE-632) so the no-seed case produces a real record
@@ -516,6 +530,8 @@ async function graphSearchCore(
       Math.min(finalTopK, candidates.length),
       opts.reranker,
       opts.onRerankOutcome,
+      undefined,
+      opts.rerankExcludeFilter,
     );
     return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
   }
@@ -588,6 +604,8 @@ async function graphSearchCore(
     Math.min(finalTopK, pool.length),
     opts.reranker,
     opts.onRerankOutcome,
+    undefined,
+    opts.rerankExcludeFilter,
   );
   return { results: finalize(ranked, opts), finalTopK, routedToSeedsOnly, expansionTruncated };
 }

@@ -17,6 +17,7 @@ import type { RetrievalLogger } from "../experiential/log";
 import { createGatewayClient, type GatewayClient } from "../gateway";
 import type { ToolRegistry } from "../mcp/registry";
 import { buildModelTierReranker } from "../model";
+import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
 import { resolveReranker } from "../providers/registry";
@@ -26,7 +27,7 @@ import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeBindingActive } from "../search/native";
 import type { RetrievalCaches } from "../search/query_cache";
 import type { RepresentationManifest } from "../search/representation";
-import type { Reranker, RerankOutcome } from "../search/rerank";
+import { guardReranker, type Reranker, type RerankOutcome } from "../search/rerank";
 import type { VecRebuildEvent } from "../search/vec";
 import type { RateLimiter } from "../throttle";
 import { createHealthTool, createIndexStatusTool } from "../tools/admin/health";
@@ -187,24 +188,46 @@ export async function wireGatewaySeams(
   configDir?: string,
   securityProfile?: "hardened" | "trusted-local",
   gatewayCfg?: ServerConfig["gateway"],
+  /** THE-934 fix round 1: config.egress.excludePaths, compiled. Threaded into
+   *  createGatewayClient -- the PORT -- so every roles/gateway consumer this function hands out
+   *  is guarded, unconditionally. Absent -> excludes nothing (the sourcePaths declaration
+   *  requirement stays unconditional regardless). */
+  excludeFilter: EgressFilter = compileEgressFilter([]),
 ): Promise<GatewaySeams> {
   let gateway: GatewayClient | null = null;
   try {
-    gateway = createGatewayClient({ baseUrl: gatewayCfg?.baseUrl, token: gatewayCfg?.token });
+    gateway = createGatewayClient({
+      baseUrl: gatewayCfg?.baseUrl,
+      token: gatewayCfg?.token,
+      excludeFilter,
+    });
   } catch {
     gateway = null;
   }
   const gw = gateway;
   // W-RETRIEVAL rerank seam -> gateway /rerank passthrough (graceful no-op fallback when null).
   const gatewayReranker: Reranker | null = gw
-    ? (q, docs, topN) => gw.rerank({ query: q, documents: docs, topN }).then((r) => r.results)
+    ? (q, docs, topN, sourcePaths) =>
+        gw.rerank({ query: q, documents: docs, topN, sourcePaths }).then((r) => r.results)
     : null;
   // Prefer the model-tier BGE /v1/rerank when its service is configured; else the gateway
   // passthrough. Dark until a rerank stage is enabled in graphSearch. A declared `reranker` block
   // wins over that default entirely — ABSENT preserves the historical precedence exactly.
-  const reranker: Reranker | null = rerankerCfg
-    ? await resolveDeclaredReranker(rerankerCfg, { embeddings, configDir, securityProfile })
+  //
+  // THE-934 fix round 2 (N3): `resolveDeclaredReranker` already returns a guarded reranker (its
+  // resolveReranker call wraps every one of the five entries) -- the guard here on the WHOLE
+  // ternary is what closes the no-declared-block DEFAULT path, where buildModelTierReranker is
+  // called directly and never passes through resolveReranker at all. Re-guarding the declared
+  // branch is a harmless double-wrap, not a gap.
+  const rerankerRaw: Reranker | null = rerankerCfg
+    ? await resolveDeclaredReranker(rerankerCfg, {
+        embeddings,
+        configDir,
+        securityProfile,
+        excludeFilter,
+      })
     : (buildModelTierReranker(embeddings) ?? gatewayReranker);
+  const reranker: Reranker | null = rerankerRaw ? guardReranker(rerankerRaw, excludeFilter) : null;
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge
   // no-op).
   const roles: GatewayRoles | null = gw ? rolesFrom(gw) : null;
@@ -230,7 +253,14 @@ function rolesFrom(gw: GatewayClient): GatewayRoles {
  * Full history and measurements (Modal cold-start budget, the rejected ping()-based pre-warm
  * idea, THE-700 #659 and THE-709): docs/design/runtime-gateway-seams.md.
  */
-export function planeRoles(attempts: number, timeoutMs?: number): GatewayRoles | null {
+export function planeRoles(
+  attempts: number,
+  timeoutMs?: number,
+  /** THE-934 fix round 1: same as wireGatewaySeams' excludeFilter -- this is a SEPARATE
+   *  createGatewayClient call (its own retry budget), so it needs its own guard, not one
+   *  inherited from the interactive seam. */
+  excludeFilter: EgressFilter = compileEgressFilter([]),
+): GatewayRoles | null {
   try {
     // The PER-ATTEMPT budget matters as much as the attempt count — see the design note above.
     // Omitted rather than passed as undefined so the client's own 60s default still governs when
@@ -239,6 +269,7 @@ export function planeRoles(attempts: number, timeoutMs?: number): GatewayRoles |
       createGatewayClient({
         maxAttempts: attempts,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        excludeFilter,
       }),
     );
   } catch {
@@ -264,6 +295,8 @@ export interface M1WiringDeps {
   reindex: (vaultId: string, path: string, content: string) => void;
   deindex: (vaultId: string, path: string) => void;
   indexReadableFor: (vaultId: string) => (rel: string) => boolean;
+  /** THE-934: config.egress.excludePaths, as a per-path predicate. Absent -> nothing excluded. */
+  isEgressExcluded?: (rel: string) => boolean;
   sqlHooksFor: (vault: string) => WriteTxnHooks;
   onVecRebuild: (event: VecRebuildEvent) => void;
   makeOnIndexed: (vaultId: string) => IndexHook | undefined;
@@ -312,6 +345,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
         vaultId,
         root: deps.vaultRegistry.resolve(vaultId).root,
         isReadable: deps.indexReadableFor(vaultId),
+        ...(deps.isEgressExcluded !== undefined ? { isEgressExcluded: deps.isEgressExcluded } : {}),
         now: Date.now,
         sql: deps.sqlHooksFor(vaultId),
         onVecRebuild: deps.onVecRebuild,
@@ -372,6 +406,10 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // one-time cost of compiling the same glob rules twice. Rationale:
   // docs/design/runtime-gateway-seams.md.
   const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
+  // THE-934 fix round 1 (Blocking-3): egress.excludePaths, compiled once here (deps.roles is
+  // already guarded at the port — this is the CONSUMER-side filter reflect/knowledge_challenge
+  // apply before building their gateway request).
+  const m7ExcludeFilter = compileEgressFilter(config.egress.excludePaths);
   const memoryFolder = (vaultId: string): string =>
     deps.memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER;
   const traceFolder = (vaultId: string): string =>
@@ -491,6 +529,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     embeddingProvider: deps.embeddingProvider,
     reranker: deps.reranker,
     roles: deps.roles,
+    excludeFilter: m7ExcludeFilter,
     retrieval: config.retrieval,
     ranking: config.ranking,
     // THE-230: serve-path retrieval logging.

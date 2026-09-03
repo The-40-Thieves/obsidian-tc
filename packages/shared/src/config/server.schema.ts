@@ -11,6 +11,7 @@ import { AclConfigSchema, AuthConfigSchema } from "./auth-acl.schema";
 import { GatewayConfigSchema } from "./gateway.schema";
 import { EmbeddingsConfigSchema, IndexingConfigSchema } from "./indexing-embeddings.schema";
 import {
+  EgressConfigSchema,
   MaintenanceConfigSchema,
   ObservabilityConfigSchema,
   PensieveConfigSchema,
@@ -131,6 +132,9 @@ export const ServerConfigObject = z.object({
   watch: WatchConfigSchema.describe("Filesystem watch that reindexes notes changed outside."),
   snapshots: SnapshotsConfigSchema.describe("Point-in-time note snapshot policy."),
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),
+  egress: EgressConfigSchema.describe(
+    "Paths withheld from the inference gateway and the embedding provider (THE-934) — a different question from auth.acl.readPaths, which governs read visibility.",
+  ),
   sessions: SessionsConfigSchema.describe(
     "Whether the server opens workspace sessions itself, and how long one stays open.",
   ),

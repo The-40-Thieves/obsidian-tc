@@ -22,6 +22,7 @@ import { createMcpServer } from "../mcp/server";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import { initOtel, type OtelHandle } from "../otel/tracing";
+import { compileEgressFilter, type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { IndexCoordinator } from "../search/index-coordinator";
 import { nativeBindingActive } from "../search/native";
@@ -142,6 +143,11 @@ export interface RuntimeCoreDeps {
    *  `ResolveContext.configDir`'s doc comment (providers/types.ts) and docs/design/server-runtime.md. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
+  /** THE-934 fix round 1: config.egress.excludePaths, compiled. Threaded into
+   *  wireIndexResources -> createEmbeddingProviderAsync -- the embedding PORT -- so the provider
+   *  every downstream consumer shares (indexVault, indexNote, the query encoder, the advisory
+   *  sweep, everything) is guarded before construction completes. */
+  excludeFilter?: EgressFilter;
   /** Test-only: fires with each layer's name, in the order its cleanup ran. Only invoked when a
    *  later step throws during construction — never on the happy path, never by production callers. */
   onCleanup?: (name: OwnedLayer["name"]) => void;
@@ -199,6 +205,7 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
       onVecRebuild: deps.onVecRebuild,
       configDir: deps.configDir,
       securityProfile: deps.securityProfile,
+      ...(deps.excludeFilter !== undefined ? { excludeFilter: deps.excludeFilter } : {}),
     });
     indexHealthRef = indexResources.indexHealth;
     built.push({ name: "indexResources", close: () => {} });
@@ -243,6 +250,13 @@ export async function buildServerRuntime(
   // zero-config vault-path case.
   const configDir = configPath !== undefined ? dirname(configPath) : undefined;
   const startedAt = Date.now();
+  // THE-934 fix round 1: computed FIRST (not beside wireGatewaySeams, round 0's placement) --
+  // wireRuntimeCore below constructs the embedding provider PORT (wireIndexResources ->
+  // createEmbeddingProviderAsync), which must be guarded before ANY consumer (indexVault,
+  // indexNote, the query encoder, the advisory sweep) can reach it. One predicate for every vault
+  // (unlike indexReadableFor, egress.excludePaths is global, not per-vault-ACL).
+  const egressFilter = compileEgressFilter(config.egress.excludePaths);
+  const isEgressExcluded = (rel: string): boolean => isExcludedPath(egressFilter, rel);
 
   const stores = await wireStores({
     cacheDir: config.cacheDir,
@@ -312,6 +326,7 @@ export async function buildServerRuntime(
     onVecRebuild: observability.onVecRebuild,
     configDir,
     securityProfile: config.securityProfile,
+    excludeFilter: egressFilter,
   });
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
   const {
@@ -374,6 +389,7 @@ export async function buildServerRuntime(
       configDir,
       config.securityProfile,
       config.gateway,
+      egressFilter,
     );
     gatewayConfigured = roles !== null;
 
@@ -396,6 +412,7 @@ export async function buildServerRuntime(
       maxPromptChars: config.plane.maxPromptChars,
       gatewayMaxAttempts: config.plane.gatewayMaxAttempts,
       gatewayTimeoutMs: config.plane.gatewayTimeoutMs,
+      egressExcludePaths: config.egress.excludePaths, // THE-934
       // THE-717: citation pass needs the AUTHORED store + a query-side embedder, unlike other plane
       // jobs. Passed unconditionally; wireJobHandlers decides whether to register anything.
       citationInfer: config.experiential.citationInfer,
@@ -420,6 +437,7 @@ export async function buildServerRuntime(
         acl,
         aclByVault,
         makeOnIndexed,
+        isEgressExcluded, // THE-934 fix round 1 (Blocking-1)
       });
     // THE-466 slice 2: hand the live coordinator to the observability module's lazy gauge sources.
     indexCoordinatorRef = indexCoordinator;
@@ -443,6 +461,7 @@ export async function buildServerRuntime(
       reindex: reindexHook,
       deindex: deindexHook,
       indexReadableFor,
+      isEgressExcluded, // THE-934
       sqlHooksFor,
       onVecRebuild: observability.onVecRebuild,
       makeOnIndexed,
@@ -547,6 +566,7 @@ export async function buildServerRuntime(
       densify: config.retrieval.densify,
       vaultRegistry,
       indexReadableFor,
+      isEgressExcluded, // THE-934
       sqlHooksFor,
       onVecRebuild: observability.onVecRebuild,
       makeOnIndexed,

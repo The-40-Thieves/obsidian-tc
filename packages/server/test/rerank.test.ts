@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { compileEgressFilter, EgressViolationError } from "../src/plane/egress-filter";
 import { type Reranker, type RerankOutcome, rerankWithScores } from "../src/search/rerank";
 
-const docs = [{ content: "alpha" }, { content: "beta" }, { content: "gamma" }];
+const docs = [
+  { content: "alpha", path: "A.md" },
+  { content: "beta", path: "B.md" },
+  { content: "gamma", path: "C.md" },
+];
 
 describe("rerank seam (D1) with graceful no-op fallback", () => {
   it("falls back to input order with synthetic descending scores when no reranker", async () => {
@@ -117,5 +122,165 @@ describe("RerankOutcome distinguishes every degraded path from a genuine success
     };
     const fallback = await rerankWithScores("q", docs, 3, throwingReranker, throwingSink);
     expect(fallback.map((o) => o.item.content)).toEqual(["alpha", "beta", "gamma"]);
+  });
+});
+
+// THE-934 fix round 2 (N4) — round 1 merged the reranked set and the excluded-but-demoted set by
+// SCORE comparison, and a synthetic fusion-order score (1.0 decaying by 0.01) sits on a totally
+// different scale from a real cross-encoder relevance score, so an excluded doc near the head of
+// the fusion order outranked essentially every reranked doc — enabling exclusion PROMOTED the
+// excluded folder to the top of search results, the opposite of the intended effect. Fixed by
+// appending excluded docs after the reranked set (fusion order, never re-scored against it) rather
+// than merging by score at all — reproduces the reviewer's exact probe.
+describe("excluded docs never outrank reranked ones (THE-934 fix round 2, N4)", () => {
+  const withExcluded = [
+    { content: "PRIVATE ONE", path: "Private/b.md" },
+    { content: "PUBLIC TWO", path: "Public/a.md" },
+    { content: "PUBLIC THREE", path: "Public/c.md" },
+  ];
+
+  it("reviewer's probe: [Private/b.md, Public/a.md, Public/c.md] — the private doc must not outrank the reranked public ones", async () => {
+    const seenDocuments: string[][] = [];
+    const reranker: Reranker = async (_q, documents) => {
+      seenDocuments.push(documents);
+      // The reranker scores the two PUBLIC docs it actually saw; index 0 here is whichever
+      // survived the exclusion filter first (Public/a.md), index 1 is Public/c.md.
+      return [
+        { index: 0, relevanceScore: 0.5 },
+        { index: 1, relevanceScore: 0.4 },
+      ];
+    };
+    const out = await rerankWithScores(
+      "q",
+      withExcluded,
+      3,
+      reranker,
+      undefined,
+      undefined,
+      compileEgressFilter(["Private/**"]),
+    );
+    // No excluded text ever reached the reranker — asserted on the request PAYLOAD.
+    expect(seenDocuments).toEqual([["PUBLIC TWO", "PUBLIC THREE"]]);
+    // The private doc is LAST, never ahead of either reranked public doc, regardless of its
+    // synthetic fusion-order score (which would be the highest of the three under round 1's
+    // score-merge rule — 1.0 vs the reranker's real 0.5/0.4).
+    expect(out.map((o) => o.item.path)).toEqual(["Public/a.md", "Public/c.md", "Private/b.md"]);
+    expect(out[0]?.score).toBeCloseTo(0.5);
+    expect(out[1]?.score).toBeCloseTo(0.4);
+    // NB3 (follow-up review): appending fixes the order THIS call returns, but the private doc's
+    // SCORE FIELD used to still carry the synthetic fallback (~1.0) — strictly ABOVE both real
+    // reranked scores on paper. A later consumer that re-sorts by score (e.g.
+    // experiential.activationRerank's bubbleSafeRerank, ships false but reads the field directly)
+    // could then promote it purely because its number looked bigger. The private doc's score must
+    // sit strictly BELOW the lowest reranked score, not merely after it in this array.
+    expect(out[2]?.item.path).toBe("Private/b.md");
+    expect(out[2]?.score).toBeLessThan(0.4);
+    // Sorting the whole returned array by score (simulating exactly the re-sort NB3 warns about)
+    // must not move the private doc off the bottom.
+    const resorted = [...out].sort((a, b) => b.score - a.score);
+    expect(resorted[resorted.length - 1]?.item.path).toBe("Private/b.md");
+  });
+
+  it("every candidate excluded: the fallback (no reranker call) still returns them in fusion order", async () => {
+    const allExcluded = [
+      { content: "SECRET A", path: "Private/a.md" },
+      { content: "SECRET B", path: "Private/b.md" },
+    ];
+    let called = false;
+    const reranker: Reranker = async () => {
+      called = true;
+      return [];
+    };
+    const out = await rerankWithScores(
+      "q",
+      allExcluded,
+      2,
+      reranker,
+      undefined,
+      undefined,
+      compileEgressFilter(["Private/**"]),
+    );
+    expect(called).toBe(false);
+    expect(out.map((o) => o.item.path)).toEqual(["Private/a.md", "Private/b.md"]);
+  });
+
+  it("topN truncation drops trailing excluded docs before promoting them", async () => {
+    const mixed = [
+      { content: "PRIVATE", path: "Private/z.md" },
+      { content: "PUBLIC", path: "Public/a.md" },
+    ];
+    const reranker: Reranker = async () => [{ index: 0, relevanceScore: 0.9 }];
+    const out = await rerankWithScores(
+      "q",
+      mixed,
+      1, // topN=1: only room for the reranked public doc, not the appended excluded one
+      reranker,
+      undefined,
+      undefined,
+      compileEgressFilter(["Private/**"]),
+    );
+    expect(out.map((o) => o.item.path)).toEqual(["Public/a.md"]);
+  });
+
+  it("THE-934 fix round 3 (B): an EgressViolationError from the reranker call PROPAGATES, distinct from an ordinary provider_error that falls back", async () => {
+    const mixed = [
+      { content: "PRIVATE", path: "Private/z.md" },
+      { content: "PUBLIC", path: "Public/a.md" },
+    ];
+    const reranker: Reranker = async () => {
+      throw new EgressViolationError("guard fired");
+    };
+    await expect(
+      rerankWithScores(
+        "q",
+        mixed,
+        2,
+        reranker,
+        undefined,
+        undefined,
+        compileEgressFilter(["Private/**"]),
+      ),
+    ).rejects.toBeInstanceOf(EgressViolationError);
+  });
+
+  it("THE-934 fix round 3 (B): on a genuine provider_error, the fallback still excludes — it must not fall back over the UNFILTERED original docs", async () => {
+    const mixed = [
+      { content: "PRIVATE", path: "Private/z.md" },
+      { content: "PUBLIC ONE", path: "Public/a.md" },
+      { content: "PUBLIC TWO", path: "Public/c.md" },
+    ];
+    const reranker: Reranker = async () => {
+      throw new Error("gateway unreachable");
+    };
+    const out = await rerankWithScores(
+      "q",
+      mixed,
+      3,
+      reranker,
+      undefined,
+      undefined,
+      compileEgressFilter(["Private/**"]),
+    );
+    // The private doc is present (fusion-order fallback still returns it, never sent anywhere) but
+    // strictly last, never reordered ahead of the two public docs by the buggy raw-docs fallback.
+    expect(out.map((o) => o.item.path)).toEqual(["Public/a.md", "Public/c.md", "Private/z.md"]);
+  });
+
+  it("THE-934 fix round 3 (B): on a malformed_response, the fallback still excludes — same rule as provider_error", async () => {
+    const mixed = [
+      { content: "PRIVATE", path: "Private/z.md" },
+      { content: "PUBLIC ONE", path: "Public/a.md" },
+    ];
+    const reranker: Reranker = async () => []; // non-empty docs, empty hits -> malformed_response
+    const out = await rerankWithScores(
+      "q",
+      mixed,
+      2,
+      reranker,
+      undefined,
+      undefined,
+      compileEgressFilter(["Private/**"]),
+    );
+    expect(out.map((o) => o.item.path)).toEqual(["Public/a.md", "Private/z.md"]);
   });
 });

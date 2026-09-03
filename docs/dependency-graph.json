@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 445,
-    "dependencies": 2006,
-    "subsystemPairs": 124,
-    "crossSubsystemImports": 900
+    "modules": 449,
+    "dependencies": 2066,
+    "subsystemPairs": 129,
+    "crossSubsystemImports": 942
   },
   "subsystems": {
     "auth": 4,
     "bridge": 8,
     "capability": 6,
     "capture": 5,
-    "cli": 35,
+    "cli": 37,
     "config": 14,
     "db": 15,
     "doctor": 13,
@@ -27,7 +27,7 @@
     "model": 7,
     "morgiana": 1,
     "otel": 3,
-    "plane": 7,
+    "plane": 9,
     "plugin": 19,
     "plur": 2,
     "providers": 6,
@@ -65,7 +65,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 40
+      "weight": 43
     },
     {
       "from": "runtime",
@@ -100,12 +100,22 @@
     {
       "from": "cli",
       "to": "experiential",
-      "weight": 14
+      "weight": 15
     },
     {
       "from": "runtime",
       "to": "experiential",
       "weight": 14
+    },
+    {
+      "from": "runtime",
+      "to": "plane",
+      "weight": 14
+    },
+    {
+      "from": "cli",
+      "to": "plane",
+      "weight": 13
     },
     {
       "from": "runtime",
@@ -153,6 +163,16 @@
       "weight": 8
     },
     {
+      "from": "search",
+      "to": "plane",
+      "weight": 8
+    },
+    {
+      "from": "tools",
+      "to": "plane",
+      "weight": 8
+    },
+    {
       "from": "tools",
       "to": "formats",
       "weight": 8
@@ -165,11 +185,6 @@
     {
       "from": "runtime",
       "to": "embeddings",
-      "weight": 7
-    },
-    {
-      "from": "runtime",
-      "to": "plane",
       "weight": 7
     },
     {
@@ -189,11 +204,6 @@
     },
     {
       "from": "tools",
-      "to": "plane",
-      "weight": 6
-    },
-    {
-      "from": "tools",
       "to": "memory",
       "weight": 6
     },
@@ -205,6 +215,11 @@
     {
       "from": "cli",
       "to": "embeddings",
+      "weight": 5
+    },
+    {
+      "from": "cli",
+      "to": "gateway",
       "weight": 5
     },
     {
@@ -228,14 +243,14 @@
       "weight": 5
     },
     {
-      "from": "runtime",
-      "to": "morgiana",
+      "from": "plane",
+      "to": "search",
       "weight": 5
     },
     {
-      "from": "cli",
-      "to": "gateway",
-      "weight": 4
+      "from": "runtime",
+      "to": "morgiana",
+      "weight": 5
     },
     {
       "from": "cli",
@@ -245,11 +260,6 @@
     {
       "from": "cli",
       "to": "capture",
-      "weight": 4
-    },
-    {
-      "from": "plane",
-      "to": "search",
       "weight": 4
     },
     {
@@ -300,6 +310,11 @@
     {
       "from": "cli",
       "to": "workspace",
+      "weight": 3
+    },
+    {
+      "from": "experiential",
+      "to": "plane",
       "weight": 3
     },
     {
@@ -418,6 +433,11 @@
       "weight": 2
     },
     {
+      "from": "providers",
+      "to": "plane",
+      "weight": 2
+    },
+    {
       "from": "runtime",
       "to": "transports",
       "weight": 2
@@ -508,7 +528,7 @@
       "weight": 1
     },
     {
-      "from": "experiential",
+      "from": "embeddings",
       "to": "plane",
       "weight": 1
     },
@@ -530,6 +550,11 @@
     {
       "from": "formats",
       "to": "util",
+      "weight": 1
+    },
+    {
+      "from": "gateway",
+      "to": "plane",
       "weight": 1
     },
     {

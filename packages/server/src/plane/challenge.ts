@@ -7,6 +7,7 @@
 // does not have; it stays integration-gated (THE-233 integration follow-up).
 import { z } from "zod";
 import { renderEvidenceItem, trimToBoundary } from "../search/evidence";
+import { type EgressFilter, isExcludedPath } from "./egress-filter";
 import { type GatewayRoles, prompt } from "./gateway";
 
 const DECISION_PATH_PREFIXES = [
@@ -154,9 +155,34 @@ export async function challengeProposal(
   proposal: string,
   evidence: EvidenceChunk[],
   contradictions: ContradictionContext[],
-): Promise<{ output: ChallengeOutput; model: string }> {
-  const res = await roles.judge(
-    prompt(CHALLENGE_SYSTEM_PROMPT, buildUserMessage(proposal, evidence, contradictions)),
+  /** THE-934 fix round 1 (Blocking-3): egress.excludePaths, compiled. Undefined -> nothing
+   *  excluded. `reflect`'s "challenge" mode and `knowledge_challenge` both retrieve through the
+   *  ordinary (lexical-inclusive) recall path, so an excluded chunk — invisible to semantic_search
+   *  by construction, but still a first-class lexical hit — reaches here as ordinary evidence
+   *  unless dropped. Filtered HERE, once, so both callers share the fix rather than each
+   *  reimplementing it. */
+  excludeFilter?: EgressFilter,
+): Promise<{ output: ChallengeOutput; model: string; excludedCount: number }> {
+  const excluded = (p: string): boolean =>
+    excludeFilter !== undefined && isExcludedPath(excludeFilter, p);
+  const keptEvidence = evidence.filter((e) => !excluded(e.path));
+  // A contradiction pair with EITHER side excluded is dropped wholesale — same rule
+  // checkContradictions itself applies (plane/jobs/contradiction.ts).
+  const keptContradictions = contradictions.filter(
+    (c) => !excluded(c.source_path) && !excluded(c.conflict_path),
   );
-  return { output: parseChallengeOutput(res.text), model: res.model };
+  const excludedCount =
+    evidence.length - keptEvidence.length + (contradictions.length - keptContradictions.length);
+  const res = await roles.judge({
+    ...prompt(
+      CHALLENGE_SYSTEM_PROMPT,
+      buildUserMessage(proposal, keptEvidence, keptContradictions),
+    ),
+    // THE-934: the egress guard's backstop check — every path here already cleared the filter.
+    sourcePaths: [
+      ...keptEvidence.map((e) => e.path),
+      ...keptContradictions.flatMap((c) => [c.source_path, c.conflict_path]),
+    ],
+  });
+  return { output: parseChallengeOutput(res.text), model: res.model, excludedCount };
 }

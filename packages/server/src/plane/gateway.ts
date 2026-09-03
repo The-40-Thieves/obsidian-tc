@@ -15,6 +15,14 @@ export interface GatewayCompletionRequest {
   temperature?: number;
   maxTokens?: number;
   responseFormat?: Record<string, unknown>;
+  /** THE-934: vault-relative paths of every chunk/note this request's text was assembled from.
+   *  Never forwarded onto the wire (the real GatewayClient builds its HTTP body from `messages`
+   *  etc. explicitly -- see gateway/client.ts) -- it exists ONLY so egress-guard.ts's
+   *  guardGatewayRoles can refuse a request whose paths intersect `egress.excludePaths`, or that
+   *  carries none at all for a content-bearing role. A caller building a request from vault
+   *  content MUST populate this; prompt() below does not (it has no path to attribute), so a call
+   *  site adds it after calling prompt(). */
+  sourcePaths?: string[];
 }
 
 export interface GatewayCompletionResult {

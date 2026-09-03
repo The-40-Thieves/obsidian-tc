@@ -32,7 +32,14 @@ export interface FlagLivenessContext {
   provider: { embedFull?: unknown };
   /** The reranker actually handed to `runEval`, or null when `RERANK_URL` is unset. NOTE: presence
    *  is NOT liveness here — see the `gated-rerank` check, which calls it. */
-  reranker: ((query: string, documents: string[], topN: number) => Promise<unknown[]>) | null;
+  reranker:
+    | ((
+        query: string,
+        documents: string[],
+        topN: number,
+        sourcePaths: string[],
+      ) => Promise<unknown[]>)
+    | null;
   /** Resolved decomposition backend (DECOMPOSE_URL, else the Ollama default). */
   decomposeUrl: string;
   /** The model the decomposer will ask for. A reachable daemon that lacks this model fails on
@@ -108,7 +115,7 @@ export const DEPENDENCY_GATED_FLAGS: Record<string, FlagDependency> = {
         };
       }
       try {
-        const probe = await ctx.reranker("liveness probe", ["alpha", "beta"], 1);
+        const probe = await ctx.reranker("liveness probe", ["alpha", "beta"], 1, []);
         return Array.isArray(probe) && probe.length > 0
           ? { live: true, detail: "" }
           : {

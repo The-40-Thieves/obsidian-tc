@@ -205,7 +205,35 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // THE-726 review round 1: rebaselined deliberately AGAIN — the SAME key's `.describe()` text
   // grew the owner-settled dependency statement (this axis acts only on sessions that exist and
   // end). Still no key/type/default/constraint moved.
-  "323a9dd8887ef635d9d5c8dc93523e4901939362c05d6fe3fe5c26f865967628";
+  // THE-934: rebaselined deliberately. Adds ONE new top-level block, `egress` (a single key,
+  // `excludePaths`, string array, default []) — vault-relative glob patterns withheld from the
+  // inference gateway and the embedding provider by the ambient consolidation plane (contradiction
+  // judging, synthesis, citation inference, index-time embedding); see
+  // packages/shared/src/config/observability.schema.ts's EgressConfigSchema for the full
+  // description text. No existing key, type, default or constraint moved.
+  // THE-934 fix round 1: rebaselined again — the SAME key's .describe() text was rewritten to
+  // state the guard is enforced at the PORT (createGatewayClient / createEmbeddingProvider(Async))
+  // rather than only at the four original consumers, and to enumerate every egress leg it now
+  // covers (reflect/knowledge_challenge, the note/cluster summarizers, densify-llm, the hosted
+  // reranker, the advisory sweep, and the single-note write path). No key, type, default or
+  // constraint moved — text only.
+  // THE-934 fix round 3 (2026-09-03), item F: rebaselined again — `egress.excludePaths`'s
+  // .describe() text gained one clause stating the literal-pattern folder-widening rule
+  // compileEgressFilter now applies (a pattern with no glob metacharacters, "Private" or
+  // "Private/", also matches everything nested under it, identically to "Private/**"; a literal
+  // FILE pattern like "Private/a.md" still matches only that exact file). No key, type, default
+  // or constraint moved — text only.
+  // THE-934 fix round 4 (2026-09-03), item 1: rebaselined again, and this time NOT text only —
+  // the same key gains a per-item CONSTRAINT (a refine that refuses a pattern normalising to
+  // nothing at all), and its .describe() text was rewritten to state the full normalisation rule
+  // the round-3 clause described only one spelling of: a leading "/" or "./" is stripped, repeated
+  // separators collapse, and EVERY pattern also matches its subtree (so "/Private", "**/Private",
+  // "Private*/" and "Private/*" stop matching nothing). No key, type or default moved; the added
+  // constraint rejects only inputs that were previously accepted and then silently excluded
+  // nothing. The exclude-all form ("**") stays VALID and is now named as such in the description —
+  // withholding every note from every hosted provider is a supported fully-local deployment, and
+  // refusing it would turn a valid config into a boot failure.
+  "28697d4b617aa7f33e98e9019eb99ae672e9541cfaf96e17af54d8037885cc73";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

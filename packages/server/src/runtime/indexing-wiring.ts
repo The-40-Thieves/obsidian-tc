@@ -17,6 +17,7 @@ import type { EmbeddingProvider } from "../embeddings";
 import { createEmbeddingProviderAsync, type EmbeddingsConfigLike } from "../embeddings";
 import { recordIngestStats } from "../metrics/ingest-stats";
 import type { MetricsRecorder } from "../metrics/registry";
+import type { EgressFilter } from "../plane/egress-filter";
 import { ensureNotesFts } from "../search/fts";
 import { IndexCoordinator } from "../search/index-coordinator";
 import {
@@ -58,6 +59,11 @@ export interface IndexResourcesDeps {
    *  manifest, because this is the ONE place a representation identity is derived and chunk size
    *  is part of that identity. Optional so a caller that predates it keeps the 512 default. */
   chunkTokens?: number;
+  /** THE-934 fix round 1: config.egress.excludePaths, compiled. Threaded into
+   *  createEmbeddingProviderAsync -- the embedding PORT -- so the provider this returns is
+   *  guarded before ANY consumer sees it (indexVault, indexNote/the write path, the query
+   *  encoder, the advisory sweep, everything). Absent -> excludes nothing. */
+  excludeFilter?: EgressFilter;
 }
 
 /** THE-288: mutable index-health tracker surfaced by server_health. reconcile flips pending ->
@@ -123,6 +129,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
   const embeddingProvider = await createEmbeddingProviderAsync(deps.embeddings, {
     configDir: deps.configDir,
     securityProfile: deps.securityProfile,
+    ...(deps.excludeFilter !== undefined ? { excludeFilter: deps.excludeFilter } : {}),
   });
   const embedConfig = {
     batchSize: deps.embeddings.batchSize,
@@ -207,6 +214,10 @@ export interface IndexCoordinatorDeps {
    *  gateway roles, WP5.2 territory) and passed in as a plain function — this module never
    *  constructs a job queue or a gateway client. */
   makeOnIndexed: (vaultId: string) => IndexHook | undefined;
+  /** THE-934 fix round 1 (Blocking-1): egress.excludePaths, as a per-path predicate. Threaded
+   *  into indexNote for EVERY write through this coordinator — write_note/append_note/patch_note,
+   *  the vault watcher, and a move/rename INTO an excluded folder. Absent -> nothing excluded. */
+  isEgressExcluded?: (rel: string) => boolean;
 }
 
 export interface IndexCoordinatorWiring {
@@ -242,6 +253,7 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
           deps.makeOnIndexed(vaultId),
           deps.chunkContext,
           deps.sqlHooksFor(vaultId),
+          deps.isEgressExcluded,
         ),
       delete: (vaultId, path) =>
         deindexNote(

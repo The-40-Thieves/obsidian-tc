@@ -158,6 +158,19 @@ Usage:
                                           app, text), so a re-polled static screen never
                                           re-enqueues. --dry-run reports counts and enqueues
                                           nothing.
+  obsidian-tc consolidate --once [--dry-run] [path]
+                                          Run (or evaluate) one ambient sleep-time consolidation
+                                          pass — a single synthesis + audit job — without arming
+                                          the recurring plane.intervalMinutes schedule (THE-934).
+                                          CLI-only, no MCP tool: an agent-callable trigger would be
+                                          the unattended behaviour egress.excludePaths exists to
+                                          keep off the model. --dry-run reports the candidate
+                                          counts (recent chunks, open contradictions, and a
+                                          backlog-visibility citation count) and the estimated
+                                          gateway call count with ZERO gateway calls made. Without
+                                          --dry-run it runs synthesis and audit exactly once and
+                                          prints both reports. --once is required; a bare
+                                          "consolidate" is a usage error, not a no-op.
   obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--json]
                                           Mint an HS256 bearer token from the config's auth block.
                                           Refuses to mint without an aud when the config binds one,

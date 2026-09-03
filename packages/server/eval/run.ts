@@ -19,6 +19,7 @@ import { openDatabase } from "../src/db/open";
 import type { Database } from "../src/db/types";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { pairSparse } from "../src/embeddings/bge-m3";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { resolveReranker } from "../src/providers/registry";
 import { type GraphSearchOptions, graphSearch, seedZMargin } from "../src/search/graph_search";
 import { gatedRerankOptionsFromConfig } from "../src/search/graph_search_stages/rerank_stage";
@@ -791,7 +792,12 @@ async function main(): Promise<void> {
   if (!firstVault) throw new Error("config.vaults is empty");
 
   const golden = GoldenSetSchema.parse(parseYaml(readGoldenOrExplain(goldenPath)));
-  const baseProvider = createEmbeddingProvider(config.embeddings);
+  const baseProvider = createEmbeddingProvider(config.embeddings, {
+    // THE-934 fix round 3 (H): eval/ scripts operate on a real vault corpus (loadConfig
+    // reads the SAME config.egress.excludePaths a production run would), so the port must
+    // carry the same filter or an excluded note's text reaches this provider unguarded.
+    excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  });
   // THE-403: SPARSE_URL composes a MIXED provider — dense query vectors from the config provider
   // (must match the index's embeddings, e.g. nomic), learned-sparse query weights from a bge-m3
   // token_classify vLLM server. This is the "sparse stream alongside the nomic pipeline" gate;

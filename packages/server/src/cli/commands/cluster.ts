@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { openDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { createGatewayClient } from "../../gateway";
+import { compileEgressFilter, EgressViolationError } from "../../plane/egress-filter";
 import { assignClusters } from "../../search/cluster";
 import { maybeBuildClusterSummaries } from "../../search/indexing/summarize-clusters";
 import { type Cmd, resolveOrUsageExit } from "../shared";
@@ -11,6 +12,10 @@ export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
   const clusterConfig = resolveOrUsageExit(cmd.input);
   mkdirSync(clusterConfig.cacheDir, { recursive: true });
   const clusterDb = await openDatabase(join(clusterConfig.cacheDir, "cache.db"));
+  // THE-934 fix round 1: egress.excludePaths — a cluster with an excluded-path member is never
+  // summarised (see summarize-clusters.ts), and both the gateway and the embedding provider
+  // constructed below are guarded at the port.
+  const egressFilter = compileEgressFilter(clusterConfig.egress.excludePaths);
   try {
     let total = 0;
     for (const v of clusterConfig.vaults) {
@@ -34,7 +39,9 @@ export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
       // handling of the note-level pass (cli/commands/index.ts).
       if (clusterConfig.retrieval.summaries.clusters.enabled) {
         try {
-          const embedProvider = createEmbeddingProvider(clusterConfig.embeddings);
+          const embedProvider = createEmbeddingProvider(clusterConfig.embeddings, {
+            excludeFilter: egressFilter,
+          });
           const clusterSummaryStats = await maybeBuildClusterSummaries(
             clusterDb,
             v.id,
@@ -43,12 +50,14 @@ export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
               maxConcurrency: clusterConfig.retrieval.summaries.clusters.maxConcurrency,
             },
             () =>
-              createGatewayClient(
-                clusterConfig.retrieval.summaries.model
+              createGatewayClient({
+                ...(clusterConfig.retrieval.summaries.model
                   ? { models: { extract: clusterConfig.retrieval.summaries.model } }
-                  : {},
-              ),
+                  : {}),
+                excludeFilter: egressFilter,
+              }),
             embedProvider,
+            egressFilter,
           );
           if (clusterSummaryStats) {
             process.stdout.write(
@@ -59,6 +68,12 @@ export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
             );
           }
         } catch (e) {
+          // THE-934 fix round 2 (N1): mirrors index.ts's handling of the note-level pass -- an
+          // EgressViolationError means the port guard caught what summarize-clusters.ts's own
+          // pre-filter should already have dropped, a broken security invariant rather than an
+          // operational hiccup, so it propagates and fails the run instead of being folded into
+          // this warning line.
+          if (e instanceof EgressViolationError) throw e;
           process.stderr.write(
             `cluster: summaries[${v.id}] skipped — ${e instanceof Error ? e.message : String(e)}\n`,
           );

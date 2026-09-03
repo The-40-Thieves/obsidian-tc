@@ -6,6 +6,13 @@ import type { SparseVec } from "../search/sparse";
  *  differently from a corpus document; "document" is the default (indexing is the common path). */
 export interface EmbedOptions {
   input?: "query" | "document";
+  /** THE-934 fix round 1: vault-relative paths this text was assembled from, required on every
+   *  "document"/default-role call (embeddings/index.ts's port guard). `undefined` -> the caller
+   *  did not declare and the guard throws; `[]` -> declared as carrying no vault-path-attributable
+   *  content (e.g. an episode summary, which has no vault path) and passes; a non-empty array is
+   *  checked against egress.excludePaths. Exempt entirely for `input: "query"` -- a search query,
+   *  goal string, or transcript is never vault content, so query-role calls need not set this. */
+  sourcePaths?: string[];
 }
 /** THE-388: bge-m3 multi-representation output — a dense vector, learned-sparse weights, and a
  *  ColBERT per-token matrix. Providers that can emit all three implement `embedFull()`; dense-only

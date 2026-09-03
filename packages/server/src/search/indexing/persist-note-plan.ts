@@ -15,9 +15,11 @@ import { cachedPrepare, type Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import { deleteChunkColbert, upsertChunkColbert } from "../chunk_colbert";
 import { deleteChunkFtsRow, upsertChunkFtsRow } from "../chunk_fts";
+import { deleteNoteSummary } from "../note-summaries";
 import { deleteChunkSparse, upsertChunkSparse } from "../sparse";
 import { floatBlob, upsertVec } from "../vec";
 import { copyDedupVectors } from "./dedup";
+import { hasEmbeddingExcludedColumn } from "./note-plan";
 import type { DedupCache, IndexHook, NoteWritePlan } from "./types";
 
 // #280-followup: a chunk's contradiction flags are judged on its exact content; when the chunk is
@@ -61,6 +63,14 @@ export function applyNoteWrites(
   );
   const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
   const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
+  // THE-934: a separate, conditional statement rather than folding embedding_excluded into upChunk
+  // — upChunk already branches on hasBodySha, and a second independent boolean would multiply that
+  // into four SQL variants. hasEmbeddingExcludedColumn is false on a cache.db that predates
+  // migration 20260903_001 (or a bare test fixture with a hand-built chain), so this is a no-op
+  // there — the exact pre-THE-934 behaviour, never a "no such column" throw.
+  const setExcluded = hasEmbeddingExcludedColumn(db)
+    ? cachedPrepare(db, "UPDATE chunks SET embedding_excluded = ? WHERE id = ?")
+    : null;
   // body_sha rides the same upsert when the column exists (migration 20260719_001); cachedPrepare
   // keys on the SQL text, so the with/without-column variants compile independently and a pre-migration
   // cache.db never sees the extra column.
@@ -132,12 +142,24 @@ export function applyNoteWrites(
         plan.ts,
       );
     }
-    // Cross-path dedup (migration 20260719_001): a reused/skipped body was never sent to the
-    // provider this run. THE-454: instead of writing NO vector (which left the chunk invisible to
-    // dense/sparse/ColBERT retrieval and stranded it when the owner was deleted), COPY the identical
-    // body's already-stored vectors from the first walked path — same provider call cost, but every
-    // path stays semantically retrievable.
-    if (!d.skipEmbed) {
+    // THE-934: embedding_excluded is stamped on EVERY toEmbed chunk (not only excluded ones) — a
+    // chunk transitioning FROM excluded back to included must have the flag cleared to 0 too, or
+    // it would read as permanently excluded even once it starts receiving real vectors again.
+    if (setExcluded) setExcluded.run(d.excludedFromEmbed ? 1 : 0, d.id);
+    if (d.excludedFromEmbed) {
+      // THE-934: never send this to the provider, and strip any embedding a PRIOR pass wrote
+      // before this chunk's path was excluded — desiredIds still includes it (it is not pruned),
+      // so the prune loop above never runs delEmb/delVec for it.
+      delEmb.run(d.id);
+      if (hasVec) delVec?.run(d.id);
+      if (hasChunkSparse) deleteChunkSparse(db, d.id);
+      if (hasChunkColbert) deleteChunkColbert(db, d.id);
+      // Cross-path dedup (migration 20260719_001): a reused/skipped body was never sent to the
+      // provider this run. THE-454: instead of writing NO vector (which left the chunk invisible to
+      // dense/sparse/ColBERT retrieval and stranded it when the owner was deleted), COPY the identical
+      // body's already-stored vectors from the first walked path — same provider call cost, but every
+      // path stays semantically retrievable.
+    } else if (!d.skipEmbed) {
       upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
       deactivateOld.run(d.id, provider.id); // THE-531: retire any superseded-model row for this chunk
       if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
@@ -175,12 +197,32 @@ export function applyNoteWrites(
     // THE-395: an empty head (the serving runtime could not produce it) is skipped, not stored —
     // an all-empty chunk_sparse / chunk_colbert would only bloat scans with dead rows.
     const sp = plan.sparse?.[i];
-    if (!d.skipEmbed && hasChunkSparse && sp && Object.keys(sp).length > 0)
+    if (!d.skipEmbed && !d.excludedFromEmbed && hasChunkSparse && sp && Object.keys(sp).length > 0)
       upsertChunkSparse(db, d.id, vaultId, sp);
     const cb = plan.colbert?.[i];
-    if (!d.skipEmbed && hasChunkColbert && cb && cb.length > 0)
+    if (!d.skipEmbed && !d.excludedFromEmbed && hasChunkColbert && cb && cb.length > 0)
       upsertChunkColbert(db, d.id, vaultId, cb);
   });
+  // THE-934 fix round 3 (D): a note transitioning TO excluded had its CHUNK vectors stripped above
+  // (per-chunk delEmb/delVec/etc, guarded on d.excludedFromEmbed) but its `note_summaries` row and
+  // embedding (search/indexing/summarize-notes.ts) survived untouched — summarize-notes.ts's own
+  // filter only skips REGENERATING a summary for an excluded note, it never removes an existing
+  // one. A stale summary stays searchable via searchNoteSummaries AND keeps feeding
+  // buildClusterSummaries' k-means membership, so an excluded note's content could still surface
+  // (as a note summary) or influence a cluster (whose summary in turn could surface it) after
+  // exclusion. `d.excludedFromEmbed` is uniform across every chunk of one note (note-plan.ts's own
+  // comment: the per-path predicate stamps it on every toEmbed chunk of that path) and a status
+  // CHANGE forces toEmbed to be non-empty even when content_hash is unchanged, so checking the
+  // first entry here reliably fires exactly when this note's exclusion status just took effect —
+  // deleting the row is a safe no-op on every other pass (idempotent, unconditional on `path`).
+  //
+  // THE-934 fix round 4 (2): keyed on the NOTE-level `plan.excluded`, not on the first toEmbed
+  // chunk's per-chunk flag. `toEmbed` is empty whenever nothing about this note's chunks changed
+  // (a prune-only plan), so round 3's `plan.toEmbed[0]?.excludedFromEmbed` fired ONLY on the
+  // exclusion TRANSITION -- a note already stamped `embedding_excluded = 1` by an earlier
+  // reconcile kept its summary row for ever. index-vault.ts additionally prunes every excluded
+  // note it walks, which covers the case where computeNotePlan returns no plan at all.
+  if (plan.excluded) deleteNoteSummary(db, vaultId, plan.path);
   return { upserted: plan.toEmbed.length, deleted, dedupUnresolved };
 }
 
@@ -190,10 +232,12 @@ export function applyNoteWrites(
 export function fireIndexHook(onIndexed: IndexHook | undefined, plan: NoteWritePlan): void {
   if (!onIndexed) return;
   // Cross-path dedup (migration 20260719_001): a skipEmbed chunk carries no NEW embedding this run,
-  // so it is not reported as a (re)embedded chunk.
+  // so it is not reported as a (re)embedded chunk. THE-934: an excludedFromEmbed chunk carries NO
+  // embedding at all, ever — it must never fire the contradiction-check enqueue (plane-wiring.ts's
+  // createOnIndexedHook), which is itself a gateway-egress path this ticket exists to close.
   const embedded = plan.toEmbed
     .map((d, i) => ({ d, vec: plan.vectors[i] ?? [] }))
-    .filter((x) => !x.d.skipEmbed);
+    .filter((x) => !x.d.skipEmbed && !x.d.excludedFromEmbed);
   if (embedded.length > 0) {
     onIndexed(
       embedded.map(({ d, vec }) => ({

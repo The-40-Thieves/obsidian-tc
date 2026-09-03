@@ -75,6 +75,13 @@ export interface ExistingRow {
   /** THE-531: the model of this chunk's ACTIVE embedding, or null when it has none. A mismatch with
    *  the current provider forces a re-embed even when content_hash is unchanged. */
   active_model: string | null;
+  /** THE-934: 1 when this chunk was last (re)planned under an excluded path (egress.excludePaths),
+   *  0 otherwise. Undefined on a cache.db that predates migration 20260903_001 — see
+   *  hasEmbeddingExcludedColumn (note-plan.ts), which gates whether this is even queried. Read back
+   *  so computeNotePlan can detect a TRANSITION (excluded -> included or the reverse) and force a
+   *  re-plan even when content_hash is unchanged — without it, an already-embedded chunk under a
+   *  newly-excluded folder would keep its real vector forever. */
+  embedding_excluded?: number;
 }
 
 // A note's chunk after secret-gating, carrying its stable chunk id. embedText (THE-406) is the
@@ -88,6 +95,11 @@ export type PlannedChunk = ReturnType<typeof chunkNote>[number] & {
   embedText?: string;
   bodySha: string;
   skipEmbed?: boolean;
+  /** THE-934: this chunk's NOTE is under an egress.excludePaths glob (set once per note by
+   *  computeNotePlan, uniform across a plan's toEmbed). embedPlans never sends it to the provider
+   *  and persist-note-plan.ts stamps chunks.embedding_excluded = 1 with no chunk_embeddings row —
+   *  skipEmbed's no-network treatment, for the opposite reason: it withholds a vector. */
+  excludedFromEmbed?: boolean;
 };
 
 // A note's pending writes, computed (including the embed() network call) WITHOUT touching the
@@ -97,6 +109,9 @@ export interface NoteWritePlan {
   existing: ExistingRow[];
   desiredIds: Set<string>;
   toEmbed: PlannedChunk[];
+  /** THE-934 fix round 4 (2): the NOTE's exclusion status. A prune-only plan has an EMPTY toEmbed,
+   *  so keying the note_summaries cleanup on `toEmbed[0]` (round 3) silently skipped it. */
+  excluded: boolean;
   vectors: number[][];
   /** THE-388: filled by embedPlans only when the provider emits embedFull() (bge-m3), parallel to
    *  vectors; written to chunk_sparse / chunk_colbert. Absent for dense-only providers. */
@@ -145,6 +160,11 @@ export interface IndexVaultArgs {
   root: string;
   sub?: string;
   isReadable: (rel: string) => boolean;
+  /** THE-934: egress.excludePaths, as a per-path predicate — parallels `isReadable` (a read-ACL
+   *  concern) but decides a DIFFERENT question: whether this note's chunks may be embedded at all.
+   *  Absent -> nothing excluded (back-compat). See note-plan.ts's computeNotePlan, which is the
+   *  only consumer. */
+  isEgressExcluded?: (rel: string) => boolean;
   now?: () => number;
   onIndexed?: IndexHook;
   /** GH #171/#172: embed-batch tuning; each field falls back to its module default. Callers thread

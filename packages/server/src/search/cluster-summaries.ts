@@ -11,6 +11,7 @@
 // below for the full design.
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import { contentHash } from "../vault/paths";
 import { cosineBatch } from "./native";
 import { blobToFloats, floatBlob } from "./vec";
@@ -208,10 +209,23 @@ export function searchClusterSummaries(
   db: Database,
   vaultId: string,
   queryVec: number[],
-  opts: { k: number; isReadable?: (path: string) => boolean; minScore?: number },
+  opts: {
+    k: number;
+    isReadable?: (path: string) => boolean;
+    minScore?: number;
+    /** THE-934 fix round 3 (D): a cluster summary's own `ClusterSummaryHit.path` is the
+     *  cluster_key, NEVER a real vault path (a cluster spans many notes) — so a downstream
+     *  isExcludedPath(excludeFilter, hit.path) check (rerank.ts, reflect.ts) can never see an
+     *  excluded MEMBER, only a synthetic key that matches no real glob. This is the chokepoint
+     *  that actually has the member-path list: same fail-closed shape as `isReadable` above, a
+     *  cluster with ANY excluded member is dropped whole, never partially. Undefined -> nothing
+     *  excluded (back-compat). */
+    excludeFilter?: EgressFilter;
+  },
 ): ClusterSummaryHit[] {
   if (opts.k <= 0 || !hasClusterSummaries(db)) return [];
   const readable = opts.isReadable ?? (() => true);
+  const excludeFilter = opts.excludeFilter;
 
   const memberRows = db
     .prepare("SELECT cluster_key, path FROM cluster_summary_members WHERE vault_id = ?")
@@ -233,7 +247,13 @@ export function searchClusterSummaries(
     const members = membersByCluster.get(r.cluster_key);
     // Fail-closed: no resolvable member set (empty or missing) -> never a candidate. A caller must
     // be verified able to read EVERY member, and there is nothing to verify against here.
-    return members !== undefined && members.length > 0 && members.every((p) => readable(p));
+    if (members === undefined || members.length === 0 || !members.every((p) => readable(p)))
+      return false;
+    // THE-934 fix round 3 (D): same fail-closed rule, for egress exclusion instead of ACL
+    // readability — a cluster with ANY excluded member never becomes a candidate at all.
+    if (excludeFilter !== undefined && members.some((p) => isExcludedPath(excludeFilter, p)))
+      return false;
+    return true;
   });
   if (rows.length === 0) return [];
 

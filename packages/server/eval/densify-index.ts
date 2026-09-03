@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
 import { openDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { computeKnnEdges, reconcileDerivedEdges } from "../src/search/derived-edges";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
@@ -75,7 +76,12 @@ if (settleOnly) {
   // could see that `revision` no longer existed and that the now-REQUIRED `representation` was
   // absent. Built here the same way `runtime/indexing-wiring.ts` and `eval/perf/harness.ts` build
   // it, so all three derive one identity rather than three that must be kept in step.
-  const settleProvider = createEmbeddingProvider(config.embeddings);
+  const settleProvider = createEmbeddingProvider(config.embeddings, {
+    // THE-934 fix round 3 (H): eval/ scripts operate on a real vault corpus (loadConfig
+    // reads the SAME config.egress.excludePaths a production run would), so the port must
+    // carry the same filter or an excluded note's text reaches this provider unguarded.
+    excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  });
   await indexVault({
     db,
     provider: settleProvider,

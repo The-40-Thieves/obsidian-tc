@@ -1,6 +1,7 @@
 // Descriptor and entry shapes shared by BOTH provider slots. Types only.
 import type { FetchFn } from "../embeddings/http";
 import type { EmbeddingProvider } from "../embeddings/provider";
+import type { EgressFilter } from "../plane/egress-filter";
 import type { Reranker } from "../search/rerank";
 
 // Moved here (rather than staying in embeddings/index.ts, which re-exports it for compatibility)
@@ -87,6 +88,10 @@ export interface ResolveContext {
    *  fields a reranker descriptor does not carry. Passing it as ambient context is what makes that
    *  entry work; the first draft cast the descriptor instead, which compiled and returned null. */
   embeddings?: EmbeddingsConfigLike;
+  /** THE-934 fix round 1 (I2): egress.excludePaths, compiled. Read by the "gateway" reranker
+   *  registry entry so the createGatewayClient it constructs is guarded at the port, same as
+   *  every other gateway client construction in the tree. Absent -> excludes nothing. */
+  excludeFilter?: EgressFilter;
 }
 
 export interface EmbeddingsEntry {

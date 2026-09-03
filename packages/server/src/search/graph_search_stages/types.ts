@@ -4,6 +4,7 @@
 // graph_search.ts re-exports GraphSearchOptions/GraphSearchResult/FusionMode so the public import
 // path (`from "./graph_search"` / `from "../../search/graph_search"`) is unchanged for callers.
 import type { RetrievalConfidence, ScoreCalibration } from "../../experiential/calibration";
+import type { EgressFilter } from "../../plane/egress-filter";
 import type { ColbertMatrix } from "../colbert";
 import type { OnRerankOutcome, Reranker } from "../rerank";
 import type { SparseVec } from "../sparse";
@@ -333,6 +334,10 @@ export interface GraphSearchOptions {
    *  as onCoverage above. Default undefined -> no behavior change. */
   onRerankOutcome?: OnRerankOutcome;
   reranker?: Reranker | null;
+  /** THE-934 fix round 1 (I2): egress.excludePaths, compiled. Every rerankWithScores call site in
+   *  this pipeline (score_merge, rrf_rerank, gatedRerank) threads it through so an excluded-path
+   *  candidate's text never reaches the hosted reranker. Absent -> nothing excluded. */
+  rerankExcludeFilter?: EgressFilter;
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */
   activationFor?: (chunkId: string) => number | null | undefined;

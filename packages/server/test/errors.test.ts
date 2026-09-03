@@ -5,6 +5,7 @@ import {
   recoveryFor,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
+import { EgressViolationError } from "../src/plane/egress-filter";
 
 describe("error taxonomy", () => {
   it("serializes to a stable JSON shape", () => {
@@ -64,6 +65,18 @@ describe("isLoudRefusal (THE-926 fan-out swallow guard)", () => {
     expect(isLoudRefusal(err.computeBudgetExceeded("x"))).toBe(true);
     expect(isLoudRefusal(err.validation("bad input"))).toBe(true);
     expect(isLoudRefusal(err.contentRejected("x"))).toBe(true);
+  });
+
+  // THE-934 fix round 3 (H): EgressViolationError used to extend a bare Error, so a per-leg
+  // fan-out isolation layer with no EXPLICIT `instanceof EgressViolationError` check of its own
+  // (unlike cli/commands/index.ts's rethrow, or fix round 3, B's content-bearing catches) would
+  // silently swallow a guard refusal into "this leg found nothing" via isLoudRefusal alone.
+  it("is true for EgressViolationError — the port guard's refusal must not be swallowed by a fan-out with no explicit check of its own", () => {
+    const e = new EgressViolationError("egress guard: extract request carries no sourcePaths");
+    expect(e).toBeInstanceOf(ObsidianTcError);
+    expect(e.code).toBe("egress_excluded");
+    expect(e.retryable).toBe(false);
+    expect(isLoudRefusal(e)).toBe(true);
   });
 
   it("is false for the domain-specific codes a fan-out leg may legitimately swallow", () => {

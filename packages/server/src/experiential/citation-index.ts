@@ -23,6 +23,7 @@ export type CitationPassOptions = Pick<
   | "minJudgedForKill"
   | "allowUncertain"
   | "log"
+  | "excludeFilter"
 >;
 
 /**

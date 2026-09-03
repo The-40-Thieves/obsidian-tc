@@ -6,7 +6,9 @@ import {
   IndexingConfigSchema,
 } from "./config/indexing-embeddings.schema";
 import {
+  isUnusableEgressExcludePattern,
   MaintenanceConfigSchema,
+  normalizeEgressExcludePattern,
   ObservabilityConfigSchema,
   PlaneConfigSchema,
   PlurConfigSchema,
@@ -105,8 +107,10 @@ export {
   GovernorConfigSchema,
   HttpConfigSchema,
   IndexingConfigSchema,
+  isUnusableEgressExcludePattern,
   MaintenanceConfigSchema,
   MetadataPriorRuleSchema,
+  normalizeEgressExcludePattern,
   ObservabilityConfigSchema,
   PersonaConfigSchema,
   PersonasConfigSchema,

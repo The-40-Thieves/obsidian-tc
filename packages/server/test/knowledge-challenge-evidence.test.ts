@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
 import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
@@ -115,7 +116,12 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     };
   }
 
-  function harness(db: any, acl: FolderAcl, roles: GatewayRoles) {
+  function harness(
+    db: any,
+    acl: FolderAcl,
+    roles: GatewayRoles,
+    excludeFilter?: ReturnType<typeof compileEgressFilter>,
+  ) {
     const registry = new ToolRegistry({});
     const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: tmpdir() }]);
     registerM7Tools(registry, {
@@ -129,6 +135,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       } as any,
       reranker: null,
       roles,
+      ...(excludeFilter ? { excludeFilter } : {}),
     });
     const ctx = {
       caller: "tester",
@@ -213,5 +220,47 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     const composed = seen.join("\n");
     expect(composed).toContain("notes/c.md");
     expect(composed).toContain("both sides readable rationale");
+  });
+
+  it("egress.excludePaths: an excluded decision chunk never reaches the judge; excluded_count reports the skip (THE-934 fix round 2, N1)", async () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const insertChunk = (id: string, path: string, content: string) => {
+      db.prepare(
+        "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, '0', '[]', ?, ?, 10, 0, 0)",
+      ).run(id, VAULT, path, content, `h-${id}`);
+      db.prepare(
+        "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, 'stub-embed', ?, ?, 1, 0)",
+      ).run(id, QVEC.length, floatBlob(QVEC));
+      db.prepare(
+        "INSERT INTO notes (vault_id, path, title, tags, content_hash, mtime, size, indexed_at) VALUES (?, ?, '', ?, 'h', 0, 0, 0)",
+      ).run(VAULT, path, JSON.stringify(["decision"]));
+    };
+    insertChunk("pub1", "Public/decision.md", "public decision body");
+    insertChunk("priv1", "Private/decision.md", "SECRET_MARKER private decision body");
+
+    const unrestricted = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+    const seen: string[] = [];
+    const { registry, ctx } = harness(
+      db,
+      unrestricted,
+      mockJudgeCapturing((m) => seen.push(m)),
+      compileEgressFilter(["Private/**"]),
+    );
+    const res = un<{ available: boolean; evidence_count: number; excluded_count?: number }>(
+      await registry.dispatch(
+        "knowledge_challenge",
+        { vault: VAULT, proposal: "we should proceed with this plan" },
+        ctx,
+      ),
+    );
+    expect(res.available).toBe(true);
+    expect(res.evidence_count).toBeGreaterThan(0);
+    expect(res.excluded_count).toBe(1);
+
+    const composed = seen.join("\n");
+    expect(composed).not.toContain("SECRET_MARKER");
+    expect(composed).not.toContain("Private/decision.md");
+    expect(composed).toContain("public decision body");
   });
 });

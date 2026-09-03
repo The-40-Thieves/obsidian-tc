@@ -157,6 +157,11 @@ export type WriteTxnLabel =
   | "index_note"
   | "index_deindex"
   | "index_notes_flush"
+  // THE-934 fix round 4 (2): the reconcile walk's note_summaries prune for notes under
+  // egress.excludePaths. Its own series rather than folded into index_notes_flush: it runs only on
+  // a vault that CONFIGURES an exclusion, and it is the one index-pass write whose absence is a
+  // security signal, so an operator watching lock waits should be able to see it separately.
+  | "index_egress_summaries"
   | "index_generation"
   | "job_claim"
   | "memory_observation"

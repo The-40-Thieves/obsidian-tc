@@ -42,6 +42,7 @@ import {
 } from "../experiential/advisory-policy";
 import { listGoals } from "../experiential/goals";
 import type { AdvisoryBus, AdvisoryPushItem } from "../mcp/advisories";
+import { type EgressFilter, hasExcludePatterns, isExcludedPath } from "../plane/egress-filter";
 import type { Scheduler } from "../scheduler/scheduler";
 import { cosineSimilarity } from "../search/native";
 import { stderrOnError } from "../util/errors";
@@ -101,6 +102,9 @@ export function recentNoteChanges(
   return rows.map((r) => ({
     kind: "note_changed",
     ref: r.id,
+    // THE-934 fix round 2 (N1): the real vault path, distinct from `ref` (a chunk id) — see
+    // AdvisoryCandidate's doc comment for why this field exists.
+    path: r.path,
     text: `${r.path}\n${r.content}`,
     at: r.updated_at,
   }));
@@ -129,15 +133,53 @@ export function openContradictions(
   return rows.map((r) => ({
     kind: "contradiction",
     ref: r.id,
+    // THE-934 fix round 3 (A): `text` quotes BOTH paths plus the rationale, so both must clear the
+    // filter. Round 4 (3): NOT NULL is not non-empty -- a blank side collapses the whole
+    // declaration to [], which the caller fails closed on.
+    paths: [r.source_path, r.conflict_path].some(isBlankPath)
+      ? []
+      : [r.source_path, r.conflict_path],
     text: `${r.source_path} vs ${r.conflict_path}: ${r.judge_rationale ?? ""}`,
     at: r.detected_at,
   }));
 }
 
+/** THE-934 fix round 4 (3): an empty or whitespace-only path is MISSING provenance — it can never
+ *  match an exclude glob, so accepting one as "declared" is a silent fail-OPEN. */
+function isBlankPath(path: string): boolean {
+  return path.trim() === "";
+}
+
+/** THE-934 fix round 3 (A): the union of every pattern's `evidence_paths` in a synthesis row's
+ *  `patterns` JSON (synthesis.ts's `SynthesisOutput["patterns"]` shape) -- the real vault paths the
+ *  judge drew on to write the text this module embeds. `[]` on malformed JSON or no evidence; the
+ *  caller treats that as EXCLUDED (fail closed), never as "nothing to check". */
+function synthesisEvidencePaths(patternsJson: string): string[] {
+  try {
+    const parsed = JSON.parse(patternsJson) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const paths = new Set<string>();
+    for (const p of parsed) {
+      const evidence = (p as { evidence_paths?: unknown })?.evidence_paths;
+      if (Array.isArray(evidence)) {
+        for (const path of evidence) {
+          // THE-934 fix round 4 (3): round 3 accepted any string, so `evidence_paths: [""]` was
+          // non-empty, cleared the fail-closed check, then matched no glob. One unprovable entry
+          // poisons the WHOLE row -- the embedded text is derived from all of them together.
+          if (typeof path !== "string" || isBlankPath(path)) return [];
+          paths.add(path);
+        }
+      }
+    }
+    return [...paths];
+  } catch {
+    return [];
+  }
+}
+
 /** Candidate source 3: recent weekly syntheses (cache.db's `syntheses`). `patterns` is a JSON blob
- *  (synthesis.ts's own shape) rather than prose; fed to the embedder as-is — domain terms inside
- *  it still carry similarity signal, and a first-cut sweep does not need a bespoke JSON-to-text
- *  projection to be useful. */
+ *  (synthesis.ts's own shape), fed to the embedder as-is — its domain terms still carry similarity
+ *  signal, and a first-cut sweep needs no bespoke JSON-to-text projection. */
 export function recentSyntheses(
   cacheDb: Database,
   vaultId: string,
@@ -157,6 +199,7 @@ export function recentSyntheses(
   return rows.map((r) => ({
     kind: "synthesis",
     ref: `synthesis-${r.iso_year}-${r.iso_week}`,
+    paths: synthesisEvidencePaths(r.patterns),
     text: r.patterns,
     at: r.generated_at,
   }));
@@ -209,7 +252,14 @@ export async function buildSimilarityFn(
   );
   const candidateVecs = await provider.embed(
     candidates.map((c) => c.text),
-    { input: "document" },
+    {
+      input: "document",
+      // THE-934 fix round 2 (N1), extended in fix round 3 (A): the egress guard's backstop
+      // declaration of what actually made it into `texts` — each candidate's real vault path(s),
+      // never `ref` (a row/chunk id on every kind, which no glob can match). The caller has
+      // already dropped every excluded or unprovable candidate before this runs.
+      sourcePaths: candidates.flatMap((c) => (c.kind === "note_changed" ? [c.path] : c.paths)),
+    },
   );
   const goalVecByText = new Map(goals.map((g, i) => [g.text, goalVecs[i]]));
   // Document side converts to Float32Array once at map build — the native cosine requires it
@@ -282,6 +332,10 @@ export interface AdvisorySweepDeps {
   publish: AdvisoryBus["publish"];
   /** Injected for tests; production passes nothing and gets Date.now. */
   now?: () => number;
+  /** THE-934 fix round 1 (I3): egress.excludePaths, compiled. Undefined -> nothing excluded. An
+   *  excluded candidate is dropped before it can become embed input — this sweep runs on a
+   *  SCHEDULE, with no human in the loop reviewing it. */
+  excludeFilter?: EgressFilter;
 }
 
 /**
@@ -311,11 +365,31 @@ export function registerAdvisorySweep(scheduler: Scheduler, deps: AdvisorySweepD
         const goals = listGoals(deps.experientialDb, vaultId); // defaults to status: "open"
         if (goals.length === 0) continue;
 
-        const candidates: AdvisoryCandidate[] = [
+        const excludeFilter = deps.excludeFilter;
+        const allCandidates: AdvisoryCandidate[] = [
           ...recentNoteChanges(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
           ...openContradictions(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
           ...recentSyntheses(deps.cacheDb, vaultId, CANDIDATES_PER_SOURCE),
         ];
+        // THE-934 (round 1 I3 -> round 2 N1/NB2 -> round 3 A -> round 4 items 3, 4; history in
+        // AdvisoryCandidate's doc comment). Every kind is checked: "note_changed" fails closed on a
+        // blank `path`, "contradiction"/"synthesis" on EMPTY `paths` (no provenance provable), and
+        // any is excluded if ANY path matches. Fix round 4 (4): the gate is hasExcludePatterns, NOT
+        // `excludeFilter !== undefined` -- scheduler-wiring.ts compiles a filter unconditionally,
+        // so round 3's test was true on a DEFAULT install and dropped every provenance-less
+        // candidate for an operator who had configured no exclusion at all.
+        const filtering = excludeFilter !== undefined && hasExcludePatterns(excludeFilter);
+        const candidates =
+          excludeFilter === undefined || !filtering
+            ? allCandidates
+            : allCandidates.filter((c) => {
+                if (c.kind === "note_changed") {
+                  if (isBlankPath(c.path)) return false;
+                  return !isExcludedPath(excludeFilter, c.path);
+                }
+                if (c.paths.length === 0) return false; // no provenance -> fail CLOSED
+                return !c.paths.some((p) => isExcludedPath(excludeFilter, p));
+              });
         if (candidates.length === 0) continue;
 
         const similarity = await buildSimilarityFn(deps.provider, goals, candidates);

@@ -112,11 +112,12 @@ export function createKnowledgeChallengeTool(
         evidence.map((e) => e.path),
         (rel) => readableRel(ctx.acl, rel),
       );
-      const { output, model } = await challengeProposal(
+      const { output, model, excludedCount } = await challengeProposal(
         deps.roles,
         input.proposal,
         evidence,
         contradictions,
+        deps.excludeFilter,
       );
       return {
         vault: v.id,
@@ -125,6 +126,7 @@ export function createKnowledgeChallengeTool(
         contradiction_count: contradictions.length,
         output,
         model,
+        ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
       };
     },
   });

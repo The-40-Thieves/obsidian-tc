@@ -14,7 +14,8 @@ import {
 } from "../embeddings/providers";
 import { createGatewayClient } from "../gateway/client";
 import { buildModelTierProvider, buildModelTierReranker } from "../model";
-import type { Reranker } from "../search/rerank";
+import { compileEgressFilter } from "../plane/egress-filter";
+import { guardReranker, type Reranker } from "../search/rerank";
 import { openAiCompatibleProvider } from "./http-embeddings";
 import { cohereCompatibleReranker } from "./http-rerank";
 import { loadProviderModule } from "./module-loader";
@@ -251,12 +252,15 @@ const RERANKERS: Record<string, RerankerEntry> = {
           rerankModel: c.model,
           timeoutMs: c.timeoutMs,
           fetchFn: x.fetchFn,
+          // THE-934 fix round 1 (I2): the PORT guard — every gateway client this registry
+          // constructs is guarded, unconditionally.
+          excludeFilter: x.excludeFilter,
         });
       } catch {
         return null; // no base URL configured -> graceful no-op, as today
       }
-      return (q, docs, topN) =>
-        gw.rerank({ query: q, documents: docs, topN }).then((r) => r.results);
+      return (q, docs, topN, sourcePaths) =>
+        gw.rerank({ query: q, documents: docs, topN, sourcePaths }).then((r) => r.results);
     },
   },
   // The profile-gated escape hatch — see module-loader.ts's header comment. Unlike the embeddings
@@ -518,5 +522,10 @@ export async function resolveReranker(
     });
   }
   assertBaseUrlNotDuplicating(cfg.baseUrl, entry.appendsPath, "reranker");
-  return entry.build(cfg, ctx);
+  const reranker = await entry.build(cfg, ctx);
+  // THE-934 fix round 2 (N3): the reranker PORT guard, applied here regardless of WHICH of the
+  // five entries built it — cohere-compatible and model-tier post full document text over HTTP
+  // with no fail-closed backstop of their own (the `gateway` entry's own createGatewayClient guard
+  // makes this a harmless double-wrap for that one entry, not a gap).
+  return reranker ? guardReranker(reranker, ctx.excludeFilter ?? compileEgressFilter([])) : null;
 }

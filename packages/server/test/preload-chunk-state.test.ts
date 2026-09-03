@@ -1,7 +1,8 @@
 // THE-501: computeNotePlan queried existing chunks once PER NOTE — N queries for a full reconcile.
 // indexVault now preloads the whole vault's lightweight chunk state (ids + hashes + active model) in
 // ONE query and plans every note from that map. This asserts the reconcile issues the bulk query and
-// NOT the per-note query, and that preloadChunkState groups correctly and carries only identifiers.
+// NOT the per-note query, and that preloadChunkState groups correctly and carries only identifiers
+// (plus THE-934's embedding_excluded flag, joined the same way).
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -100,8 +101,15 @@ describe("THE-501 bulk chunk-state preload", () => {
     const row = map.get("a.md")?.[0];
     // THE-711 follow-up: `rowid` joined this row. It is not incidental — chunk_fts is contentless
     // and its deletes key on the chunks rowid, which stops resolving once the chunk is gone, so the
-    // preload has to carry it rather than look it up later.
-    expect(Object.keys(row ?? {}).sort()).toEqual(["active_model", "content_hash", "id", "rowid"]);
+    // preload has to carry it rather than look it up later. THE-934: `embedding_excluded` joins the
+    // same way `active_model` does — present on every row (0/1), not merely identifiers/hashes.
+    expect(Object.keys(row ?? {}).sort()).toEqual([
+      "active_model",
+      "content_hash",
+      "embedding_excluded",
+      "id",
+      "rowid",
+    ]);
     expect(typeof row?.rowid).toBe("number");
     expect(row?.active_model).toBe("fake:A");
     v.cleanup();

@@ -283,6 +283,65 @@ export const PlaneConfigSchema = z
   })
   .prefault({});
 
+// THE-934 — the egress boundary. `readPaths` (auth-acl.schema.ts) is a whitelist that ALSO governs
+// every caller's read visibility and search enumeration; narrowing it to keep two folders off the
+// ambient plane would mean whitelisting every OTHER folder for every caller, which is a much wider
+// change than the operator asked for (THE-825/#786 already made the plane opt-in for the same
+// privacy reason). `egress.excludePaths` answers a DIFFERENT question — not "what can be read" but
+// "what may leave the machine through the plane" — and is enforced at the point of egress
+// (contradiction judging, synthesis, citation inference, index-time embedding), never at read or
+// search visibility, which stay governed by the ACL exactly as before.
+/**
+ * THE-934 fix round 4 (1): the SPELLING normalisation every `egress.excludePaths` pattern goes
+ * through before compilation — repeated separators collapse, a leading `/` or `./` is stripped —
+ * so `/Private`, `./Private`, `Private//` and `Private` are one root-anchored pattern. All are
+ * idiomatic gitignore; each previously compiled to a regex anchored on a character no
+ * vault-relative path starts with, so the exclusion matched NOTHING and said so nowhere. Defined
+ * here rather than beside the compiler (server's plane/egress-filter.ts) so the refusal below and
+ * the compiler cannot drift into two dialects — the exact failure this item closes. Deliberately
+ * NOT done: trimming surrounding whitespace (a folder may legitimately carry it) and case folding
+ * (acl.ts's platform-dependent decision, shared with auth.acl.readPaths).
+ */
+export function normalizeEgressExcludePattern(pattern: string): string {
+  let p = pattern.replace(/\/{2,}/g, "/");
+  while (p.startsWith("./") || p.startsWith("/")) p = p.startsWith("./") ? p.slice(2) : p.slice(1);
+  return p;
+}
+
+/**
+ * THE-934 fix round 4 (1): a pattern that, once normalised, names NOTHING — empty, "/", "./", or
+ * whitespace only. Refused at config load rather than compiled, because it is a typo that would
+ * sit in the config looking like a configured exclusion while protecting nothing.
+ *
+ * A bare double-star is NOT unusable: it is the exclude-all form, and withholding every note from
+ * every hosted provider is a legitimate fully-local deployment. Refusing it would turn a valid
+ * config into a boot failure.
+ */
+export function isUnusableEgressExcludePattern(pattern: string): boolean {
+  if (pattern.trim().length === 0) return true;
+  // Trailing slashes are stripped with a loop, not a regex: CodeQL flags `/\/+$/` as polynomial
+  // on inputs with many repeated slashes, and this runs on operator-supplied config.
+  let p = normalizeEgressExcludePattern(pattern);
+  while (p.endsWith("/")) p = p.slice(0, -1);
+  return p === "";
+}
+
+export const EgressConfigSchema = z
+  .object({
+    excludePaths: z
+      .array(
+        z.string().refine((p) => !isUnusableEgressExcludePattern(p), {
+          message:
+            'egress.excludePaths: pattern normalises to nothing ("", "/", "./", or whitespace only), so it would exclude nothing at all. Name a real folder or glob ("Private", "Private/**"), or "**" to withhold the whole vault.',
+        }),
+      )
+      .default([])
+      .describe(
+        'Gitignore-style glob patterns (vault-relative), compiled with the same glob engine as auth.acl.readPaths, plus a NORMALISATION and a WIDENING that auth.acl.readPaths does not get, because a pattern here that matches nothing protects nothing and says so nowhere. Normalisation: a leading "/" or "./" is stripped and repeated separators collapse, so "/Private", "./Private", "Private" and "Private//" are one and the same root-anchored pattern. Widening: EVERY pattern also matches everything beneath it, so "Private", "Private/", "Private*/" and "Private/*" each withhold that folder\'s whole subtree, not just its direct children; "**/Private" matches a Private folder at ANY depth (root included) and its subtree. Consequences worth stating, both in the safe direction (this is a security control, so an ambiguous pattern excludes too much, never too little): a folder-shaped pattern also matches a FILE of that exact name, so "Private/" or "Private*/" additionally excludes a root note named "Private.md"; a literal pattern naming a specific file ("Private/a.md") still matches only that exact file, never a sibling like "Private/a.md.bak"; and matching stays case- and unicode-sensitive exactly as auth.acl.readPaths is. "**" is the EXCLUDE-ALL form: it withholds every note from every hosted provider, which is a supported fully-local deployment (the plane still runs; nothing vault-derived leaves the machine through it). One spelling is REFUSED at config load rather than compiled: a pattern that normalises to nothing ("", "/", "./", or whitespace only), which would sit in the config looking like a configured exclusion while protecting nothing. Enforced at the PORT, not merely by each caller: every GatewayClient this server constructs (gateway/client.ts\'s createGatewayClient) and every EmbeddingProvider it constructs (embeddings/index.ts\'s createEmbeddingProvider(Async)) refuses a request that does not declare which vault paths its text came from, or that names an excluded one — so a call site that forgets to filter fails loudly instead of leaking, not only the ones that remember to check first. Covers every content-bearing egress leg in the tree: contradiction judging, synthesis, citation inference (both the scheduled job and the citation-infer CLI), index-time embedding (the batched reconcile AND the single-note write path — write_note/append_note/patch_note and the filesystem watcher), reflect and knowledge_challenge\'s gateway calls, the note- and cluster-level summarizers (the `obsidian-tc index`/`cluster` CLI passes), densify-llm\'s semantic-edge extraction, the hosted /rerank passthrough, and the scheduled proactive-advisory sweep\'s candidate embedding. An excluded chunk is still chunked, stored, and text/regex-searchable, but gets no vector, so semantic_search will not surface it. This is the documented COST of exclusion: embeddings are themselves egress (a hosted embedding provider can, in principle, receive text it never sees in plaintext form), so an excluded folder is withheld from embedding too, not only from generative jobs. Best-effort, like every comparable exclusion file in this ecosystem (.gitignore, .cursorignore, .aiignore): a caller with direct filesystem or MCP-tool read access to the vault is unaffected — this is an EGRESS control, not a read-visibility control (see auth.acl.readPaths for that). NOT covered: lexical/regex search over an excluded chunk stays local and searchable by design (the point is withholding it from a model, not hiding it from the vault owner). Paths are re-evaluated on every pass, not baked in once: renaming a folder into or out of the exclusion re-includes or re-excludes it on the very next consolidation pass, reconcile, or write, never retroactively.',
+      ),
+  })
+  .prefault({});
+
 // plur read-API proxy config (M5 / THE-181, G2.1 Domain 24). GLOBAL, not per-vault:
 // the plur engram store is global and the plur tools take no `vault` argument, so
 // this lives at the server root. endpoint/apiKey come from config or the

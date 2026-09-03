@@ -20,6 +20,8 @@ import { expireOverdueGoals } from "../experiential/goals";
 import { recomputeNoteQualityAll } from "../experiential/note-quality";
 import type { ToolRegistry } from "../mcp/registry";
 import { TASK_CALL_JOB_TYPE } from "../mcp/tasks";
+import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
+import { guardGatewayRoles } from "../plane/egress-guard";
 import type { GatewayRoles } from "../plane/gateway";
 import { auditJob } from "../plane/jobs/audit";
 import { checkContradictions, loadChunkForContradiction } from "../plane/jobs/contradiction";
@@ -134,6 +136,11 @@ export interface JobHandlersDeps {
   embed?: ((texts: string[]) => Promise<number[][]>) | undefined;
   /** Authored cache store — the citation pass reads chunk content and stored vectors from it. */
   cacheDb?: Database | undefined;
+  /** config.egress.excludePaths (THE-934). Absent/empty -> nothing excluded. Compiled once here
+   *  and threaded into every plane job that assembles a gateway request from vault content
+   *  (contradiction, synthesis, citation) — both as the chokepoint each job's own assembler
+   *  applies, and as the sourcePaths the egress guard (plane/egress-guard.ts) checks. */
+  egressExcludePaths?: string[];
 }
 
 export interface JobHandlersWiring {
@@ -146,6 +153,10 @@ export interface JobHandlersWiring {
  *  and the job-queue runner. */
 export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
   const jobHandlers = new Map<string, JobHandler>();
+  // THE-934: compiled once, threaded into every plane job below as BOTH the chokepoint each job's
+  // own assembler filters candidates against, and the sourcePaths check guardGatewayRoles performs
+  // as an independent second layer over the same roles object.
+  const excludeFilter: EgressFilter = compileEgressFilter(deps.egressExcludePaths ?? []);
   jobHandlers.set(
     TASK_CALL_JOB_TYPE,
     makeTaskCallHandler({
@@ -158,14 +169,24 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
   // THE-822: gated on plane.enabled AND roles, not roles alone — see planeGatedRoles above.
   const gatedRoles = planeGatedRoles(deps);
   if (gatedRoles) {
-    const roles = gatedRoles;
+    // THE-934: the egress guard wraps the roles BEFORE any job below sees them — a defence-in-depth
+    // layer, not a substitute for each job's own candidate filtering (checkContradictions/
+    // runSynthesis still drop excluded rows before building a request; the guard catches whatever
+    // a filtering bug or a future call site misses).
+    const roles = guardGatewayRoles(gatedRoles, excludeFilter);
     jobHandlers.set("contradiction", async (job) => {
       const { vaultId, chunkId } = job.payload as { vaultId: string; chunkId: string };
       const chunk = loadChunkForContradiction(deps.db, vaultId, chunkId);
       // Deleted or re-embedded between enqueue and run — a normal race, not a failure. Returning
       // marks the job complete; THROWING here would dead-letter a job that did nothing wrong.
       if (!chunk) return;
-      const jobCtx = { db: deps.db, roles, now: Date.now, model: deps.embeddingProvider.id };
+      const jobCtx = {
+        db: deps.db,
+        roles,
+        now: Date.now,
+        model: deps.embeddingProvider.id,
+        excludeFilter,
+      };
       const r = await checkContradictions(jobCtx, vaultId, [chunk]);
       // THE-613: an unjudged pair is a FAILURE, not a clean result. Retry is safe (INSERT OR
       // IGNORE on a content-derived id).
@@ -179,14 +200,24 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     // Falls back to the interactive roles when unconfigured, so behaviour is unchanged without the
     // knob. History and measurements: CHANGELOG.md THE-700 (#659) and THE-709; see also
     // docs/design/runtime-gateway-seams.md.
-    const bgRoles =
+    const bgRoles = guardGatewayRoles(
       (deps.gatewayMaxAttempts !== undefined
-        ? planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs)
-        : null) ?? roles;
+        ? // THE-934 fix round 3 (E): `excludeFilter` threaded here too -- planeRoles' OWN
+          // createGatewayClient call was defaulting to compileEgressFilter([]) (no-op) when this
+          // 3rd argument was omitted, so the port itself carried no real filter and the
+          // guardGatewayRoles wrap below was the ONLY thing enforcing exclusion on this
+          // client -- unlike `gatedRoles`, whose own construction (planeGatedRoles) already
+          // threads the filter into the port. Both layers now agree, matching every other
+          // production seam.
+          planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs, excludeFilter)
+        : null) ?? gatedRoles,
+      excludeFilter,
+    );
     const planeCtx = {
       db: deps.db,
       roles: bgRoles,
       now: Date.now,
+      excludeFilter,
       ...(deps.maxPromptChars !== undefined ? { maxPromptChars: deps.maxPromptChars } : {}),
     };
     const synthesisJob = wrapPlaneJob("synthesis", () => runSynthesis(planeCtx), planeCtx);
@@ -234,7 +265,8 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     deps.cacheDb &&
     deps.embed
   ) {
-    const roles = deps.roles;
+    // THE-934: same guard treatment as contradiction/synthesis above.
+    const roles = guardGatewayRoles(deps.roles, excludeFilter);
     const cacheDb = deps.cacheDb;
     const embed = deps.embed;
     const citationJob = wrapPlaneJob(
@@ -244,6 +276,7 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
         detail: await runCitationIndexPasses(citationIndexPath, deps.experientialDb, cacheDb, {
           embed,
           judge: (r) => roles.judge(r).then((x) => ({ text: x.text, model: x.model })),
+          excludeFilter,
         }),
       }),
       { db: deps.db, now: Date.now },
@@ -278,6 +311,10 @@ export interface ReconcileRunnerDeps {
   densify: ServerConfig["retrieval"]["densify"];
   vaultRegistry: VaultRegistry;
   indexReadableFor: (vaultId: string) => (rel: string) => boolean;
+  /** THE-934: config.egress.excludePaths, as a per-path predicate. Absent -> nothing excluded.
+   *  Threaded into every vault's indexVaultRecorded call below — the boot/scheduled reconcile is
+   *  the primary "index reconcile" path egress.excludePaths' embedding boundary gates. */
+  isEgressExcluded?: (rel: string) => boolean;
   sqlHooksFor: (vault: string) => WriteTxnHooks;
   onVecRebuild: (event: VecRebuildEvent) => void;
   makeOnIndexed: (vaultId: string) => IndexHook | undefined;
@@ -317,6 +354,9 @@ export function createReconcileRunner(
             vaultId: v.id,
             root: deps.vaultRegistry.resolve(v.id).root,
             isReadable: deps.indexReadableFor(v.id),
+            ...(deps.isEgressExcluded !== undefined
+              ? { isEgressExcluded: deps.isEgressExcluded }
+              : {}),
             now: Date.now,
             sql: deps.sqlHooksFor(v.id),
             onVecRebuild: deps.onVecRebuild,
