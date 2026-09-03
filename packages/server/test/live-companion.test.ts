@@ -10,8 +10,15 @@
 // races with Obsidian's own persistence). Install + enable the companion first, then run it:
 //   1. cd packages/plugin && bun run build      (or: obsidian-tc plugin install --vault <path>)
 //   2. copy packages/plugin/dist/{main.js,manifest.json,styles.css}
-//        -> <vault>/.obsidian/plugins/obsidian-tc/
-//   3. enable "obsidian-tc" in Obsidian (Settings -> Community plugins) and reload the app.
+//        -> <vault>/.obsidian/plugins/tc-bridge/
+//   3. enable "TC Bridge" in Obsidian (Settings -> Community plugins) and reload the app.
+// THE-943: the companion plugin's manifest id/name renamed obsidian-tc -> tc-bridge / "TC
+// Bridge"; `obsidian-tc plugin install` above is the SERVER's CLI binary name (unchanged,
+// `packages/server`'s own package name) and already installs to the id-derived folder
+// automatically (`installPlugin` reads `manifest.id`), so step 1 needs no change either way.
+// This suite exercises the bridge ROUTES, which only the renamed tc-bridge build registers — it
+// is unrelated to and does NOT need packages/plugin/legacy/ (THE-943's old-id sunset build),
+// which registers no routes at all and would fail every assertion below if pointed at instead.
 // Then, from packages/server:
 //   OBSIDIAN_TC_LIVE=1 OBSIDIAN_TC_LIVE_VAULT="C:/path/to/your/vault" \
 //   OBSIDIAN_TC_LIVE_EXPECT="dataview,text-extractor" \
@@ -132,7 +139,7 @@ describe.skipIf(!LIVE)("live companion <-> LRA bridge (opt-in)", () => {
     if (status !== 200)
       throw new Error(
         `companion bridge not reachable at ${BASE}${PREFIX}/probe (got ${status}). Install + enable ` +
-          "the obsidian-tc companion in this vault and reload Obsidian first (see the file header).",
+          'the "TC Bridge" companion in this vault and reload Obsidian first (see the file header).',
       );
   }, 15_000);
 
