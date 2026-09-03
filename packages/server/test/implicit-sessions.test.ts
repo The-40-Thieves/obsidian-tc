@@ -24,6 +24,7 @@ import { FolderAcl } from "../src/acl";
 import { runMaintenanceSweep } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
+import type { FacadeMode } from "../src/mcp/facade";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { buildSessionTools } from "../src/tools/m5/session-tools";
 import { startHttp } from "../src/transports/http";
@@ -215,7 +216,10 @@ interface Booted {
   close: () => Promise<void>;
 }
 
-async function boot(sessions?: { autoOpen: boolean; windowSeconds: number }): Promise<Booted> {
+async function boot(
+  sessions?: { autoOpen: boolean; windowSeconds: number },
+  facadeMode?: FacadeMode,
+): Promise<Booted> {
   const root = mkdtempSync(join(tmpdir(), "obtc-implicit-"));
   const db = freshDb();
   const vaultRegistry = new VaultRegistry([{ id: "main", path: root }]);
@@ -244,6 +248,7 @@ async function boot(sessions?: { autoOpen: boolean; windowSeconds: number }): Pr
     host: "127.0.0.1",
     port: 0,
     ...(sessions ? { sessions } : {}),
+    ...(facadeMode ? { facadeMode } : {}),
   });
   return {
     port: handle.port,
@@ -385,6 +390,107 @@ describe("THE-726 slice 3 end-to-end: the server opens the session", () => {
           }
         ).ended_at,
       ).toBeNull();
+    } finally {
+      await h.close();
+    }
+  }, 30_000);
+});
+
+describe("THE-937 round 3: instructions must not touch the session store", () => {
+  // A fresh MCP server is constructed per HTTP request (transports/http.ts). Round 2 built
+  // legacy `initialize`'s static `instructions` by calling `opts.context()` at construction —
+  // and on HTTP, `opts.context` (`contextFromAuthInfo`) resolves, and with `sessions.autoOpen`
+  // on OPENS, a session as a side effect. That ran for EVERY request regardless of method,
+  // opening a session before any dispatch happened for methods that never touch one today (a
+  // bare `initialize`, a bare triad `tools/list`, which returns the static triad tools without
+  // ever calling `opts.context()` itself). The fix moved `instructions`'s caller data to a pure
+  // `opts.visibility` value; these tests pin that no session touch survives at construction.
+  const LEGACY = "2025-11-25";
+
+  async function post(
+    port: number,
+    jwt: string,
+    body: unknown,
+    headers: Record<string, string>,
+  ): Promise<{ status: number; json: { result?: Record<string, unknown> } }> {
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${jwt}`,
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    const line = text.split("\n").find((l) => l.startsWith("data: "));
+    const payload = line ? line.slice(6) : text;
+    let json: unknown;
+    try {
+      json = JSON.parse(payload);
+    } catch {
+      json = { raw: text };
+    }
+    return { status: res.status, json: json as { result?: Record<string, unknown> } };
+  }
+
+  function sessionCount(db: Database): number {
+    return (db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n;
+  }
+
+  it("a bare legacy initialize opens NO session row, even with autoOpen on", async () => {
+    const h = await boot({ autoOpen: true, windowSeconds: 1800 });
+    try {
+      const alice = await tokenFor("alice");
+      const res = await post(
+        h.port,
+        alice,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: LEGACY,
+            capabilities: {},
+            clientInfo: { name: "round3-test", version: "0" },
+          },
+        },
+        { "mcp-protocol-version": LEGACY },
+      );
+      expect(res.status).toBe(200);
+      expect(res.json.result?.instructions).toBeDefined();
+      expect(sessionCount(h.db)).toBe(0);
+    } finally {
+      await h.close();
+    }
+  }, 30_000);
+
+  it("a bare triad-mode tools/list opens NO session row, even with autoOpen on", async () => {
+    // Triad mode specifically: its tools/list branch returns the static meta-tools without ever
+    // calling opts.context() itself (server.ts) — the ONLY facade mode where that is true, and
+    // therefore the mode a construction-time session touch is invisible to every OTHER existing
+    // test (they either dispatch a real tool, exercising the invariant this suite already pins,
+    // or use flat/domain mode, whose tools/list branches already called context() before THE-937).
+    const h = await boot({ autoOpen: true, windowSeconds: 1800 }, "triad");
+    try {
+      const alice = await tokenFor("alice");
+      const res = await post(
+        h.port,
+        alice,
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        {
+          "mcp-protocol-version": LEGACY,
+        },
+      );
+      expect(res.status).toBe(200);
+      const tools = (res.json.result?.tools as { name: string }[] | undefined) ?? [];
+      expect(tools.map((t) => t.name).sort()).toEqual([
+        "call_capability",
+        "describe_capability",
+        "find_capability",
+      ]);
+      expect(sessionCount(h.db)).toBe(0);
     } finally {
       await h.close();
     }

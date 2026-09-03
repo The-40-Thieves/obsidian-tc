@@ -122,6 +122,16 @@ export interface McpServerOptions {
    */
   context: (signal?: AbortSignal) => CallerContext;
   /**
+   * THE-937 round 3: the caller's visibility for legacy `initialize`'s STATIC `instructions`, a
+   * plain resolved value — NOT `context`. Calling `context` at construction (a prior version did)
+   * is unsafe: on HTTP it is `contextFromAuthInfo`, which resolves — and with `sessions.autoOpen`
+   * on, OPENS — a workspace session, and construction runs on EVERY request, so a bare
+   * `initialize` or a bare triad `tools/list` opened a session before any dispatch. `visibility`
+   * is the pure subset `context` also produces — see `visibilityFromAuthInfo` (transports/http.ts),
+   * which `contextFromAuthInfo` also calls, so the two cannot drift.
+   */
+  visibility: VisibilityCaller;
+  /**
    * tools/list page size. Defaults to TOOLS_PAGE_SIZE (well above the tool surface, so the whole
    * surface fits one page); overridable only so tests can exercise the cursor-paging path.
    */
@@ -315,14 +325,12 @@ function visibilityCallerOf(ctx: CallerContext): VisibilityCaller {
 }
 
 export function createMcpServer(opts: McpServerOptions): Server {
-  // THE-937: legacy `initialize` gets no per-request override (SDK-private handshake state), so
-  // `instructions` builds ONCE here WITH the caller `opts.context()` gives at construction — HTTP
-  // builds a fresh server per request with auth resolved; stdio's `context` is fixed either way.
+  // THE-937 round 3: `instructions` builds ONCE from `opts.visibility` — see its doc comment.
   const staticInstructions = buildInstructions(
     opts.name,
     opts.version,
     opts.registry,
-    visibilityCallerOf(opts.context()),
+    opts.visibility,
     Boolean(opts.vaultRegistry),
   );
   const server = new Server(

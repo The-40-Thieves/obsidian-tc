@@ -42,6 +42,7 @@ async function connect(registry: ToolRegistry) {
     version: "0",
     registry,
     context,
+    visibility: { grantedScopes: new Set(["*"]) },
     facadeMode: "domain",
   });
   const [ct, st] = InMemoryTransport.createLinkedPair();

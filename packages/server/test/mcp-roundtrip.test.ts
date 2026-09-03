@@ -36,6 +36,7 @@ describe("mcp transport round-trip", () => {
       version: "0.0.0-test",
       registry,
       context,
+      visibility: { grantedScopes: new Set(["*"]) },
     });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

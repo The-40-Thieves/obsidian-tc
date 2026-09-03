@@ -198,6 +198,9 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
       version: "0",
       registry,
       context,
+      // THE-937 round 3: mirrors `context`'s grantedScopes — the round-2 tests below assert on
+      // static `instructions` content, which now reads this instead of calling `context()`.
+      visibility: { grantedScopes: new Set(scopes) },
       vaultRegistry,
       facadeMode: "triad",
     });
@@ -454,4 +457,38 @@ describe("legacy initialize instructions are caller-filtered over HTTP (THE-937 
       await h.close();
     }
   }, 20_000);
+});
+
+describe("THE-937 round 3: createMcpServer construction does not call opts.context()", () => {
+  it("the context factory is never invoked before any request is dispatched", () => {
+    // Round 2 built the static `initialize` instructions by calling `opts.context()` at
+    // construction. On HTTP that factory is `contextFromAuthInfo`, which resolves (and, with
+    // `sessions.autoOpen` on, OPENS) a workspace session as a side effect — see
+    // implicit-sessions.test.ts's "THE-937 round 3" describe block for the end-to-end proof.
+    // This is the narrower, transport-agnostic half: a counting fake pins that `createMcpServer`
+    // itself never calls `context`, independent of what any particular `context` implementation
+    // does. `visibility` (a plain, already-resolved value) is what construction reads instead.
+    const registry = new ToolRegistry();
+    for (const t of fixtureTools()) registry.register(t);
+    let calls = 0;
+    const context = (): CallerContext => {
+      calls++;
+      return {
+        caller: "t",
+        authenticated: true,
+        grantedScopes: new Set(["*"]),
+        vaultId: "main",
+        db: {} as never,
+      };
+    };
+    createMcpServer({
+      name: "x",
+      version: "0",
+      registry,
+      context,
+      visibility: { grantedScopes: new Set(["*"]) },
+      facadeMode: "triad",
+    });
+    expect(calls).toBe(0);
+  });
 });

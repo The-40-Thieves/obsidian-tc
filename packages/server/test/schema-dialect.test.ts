@@ -30,7 +30,14 @@ async function connect(registry: ToolRegistry, facadeMode: "triad" | "domain" | 
     vaultId: "v1",
     db: {} as never,
   });
-  const server = createMcpServer({ name: "x", version: "0", registry, context, facadeMode });
+  const server = createMcpServer({
+    name: "x",
+    version: "0",
+    registry,
+    context,
+    visibility: { grantedScopes: new Set(["*"]) },
+    facadeMode,
+  });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st);
   const client = new Client({ name: "t", version: "0" });

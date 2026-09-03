@@ -131,6 +131,7 @@ const ENTRY_SURFACES: Surface[] = [
         version: "0.0.0-test",
         registry,
         context,
+        visibility: { grantedScopes: new Set(["write:workspace"]) },
       });
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
       await server.connect(serverTransport);
