@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.bun-smoke.json && tsc -p tsconfig.eval.json",
     "test": "vitest run",
     "smoke:live": "vitest run test/live-companion.test.ts",
+    "smoke:zero-config": "bun scripts/zero-config-smoke.ts --cli dist/cli.js",
     "test:acl-audit": "OBSIDIAN_TC_ACL_AUDIT=strict vitest run test/attachment-tools-branch-coverage.test.ts test/periodic-tools-branch-coverage.test.ts test/the-567-periodic-memory-scope.test.ts test/dispatch-guards.test.ts test/vault-arg-dispatch.test.ts test/acl-extraction-coverage.test.ts test/acl-audit.test.ts",
     "test:coverage": "vitest run --coverage",
     "dev": "bun run --watch ./src/index.ts",
