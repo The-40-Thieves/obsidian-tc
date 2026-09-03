@@ -272,7 +272,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-675 | Citation inference | docs/design/experiential-citation-inference.md | 1 |
 | THE-677 | Pluggable embedding and rerank provider slots (THE-677, #628, #631). | CHANGELOG.md (1.14.0) | 2 |
 | THE-678 | A credential error names the config block that actually holds the key (THE-680, THE-678, #633). | CHANGELOG.md (1.14.0) | 1 |
-| THE-679 | `doctor` pre-detects an unbuildable reranker, and names the declared one (THE-679, THE-681, #632). | CHANGELOG.md (1.14.0) | 5 |
+| THE-679 | `doctor` pre-detects an unbuildable reranker, and names the declared one (THE-679, THE-681, #632). | CHANGELOG.md (1.14.0) | 6 |
 | THE-680 | A credential error names the config block that actually holds the key (THE-680, THE-678, #633). | CHANGELOG.md (1.14.0) | 3 |
 | THE-681 | `doctor` pre-detects an unbuildable reranker, and names the declared one (THE-679, THE-681, #632). | CHANGELOG.md (1.14.0) | 1 |
 | THE-683 | `RepresentationManifest` has a production producer, and `embeddings.pooling` now moves the index identity (THE-683, #636). | CHANGELOG.md (1.14.0) | 9 |
@@ -359,8 +359,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 | THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issues #876, #880). | CHANGELOG.md (1.25.0) | 60 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
-| THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (Unreleased) | 2 |
+| THE-944 | _internal planning reference — see repo history_ | — | 8 |
 
-346 distinct ticket(s) across 490 source file(s) under
-`packages/*/src`; 279 resolved to a public summary, 67
+346 distinct ticket(s) across 489 source file(s) under
+`packages/*/src`; 278 resolved to a public summary, 68
 fall back to the internal-reference placeholder above.

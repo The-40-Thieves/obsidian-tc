@@ -57,3 +57,23 @@ export function rerankerBuildBlocker(
   }
   return null;
 }
+
+/**
+ * THE-944: mirrors runtime/tool-wiring.ts's `wireGatewaySeams` ABSENT-block precedence
+ * (model-tier ?? gateway ?? local) exactly, so cli/commands/doctor.ts can decide, from config +
+ * env alone, whether the registry would actually ATTEMPT to auto-select "local" at boot — true only
+ * when no reranker block is declared, `embeddings.modelTier.full` is unset (buildModelTierReranker's
+ * own only gate), and no gateway URL is configured from either source. Getting this wrong in either
+ * direction makes doctor disagree with what boot does: report a fallback that never fires, or stay
+ * silent about one that does.
+ */
+export function autoSelectLocalRerankerApplies(
+  rerankerProvider: string | undefined,
+  embeddings: RerankerPreflightEmbeddings | undefined,
+  opts: { gatewayBaseUrl?: string; gatewayUrlEnv?: string | undefined } = {},
+): boolean {
+  if (rerankerProvider !== undefined) return false;
+  if (embeddings?.modelTier?.full !== undefined) return false;
+  const url = opts.gatewayBaseUrl ?? opts.gatewayUrlEnv;
+  return !(url !== undefined && url.length > 0);
+}

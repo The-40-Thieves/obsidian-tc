@@ -233,7 +233,17 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // nothing. The exclude-all form ("**") stays VALID and is now named as such in the description —
   // withholding every note from every hosted provider is a supported fully-local deployment, and
   // refusing it would turn a valid config into a boot failure.
-  "28697d4b617aa7f33e98e9019eb99ae672e9541cfaf96e17af54d8037885cc73";
+  // THE-944: rebaselined deliberately, text only — no key, type, default or constraint moved.
+  // Rewrites three .describe() strings in packages/shared/src/config/reranker.schema.ts (the
+  // top-level `reranker` key's own description, plus its nested `provider` and `localModelPath`
+  // fields) and one in server.schema.ts's `reranker` key, to state: (1) provider "local" is now
+  // also auto-selected — no explicit `provider: "local"` needed — when the whole `reranker` block
+  // is absent, embeddings.modelTier.full is unconfigured, and no gateway URL is configured; (2)
+  // localModelPath's pinned model weights are fetched and sha256-verified automatically on first
+  // use rather than requiring a prior `bun run fetch-model` run (which remains available for
+  // offline/CI pre-population). See packages/server/src/runtime/tool-wiring.ts's wireGatewaySeams
+  // and packages/reranker-local/src/model-fetch.ts for the corresponding behavioral changes.
+  "37d661dc765fcab79b9831ac8c8bfa628fca2a0184d978b9ec4bf8fb96f110bb";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

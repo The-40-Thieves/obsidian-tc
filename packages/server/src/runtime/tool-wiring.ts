@@ -20,7 +20,7 @@ import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
-import { resolveReranker } from "../providers/registry";
+import { buildLocalReranker, resolveReranker } from "../providers/registry";
 import { rerankerBuildBlocker } from "../providers/reranker-preflight";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
@@ -211,14 +211,20 @@ export async function wireGatewaySeams(
         gw.rerank({ query: q, documents: docs, topN, sourcePaths }).then((r) => r.results)
     : null;
   // Prefer the model-tier BGE /v1/rerank when its service is configured; else the gateway
-  // passthrough. Dark until a rerank stage is enabled in graphSearch. A declared `reranker` block
-  // wins over that default entirely — ABSENT preserves the historical precedence exactly.
+  // passthrough; else — THE-944 — the bundled local cross-encoder, IF it happens to resolve on
+  // this deployment (see buildLocalReranker below). Dark until a rerank stage is enabled in
+  // graphSearch. A declared `reranker` block wins over that default entirely — ABSENT preserves
+  // the historical model-tier/gateway precedence exactly, and only ADDS a new terminal fallback.
   //
-  // THE-934 fix round 2 (N3): `resolveDeclaredReranker` already returns a guarded reranker (its
-  // resolveReranker call wraps every one of the five entries) -- the guard here on the WHOLE
-  // ternary is what closes the no-declared-block DEFAULT path, where buildModelTierReranker is
-  // called directly and never passes through resolveReranker at all. Re-guarding the declared
-  // branch is a harmless double-wrap, not a gap.
+  // THE-944 auto-select: the `??` chain's laziness IS the "no gateway URL configured" gate — this
+  // third branch is only reached once `gatewayReranker` is null, which (see its own definition
+  // above) is exactly when `gw` is null, i.e. no gateway URL was configured. An operator who
+  // already has a gateway configured never pays this resolution attempt, and gateway keeps winning
+  // exactly as it does today when both could apply. `buildLocalReranker` never throws (THE-705
+  // round 2's whole point) — an unresolvable optional package degrades to `null` here exactly like
+  // "not configured" always has, never a boot failure; `doctor/checks.ts`'s `rerankerBuildableCheck`
+  // is what keeps that loud rather than silently identical to today's "nothing configured" RRF-only
+  // default.
   const rerankerRaw: Reranker | null = rerankerCfg
     ? await resolveDeclaredReranker(rerankerCfg, {
         embeddings,
@@ -226,7 +232,12 @@ export async function wireGatewaySeams(
         securityProfile,
         excludeFilter,
       })
-    : (buildModelTierReranker(embeddings) ?? gatewayReranker);
+    : (buildModelTierReranker(embeddings) ??
+      gatewayReranker ??
+      (await buildLocalReranker(
+        { provider: "local" },
+        { embeddings, configDir, securityProfile, excludeFilter },
+      )));
   const reranker: Reranker | null = rerankerRaw ? guardReranker(rerankerRaw, excludeFilter) : null;
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge
   // no-op).

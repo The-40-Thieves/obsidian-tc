@@ -102,6 +102,109 @@ describe("reranker.buildable (THE-679)", () => {
   });
 });
 
+// THE-944: the auto-select probe. Unlike explicit "local", this is offered to the check ONLY when
+// no block is declared AND the real registry precedence (model-tier ?? gateway ?? local) would
+// actually reach "local" — cli/commands/doctor.ts's gating, not this check's — so these tests only
+// exercise what the check itself does once the probe IS supplied.
+describe("reranker auto-select 'local' (THE-944)", () => {
+  it("PASSES when the auto-select probe resolves, naming the route and that it was auto-selected", async () => {
+    const r = await rerankerBuildableCheck({
+      probeAutoSelectLocalReranker: async () => ({
+        ok: true,
+        route: "source-checkout",
+        attempts: ["bare-specifier: ... — Cannot find module", "source-checkout: ... — resolved"],
+      }),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.summary).toMatch(/auto-selected "local"/);
+    expect(r.summary).toContain("source-checkout");
+  });
+
+  it("WARNS (not fail) when auto-select does not resolve — RRF-only is a graceful default, not a broken config", async () => {
+    const r = await rerankerBuildableCheck({
+      probeAutoSelectLocalReranker: async () => ({
+        ok: false,
+        attempts: ["bare-specifier: ... — Cannot find module", "source-checkout: ... — not built"],
+      }),
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+    }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(r.summary).toMatch(/did not resolve/);
+    expect(r.summary).toMatch(/RRF-only/);
+    expect(String(r.remediation)).toMatch(/bun add/);
+    expect(String(r.remediation)).toMatch(/bun run build/);
+  });
+
+  it("does NOT probe (falls back to the unchanged 'default precedence applies' summary) when the caller withholds the probe — e.g. model-tier or a gateway would win instead", async () => {
+    const r = await rerankerBuildableCheck({}).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.summary).toBe("reranker: no block declared (default precedence applies)");
+  });
+});
+
+// THE-944 test requirement: "doctor output per platform" — musl and darwin-x64 have NO
+// onnxruntime-node prebuild, so "local" is structurally unreachable there regardless of whether the
+// small JS package resolves. `platformOverride` fakes `process.platform`/`arch`/libc so this is
+// assertable without the CI runner actually being on one of these platforms.
+describe("reranker 'local' platform reporting (THE-944)", () => {
+  it("darwin-x64: unsupported, named specifically, even when the probe itself resolves", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({ ok: true, route: "localModulePath", attempts: [] }),
+      platformOverride: { platform: "darwin", arch: "x64" },
+    }).run(ctx);
+    expect(r.status).toBe("ok"); // resolution succeeded; the platform caveat rides along as detail.
+    expect(r.details?.platform).toMatch(/darwin-x64/);
+    expect(r.details?.platform).toMatch(/no onnxruntime-node prebuilt binary/i);
+  });
+
+  it("darwin-x64 + unresolved: fail summary and remediation are platform-specific, not the generic 'could not be resolved' text", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({
+        ok: false,
+        attempts: ["source-checkout: ... — not built"],
+      }),
+      platformOverride: { platform: "darwin", arch: "x64" },
+    }).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.summary).toMatch(/unreachable on this platform/);
+    expect(r.summary).not.toMatch(/could not be resolved/);
+    expect(String(r.remediation)).toMatch(/No remediation available on this platform/);
+    expect(String(r.remediation)).not.toMatch(/bun add/);
+  });
+
+  it("musl linux: unsupported, named specifically", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({ ok: false, attempts: [] }),
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => true },
+    }).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.details?.platform).toMatch(/musl libc/i);
+  });
+
+  it("linux glibc x64: supported — no platform caveat in details", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({ ok: true, route: "source-checkout", attempts: [] }),
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.platform).toBeUndefined();
+  });
+
+  it("darwin-x64 auto-select: the warning names the platform reason instead of the generic 'did not resolve' text", async () => {
+    const r = await rerankerBuildableCheck({
+      probeAutoSelectLocalReranker: async () => ({ ok: false, attempts: [] }),
+      platformOverride: { platform: "darwin", arch: "x64" },
+    }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(r.summary).toMatch(/is moot on this platform/);
+    expect(r.details?.platform).toMatch(/darwin-x64/);
+  });
+});
+
 describe("retrieval.heads branch order (THE-681)", () => {
   const base: RetrievalHeadsView = {
     denseProvider: "model-tier",

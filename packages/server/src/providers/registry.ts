@@ -433,6 +433,24 @@ export async function resolveLocalRerankerModule(
   return { ok: false, attempts };
 }
 
+/** THE-679/THE-944: the doctor-facing shape of a resolution attempt — shared by BOTH the explicit
+ *  `reranker.provider: "local"` probe and the THE-944 auto-select probe (cli/commands/doctor.ts's
+ *  two `rerankerBuildable.probe*` closures), so the two never duplicate (and cannot drift on) the
+ *  route/attempts-to-string mapping doctor/checks.ts's `LocalRerankerProbeResult` expects. */
+export async function probeLocalRerankerResolution(
+  c: ProviderDescriptor,
+  ctx: ResolveContext,
+): Promise<{ ok: boolean; route?: string; attempts: string[] }> {
+  const r = await resolveLocalRerankerModule(c, ctx);
+  return {
+    ok: r.ok,
+    route: r.attempts.find((a) => a.ok)?.route,
+    attempts: r.attempts.map((a) =>
+      a.ok ? `${a.route}: ${a.target} — resolved` : `${a.route}: ${a.target} — ${a.error}`,
+    ),
+  };
+}
+
 /** reranker.provider "local" — exported (rather than inlined into the RERANKERS.local.build above)
  *  so it is directly unit-testable with an injected `resolveModule`, without needing
  *  @huggingface/transformers or the real model weights present in packages/server's own test run.

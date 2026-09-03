@@ -8,7 +8,7 @@ export const RerankerConfigSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (THE-705: a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package), and the profile-gated module.",
+      "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (THE-705/THE-944: a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package, and is also tried AUTOMATICALLY — no need to set provider: 'local' explicitly — when this whole block is left unset, model-tier is not configured, and no gateway URL is configured either), and the profile-gated module.",
     ),
   // Optional at the schema level because "required" is not uniform across entries: cohere-compatible
   // genuinely needs one and throws its own actionable boot error when it is absent; model-tier
@@ -64,7 +64,7 @@ export const RerankerConfigSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Absolute path to the local cross-encoder model directory for provider 'local' (containing <model-id>/config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README). Defaults to that package's own models/ directory, populated by its `bun run fetch-model` script. Ignored — and refused at boot if set — by every other provider.",
+      "Absolute path to the ROOT directory under which <model-id>/<revision>/ lives (config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README) for provider 'local'. THE-944: no longer required to be pre-populated — fetched and sha256-verified automatically on the first rerank call if not already present. Defaults to that package's own models/ directory. `bun run fetch-model` still works, for offline/CI pre-population. Ignored — and refused at boot if set — by every other provider.",
     ),
   // THE-705 round 2: route (i) of provider "local"'s resolution ladder (registry.ts's
   // resolveLocalRerankerModule) — the escape hatch for every deployment shape the bare package
