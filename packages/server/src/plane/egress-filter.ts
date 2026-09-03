@@ -80,7 +80,9 @@ function normalizeExcludePattern(pattern: string): string[] {
  *  itself is matched, not only its contents); a pattern that already ends in `**` is its own
  *  subtree and gains nothing. */
 function widenToSubtree(pattern: string): string[] {
-  const trimmed = pattern.replace(/\/+$/, "");
+  // A loop, not `/\/+$/`: CodeQL flags that regex as polynomial on operator-supplied config.
+  let trimmed = pattern;
+  while (trimmed.endsWith("/")) trimmed = trimmed.slice(0, -1);
   if (trimmed.endsWith("**")) return [trimmed];
   return [trimmed, `${trimmed}/**`];
 }
