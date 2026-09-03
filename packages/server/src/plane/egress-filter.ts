@@ -51,16 +51,18 @@ export interface EgressFilter {
 // matters: "Private/a.md" gains only "Private/a.md/**", which no sibling like
 // "Private/a.md.bak" can match.
 //
-// Rejection rather than widening for the two degenerate spellings -- a pattern that normalises to
-// nothing, and "**" -- happens at config load (EgressConfigSchema's own refine) and again here,
-// because compileEgressFilter is also reachable from eval/ scripts and tests that never pass
-// through the schema.
+// Rejection rather than widening for the ONE degenerate spelling -- a pattern that normalises to
+// nothing -- happens at config load (EgressConfigSchema's own refine) and again here, because
+// compileEgressFilter is also reachable from eval/ scripts and tests that never pass through the
+// schema. A bare double-star is NOT degenerate: it is the exclude-all form (withhold every note
+// from every hosted provider), a supported fully-local deployment, and it needs no widening
+// because it already is its own subtree.
 function normalizeExcludePattern(pattern: string): string[] {
   if (isUnusableEgressExcludePattern(pattern)) {
     throw new Error(
       `egress.excludePaths: unusable pattern ${JSON.stringify(pattern)} — it normalises to ` +
-        'nothing ("", "/", "./", whitespace) or to "**" (the whole vault). Name a real folder or ' +
-        "glob, or set plane.enabled to false to withhold everything.",
+        'nothing ("", "/", "./", or whitespace only), so it would exclude nothing at all. Name a ' +
+        'real folder or glob, or "**" to withhold the whole vault.',
     );
   }
   const cleaned = normalizeEgressExcludePattern(pattern);

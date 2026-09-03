@@ -225,13 +225,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // or constraint moved — text only.
   // THE-934 fix round 4 (2026-09-03), item 1: rebaselined again, and this time NOT text only —
   // the same key gains a per-item CONSTRAINT (a refine that refuses a pattern normalising to
-  // nothing, or to the whole vault), and its .describe() text was rewritten to state the full
-  // normalisation rule the round-3 clause described only one spelling of: a leading "/" or "./" is
-  // stripped, repeated separators collapse, and EVERY pattern also matches its subtree (so
-  // "/Private", "**/Private", "Private*/" and "Private/*" stop matching nothing). No key, type or
-  // default moved; the added constraint rejects only inputs that were previously accepted and then
-  // silently excluded nothing.
-  "890e776b81a44e27947e57b306cfaa46031239b3b6144d47b9dae31f47472612";
+  // nothing at all), and its .describe() text was rewritten to state the full normalisation rule
+  // the round-3 clause described only one spelling of: a leading "/" or "./" is stripped, repeated
+  // separators collapse, and EVERY pattern also matches its subtree (so "/Private", "**/Private",
+  // "Private*/" and "Private/*" stop matching nothing). No key, type or default moved; the added
+  // constraint rejects only inputs that were previously accepted and then silently excluded
+  // nothing. The exclude-all form ("**") stays VALID and is now named as such in the description —
+  // withholding every note from every hosted provider is a supported fully-local deployment, and
+  // refusing it would turn a valid config into a boot failure.
+  "28697d4b617aa7f33e98e9019eb99ae672e9541cfaf96e17af54d8037885cc73";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

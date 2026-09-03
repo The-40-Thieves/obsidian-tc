@@ -200,38 +200,114 @@ describe("pattern normalisation, the whole class (THE-934 fix round 4, 1)", () =
   });
 });
 
-// THE-934 fix round 4 (1) — the two degenerate spellings are REFUSED, not compiled. `""` (and a
-// leading-slash-only or whitespace-only variant of it) protects nothing while looking like a
-// configured exclusion; `**` withholds the entire vault from every plane job, which is a
-// whole-feature off switch that belongs in `plane.enabled`. Both must fail at CONFIG LOAD, and the
-// schema's refine and the compiler must agree on the set — a compiler that throws on a pattern the
-// schema accepts turns a typo into a boot crash, and the reverse leaves the compiler unreachable.
-describe("unusable patterns are refused at config load AND by the compiler (THE-934 fix round 4, 1)", () => {
-  const UNUSABLE = ["", " ", "   ", "/", "./", "//", "**", "**/"];
-  const USABLE = ["Private", "Private/", "Private/**", "/Private", "**/Private", "*", "Private/*"];
+// THE-934 fix round 4 (1) — ONE degenerate spelling is REFUSED, not compiled: a pattern that
+// normalises to nothing (`""`, and its leading-slash-only or whitespace-only variants), which sits
+// in a config looking like a configured exclusion while protecting nothing. It must fail at CONFIG
+// LOAD, and the schema's refine and the compiler must agree on the set — a compiler that throws on
+// a pattern the schema accepts turns a typo into a boot crash, and the reverse leaves the compiler
+// unreachable. `**` is deliberately NOT in that set; see the exclude-all describe below.
+const parseConfigWith = (excludePaths: string[]) =>
+  ServerConfigSchema.safeParse({
+    vaults: [{ id: "v", path: "/tmp/vault" }],
+    egress: { excludePaths },
+  });
 
-  const parseWith = (excludePaths: string[]) =>
-    ServerConfigSchema.safeParse({
-      vaults: [{ id: "v", path: "/tmp/vault" }],
-      egress: { excludePaths },
-    });
+describe("unusable patterns are refused at config load AND by the compiler (THE-934 fix round 4, 1)", () => {
+  const UNUSABLE = ["", " ", "   ", "/", "./", "//"];
+  const USABLE = [
+    "Private",
+    "Private/",
+    "Private/**",
+    "/Private",
+    "**/Private",
+    "*",
+    "Private/*",
+    "**",
+    "**/",
+  ];
 
   for (const pattern of UNUSABLE) {
     it(`${JSON.stringify(pattern)} is refused by both the schema and compileEgressFilter`, () => {
-      expect(parseWith([pattern]).success).toBe(false);
+      expect(parseConfigWith([pattern]).success).toBe(false);
       expect(() => compileEgressFilter([pattern])).toThrow(/unusable pattern/);
     });
   }
 
   for (const pattern of USABLE) {
     it(`${JSON.stringify(pattern)} is accepted by both`, () => {
-      expect(parseWith([pattern]).success).toBe(true);
+      expect(parseConfigWith([pattern]).success).toBe(true);
       expect(() => compileEgressFilter([pattern])).not.toThrow();
     });
   }
 
   it("the refusal names the offending pattern, so an operator can find it in their config", () => {
-    expect(() => compileEgressFilter(["Private/**", "**"])).toThrow(/"\*\*"/);
+    expect(() => compileEgressFilter(["Private/**", ""])).toThrow(/""/);
+  });
+});
+
+// THE-934 fix round 4 (1), corrected — `["**"]` is the EXCLUDE-ALL form and must stay VALID: it
+// withholds every note from every hosted provider, which is a legitimate fully-local deployment
+// (the plane still runs; nothing vault-derived leaves the machine through it). An earlier version
+// of this round refused it and pointed the operator at `plane.enabled: false`, which is a
+// DIFFERENT setting — it turns the consolidation jobs off entirely rather than keeping them local
+// — and which would have turned a previously valid config into a boot failure on upgrade.
+describe('"**" is the exclude-all form, valid and total (THE-934 fix round 4, 1)', () => {
+  const ALL_PATHS = [
+    "Private/journal.md",
+    "Public/a.md",
+    "root.md",
+    "deeply/nested/note.md",
+  ] as const;
+
+  it("loads through the real config schema", () => {
+    const parsed = parseConfigWith(["**"]);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.egress.excludePaths).toEqual(["**"]);
+  });
+
+  it("excludes a private AND a public note alike, at reconcile and at the port", async () => {
+    const filter = compileEgressFilter(["**"]);
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ embeddings: [[0.1, 0.2]] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as FetchFn;
+    const provider = createEmbeddingProvider(
+      { provider: "ollama", model: "nomic-embed-text", dimensions: 2 },
+      { fetchFn, excludeFilter: filter },
+    );
+    for (const path of ALL_PATHS) {
+      // 1. the reconcile-side predicate (IndexVaultArgs.isEgressExcluded wraps this)
+      expect(isExcludedPath(filter, path), `isExcludedPath(**, ${path})`).toBe(true);
+      // 2. the one predicate every port guard calls
+      expect(() => assertSourcePathsAllowed(filter, "embed", [path])).toThrow(EgressViolationError);
+      // 3. the real port, end to end
+      await expect(
+        provider.embed(["text"], { input: "document", sourcePaths: [path] }),
+      ).rejects.toBeInstanceOf(EgressViolationError);
+    }
+  });
+
+  it('"**/" is the same filter, so a trailing separator changes nothing', () => {
+    expect(compileEgressFilter(["**/"]).patterns).toEqual(compileEgressFilter(["**"]).patterns);
+  });
+
+  it("a request that declares NO vault paths still passes — exclude-all withholds content, it does not break the plane", async () => {
+    const filter = compileEgressFilter(["**"]);
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ embeddings: [[0.1, 0.2]] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as FetchFn;
+    const provider = createEmbeddingProvider(
+      { provider: "ollama", model: "nomic-embed-text", dimensions: 2 },
+      { fetchFn, excludeFilter: filter },
+    );
+    // `[]` is a real declaration ("this request carries no vault content") and is unaffected by
+    // how wide the filter is — the query leg and the episode-summary leg both rely on it.
+    await expect(
+      provider.embed(["text"], { input: "document", sourcePaths: [] }),
+    ).resolves.toBeDefined();
   });
 });
 
