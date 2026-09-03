@@ -44,14 +44,19 @@ release-tag prerequisite.
   `smithery mcp publish ./dist/obsidian-tc.mcpb -n <qualified-name>`.
 - Expected: the CLI prints a server URL on success.
 - Verify: open the printed URL (`https://smithery.ai/server/<qualified-name>`) and confirm the
-  listing shows the current version, description, and a link back to the GitHub repo.
+  listing shows the current version, description, and a link back to the GitHub repo. **Check the
+  actual page, not just a clean CLI exit** — `smithery.md`'s defect section documents an open bug
+  (`arcadeai-labs/smithery-cli#787`) where our exact manifest shape (no `tools`, `tools_generated:
+  true`) has produced either a hard `400 {"error":"No values to set"}` with no listing at all, or a
+  live listing showing "No capabilities found."
 
 ## 5. mcp.so — manual, owner
 
 - Full steps + citations: [`mcp-so.md`](./mcp-so.md) (this task).
-- Primary: <https://mcp.so/submit> (public GitHub MCP servers only). Fallback: comment on
-  [`chatmcp/mcp-directory#1`](https://github.com/chatmcp/mcp-directory/issues/1) with the repo
-  link.
+- Primary: comment on [`chatmcp/mcpso#1`](https://github.com/chatmcp/mcpso/issues/1) with the repo
+  link — free, no review gate mentioned. Optional: <https://mcp.so/submit>, a **$39 one-time paid**
+  submission (publish without review, verified badge, featured placement, dofollow link) — the
+  owner's call, not a default.
 - Verify: the listing appears at `https://mcp.so/servers/<slug>` (slug assigned by mcp.so — search
   the mcp.so homepage for "obsidian-tc" or "The 40 Thieves" if the slug isn't obvious).
 
@@ -69,6 +74,9 @@ release-tag prerequisite.
 
 - Same mechanism as Glama — scrapes the official registry, no submission, nothing to fire beyond
   item 1.
+- Expected: an obsidian-tc listing at `https://www.pulsemcp.com/servers/<slug>` (slug assigned by
+  PulseMCP), showing the registry description and linking back to the GitHub repo — same shape and
+  same lag caveat as item 6.
 - Verify: browse/search <https://www.pulsemcp.com/servers> for "obsidian-tc" or "The 40 Thieves";
   an exact search query-string shape was not confirmed today, so use the on-page search box rather
   than a constructed URL.
