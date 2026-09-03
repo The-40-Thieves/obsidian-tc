@@ -93,7 +93,7 @@ cd packages/plugin
 bun run dev              # esbuild watch mode
 ```
 
-Symlink `packages/plugin/dist/` into your test vault's `.obsidian/plugins/obsidian-tc/` directory —
+Symlink `packages/plugin/dist/` into your test vault's `.obsidian/plugins/tc-bridge/` directory —
 `just link-plugin <path-to-vault>` does this for you (building the plugin first if needed; run it
 again after any `manifest.json` change). For example, against the scratch vault above:
 `just link-plugin examples/scratch-vault`. Enable the plugin in Obsidian Community Plugins.

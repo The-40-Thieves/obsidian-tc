@@ -1,11 +1,10 @@
 {
-  "id": "obsidian-tc",
-  "name": "Obsidian Turbocharged",
+  "id": "tc-bridge",
+  "name": "TC Bridge",
   "version": "1.25.0",
   "minAppVersion": "1.7.0",
-  "description": "Companion plugin for the obsidian-tc MCP server. Extends Local REST API with command dispatch and plugin firepower bridges.",
+  "description": "Companion bridge plugin for The 40 Thieves' vault-access MCP server. Extends Local REST API with command dispatch and plugin firepower bridges.",
   "author": "The 40 Thieves",
   "authorUrl": "https://github.com/The-40-Thieves",
-  "fundingUrl": "",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }

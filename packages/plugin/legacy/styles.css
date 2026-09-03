@@ -1,0 +1,3 @@
+/* obsidian-tc (final release, THE-943) — this build renders no UI, only a startup Notice. Kept
+ * as an empty file so this build still ships the manifest.json + main.js + styles.css set BRAT
+ * and manual installs expect (matching ../styles.css's own reasoning, THE-206). */

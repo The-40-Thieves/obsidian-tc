@@ -1,6 +1,8 @@
 # @the-40-thieves/obsidian-tc-plugin
 
-Companion Obsidian plugin for the obsidian-tc MCP server.
+Companion Obsidian plugin for the obsidian-tc MCP server, shipped under the manifest id
+`tc-bridge` / name "TC Bridge" (renamed from `obsidian-tc` / "Obsidian Turbocharged", THE-943 —
+see "Renamed to TC Bridge" below; the npm package name above is unaffected).
 
 Extends the Local REST API plugin with namespaced endpoints for:
 
@@ -33,15 +35,42 @@ protect the **MCP surface**, not direct LRA / companion HTTP calls. See
 The server writes direct-to-disk; see [docs/COHERENCE.md](../../docs/COHERENCE.md) for the
 sole-agent-writer contract, open-pane refresh caveats, and Windows rename semantics.
 
+## Renamed to TC Bridge (THE-943)
+
+Obsidian's community-directory rules ban the word "obsidian" in a plugin id (verified via
+context7 against `obsidianmd/obsidian-developer-docs`, 2026-09-03), so this plugin's Obsidian
+manifest changed from id `obsidian-tc` / name "Obsidian Turbocharged" to id `tc-bridge` / name
+"TC Bridge". The npm package name (`@the-40-thieves/obsidian-tc-plugin`, this file's own header)
+and the MCP server's own name (`obsidian-tc`) are unaffected — only the Obsidian-facing manifest
+`id`/`name`/`description` changed.
+
+- **Settings migration**: on first load, if `<vault>/.obsidian/plugins/obsidian-tc/data.json`
+  exists and `<vault>/.obsidian/plugins/tc-bridge/data.json` does not yet, TC Bridge copies it
+  over and shows one notice. Existing users keep their LRA key / config across the rename.
+- **Conflict guard**: if the old `obsidian-tc` plugin is still *enabled* when TC Bridge loads, TC
+  Bridge refuses to start and shows a notice naming the conflict — running both together would
+  register the same bridge routes on Local REST API twice. Disable `obsidian-tc` first.
+- **Old-id sunset build**: `packages/plugin/legacy/` builds one final `obsidian-tc` release (id
+  and name unchanged, manifest version bumped once) that does nothing but show a notice pointing
+  installed users at TC Bridge. It is built by the release job (`.github/workflows/publish.yml`,
+  `build-plugin`) as a separate artifact and never updates again.
+- Manual-install path for existing users: BRAT users repoint their tracked repo entry at the same
+  repository (the manifest `id` BRAT reads changed, not the repo); direct/zip installs replace
+  the plugin folder contents with the `tc-bridge` release assets and rename the folder itself
+  from `obsidian-tc` to `tc-bridge` — Obsidian requires the folder name to match `manifest.id`.
+  See `docs/superpowers/plans/2026-09-03-listings/community-obsidian.md` for the prepared (not
+  yet submitted) community-directory listing text.
+
 ## Community-store submission notes (THE-282)
 
 - `versions.json` (version → `minAppVersion`) lives beside `manifest.json` in this package and is
   asserted by `scripts/check-version-coherence.mjs`. **Obsidian's release tooling reads
   `manifest.json`/`versions.json` from the plugin repository ROOT** — a store submission requires
   either a dedicated plugin repo or copying both files to the monorepo root at release time.
-- `isDesktopOnly: false` is deliberate: the plugin opens no port of its own (it rides the Local
-  REST API plugin's server); on platforms without LRA it simply never registers routes and
-  degrades cleanly.
+- `isDesktopOnly: true`: TC Bridge bridges to a locally-running MCP server via the Local REST API
+  plugin, which has no mobile-Obsidian equivalent for that local access — the same convention
+  comparable bridge plugins use (verified 2026-09-03). It opens no port of its own; on platforms
+  without LRA it simply never registers routes and degrades cleanly.
 
 ## Private-API reliance (reviewer inventory)
 

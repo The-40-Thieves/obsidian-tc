@@ -1,11 +1,17 @@
-// obsidian-tc companion plugin entry point (THE-180, G2.2 §3.1). It does NOT open a
-// port of its own: it attaches the /obsidian-tc/v1/* bridge routes onto the Local
-// REST API plugin's HTTP server, reusing that plugin's TLS + bearer-token auth (the
-// shared key the MCP server reads from config/env). If Local REST API is absent or
-// exposes no extension surface, the routes are simply not registered — the server's
-// probe then reports the companion unreachable and every bridge tool degrades. The
-// plugin holds no secrets and logs none.
-import { Plugin, type PluginManifest } from "obsidian";
+// TC Bridge (id tc-bridge, formerly obsidian-tc / "Obsidian Turbocharged" — renamed THE-943 so
+// the plugin can list in the community directory, whose rules ban "obsidian" in a plugin id) —
+// companion plugin entry point (THE-180, G2.2 §3.1). It does NOT open a port of its own: it
+// attaches the /obsidian-tc/v1/* bridge routes onto the Local REST API plugin's HTTP server,
+// reusing that plugin's TLS + bearer-token auth (the shared key the MCP server reads from
+// config/env). If Local REST API is absent or exposes no extension surface, the routes are simply
+// not registered — the server's probe then reports the companion unreachable and every bridge
+// tool degrades. The plugin holds no secrets and logs none.
+//
+// NOTE: the bridge route prefix (/obsidian-tc/v1, below) is the SERVER's DEFAULT_API_PREFIX
+// (packages/server) and is NOT part of the Obsidian manifest id/name the rename covers — changing
+// it is a server-side wire-protocol change out of THE-943's scope, not a leftover.
+import { Notice, Plugin, type PluginManifest } from "obsidian";
+import { OLD_PLUGIN_ID, runMigrationAndConflictGuard } from "./migration";
 import { buildRoutes, type RouteDef } from "./routes";
 
 const LRA_ID = "obsidian-local-rest-api";
@@ -33,10 +39,18 @@ interface LocalRestApiPlugin {
   api?: { addRoute?(path: string): AddRouteBuilder };
 }
 interface AppWithPlugins {
-  plugins?: { plugins: Record<string, LocalRestApiPlugin | undefined> };
+  plugins?: {
+    plugins: Record<string, LocalRestApiPlugin | undefined>;
+    // Undocumented Obsidian internal (not in the public d.ts, same as `plugins.plugins` above):
+    // the set of currently-ENABLED plugin ids, keyed the same as `plugins.plugins`. Used only by
+    // the conflict guard (THE-943) to detect the old `obsidian-tc` id still running alongside
+    // this one. Duck-typed with the same fail-open posture as the rest of this file: if the shape
+    // has moved, isOldPluginEnabled() below reports "not enabled" rather than blocking startup.
+    enabledPlugins?: { has(id: string): boolean };
+  };
 }
 
-export default class ObsidianTcCompanion extends Plugin {
+export default class TcBridge extends Plugin {
   override async onload(): Promise<void> {
     // THE-282: startup shape self-check over the Obsidian internals this plugin duck-types.
     // A failed check degrades honestly (one console.warn + surfaced on /probe) instead of
@@ -44,26 +58,44 @@ export default class ObsidianTcCompanion extends Plugin {
     const shapeWarnings: string[] = [];
     const anyApp = this.app as unknown as {
       commands?: { listCommands?: unknown };
-      plugins?: { plugins?: unknown };
+      plugins?: { plugins?: unknown; enabledPlugins?: unknown };
     };
     if (typeof anyApp.commands?.listCommands !== "function")
       shapeWarnings.push("app.commands.listCommands is not a function");
     if (typeof anyApp.plugins?.plugins !== "object" || anyApp.plugins?.plugins === null)
       shapeWarnings.push("app.plugins.plugins is not an object");
+    const enabledPluginsOk =
+      typeof (anyApp.plugins?.enabledPlugins as { has?: unknown } | undefined)?.has === "function";
+    if (!enabledPluginsOk) shapeWarnings.push("app.plugins.enabledPlugins is not a Set-like");
+
+    // THE-943: rename settings migration + old-id conflict guard. Runs before route registration
+    // so a detected conflict never registers duplicate bridge routes.
+    const proceed = await runMigrationAndConflictGuard({
+      adapter: this.app.vault.adapter,
+      configDir: this.app.vault.configDir,
+      pluginDir: this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`,
+      notice: (message) => new Notice(message, 0),
+      isOldPluginEnabled: () =>
+        enabledPluginsOk &&
+        ((this.app as unknown as AppWithPlugins).plugins?.enabledPlugins?.has(OLD_PLUGIN_ID) ??
+          false),
+    });
+    if (!proceed) return;
+
     const routes = buildRoutes(this.app, this.manifest.version, shapeWarnings);
     const count = this.registerBridgeRoutes(routes);
     if (count === null) {
       // NOTE: when registration fails, /probe was never attached either — console is the only
       // surface for this failure mode (documented, THE-282).
       console.warn(
-        "[obsidian-tc] Local REST API plugin not found (or no extension API); bridge routes not registered. Install/enable the Local REST API plugin.",
+        "[tc-bridge] Local REST API plugin not found (or no extension API); bridge routes not registered. Install/enable the Local REST API plugin.",
       );
     } else {
       if (shapeWarnings.length)
         console.warn(
-          `[obsidian-tc] degraded: ${shapeWarnings.join("; ")} — Obsidian internals may have moved; some bridges will degrade.`,
+          `[tc-bridge] degraded: ${shapeWarnings.join("; ")} — Obsidian internals may have moved; some bridges will degrade.`,
         );
-      console.info(`[obsidian-tc] registered ${count} bridge routes under /obsidian-tc/v1`);
+      console.info(`[tc-bridge] registered ${count} bridge routes under /obsidian-tc/v1`);
     }
   }
 
