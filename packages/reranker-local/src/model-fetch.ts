@@ -1,30 +1,19 @@
-// THE-944 — shared verified-download machinery for the pinned cross-encoder weights. ONE place
-// owns "download, verify against model-info.ts, atomic rename" so the two consumers can never
-// drift on what "verified" means:
-//   * src/index.ts's loadSession — the provider's own first-use lazy fetch (THE-944).
-//   * scripts/fetch-model.mjs — the manual/offline/CI alternative (THE-705), now a thin CLI wrapper
-//     around this module.
-//
-// Deliberately NOT imported by model-info.ts or index.ts at top level in a way that would reach the
-// network at import time — this module's exports only touch the network when actually CALLED (see
-// index.ts's header comment on why that invariant matters for the cold-start perf gate).
+// THE-944 — shared verified-download machinery for the pinned cross-encoder weights, used by both
+// index.ts's loadSession and scripts/fetch-model.mjs so they can't drift on what "verified" means.
+// Not imported anywhere in a way that reaches the network at import time — only when CALLED.
 import { createHash } from "node:crypto";
 import { createWriteStream, type Dirent } from "node:fs";
 import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { MODEL_ID, MODEL_REVISION, PINNED_FILES, type PinnedFile } from "./model-info.js";
 
-/** THE-944 review round 1 ("Also"/F11): refuse a DOWNLOAD (never a read of already-verified,
- *  pre-staged files — see fetchAndVerifyModel below) on a platform with no onnxruntime-node native
- *  prebuild, so an auto-selected deployment on darwin-x64/musl never spends the ~23 MB download only
- *  to fail later at model-load time inside @huggingface/transformers. Deliberately DUPLICATED, not
- *  imported, from packages/server/src/doctor/checks.ts's `onnxNativePrebuildStatus`: this package is
- *  standalone on purpose (see README.md's "why this package is NOT a root workspace member") and
- *  must not depend on packages/server. Keep both in sync if onnxruntime-node's supported-platform
- *  matrix changes — confirmed today: linux x64/arm64 glibc, darwin arm64, win32 x64/arm64 only; musl
- *  and darwin x64 have none. Same musl-detection technique (process.report's own
- *  `header.glibcVersionRuntime`, present on glibc, absent on musl) — dependency-free, not airtight
- *  against an unusual custom Node build. */
+/** Refuses a DOWNLOAD (never a read of already-verified files) on a platform with no
+ *  onnxruntime-node native prebuild: linux x64/arm64 glibc, darwin arm64, win32 x64/arm64 only —
+ *  musl and darwin-x64 have none. Duplicated, not imported, from packages/server's
+ *  `onnxNativePrebuildStatus` (this package stays dependency-free of packages/server; keep both
+ *  in sync if the matrix changes). musl detection via `process.report`'s own
+ *  `header.glibcVersionRuntime` (present on glibc, absent on musl) — not airtight against an
+ *  unusual custom Node build. */
 export function unsupportedPlatformReason(
   opts: { platform?: NodeJS.Platform; arch?: string; isMuslRuntime?: () => boolean } = {},
 ): string | undefined {
@@ -62,27 +51,20 @@ export interface FileVerifyResult {
   reason?: string;
 }
 
-/** Every production caller uses the real pinned constants and the platform `fetch`. Tests inject a
- *  tiny synthetic model spec + a stubbed `fetchFn` so the WHOLE pipeline (download, verify, atomic
- *  rename, one retry) is exercisable fast and deterministically, without touching the network or
- *  the real ~23 MB onnx file — the same injection idiom providers/registry.ts's
- *  `resolveLocalRerankerModule` and `buildLocalReranker` already use for their own real ladders. */
+/** Every production caller uses the real pinned constants and the platform `fetch`. Tests inject
+ *  a tiny synthetic model spec + a stubbed `fetchFn` so the whole pipeline is exercisable fast and
+ *  deterministically, without touching the network or the real ~23 MB onnx file. */
 export interface ModelFetchSpec {
   modelId?: string;
   revision?: string;
   pinnedFiles?: readonly PinnedFile[];
   fetchFn?: typeof fetch;
-  /** Forwarded verbatim to `unsupportedPlatformReason` — real callers never set this (it reads the
-   *  REAL process); tests use it to exercise the darwin-x64/musl branches without faking ambient
-   *  `process.platform`. */
+  /** Forwarded to `unsupportedPlatformReason`; real callers never set this. */
   platformOverride?: Parameters<typeof unsupportedPlatformReason>[0];
-  /** THE-944 review round 2 (G1): how old a lock (its `owner.json`'s `startedAt`) may be before a
-   *  NEW fetcher takes it over instead of waiting — real callers never set this (see
-   *  `acquireLockOrObserveVerified`'s own comment for the default and why). Tests shrink it to make
-   *  a stale-lock takeover assertable in milliseconds instead of minutes. */
+  /** How old a lock may be before a new fetcher takes it over instead of waiting (see
+   *  `acquireLockOrObserveVerified`); real callers never set this. */
   lockStaleMs?: number;
-  /** THE-944 review round 2 (G1): how long to sleep between lock-acquisition polls — real callers
-   *  never set this. Tests shrink it so a two-fetcher race resolves in milliseconds. */
+  /** How long to sleep between lock-acquisition polls; real callers never set this. */
   lockPollMs?: number;
 }
 
@@ -95,9 +77,8 @@ interface ResolvedSpec {
   lockPollMs: number;
 }
 
-const DEFAULT_LOCK_STALE_MS = 10 * 60 * 1000; // 10 minutes: a healthy ~23 MB fetch (+ one retry)
-// finishes in well under this even on a slow connection; a lock older than this almost certainly
-// belongs to a process that crashed mid-download, not one still legitimately working.
+// 10 minutes: well over a healthy ~23 MB fetch (+ retry); older almost certainly means crashed.
+const DEFAULT_LOCK_STALE_MS = 10 * 60 * 1000;
 const DEFAULT_LOCK_POLL_MS = 200;
 
 function resolveSpec(spec: ModelFetchSpec = {}): ResolvedSpec {
@@ -116,15 +97,10 @@ async function sha256File(path: string): Promise<string> {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-/** THE-944 review round 2 (G2): every relative FILE path actually present under `dir` — a
- *  recursive walk using `readdir(..., { withFileTypes: true })`, whose `Dirent` classification
- *  (`isSymbolicLink()`/`isDirectory()`/`isFile()`) reflects the entry itself (lstat-like), never
- *  the target of a symlink. A symlinked entry is recorded as a leaf (never descended into, never
- *  trusted as a directory) so `verifyModelDir` below can flag it as "not one of the pinned files"
- *  even when its NAME happens to collide with a real subdirectory (e.g. a symlink named `onnx`
- *  pointing elsewhere). Missing `dir` -> empty list, not an error: a not-yet-created target
- *  directory is simply "nothing here yet", which `verifyModelDir`'s per-pinned-file loop already
- *  reports as "missing" on its own. */
+/** Every relative entry present under `dir`, recursively. `readdir`'s `Dirent` classification
+ *  reflects the entry itself (lstat-like), never a symlink's target, so a symlink is recorded as a
+ *  leaf — never descended into, never mistaken for a real subdirectory. Missing `dir` -> empty
+ *  list; `verifyModelDir` already reports that as "missing" per pinned file. */
 async function listRelativeEntries(dir: string): Promise<{ rel: string; symlink: boolean }[]> {
   const out: { rel: string; symlink: boolean }[] = [];
   async function walk(sub: string): Promise<void> {
@@ -149,17 +125,11 @@ async function listRelativeEntries(dir: string): Promise<{ rel: string; symlink:
   return out;
 }
 
-/** THE-944 review round 3 (NB2): OS-generated housekeeping files a file browser or archive tool
- *  drops into ANY folder it merely touches — matched by BASENAME regardless of directory depth
- *  (Finder drops `.DS_Store` into every browsed folder, including `onnx/`), not gated on the
- *  system this package's own CI runs on, since a cache directory can be inspected from a different
- *  OS than the one that populated it (a macOS operator browsing a Linux-deployed cache over SMB, a
- *  Windows Explorer thumbnail cache written after a colleague copied the directory, an archive
- *  round-tripped through a tool that preserves these). Ignoring them (rather than refusing them
- *  like any other extraneous entry) is what keeps merely BROWSING an offline, pre-staged cache
- *  directory from bricking it on the next `verifyModelDir` — refusing everything else is
- *  unchanged. Deliberately a SMALL, exact allowlist, not a wildcard/prefix match: widening it would
- *  widen exactly the gap the extraneous-entry check exists to close. */
+/** OS-generated housekeeping files (Finder's `.DS_Store`, Windows' `Thumbs.db`/`desktop.ini`),
+ *  matched by BASENAME at any depth and ignored (not refused) so merely browsing an offline cache
+ *  doesn't brick it. A small, EXACT allowlist, never wildcard/prefix — widening it would widen the
+ *  gap the extraneous-entry check exists to close. Regular files only: a symlink borrowing a junk
+ *  basename is still a symlink and is refused (see the `!symlink &&` guard where this is used). */
 const IGNORED_OS_JUNK_BASENAMES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
 
 function isIgnoredOsJunk(relPath: string): boolean {
@@ -168,19 +138,14 @@ function isIgnoredOsJunk(relPath: string): boolean {
 }
 
 /** Checks every pinned file's presence, size, and sha256 under `modelDir` (the REVISION-scoped
- *  directory — see `modelDirFor`). Read-only, no network. Shared by the doctor-facing
- *  `bun run fetch-model --check` path and this module's own "is a re-download needed" check.
+ *  directory — see `modelDirFor`). Read-only, no network. Shared by `bun run fetch-model --check`
+ *  and this module's own "is a re-download needed" check.
  *
- *  THE-944 review round 2 (G2) hardening, against a plausible adversary with write access to the
- *  cache directory (a shared cache, a compromised sibling process, ...):
- *    1. `lstat`, never `stat`/`existsSync` — the pre-round-2 implementation FOLLOWED symlinks, so a
- *       pinned filename could be replaced with a symlink pointing at arbitrary bytes elsewhere on
- *       disk while this check still reported "verified" (it hashed whatever the link resolved to,
- *       which could change between verify and load — see G2's other requirement, `assertVerified`,
- *       for closing that half). A symlink is refused outright, never followed.
- *    2. Every entry actually present under `modelDir` (recursively) is compared against the exact
- *       pinned-file set — an EXTRA file (planted, not overwriting a known name) is refused too,
- *       closing the gap a per-pinned-file check alone cannot see. */
+ *  Hardened against a write-capable adversary on the cache directory: (1) `lstat`, never
+ *  `stat`/`existsSync` — those FOLLOW symlinks, so a pinned filename could be swapped for a
+ *  symlink pointing at arbitrary bytes while this still reports "verified"; a symlink is refused
+ *  outright. (2) every entry present is compared against the exact pinned-file set — an EXTRA
+ *  planted file (not overwriting a known name) is refused too. */
 export async function verifyModelDir(
   modelDir: string,
   spec: ModelFetchSpec = {},
@@ -222,8 +187,7 @@ export async function verifyModelDir(
   }
   const present = await listRelativeEntries(modelDir);
   for (const { rel, symlink } of present) {
-    // The OS-junk allowlist applies to REGULAR files only: a symlink that merely borrows a junk
-    // basename is still a symlink planted in the model directory, and is refused like any other.
+    // OS-junk allowlist applies to regular files only — a symlinked junk basename is still refused.
     if (expected.has(rel) || (!symlink && isIgnoredOsJunk(rel))) continue;
     results.push({
       file: { path: rel, sha256: "", sizeBytes: -1 },
@@ -234,26 +198,21 @@ export async function verifyModelDir(
   return results;
 }
 
-/** THE-944: the REVISION-scoped model directory under a `localModelPath` root —
- *  `<root>/<MODEL_ID>/<MODEL_REVISION>/`. Nesting the revision INSIDE the model-id segment (rather
- *  than the other way round) is deliberate, not incidental: this exact directory is what index.ts
- *  hands to `@huggingface/transformers`'s `from_pretrained` as `path_or_repo_id` — Transformers.js's
- *  own resource resolver (`buildResourcePaths` in its `utils/hub.js`) treats a `path_or_repo_id`
- *  that fails its `REPO_ID_REGEX` (anything with more than one `/`) as a literal directory rather
- *  than a Hub id, and reads `<path_or_repo_id>/<filename>` directly — env.localModelPath is never
- *  consulted for such a path. That is what lets this directory be revision-isolated (a future
- *  MODEL_REVISION bump gets its own directory, never silently serving stale files) while still
- *  resolving correctly through the library's real, verified-against-source path-join contract.
- *  Verified end-to-end against the real @huggingface/transformers 4.2.0 package (not just read from
- *  its source) — see test/integration.test.ts, which loads the real tokenizer+model this way. */
+/** The REVISION-scoped model directory under a `localModelPath` root —
+ *  `<root>/<MODEL_ID>/<MODEL_REVISION>/`. The revision is nested INSIDE the model-id segment
+ *  (not the other way round) because this exact directory is what index.ts hands to
+ *  `@huggingface/transformers`'s `from_pretrained` as `path_or_repo_id` — Transformers.js's own
+ *  resolver treats any `path_or_repo_id` with more than one `/` as a literal directory rather
+ *  than a Hub id, reading `<path_or_repo_id>/<filename>` directly. That keeps this directory
+ *  revision-isolated (a MODEL_REVISION bump gets its own directory, never serving stale files)
+ *  while still resolving through the library's real path-join contract. */
 export function modelDirFor(root: string, spec: ModelFetchSpec = {}): string {
   const { modelId, revision } = resolveSpec(spec);
   return join(root, modelId, revision);
 }
 
 /** True when every pinned file verifies clean AND at least one was checked (an empty pinned-files
- *  list is never "verified" — that would be vacuously true for a misconfigured spec). Shared by the
- *  cross-process lock's fast paths and `downloadAndVerifyInto`'s pre-publish re-check below. */
+ *  list is never "verified"). Shared by the lock's fast paths and the pre-publish re-check below. */
 async function isVerified(dir: string, spec: ModelFetchSpec): Promise<boolean> {
   const results = await verifyModelDir(dir, spec);
   return results.length > 0 && results.every((r) => r.ok);
@@ -263,9 +222,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** THE-944 review round 2 (G1): the cross-process lock directory for `finalDir` — a SIBLING path,
- *  never inside `finalDir` itself, so a lock can exist (or be taken over) independently of whatever
- *  state `finalDir` is in. */
+// The cross-process lock directory for `finalDir` — a SIBLING path, never inside `finalDir`
+// itself, so a lock can exist (or be taken over) independently of whatever state `finalDir` is in.
 function lockDirFor(finalDir: string): string {
   return `${finalDir}.lock`;
 }
@@ -288,17 +246,11 @@ async function readLockOwner(lockDir: string): Promise<LockOwner | undefined> {
   }
 }
 
-/** THE-944 review round 3 (G1): the lock's AGE for staleness purposes, in ms — `owner.json`'s own
- *  `startedAt` when it exists and parses (the precise value, set at acquisition time), falling back
- *  to the lock DIRECTORY's own mtime otherwise. Two reachable states need the fallback: a crash
- *  between `mkdir(lockDir)` and the owner-file write landing (now atomic — see
- *  `writeLockOwnerAtomic` — but a crash can still happen before EITHER the temp file or the rename
- *  completes, leaving no owner.json at all), and any other reason the file is unreadable. `mkdir`
- *  sets a fresh directory's mtime at creation time, so the fallback is never younger than the lock
- *  actually is — round 2's version treated a missing/unparseable owner.json as "not stale" forever,
- *  which is exactly the "waiter loops forever" defect this closes. `undefined` only when the lock
- *  directory itself is already gone (the holder released it between our EEXIST and this call) —
- *  not stale, just moot; the next loop iteration's `tryAcquireLock` succeeds normally. */
+/** The lock's AGE for staleness, in ms — `owner.json`'s `startedAt` when it exists and parses,
+ *  else the lock DIRECTORY's own mtime (a crash before the owner-file write lands leaves no
+ *  owner.json; `mkdir` sets a fresh directory's mtime at creation, so this fallback is never
+ *  younger than the lock actually is). `undefined` only when the lock directory is already gone —
+ *  not stale, just moot. */
 async function lockAgeMs(lockDir: string): Promise<number | undefined> {
   const owner = await readLockOwner(lockDir);
   if (owner) return Date.now() - owner.startedAt;
@@ -310,12 +262,8 @@ async function lockAgeMs(lockDir: string): Promise<number | undefined> {
   }
 }
 
-/** THE-944 review round 3 (G1): writes `owner.json` via temp-then-rename, matching the SAME
- *  atomicity contract the model files themselves already have (`downloadAndVerifyInto`) — a direct
- *  `writeFile` is not guaranteed to land in one filesystem operation, and a reader (`readLockOwner`)
- *  observing a partially-written file mid-flight would see a truncated, unparseable JSON payload
- *  and fall through to the mtime fallback above (correct, but avoidable). `rename` within the SAME
- *  directory is atomic on every filesystem this repo targets. */
+// Temp-then-rename, same atomicity contract as the model files themselves (downloadAndVerifyInto)
+// — a direct writeFile could leave a reader observing truncated JSON mid-write.
 async function writeLockOwnerAtomic(lockDir: string, owner: LockOwner): Promise<void> {
   const finalPath = join(lockDir, "owner.json");
   const tmpPath = join(lockDir, `owner.json.tmp-${process.pid}-${Date.now()}`);
@@ -324,17 +272,12 @@ async function writeLockOwnerAtomic(lockDir: string, owner: LockOwner): Promise<
 }
 
 /** `mkdir` (non-recursive) is the exclusive-create primitive: it throws EEXIST if `lockDir`
- *  already exists and is atomic on every filesystem this repo targets, which a lockFILE opened
- *  with `wx` is not guaranteed to be on every platform/filesystem combination (notably some
- *  network filesystems) — `mkdir` is the more portable of the two options THE-944's own fix
- *  request named. Returns false (never throws) when another holder already has it. */
+ *  already exists and is atomic on every filesystem this repo targets, unlike a lockFILE opened
+ *  with `wx` on some network filesystems. Returns false when another holder already has it. */
 async function tryAcquireLock(finalDir: string): Promise<boolean> {
   const lockDir = lockDirFor(finalDir);
-  // The PARENT of lockDir (== finalDir's own parent, e.g. <root>/<model-id>/) may not exist yet on
-  // a cold cache — recursive mkdir of the parent is idempotent and NOT the exclusivity boundary;
-  // only the final, non-recursive mkdir(lockDir) below is. Two racing processes both running this
-  // recursive mkdir concurrently is safe: it never throws EEXIST for an already-existing directory
-  // (unlike the non-recursive form), so it cannot itself cause a false "someone else has the lock".
+  // lockDir's PARENT may not exist yet on a cold cache; recursive mkdir here is idempotent and NOT
+  // the exclusivity boundary — only the non-recursive mkdir(lockDir) below is.
   await mkdir(dirname(lockDir), { recursive: true });
   try {
     await mkdir(lockDir);
@@ -342,8 +285,6 @@ async function tryAcquireLock(finalDir: string): Promise<boolean> {
     if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
     throw e;
   }
-  // Record who holds it (diagnostic + the precise staleness clock when available — see
-  // lockAgeMs's own comment for the fallback that covers a crash before this write ever lands).
   await writeLockOwnerAtomic(lockDir, { pid: process.pid, startedAt: Date.now() });
   return true;
 }
@@ -352,33 +293,19 @@ async function releaseLock(finalDir: string): Promise<void> {
   await rm(lockDirFor(finalDir), { recursive: true, force: true });
 }
 
-/** THE-944 review round 3 (G1): a waiter gives up after this many multiples of `lockStaleMs` and
- *  throws instead of polling forever — a backstop UNDERNEATH the stale-takeover check above, for
- *  whatever `lockAgeMs` cannot itself observe (e.g. a filesystem that does not update mtime the way
- *  this code assumes, or a clock anomaly). Under normal operation the stale-takeover check already
- *  fires well before this deadline; reaching it at all means something is wrong enough that a clear
- *  error naming the lock path is more useful than an indefinite hang. */
+// A waiter gives up after this many multiples of `lockStaleMs` and throws rather than polling
+// forever — a backstop under the stale-takeover check for whatever `lockAgeMs` can't observe.
 const LOCK_WAIT_DEADLINE_MULTIPLIER = 3;
 
 /** Waits (polling) until EITHER (a) this process acquires the exclusive lock for `finalDir`, or
- *  (b) `finalDir` becomes independently verified — by whoever currently holds the lock finishing
- *  its own publish — in which case NO lock is ever acquired by this call at all. That second
- *  outcome is the whole point: two processes racing to populate the SAME cold cache should not both
- *  download; the second one should notice the first one's work and use it.
- *
- *  A lock older than `lockStaleMs` (default 10 minutes — see that constant's own comment) is taken
- *  over: removed and retried immediately, rather than waited on forever. A holder that crashed
- *  mid-download (killed, OOM, ...) would otherwise wedge every future fetch on this path permanently
- *  — the SAME "a transient failure must not permanently wedge the reranker" principle
- *  index.ts's `sessions` memo already documents for the in-process case.
- *
- *  THE-944 review round 3 (G1): staleness is now measured via `lockAgeMs` (owner.json's precise
- *  `startedAt` when readable, the lock directory's own mtime otherwise — see that function's own
- *  comment for why a missing/unparseable owner.json must not read as "not stale forever"), AND a
- *  hard overall deadline (`lockStaleMs * LOCK_WAIT_DEADLINE_MULTIPLIER`) throws a clear, actionable
- *  error naming the lock path rather than sleeping indefinitely — a `for (;;)` loop with no upper
- *  bound is exactly what let a stuck waiter's promise sit in index.ts's `sessions` memo forever,
- *  wedging every later `rerank()` call with no error and no log. */
+ *  (b) `finalDir` becomes independently verified by whoever holds the lock finishing its publish
+ *  — in which case NO lock is ever acquired here. Two processes racing to populate the SAME cold
+ *  cache should not both download; the second should notice the first's work and use it. A lock
+ *  older than `lockStaleMs` is taken over (removed, retried immediately) rather than waited on
+ *  forever, so a crashed holder can't wedge every future fetch. The overall deadline
+ *  (`lockStaleMs * LOCK_WAIT_DEADLINE_MULTIPLIER`) backstops whatever staleness detection can't
+ *  itself observe — an unbounded wait would leave a stuck promise wedging every `rerank()` call
+ *  with no error. */
 async function acquireLockOrObserveVerified(
   finalDir: string,
   spec: ModelFetchSpec,
@@ -407,20 +334,12 @@ async function acquireLockOrObserveVerified(
 }
 
 /** Downloads every pinned file into a fresh TEMP directory beside `finalDir`, verifies the WHOLE
- *  batch, and only then renames the temp directory over `finalDir` in one `rename()` call —
- *  `finalDir` therefore only ever transitions from "previous state" to "fully verified new state";
- *  no reader can ever observe a partially-downloaded set of files at the real path. One retry (a
- *  second, fresh temp dir) before giving up — deliberately whole-batch rather than per-file: this
- *  model is one ~23 MB file plus five small ones, so re-fetching everything on any single failure
- *  trades a little bandwidth for never having to reason about a half-good, half-bad directory.
- *
- *  THE-944 review round 2 (G1): called only while this process holds the cross-process lock (see
- *  `fetchAndVerifyModel` below), so under normal operation nothing else can be racing on the SAME
- *  `finalDir` while this runs. The "never rm a finalDir that verifies" re-check right before
- *  publish is defense in depth on top of that, not instead of it: if `finalDir` already verifies
- *  clean by the time this attempt is ready to publish (a bug in the locking, or a legitimate
- *  outside actor having populated it), this attempt's own temp dir is discarded as redundant rather
- *  than replacing a directory that is already good. */
+ *  batch, then renames the temp directory over `finalDir` in one `rename()` call — `finalDir` only
+ *  ever transitions from "previous state" to "fully verified new state"; no reader observes a
+ *  partial download. One retry (fresh temp dir) before giving up — whole-batch rather than
+ *  per-file trades bandwidth for never reasoning about a half-good directory. Called only while
+ *  holding the cross-process lock; the "never rm a finalDir that verifies" re-check is defense in
+ *  depth on top of that. */
 async function downloadAndVerifyInto(finalDir: string, resolved: ResolvedSpec): Promise<void> {
   const { modelId, revision, pinnedFiles, fetchFn } = resolved;
   let lastError: unknown;
@@ -431,9 +350,7 @@ async function downloadAndVerifyInto(finalDir: string, resolved: ResolvedSpec): 
         const url = `https://huggingface.co/${modelId}/resolve/${revision}/${f.path}`;
         await downloadFile(fetchFn, url, join(tmpDir, f.path));
       }
-      // Verifies the TEMP dir before it is ever treated as a publish candidate — the SAME
-      // lstat/symlink/extraneous-entry hardened check `verifyModelDir` runs on `finalDir` at
-      // publish time and again in `assertVerified` right before load (G2).
+      // Same hardened check verifyModelDir runs on finalDir at publish time and in assertVerified.
       const results = await verifyModelDir(tmpDir, { pinnedFiles });
       const bad = results.filter((r) => !r.ok);
       if (bad.length > 0) {
@@ -442,7 +359,6 @@ async function downloadAndVerifyInto(finalDir: string, resolved: ResolvedSpec): 
             bad.map((r) => `${r.file.path} (${r.reason})`).join(", "),
         );
       }
-      // G1: never rm a finalDir that ALREADY verifies — see this function's own header comment.
       if (await isVerified(finalDir, { pinnedFiles })) {
         await rm(tmpDir, { recursive: true, force: true });
         return;
@@ -459,21 +375,11 @@ async function downloadAndVerifyInto(finalDir: string, resolved: ResolvedSpec): 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-/** THE-944 review round 2 (G4), hardened further in round 3 (NB4): a compromised/MITM'd
- *  huggingface.co response (or a malicious mirror someone points `modelId` at via an injected
- *  spec) could redirect this download to an arbitrary host. HF's own redirect chain genuinely
- *  leaves huggingface.co for a separate host to serve the actual bytes of LFS/Xet-tracked files —
- *  observed LIVE today (2026-09-03) via `curl -sI -L` against this package's own pinned URL: the
- *  ~23 MB onnx file 302s from `huggingface.co/.../resolve/...` to
- *  `https://us.aws.cdn.hf.co/xet-bridge-us/...`; the small non-LFS files (config.json,
- *  tokenizer.json, vocab.txt, ...) 307 to a SAME-host `/api/resolve-cache/...` path instead.
- *  Specific CDN hostnames have changed, unannounced, more than once (`cdn-lfs.huggingface.co` ->
- *  `cdn-lfs.hf.co`, then Xet's `*.xethub.hf.co` / `*.aws.cdn.hf.co` bridge hosts) — see
- *  https://discuss.huggingface.co/t/hf-hub-cdn-urls-changes-notifications/114653 and
- *  https://discuss.huggingface.co/t/how-to-get-a-list-of-all-huggingface-download-redirections-to-whitelist/30486 —
- *  so this pins the two SUFFIXES Hugging Face's own community guidance says cover every current
- *  and future storage/CDN host ("huggingface.co" and "hf.co"), not a fixed hostname list that
- *  would need updating every time HF reshuffles its CDN. */
+/** THE REDIRECT HOST RULE: HF's own redirect chain leaves huggingface.co for a separate host to
+ *  serve LFS/Xet-tracked file bytes (e.g. `us.aws.cdn.hf.co`), and specific CDN hostnames have
+ *  changed, unannounced, more than once. So this pins the two SUFFIXES Hugging Face's own
+ *  community guidance says cover every current and future storage/CDN host ("huggingface.co" and
+ *  "hf.co") rather than a fixed hostname list. */
 const ALLOWED_DOWNLOAD_HOST_SUFFIXES = ["huggingface.co", "hf.co"];
 
 function isAllowedDownloadHost(hostname: string): boolean {
@@ -490,17 +396,10 @@ function hostnameOf(urlString: string): string {
   }
 }
 
-/** THE-944 review round 3 (NB4): round 2's version checked `res.url` (the FINAL url) AFTER `fetch`
- *  had already followed every redirect on its own — the request to the off-allowlist host had
- *  already been made (headers sent, body offered to it) by the time the check ran; only the BYTES
- *  were refused. This checks each hop's `Location` header against the allowlist BEFORE ever
- *  connecting to it: `redirect: "manual"` stops `fetchFn` from auto-following (confirmed against
- *  this repo's real fetch — Bun's `redirect: "manual"` returns the REAL 3xx status and headers,
- *  not a browser-style opaque redirect, so `Location` is genuinely readable), and this loop
- *  resolves each `Location` against the CURRENT url (a relative Location, as HF's own small-file
- *  redirect uses, stays same-host by construction) and re-checks the allowlist every hop. A small
- *  bounded hop count (5 — HF's own chain is 1-2 today) refuses an absurd or malicious redirect
- *  loop rather than following indefinitely. */
+/** `redirect: "manual"` stops `fetchFn` from auto-following, so each hop's `Location` header is
+ *  checked against the allowlist BEFORE ever connecting to it (Bun returns the real 3xx status and
+ *  headers, not an opaque redirect). A relative Location resolves against the CURRENT url; a small
+ *  bounded hop count refuses a malicious redirect loop rather than following indefinitely. */
 const MAX_REDIRECT_HOPS = 5;
 
 async function fetchFollowingAllowedRedirects(
@@ -512,9 +411,7 @@ async function fetchFollowingAllowedRedirects(
     const res = await fetchFn(currentUrl, { redirect: "manual" });
     const isRedirect = res.status >= 300 && res.status < 400;
     if (!isRedirect) {
-      // The final, actually-connected-to host is `currentUrl`'s own — `res.url` is not trusted
-      // here either (with `redirect: "manual"`, a real fetch implementation leaves it as the
-      // REQUESTED url regardless, but this does not depend on that either way).
+      // The final, actually-connected-to host is currentUrl's own — res.url is not trusted here.
       const finalHost = hostnameOf(currentUrl);
       if (!isAllowedDownloadHost(finalHost)) {
         throw new Error(
@@ -547,8 +444,8 @@ async function downloadFile(fetchFn: typeof fetch, url: string, destPath: string
   }
   await new Promise<void>((resolve, reject) => {
     const out = createWriteStream(destPath);
-    // node fetch's Response.body is a web ReadableStream; piped via the async iterator to keep this
-    // module's only dependency the Node std lib (same reasoning as the original fetch-model.mjs).
+    // Response.body is a web ReadableStream; piped via the async iterator to keep this module's
+    // only dependency the Node std lib.
     (async () => {
       try {
         for await (const chunk of res.body as AsyncIterable<Uint8Array>) out.write(chunk);
@@ -562,20 +459,11 @@ async function downloadFile(fetchFn: typeof fetch, url: string, destPath: string
   });
 }
 
-/** THE-944: the provider's first-use fetch — called from index.ts's `loadSession`, on the first
- *  `rerank()` call only (never at import time). `root` is whatever `localModelPath` resolved to
- *  (this package's own `models/` directory by default, or an operator's `reranker.localModelPath`
- *  override). Already-verified files are left untouched — this is the fast, common-case,
- *  zero-network, NO-LOCK path once the weights are cached. A failed fetch/verify is retried once; a
- *  second failure throws an error naming `bun run fetch-model` (this package's manual script) as
- *  the offline alternative — pre-populate the SAME directory from a machine with network access.
- *
- *  THE-944 review round 2 (G1): a cold cache is populated under a cross-process exclusive lock
- *  (`acquireLockOrObserveVerified`) — two processes (or two Node workers, two containers sharing a
- *  bind-mounted cacheDir, ...) that both miss the cache at the same moment no longer BOTH download:
- *  one wins the lock and publishes; the other either waits and then finds the freshly-verified
- *  directory (never acquiring the lock at all), or takes over a stale lock if the winner crashed
- *  mid-download. */
+/** The provider's first-use fetch — called from index.ts's `loadSession` on the first `rerank()`
+ *  call only. Already-verified files are left untouched (fast, zero-network, no-lock path). A
+ *  failed fetch/verify is retried once; a second failure names `bun run fetch-model` as the
+ *  offline alternative. A cold cache is populated under the cross-process exclusive lock — two
+ *  processes racing on the same cache no longer both download. */
 export async function fetchAndVerifyModel(
   root: string,
   spec: ModelFetchSpec = {},
@@ -588,13 +476,11 @@ export async function fetchAndVerifyModel(
   if (outcome === "already-verified") return finalDir;
   try {
     // Double-checked: another process may have finished publishing in the narrow window between
-    // this function's OWN first check above and actually acquiring the lock.
+    // the check above and actually acquiring the lock.
     if (await isVerified(finalDir, spec)) return finalDir;
 
-    // THE-944 review round 1: the platform check runs BEFORE the download attempt, not after — a
-    // pre-staged, already-verified cache (checked above) still works on any platform (someone may
-    // have copied files over for testing), but a fresh download never starts on a platform that
-    // cannot run the model regardless.
+    // Platform check runs BEFORE the download attempt — a pre-staged cache still works on any
+    // platform, but a fresh download never starts on one that cannot run the model regardless.
     const unsupported = unsupportedPlatformReason(spec.platformOverride);
     if (unsupported) {
       throw new Error(`reranker-local: refusing to download — ${unsupported}`);
@@ -616,13 +502,9 @@ export async function fetchAndVerifyModel(
   }
 }
 
-/** THE-944 review round 2 (G2): re-verify `modelDir` immediately before it is handed to
- *  `@huggingface/transformers`, and throw (never return) if it no longer verifies clean. Exported
- *  and called EXPLICITLY by index.ts's `loadSession`, as a step distinct from whatever
- *  `fetchAndVerifyModel` itself already checked — closing the TOCTOU window between that
- *  verification and the `from_pretrained` calls: a byte swapped on disk in that gap (or a symlink
- *  planted after the fact) is caught here, not silently loaded. Cheap — a handful of small files
- *  plus one ~23 MB sha256, no network. */
+/** Re-verifies `modelDir` immediately before it is handed to `@huggingface/transformers`, throwing
+ *  if it no longer verifies clean — closes the TOCTOU window between `fetchAndVerifyModel`'s own
+ *  check and the `from_pretrained` call. Cheap: a handful of small files plus one ~23 MB sha256. */
 export async function assertVerified(modelDir: string, spec: ModelFetchSpec = {}): Promise<void> {
   const results = await verifyModelDir(modelDir, spec);
   const bad = results.filter((r) => !r.ok);
