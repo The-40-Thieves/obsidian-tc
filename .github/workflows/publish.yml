@@ -373,6 +373,87 @@ jobs:
           path: sboms/
           if-no-files-found: warn
 
+  # THE-940: publish server.json to the official MCP Registry (registry.modelcontextprotocol.io).
+  # THE-220 committed server.json to the repo root, but nothing ever published it — the registry
+  # entry has been missing since. mcp-publisher's own ownership check reads the LIVE npm package
+  # description (via the `mcpName` marker in packages/server/package.json, asserted equal to
+  # server.json's `name` by ci-version.yml's check-mcp-name gate), so this job must run only after
+  # `obsidian-tc` is actually resolvable on npmjs — a publish attempted before propagation 404s,
+  # which is why `needs: publish-npm` is not treated as sufficient on its own; see the propagation
+  # wait step below. `if: github.event_name == 'push'` (no `workflow_dispatch` path at all, unlike
+  # publish-npm's `|| !inputs.dry_run`) is deliberate and stricter than every other job in this
+  # workflow: a dispatched dry run never has a real npm-published version for the registry to point
+  # at, and the task brief that added this job is explicit that it "must run only on v* tags" —
+  # `on.push.tags` already restricts `github.event_name == 'push'` to exactly that.
+  publish-registry:
+    if: github.event_name == 'push'
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    # Mirrors the `mcp-registry` GitHub Environment convention from the sibling codecalc repo's
+    # release.yml: scopes the OIDC token's `sub` claim to `...:environment:mcp-registry` instead of
+    # the bare ref, and lets an owner attach required-reviewer / ref-protection rules to it later.
+    # Auto-created on first use — nothing to provision up front.
+    environment: mcp-registry
+    # Job-scoped, narrower than the workflow-level block above: id-token mints the OIDC token
+    # mcp-publisher exchanges for a short-lived registry credential (no stored PAT/secret — see
+    # "GitHub OIDC (CI/CD)" in the registry's CLI docs). contents: read is only for checking out
+    # server.json.
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      # publish-npm already published `obsidian-tc` (dependency order, umbrella last — see
+      # RELEASING.md's "Ordered npm publish"), or the F3 preflight found it already published on a
+      # resumed release. Either way this is a load-bearing wait, not decoration: registry.
+      # modelcontextprotocol.io validates package ownership against LIVE npmjs data at publish time
+      # (a 404 there is a hard failure per the task brief), and npm's own registry is not
+      # read-your-writes consistent immediately after `npm publish` returns. Polls rather than
+      # sleeping a fixed amount so a fast-propagating publish does not pay a needless delay.
+      - name: wait for obsidian-tc to resolve on npmjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./packages/server/package.json').version")
+          echo "waiting for obsidian-tc@$version to resolve on npmjs..."
+          for i in $(seq 1 10); do
+            if npm view "obsidian-tc@$version" version >/dev/null 2>&1; then
+              echo "obsidian-tc@$version is live on npmjs (attempt $i)"
+              exit 0
+            fi
+            echo "attempt $i: not yet resolvable, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::obsidian-tc@$version never resolved on npmjs after 10 attempts — refusing to publish to the MCP Registry, which would 404 on this same lookup."
+          exit 1
+      # Pinned binary + checksum, matching how this repo installs syft and actionlint elsewhere
+      # (and the sibling codecalc repo's release.yml) rather than the `curl .../latest/...` the
+      # upstream quickstart shows — a release tag can move under an unpinned URL, and this is the
+      # tool that authenticates and publishes, not a read-only report. Checksum independently
+      # verified 2026-09-03 against registry_1.8.1_checksums.txt (the maintainer-published,
+      # sigstore-signed manifest attached to this release) and against the GitHub Releases API's
+      # own asset digest — both agree.
+      - name: install mcp-publisher v1.8.1 (pinned binary + checksum)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL --fail -o "$RUNNER_TEMP/mcp-publisher.tar.gz" \
+            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  $RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
+          "$RUNNER_TEMP/mcp-publisher" --version
+      # No secret exchanged here: this trades the job's own GitHub OIDC token for a short-lived MCP
+      # Registry credential.
+      - name: authenticate to the MCP Registry (GitHub OIDC)
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" login github-oidc
+      # Reads server.json from the repo root (checked out above) by default — no path argument.
+      - name: publish server.json to the MCP Registry
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/mcp-publisher" publish
+
   build-binaries:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.

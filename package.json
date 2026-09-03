@@ -35,6 +35,7 @@
     "check:export-surface": "node scripts/check-export-surface.mjs",
     "check:facade-parity": "node scripts/check-facade-parity.mjs",
     "check:ingest-telemetry-wiring": "node scripts/check-ingest-telemetry-wiring.mjs",
+    "check:mcp-name": "node scripts/check-mcp-name.mjs",
     "check:merge-driver": "node scripts/check-merge-driver.mjs",
     "check:nul": "node scripts/check-nul-bytes.mjs",
     "check:table-readers": "node scripts/check-table-readers.mjs",
