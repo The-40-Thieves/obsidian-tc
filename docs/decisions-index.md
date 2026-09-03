@@ -357,7 +357,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 5 |
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
-| THE-937 | Catalog discovery on the triad facade (#877, THE-937). | CHANGELOG.md (Unreleased) | 5 |
+| THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (Unreleased) | 5 |
 
 344 distinct ticket(s) across 484 source file(s) under
 `packages/*/src`; 277 resolved to a public summary, 67
