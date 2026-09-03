@@ -17,13 +17,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# The companion plugin (THE-180 / G4.M4) is a standalone esbuild bundle that
-# externalizes the Obsidian runtime; it has no @the-40-thieves/obsidian-tc-shared dependency, so
-# lint + typecheck + build run without compiling the other packages first. The
-# build artifact (dist/main.js + manifest.json) is what a user drops into a vault's
-# .obsidian/plugins/obsidian-tc folder. Live-Obsidian behavior is verified manually
-# (see the PR's verification section); CI proves the bundle lints, typechecks, and
+# The companion plugin (THE-180 / G4.M4; renamed obsidian-tc -> tc-bridge / "TC Bridge" THE-943)
+# is a standalone esbuild bundle that externalizes the Obsidian runtime; it has no
+# @the-40-thieves/obsidian-tc-shared dependency, so lint + typecheck + build run without
+# compiling the other packages first. The build artifact (dist/main.js + manifest.json) is what a
+# user drops into a vault's .obsidian/plugins/tc-bridge folder. Live-Obsidian behavior is verified
+# manually (see the PR's verification section); CI proves the bundle lints, typechecks, and
 # builds — it cannot exercise a running Obsidian.
+#
+# THE-943 also added a build-only check of packages/plugin/legacy/ (the one-time sunset build of
+# the OLD obsidian-tc id — see legacy/manifest.json's header) in the same job below: it has no
+# tests of its own beyond the manifest/notice-text assertions in packages/plugin/test/, but esbuild
+# bundling it was previously only ever exercised by the release job on a real tag push, so a
+# broken legacy build had no PR-time gate before this. Nothing here publishes it.
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -59,7 +65,16 @@ jobs:
       - name: upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: obsidian-tc-plugin
+          name: tc-bridge-plugin
           path: |
             packages/plugin/dist/main.js
             packages/plugin/dist/manifest.json
+      # THE-943: build-only check that the legacy (old obsidian-tc id) sunset build still bundles.
+      # No test/typecheck step needed here — tsconfig.json's "include" already covers legacy/**
+      # (see "typecheck plugin" above) and the manifest/notice-text assertions live in
+      # packages/plugin/test/. This step exists purely to catch a broken esbuild bundle on a PR
+      # instead of first discovering it on a real tag push (publish.yml's build-plugin job is the
+      # only other place this ever ran before). Nothing here uploads or publishes it.
+      - name: build legacy notice plugin (old id, build-only check)
+        run: node legacy/esbuild.config.mjs
+        working-directory: packages/plugin

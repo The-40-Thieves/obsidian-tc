@@ -543,13 +543,33 @@ jobs:
           cd packages/plugin/dist
           zip -r "../obsidian-tc-plugin-${version}.zip" main.js manifest.json styles.css
         shell: bash
-      # Upload the zip AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
+      # THE-943: obsidian-tc was renamed to tc-bridge/"TC Bridge" (the community directory bans
+      # "obsidian" in a plugin id). Existing users on the OLD id get exactly one more release: a
+      # sunset build (packages/plugin/legacy/) that only shows a notice pointing them at TC
+      # Bridge — its manifest version was bumped once by hand and it is NOT part of the repo's
+      # version lockstep (check-version-coherence.mjs does not track it; it never updates again).
+      # Zipped under the existing `obsidian-tc-*` asset pattern below so draft-release's files:
+      # glob (further down this workflow) picks it up with no change there. Its loose
+      # manifest.json/main.js/styles.css are deliberately NOT uploaded standalone — those three
+      # filenames are reserved for the tc-bridge community-store submission assets just above,
+      # and a second same-named asset would collide on the GitHub release.
+      - name: build legacy notice plugin (old id, final release)
+        working-directory: packages/plugin
+        run: node legacy/esbuild.config.mjs production
+      - name: zip legacy notice plugin
+        run: |
+          legacy_version=$(node -p "require('./packages/plugin/legacy/manifest.json').version")
+          cd packages/plugin/legacy/dist
+          zip -r "../../obsidian-tc-legacy-final-notice-${legacy_version}.zip" main.js manifest.json styles.css
+        shell: bash
+      # Upload the zips AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
       # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: plugin
           path: |
             packages/plugin/obsidian-tc-plugin-*.zip
+            packages/plugin/obsidian-tc-legacy-final-notice-*.zip
             packages/plugin/dist/manifest.json
             packages/plugin/dist/main.js
             packages/plugin/dist/styles.css

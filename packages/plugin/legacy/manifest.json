@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-tc",
+  "name": "Obsidian Turbocharged",
+  "version": "1.26.0",
+  "minAppVersion": "1.7.0",
+  "description": "This plugin has been renamed to TC Bridge (id tc-bridge) so it can list in the Obsidian community directory. Install TC Bridge and disable this plugin — it now does nothing but show that notice.",
+  "author": "The 40 Thieves",
+  "authorUrl": "https://github.com/The-40-Thieves",
+  "isDesktopOnly": false
+}

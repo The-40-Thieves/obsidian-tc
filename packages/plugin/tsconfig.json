@@ -11,5 +11,5 @@
   // "src" alone the tests are TypeScript that nothing typechecks — the suite would still run,
   // because vitest transpiles without type-checking, so a broken type in a test surfaces as
   // nothing at all.
-  "include": ["src", "test", "vitest.config.ts"]
+  "include": ["src", "test", "legacy", "vitest.config.ts"]
 }
