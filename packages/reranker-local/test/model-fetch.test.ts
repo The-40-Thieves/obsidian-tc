@@ -5,7 +5,7 @@
 // test/integration.test.ts (skips unless the real weights are already on disk).
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -369,6 +369,101 @@ describe("cross-process lock (THE-944 review round 2, G1)", () => {
     expect(resolved).toBe(finalDir);
     expect(fetchFn).toHaveBeenCalled();
   });
+
+  // THE-944 review round 3 (G1): the reviewer's own repro — a lock whose owner.json is MISSING or
+  // UNPARSEABLE stayed "STILL-BLOCKED-after-3s" even with lockStaleMs: 10, because readLockOwner
+  // returning undefined for either case made `owner && ...` short-circuit false and the (then
+  // deadline-less) loop just kept sleeping forever. lockAgeMs's directory-mtime fallback closes both.
+  it("an orphaned lock with NO owner.json (crash before the write ever landed) is taken over via the directory's own mtime", async () => {
+    const finalDir = modelDirFor(root, SPEC);
+    const lockDir = `${finalDir}.lock`;
+    await mkdir(lockDir, { recursive: true });
+    // No owner.json at all — simulates a crash between mkdir(lockDir) and the atomic write of
+    // owner.json ever landing. Backdate the DIRECTORY's own mtime (what mkdir set to "now") so the
+    // fallback has something unambiguously stale to observe, matching the reviewer's own
+    // measurement setup (a lock "started" long before a tiny lockStaleMs).
+    const old = new Date(Date.now() - 100_000);
+    await utimes(lockDir, old, old);
+    const fetchFn = okFetchFn();
+    const resolved = await fetchAndVerifyModel(root, {
+      ...SPEC,
+      fetchFn,
+      lockStaleMs: 10,
+      lockPollMs: 5,
+    });
+    expect(resolved).toBe(finalDir);
+    const postCheck = await verifyModelDir(resolved, SPEC);
+    expect(postCheck.every((r) => r.ok)).toBe(true);
+    expect(existsSync(lockDir)).toBe(false); // taken over and cleaned up, not left behind
+  });
+
+  it("a truncated, unparseable owner.json is taken over via the directory's own mtime", async () => {
+    const finalDir = modelDirFor(root, SPEC);
+    const lockDir = `${finalDir}.lock`;
+    await mkdir(lockDir, { recursive: true });
+    // A non-atomic write interrupted mid-flight — this is exactly what round 2's plain writeFile
+    // (fixed in round 3 to temp-then-rename) could leave behind on a crash.
+    await writeFile(join(lockDir, "owner.json"), '{"pid": 123, "starte');
+    const old = new Date(Date.now() - 100_000);
+    await utimes(lockDir, old, old); // set AFTER the write, which itself bumps the dir's mtime
+    const fetchFn = okFetchFn();
+    const resolved = await fetchAndVerifyModel(root, {
+      ...SPEC,
+      fetchFn,
+      lockStaleMs: 10,
+      lockPollMs: 5,
+    });
+    expect(resolved).toBe(finalDir);
+    const postCheck = await verifyModelDir(resolved, SPEC);
+    expect(postCheck.every((r) => r.ok)).toBe(true);
+    expect(existsSync(lockDir)).toBe(false);
+  });
+
+  // THE-944 review round 3 (G1): the explicit backstop UNDER the stale-takeover check — a lock
+  // whose age never crosses lockStaleMs (here, its owner.json is kept artificially "fresh" on an
+  // interval faster than the poll) must still not be waited on forever. The overall deadline
+  // (lockStaleMs * the exported multiplier) throws a clear, actionable error naming the lock path.
+  it("gives up at the overall wait deadline when the lock never becomes stale, naming the lock path", async () => {
+    const finalDir = modelDirFor(root, SPEC);
+    const lockDir = `${finalDir}.lock`;
+    await mkdir(lockDir, { recursive: true });
+    // Atomic temp-then-rename — the SAME technique production's writeLockOwnerAtomic uses. A raw
+    // in-place writeFile here would race with acquireLockOrObserveVerified's own concurrent reads:
+    // a reader catching a torn write mid-flight sees unparseable JSON, falls through to lockAgeMs's
+    // mtime fallback, and reads the LOCK DIRECTORY's ORIGINAL (long-past) mtime — triggering an
+    // unintended EARLY stale-takeover that races this test's own deadline it's trying to reach.
+    // Confirmed by observing it: an earlier, non-atomic version of this refresh flaked exactly that
+    // way (the call returned successfully — via a premature takeover — instead of ever reaching the
+    // deadline).
+    const touch = async () => {
+      const finalPath = join(lockDir, "owner.json");
+      const tmpPath = join(lockDir, `owner.json.tmp-test-${Date.now()}-${Math.random()}`);
+      await writeFile(tmpPath, JSON.stringify({ pid: 123, startedAt: Date.now() }));
+      await rename(tmpPath, finalPath).catch(() => undefined);
+    };
+    await touch();
+    const refresh = setInterval(() => {
+      void touch();
+    }, 5);
+    try {
+      let message = "";
+      try {
+        await fetchAndVerifyModel(root, {
+          ...SPEC,
+          fetchFn: okFetchFn(),
+          lockStaleMs: 20,
+          lockPollMs: 5,
+        });
+      } catch (e) {
+        message = e instanceof Error ? e.message : String(e);
+      }
+      expect(message).toMatch(/gave up waiting for the model-fetch lock/);
+      expect(message).toContain(lockDir);
+    } finally {
+      clearInterval(refresh);
+      await rm(lockDir, { recursive: true, force: true });
+    }
+  });
 });
 
 /** Test-only: releases a lock this test created directly (bypassing the module's own internal
@@ -435,6 +530,58 @@ describe("symlink and extraneous-entry hardening (THE-944 review round 2, G2)", 
     const evil = results.find((r) => r.file.path === "sub/evil.txt");
     expect(evil?.ok).toBe(false);
     expect(evil?.reason).toMatch(/unexpected entry/);
+    expect(evil?.reason).toContain("sub/evil.txt");
+    expect(evil?.reason).toMatch(/remove it/);
+  });
+
+  // THE-944 review round 3 (NB2): a stray OS housekeeping file (Finder's .DS_Store, Windows'
+  // Thumbs.db/desktop.ini) must not fail an otherwise-correct cache — merely BROWSING an offline,
+  // pre-staged cache directory in a file manager is enough to create one, and before this fix that
+  // made the whole directory report unverified.
+  it("ignores exactly the OS-junk allowlist (.DS_Store, Thumbs.db, desktop.ini) — the cache still verifies clean", async () => {
+    const dir = modelDirFor(root, SPEC);
+    await mkdir(join(dir, "sub"), { recursive: true });
+    await writeFile(join(dir, "a.txt"), A_CONTENT);
+    await writeFile(join(dir, "sub", "b.txt"), B_CONTENT);
+    await writeFile(join(dir, ".DS_Store"), "finder metadata, not a pinned file");
+    await writeFile(join(dir, "sub", "Thumbs.db"), "explorer thumbnail cache");
+    await writeFile(join(dir, "desktop.ini"), "[.ShellClassInfo]");
+
+    const results = await verifyModelDir(dir, SPEC);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(results).toHaveLength(2); // only the two PINNED files are reported at all — junk is invisible
+  });
+
+  it("still refuses everything that is NOT on the OS-junk allowlist — the allowlist is not a general escape hatch", async () => {
+    const dir = modelDirFor(root, SPEC);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "a.txt"), A_CONTENT);
+    await mkdir(join(dir, "sub"), { recursive: true });
+    await writeFile(join(dir, "sub", "b.txt"), B_CONTENT);
+    // A name that merely LOOKS like OS junk (wrong case, or a near-miss) must still be refused —
+    // proves the allowlist is exact, not a prefix/substring match.
+    await writeFile(join(dir, ".ds_store"), "lowercase — not the real Finder name");
+    await writeFile(join(dir, "thumbs.db.bak"), "not the real Windows name either");
+
+    const results = await verifyModelDir(dir, SPEC);
+    expect(results.every((r) => r.ok)).toBe(false);
+    const bad = results.filter((r) => !r.ok).map((r) => r.file.path);
+    expect(bad).toContain(".ds_store");
+    expect(bad).toContain("thumbs.db.bak");
+  });
+
+  it("fetchAndVerifyModel's fast path is unaffected by OS junk — an offline pre-staged cache with a .DS_Store still short-circuits with zero network calls", async () => {
+    const dir = modelDirFor(root, SPEC);
+    await mkdir(join(dir, "sub"), { recursive: true });
+    await writeFile(join(dir, "a.txt"), A_CONTENT);
+    await writeFile(join(dir, "sub", "b.txt"), B_CONTENT);
+    await writeFile(join(dir, ".DS_Store"), "finder metadata");
+    const fetchFn = vi.fn(async () => {
+      throw new Error("must not be called — the cache (junk aside) is already verified");
+    }) as unknown as typeof fetch;
+    const resolved = await fetchAndVerifyModel(root, { ...SPEC, fetchFn });
+    expect(resolved).toBe(dir);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it("assertVerified resolves on a clean directory and throws on a corrupted one, naming the file", async () => {
@@ -468,61 +615,95 @@ describe("symlink and extraneous-entry hardening (THE-944 review round 2, G2)", 
 // huggingface.co/hf.co suffix allowlist — see downloadFile's own doc comment for the live
 // observation (curl -sI -L against this package's real pinned URL, 2026-09-03) and the two cited
 // discuss.huggingface.co threads documenting why a suffix, not a fixed hostname list.
-describe("redirect host pinning (THE-944 review round 2, G4)", () => {
-  function responseWithUrl(body: string, url: string): Response {
-    const res = new Response(body, { status: 200 });
-    // Response.url is normally read-only and only set by a REAL fetch that followed redirects;
-    // this is the standard way to simulate that for a hand-built Response in a test.
-    Object.defineProperty(res, "url", { value: url, configurable: true });
-    return res;
+describe("redirect host pinning (THE-944 review round 2 G4, pre-connect check added round 3 NB4)", () => {
+  function redirectResponse(location: string, status = 302): Response {
+    return new Response(null, { status, headers: { location } });
   }
 
-  it("refuses a redirect that lands off the huggingface.co/hf.co allowlist entirely", async () => {
-    const fetchFn = vi.fn(async (url: string | URL) =>
-      responseWithUrl(
-        String(url).endsWith("a.txt") ? A_CONTENT : B_CONTENT,
-        "https://evil.example.com/payload",
-      ),
-    ) as unknown as typeof fetch;
+  // THE-944 review round 3 (NB4): the explicit ask — refused with NO second fetch call to the
+  // off-allowlist host. Every call `fetchFn` sees is asserted, proving the connection to the bad
+  // host is never attempted, not merely that its bytes are discarded after the fact.
+  it("refuses a redirect that lands off the huggingface.co/hf.co allowlist entirely, calling fetchFn ONLY for the original (never the bad) host", async () => {
+    const calls: string[] = [];
+    const fetchFn = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      calls.push(String(url));
+      expect(init?.redirect).toBe("manual");
+      return redirectResponse("https://evil.example.com/payload");
+    }) as unknown as typeof fetch;
     await expect(fetchAndVerifyModel(root, { ...SPEC, fetchFn })).rejects.toThrow(
       /evil\.example\.com|unexpected host/,
     );
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((u) => !u.includes("evil.example.com"))).toBe(true);
+    expect(calls.every((u) => u.includes("huggingface.co"))).toBe(true);
   });
 
   it("refuses a redirect to a lookalike host (huggingface.co.evil.example.com — suffix match must anchor at a dot)", async () => {
-    const fetchFn = vi.fn(async (url: string | URL) =>
-      responseWithUrl(
-        String(url).endsWith("a.txt") ? A_CONTENT : B_CONTENT,
-        "https://huggingface.co.evil.example.com/payload",
-      ),
-    ) as unknown as typeof fetch;
+    const calls: string[] = [];
+    const fetchFn = vi.fn(async (url: string | URL) => {
+      calls.push(String(url));
+      return redirectResponse("https://huggingface.co.evil.example.com/payload");
+    }) as unknown as typeof fetch;
     await expect(fetchAndVerifyModel(root, { ...SPEC, fetchFn })).rejects.toThrow(
       /unexpected host/,
     );
+    expect(calls.every((u) => !u.includes("huggingface.co.evil.example.com"))).toBe(true);
   });
 
-  it("allows the REAL observed CDN redirect host (us.aws.cdn.hf.co) — the suffix allowlist is not too narrow", async () => {
+  it("refuses a redirect response with no Location header at all", async () => {
+    const fetchFn = vi.fn(
+      async () => new Response(null, { status: 302 }),
+    ) as unknown as typeof fetch;
+    await expect(fetchAndVerifyModel(root, { ...SPEC, fetchFn })).rejects.toThrow(
+      /no Location header/,
+    );
+  });
+
+  it("refuses an absurd redirect loop after MAX_REDIRECT_HOPS rather than following indefinitely", async () => {
+    let hop = 0;
+    const fetchFn = vi.fn(async () => {
+      hop++;
+      return redirectResponse(`https://huggingface.co/loop-${hop}`);
+    }) as unknown as typeof fetch;
+    await expect(fetchAndVerifyModel(root, { ...SPEC, fetchFn })).rejects.toThrow(
+      /too many redirects/,
+    );
+  });
+
+  it("allows the REAL observed CDN redirect host (us.aws.cdn.hf.co) via a genuine 302 + Location, followed hop by hop", async () => {
     const fetchFn = vi.fn(async (url: string | URL) => {
       const u = String(url);
-      const content = u.endsWith("a.txt") ? A_CONTENT : B_CONTENT;
-      return responseWithUrl(
-        content,
-        `https://us.aws.cdn.hf.co/xet-bridge-us/${u.split("/").pop()}`,
-      );
+      if (u.startsWith("https://us.aws.cdn.hf.co/")) {
+        const content = u.endsWith("a.txt") ? A_CONTENT : B_CONTENT;
+        return new Response(content, { status: 200 });
+      }
+      const file = u.split("/").pop();
+      return redirectResponse(`https://us.aws.cdn.hf.co/xet-bridge-us/${file}`);
     }) as unknown as typeof fetch;
     const resolved = await fetchAndVerifyModel(root, { ...SPEC, fetchFn });
     const postCheck = await verifyModelDir(resolved, SPEC);
     expect(postCheck.every((r) => r.ok)).toBe(true);
   });
 
-  it("allows a same-host redirect (the small-file /api/resolve-cache/... shape observed live) and a direct 200 with no redirect at all", async () => {
+  it("allows a same-host RELATIVE Location redirect (the small-file /api/resolve-cache/... shape observed live)", async () => {
     const fetchFn = vi.fn(async (url: string | URL) => {
       const u = String(url);
-      const content = u.endsWith("a.txt") ? A_CONTENT : B_CONTENT;
-      // No .url override at all here — the common "no redirect happened" case, and the same shape
-      // every OTHER test in this file already relies on.
-      return new Response(content, { status: 200 });
+      if (u.includes("/api/resolve-cache/")) {
+        const content = u.endsWith("a.txt") ? A_CONTENT : B_CONTENT;
+        return new Response(content, { status: 200 });
+      }
+      const file = u.split("/").pop();
+      // A relative Location, matching HF's own small-file redirect shape — resolves against the
+      // CURRENT url's own host, so this must stay allowed without ever becoming an absolute URL.
+      return redirectResponse(`/api/resolve-cache/${file}`);
     }) as unknown as typeof fetch;
+    const resolved = await fetchAndVerifyModel(root, { ...SPEC, fetchFn });
+    const postCheck = await verifyModelDir(resolved, SPEC);
+    expect(postCheck.every((r) => r.ok)).toBe(true);
+  });
+
+  it("allows a direct 200 with no redirect at all — the common case every OTHER test in this file relies on", async () => {
+    const fetchFn = okFetchFn();
     const resolved = await fetchAndVerifyModel(root, { ...SPEC, fetchFn });
     const postCheck = await verifyModelDir(resolved, SPEC);
     expect(postCheck.every((r) => r.ok)).toBe(true);

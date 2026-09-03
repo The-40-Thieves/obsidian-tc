@@ -149,6 +149,24 @@ async function listRelativeEntries(dir: string): Promise<string[]> {
   return out;
 }
 
+/** THE-944 review round 3 (NB2): OS-generated housekeeping files a file browser or archive tool
+ *  drops into ANY folder it merely touches — matched by BASENAME regardless of directory depth
+ *  (Finder drops `.DS_Store` into every browsed folder, including `onnx/`), not gated on the
+ *  system this package's own CI runs on, since a cache directory can be inspected from a different
+ *  OS than the one that populated it (a macOS operator browsing a Linux-deployed cache over SMB, a
+ *  Windows Explorer thumbnail cache written after a colleague copied the directory, an archive
+ *  round-tripped through a tool that preserves these). Ignoring them (rather than refusing them
+ *  like any other extraneous entry) is what keeps merely BROWSING an offline, pre-staged cache
+ *  directory from bricking it on the next `verifyModelDir` — refusing everything else is
+ *  unchanged. Deliberately a SMALL, exact allowlist, not a wildcard/prefix match: widening it would
+ *  widen exactly the gap the extraneous-entry check exists to close. */
+const IGNORED_OS_JUNK_BASENAMES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+
+function isIgnoredOsJunk(relPath: string): boolean {
+  const basename = relPath.split("/").pop() ?? relPath;
+  return IGNORED_OS_JUNK_BASENAMES.has(basename);
+}
+
 /** Checks every pinned file's presence, size, and sha256 under `modelDir` (the REVISION-scoped
  *  directory — see `modelDirFor`). Read-only, no network. Shared by the doctor-facing
  *  `bun run fetch-model --check` path and this module's own "is a re-download needed" check.
@@ -204,13 +222,12 @@ export async function verifyModelDir(
   }
   const present = await listRelativeEntries(modelDir);
   for (const rel of present) {
-    if (!expected.has(rel)) {
-      results.push({
-        file: { path: rel, sha256: "", sizeBytes: -1 },
-        ok: false,
-        reason: "refused: unexpected entry present (not one of the pinned files)",
-      });
-    }
+    if (expected.has(rel) || isIgnoredOsJunk(rel)) continue;
+    results.push({
+      file: { path: rel, sha256: "", sizeBytes: -1 },
+      ok: false,
+      reason: `refused: unexpected entry "${rel}" present (not one of the pinned files) — remove it from the model directory`,
+    });
   }
   return results;
 }
@@ -269,6 +286,41 @@ async function readLockOwner(lockDir: string): Promise<LockOwner | undefined> {
   }
 }
 
+/** THE-944 review round 3 (G1): the lock's AGE for staleness purposes, in ms — `owner.json`'s own
+ *  `startedAt` when it exists and parses (the precise value, set at acquisition time), falling back
+ *  to the lock DIRECTORY's own mtime otherwise. Two reachable states need the fallback: a crash
+ *  between `mkdir(lockDir)` and the owner-file write landing (now atomic — see
+ *  `writeLockOwnerAtomic` — but a crash can still happen before EITHER the temp file or the rename
+ *  completes, leaving no owner.json at all), and any other reason the file is unreadable. `mkdir`
+ *  sets a fresh directory's mtime at creation time, so the fallback is never younger than the lock
+ *  actually is — round 2's version treated a missing/unparseable owner.json as "not stale" forever,
+ *  which is exactly the "waiter loops forever" defect this closes. `undefined` only when the lock
+ *  directory itself is already gone (the holder released it between our EEXIST and this call) —
+ *  not stale, just moot; the next loop iteration's `tryAcquireLock` succeeds normally. */
+async function lockAgeMs(lockDir: string): Promise<number | undefined> {
+  const owner = await readLockOwner(lockDir);
+  if (owner) return Date.now() - owner.startedAt;
+  try {
+    const st = await lstat(lockDir);
+    return Date.now() - st.mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+/** THE-944 review round 3 (G1): writes `owner.json` via temp-then-rename, matching the SAME
+ *  atomicity contract the model files themselves already have (`downloadAndVerifyInto`) — a direct
+ *  `writeFile` is not guaranteed to land in one filesystem operation, and a reader (`readLockOwner`)
+ *  observing a partially-written file mid-flight would see a truncated, unparseable JSON payload
+ *  and fall through to the mtime fallback above (correct, but avoidable). `rename` within the SAME
+ *  directory is atomic on every filesystem this repo targets. */
+async function writeLockOwnerAtomic(lockDir: string, owner: LockOwner): Promise<void> {
+  const finalPath = join(lockDir, "owner.json");
+  const tmpPath = join(lockDir, `owner.json.tmp-${process.pid}-${Date.now()}`);
+  await writeFile(tmpPath, JSON.stringify(owner));
+  await rename(tmpPath, finalPath);
+}
+
 /** `mkdir` (non-recursive) is the exclusive-create primitive: it throws EEXIST if `lockDir`
  *  already exists and is atomic on every filesystem this repo targets, which a lockFILE opened
  *  with `wx` is not guaranteed to be on every platform/filesystem combination (notably some
@@ -288,19 +340,23 @@ async function tryAcquireLock(finalDir: string): Promise<boolean> {
     if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
     throw e;
   }
-  // Record who holds it, for stale-lock detection below. A narrow window exists between mkdir
-  // succeeding and this write landing, during which a waiter's readLockOwner sees "no owner file
-  // yet" — handled as "not stale" (never a false takeover), see acquireLockOrObserveVerified.
-  await writeFile(
-    join(lockDir, "owner.json"),
-    JSON.stringify({ pid: process.pid, startedAt: Date.now() } satisfies LockOwner),
-  );
+  // Record who holds it (diagnostic + the precise staleness clock when available — see
+  // lockAgeMs's own comment for the fallback that covers a crash before this write ever lands).
+  await writeLockOwnerAtomic(lockDir, { pid: process.pid, startedAt: Date.now() });
   return true;
 }
 
 async function releaseLock(finalDir: string): Promise<void> {
   await rm(lockDirFor(finalDir), { recursive: true, force: true });
 }
+
+/** THE-944 review round 3 (G1): a waiter gives up after this many multiples of `lockStaleMs` and
+ *  throws instead of polling forever — a backstop UNDERNEATH the stale-takeover check above, for
+ *  whatever `lockAgeMs` cannot itself observe (e.g. a filesystem that does not update mtime the way
+ *  this code assumes, or a clock anomaly). Under normal operation the stale-takeover check already
+ *  fires well before this deadline; reaching it at all means something is wrong enough that a clear
+ *  error naming the lock path is more useful than an indefinite hang. */
+const LOCK_WAIT_DEADLINE_MULTIPLIER = 3;
 
 /** Waits (polling) until EITHER (a) this process acquires the exclusive lock for `finalDir`, or
  *  (b) `finalDir` becomes independently verified — by whoever currently holds the lock finishing
@@ -312,19 +368,37 @@ async function releaseLock(finalDir: string): Promise<void> {
  *  over: removed and retried immediately, rather than waited on forever. A holder that crashed
  *  mid-download (killed, OOM, ...) would otherwise wedge every future fetch on this path permanently
  *  — the SAME "a transient failure must not permanently wedge the reranker" principle
- *  index.ts's `sessions` memo already documents for the in-process case. */
+ *  index.ts's `sessions` memo already documents for the in-process case.
+ *
+ *  THE-944 review round 3 (G1): staleness is now measured via `lockAgeMs` (owner.json's precise
+ *  `startedAt` when readable, the lock directory's own mtime otherwise — see that function's own
+ *  comment for why a missing/unparseable owner.json must not read as "not stale forever"), AND a
+ *  hard overall deadline (`lockStaleMs * LOCK_WAIT_DEADLINE_MULTIPLIER`) throws a clear, actionable
+ *  error naming the lock path rather than sleeping indefinitely — a `for (;;)` loop with no upper
+ *  bound is exactly what let a stuck waiter's promise sit in index.ts's `sessions` memo forever,
+ *  wedging every later `rerank()` call with no error and no log. */
 async function acquireLockOrObserveVerified(
   finalDir: string,
   spec: ModelFetchSpec,
   resolved: ResolvedSpec,
 ): Promise<"acquired" | "already-verified"> {
+  const lockDir = lockDirFor(finalDir);
+  const deadlineAt = Date.now() + resolved.lockStaleMs * LOCK_WAIT_DEADLINE_MULTIPLIER;
   for (;;) {
     if (await isVerified(finalDir, spec)) return "already-verified";
     if (await tryAcquireLock(finalDir)) return "acquired";
-    const owner = await readLockOwner(lockDirFor(finalDir));
-    if (owner && Date.now() - owner.startedAt > resolved.lockStaleMs) {
-      await rm(lockDirFor(finalDir), { recursive: true, force: true }).catch(() => undefined);
+    const age = await lockAgeMs(lockDir);
+    if (age !== undefined && age > resolved.lockStaleMs) {
+      await rm(lockDir, { recursive: true, force: true }).catch(() => undefined);
       continue; // retry acquisition immediately — already known stale, no need to sleep first
+    }
+    if (Date.now() >= deadlineAt) {
+      throw new Error(
+        `reranker-local: gave up waiting for the model-fetch lock at "${lockDir}" after ` +
+          `${resolved.lockStaleMs * LOCK_WAIT_DEADLINE_MULTIPLIER}ms — it never verified as stale ` +
+          "and was never released. If no other process is genuinely fetching this model, remove " +
+          `that directory ("rm -rf ${lockDir}") and retry.`,
+      );
     }
     await sleep(resolved.lockPollMs);
   }
@@ -383,24 +457,21 @@ async function downloadAndVerifyInto(finalDir: string, resolved: ResolvedSpec): 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-/** THE-944 review round 2 (G4): downloadFile follows redirects (fetch's default `redirect:
- *  "follow"`) — HF's own redirect chain leaves huggingface.co for a separate host to serve the
- *  actual bytes of LFS/Xet-tracked files. Observed LIVE today (2026-09-03) via `curl -sI -L`
- *  against this package's own pinned URL: the ~23 MB onnx file 302s from
- *  `huggingface.co/.../resolve/...` to `https://us.aws.cdn.hf.co/xet-bridge-us/...`; the small
- *  non-LFS files (config.json, tokenizer.json, vocab.txt, ...) 307 to a SAME-host
- *  `/api/resolve-cache/...` path instead. Specific CDN hostnames have changed, unannounced, more
- *  than once (`cdn-lfs.huggingface.co` -> `cdn-lfs.hf.co`, then Xet's `*.xethub.hf.co` /
- *  `*.aws.cdn.hf.co` bridge hosts) — see
+/** THE-944 review round 2 (G4), hardened further in round 3 (NB4): a compromised/MITM'd
+ *  huggingface.co response (or a malicious mirror someone points `modelId` at via an injected
+ *  spec) could redirect this download to an arbitrary host. HF's own redirect chain genuinely
+ *  leaves huggingface.co for a separate host to serve the actual bytes of LFS/Xet-tracked files —
+ *  observed LIVE today (2026-09-03) via `curl -sI -L` against this package's own pinned URL: the
+ *  ~23 MB onnx file 302s from `huggingface.co/.../resolve/...` to
+ *  `https://us.aws.cdn.hf.co/xet-bridge-us/...`; the small non-LFS files (config.json,
+ *  tokenizer.json, vocab.txt, ...) 307 to a SAME-host `/api/resolve-cache/...` path instead.
+ *  Specific CDN hostnames have changed, unannounced, more than once (`cdn-lfs.huggingface.co` ->
+ *  `cdn-lfs.hf.co`, then Xet's `*.xethub.hf.co` / `*.aws.cdn.hf.co` bridge hosts) — see
  *  https://discuss.huggingface.co/t/hf-hub-cdn-urls-changes-notifications/114653 and
  *  https://discuss.huggingface.co/t/how-to-get-a-list-of-all-huggingface-download-redirections-to-whitelist/30486 —
  *  so this pins the two SUFFIXES Hugging Face's own community guidance says cover every current
  *  and future storage/CDN host ("huggingface.co" and "hf.co"), not a fixed hostname list that
- *  would need updating every time HF reshuffles its CDN. Refusing anything else after redirects
- *  are followed is what actually closes the exposure: without this, a compromised/MITM'd
- *  huggingface.co response (or a malicious mirror someone points `modelId` at via an injected
- *  spec) could redirect this download to an arbitrary host and this code would fetch — and, before
- *  G2's hardening, even trust — whatever came back. */
+ *  would need updating every time HF reshuffles its CDN. */
 const ALLOWED_DOWNLOAD_HOST_SUFFIXES = ["huggingface.co", "hf.co"];
 
 function isAllowedDownloadHost(hostname: string): boolean {
@@ -417,22 +488,60 @@ function hostnameOf(urlString: string): string {
   }
 }
 
+/** THE-944 review round 3 (NB4): round 2's version checked `res.url` (the FINAL url) AFTER `fetch`
+ *  had already followed every redirect on its own — the request to the off-allowlist host had
+ *  already been made (headers sent, body offered to it) by the time the check ran; only the BYTES
+ *  were refused. This checks each hop's `Location` header against the allowlist BEFORE ever
+ *  connecting to it: `redirect: "manual"` stops `fetchFn` from auto-following (confirmed against
+ *  this repo's real fetch — Bun's `redirect: "manual"` returns the REAL 3xx status and headers,
+ *  not a browser-style opaque redirect, so `Location` is genuinely readable), and this loop
+ *  resolves each `Location` against the CURRENT url (a relative Location, as HF's own small-file
+ *  redirect uses, stays same-host by construction) and re-checks the allowlist every hop. A small
+ *  bounded hop count (5 — HF's own chain is 1-2 today) refuses an absurd or malicious redirect
+ *  loop rather than following indefinitely. */
+const MAX_REDIRECT_HOPS = 5;
+
+async function fetchFollowingAllowedRedirects(
+  fetchFn: typeof fetch,
+  url: string,
+): Promise<Response> {
+  let currentUrl = url;
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+    const res = await fetchFn(currentUrl, { redirect: "manual" });
+    const isRedirect = res.status >= 300 && res.status < 400;
+    if (!isRedirect) {
+      // The final, actually-connected-to host is `currentUrl`'s own — `res.url` is not trusted
+      // here either (with `redirect: "manual"`, a real fetch implementation leaves it as the
+      // REQUESTED url regardless, but this does not depend on that either way).
+      const finalHost = hostnameOf(currentUrl);
+      if (!isAllowedDownloadHost(finalHost)) {
+        throw new Error(
+          `refused: response from an unexpected host "${finalHost}" (not huggingface.co/hf.co or a subdomain) fetching ${url}`,
+        );
+      }
+      return res;
+    }
+    const location = res.headers.get("location");
+    if (!location) {
+      throw new Error(`GET ${currentUrl} -> ${res.status} redirect with no Location header`);
+    }
+    const nextUrl = new URL(location, currentUrl).toString();
+    const nextHost = hostnameOf(nextUrl);
+    if (!isAllowedDownloadHost(nextHost)) {
+      throw new Error(
+        `refused: redirected to an unexpected host "${nextHost}" (not huggingface.co/hf.co or a subdomain) fetching ${url}`,
+      );
+    }
+    currentUrl = nextUrl;
+  }
+  throw new Error(`refused: too many redirects (> ${MAX_REDIRECT_HOPS}) fetching ${url}`);
+}
+
 async function downloadFile(fetchFn: typeof fetch, url: string, destPath: string): Promise<void> {
   await mkdir(dirname(destPath), { recursive: true });
-  const res = await fetchFn(url);
+  const res = await fetchFollowingAllowedRedirects(fetchFn, url);
   if (!res.ok || !res.body) {
     throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
-  }
-  // `res.url` is the FINAL url after every redirect the fetch implementation followed — empty for
-  // a bare `new Response(...)` never actually fetched (this package's own tests construct
-  // responses that way), in which case there is no redirect information at all and the originally
-  // REQUESTED url (always huggingface.co in production) is the only fact available.
-  const finalUrl = res.url && res.url.length > 0 ? res.url : url;
-  const finalHost = hostnameOf(finalUrl);
-  if (!isAllowedDownloadHost(finalHost)) {
-    throw new Error(
-      `refused: redirected to an unexpected host "${finalHost}" (not huggingface.co/hf.co or a subdomain) fetching ${url}`,
-    );
   }
   await new Promise<void>((resolve, reject) => {
     const out = createWriteStream(destPath);
