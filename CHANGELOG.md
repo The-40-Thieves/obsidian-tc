@@ -8,12 +8,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
-- **MCP Registry publish from CI (#TBD, THE-940).** `server.json` is now published to the
+- **MCP Registry publish from CI (#889, THE-940).** `server.json` is now published to the
   official MCP Registry (`registry.modelcontextprotocol.io`) automatically on every tagged
   release, via GitHub OIDC (no stored secret); `packages/server/package.json` carries the
   `mcpName` ownership marker proving npm-package ownership, and every PR validates
   `server.json` against the registry schema (`mcp-publisher validate`).
-- **Local reranker reachable without a source checkout (#TBD, THE-944).** The optional
+- **Local reranker reachable without a source checkout (#891, THE-944).** The optional
   offline cross-encoder reranker (`@the-40-thieves/obsidian-tc-reranker-local`) is now
   auto-selected when no reranker/model-tier/gateway is configured — no
   `reranker.provider: "local"` needed — and fetches and sha256-verifies its pinned model
@@ -46,7 +46,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Internal
 
-- **Zero-config front door proven in CI (#TBD, THE-941).** `npx obsidian-tc /path/to/vault`
+- **Zero-config front door proven in CI (#890, THE-941).** `npx obsidian-tc /path/to/vault`
   already booted a single vault with no config file; a new CI smoke job now asserts
   `initialize`, the triad `tools/list`, a seeded `search_text` hit, a degraded (not errored)
   embeddings status with no reachable Ollama, and a clean exit on SIGTERM — proven red
