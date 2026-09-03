@@ -289,7 +289,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-699 | `--acl-allow` — the eval harness can finally vary ACL state (THE-699, #660). | CHANGELOG.md (1.15.0) | 2 |
 | THE-700 | The plane re-ran its own completed once-per-period work on every tick (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
 | THE-701 | The episode-eligibility judge (THE-701, #661). | CHANGELOG.md (1.15.0) | 7 |
-| THE-705 | A bundled `local` cross-encoder reranker — `gatedRerank` with no gateway and no external service (#806, THE-705). | CHANGELOG.md (1.22.0) | 9 |
+| THE-705 | A bundled `local` cross-encoder reranker — `gatedRerank` with no gateway and no external service (#806, THE-705). | CHANGELOG.md (1.22.0) | 10 |
 | THE-707 | THE-707 — experiential-tier benchmark applicability assessment (no adapter built). | CHANGELOG.md (1.23.0) | 1 |
 | THE-709 | Consolidation jobs get a per-attempt gateway timeout (THE-709). | CHANGELOG.md (1.16.0) | 3 |
 | THE-710 | Five deployment-bias leaks from the THE-891 product-lens audit, corrected (#843, THE-710's recorded-lesson pattern: "single-user is not single-vault"). | CHANGELOG.md (1.23.0) | 7 |
@@ -359,8 +359,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 | THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issues #876, #880). | CHANGELOG.md (1.25.0) | 60 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
-| THE-944 | _internal planning reference — see repo history_ | — | 8 |
+| THE-944 | _internal planning reference — see repo history_ | — | 10 |
 
-346 distinct ticket(s) across 489 source file(s) under
+346 distinct ticket(s) across 490 source file(s) under
 `packages/*/src`; 278 resolved to a public summary, 68
 fall back to the internal-reference placeholder above.

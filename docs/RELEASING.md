@@ -15,10 +15,15 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
    ```
 
    This sets the version across every `package.json` + distribution file (server, native, shared,
-   `server.json`, the MCPB `manifest.json`, and the companion plugin's `manifest.json` /
-   `package.json` / `versions.json` in lockstep), rolls `CHANGELOG.md`'s `[Unreleased]` section into
-   the new version, refreshes `bun.lock`, runs `bun run format`, and runs the coherence gate. It does
-   **not** commit, push, or tag.
+   `reranker-local`, `server.json`, the MCPB `manifest.json`, and the companion plugin's
+   `manifest.json` / `package.json` / `versions.json` in lockstep), rolls `CHANGELOG.md`'s
+   `[Unreleased]` section into the new version, refreshes `bun.lock`, runs `bun run format`, and runs
+   the coherence gate. It does **not** commit, push, or tag.
+
+   THE-944: `packages/reranker-local` is not a root workspace member (its own README explains why),
+   but its version stays in lockstep too — the `publish-reranker-local` CI job's F3-style
+   already-published preflight skips publishing any version already on npm, so a version that never
+   moved would make every release after the owner's one-time first manual publish silently no-op.
 
    **The CHANGELOG coverage gate runs first**, before anything is mutated. It asserts that every
    user-visible commit since the previous tag (`feat`/`fix`/`perf`/`build`) is cited in

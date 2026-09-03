@@ -286,7 +286,20 @@ const RERANKERS: Record<string, RerankerEntry> = {
   // only reranker.localModelPath / reranker.localModulePath (see buildLocalReranker below).
   local: {
     appendsPath: "",
-    build: (c, x) => buildLocalReranker(c, x),
+    // THE-944 review round 1 (F3): forwards ctx.resolveLocalRerankerModule (test-only; see
+    // types.ts's ResolveContext field for why it's loosely typed there) as buildLocalReranker's
+    // own `resolveModule` override, so a DECLARED "local" block can be tested deterministically
+    // too, not just the auto-select path — a real caller never sets this field, so this is a no-op
+    // cast to `undefined` in production, falling through to buildLocalReranker's own default (the
+    // real resolveLocalRerankerModule ladder).
+    build: (c, x) =>
+      buildLocalReranker(
+        c,
+        x,
+        x.resolveLocalRerankerModule as
+          | ((c: ProviderDescriptor, ctx: ResolveContext) => Promise<LocalRerankerResolution>)
+          | undefined,
+      ),
   },
 };
 

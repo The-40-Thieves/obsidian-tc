@@ -28,6 +28,15 @@ add("package.json (root)", readJson("package.json").version);
 add("packages/server/package.json", readJson("packages/server/package.json").version);
 add("packages/native/package.json", readJson("packages/native/package.json").version);
 add("packages/shared/package.json", readJson("packages/shared/package.json").version);
+// THE-944 review round 1 (F2): packages/reranker-local is not a root workspace member (see its
+// own README), but it rejoins the lockstep release.mjs now maintains — without this, the
+// publish-reranker-local CI job's F3-style already-published preflight would find the SAME
+// version already on npm on every release after the owner's one-time first manual publish, and
+// silently skip publishing forever.
+add(
+  "packages/reranker-local/package.json",
+  readJson("packages/reranker-local/package.json").version,
+);
 
 const server = readJson("server.json");
 add("server.json", server.version);

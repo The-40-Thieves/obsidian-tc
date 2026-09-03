@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/obsidian-tc-reranker-local",
-  "version": "1.21.0",
+  "version": "1.25.0",
   "description": "THE-705: optional bundled cross-encoder reranker for obsidian-tc — runs fully offline, CPU-only, via @huggingface/transformers, no gateway or Python service required",
   "license": "AGPL-3.0-only",
   "type": "module",

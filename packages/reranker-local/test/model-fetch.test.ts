@@ -9,7 +9,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchAndVerifyModel, modelDirFor, verifyModelDir } from "../src/model-fetch.js";
+import {
+  fetchAndVerifyModel,
+  modelDirFor,
+  unsupportedPlatformReason,
+  verifyModelDir,
+} from "../src/model-fetch.js";
 
 function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
@@ -79,7 +84,14 @@ describe("verifyModelDir", () => {
 // empty) and passes green with the real sha256-checking implementation.
 describe("fetch verification goes red on a corrupted file", () => {
   it("a pre-existing file with the WRONG content (matching size) is detected as corrupt and re-fetched", async () => {
-    const dir = join(root, "cache");
+    // Review round 1 (F6): this MUST write into modelDirFor(root, SPEC) — the exact directory
+    // fetchAndVerifyModel(root, ...) reads — not some other `dir`. The first cut wrote to
+    // join(root, "cache"), a directory fetchAndVerifyModel never looks at, so its assertions
+    // passed because the REAL target was simply empty (missing files), not because a checksum
+    // failed — the corruption setup below was dead code. Confirmed by reverting this fix: with
+    // the corrupt files back at `join(root, "cache")`, this test still passes even though
+    // model-fetch.ts's own sha256 check is fully intact — proof the old path exercised nothing.
+    const dir = modelDirFor(root, SPEC);
     await mkdir(join(dir, "sub"), { recursive: true });
     await writeFile(join(dir, "a.txt"), A_CONTENT); // this one is genuinely fine
     // Same byte length as B_CONTENT ("world-file", 10 bytes) so this is caught by the sha256 check,
@@ -88,14 +100,24 @@ describe("fetch verification goes red on a corrupted file", () => {
     expect(Buffer.byteLength("world-FAKE")).toBe(Buffer.byteLength(B_CONTENT));
 
     const preCheck = await verifyModelDir(dir, SPEC);
+    expect(preCheck.find((r) => r.file.path === "a.txt")?.ok).toBe(true);
     expect(preCheck.find((r) => r.file.path === "sub/b.txt")?.ok).toBe(false);
 
     const fetchFn = okFetchFn();
     const finalDir = await fetchAndVerifyModel(root, { ...SPEC, fetchFn });
-    // Detected as unverified -> re-fetched (root, not the pre-populated `dir`, is the real target).
+    expect(finalDir).toBe(dir);
+    // Detected as unverified -> re-fetched. fetchFn must be asked for BOTH files, not just the
+    // corrupt one — downloadAndVerifyInto re-fetches the whole batch on any single failure (see
+    // its own doc comment), so the genuinely-fine a.txt is re-downloaded too, not left in place.
     expect(fetchFn).toHaveBeenCalled();
+    const fetchedPaths = (fetchFn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(fetchedPaths.some((u) => u.endsWith("a.txt"))).toBe(true);
+    expect(fetchedPaths.some((u) => u.endsWith("b.txt"))).toBe(true);
     const postCheck = await verifyModelDir(finalDir, SPEC);
     expect(postCheck.every((r) => r.ok)).toBe(true);
+    // The corrupted content is GONE, not merely shadowed — read it back off disk directly.
+    const { readFile } = await import("node:fs/promises");
+    expect(await readFile(join(finalDir, "sub", "b.txt"), "utf8")).toBe(B_CONTENT);
   });
 });
 
@@ -127,6 +149,31 @@ describe("fetchAndVerifyModel — download, retry, and atomic rename", () => {
     // No leftover staging directory beside the final one.
     const modelIdDir = join(root, "acme", "tiny-model");
     expect(readdirSync(modelIdDir)).toEqual(["rev1"]);
+  });
+
+  // Review round 1 (F4): the brief's explicit defect class — "if no test pins the revision, that
+  // is a finding." okFetchFn (above) matches every URL by SUFFIX only (u.endsWith("a.txt")), so it
+  // would happily serve a request for .../resolve/main/a.txt just as well as
+  // .../resolve/rev1/a.txt — no prior test ever inspected the middle of the URL. Confirmed: with
+  // downloadAndVerifyInto's template literal changed from `resolve/${revision}/` to a hardcoded
+  // `resolve/main/`, every OTHER test in this file still passed; only this one goes red.
+  it("every fetch URL names the pinned REVISION, never a moving branch like 'main'", async () => {
+    const urls: string[] = [];
+    const fetchFn = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      urls.push(u);
+      const content = u.endsWith("a.txt") ? A_CONTENT : u.endsWith("b.txt") ? B_CONTENT : undefined;
+      if (content === undefined) return new Response(null, { status: 404 });
+      return new Response(content, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await fetchAndVerifyModel(root, { ...SPEC, fetchFn });
+
+    expect(urls.length).toBeGreaterThan(0);
+    for (const u of urls) {
+      expect(u).toContain(`/resolve/${SPEC.revision}/`);
+      expect(u).not.toContain("/resolve/main/");
+    }
   });
 
   it("retries exactly once — attempt 1 fails on its first file (aborting that attempt), attempt 2 succeeds", async () => {
@@ -166,5 +213,63 @@ describe("fetchAndVerifyModel — download, retry, and atomic rename", () => {
     const modelIdDir = join(root, "acme", "tiny-model");
     // Nothing (not even a `.download-*` staging leftover) survives a total failure.
     expect(existsSync(modelIdDir) ? readdirSync(modelIdDir) : []).toEqual([]);
+  });
+});
+
+// Review round 1 ("Also"/F11): the platform check must run BEFORE any download attempt, so an
+// auto-selected deployment on an unsupported platform never spends the network round-trip only to
+// fail later at model-load time. Uses `platformOverride` (real callers never set it — see the
+// field's own doc comment) so this is assertable without the CI runner actually being darwin-x64
+// or musl.
+describe("platform check runs BEFORE the download (THE-944 review round 1)", () => {
+  it("darwin-x64: refuses without ever calling fetchFn", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("must not be called — the platform check must refuse first");
+    }) as unknown as typeof fetch;
+    await expect(
+      fetchAndVerifyModel(root, {
+        ...SPEC,
+        fetchFn,
+        platformOverride: { platform: "darwin", arch: "x64" },
+      }),
+    ).rejects.toThrow(/darwin-x64/);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("musl linux: refuses without ever calling fetchFn", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("must not be called — the platform check must refuse first");
+    }) as unknown as typeof fetch;
+    await expect(
+      fetchAndVerifyModel(root, {
+        ...SPEC,
+        fetchFn,
+        platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => true },
+      }),
+    ).rejects.toThrow(/musl/);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("an ALREADY-VERIFIED cache is still served on an unsupported platform (no download needed, so nothing to refuse)", async () => {
+    const finalDir = modelDirFor(root, SPEC);
+    await mkdir(join(finalDir, "sub"), { recursive: true });
+    await writeFile(join(finalDir, "a.txt"), A_CONTENT);
+    await writeFile(join(finalDir, "sub", "b.txt"), B_CONTENT);
+    const fetchFn = vi.fn(async () => {
+      throw new Error("must not be called — nothing to download");
+    }) as unknown as typeof fetch;
+    const resolved = await fetchAndVerifyModel(root, {
+      ...SPEC,
+      fetchFn,
+      platformOverride: { platform: "darwin", arch: "x64" },
+    });
+    expect(resolved).toBe(finalDir);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("linux glibc x64: supported — unsupportedPlatformReason returns undefined", () => {
+    expect(
+      unsupportedPlatformReason({ platform: "linux", arch: "x64", isMuslRuntime: () => false }),
+    ).toBeUndefined();
   });
 });

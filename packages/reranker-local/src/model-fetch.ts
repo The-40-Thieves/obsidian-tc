@@ -14,6 +14,48 @@ import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { MODEL_ID, MODEL_REVISION, PINNED_FILES, type PinnedFile } from "./model-info.js";
 
+/** THE-944 review round 1 ("Also"/F11): refuse a DOWNLOAD (never a read of already-verified,
+ *  pre-staged files — see fetchAndVerifyModel below) on a platform with no onnxruntime-node native
+ *  prebuild, so an auto-selected deployment on darwin-x64/musl never spends the ~23 MB download only
+ *  to fail later at model-load time inside @huggingface/transformers. Deliberately DUPLICATED, not
+ *  imported, from packages/server/src/doctor/checks.ts's `onnxNativePrebuildStatus`: this package is
+ *  standalone on purpose (see README.md's "why this package is NOT a root workspace member") and
+ *  must not depend on packages/server. Keep both in sync if onnxruntime-node's supported-platform
+ *  matrix changes — confirmed today: linux x64/arm64 glibc, darwin arm64, win32 x64/arm64 only; musl
+ *  and darwin x64 have none. Same musl-detection technique (process.report's own
+ *  `header.glibcVersionRuntime`, present on glibc, absent on musl) — dependency-free, not airtight
+ *  against an unusual custom Node build. */
+export function unsupportedPlatformReason(
+  opts: { platform?: NodeJS.Platform; arch?: string; isMuslRuntime?: () => boolean } = {},
+): string | undefined {
+  const platform = opts.platform ?? process.platform;
+  const arch = opts.arch ?? process.arch;
+  if (platform === "darwin" && arch === "x64") {
+    return (
+      "this platform (darwin-x64 / Intel Mac) has NO onnxruntime-node prebuilt binary — the " +
+      '"local" reranker cannot run here regardless of whether the pinned weights are fetched.'
+    );
+  }
+  const isMuslRuntime =
+    opts.isMuslRuntime ??
+    (() => {
+      try {
+        // biome-ignore lint/suspicious/noExplicitAny: process.report's type is loosely typed upstream.
+        const header = (process.report?.getReport() as any)?.header;
+        return header !== undefined && header.glibcVersionRuntime === undefined;
+      } catch {
+        return false;
+      }
+    });
+  if (platform === "linux" && isMuslRuntime()) {
+    return (
+      "this platform (linux musl libc, e.g. Alpine) has NO onnxruntime-node prebuilt binary — " +
+      'the "local" reranker cannot run here regardless of whether the pinned weights are fetched.'
+    );
+  }
+  return undefined;
+}
+
 export interface FileVerifyResult {
   file: PinnedFile;
   ok: boolean;
@@ -30,6 +72,10 @@ export interface ModelFetchSpec {
   revision?: string;
   pinnedFiles?: readonly PinnedFile[];
   fetchFn?: typeof fetch;
+  /** Forwarded verbatim to `unsupportedPlatformReason` — real callers never set this (it reads the
+   *  REAL process); tests use it to exercise the darwin-x64/musl branches without faking ambient
+   *  `process.platform`. */
+  platformOverride?: Parameters<typeof unsupportedPlatformReason>[0];
 }
 
 interface ResolvedSpec {
@@ -179,6 +225,14 @@ export async function fetchAndVerifyModel(
   const finalDir = modelDirFor(root, spec);
   const existing = await verifyModelDir(finalDir, spec);
   if (existing.length > 0 && existing.every((r) => r.ok)) return finalDir;
+  // THE-944 review round 1: the platform check runs BEFORE the download attempt, not after — a
+  // pre-staged, already-verified cache (checked just above) still works on any platform (someone
+  // may have copied files over for testing), but a fresh download never starts on a platform that
+  // cannot run the model regardless.
+  const unsupported = unsupportedPlatformReason(spec.platformOverride);
+  if (unsupported) {
+    throw new Error(`reranker-local: refusing to download — ${unsupported}`);
+  }
   try {
     await downloadAndVerifyInto(finalDir, resolved);
   } catch (e) {

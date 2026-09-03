@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // THE-705 / THE-944 — CLI wrapper around src/model-fetch.ts's shared download+verify+atomic-rename
 // machinery, which the provider's own lazy loader (src/index.ts's loadSession) now ALSO calls, on
 // the first rerank() call, if the pinned weights are not already present. This script remains the
@@ -7,10 +7,19 @@
 // (`<dir>/<model-id>/<revision>/`) wherever `reranker.localModelPath` points — the runtime finds it
 // already verified and never touches the network.
 //
+// BUN ONLY (review round 1, F7): this file imports ../src/model-fetch.ts and ../src/model-info.ts
+// by their .ts source paths, and model-fetch.ts itself imports "./model-info.js" — a TypeScript
+// extension-rewrite convention bun's loader resolves to the sibling .ts file. Plain `node` does its
+// own type-stripping but does NOT rewrite that .js specifier to .ts, so `node scripts/fetch-model.mjs`
+// dies with ERR_MODULE_NOT_FOUND on .../src/model-info.js. Always invoke this via bun — the
+// package.json "fetch-model" script already does (`bun scripts/fetch-model.mjs`), and every
+// operator-facing error message in this package names "bun run fetch-model", never a bare `node`
+// invocation.
+//
 // Usage:
-//   node scripts/fetch-model.mjs                 # download into ./models (default)
-//   node scripts/fetch-model.mjs --dir <path>     # download elsewhere (matches reranker.localModelPath)
-//   node scripts/fetch-model.mjs --check          # verify only, do not download; exit 1 if incomplete
+//   bun scripts/fetch-model.mjs                 # download into ./models (default)
+//   bun scripts/fetch-model.mjs --dir <path>     # download elsewhere (matches reranker.localModelPath)
+//   bun scripts/fetch-model.mjs --check          # verify only, do not download; exit 1 if incomplete
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchAndVerifyModel, modelDirFor, verifyModelDir } from "../src/model-fetch.ts";

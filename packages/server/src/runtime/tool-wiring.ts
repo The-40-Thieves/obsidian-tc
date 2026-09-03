@@ -21,7 +21,10 @@ import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
 import { buildLocalReranker, resolveReranker } from "../providers/registry";
-import { rerankerBuildBlocker } from "../providers/reranker-preflight";
+import {
+  autoSelectLocalRerankerApplies,
+  rerankerBuildBlocker,
+} from "../providers/reranker-preflight";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeBindingActive } from "../search/native";
@@ -193,6 +196,17 @@ export async function wireGatewaySeams(
    *  is guarded, unconditionally. Absent -> excludes nothing (the sourcePaths declaration
    *  requirement stays unconditional regardless). */
   excludeFilter: EgressFilter = compileEgressFilter([]),
+  /** THE-944 review round 1 (F3): test-only override for the auto-select "local" reranker's
+   *  resolution ladder (forwarded verbatim as `buildLocalReranker`'s own `resolveModule` param).
+   *  Production callers never pass this — it defaults to the REAL ladder
+   *  (`resolveLocalRerankerModule`), which genuinely checks `packages/reranker-local/dist` on disk.
+   *  That real check is exactly what made `reranker-slot-wiring.test.ts`'s absent-block precedence
+   *  tests order-dependent on a SIBLING test file's build artifact once auto-select shipped
+   *  (reranker-auto-select.test.ts and reranker-local-resolution.test.ts each build then delete
+   *  that dist in their own beforeAll/afterAll, and vitest runs files in parallel) — a test that
+   *  needs a DETERMINISTIC "local never resolves" (or "always resolves") outcome should inject a
+   *  stub here instead of depending on ambient filesystem state. */
+  resolveLocalReranker?: Parameters<typeof buildLocalReranker>[2],
 ): Promise<GatewaySeams> {
   let gateway: GatewayClient | null = null;
   try {
@@ -216,28 +230,38 @@ export async function wireGatewaySeams(
   // graphSearch. A declared `reranker` block wins over that default entirely — ABSENT preserves
   // the historical model-tier/gateway precedence exactly, and only ADDS a new terminal fallback.
   //
-  // THE-944 auto-select: the `??` chain's laziness IS the "no gateway URL configured" gate — this
-  // third branch is only reached once `gatewayReranker` is null, which (see its own definition
-  // above) is exactly when `gw` is null, i.e. no gateway URL was configured. An operator who
-  // already has a gateway configured never pays this resolution attempt, and gateway keeps winning
-  // exactly as it does today when both could apply. `buildLocalReranker` never throws (THE-705
-  // round 2's whole point) — an unresolvable optional package degrades to `null` here exactly like
-  // "not configured" always has, never a boot failure; `doctor/checks.ts`'s `rerankerBuildableCheck`
-  // is what keeps that loud rather than silently identical to today's "nothing configured" RRF-only
-  // default.
+  // THE-944 review round 1 (F5): the local-attempt gate below calls `autoSelectLocalRerankerApplies`
+  // EXPLICITLY — the SAME function doctor/checks.ts's caller (cli/commands/doctor.ts) calls to
+  // decide whether to offer its own probe — rather than relying only on the `??` chain's laziness
+  // (still true and still the reason `gatewayReranker ?? ...` is safe to short-circuit on, but no
+  // longer the only thing standing between doctor and boot agreeing). A future change to what
+  // "auto-select applies" means now has exactly ONE place to edit; drift between doctor's report and
+  // boot's actual behaviour would show up as a failing test in EITHER file, not a silent mismatch.
+  const autoSelectLocal =
+    !rerankerCfg &&
+    autoSelectLocalRerankerApplies(undefined, embeddings, {
+      gatewayBaseUrl: gatewayCfg?.baseUrl,
+      gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+    });
   const rerankerRaw: Reranker | null = rerankerCfg
     ? await resolveDeclaredReranker(rerankerCfg, {
         embeddings,
         configDir,
         securityProfile,
         excludeFilter,
+        // THE-944 review round 1 (F3): threads the SAME test-only override through the DECLARED
+        // "local" block path too — see the resolveLocalReranker parameter's own doc comment above.
+        resolveLocalRerankerModule: resolveLocalReranker,
       })
     : (buildModelTierReranker(embeddings) ??
       gatewayReranker ??
-      (await buildLocalReranker(
-        { provider: "local" },
-        { embeddings, configDir, securityProfile, excludeFilter },
-      )));
+      (autoSelectLocal
+        ? await buildLocalReranker(
+            { provider: "local" },
+            { embeddings, configDir, securityProfile, excludeFilter },
+            resolveLocalReranker,
+          )
+        : null));
   const reranker: Reranker | null = rerankerRaw ? guardReranker(rerankerRaw, excludeFilter) : null;
   // W-WORKERS generative seam -> gateway extract/synthesize/judge roles (null -> jobs/challenge
   // no-op).
