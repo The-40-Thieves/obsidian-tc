@@ -1,0 +1,37 @@
+name: install-mcp-publisher
+description: >-
+  Single-source install of the pinned mcp-publisher binary (THE-940, review finding M1). Both
+  publish.yml's tag-triggered `publish-registry` job and ci-server.yml's PR-time
+  `registry-validate` job call this action, so the version + checksum can drift in exactly one
+  place — before this existed they were two verbatim-duplicated blocks with only a "grep both"
+  comment protecting them from disagreeing.
+
+# amd64 only: every caller runs on ubuntu-latest (x86_64) — there is no darwin/windows/arm64
+# caller today. Bump VERSION and CHECKSUM together when upgrading; re-verify the checksum against
+# the new release's own registry_<version>_checksums.txt (sigstore-signed) AND the GitHub Releases
+# API's own asset digest before trusting it — see THE-940's task report for the exact commands.
+# N5 fix: the `bin` output below is CONSUMED by both callers (routed through `env:` at each
+# call site, per this repo's own THE-541 rule for shell steps — see
+# check-workflow-injection.mjs), not hardcoded a second time as "$RUNNER_TEMP/mcp-publisher". That
+# makes this action the single source of truth for its own install path too, not only for the
+# pinned version/checksum: moving the binary elsewhere inside this action would need no caller
+# edit, whereas a caller that hardcoded the path would silently break.
+outputs:
+  bin:
+    description: Absolute path to the installed mcp-publisher binary.
+    value: ${{ steps.install.outputs.bin }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="1.8.1"
+        CHECKSUM="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+        curl -sSL --fail -o "$RUNNER_TEMP/mcp-publisher.tar.gz" \
+          "https://github.com/modelcontextprotocol/registry/releases/download/v${VERSION}/mcp-publisher_linux_amd64.tar.gz"
+        echo "$CHECKSUM  $RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum -c -
+        tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
+        "$RUNNER_TEMP/mcp-publisher" --version
+        echo "bin=$RUNNER_TEMP/mcp-publisher" >> "$GITHUB_OUTPUT"

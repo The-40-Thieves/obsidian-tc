@@ -92,6 +92,16 @@ jobs:
     # targets never once evaluated those expressions. That is the class of bug this gates against:
     # broken only on the real-tag path, invisible to every rehearsal.
     #
+    # THE-940 review finding N2: `actionlint -color` (below) globs `.github/workflows/**` only —
+    # it has no composite-action mode, and pointing it at a `.github/actions/*/action.yml` directly
+    # parses it AS a workflow and reports `"jobs" section is missing`. Proven, not inferred: a
+    # textbook SC2086 was appended to `install-mcp-publisher/action.yml` (added for THE-940) and
+    # this exact job still exited 0. `check-actions-shellcheck.mjs` closes that hole by extracting
+    # every composite action's `run:` block and shellchecking it directly — the same tool this
+    # job's own actionlint step already applies to every workflow-embedded `run:` block, so
+    # composite actions are held to the identical bar. Kept in THIS job (not a separate one) so the
+    # "shell coverage" claim in this job's name stays true of the whole job, not just half of it.
+    #
     # GATES (no continue-on-error), unlike the audit jobs below: this is a static check of files in
     # the repo with no external advisory feed, so it cannot start failing on its own overnight.
     name: actionlint (workflow lint + shell + expression checks)
@@ -108,6 +118,11 @@ jobs:
           echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
       - name: actionlint
         run: actionlint -color
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: shellcheck composite actions (THE-940, actionlint does not cover .github/actions)
+        run: node scripts/check-actions-shellcheck.mjs
 
   gitleaks:
     runs-on: ubuntu-latest

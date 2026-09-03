@@ -15,6 +15,12 @@ jobs:
           node-version: '24'
       - name: assert all version strings agree
         run: node scripts/check-version-coherence.mjs
+      # THE-940: packages/server/package.json's `mcpName` must exactly match server.json's `name`
+      # (the MCP Registry's npm-ownership check is case-sensitive) and server.json's `description`
+      # must stay within the registry's 100-character cap — both fail at publish time otherwise,
+      # not at PR time.
+      - name: assert mcpName agrees with server.json and description is in cap
+        run: node scripts/check-mcp-name.mjs
 
   # THE-506: single repo-wide typecheck gate. The path-scoped workflows (ci-server, ci-plugin) each
   # typecheck their own package already, but no workflow ever typechecks packages/native's TS

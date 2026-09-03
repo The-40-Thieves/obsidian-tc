@@ -42,9 +42,11 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
 
 4. **Tag.** A human pushes the annotated tag `v<x.y.z>`, firing `publish.yml`: the eight-triple
    native build matrix (linux gnu+musl x64/arm64, darwin x64/arm64, win32 x64/arm64) → npm
-   (dependency order, `obsidian-tc` last) → standalone binaries → Docker/ghcr → the `.mcpb` bundle →
-   the companion-plugin assets → a draft GitHub Release with checksums. See *What a tag produces* and
-   *Ordered npm publish* below for the details.
+   (dependency order, `obsidian-tc` last) → the MCP Registry entry (`publish-registry`, gated on
+   every npm package `server.json` references resolving live on npmjs — see *MCP Registry publish*
+   below) → standalone binaries →
+   Docker/ghcr → the `.mcpb` bundle → the companion-plugin assets → a draft GitHub Release with
+   checksums. See *What a tag produces* and *Ordered npm publish* below for the details.
 
 5. **Verify the assets** — the Release is already PUBLISHED, not a draft. `publish.yml` sets
    `draft: false` deliberately (*"releases were left as drafts, so 'Latest' went stale"*), so there
@@ -65,18 +67,128 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
      The manifest carries build-time paths (`./mcpb/obsidian-tc.mcpb`), which match no downloaded
      file, so `-c` reports "no file was verified" rather than a mismatch. Compare a hash directly.
 
+6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
+   and its own job log is the primary signal, but confirm the entry actually landed rather than
+   trusting a green job in isolation (the same "red job can still have shipped almost everything, and
+   a green one is not proof either" caution as step 5). Use the exact-match endpoint, not
+   `?search=` (review finding G3): `?search=` is a fuzzy substring match over every registered
+   server, which can both over-match (a name that merely contains the search text) and
+   under-match (registry-side tokenization quirks) — it is exactly what `publish-registry`'s own
+   preflight step deliberately does NOT use, for the same reason. This is that same exact-match
+   endpoint, run by hand instead of by the job:
+
+   ```sh
+   curl -sS -o /dev/null -w "%{http_code}\n" \
+     "https://registry.modelcontextprotocol.io/v0/servers/io.github.The-40-Thieves%2Fobsidian-tc/versions/<x.y.z>"
+   ```
+
+   **200** means `<x.y.z>` is published — pipe through `| jq .` (drop `-o /dev/null -w ...`) to
+   see the full entry and confirm its `version` field. **404** means it is NOT published — not a
+   stale entry, an absent one; the response body is `{"title":"Not Found","status":404,
+   "detail":"Server not found"}`. Anything else (a 5xx, a connection error) means the check
+   itself failed to run, not that the entry is absent — retry the curl before concluding anything.
+
+   **Registry versions are immutable — there is no "just re-run it" fix for a bad entry.** A second
+   publish attempt at the same name+version fails hard: `mcp-publisher publish` returns
+   `cannot publish duplicate version` (registry v1.8.1, `internal/database/database.go`'s
+   `ErrInvalidVersion`). `publish-registry`'s own preflight step already detects this exact
+   condition (`GET /v0/servers/{name}/versions/{version}` — 200 means already-published) and skips
+   the publish steps cleanly, so re-running the *job* after some unrelated tag-job failure is safe
+   and idempotent — that is the resumed-release path it exists for, not license to re-run because a
+   published entry looks wrong. If the published entry itself is wrong, the fix is the same as any
+   other immutable-publish mistake in this pipeline: bump and re-tag. (The registry does expose an
+   authenticated edit endpoint for an existing version; this runbook does not use it.)
+
+7. **Update the GitHub repository description and topics.** Not automated — the registry entry
+   above is a machine-readable listing, but the repo header is what a human finds it through
+   first, and its tool-count headline has its own staleness history (it still said "141 tools"
+   through this task). Do by hand (`gh repo edit`, or the GitHub UI) whenever
+   `packages/server/test/registered-tool-count.ts`'s `REGISTERED_TOOL_COUNT` changes:
+
+   - **Description** — keep the "N tools across M domains" phrase in lockstep with
+     `REGISTERED_TOOL_COUNT` (163 as of this task) and `docs/project-facts.json`'s `domainCount`
+     (31); e.g. `Obsidian Turbocharged — governed, agent-ready Obsidian MCP server. 163 tools
+     across 31 domains, multi-vault native, pluggable embeddings. TypeScript + Rust.
+     AGPL-3.0-only.`
+   - **Topics** — review against the current stack (`ai-agents`, `mcp`, `model-context-protocol`,
+     `obsidian`, `obsidian-md`, `rust`, `typescript` as of this task) and add any newly-relevant
+     one; there is no automated coherence gate for topics the way there is for the tool count.
+
 ## What a tag produces
 
 - **npm** — three umbrella packages (`obsidian-tc`, `@the-40-thieves/obsidian-tc-shared`,
   `@the-40-thieves/obsidian-tc-native`) plus **eight** platform sub-packages
   (`@the-40-thieves/obsidian-tc-native-{linux-x64-gnu,linux-x64-musl,linux-arm64-gnu,linux-arm64-musl,darwin-x64,darwin-arm64,win32-x64-msvc,win32-arm64-msvc}`),
   published with npm provenance.
+- **MCP Registry entry** (THE-940) — `server.json` published to
+  `registry.modelcontextprotocol.io` via `mcp-publisher`, after every npm package it references
+  resolves live on npmjs. See *MCP Registry publish* below.
 - **Standalone binaries** — `bun build --compile` for the four platforms.
 - **Companion plugin zip** — for `.obsidian/plugins/` (plus the loose `manifest.json` / `main.js` /
   `styles.css` set for BRAT).
 - **`.mcpb` bundle** — the single-file MCPB server bundle.
 - **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64).
 - **Draft GitHub Release** — binaries, plugin zip, and `SHASUMS256.txt`.
+
+## MCP Registry publish (THE-940)
+
+THE-220 committed `server.json` to the repo root against the 2025-12-11 schema, but nothing ever
+published it — `publish-registry` (`publish.yml`, `needs: publish-npm`) is that automation:
+
+1. **Preflight — is this exact name+version already registered?** `GET
+   /v0/servers/{name}/versions/{version}` on the registry itself: HTTP 200 means it is (a resumed
+   release after some other tag job failed) — skip the publish steps and let the job succeed; HTTP
+   404 means proceed; anything else fails the job rather than guessing. Registry versions are
+   **immutable** (a second publish at the same name+version fails hard — see step 6 above), so this
+   is what makes *re-running the job* safe even though the underlying registry publish is a one-shot
+   action. Mirrors `publish-npm`'s own F3 `already_published` classification, and every step below
+   is gated on this one's output the same way.
+2. **Wait for npm propagation.** The registry validates package ownership by fetching the exact npm
+   **version document** — `<registryBaseUrl>/<identifier>/<version>`, e.g.
+   `https://registry.npmjs.org/obsidian-tc/1.25.0` — for every npm entry in `server.json`'s
+   `packages[]`, and a 404 there at publish time is a hard failure. That is a *different*,
+   independently-propagating object from the packument `npm view`/`GET /<name>` fetches, so this
+   polls the exact URL the registry itself builds (derived from `server.json` via `jq`, not
+   hardcoded) rather than the packument, up to 10 times / 10s apart, once per `packages[]` npm
+   entry — today just `obsidian-tc`.
+3. **Install `mcp-publisher`.** Pinned to v1.8.1, binary + checksum (no `curl | sh`), via the
+   shared `.github/actions/install-mcp-publisher` composite action — the same action
+   `registry-validate` (below) uses, so the pin can only drift in one place.
+4. **`mcp-publisher login github-oidc`.** Trades this job's own GitHub OIDC token for a
+   short-lived registry credential; no stored secret. Needs `permissions: { id-token: write,
+   contents: read }` at the job level.
+5. **`mcp-publisher publish`.** Reads `server.json` from the repo root.
+
+**`packages/reranker-local` is deliberately absent from `server.json`'s `packages[]`.** It is an
+optional add-on resolved at runtime (its own README explains why), not how the server is launched,
+so the registry validates nothing about it and `publish-registry`'s `needs:` stays `publish-npm`
+alone. If a future change ever adds it (or any other npm package) to `server.json`'s `packages[]`,
+two things move together: add that package's publish job to `publish-registry`'s `needs:` list, and
+know that step 2's propagation wait needs **no corresponding edit** — it already loops every
+`packages[]` npm entry, because it derives the list from `server.json` rather than a hardcoded name.
+That claim is true precisely BECAUSE the encoding is scope-aware (THE-940 review finding G1):
+reranker-local's actual npm package is `@the-40-thieves/obsidian-tc-reranker-local`, a SCOPED
+name, and the wait loop encodes only the `/` in an identifier (leaving a leading `@` literal —
+matching the registry's own npm validator, which builds the version-document URL with Go's
+`url.PathEscape`) rather than percent-encoding `@` too. An earlier version of this loop used
+jq's `@uri`, which encodes every RFC 3986 reserved character including `@`. npm's registry
+happens to tolerate that over-encoding today (measured: both forms return 200) — but relying on
+CDN leniency instead of building the URL the registry's own validator actually builds is exactly
+the kind of "works by accident" this runbook should not promise. `scripts/check-
+npm-identifier-encoding.test.mjs` pins the corrected shape against both an unscoped and a scoped
+identifier, run against the real, embedded `jq` filter rather than a reimplementation.
+
+Gated on `github.event_name == 'push'` only — unlike every other job downstream of `build-native`,
+it has no `workflow_dispatch`/`dry_run` path at all, because a dispatched dry run never has a real
+npm-published version for the registry to point at.
+
+PR-time pre-flight: `ci-server.yml`'s `registry-validate` job runs `mcp-publisher validate
+server.json` on every PR (no OIDC, no npm check — pure schema/business-rule validation; there is
+no `--dry-run` flag, this is the closest equivalent). It retries with backoff on a network error or
+a 5xx, but fails immediately on a 4xx (the registry actually rejecting `server.json`'s content —
+not transient). **This job is advisory only and must never be promoted to a required status
+check** — unlike every currently-required check, it depends on a third-party service's uptime,
+which has nothing to do with whether a given PR's own code is correct.
 
 ## Ordered npm publish (THE-224, revised by THE-574)
 
@@ -157,6 +269,9 @@ npm CLI ≥ 11.15.0 and Node ≥ 22.14.0, and the trusted publisher must be reco
 - All version strings agree (`scripts/check-version-coherence.mjs`).
 - The companion plugin's manifest version equals the repo version and `versions.json` lists it.
 - The documented tool-count headline matches the registered surface (THE-306).
+- `packages/server/package.json`'s `mcpName` matches `server.json`'s `name` and `server.json`'s
+  `description` stays within the registry's 100-character cap (`scripts/check-mcp-name.mjs`,
+  THE-940).
 
 ## Community-store submission (companion plugin)
 
