@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,251 tracked code files · 209,595 lines.
+**Scale:** 1,251 tracked code files · 209,597 lines.
 
-TypeScript 194,312 · JavaScript 10,601 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 194,314 · JavaScript 10,601 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -95,7 +95,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `doctor/` | 13 | 2,186 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 1,950 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `migrations/` | 53 | 1,940 | hand-registered SQL. **Two chains** — see below |
-| `plane/` | 9 | 1,496 | generative plane; `jobs/` holds the contradiction detector |
+| `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `db/` | 15 | 1,479 | provisioning, migrate runner, experiential store |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
