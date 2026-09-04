@@ -645,13 +645,13 @@
       }
     },
     "reranker": {
-      "description": "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else a graceful no-op.",
+      "description": "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else — THE-944 — the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, exactly as before THE-944.",
       "type": "object",
       "properties": {
         "provider": {
           "type": "string",
           "minLength": 1,
-          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (THE-705: a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package), and the profile-gated module."
+          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (THE-705/THE-944: a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package, and is also tried AUTOMATICALLY — no need to set provider: 'local' explicitly — when this whole block is left unset, model-tier is not configured, and no gateway URL is configured either), and the profile-gated module."
         },
         "model": {
           "description": "Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model. Optional for gateway: omitting it silently falls back to the model literal \"rerank\".",
@@ -684,7 +684,7 @@
           "minLength": 1
         },
         "localModelPath": {
-          "description": "Absolute path to the local cross-encoder model directory for provider 'local' (containing <model-id>/config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README). Defaults to that package's own models/ directory, populated by its `bun run fetch-model` script. Ignored — and refused at boot if set — by every other provider.",
+          "description": "Absolute path to the ROOT directory under which <model-id>/<revision>/ lives (config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README) for provider 'local'. THE-944: no longer required to be pre-populated — fetched and sha256-verified automatically on the first rerank call if not already present. Defaults to that package's own models/ directory. `bun run fetch-model` still works, for offline/CI pre-population. Ignored — and refused at boot if set — by every other provider.",
           "type": "string",
           "minLength": 1
         },

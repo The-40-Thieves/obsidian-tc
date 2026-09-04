@@ -91,7 +91,7 @@ export const ServerConfigObject = z.object({
     "Embedding provider and indexing throughput.",
   ),
   reranker: RerankerConfigSchema.optional().describe(
-    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else a graceful no-op.",
+    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else — THE-944 — the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, exactly as before THE-944.",
   ),
   // THE-832: connection config for the inference gateway itself (extract/synthesize/judge/rerank).
   // ABSENT preserves today's behaviour exactly: falls through to OBSIDIAN_TC_GATEWAY_URL /

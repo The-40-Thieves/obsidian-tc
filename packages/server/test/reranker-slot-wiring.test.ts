@@ -337,7 +337,24 @@ describe("wireGatewaySeams — a declared 'local' block that cannot resolve degr
       embeddings: { provider: "ollama" },
     }).embeddings;
 
-    await expect(wireGatewaySeams(embeddings, rerankerCfg)).resolves.toMatchObject({
+    // THE-944 review round 1 (F3): this DECLARED-block test had the SAME ambient-dist dependency
+    // as the auto-select test above, pre-dating THE-944 (THE-705 round 2) — reproduced: with
+    // packages/reranker-local/dist genuinely present on disk, this assertion failed
+    // (`reranker` resolved to a real function instead of null). Injected the same
+    // always-unresolvable stub via ResolveContext.resolveLocalRerankerModule (threaded through
+    // registry.ts's RERANKERS.local.build), rather than relying on the real filesystem.
+    const neverResolves = async () => ({ ok: false as const, attempts: [] });
+    await expect(
+      wireGatewaySeams(
+        embeddings,
+        rerankerCfg,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        neverResolves,
+      ),
+    ).resolves.toMatchObject({
       reranker: null,
     });
   });
@@ -397,7 +414,24 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
 
   it("neither model-tier.full nor a gateway URL configured -> null, exactly as before", async () => {
     delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-    const { reranker } = await wireGatewaySeams(embeddingsWith());
+    // THE-944 review round 1 (F3): this test now injects a resolver that ALWAYS reports
+    // unresolvable, rather than relying on packages/reranker-local/dist being absent on the real
+    // filesystem. Before this fix, that ambient assumption made this suite order-dependent on
+    // reranker-auto-select.test.ts / reranker-local-resolution.test.ts's own beforeAll (each
+    // builds that dist, then deletes it in afterAll) — vitest runs test FILES in parallel, so this
+    // test's build window could overlap theirs and flip `reranker` from null to a real function.
+    // Reproduced: with dist genuinely present on disk, this exact assertion failed
+    // (`expected [AsyncFunction] to be null`) before this injection was added.
+    const neverResolves = async () => ({ ok: false as const, attempts: [] });
+    const { reranker } = await wireGatewaySeams(
+      embeddingsWith(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      neverResolves,
+    );
     expect(reranker).toBeNull();
   });
 

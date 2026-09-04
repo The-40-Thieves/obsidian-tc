@@ -19,6 +19,11 @@ import { guardReranker, type Reranker } from "../search/rerank";
 import { openAiCompatibleProvider } from "./http-embeddings";
 import { cohereCompatibleReranker } from "./http-rerank";
 import { loadProviderModule } from "./module-loader";
+import {
+  autoSelectLocalRerankerApplies,
+  autoSelectLocalRerankerConfigAllows,
+  type RerankerPreflightEmbeddings,
+} from "./reranker-preflight";
 import type {
   EmbeddingsConfigLike,
   EmbeddingsEntry,
@@ -286,7 +291,20 @@ const RERANKERS: Record<string, RerankerEntry> = {
   // only reranker.localModelPath / reranker.localModulePath (see buildLocalReranker below).
   local: {
     appendsPath: "",
-    build: (c, x) => buildLocalReranker(c, x),
+    // THE-944 review round 1 (F3): forwards ctx.resolveLocalRerankerModule (test-only; see
+    // types.ts's ResolveContext field for why it's loosely typed there) as buildLocalReranker's
+    // own `resolveModule` override, so a DECLARED "local" block can be tested deterministically
+    // too, not just the auto-select path — a real caller never sets this field, so this is a no-op
+    // cast to `undefined` in production, falling through to buildLocalReranker's own default (the
+    // real resolveLocalRerankerModule ladder).
+    build: (c, x) =>
+      buildLocalReranker(
+        c,
+        x,
+        x.resolveLocalRerankerModule as
+          | ((c: ProviderDescriptor, ctx: ResolveContext) => Promise<LocalRerankerResolution>)
+          | undefined,
+      ),
   },
 };
 
@@ -431,6 +449,70 @@ export async function resolveLocalRerankerModule(
   }
 
   return { ok: false, attempts };
+}
+
+/** THE-679/THE-944: the doctor-facing shape of a resolution attempt — shared by BOTH the explicit
+ *  `reranker.provider: "local"` probe and the THE-944 auto-select probe (cli/commands/doctor.ts's
+ *  two `rerankerBuildable.probe*` closures), so the two never duplicate (and cannot drift on) the
+ *  route/attempts-to-string mapping doctor/checks.ts's `LocalRerankerProbeResult` expects. */
+export async function probeLocalRerankerResolution(
+  c: ProviderDescriptor,
+  ctx: ResolveContext,
+): Promise<{ ok: boolean; route?: string; attempts: string[] }> {
+  const r = await resolveLocalRerankerModule(c, ctx);
+  return {
+    ok: r.ok,
+    route: r.attempts.find((a) => a.ok)?.route,
+    attempts: r.attempts.map((a) =>
+      a.ok ? `${a.route}: ${a.target} — resolved` : `${a.route}: ${a.target} — ${a.error}`,
+    ),
+  };
+}
+
+/** THE-944 review round 2: extracted from cli/commands/doctor.ts's `rerankerBuildable` view
+ *  construction (which crossed biome's 700-line file cap once G3's `autoSelectBlockedByPlatform`
+ *  distinction was added) — the SAME motivation as round 1's own extraction of
+ *  `probeLocalRerankerResolution` out of that file. Builds the three probe-related fields
+ *  `RerankerBuildableView` accepts: `probeLocalReranker` (declared "local" only),
+ *  `probeAutoSelectLocalReranker` (only when `autoSelectLocalRerankerApplies` — the shared
+ *  boot/doctor rule — says auto-select would actually be attempted), and
+ *  `autoSelectBlockedByPlatform` (only in the ELSE branch, so doctor can still name platform
+ *  specifically as the reason when config alone would have auto-selected). */
+export function buildRerankerDoctorProbes(opts: {
+  rerankerCfg?: ProviderDescriptor;
+  embeddings?: RerankerPreflightEmbeddings;
+  gatewayBaseUrl?: string;
+  gatewayUrlEnv?: string;
+  configDir?: string;
+  securityProfile?: "hardened" | "trusted-local";
+}): {
+  probeLocalReranker?: () => Promise<{ ok: boolean; route?: string; attempts: string[] }>;
+  probeAutoSelectLocalReranker?: () => Promise<{ ok: boolean; route?: string; attempts: string[] }>;
+  autoSelectBlockedByPlatform?: boolean;
+} {
+  const ctx = { configDir: opts.configDir, securityProfile: opts.securityProfile };
+  const gatewayOpts = { gatewayBaseUrl: opts.gatewayBaseUrl, gatewayUrlEnv: opts.gatewayUrlEnv };
+  const rerankerProvider = opts.rerankerCfg?.provider;
+  return {
+    ...(rerankerProvider === "local"
+      ? {
+          probeLocalReranker: () =>
+            probeLocalRerankerResolution(opts.rerankerCfg as ProviderDescriptor, ctx),
+        }
+      : {}),
+    ...(autoSelectLocalRerankerApplies(rerankerProvider, opts.embeddings, gatewayOpts)
+      ? {
+          probeAutoSelectLocalReranker: () =>
+            probeLocalRerankerResolution({ provider: "local" }, ctx),
+        }
+      : {
+          autoSelectBlockedByPlatform: autoSelectLocalRerankerConfigAllows(
+            rerankerProvider,
+            opts.embeddings,
+            gatewayOpts,
+          ),
+        }),
+  };
 }
 
 /** reranker.provider "local" — exported (rather than inlined into the RERANKERS.local.build above)

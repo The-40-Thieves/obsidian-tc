@@ -554,6 +554,74 @@ jobs:
           MCP_PUBLISHER_BIN: ${{ steps.install-mcp-publisher.outputs.bin }}
         run: |
           "$MCP_PUBLISHER_BIN" publish
+  # THE-944: @the-40-thieves/obsidian-tc-reranker-local. Deliberately its OWN job rather than a step
+  # folded into publish-npm above: packages/reranker-local is NOT a root workspace member (see its
+  # own README — its ~230 MB unpacked @huggingface/transformers dependency would otherwise be
+  # downloaded by every `bun install --frozen-lockfile` at the repo root, whether or not anyone uses
+  # the "local" reranker), so it needs its OWN install/build/publish steps rather than piggybacking
+  # on publish-npm's root-level `bun install`. Depends on verify-tag ONLY (not build-native): this
+  # package has no intra-repo dependency on native/shared/server, so there is no publish ORDER
+  # constraint with them, and no reason to serialise behind the 8-target native matrix.
+  #
+  # Kept as ONE self-contained job touching NOTHING else in this file, specifically so a parallel
+  # edit to publish.yml (a different task) rebases mechanically against this one.
+  #
+  # TRUSTED PUBLISHING CANNOT CREATE A NEW PACKAGE: npm's trusted-publisher config is attached to an
+  # EXISTING package (via the package's own npmjs.com settings page, or the `npm trust github`
+  # CLI subcommand, both of which operate on a package that already exists in the registry) — see
+  # this task's report for the citation. Until the owner has done the required one-time MANUAL
+  # `npm publish` for this package name (also documented in that report) and then configured trusted
+  # publishing for it, the publish step below will fail on a from-scratch registry (403/404) — that
+  # is EXPECTED on every run before that one-time setup, not a defect in this job.
+  publish-reranker-local:
+    if: github.event_name == 'push' || !inputs.dry_run
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: install + build
+        working-directory: packages/reranker-local
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run build
+        shell: bash
+      # F3-style preflight (THE-575), scoped to this one package: npm publish is immutable, so check
+      # BEFORE publishing rather than let a re-run of this job on an already-published tag attempt a
+      # duplicate publish and fail the whole workflow run.
+      - name: preflight — is this version already published?
+        id: preflight
+        working-directory: packages/reranker-local
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "already published: $name@$version"
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unpublished: $name@$version"
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+      - name: publish (trusted publishing / OIDC — requires the one-time manual first publish, see report)
+        if: steps.preflight.outputs.already_published != 'true'
+        working-directory: packages/reranker-local
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          case "$version" in
+            *-*) tag=next ;;
+            *) tag=latest ;;
+          esac
+          echo "publishing $version to dist-tag: $tag"
+          npm publish --provenance --access public --tag "$tag"
+        shell: bash
 
   build-binaries:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of

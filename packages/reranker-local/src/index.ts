@@ -12,7 +12,8 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { MODEL_DTYPE, MODEL_ID, PINNED_FILES } from "./model-info.js";
+import { assertVerified, fetchAndVerifyModel, modelDirFor } from "./model-fetch.js";
+import { MODEL_DTYPE, PINNED_FILES } from "./model-info.js";
 
 export interface RerankHit {
   index: number;
@@ -26,28 +27,34 @@ export interface RerankHit {
 export type Reranker = (query: string, documents: string[], topN: number) => Promise<RerankHit[]>;
 
 export interface LocalRerankerOptions {
-  /** Absolute path to the directory containing `<MODEL_ID>/...` (config.json, tokenizer.json,
-   *  onnx/model_int8.onnx) — i.e. what gets passed to `env.localModelPath`. Defaults to this
-   *  package's own `models/` directory, populated by `bun run fetch-model` (see README.md). */
+  /** Absolute path to the ROOT directory under which `<MODEL_ID>/<MODEL_REVISION>/...` lives
+   *  (config.json, tokenizer.json, onnx/model_int8.onnx — see model-fetch.ts's `modelDirFor`).
+   *  THE-944: no longer required to be pre-populated — `loadSession` fetches and checksum-verifies
+   *  into this root on first use if the pinned files are not already there (or an explicit
+   *  `bun run fetch-model` run, still supported — see README.md). Defaults to this package's own
+   *  `models/` directory. */
   localModelPath?: string;
 }
 
 /** This package's own `models/` directory — NOT read via `readFileSync(new URL(...))` (the
  *  ast-grep rule `no-compiled-runtime-asset-read` forbids that pattern for a reason: `bun --compile`
- *  freezes `import.meta.url` to the build machine's path). This directory is handed to
- *  Transformers.js as a config VALUE (`env.localModelPath`), which does its own fs access; it is
- *  also moot for the compiled-binary case specifically, since @huggingface/transformers cannot
- *  survive `bun --compile` at all (onnxruntime-node dlopens a sidecar .node/.so next to itself) —
- *  the provider is absent-by-default there regardless of this path. */
+ *  freezes `import.meta.url` to the build machine's path). This directory is the ROOT `loadSession`
+ *  resolves `<MODEL_ID>/<MODEL_REVISION>/` under (see model-fetch.ts) — moot for the compiled-binary
+ *  case specifically, since @huggingface/transformers cannot survive `bun --compile` at all
+ *  (onnxruntime-node dlopens a sidecar .node/.so next to itself) — the provider is absent-by-default
+ *  there regardless of this path. */
 export function defaultModelsDir(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "models");
 }
 
-/** True when every pinned file for MODEL_ID is present under `localModelPath` — the signal both
- *  this package's own tests and a consumer's doctor/preflight logic can use to decide "downloaded"
- *  vs "needs `bun run fetch-model`" without importing @huggingface/transformers at all. */
+/** True when every pinned file for MODEL_ID@MODEL_REVISION is present under `localModelPath` — the
+ *  signal both this package's own tests and a consumer's doctor/preflight logic can use to decide
+ *  "downloaded" vs "needs `bun run fetch-model`" (or will be fetched on first use — see
+ *  fetchAndVerifyModel in model-fetch.ts) without importing @huggingface/transformers at all.
+ *  Presence-only (no checksum): a cheap, offline-safe signal, not the verification gate itself —
+ *  that lives in model-fetch.ts's verifyModelDir, which the lazy loader actually calls. */
 export function weightsPresent(localModelPath: string = defaultModelsDir()): boolean {
-  const modelDir = join(localModelPath, MODEL_ID);
+  const modelDir = modelDirFor(localModelPath);
   return PINNED_FILES.every((f) => existsSync(join(modelDir, f.path)));
 }
 
@@ -100,6 +107,19 @@ async function loadSession(localModelPath: string): Promise<Session> {
   let pending = sessions.get(localModelPath);
   if (!pending) {
     pending = (async (): Promise<Session> => {
+      // THE-944: fetch-and-verify BEFORE importing @huggingface/transformers, not after — a failed
+      // download/checksum must never reach the runtime import at all, so the error an operator sees
+      // names model-fetch.ts's own actionable message (which points at `bun run fetch-model`), not
+      // an opaque "file not found" from deep inside Transformers.js. Already-verified files short
+      // -circuit this with zero network calls — the common case after the first successful call.
+      const modelDir = await fetchAndVerifyModel(localModelPath);
+      // THE-944 review round 2 (G2): re-verify the FINAL directory immediately before use, as a
+      // step DISTINCT from whatever fetchAndVerifyModel itself just checked — closes the TOCTOU
+      // window between that verification and the from_pretrained calls below: a byte swapped on
+      // disk in that gap (or a symlink planted after the fact) is caught here, before the runtime
+      // import even happens, rather than silently loaded. Cheap (a handful of small files plus one
+      // ~23 MB sha256, no network) — see model-fetch.ts's assertVerified for the full contract.
+      await assertVerified(modelDir);
       // The dynamic import target is a VARIABLE, not a string literal — TypeScript only attempts to
       // resolve a literal specifier's module/type declarations for a dynamic import, so this line
       // typechecks whether or not @huggingface/transformers is installed. That is deliberate: this
@@ -108,11 +128,17 @@ async function loadSession(localModelPath: string): Promise<Session> {
       const { AutoModelForSequenceClassification, AutoTokenizer, env } = (await import(
         transformersPackage
       )) as TransformersModule;
-      env.localModelPath = localModelPath;
       env.allowRemoteModels = false;
+      // `modelDir` (MODEL_ID@MODEL_REVISION, already fetched+verified above) is passed as
+      // `path_or_repo_id` directly, NOT `env.localModelPath` + the bare MODEL_ID — see
+      // model-fetch.ts's modelDirFor doc comment for why: Transformers.js's own path-join contract
+      // treats a `path_or_repo_id` with more than one `/` as a literal directory, reading
+      // `<path_or_repo_id>/<filename>` and never consulting env.localModelPath for it at all. That
+      // is what lets the on-disk layout be REVISION-scoped without env.localModelPath's single
+      // `<root>/<MODEL_ID>/<filename>` join getting in the way.
       const [tokenizer, model] = await Promise.all([
-        AutoTokenizer.from_pretrained(MODEL_ID),
-        AutoModelForSequenceClassification.from_pretrained(MODEL_ID, { dtype: MODEL_DTYPE }),
+        AutoTokenizer.from_pretrained(modelDir),
+        AutoModelForSequenceClassification.from_pretrained(modelDir, { dtype: MODEL_DTYPE }),
       ]);
       return { tokenizer, model };
     })();

@@ -241,11 +241,21 @@ if (haveTag) {
 
 // Core version set; packages/plugin is bumped separately below — it now tracks the repo
 // version in lockstep (decision 2026-07-02; see the block after server.json).
+// THE-944 review round 1 (F2): packages/reranker-local/package.json rejoins the repo version
+// lockstep too. It is deliberately NOT a root workspace member (its own README explains why —
+// the ~230 MB @huggingface/transformers dependency), but it publishes through its own CI job
+// (publish-reranker-local in .github/workflows/publish.yml) whose F3-style preflight skips
+// publishing any version already on npm — a version that never moves means, after the owner's
+// one-time first manual publish, EVERY subsequent release finds that same version already
+// published and silently no-ops forever, never shipping anything again (including a
+// MODEL_REVISION bump or a fix in model-fetch.ts). Lockstep with the repo version is what keeps
+// each tagged release a genuinely new, publishable version.
 for (const p of [
   "package.json",
   "packages/server/package.json",
   "packages/native/package.json",
   "packages/shared/package.json",
+  "packages/reranker-local/package.json",
   "manifest.json",
 ]) {
   setVersion(p, (o) => {

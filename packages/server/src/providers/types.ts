@@ -92,6 +92,16 @@ export interface ResolveContext {
    *  registry entry so the createGatewayClient it constructs is guarded at the port, same as
    *  every other gateway client construction in the tree. Absent -> excludes nothing. */
   excludeFilter?: EgressFilter;
+  /** THE-944 review round 1 (F3): test-only override for the "local" reranker's resolution ladder,
+   *  read by registry.ts's `RERANKERS.local.build` and forwarded to `buildLocalReranker`'s own
+   *  `resolveModule` param (see that function's JSDoc). Loosely typed here (not importing
+   *  registry.ts's real `resolveLocalRerankerModule` signature) to avoid a circular import —
+   *  registry.ts casts it back at its one use site, the same loose-typing-for-test-injection idiom
+   *  this file's `EmbeddingsEntry`/`RerankerEntry` neighbors already use elsewhere in this tree.
+   *  Production callers never set this: it defaults to the REAL ladder, which genuinely checks
+   *  packages/reranker-local/dist on disk. */
+  // biome-ignore lint/suspicious/noExplicitAny: test-injection escape hatch, see comment above.
+  resolveLocalRerankerModule?: (...args: any[]) => Promise<unknown>;
 }
 
 export interface EmbeddingsEntry {
