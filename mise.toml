@@ -5,11 +5,13 @@
 # Each pin below matches something already authoritative elsewhere in the repo; none were chosen
 # freely. Change one of these and change its counterpart in the same commit.
 [tools]
-# Matches BOTH .github/actions/setup-repo (bun-version default '1.3.14') and package.json's
-# `packageManager: "bun@1.3.14"`. This was `1.3`, so a developer installing today and one who
-# installed months ago could be on different patch releases of the runtime that executes every
-# test — with nothing reporting it.
-bun = "1.3.14"
+# Matches BOTH .github/actions/setup-repo (bun-version default '1.4.0') and package.json's
+# `packageManager: "bun@1.4.0"`. Bumped from 1.3.14 (THE-946): the root `bun audit` (509
+# packages) hung on 1.3.14 until the client's five-minute timeout — 1.3.14's fetch idle timer
+# did not cover the TLS handshake phase, so a stalled handshake to the npm advisory endpoint
+# blocked forever instead of failing fast. 1.4.0 arms the idle timer in `on_open`, covering the
+# handshake, and the same audit completes in ~17s.
+bun = "1.4.0"
 
 # Every package declares `engines.node: ">=24"`, so 24 is the floor, not the target. This pin is
 # the exact version in use here and is deliberately ABOVE the floor: you develop on a newer
