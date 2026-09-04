@@ -31,11 +31,16 @@ release-tag prerequisite.
   content here. It carries its own release-tag prerequisite and "Do NOT submit until" checklist
   (a tagged release must exist with `tc-bridge` in `manifest.json` and all three loose assets
   attached).
-- Command/URL: open a PR against
-  [`obsidianmd/obsidian-releases`](https://github.com/obsidianmd/obsidian-releases) using that
-  file's text.
-- Verify: the PR is open (then merged); once merged, `tc-bridge` appears in Obsidian's in-app
-  community plugin browser.
+- Command/URL: submit via the **self-service form at
+  [community.obsidian.md](https://community.obsidian.md)** using that file's text — sign in with
+  an Obsidian account, link the GitHub account that owns the repo to verify ownership, and submit.
+  This is not a PR against `obsidianmd/obsidian-releases`; that repo-PR flow is Obsidian's
+  pre-self-service submission path and is no longer how new plugins are listed (confirmed against
+  `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc, 2026-09-04). The form reads
+  `manifest.json` from the repo's default branch (THE-950: that is now this repo's root
+  `manifest.json`, byte-identical to `packages/plugin/manifest.json`).
+- Verify: the submission is confirmed in the community.obsidian.md account dashboard; once
+  reviewed and published, `tc-bridge` appears in Obsidian's in-app community plugin browser.
 
 ## 4. Smithery — manual, owner
 

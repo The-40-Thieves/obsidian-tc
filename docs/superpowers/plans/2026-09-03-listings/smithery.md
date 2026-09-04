@@ -49,8 +49,10 @@ Smithery has two distinct paths, and only one fits obsidian-tc:
 array: the CLI casts each MCPB tool entry (name + optional description only) into the registry's
 `Tool[]` schema, which requires `inputSchema` — a field the MCPB manifest format forbids on tool
 entries (`arcadeai-labs/smithery-cli#787`, open as of 2026-09-03; fix PR `#789` open, unmerged, and
-only patches this narrow case — see below). Checked our root `manifest.json` (MCPB
-`manifest_version: "0.3"`): it declares no `tools` array at all — only `"tools_generated": true` —
+only patches this narrow case — see below). Checked our MCPB manifest
+(`mcpb/manifest.json` as of THE-950 — it moved off the repo root, which is now the companion
+plugin's Obsidian manifest instead; `manifest_version: "0.3"`): it declares no `tools` array at
+all — only `"tools_generated": true` —
 so **this specific 400 does not fire for us.** No change to `scripts/bundle-mcpb.ts` or
 `.mcpbignore` is needed for it.
 

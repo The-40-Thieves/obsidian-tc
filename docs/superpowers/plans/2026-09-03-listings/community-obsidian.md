@@ -11,6 +11,12 @@ branch at submission time, and separately expects the **release matching that ve
 `main.js`, `manifest.json`, and `styles.css` as individually-downloadable release assets (not
 only inside a zip) — that's what BRAT and the directory's own installer fetch.
 
+**As of THE-950, the repo-root `manifest.json` IS `packages/plugin/manifest.json` (byte-identical,
+`release.mjs`-mirrored, `check-version-coherence.mjs`-gated).** Before THE-950 the root
+`manifest.json` was the MCPB 0.3 bundle manifest (`name: obsidian-tc`, THE-220) — the validator's
+default-branch read would have found that file instead of the plugin's, which was a submission
+blocker no release tag could have fixed. The MCPB manifest now lives at `mcpb/manifest.json`.
+
 This branch (`gaps/plugin-rename`, THE-943) only renames the manifest; it does not cut a release.
 `.github/workflows/publish.yml`'s `build-plugin` job already produces the right release-asset
 shape on every tag push (`packages/plugin/dist/{manifest.json,main.js,styles.css}` uploaded loose,

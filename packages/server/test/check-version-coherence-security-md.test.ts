@@ -31,10 +31,12 @@ const SECURITY_MD = fileURLToPath(new URL("../../../SECURITY.md", import.meta.ur
 const RERANKER_LOCAL_PACKAGE_JSON = fileURLToPath(
   new URL("../../reranker-local/package.json", import.meta.url),
 );
+const ROOT_MANIFEST_JSON = fileURLToPath(new URL("../../../manifest.json", import.meta.url));
 const SCRIPT = "scripts/check-version-coherence.mjs";
 
 const originalSecurityMd = readFileSync(SECURITY_MD, "utf8");
 const originalRerankerLocalPackageJson = readFileSync(RERANKER_LOCAL_PACKAGE_JSON, "utf8");
+const originalRootManifestJson = readFileSync(ROOT_MANIFEST_JSON, "utf8");
 
 function runCheck() {
   return spawnSync("node", [SCRIPT], { cwd: REPO_ROOT, encoding: "utf8" });
@@ -44,6 +46,7 @@ afterEach(() => {
   // Idempotent backstop: re-asserts the original content even if a test's own finally already did.
   writeFileSync(SECURITY_MD, originalSecurityMd);
   writeFileSync(RERANKER_LOCAL_PACKAGE_JSON, originalRerankerLocalPackageJson);
+  writeFileSync(ROOT_MANIFEST_JSON, originalRootManifestJson);
 });
 
 describe("check-version-coherence.mjs SECURITY.md supported-version gate (THE-562)", () => {
@@ -106,6 +109,40 @@ describe("check-version-coherence.mjs covers packages/reranker-local (THE-944 re
       expect(`${result.stdout}${result.stderr}`).toContain("0.0.1-stale");
     } finally {
       writeFileSync(RERANKER_LOCAL_PACKAGE_JSON, originalRerankerLocalPackageJson);
+    }
+  });
+});
+
+// THE-950: the repo-root manifest.json is now the companion plugin's Obsidian manifest (Obsidian's
+// community-directory validator reads it from the repo's default branch) — byte-identical to
+// packages/plugin/manifest.json by construction (release.mjs mirrors it there; see that script's
+// own comment). A third "mutate a real repo file, spawn the coherence script" proof, in this same
+// file for the same parallel-mutation reason THE-944 round 1 (F2) gave for the second one above.
+describe("check-version-coherence.mjs root/plugin manifest parity gate (THE-950)", () => {
+  it("passes when root manifest.json is byte-identical to packages/plugin/manifest.json", () => {
+    const result = runCheck();
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/root manifest\.json OK \(byte-identical/);
+  });
+
+  it("fails when a single field in root manifest.json drifts from packages/plugin/manifest.json", () => {
+    const manifest = JSON.parse(originalRootManifestJson) as { description: string };
+    // Sanity check on the fixture itself: if this ever equals the mutated value below, the
+    // mutation is a silent no-op and the test would pass for the wrong reason.
+    expect(manifest.description).not.toBe("THE-950 drift fixture");
+    const stale = `${JSON.stringify({ ...manifest, description: "THE-950 drift fixture" }, null, 2)}\n`;
+    expect(stale).not.toBe(originalRootManifestJson);
+
+    writeFileSync(ROOT_MANIFEST_JSON, stale);
+    try {
+      const result = runCheck();
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toMatch(
+        /FAIL: repo-root manifest\.json is not byte-identical/,
+      );
+    } finally {
+      writeFileSync(ROOT_MANIFEST_JSON, originalRootManifestJson);
     }
   });
 });

@@ -64,9 +64,16 @@ and the MCP server's own name (`obsidian-tc`) are unaffected — only the Obsidi
 ## Community-store submission notes (THE-282)
 
 - `versions.json` (version → `minAppVersion`) lives beside `manifest.json` in this package and is
-  asserted by `scripts/check-version-coherence.mjs`. **Obsidian's release tooling reads
-  `manifest.json`/`versions.json` from the plugin repository ROOT** — a store submission requires
-  either a dedicated plugin repo or copying both files to the monorepo root at release time.
+  asserted by `scripts/check-version-coherence.mjs`. **Obsidian's community-directory validator
+  reads `manifest.json` from the plugin repository's default branch** (confirmed against
+  `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc, THE-950) — `versions.json` is a
+  separate, optional runtime fallback Obsidian consults only for an already-installed plugin whose
+  `minAppVersion` has risen past the user's app version, and it is not named as a submission
+  requirement, so it stays here rather than also moving to the root.
+- **THE-950: this file's `manifest.json` is mirrored, byte-for-byte, to the repo root** by
+  `scripts/release.mjs`, which is what the community-directory validator's default-branch read
+  actually finds — `scripts/check-version-coherence.mjs` fails the release if the two ever drift,
+  so there is exactly one manifest to hand-edit, not two to keep in sync.
 - `isDesktopOnly: true`: TC Bridge bridges to a locally-running MCP server via the Local REST API
   plugin, which has no mobile-Obsidian equivalent for that local access — the same convention
   comparable bridge plugins use (verified 2026-09-03). It opens no port of its own; on platforms
