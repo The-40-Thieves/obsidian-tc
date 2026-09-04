@@ -18,6 +18,28 @@ describe("ServerConfigSchema", () => {
     expect(c.transports.http.host).toBe("127.0.0.1");
   });
 
+  // THE-935 (GH #878): db.busyTimeoutMs is the first config surface over db/pragmas.ts's
+  // DEFAULT_BUSY_TIMEOUT_MS, which stays 5000 and stays the schema default.
+  it("defaults db.busyTimeoutMs to 5000 (THE-935)", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.db.busyTimeoutMs).toBe(5000);
+  });
+
+  it("accepts a configured db.busyTimeoutMs override (THE-935)", () => {
+    const c = ServerConfigSchema.parse({ ...base, db: { busyTimeoutMs: 12345 } });
+    expect(c.db.busyTimeoutMs).toBe(12345);
+  });
+
+  it("rejects db.busyTimeoutMs below 1 (THE-935)", () => {
+    expect(ServerConfigSchema.safeParse({ ...base, db: { busyTimeoutMs: 0 } }).success).toBe(false);
+  });
+
+  it("rejects a non-integer db.busyTimeoutMs (THE-935)", () => {
+    expect(ServerConfigSchema.safeParse({ ...base, db: { busyTimeoutMs: 5000.5 } }).success).toBe(
+      false,
+    );
+  });
+
   // F8: "oauth" was accepted at config load but returned 501 at request time; it is
   // no longer a valid auth mode (rejected at load).
   it("rejects auth.mode 'oauth' (F8)", () => {

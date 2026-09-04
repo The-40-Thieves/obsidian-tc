@@ -261,6 +261,10 @@ export async function buildServerRuntime(
   const stores = await wireStores({
     cacheDir: config.cacheDir,
     version: VERSION,
+    // THE-935: reaches every connectionPragmas() call site via wireStores -> openDatabase /
+    // provisionExperientialDb, so an operator's db.busyTimeoutMs actually governs the server's
+    // cache.db and experiential.db connections rather than only validating in the schema.
+    busyTimeoutMs: config.db.busyTimeoutMs,
     experiential: config.experiential,
     experientialMigrations,
   });

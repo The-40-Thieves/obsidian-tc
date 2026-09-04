@@ -151,7 +151,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-463 | _internal planning reference — see repo history_ | — | 2 |
 | THE-465 | Metrics Registry | docs/design/metrics-registry.md | 13 |
 | THE-466 | Server Runtime — Composition Root | docs/design/server-runtime.md | 8 |
-| THE-467 | Metrics Registry | docs/design/metrics-registry.md | 3 |
+| THE-467 | Metrics Registry | docs/design/metrics-registry.md | 4 |
 | THE-486 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 3 |
 | THE-487 | _internal planning reference — see repo history_ | — | 1 |
 | THE-488 | _internal planning reference — see repo history_ | — | 5 |
@@ -321,7 +321,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-742 | Rerun hygiene: WAL staging, audit attribution, policy refusals, exit codes (#730, THE-738, THE-739, THE-740, THE-742). | CHANGELOG.md (1.20.0) | 2 |
 | THE-743 | `ToolAnnotations.idempotentHint` (#733, THE-743). | CHANGELOG.md (1.20.0) | 2 |
 | THE-744 | An invocation that plans zero passes now records that it ran (#733, THE-744). | CHANGELOG.md (1.20.0) | 6 |
-| THE-745 | `busy_timeout` is installed before any pragma that can contend (#723, THE-745). | CHANGELOG.md (1.20.0) | 4 |
+| THE-745 | `busy_timeout` is installed before any pragma that can contend (#723, THE-745). | CHANGELOG.md (1.20.0) | 5 |
 | THE-746 | Per-decision eligibility reasons (#733, THE-746). | CHANGELOG.md (1.20.0) | 5 |
 | THE-747 | `reflect --max-judged` outlived the judge it capped (#724, THE-747). | CHANGELOG.md (1.20.0) | 2 |
 | THE-748 | _internal planning reference — see repo history_ | — | 1 |
@@ -358,12 +358,13 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 | THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 60 |
+| THE-935 | `db.busyTimeoutMs` reachable from config (THE-935; issue #878). | CHANGELOG.md (Unreleased) | 9 |
 | THE-936 | `call_capability` now echoes the envelope keys it received on validation failure (THE-936; issue #876). | CHANGELOG.md (Unreleased) | 1 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
 | THE-939 | `doctor` warns on sync-service conflict copies in the install directory (THE-939; issue #881). | CHANGELOG.md (Unreleased) | 4 |
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 
-349 distinct ticket(s) across 492 source file(s) under
-`packages/*/src`; 282 resolved to a public summary, 67
+350 distinct ticket(s) across 492 source file(s) under
+`packages/*/src`; 283 resolved to a public summary, 67
 fall back to the internal-reference placeholder above.

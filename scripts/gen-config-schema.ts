@@ -243,7 +243,20 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // use rather than requiring a prior `bun run fetch-model` run (which remains available for
   // offline/CI pre-population). See packages/server/src/runtime/tool-wiring.ts's wireGatewaySeams
   // and packages/reranker-local/src/model-fetch.ts for the corresponding behavioral changes.
-  "37d661dc765fcab79b9831ac8c8bfa628fca2a0184d978b9ec4bf8fb96f110bb";
+  // THE-935 (GH #878): rebaselined deliberately. Adds ONE new top-level block, `db` (a single key,
+  // `busyTimeoutMs`, int, min 1, default 5000) — the first config surface over db/pragmas.ts's
+  // DEFAULT_BUSY_TIMEOUT_MS, previously reachable only from a test override. Threaded through
+  // db/open.ts to all three DB adapters (bun-sqlite/node-better-sqlite3/node-node-sqlite) and to
+  // db/experiential.ts's provisionExperientialDb, so the server's actual cache.db and
+  // experiential.db connections (runtime/stores.ts's wireStores, wired from
+  // runtime/server-runtime.ts's config.db.busyTimeoutMs) honor a configured value instead of only
+  // validating in the schema. Default (5000) is unchanged, so an unset config behaves identically.
+  // See server.schema.ts's `db` key for the full description text: raising it is documented as
+  // symptom treatment (the fix for sustained contention is splitting the shared database per
+  // vault, THE-467), and it states that stdio MCP spawns one server process per client, so the
+  // concurrent client count is what busy_timeout has to absorb. No existing key, type, default or
+  // constraint moved.
+  "2d7f28a468898f1ab089e98897a76d8cf11e466c66fc0ee5b27d4a7277b2313d";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

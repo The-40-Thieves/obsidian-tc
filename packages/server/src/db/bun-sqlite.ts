@@ -53,7 +53,7 @@ function useEmbeddedSqlite(BunDatabase: { setCustomSQLite?: (p: string) => void 
  * bun: specifier is only evaluated when Bun actually calls openBunSqlite, so the
  * same bundle also loads under Node (which then uses the better-sqlite3 adapter).
  */
-export async function openBunSqlite(path: string): Promise<Db> {
+export async function openBunSqlite(path: string, busyTimeoutMs?: number): Promise<Db> {
   // THE-687: an unconditional ignore, NOT `expect-error`, and the distinction is load-bearing.
   // This file is compiled by TWO projects with different `types`: the main one pins ["node"], where
   // bun:sqlite does not resolve and the suppression is REQUIRED; tsconfig.bun-smoke.json adds
@@ -70,8 +70,10 @@ export async function openBunSqlite(path: string): Promise<Db> {
   const db = new BunDatabase(path, { create: true });
   // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the
   // ORDER cannot drift between them — busy_timeout must precede anything that can contend
-  // (THE-745). See db/pragmas.ts.
-  for (const p of connectionPragmas()) db.exec(`PRAGMA ${p}`);
+  // (THE-745). See db/pragmas.ts. busyTimeoutMs is forwarded rather than called bare (THE-935) so
+  // config's db.busyTimeoutMs reaches this connection instead of silently falling back to the
+  // default.
+  for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     // THE-687: bun:sqlite types its bind parameters as SQLQueryBindings, while the Statement port

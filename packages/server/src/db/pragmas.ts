@@ -22,8 +22,11 @@ export const DEFAULT_BUSY_TIMEOUT_MS = 5000;
  * WAL + `synchronous = NORMAL` is the documented safe pairing; the larger page cache and mmap keep
  * the brute-force scan and the recursive graph walk resident.
  *
- * @param busyTimeoutMs overridable so a test can assert the ORDERING against a short timeout
- *   without blocking for the production value.
+ * @param busyTimeoutMs overridable both by a test (asserting the ORDERING against a short timeout
+ *   without blocking for the production value) and, in production, by config's `db.busyTimeoutMs`
+ *   (THE-935) — every adapter's open function forwards its own parameter through to here rather
+ *   than calling this bare, so the configured value reaches the connection instead of silently
+ *   falling back to DEFAULT_BUSY_TIMEOUT_MS.
  */
 export function connectionPragmas(busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_MS): string[] {
   return [

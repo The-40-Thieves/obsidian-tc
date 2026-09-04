@@ -27,6 +27,9 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
 ```json
 {
   "cacheDir": ".obsidian-tc",
+  "db": {
+    "busyTimeoutMs": 5000
+  },
   "vaults": [
     {
       "id": "main",

@@ -9,22 +9,25 @@ function isBun(): boolean {
  * better-sqlite3 under Node. Adapters are imported dynamically so the inactive
  * runtime's native module is never evaluated. node:sqlite is the last-resort fallback when
  * better-sqlite3 cannot be resolved (e.g. the packed .mcpb); it is also what the test suite runs on.
+ *
+ * @param busyTimeoutMs THE-935: config's `db.busyTimeoutMs`, forwarded to whichever adapter opens
+ *   the connection. Omitted falls back to DEFAULT_BUSY_TIMEOUT_MS (pragmas.ts).
  */
-export async function openDatabase(path: string): Promise<Database> {
+export async function openDatabase(path: string, busyTimeoutMs?: number): Promise<Database> {
   if (isBun()) {
     const { openBunSqlite } = await import("./bun-sqlite");
-    return openBunSqlite(path);
+    return openBunSqlite(path, busyTimeoutMs);
   }
   // Node: prefer better-sqlite3 (native, fastest). Fall back to the built-in node:sqlite ONLY when
   // better-sqlite3 cannot be resolved — e.g. the self-contained .mcpb bundle, which ships no
   // node_modules. A genuine DB error is not swallowed; only a resolution/binding failure falls back.
   try {
     const { openBetterSqlite3 } = await import("./node-better-sqlite3");
-    return await openBetterSqlite3(path);
+    return await openBetterSqlite3(path, busyTimeoutMs);
   } catch (err) {
     if (!isBetterSqlite3Unavailable(err)) throw err;
     const { openNodeSqlite } = await import("./node-node-sqlite");
-    return openNodeSqlite(path);
+    return openNodeSqlite(path, busyTimeoutMs);
   }
 }
 

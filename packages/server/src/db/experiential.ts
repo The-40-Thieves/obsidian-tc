@@ -7,7 +7,10 @@ export interface ProvisionExperientialOptions {
   version?: string;
   now?: () => number;
   /** Override the DB opener; tests inject an in-memory Database. */
-  open?: (path: string) => Promise<Database>;
+  open?: (path: string, busyTimeoutMs?: number) => Promise<Database>;
+  /** THE-935: config's `db.busyTimeoutMs`, forwarded to `open`. Omitted falls back to
+   *  DEFAULT_BUSY_TIMEOUT_MS (pragmas.ts). */
+  busyTimeoutMs?: number;
 }
 
 /**
@@ -29,7 +32,7 @@ export async function provisionExperientialDb(
   opts: ProvisionExperientialOptions = {},
 ): Promise<Database> {
   const open = opts.open ?? openDatabase;
-  const db = await open(join(cacheDir, "experiential.db"));
+  const db = await open(join(cacheDir, "experiential.db"), opts.busyTimeoutMs);
   runMigrations(db, migrations, { version: opts.version, now: opts.now });
   return db;
 }

@@ -19,14 +19,16 @@ import type { Database as Db, RunResult, Statement } from "./types";
  * loads better-sqlite3 (it uses bun:sqlite instead). Every caller reaches this
  * through the async openDatabase(), so the sync -> async change is transparent.
  */
-export async function openBetterSqlite3(path: string): Promise<Db> {
+export async function openBetterSqlite3(path: string, busyTimeoutMs?: number): Promise<Db> {
   const { default: BetterSqlite3 } = await import("better-sqlite3");
   const db = new BetterSqlite3(path);
   // Server-tuned per-connection baseline (THE-273), shared with the other adapters so the ORDER
   // cannot drift between them — busy_timeout must precede anything that can contend (THE-745).
   // See db/pragmas.ts. better-sqlite3 caches statements internally, so prepareCached here mainly
-  // bounds wrapper allocation (the real win is on bun:sqlite).
-  for (const p of connectionPragmas()) db.pragma(p);
+  // bounds wrapper allocation (the real win is on bun:sqlite). busyTimeoutMs is forwarded rather
+  // than called bare (THE-935) so config's db.busyTimeoutMs reaches this connection instead of
+  // silently falling back to the default.
+  for (const p of connectionPragmas(busyTimeoutMs)) db.pragma(p);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {
