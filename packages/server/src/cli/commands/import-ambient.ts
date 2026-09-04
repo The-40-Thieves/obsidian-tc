@@ -15,13 +15,12 @@
 // `registry.dispatch`, so this writes `audit_events` directly via `writeEvent` rather than relying
 // on `runDispatch`.
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import type { AuditEvent } from "../../audit";
 import { writeEvent } from "../../audit";
 import { ingestAmbient } from "../../capture/ambient-import";
 import { fetchPensieveObservations, PensieveApiError } from "../../capture/pensieve";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import type { Database } from "../../db/types";
 import { argsHash } from "../../hash";
@@ -109,7 +108,7 @@ export async function run_import_ambient(cmd: Cmd<"import-ambient">): Promise<vo
   }
 
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   const t0 = Date.now();
   try {
     // Provisioned defensively, like `import-highlights` (cli/commands/import-highlights.ts): an

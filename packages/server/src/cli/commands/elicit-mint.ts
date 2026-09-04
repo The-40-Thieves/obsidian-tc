@@ -30,10 +30,9 @@
 // escape hatch when their client cannot render the confirmation prompt itself. Wiring it as a tool
 // would hand the very agent under the gate a way to clear its own gate.
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type AuditEvent, writeEvent } from "../../audit";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
 import { issueElicitToken } from "../../elicit";
 import { CliError } from "../args";
@@ -163,7 +162,7 @@ export async function run_elicit_mint(cmd: ElicitMintCmd): Promise<void> {
   // missing `elicit_tokens` table (a vault that has never been served) surfaces its own
   // "no such table" error from the INSERT below rather than silently provisioning one here.
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const db = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(cfg, "cache.db");
   try {
     const token = mintElicitAudited(db, plan);
     if (cmd.json) {

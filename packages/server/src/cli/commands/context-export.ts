@@ -12,13 +12,13 @@
 //   2. the resolved `--out` path is refused if it falls inside ANY configured vault's root, so
 //      the bundle can never land somewhere `read_note`/the indexer/Obsidian Sync would reach it.
 import { mkdirSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../../package.json";
 import type { AuditEvent } from "../../audit";
 import { writeEvent } from "../../audit";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
 import { exportContextBundle } from "../../experiential/context-bundle";
 import { argsHash } from "../../hash";
@@ -90,7 +90,7 @@ export async function run_context_export(cmd: Cmd<"context-export">): Promise<vo
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   const t0 = Date.now();
   try {
     const bundle = exportContextBundle(edb, {

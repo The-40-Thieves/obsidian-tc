@@ -11,10 +11,9 @@
 // header for that history). `--dry-run` calls planSynthesis instead, which shares runSynthesis'
 // gather/filter logic but stops before the one call that reaches the gateway.
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import { countCitationCandidates } from "../../experiential/citation";
 import { createGatewayClient } from "../../gateway";
@@ -53,7 +52,7 @@ export async function run_consolidate(cmd: Cmd<"consolidate">): Promise<void> {
     process.exit(2);
   }
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   provisionCacheDb(cacheDb, { version: VERSION });
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,

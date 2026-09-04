@@ -1,8 +1,7 @@
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
 import {
   type DeriveClosedWindowsOutcome,
@@ -41,7 +40,7 @@ export async function run_reflect(cmd: Cmd<"reflect">): Promise<void> {
     // throwing always did.
     let derived: DeriveClosedWindowsOutcome | undefined;
     try {
-      cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+      cacheDb = await openConfiguredDatabase(cfg, "cache.db");
       derived = await deriveClosedWindows(edb, cacheDb, { nowMs });
     } catch (e) {
       process.stderr.write(`reflect: derived-verdict pass failed: ${errorMessage(e)}\n`);

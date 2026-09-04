@@ -4,7 +4,7 @@ import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../../package.json";
 import { type AuditEvent, writeEvent } from "../../audit";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
 import {
   type EpisodeForgetResult,
@@ -178,7 +178,7 @@ export async function run_forget(cmd: Cmd<"forget">): Promise<void> {
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   try {
     if (cmd.verify) {
       const v = verifyForgetLog(edb);

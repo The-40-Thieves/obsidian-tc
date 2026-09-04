@@ -1,6 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { createGatewayClient } from "../../gateway";
 import { compileEgressFilter, EgressViolationError } from "../../plane/egress-filter";
@@ -11,7 +10,7 @@ import { type Cmd, resolveOrUsageExit } from "../shared";
 export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
   const clusterConfig = resolveOrUsageExit(cmd.input);
   mkdirSync(clusterConfig.cacheDir, { recursive: true });
-  const clusterDb = await openDatabase(join(clusterConfig.cacheDir, "cache.db"));
+  const clusterDb = await openConfiguredDatabase(clusterConfig, "cache.db");
   // THE-934 fix round 1: egress.excludePaths — a cluster with an excluded-path member is never
   // summarised (see summarize-clusters.ts), and both the gateway and the embedding provider
   // constructed below are guarded at the port.

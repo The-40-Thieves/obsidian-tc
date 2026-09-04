@@ -113,12 +113,16 @@ export function noteSummaryScaleCheck(view: NoteSummaryScaleView): Check {
 export async function probeNoteSummariesScale(
   cacheDir: string,
   vaultIds: string[],
+  // THE-935 fix round 1: required, not optional — this probe opens the SAME cache.db a live
+  // server (and every other cfg-scoped opener) does, so it must not silently fall back to
+  // DEFAULT_BUSY_TIMEOUT_MS when an operator has configured a different value.
+  busyTimeoutMs: number,
 ): Promise<NoteSummaryScaleState[]> {
   const path = join(cacheDir, "cache.db");
   if (!existsSync(path)) return [];
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    db = await openDatabase(path);
+    db = await openDatabase(path, busyTimeoutMs);
     const opened = db;
     return vaultIds.map((vaultId) => ({ vaultId, count: noteSummaryScanCount(opened, vaultId) }));
   } catch {

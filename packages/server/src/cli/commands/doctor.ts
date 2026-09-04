@@ -91,10 +91,11 @@ async function probeDenseProvider(
  */
 async function probeNotesFts(
   cacheDir: string,
+  busyTimeoutMs: number, // THE-935: required — see openConfiguredDatabase in db/open.ts
 ): Promise<{ ftsEnabled: boolean; integrity?: NotesFtsIntegrity }> {
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    db = await openDatabase(join(cacheDir, "cache.db"));
+    db = await openDatabase(join(cacheDir, "cache.db"), busyTimeoutMs);
     const ftsEnabled = ensureNotesFts(db);
     if (!ftsEnabled) return { ftsEnabled: false };
     return { ftsEnabled: true, integrity: verifyNotesFtsIntegrity(db) };
@@ -128,12 +129,13 @@ async function probeEpisodeBacklog(
   // which silently defaulted to the flag's own default (false) even on a deployment running with
   // it on, disagreeing with the real evaluator on exactly the rows the flag changes.
   derivedVerdictHold: boolean,
+  busyTimeoutMs: number,
 ): Promise<EpisodeBacklog | undefined> {
   const path = join(cacheDir, "experiential.db");
   if (!existsSync(path)) return undefined;
   let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    edb = await openDatabase(path);
+    edb = await openDatabase(path, busyTimeoutMs);
     // Delegates to reflect.ts rather than counting here: `promotable` must be computed by the SAME
     // predicates the evaluator promotes by, or the checker and the evaluator disagree about what
     // is healthy. A hand-rolled GROUP BY here counted `pending` and warned on a store that had
@@ -183,12 +185,15 @@ function hasAclRules(acl: { rules?: unknown[]; readPaths?: unknown[] } | undefin
  * never had; see docs/design/cli-doctor.md. Reads only, and never throws: a missing table (a store
  * predating the plane migration) degrades to `undefined`, rendered as "never run".
  */
-async function probeKbHealth(cacheDir: string): Promise<KbHealthProbe | undefined> {
+async function probeKbHealth(
+  cacheDir: string,
+  busyTimeoutMs: number,
+): Promise<KbHealthProbe | undefined> {
   const path = join(cacheDir, "cache.db");
   if (!existsSync(path)) return undefined;
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    db = await openDatabase(path);
+    db = await openDatabase(path, busyTimeoutMs);
     const agg = db
       .prepare("SELECT COUNT(*) AS n, MAX(created_at) AS latest FROM audit_reports")
       .get() as { n: number; latest: number | null } | undefined;
@@ -245,6 +250,7 @@ async function probeKbHealth(cacheDir: string): Promise<KbHealthProbe | undefine
 
 async function probeDerivedColumns(
   cacheDir: string,
+  busyTimeoutMs: number,
   cfg: { experiential: boolean },
 ): Promise<DerivedColumnState[]> {
   const out: DerivedColumnState[] = [];
@@ -252,7 +258,7 @@ async function probeDerivedColumns(
   if (!existsSync(expPath)) return out;
   let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    edb = await openDatabase(expPath);
+    edb = await openDatabase(expPath, busyTimeoutMs);
     for (const s of experientialColumnSpec(cfg)) {
       try {
         const r = edb
@@ -289,6 +295,7 @@ async function probeDerivedColumns(
 
 async function probeDerivedTables(
   cacheDir: string,
+  busyTimeoutMs: number,
   cfg: {
     /** True when the configured embeddings provider emits embedFull (the sparse/ColBERT heads). */
     multiVector: boolean;
@@ -317,7 +324,7 @@ async function probeDerivedTables(
   if (existsSync(cachePath)) {
     let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
-      db = await openDatabase(cachePath);
+      db = await openDatabase(cachePath, busyTimeoutMs);
       const multiVectorLever = "an embeddings provider emitting embedFull (bge-m3 / model-tier)";
       const spec: Array<[string, DerivedTableState["writer"], string]> = [
         // Both heads come from the SAME gate: embedFull exists only on providers that emit it, so
@@ -388,7 +395,7 @@ async function probeDerivedTables(
   if (existsSync(expPath)) {
     let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
-      edb = await openDatabase(expPath);
+      edb = await openDatabase(expPath, busyTimeoutMs);
       // The SET lives in doctor/table-spec.ts so it can be asserted independently of the probe
       // that consumes it — same separation, and same floor argument, as column-spec.ts.
       const spec = experientialTableSpec(cfg);
@@ -417,14 +424,17 @@ async function probeDerivedTables(
  * census is a LOWER BOUND — `null` means NOT MEASURED, never coerced to 0. Never throws. See
  * docs/design/cli-doctor.md.
  */
-async function probeEntryPoints(cacheDir: string): Promise<EntryPointsProbe> {
+async function probeEntryPoints(
+  cacheDir: string,
+  busyTimeoutMs: number,
+): Promise<EntryPointsProbe> {
   const out: EntryPointsProbe = { passes: [], tools: null, orphanScheduleRows: 0 };
 
   const cachePath = join(cacheDir, "cache.db");
   if (existsSync(cachePath)) {
     let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
-      db = await openDatabase(cachePath);
+      db = await openDatabase(cachePath, busyTimeoutMs);
       const rows = db
         .prepare(
           "SELECT name, last_run_at, last_success_at, consecutive_failures FROM job_schedule WHERE name IS NOT NULL ORDER BY name",
@@ -489,7 +499,7 @@ async function probeEntryPoints(cacheDir: string): Promise<EntryPointsProbe> {
   if (existsSync(expPath)) {
     let edb: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
-      edb = await openDatabase(expPath);
+      edb = await openDatabase(expPath, busyTimeoutMs);
       const c = edb
         .prepare(
           "SELECT COUNT(DISTINCT tool) AS d, COUNT(*) AS n, MIN(ts) AS lo, MAX(ts) AS hi FROM agent_episodes",
@@ -514,6 +524,7 @@ async function probeEntryPoints(cacheDir: string): Promise<EntryPointsProbe> {
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
 export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const config = resolveOrUsageExit(cmd.configPath);
+  const busyTimeoutMs = config.db.busyTimeoutMs; // THE-935: short alias for every probe call below
   // THE-705 round 2: the same configDir convention server-runtime.ts uses for wireGatewaySeams —
   // the trust root for reranker.localModulePath when it's given relative. Needed here so doctor's
   // "local" probe resolves a relative override exactly the way boot would.
@@ -552,7 +563,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   // THE-696: only under --probe does this open cache.db at all, so the default run stays offline
   // and side-effect-free by construction, exactly like the dense probe above.
   const notesFts = cmd.probe
-    ? await probeNotesFts(config.cacheDir)
+    ? await probeNotesFts(config.cacheDir, busyTimeoutMs)
     : { ftsEnabled: process.env.OBSIDIAN_TC_DISABLE_FTS !== "1" };
 
   // THE-698: episode capture is on when any of the three experiential gates is set — the same
@@ -568,14 +579,17 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           config.cacheDir,
           Date.now(),
           config.experiential.derivedVerdictHold,
+          busyTimeoutMs,
         )
       : undefined;
   // The multi-vector gate is ONE decision that darkens two tables: chunk_sparse and chunk_colbert
   // are both written from embedFull, which only some providers emit. Mirrors the same expression
   // retrievalHeads uses below so doctor cannot disagree with itself about provider capability.
-  const entryPoints = cmd.probe ? await probeEntryPoints(config.cacheDir) : undefined;
+  const entryPoints = cmd.probe
+    ? await probeEntryPoints(config.cacheDir, busyTimeoutMs)
+    : undefined;
   const derivedTables = cmd.probe
-    ? await probeDerivedTables(config.cacheDir, {
+    ? await probeDerivedTables(config.cacheDir, busyTimeoutMs, {
         multiVector:
           config.embeddings.provider === "bge-m3" ||
           (config.embeddings.provider === "model-tier" &&
@@ -593,16 +607,19 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   // THE-720: the column-level companion. Same probe gate and the same experiential predicate the
   // table probe uses, so the two cannot disagree about whether the store is on.
   const derivedColumns = cmd.probe
-    ? await probeDerivedColumns(config.cacheDir, { experiential: experientialEnabled })
+    ? await probeDerivedColumns(config.cacheDir, busyTimeoutMs, {
+        experiential: experientialEnabled,
+      })
     : undefined;
   // THE-722: the reader audit_reports never had.
-  const kbHealth = cmd.probe ? await probeKbHealth(config.cacheDir) : undefined;
+  const kbHealth = cmd.probe ? await probeKbHealth(config.cacheDir, busyTimeoutMs) : undefined;
   // THE-891 item 5: per-vault note-summary scan size, only under --probe (same contract as every
   // other store-touching probe above).
   const noteSummariesScale = cmd.probe
     ? await probeNoteSummariesScale(
         config.cacheDir,
         config.vaults.map((v) => v.id),
+        busyTimeoutMs,
       )
     : undefined;
 

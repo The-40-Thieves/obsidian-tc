@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "./types";
 
 function isBun(): boolean {
@@ -29,6 +31,24 @@ export async function openDatabase(path: string, busyTimeoutMs?: number): Promis
     const { openNodeSqlite } = await import("./node-node-sqlite");
     return openNodeSqlite(path, busyTimeoutMs);
   }
+}
+
+/**
+ * THE-935 fix round 1: the ONE seam a config-scoped caller opening `<cacheDir>/<filename>` should
+ * go through, so a future call site cannot silently forget `cfg.db.busyTimeoutMs` the way ~19 call
+ * sites originally did (bare `openDatabase(join(cfg.cacheDir, filename))`, always the default).
+ * Structural, not a reminder: the parameter is `cfg` itself, not a number a caller could omit —
+ * `packages/server/test/db-busy-timeout-inventory.test.ts` also source-scans every remaining
+ * direct `openDatabase(` call site under `src/` and fails the build on a new one that drops the
+ * second argument, for the sites (doctor's probes, note-summary-scale, the sandbox VACUUM INTO
+ * stage) that only ever hold a bare `cacheDir` string, not a full `ServerConfig`, and so cannot
+ * route through this helper.
+ */
+export async function openConfiguredDatabase(
+  cfg: Pick<ServerConfig, "cacheDir" | "db">,
+  filename: string,
+): Promise<Database> {
+  return openDatabase(join(cfg.cacheDir, filename), cfg.db.busyTimeoutMs);
 }
 
 function isBetterSqlite3Unavailable(err: unknown): boolean {

@@ -285,14 +285,18 @@ const SANDBOX_DBS = ["cache.db", "experiential.db"] as const;
  * open as a database (e.g. a non-SQLite test fixture), preserving prior behaviour for that case.
  * See docs/design/workspace-rerun.md for the failure this fixes.
  */
-async function stageDatabase(src: string, dest: string): Promise<void> {
+async function stageDatabase(src: string, dest: string, busyTimeoutMs: number): Promise<void> {
   // `cpSync` creates missing parent directories; VACUUM INTO does NOT — it fails on a missing
   // path and would silently fall through to the copy below, reinstating the exact WAL-lag bug this
   // function exists to fix. Caught by the staging test, which is the point of asserting a row
   // rather than asserting that a file appeared.
   mkdirSync(dirname(dest), { recursive: true });
   try {
-    const db = await openDatabase(src);
+    // THE-935 fix round 1: required, not optional — `src` is the LIVE cache.db/experiential.db
+    // (staged for a --sandbox rerun while a real server may still hold it open), so this open must
+    // not silently fall back to DEFAULT_BUSY_TIMEOUT_MS when an operator has configured a
+    // different value.
+    const db = await openDatabase(src, busyTimeoutMs);
     try {
       // The destination must not exist; VACUUM INTO refuses to overwrite.
       db.exec(`VACUUM INTO ${quoteSqlString(dest)}`);
@@ -334,6 +338,8 @@ function safeDispose(base: string): void {
 export async function stageSandbox(
   vaultRoot: string,
   cacheDir: string,
+  // THE-935 fix round 1: required — see stageDatabase above.
+  busyTimeoutMs: number,
 ): Promise<{ root: string; cacheDir: string; dispose(): void }> {
   const base = mkdtempSync(join(tmpdir(), "obtc-rerun-"));
   // A mid-copy failure must not leave `base` behind — nothing downstream calls `dispose()` for a
@@ -345,7 +351,7 @@ export async function stageSandbox(
     cpSync(vaultRoot, root, { recursive: true, dereference: true });
     for (const name of SANDBOX_DBS) {
       const src = join(cacheDir, name);
-      if (existsSync(src)) await stageDatabase(src, join(cache, name));
+      if (existsSync(src)) await stageDatabase(src, join(cache, name), busyTimeoutMs);
     }
     // THE-737: a session minted today writes trace_store='cache' — its JSONL lives under
     // <cacheDir>/traces/, not under the vault. Skipping this copy makes --sandbox find
