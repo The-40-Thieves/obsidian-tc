@@ -33,7 +33,28 @@ function matchesConflictPattern(basename: string): boolean {
 // Directories that are never real source and are frequently huge (node_modules) or hold the same
 // filename under a different meaning (.git's object store). Skipping them is also what keeps the
 // bounded walk below cheap enough to run on every default doctor pass, unguarded by `--probe`.
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "target", ".cache"]);
+//
+// `dist` is deliberately NOT in this always-skip set. Fix round 1 (PR #900 review, HIGH finding):
+// packages/server/package.json's `files` field ships ONLY `dist` (plus README/SKILLS/LICENSE) to
+// npm — an installed copy of this package has no `src` at all, and every line the running server
+// executes lives under `dist`. Unconditionally skipping `dist` made the check walk an npm install's
+// root and find nothing to inspect, ever: a permanent false "ok" for exactly the deployment mode a
+// real end user runs (the reviewer reproduced this with a real `dist/cli 2.js` fixture). `dist` is
+// skipped only in a SOURCE CHECKOUT, where it holds build output alongside real `src` — see
+// `isSourceCheckout` below for what distinguishes the two layouts.
+const ALWAYS_SKIP_DIRS = new Set(["node_modules", ".git", "target", ".cache"]);
+
+/**
+ * True when `root` is a source checkout rather than an installed (npm/dist-only) copy of this
+ * package. `resolveInstallRoot()` below returns the directory holding this package's
+ * `package.json`; in a source checkout that directory also holds `src/` (the checked-in
+ * TypeScript), while an npm install's `files` field never ships `src` at all — only `dist`. That
+ * single directory's presence is therefore exactly the signal `scanForConflictCopies` needs to
+ * decide whether `dist` is build output worth skipping or the entirety of what shipped.
+ */
+function isSourceCheckout(root: string): boolean {
+  return existsSync(join(root, "src"));
+}
 
 /** Directories deeper than this under the install root are not descended into. */
 export const CONFLICT_COPY_MAX_DEPTH = 8;
@@ -41,8 +62,10 @@ export const CONFLICT_COPY_MAX_DEPTH = 8;
 export const CONFLICT_COPY_MAX_FILES = 20_000;
 
 /**
- * Walk `root` for conflict-copy siblings, never following symlinks and never descending into
- * `SKIP_DIRS` or past `maxDepth`. Stops as soon as it has seen `maxFiles` files and reports
+ * Walk `root` for conflict-copy siblings, never following symlinks and never descending into a
+ * skipped directory or past `maxDepth`. `dist` is skipped only when `root` is a source checkout
+ * (see `isSourceCheckout`) — an npm install has no `src`, and `dist` there IS the install, not
+ * build output to ignore. Stops as soon as it has seen `maxFiles` files and reports
  * `truncated: true` rather than silently returning a partial, unlabeled result — an unreadable
  * subdirectory (permissions) is skipped the same way, since a doctor check must not throw over one
  * bad directory.
@@ -55,6 +78,9 @@ function scanForConflictCopies(
   const matches: string[] = [];
   let filesSeen = 0;
   let truncated = false;
+  const skipDirs = isSourceCheckout(root)
+    ? new Set([...ALWAYS_SKIP_DIRS, "dist"])
+    : ALWAYS_SKIP_DIRS;
 
   const walk = (dir: string, depth: number): void => {
     if (truncated || depth > maxDepth) return;
@@ -68,7 +94,7 @@ function scanForConflictCopies(
       if (truncated) return;
       if (entry.isSymbolicLink()) continue; // symlinks are never followed
       if (entry.isDirectory()) {
-        if (SKIP_DIRS.has(entry.name)) continue;
+        if (skipDirs.has(entry.name)) continue;
         walk(join(dir, entry.name), depth + 1);
         if (truncated) return;
       } else if (entry.isFile()) {
@@ -167,6 +193,7 @@ export function conflictCopiesCheck(view: ConflictCopiesView): Check {
           status: "ok" as CheckStatus,
           summary: "conflict-copy scan: not applicable — no source tree found on this machine",
           details: {
+            applicable: "false",
             conflictCopies:
               "not applicable (compiled binary; import.meta.url's build-time path does not exist here)",
           },
@@ -177,7 +204,13 @@ export function conflictCopiesCheck(view: ConflictCopiesView): Check {
       const maxFiles = view.maxFiles ?? CONFLICT_COPY_MAX_FILES;
       const { matches, truncated } = scanForConflictCopies(view.installRoot, maxDepth, maxFiles);
 
-      const details: Record<string, string | string[]> = { installRoot: view.installRoot };
+      // details is map<string, string | string[]> (CheckResult's contract — see types.ts), so
+      // `applicable` is the string "true", not a boolean, matching `truncated`'s own string shape
+      // below.
+      const details: Record<string, string | string[]> = {
+        applicable: "true",
+        installRoot: view.installRoot,
+      };
       if (truncated) {
         details.truncated = `scan stopped after ${maxFiles} file(s) — the rest of the tree was not checked`;
       }

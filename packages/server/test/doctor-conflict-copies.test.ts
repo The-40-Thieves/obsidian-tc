@@ -132,6 +132,44 @@ describe("THE-939 install.conflict-copies", () => {
   });
 });
 
+// Fix round 1 (PR #900 review, HIGH finding): `dist` was unconditionally skipped, which made the
+// check walk an npm install's root (files: ["dist", ...] — no `src` ships at all) and find nothing
+// to inspect, ever. Corrected rule: `dist` is skipped ONLY when `installRoot/src` exists (a source
+// checkout); otherwise `dist` is walked like any other directory.
+describe("THE-939 fix round 1 — dist is skipped only in a source checkout", () => {
+  it("(a) npm-install layout (no src/): a conflict copy under dist/ IS reported", async () => {
+    const root = tmpDir();
+    // Mirrors packages/server/package.json's real "files": ["dist", ...] shape — no src ships.
+    writeFixture(root, "package.json", JSON.stringify({ name: "obsidian-tc" }));
+    writeFixture(root, "dist/cli.js");
+    writeFixture(root, "dist/cli 2.js");
+
+    const r = await conflictCopiesCheck({ installRoot: root }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(r.details?.matches).toEqual(["dist/cli 2.js"]);
+  });
+
+  it("(b) source checkout (src/ present): dist/x 2.js is NOT reported, src/x 2.ts IS", async () => {
+    const root = tmpDir();
+    writeFixture(root, "src/index.ts");
+    writeFixture(root, "dist/x 2.js");
+    writeFixture(root, "src/x 2.ts");
+
+    const r = await conflictCopiesCheck({ installRoot: root }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(r.details?.matches).toEqual(["src/x 2.ts"]);
+  });
+
+  it("(c) details.applicable is 'false' on the not-applicable path, 'true' otherwise", async () => {
+    const notApplicable = await conflictCopiesCheck({ installRoot: undefined }).run(ctx);
+    expect(notApplicable.details?.applicable).toBe("false");
+
+    const root = tmpDir();
+    const applicable = await conflictCopiesCheck({ installRoot: root }).run(ctx);
+    expect(applicable.details?.applicable).toBe("true");
+  });
+});
+
 describe("THE-939 resolveInstallRoot", () => {
   it("resolves to the packages/server package root from a source checkout", () => {
     const root = resolveInstallRoot();
