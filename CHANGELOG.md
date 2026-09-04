@@ -6,6 +6,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **Repo-root `manifest.json` is now the companion plugin's manifest (#TBD, THE-950).** Obsidian's
+  community-directory validator and the community.obsidian.md self-service submission form both
+  read `manifest.json` from the repository's default branch, but that file held the MCPB 0.3
+  bundle manifest (`name: obsidian-tc`, added by THE-220) instead — TC Bridge could not have been
+  submitted. The MCPB manifest moved to `mcpb/manifest.json` (`scripts/bundle-mcpb.ts` swaps it
+  onto the bundle root only for the `mcpb pack` call); the repo root now carries
+  `packages/plugin/manifest.json`'s content byte-for-byte, mirrored by `scripts/release.mjs` and
+  gated by a new `scripts/check-version-coherence.mjs` check so the two copies cannot drift.
+
 ## [1.26.0] - 2026-09-04
 
 ### Added

@@ -15,10 +15,11 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
    ```
 
    This sets the version across every `package.json` + distribution file (server, native, shared,
-   `reranker-local`, `server.json`, the MCPB `manifest.json`, and the companion plugin's
-   `manifest.json` / `package.json` / `versions.json` in lockstep), rolls `CHANGELOG.md`'s
-   `[Unreleased]` section into the new version, refreshes `bun.lock`, runs `bun run format`, and runs
-   the coherence gate. It does **not** commit, push, or tag.
+   `reranker-local`, `server.json`, the MCPB manifest at `mcpb/manifest.json`, and the companion
+   plugin's `manifest.json` / `package.json` / `versions.json` in lockstep — including mirroring
+   the bumped plugin `manifest.json` onto the repo-root `manifest.json`, THE-950), rolls
+   `CHANGELOG.md`'s `[Unreleased]` section into the new version, refreshes `bun.lock`, runs
+   `bun run format`, and runs the coherence gate. It does **not** commit, push, or tag.
 
    THE-944: `packages/reranker-local` is not a root workspace member (its own README explains why),
    but its version stays in lockstep too — the `publish-reranker-local` CI job's F3-style
@@ -287,7 +288,18 @@ npm CLI ≥ 11.15.0 and Node ≥ 22.14.0, and the trusted publisher must be reco
 ## Community-store submission (companion plugin)
 
 The plugin is BRAT-installable from any tagged release (the loose 3-file set is attached). Formal
-Obsidian community-store listing is a one-time manual PR to
-[`obsidianmd/obsidian-releases`](https://github.com/obsidianmd/obsidian-releases); because the plugin
-lives in a monorepo subfolder, copy its `manifest.json` + `versions.json` to the submission as the
-store tooling expects them at the repo root.
+Obsidian community-store listing is a one-time submission through the **self-service form at
+[community.obsidian.md](https://community.obsidian.md)** — sign in with an Obsidian account and
+link the GitHub account that owns this repo to verify ownership. This is not a PR against
+[`obsidianmd/obsidian-releases`](https://github.com/obsidianmd/obsidian-releases); that repo-PR
+flow is Obsidian's pre-self-service submission path and is no longer how new plugins are listed
+(confirmed against `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc, THE-950).
+
+The directory's validator reads `manifest.json` from this repo's **default branch** — before
+THE-950 that would have found the MCPB bundle manifest that used to live at the repo root
+(`name: obsidian-tc`, THE-220), not the plugin's. As of THE-950 the repo-root `manifest.json` IS
+the plugin's Obsidian manifest, byte-identical to `packages/plugin/manifest.json` by construction
+(`release.mjs` mirrors it; `check-version-coherence.mjs` gates the two staying in sync) — no manual
+copy step is needed at submission time. See
+`docs/superpowers/plans/2026-09-03-listings/community-obsidian.md` for the prepared submission
+text and checklist.

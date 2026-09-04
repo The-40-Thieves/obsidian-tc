@@ -250,13 +250,16 @@ if (haveTag) {
 // published and silently no-ops forever, never shipping anything again (including a
 // MODEL_REVISION bump or a fix in model-fetch.ts). Lockstep with the repo version is what keeps
 // each tagged release a genuinely new, publishable version.
+// THE-950: the MCPB bundle manifest lives at mcpb/manifest.json (the repo root now carries the
+// companion plugin's Obsidian manifest instead — see the mirror step after packages/plugin's
+// manifest.json is bumped, below).
 for (const p of [
   "package.json",
   "packages/server/package.json",
   "packages/native/package.json",
   "packages/shared/package.json",
   "packages/reranker-local/package.json",
-  "manifest.json",
+  "mcpb/manifest.json",
 ]) {
   setVersion(p, (o) => {
     o.version = next;
@@ -278,6 +281,13 @@ for (const p of ["packages/plugin/package.json", "packages/plugin/manifest.json"
 setVersion("packages/plugin/versions.json", (o) => {
   o[next] = readJson("packages/plugin/manifest.json").minAppVersion;
 });
+
+// THE-950: mirror the bumped plugin manifest onto the repo root, byte-for-byte. The root
+// manifest.json is what Obsidian's community-directory validator reads from the default branch,
+// and check-version-coherence.mjs's plugin-manifest gate fails the release if the two ever drift —
+// this is the one place that writes both, so there is no second copy to hand-maintain.
+writeFileSync(inRepo("manifest.json"), readFileSync(inRepo("packages/plugin/manifest.json")));
+console.log("  set manifest.json (mirrors packages/plugin/manifest.json)");
 
 // Roll the CHANGELOG now that the JSON files are written: rename [Unreleased]
 // -> [next] - date and prepend a fresh [Unreleased].

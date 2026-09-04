@@ -22,8 +22,9 @@ const sources = [];
 const add = (label, version) => sources.push({ label, version });
 
 // The core release unit. The companion plugin's Obsidian manifest is asserted separately below;
-// it now tracks the repo version in lockstep (decision 2026-07-02). Note the root manifest.json
-// added below is the MCPB server bundle manifest, not the plugin's Obsidian manifest.
+// it now tracks the repo version in lockstep (decision 2026-07-02). THE-950: the MCPB bundle
+// manifest asserted below lives at mcpb/manifest.json — the repo-ROOT manifest.json is the
+// plugin's Obsidian manifest now (checked for byte-identity with it further down), not this one.
 add("package.json (root)", readJson("package.json").version);
 add("packages/server/package.json", readJson("packages/server/package.json").version);
 add("packages/native/package.json", readJson("packages/native/package.json").version);
@@ -45,7 +46,7 @@ if (Array.isArray(server.packages)) {
     add(`server.json packages[${i}]`, pkg.version);
   });
 }
-add("manifest.json", readJson("manifest.json").version);
+add("mcpb/manifest.json", readJson("mcpb/manifest.json").version);
 
 const width = Math.max(...sources.map((s) => s.label.length));
 for (const s of sources) console.log(`${s.label.padEnd(width)}  ${s.version ?? "(missing)"}`);
@@ -106,7 +107,9 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
 
 // THE-282 + lockstep (decision 2026-07-02): the companion plugin's Obsidian manifest version must
 // EQUAL the repo version (it rejoined lockstep), and versions.json must list it (community-store
-// requirement). The root manifest.json above is the MCPB server bundle manifest, not this one.
+// requirement). THE-950: the repo-root manifest.json is now this SAME manifest (byte-identical,
+// checked below) — the MCPB bundle manifest asserted in the `sources` list above is the one that
+// moved, to mcpb/manifest.json.
 {
   const { readFileSync: rf } = await import("node:fs");
   const manifest = JSON.parse(
@@ -130,6 +133,26 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   console.log(
     `companion versions.json OK (${manifest.version} -> minAppVersion ${versions[manifest.version]})`,
   );
+}
+
+// THE-950: Obsidian's community-directory validator reads manifest.json from the repo's default
+// branch, so the plugin's Obsidian manifest must live at the repo root — but it must not become a
+// second hand-maintained copy of packages/plugin/manifest.json. release.mjs writes both from one
+// source (see its "mirror the bumped plugin manifest onto the repo root" step); this gate is what
+// makes a drift between them (a hand-edit to only one side) fail loudly instead of silently
+// shipping a stale root manifest to the directory.
+{
+  const rootManifestRaw = readFileSync(resolve(ROOT, "manifest.json"), "utf8");
+  const pluginManifestRaw = readFileSync(resolve(ROOT, "packages/plugin/manifest.json"), "utf8");
+  if (rootManifestRaw !== pluginManifestRaw) {
+    console.error(
+      "\nFAIL: repo-root manifest.json is not byte-identical to packages/plugin/manifest.json " +
+        "(THE-950: the root copy IS the plugin's Obsidian manifest, mirrored by release.mjs — " +
+        "edit packages/plugin/manifest.json and copy it over, or re-run `bun scripts/release.mjs`).",
+    );
+    process.exit(1);
+  }
+  console.log("root manifest.json OK (byte-identical to packages/plugin/manifest.json)");
 }
 
 // THE-306: pin the shipped tool-count headline so the docs cannot silently drift from the registry.
