@@ -52,6 +52,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   embeddings status with no reachable Ollama, and a clean exit on SIGTERM — proven red
   against a removed fixture phrase and against a config that requires Ollama, so a green run
   cannot be one that skipped the no-config path. No runtime behavior change.
+- **Bun pinned to 1.4.0, up from 1.3.14 (#TBD, THE-946).** On 1.3.14 the root `bun audit`
+  (509 packages) hung until the client's five-minute timeout on every release-PR CI run;
+  1.3.14's fetch idle timer did not cover the TLS handshake to the npm advisory endpoint, so
+  a stalled handshake blocked forever instead of failing fast. `mise.toml`, `package.json`'s
+  `packageManager`, and `.github/actions/setup-repo`'s `bun-version` default all move
+  together; `@types/bun` follows to `^1.4.0`. `bun.lock` was regenerated: 1.4.0 tightened
+  `--frozen-lockfile` to also compare workspace `version` fields, which the checked-in
+  lockfile had drifted from (1.23.4 vs the package.json's actual 1.25.0) since before this
+  change.
 
 ## [1.25.0] - 2026-09-03
 

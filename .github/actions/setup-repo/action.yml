@@ -14,7 +14,7 @@ inputs:
   bun-version:
     description: Bun version to install.
     required: false
-    default: '1.3.14'
+    default: '1.4.0'
   node-required:
     description: >-
       Install Node as well. Needed by jobs that shell out to npm/npx or build the native package;

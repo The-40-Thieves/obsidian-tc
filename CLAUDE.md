@@ -7,7 +7,7 @@ Python model services.
 
 | | pin | source of truth |
 |---|---|---|
-| Bun | **1.3.14** | `mise.toml` + `packageManager` in `package.json` — must agree |
+| Bun | **1.4.0** | `mise.toml` + `packageManager` in `package.json` — must agree |
 | Node | **26.5.0** dev / **24** in CI | `mise.toml`; `engines.node: ">=24"`. Dev runs ahead of the supported floor **deliberately** — CI validates the floor |
 | Python | **3.11** | `mise.toml`; both services declare `requires-python = ">=3.10"` |
 | Rust | **1.97.1** exact | `packages/native/rust-toolchain.toml` |
