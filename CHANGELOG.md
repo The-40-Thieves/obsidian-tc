@@ -61,6 +61,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `--frozen-lockfile` to also compare workspace `version` fields, which the checked-in
   lockfile had drifted from (1.23.4 vs the package.json's actual 1.25.0) since before this
   change.
+- **Every workflow's Bun version now agrees with the pin (#TBD, THE-947).** THE-946 moved the
+  Bun pin to 1.4.0 in `mise.toml`, `package.json`'s `packageManager`, and `setup-repo`'s
+  default, but seven `oven-sh/setup-bun` steps that call the action directly instead of
+  through `setup-repo` stayed hardcoded at 1.3.14 — plus an eighth in `ci-docs.yml` the
+  original sweep missed. The build matrix, native builds, install smoke, docs build, and perf
+  baseline were all running a different Bun than the rest of CI. All eight now read `1.4.0`.
+  A new `check:bun-version` gate (`scripts/check-bun-version-coherence.mjs`, wired into
+  `ci-version.yml` beside `check:version`) fails if any declared Bun version — `mise.toml`,
+  `packageManager`, `setup-repo`'s default, or any literal `bun-version:` under
+  `.github/workflows`/`.github/actions` — drifts from the pin, with an existence floor so a
+  scan that finds nothing is reported as a broken scanner, not a clean repo.
+  `check-version-coherence.mjs` also now asserts `bun.lock`'s cached per-workspace `version`
+  fields against each workspace's `package.json`, closing the gap THE-946's report flagged (a
+  stale `bun.lock` workspace version the old frozen-lockfile check missed).
 
 ## [1.25.0] - 2026-09-03
 

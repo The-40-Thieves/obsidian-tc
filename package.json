@@ -27,6 +27,7 @@
     "bundle": "bun scripts/bundle-mcpb.ts",
     "check:actions-shellcheck": "node scripts/check-actions-shellcheck.mjs",
     "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:bun-version": "node scripts/check-bun-version-coherence.mjs",
     "check:comment-style": "node scripts/check-comment-style.mjs",
     "check:config-paths": "node scripts/check-config-paths.mjs",
     "check:dev-dep-imports": "node scripts/check-dev-dep-imports.mjs",
