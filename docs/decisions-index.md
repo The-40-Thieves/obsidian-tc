@@ -236,7 +236,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-626 | QueryCache expiry sweep, `via_edge` deep copy, and two smaller correctness fixes (THE-626, THE-620, THE-622, #565). | CHANGELOG.md (1.14.0) | 1 |
 | THE-627 | Client software identity | CHANGELOG.md (1.12.0) | 9 |
 | THE-628 | Note-level and cluster-level summary tiers, dark by default (#817, #818, THE-628). | CHANGELOG.md (1.22.0) | 19 |
-| THE-629 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 2 |
+| THE-629 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 1 |
 | THE-630 | Federated multi-vault search with per-vault ACL (#809, THE-630). | CHANGELOG.md (1.22.0) | 9 |
 | THE-631 | Per-vault score calibration, and the confidence it makes possible (#711, THE-733, THE-631 item 1). | CHANGELOG.md (1.20.0) | 12 |
 | THE-632 | `diagnose_retrieval` — ask why an expected note was *not* returned (THE-632, #644). | CHANGELOG.md (1.14.0) | 16 |
@@ -296,8 +296,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-711 | Sparse weights are stored PACKED, not as JSONB (#727, then #729, THE-711). | CHANGELOG.md (1.20.0) | 8 |
 | THE-713 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 1 |
 | THE-714 | `record_retrieval_feedback` was unreachable, and failed silently (#677, THE-718). | CHANGELOG.md (1.17.0) | 6 |
-| THE-715 | A nameless job spec is refused at registration (#701, THE-715 item 3). | CHANGELOG.md (1.20.0) | 4 |
-| THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 5 |
+| THE-715 | A nameless job spec is refused at registration (#701, THE-715 item 3). | CHANGELOG.md (1.20.0) | 3 |
+| THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 4 |
 | THE-717 | `experiential.citationPreferences` folds retrieval-level citation outcomes into learned preferences (#836, THE-644). | CHANGELOG.md (1.23.0) | 25 |
 | THE-718 | `chunk_retrievals.outcome` is RETIRED (#731, THE-718). | CHANGELOG.md (1.20.0) | 16 |
 | THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 7 |
