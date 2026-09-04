@@ -6,21 +6,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-09-04
+
 ### Added
 
-- **`bundle_folder` continuation cursor (THE-938; issue #879).** When `truncated` is `true`, the
+- **`bundle_folder` continuation cursor (#899, THE-938; issue #879).** When `truncated` is `true`, the
   response now carries a `cursor` — the vault-relative path of the last file emitted, in the
   tool's deterministic path order — accepted back as an input to resume immediately after it, so
   a folder over the byte or file budget can be read in full by looping until `cursor` is absent.
   `max_files` and `max_bytes` apply to a resumed page exactly as to the first; a cursor naming a
   path deleted since it was issued still resumes correctly, since resumption is ordering-based,
   not existence-based.
-- **`doctor` warns on sync-service conflict copies in the install directory (THE-939; issue
+- **`doctor` warns on sync-service conflict copies in the install directory (#900, THE-939; issue
   #881).** iCloud (`file 2.ts`), Dropbox (`file (conflicted copy).ts`), and Syncthing
   (`file.sync-conflict-*.ts`) all write untracked sibling files into a synced clone that parse
   and grep exactly like real source — a new `install.conflict-copies` check names every match
   found under the install directory. `.gitignore` also gained the three patterns.
-- **`db.busyTimeoutMs` reachable from config (THE-935; issue #878).** SQLite's busy-handler
+- **`db.busyTimeoutMs` reachable from config (#902, THE-935; issue #878).** SQLite's busy-handler
   timeout (`DEFAULT_BUSY_TIMEOUT_MS = 5000`) was previously an override reachable only from a
   test, with no config key or env var — threaded now to all three DB adapters
   (`bun-sqlite`/`node-better-sqlite3`/`node-node-sqlite`) via `openDatabase`. Default stays 5000
@@ -31,7 +33,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
-- **`call_capability` now echoes the envelope keys it received on validation failure (THE-936;
+- **`call_capability` now echoes the envelope keys it received on validation failure (#901, THE-936;
   issue #876).** A caller that sent `arguments` instead of `args` — a key the strict envelope
   schema rejects, but which an MCP client can strip before the server ever sees the call — used
   to see only the TARGET tool's missing-field errors, since `args` silently defaulted to `{}`.
@@ -39,7 +41,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   carry `received_envelope_keys` (the raw top-level keys actually parsed) in the error data and
   text; when the envelope carried no `args` key at all, the message also names the possibility
   that a client stripped it before the server saw it.
-- **Repo-root `manifest.json` is now the companion plugin's manifest (#TBD, THE-950).** Obsidian's
+- **Repo-root `manifest.json` is now the companion plugin's manifest (#897, THE-950).** Obsidian's
   community-directory validator and the community.obsidian.md self-service submission form both
   read `manifest.json` from the repository's default branch, but that file held the MCPB 0.3
   bundle manifest (`name: obsidian-tc`, added by THE-220) instead — TC Bridge could not have been
