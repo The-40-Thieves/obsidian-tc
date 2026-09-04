@@ -69,12 +69,19 @@ export function readSetupRepoDefault(text) {
 export function findBunVersionOccurrences(text, filePath) {
   const occurrences = [];
   text.split("\n").forEach((line, i) => {
-    const m = line.match(/\bbun-version:\s*(.+?)\s*$/);
+    // The key must START the mapping entry (only leading whitespace or a list dash before it):
+    // prose in a `#` comment that happens to contain "bun-version:" is not an occurrence.
+    if (/^\s*#/.test(line)) return;
+    const m = line.match(/^\s*(?:-\s*)?bun-version:\s*(.+?)\s*$/);
     if (!m) return;
     const raw = m[1];
-    const vm = raw.match(/^['"]?(\d+\.\d+\.\d+)['"]?$/);
-    if (!vm) return;
-    occurrences.push({ file: filePath, line: i + 1, value: vm[1] });
+    // Only a template expression is exempt (it resolves to setup-repo's input, which is checked
+    // separately). Every other value is a literal and is reported AS WRITTEN, so a non-semver
+    // spelling such as `latest` or `1.4` shows up as a drift instead of vanishing from the scan.
+    if (/^\$\{\{/.test(raw)) return;
+    const value = raw.replace(/^['"]|['"]$/g, "").trim();
+    if (value === "") return;
+    occurrences.push({ file: filePath, line: i + 1, value });
   });
   return occurrences;
 }

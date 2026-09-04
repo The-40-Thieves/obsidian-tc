@@ -182,3 +182,17 @@ test("readSetupRepoDefault extracts the default from the inputs block", () => {
 test("readSetupRepoDefault returns null when there is no bun-version input", () => {
   assert.equal(readSetupRepoDefault("inputs:\n  node-required:\n    default: 'false'\n"), null);
 });
+
+test("a non-semver bun-version literal (e.g. 'latest') is reported as an occurrence, not skipped; templates and comments are not", () => {
+  const occ = findBunVersionOccurrences(
+    "      - uses: oven-sh/setup-bun@v2\n        with:\n          bun-version: 'latest'\n",
+    "x.yml",
+  );
+  assert.deepEqual(occ, [{ file: "x.yml", line: 3, value: "latest" }]);
+  const tmpl = `          bun-version: $${"{{"} inputs.bun-version }}\n`;
+  assert.deepEqual(findBunVersionOccurrences(tmpl, "y.yml"), []);
+  assert.deepEqual(
+    findBunVersionOccurrences("# every bun-version: literal must agree\n", "z.yml"),
+    [],
+  );
+});
