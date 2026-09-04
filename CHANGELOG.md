@@ -6,6 +6,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`bundle_folder` continuation cursor (THE-938; issue #879).** When `truncated` is `true`, the
+  response now carries a `cursor` — the vault-relative path of the last file emitted, in the
+  tool's deterministic path order — accepted back as an input to resume immediately after it, so
+  a folder over the byte or file budget can be read in full by looping until `cursor` is absent.
+  `max_files` and `max_bytes` apply to a resumed page exactly as to the first; a cursor naming a
+  path deleted since it was issued still resumes correctly, since resumption is ordering-based,
+  not existence-based.
+
 ### Fixed
 
 - **Repo-root `manifest.json` is now the companion plugin's manifest (#TBD, THE-950).** Obsidian's
