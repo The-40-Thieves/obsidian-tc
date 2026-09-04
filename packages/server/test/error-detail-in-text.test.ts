@@ -139,3 +139,83 @@ describe("THE-823: error detail reaches content[0].text", () => {
     vault.cleanup();
   });
 });
+
+// THE-936 (GH #876): THE-823 made the ENVELOPE strict, but a client that strips an unrecognized
+// key (e.g. sends "arguments" instead of "args") never lets that strictObject fire — the server
+// only ever sees `{ name }`, `args` defaults to `{}`, and the TARGET's own missing-field errors are
+// all the caller gets. `received_envelope_keys` (the raw top-level keys the server actually parsed,
+// captured before zod's `.default({})` erases the absent-vs-`{}` distinction) settles which layer
+// dropped the key, and the stripping sentence names the mechanism — but only when it is the caller's
+// best explanation, i.e. `args` itself was never present.
+describe("THE-936: call_capability echoes received_envelope_keys", () => {
+  it('(a) envelope `arguments` key: unrecognized_keys plus received_envelope_keys includes "arguments"', async () => {
+    const registry = new ToolRegistry();
+    registry.register(tool("read_note", z.strictObject({ vault: z.string(), path: z.string() })));
+    const { client, server } = await connect(registry, "triad");
+    const res = await client.callTool({
+      name: "call_capability",
+      arguments: { name: "read_note", arguments: { vault: "v", path: "a.md" } },
+    });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain("arguments");
+    const details = (res.structuredContent as { details?: { received_envelope_keys?: unknown } })
+      .details;
+    expect(details?.received_envelope_keys).toEqual(["arguments", "name"]);
+    await client.close();
+    await server.close();
+  });
+
+  it('(b) envelope with no `args` key: target\'s missing-field errors, received_envelope_keys ["name"], and the stripping sentence', async () => {
+    const registry = new ToolRegistry();
+    registry.register(tool("read_note", z.strictObject({ vault: z.string(), path: z.string() })));
+    const { client, server } = await connect(registry, "triad");
+    const res = await client.callTool({
+      name: "call_capability",
+      arguments: { name: "read_note" },
+    });
+    expect(res.isError).toBe(true);
+    const text = textOf(res);
+    expect(text).toContain("vault");
+    expect(text).toContain("path");
+    expect(text).toMatch(/no.*"?args"?.*key/i);
+    expect(text).toMatch(/stripped/i);
+    const details = (res.structuredContent as { details?: { received_envelope_keys?: unknown } })
+      .details;
+    expect(details?.received_envelope_keys).toEqual(["name"]);
+    await client.close();
+    await server.close();
+  });
+
+  it('(c) envelope with an explicit empty `args`: missing-field errors, received_envelope_keys ["args","name"], no stripping sentence', async () => {
+    const registry = new ToolRegistry();
+    registry.register(tool("read_note", z.strictObject({ vault: z.string(), path: z.string() })));
+    const { client, server } = await connect(registry, "triad");
+    const res = await client.callTool({
+      name: "call_capability",
+      arguments: { name: "read_note", args: {} },
+    });
+    expect(res.isError).toBe(true);
+    const text = textOf(res);
+    expect(text).toContain("vault");
+    expect(text).toContain("path");
+    expect(text).not.toMatch(/stripped/i);
+    const details = (res.structuredContent as { details?: { received_envelope_keys?: unknown } })
+      .details;
+    expect(details?.received_envelope_keys).toEqual(["args", "name"]);
+    await client.close();
+    await server.close();
+  });
+
+  it("(d) a zero-argument target with an absent `args` still succeeds (the reporter's control)", async () => {
+    const registry = new ToolRegistry();
+    registry.register(tool("list_vaults", z.strictObject({})));
+    const { client, server } = await connect(registry, "triad");
+    const res = await client.callTool({
+      name: "call_capability",
+      arguments: { name: "list_vaults" },
+    });
+    expect(res.isError).toBeFalsy();
+    await client.close();
+    await server.close();
+  });
+});

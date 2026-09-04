@@ -6,8 +6,8 @@
 // describe_capability are pure metadata over the caller-visible catalog, and call_capability routes
 // the named TARGET straight through registry.dispatch so every gate fires unchanged. Every
 // registered tool stays callable by name, so a client that already knows a name is never blocked.
-import type { Tool } from "@modelcontextprotocol/server";
-import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
+import { type ErrorJSON, err, isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
@@ -27,9 +27,8 @@ export const JSON_SCHEMA_OPTS = {
   reused: "inline",
   unrepresentable: "any",
 } as const;
-// THE-294: z.toJSONSchema is a pure function of a static schema, but tools/list, describe_capability,
-// and the triad meta-tools recompute it per request. Memoize by schema identity — every schema here
-// is a stable module const or a registered tool's inputSchema — so each is converted at most once.
+// THE-294: z.toJSONSchema is a pure function of a static schema; memoize by identity — every schema
+// here is a stable module const or a registered tool's inputSchema — so each converts at most once.
 const jsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
 export function toJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = jsonSchemaMemo.get(schema);
@@ -86,6 +85,38 @@ export const CALL_CAPABILITY_SCHEMA = z.strictObject({
   name: z.string().min(1),
   args: z.record(z.string(), z.unknown()).default({}),
 });
+
+// THE-936 (GH #876): splices received_envelope_keys into call_capability's target error.
+function withReceivedEnvelopeKeys(
+  error: ErrorJSON,
+  keys: string[],
+  hadArgsKey: boolean,
+): ErrorJSON {
+  if (error.code !== "validation_error") return error;
+  const message = hadArgsKey
+    ? error.message
+    : `${error.message}. The envelope carried no "args" key, so the target received {} — a client may have stripped an unknown key such as "arguments" before the server saw it.`;
+  return { ...error, message, details: { ...error.details, received_envelope_keys: keys } };
+}
+
+export async function callCapability(
+  rawArgs: Record<string, unknown>,
+  args: Record<string, unknown>,
+  dispatchTarget: (name: string, targetArgs: Record<string, unknown>) => Promise<CallToolResult>,
+  errorToResult: (error: ErrorJSON) => CallToolResult,
+): Promise<CallToolResult> {
+  const envelopeKeys = Object.keys(rawArgs).sort();
+  const parsed = CALL_CAPABILITY_SCHEMA.safeParse(args);
+  if (!parsed.success) {
+    const raw = err.validation("input validation failed", { issues: parsed.error.issues });
+    return errorToResult(withReceivedEnvelopeKeys(raw.toJSON(), envelopeKeys, true));
+  }
+  const result = await dispatchTarget(parsed.data.name, parsed.data.args);
+  const targetError = result.structuredContent as unknown as ErrorJSON | undefined;
+  if (!result.isError || !targetError) return result;
+  const hadArgsKey = Object.hasOwn(rawArgs, "args");
+  return errorToResult(withReceivedEnvelopeKeys(targetError, envelopeKeys, hadArgsKey));
+}
 
 // THE-463: the triad catalog is immutable after module load for a GIVEN `hasResources` (three
 // meta-tools, module-constant schemas, memoized toJson) — the DEFAULT facade, so tools/list
