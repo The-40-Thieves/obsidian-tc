@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { enrichChunkText } from "../src/search/chunk";
 import { GoldenSetSchema } from "./metrics";
 
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   const config = loadConfig(configPath as string);
   const vault = config.vaults[0];
   if (!vault) throw new Error("config.vaults is empty");
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
 
   const edges = db
     .prepare(

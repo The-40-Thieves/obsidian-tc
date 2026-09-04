@@ -14,11 +14,10 @@
 //
 // Usage: COLBERT_URL=http://127.0.0.1:8002 bun eval/colbert_spike.ts <config.json> [golden.yaml]
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { type ColbertMatrix, colbertRerank } from "../src/search/colbert";
@@ -89,7 +88,7 @@ async function main(): Promise<void> {
     excludeFilter: compileEgressFilter(config.egress.excludePaths),
   });
   const model = config.embeddings.model;
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
 
   const dense: QueryMetrics[] = [];
   const rescored: QueryMetrics[] = [];

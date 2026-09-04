@@ -15,10 +15,9 @@
 //
 // Usage: bun eval/mine-golden-candidates.ts <config.json> <existing-golden.yaml> <out.yaml> [--bridge N] [--lexical N]
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { GoldenSetSchema } from "./metrics";
 
 const argv = process.argv.slice(2);
@@ -76,7 +75,7 @@ function getOrInit<K, V>(m: Map<K, V>, k: K, init: () => V): V {
 async function main(): Promise<void> {
   const config = loadConfig(configPath as string);
   const vaultId = config.vaults[0]?.id ?? "main";
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
 
   // Notes already used in the golden set — exclude to add NEW coverage.
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath as string, "utf8")));

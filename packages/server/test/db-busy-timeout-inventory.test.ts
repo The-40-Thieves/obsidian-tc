@@ -9,26 +9,66 @@
 // (db/open.ts) instead, the one seam a cfg-scoped caller cannot forget the value at because the
 // PARAMETER IS `cfg` ITSELF, not a number an author could omit.
 //
+// Fix round 2: PR review on round 1 found `packages/server/eval/` was outside this file's scan
+// (packages/server/src/**/*.ts only) — eleven eval scripts hold a full ServerConfig via
+// loadConfig() and opened the production cache.db/experiential.db bare, the same one-shot-command-
+// contending-with-a-live-server category round 1 already covers for cli/commands/. Widened to scan
+// eval/ too, and threaded all eleven. Two eval/ sites have no ServerConfig in scope at all (a
+// standalone perf-probe database and a --db-flag history store) and are deliberately exempted via
+// ALLOWLIST below, not silently skipped — see the entries for the reason each one stays on the
+// default.
+//
 // A behavioral test cannot cover this the way db-busy-timeout-config.test.ts covers the three
-// adapters — the ~30 call sites here span CLI commands, doctor probes and workspace staging, most
-// of which need a fully wired ServerConfig or an on-disk cache.db to exercise end to end. This is
-// exactly the "inventory-style source test" the ticket's ruling offered as the alternative: it
-// scans every `openDatabase(` call site under packages/server/src and fails the build the moment a
-// NEW one reverts to the bare single-argument form, the same way the pre-fix ~19 call sites did.
+// adapters — the ~40 call sites here span CLI commands, doctor probes, workspace staging and eval
+// scripts, most of which need a fully wired ServerConfig or an on-disk cache.db to exercise end to
+// end. This is exactly the "inventory-style source test" the ticket's ruling offered as the
+// alternative: it scans every `openDatabase(` call site under packages/server/src and
+// packages/server/eval and fails the build the moment a NEW one reverts to the bare
+// single-argument form, the same way the pre-fix ~19 (round 1: ~30) call sites did.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-/** Tracked .ts source files under packages/server/src, excluding tests — mirrors the convention
- *  scripts/gen-decisions-index.mjs uses (git ls-files, not a filesystem walk, so gitignored/build
- *  output can never contribute a false site). */
+/**
+ * Known-exempt call sites: `file:line` -> the one-line reason it has no ServerConfig to thread.
+ * Ruling (fix round 2): "Any other bare open you find in eval/ is threaded, not allowlisted" — so
+ * this list must stay exactly these two entries. The test below asserts every listed entry is
+ * still an actual non-compliant site (never a stale, unused exemption) AND that no compliant site
+ * accidentally shadows an allowlist key.
+ */
+const ALLOWLIST: Record<string, string> = {
+  "packages/server/eval/perf/collectors/lock.ts:61":
+    "standalone perf-probe database (mkdtempSync'd, not the production cache.db/experiential.db, no ServerConfig in scope) — the probe sets its OWN short busy_timeout via a raw PRAGMA two lines below to exercise contention deterministically.",
+  "packages/server/eval/perf/collectors/lock.ts:62":
+    "standalone perf-probe database — see the :61 entry above (same file, the paired holder/waiter connection).",
+  "packages/server/eval/history.ts:366":
+    "eval/runs.db, this script's own run-history store selected by a --db flag / DEFAULT_DB, never the production cache.db/experiential.db — no loadConfig() or ServerConfig anywhere in this file.",
+  "packages/server/eval/perf/harness.ts:252":
+    'opens ":memory:", not a file — every :memory: connection is its own SEPARATE database (same fact lock.ts\'s own header documents), so there is no shared file and structurally no contention busy_timeout could ever apply to; buildVault(sc: Scenario) also has no ServerConfig in scope.',
+};
+
+/** Tracked .ts source files under packages/server/src and packages/server/eval, excluding tests —
+ *  mirrors the convention scripts/gen-decisions-index.mjs uses (git ls-files, not a filesystem
+ *  walk, so gitignored/build output can never contribute a false site). */
 function sourceFiles(): string[] {
-  const out = execFileSync("git", ["ls-files", "packages/server/src/**/*.ts"], {
-    cwd: join(__dirname, "..", "..", ".."),
-    encoding: "utf8",
-  });
+  // Plain `*.ts`, not `**/*.ts`: git's default (non-glob-magic) pathspec fnmatch has no
+  // FNM_PATHNAME flag, so a bare `*` already crosses `/` and recurses on its own — `**/` on top of
+  // that instead REQUIRES at least one intervening directory, silently dropping every top-level
+  // file directly under src/ or eval/ (verified: acl.ts, cli.ts, index.ts, ... under src/, and
+  // eval/history.ts itself, eval/run.ts, and 9 other top-level eval/*.ts files — none of which
+  // happened to call openDatabase under src/, but eval/history.ts:366 is exactly the site fix
+  // round 2 threads/allowlists, so this bug would have silently un-covered its own allowlist
+  // entry).
+  const out = execFileSync(
+    "git",
+    ["ls-files", "packages/server/src/*.ts", "packages/server/eval/*.ts"],
+    {
+      cwd: join(__dirname, "..", "..", ".."),
+      encoding: "utf8",
+    },
+  );
   return out
     .split("\n")
     .map((l) => l.trim())
@@ -98,14 +138,19 @@ function findCallSites(text: string): CallSite[] {
   return sites;
 }
 
-describe("openDatabase / openConfiguredDatabase call-site inventory (THE-935 fix round 1)", () => {
-  it("every real openDatabase( call site passes a 2nd (busyTimeoutMs) argument, or goes through openConfiguredDatabase instead", () => {
+describe("openDatabase / openConfiguredDatabase call-site inventory (THE-935 fix rounds 1-2)", () => {
+  it("every real openDatabase( call site under src/ and eval/ passes a 2nd (busyTimeoutMs) argument, goes through openConfiguredDatabase, or is an allowlisted exemption", () => {
     const files = sourceFiles();
     expect(files.length).toBeGreaterThan(50); // sanity: git ls-files actually matched something
+    // Both directories actually contributed files — a glob typo silently scanning zero eval/ files
+    // would make this whole widening a no-op.
+    expect(files.some((f) => f.startsWith("packages/server/eval/"))).toBe(true);
+    expect(files.some((f) => f.startsWith("packages/server/src/"))).toBe(true);
 
     let directCompliant = 0;
     let helperCallSites = 0;
     const nonCompliant: string[] = [];
+    const allowlistUsed = new Set<string>();
 
     for (const rel of files) {
       const abs = join(__dirname, "..", "..", "..", rel);
@@ -113,11 +158,17 @@ describe("openDatabase / openConfiguredDatabase call-site inventory (THE-935 fix
       for (const site of findCallSites(text)) {
         if (site.argCount >= 2) {
           directCompliant++;
-        } else {
-          nonCompliant.push(
-            `${rel}:${site.line} — openDatabase( called with ${site.argCount} argument(s), no busyTimeoutMs`,
-          );
+          continue;
         }
+        const key = `${rel}:${site.line}`;
+        const reason = ALLOWLIST[key];
+        if (reason !== undefined) {
+          allowlistUsed.add(key);
+          continue;
+        }
+        nonCompliant.push(
+          `${key} — openDatabase( called with ${site.argCount} argument(s), no busyTimeoutMs`,
+        );
       }
       // openConfiguredDatabase(cfg, filename) calls also satisfy the ruling ("goes through the
       // helper that does") — count them so the floor below can't be gamed by deleting call sites.
@@ -126,6 +177,14 @@ describe("openDatabase / openConfiguredDatabase call-site inventory (THE-935 fix
     }
 
     expect(nonCompliant, nonCompliant.join("\n")).toEqual([]);
+
+    // The allowlist must stay EXACTLY the sites it claims — a stale entry (the line moved, or got
+    // threaded and is no longer non-compliant) fails loud instead of quietly over-exempting.
+    const allowlistKeys = Object.keys(ALLOWLIST).sort();
+    expect(
+      Array.from(allowlistUsed).sort(),
+      "every ALLOWLIST entry must match an actual non-compliant site",
+    ).toEqual(allowlistKeys);
 
     // Floor from the ruling: "asserts a non-empty floor (more than 10 sites found)". Counts both
     // forms — a direct 2-arg openDatabase( call and an openConfiguredDatabase( call — since either

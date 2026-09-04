@@ -6,10 +6,9 @@
 //
 // Usage: bun eval/export-rerank-pools.ts <config.json> <golden.yaml> <pools.out.json> [--pool 100]
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { graphSearch } from "../src/search/graph_search";
@@ -36,7 +35,7 @@ async function main(): Promise<void> {
     // carry the same filter or an excluded note's text reaches this provider unguarded.
     excludeFilter: compileEgressFilter(config.egress.excludePaths),
   });
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath as string, "utf8")));
   // chunk text lookup (raw display content — what a passage reranker should read).
   const textOf = db.prepare("SELECT content FROM chunks WHERE id = ? AND vault_id = ?");
