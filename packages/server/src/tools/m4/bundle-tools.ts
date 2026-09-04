@@ -99,7 +99,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
             .positive()
             .default(500_000)
             .describe(
-              "Per-page byte budget; applies to a resumed page (via cursor) exactly as to the first. The 500,000 default truncates a medium folder — page with cursor, or set this to your largest folder's size; the server's maxResponseBytes cap still applies.",
+              "Per-page byte budget; applies to a resumed page (via cursor) exactly as to the first. The 500,000 default truncates a medium folder — page with cursor, or set this to your largest folder's size; the server's maxResponseBytes cap still applies. If truncated is true with no cursor and empty files, no single file fits under max_bytes; raise max_bytes to at least that file's size.",
             ),
           extensions: z.array(z.string()).default([".md"]),
           include_frontmatter: z.boolean().default(true),
