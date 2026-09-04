@@ -63,7 +63,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `--frozen-lockfile` to also compare workspace `version` fields, which the checked-in
   lockfile had drifted from (1.23.4 vs the package.json's actual 1.25.0) since before this
   change.
-- **Every workflow's Bun version now agrees with the pin (#TBD, THE-947).** THE-946 moved the
+- **Every workflow's Bun version now agrees with the pin (#896, THE-947).** THE-946 moved the
   Bun pin to 1.4.0 in `mise.toml`, `package.json`'s `packageManager`, and `setup-repo`'s
   default, but seven `oven-sh/setup-bun` steps that call the action directly instead of
   through `setup-repo` stayed hardcoded at 1.3.14 — plus an eighth in `ci-docs.yml` the
