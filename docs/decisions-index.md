@@ -236,7 +236,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-626 | QueryCache expiry sweep, `via_edge` deep copy, and two smaller correctness fixes (THE-626, THE-620, THE-622, #565). | CHANGELOG.md (1.14.0) | 1 |
 | THE-627 | Client software identity | CHANGELOG.md (1.12.0) | 9 |
 | THE-628 | Note-level and cluster-level summary tiers, dark by default (#817, #818, THE-628). | CHANGELOG.md (1.22.0) | 19 |
-| THE-629 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 1 |
+| THE-629 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 2 |
 | THE-630 | Federated multi-vault search with per-vault ACL (#809, THE-630). | CHANGELOG.md (1.22.0) | 9 |
 | THE-631 | Per-vault score calibration, and the confidence it makes possible (#711, THE-733, THE-631 item 1). | CHANGELOG.md (1.20.0) | 12 |
 | THE-632 | `diagnose_retrieval` — ask why an expected note was *not* returned (THE-632, #644). | CHANGELOG.md (1.14.0) | 16 |
@@ -283,7 +283,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-693 | `retrieval.graphStream` config surface (THE-693, #650). | CHANGELOG.md (1.14.0) | 4 |
 | THE-694 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 10 |
 | THE-695 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 9 |
-| THE-696 | `notes_fts` integrity is checkable, and repairable (THE-696, #648). | CHANGELOG.md (1.14.0) | 5 |
+| THE-696 | `notes_fts` integrity is checkable, and repairable (THE-696, #648). | CHANGELOG.md (1.14.0) | 6 |
 | THE-697 | `obsidian-tc index` — the derived-state command that was missing (THE-697, #648). | CHANGELOG.md (1.14.0) | 4 |
 | THE-698 | Scheduled episode evaluation (THE-698, #648). | CHANGELOG.md (1.14.0) | 7 |
 | THE-699 | `--acl-allow` — the eval harness can finally vary ACL state (THE-699, #660). | CHANGELOG.md (1.15.0) | 2 |
@@ -296,17 +296,17 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-711 | Sparse weights are stored PACKED, not as JSONB (#727, then #729, THE-711). | CHANGELOG.md (1.20.0) | 8 |
 | THE-713 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 1 |
 | THE-714 | `record_retrieval_feedback` was unreachable, and failed silently (#677, THE-718). | CHANGELOG.md (1.17.0) | 6 |
-| THE-715 | A nameless job spec is refused at registration (#701, THE-715 item 3). | CHANGELOG.md (1.20.0) | 3 |
-| THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 4 |
+| THE-715 | A nameless job spec is refused at registration (#701, THE-715 item 3). | CHANGELOG.md (1.20.0) | 4 |
+| THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 5 |
 | THE-717 | `experiential.citationPreferences` folds retrieval-level citation outcomes into learned preferences (#836, THE-644). | CHANGELOG.md (1.23.0) | 25 |
 | THE-718 | `chunk_retrievals.outcome` is RETIRED (#731, THE-718). | CHANGELOG.md (1.20.0) | 16 |
 | THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 7 |
-| THE-720 | Liveness reporting: three new `doctor --probe` checks. | CHANGELOG.md (1.17.0) | 9 |
+| THE-720 | Liveness reporting: three new `doctor --probe` checks. | CHANGELOG.md (1.17.0) | 10 |
 | THE-721 | Experiential Reflection — Evaluator & Preference Extraction | docs/design/experiential-reflection.md | 1 |
-| THE-722 | `audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722). | CHANGELOG.md (1.17.1) | 4 |
+| THE-722 | `audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722). | CHANGELOG.md (1.17.1) | 5 |
 | THE-723 | The scheduler's backoff cap had become a global 5-minute ceiling on every background job (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
 | THE-725 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
-| THE-726 | `agent_episodes.task_result` gets an on-demand writer (THE-726). | CHANGELOG.md (1.24.0) | 30 |
+| THE-726 | `agent_episodes.task_result` gets an on-demand writer (THE-726). | CHANGELOG.md (1.24.0) | 31 |
 | THE-727 | Operation-aware authorization (#697, THE-727). | CHANGELOG.md (1.20.0) | 3 |
 | THE-730 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 1 |
 | THE-732 | _internal planning reference — see repo history_ | — | 1 |
@@ -358,13 +358,13 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 | THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 60 |
-| THE-935 | `db.busyTimeoutMs` reachable from config (THE-935; issue #878). | CHANGELOG.md (Unreleased) | 12 |
+| THE-935 | `db.busyTimeoutMs` reachable from config (THE-935; issue #878). | CHANGELOG.md (Unreleased) | 13 |
 | THE-936 | `call_capability` now echoes the envelope keys it received on validation failure (THE-936; issue #876). | CHANGELOG.md (Unreleased) | 1 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
-| THE-939 | `doctor` warns on sync-service conflict copies in the install directory (THE-939; issue #881). | CHANGELOG.md (Unreleased) | 4 |
+| THE-939 | `doctor` warns on sync-service conflict copies in the install directory (THE-939; issue #881). | CHANGELOG.md (Unreleased) | 5 |
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 
-350 distinct ticket(s) across 492 source file(s) under
+350 distinct ticket(s) across 493 source file(s) under
 `packages/*/src`; 283 resolved to a public summary, 67
 fall back to the internal-reference placeholder above.
