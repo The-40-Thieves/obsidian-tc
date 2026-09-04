@@ -28,7 +28,7 @@ import {
 import { extractClientInfo } from "./client-info";
 import {
   buildInstructions,
-  CALL_CAPABILITY_SCHEMA,
+  callCapability,
   DESCRIBE_CAPABILITY_SCHEMA,
   describeCapability,
   domainTools,
@@ -699,12 +699,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
           };
         return formatData(describeCapability(target));
       }
-      const parsed = CALL_CAPABILITY_SCHEMA.safeParse(args);
-      if (!parsed.success)
-        return errorToResult(
-          err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
-        );
-      return dispatchToResult(parsed.data.name, parsed.data.args, ctx, canElicit, log);
+      return callCapability(
+        rawArgs,
+        args,
+        (n, a) => dispatchToResult(n, a, ctx, canElicit, log),
+        errorToResult,
+      );
     }
     return dispatchToResult(req.params.name, args, ctx, canElicit, log);
   });

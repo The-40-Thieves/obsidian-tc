@@ -23,6 +23,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **`call_capability` now echoes the envelope keys it received on validation failure (THE-936;
+  issue #876).** A caller that sent `arguments` instead of `args` — a key the strict envelope
+  schema rejects, but which an MCP client can strip before the server ever sees the call — used
+  to see only the TARGET tool's missing-field errors, since `args` silently defaulted to `{}`.
+  Both the envelope's own `unrecognized_keys` failure and the target's validation failure now
+  carry `received_envelope_keys` (the raw top-level keys actually parsed) in the error data and
+  text; when the envelope carried no `args` key at all, the message also names the possibility
+  that a client stripped it before the server saw it.
 - **Repo-root `manifest.json` is now the companion plugin's manifest (#TBD, THE-950).** Obsidian's
   community-directory validator and the community.obsidian.md self-service submission form both
   read `manifest.json` from the repository's default branch, but that file held the MCPB 0.3
