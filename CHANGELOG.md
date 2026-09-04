@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-09-04
+
 ### Added
 
 - **MCP Registry publish from CI (#889, THE-940).** `server.json` is now published to the
@@ -52,7 +54,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   embeddings status with no reachable Ollama, and a clean exit on SIGTERM — proven red
   against a removed fixture phrase and against a config that requires Ollama, so a green run
   cannot be one that skipped the no-config path. No runtime behavior change.
-- **Bun pinned to 1.4.0, up from 1.3.14 (#TBD, THE-946).** On 1.3.14 the root `bun audit`
+- **Bun pinned to 1.4.0, up from 1.3.14 (#895, THE-946).** On 1.3.14 the root `bun audit`
   (509 packages) hung until the client's five-minute timeout on every release-PR CI run;
   1.3.14's fetch idle timer did not cover the TLS handshake to the npm advisory endpoint, so
   a stalled handshake blocked forever instead of failing fast. `mise.toml`, `package.json`'s
@@ -61,7 +63,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `--frozen-lockfile` to also compare workspace `version` fields, which the checked-in
   lockfile had drifted from (1.23.4 vs the package.json's actual 1.25.0) since before this
   change.
-- **Every workflow's Bun version now agrees with the pin (#TBD, THE-947).** THE-946 moved the
+- **Every workflow's Bun version now agrees with the pin (#896, THE-947).** THE-946 moved the
   Bun pin to 1.4.0 in `mise.toml`, `package.json`'s `packageManager`, and `setup-repo`'s
   default, but seven `oven-sh/setup-bun` steps that call the action directly instead of
   through `setup-repo` stayed hardcoded at 1.3.14 — plus an eighth in `ci-docs.yml` the
