@@ -16,6 +16,7 @@ import {
   type EntryPointsProbe,
   type KbHealthProbe,
   renderText,
+  resolveInstallRoot,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
@@ -677,6 +678,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         cacheDir: config.cacheDir,
         vaults: config.vaults.map((v) => ({ id: v.id, path: v.path })),
       },
+      // THE-939: the install directory to walk for sync-service conflict copies. Resolved once per
+      // run — undefined on a compiled binary with no source tree on this machine, in which case
+      // the check reports not-applicable rather than a false "no conflict copies found".
+      conflictCopies: { installRoot: resolveInstallRoot() },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,
