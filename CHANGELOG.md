@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-09-04
+
 ### Added
 
 - **MCP Registry publish from CI (#889, THE-940).** `server.json` is now published to the

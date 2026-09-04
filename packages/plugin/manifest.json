@@ -1,7 +1,7 @@
 {
   "id": "tc-bridge",
   "name": "TC Bridge",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "minAppVersion": "1.7.0",
   "description": "Companion bridge plugin for The 40 Thieves' vault-access MCP server. Extends Local REST API with command dispatch and plugin firepower bridges.",
   "author": "The 40 Thieves",
