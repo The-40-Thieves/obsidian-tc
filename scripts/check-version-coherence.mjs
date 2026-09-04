@@ -59,6 +59,51 @@ if (distinct.length !== 1 || distinct[0] == null) {
 }
 console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}`);
 
+// THE-947 (from THE-946's report): bun.lock caches its own copy of each workspace's version in
+// `workspaces["<path>"].version`, refreshed only when a non-frozen `bun install` touches it. The
+// frozen-lockfile install that CI runs everywhere else checks that the lockfile is CONSISTENT with
+// package.json's declared dependencies, not that every workspace's version field is a live mirror
+// — THE-946 shipped with a stale one that check missed. Compared against each package.json ON DISK
+// directly, not folded into the `sources`/`distinct` check above: that check covers only the
+// lockstep-release set listed there (root, server, native, shared, reranker-local), and
+// packages/plugin's OWN package.json version is deliberately outside that set (only its Obsidian
+// manifest.json is, checked below) — bun.lock still needs to agree with IT, not with the release
+// version.
+// bun.lock is a lenient JSON dialect (bun accepts trailing commas that plain JSON does not); strip
+// them before parsing rather than pull in a JSON5 dependency for one field.
+{
+  const lockText = readFileSync(resolve(ROOT, "bun.lock"), "utf8");
+  const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
+  const workspacePackages = {
+    "packages/native": "packages/native/package.json",
+    "packages/plugin": "packages/plugin/package.json",
+    "packages/server": "packages/server/package.json",
+    "packages/shared": "packages/shared/package.json",
+  };
+  const lockDrift = [];
+  for (const [wsPath, pkgPath] of Object.entries(workspacePackages)) {
+    const ws = lock.workspaces?.[wsPath];
+    if (!ws || ws.version === undefined) {
+      lockDrift.push(`bun.lock has no "${wsPath}" workspace with a version field`);
+      continue;
+    }
+    const pkgVersion = readJson(pkgPath).version;
+    if (ws.version !== pkgVersion) {
+      lockDrift.push(
+        `bun.lock workspaces["${wsPath}"].version is "${ws.version}", but ${pkgPath}'s version ` +
+          `is "${pkgVersion}" — run \`bun install\` to refresh the lockfile.`,
+      );
+    }
+  }
+  if (lockDrift.length) {
+    console.error(`\nFAIL: bun.lock workspace-version drift:\n  ${lockDrift.join("\n  ")}`);
+    process.exit(1);
+  }
+  console.log(
+    `bun.lock workspace versions OK (${Object.keys(workspacePackages).length} workspaces)`,
+  );
+}
+
 // THE-282 + lockstep (decision 2026-07-02): the companion plugin's Obsidian manifest version must
 // EQUAL the repo version (it rejoined lockstep), and versions.json must list it (community-store
 // requirement). The root manifest.json above is the MCPB server bundle manifest, not this one.
