@@ -9,13 +9,13 @@
 // this CLI produces the REAL numbers once an embedding backend (e.g. BGE-M3 via Ollama @ 1024d)
 // and a real index exist. No secrets in the tree.
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { parse as parseYaml } from "yaml";
 import { FolderAcl, makeIndexReadable } from "../src/acl";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import type { Database } from "../src/db/types";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { pairSparse } from "../src/embeddings/bge-m3";
@@ -865,7 +865,7 @@ async function main(): Promise<void> {
         };
       })()
     : provider0;
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
   // THE-692: refuse --max-per-cluster on an unclustered index. diversifyByCluster skips rows whose
   // cluster_id is NULL, so on an unclustered corpus the flag caps nothing and the A/B reports "no
   // effect" — indistinguishable from a real null result, and wrong for a different reason. Fail
@@ -897,7 +897,7 @@ async function main(): Promise<void> {
   if (activation) {
     const map = new Map<string, number>();
     try {
-      const edb = await openDatabase(join(config.cacheDir, "experiential.db"));
+      const edb = await openConfiguredDatabase(config, "experiential.db");
       try {
         const rows = edb
           .prepare(

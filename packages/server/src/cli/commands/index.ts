@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { version as VERSION } from "../../../package.json";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import { createGatewayClient } from "../../gateway";
 import { MetricsRecorder } from "../../metrics/registry";
@@ -58,7 +58,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
     process.exit(2);
   }
 
-  const db = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(cfg, "cache.db");
   try {
     // PROVISION, unlike every sibling command here — and deliberately so. metrics, forget,
     // contribution-report et al. open cache.db and assume `serve` already created it, which is fair

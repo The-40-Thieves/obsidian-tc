@@ -18,6 +18,9 @@ import { stderrOnError } from "../util/errors";
 export interface StoresDeps {
   cacheDir: string;
   version: string;
+  /** THE-935: config's `db.busyTimeoutMs`, forwarded to both cache.db and experiential.db.
+   *  Omitted falls back to DEFAULT_BUSY_TIMEOUT_MS (db/pragmas.ts). */
+  busyTimeoutMs?: number;
   /** config.experiential — the three independent capture gates plus the redaction flag. */
   experiential: {
     logRetrievals: boolean;
@@ -61,10 +64,11 @@ export interface Stores {
  */
 export async function wireStores(deps: StoresDeps): Promise<Stores> {
   mkdirSync(deps.cacheDir, { recursive: true });
-  const db = await openDatabase(join(deps.cacheDir, "cache.db"));
+  const db = await openDatabase(join(deps.cacheDir, "cache.db"), deps.busyTimeoutMs);
   provisionCacheDb(db, { version: deps.version });
   const experientialDb = await provisionExperientialDb(deps.cacheDir, deps.experientialMigrations, {
     version: deps.version,
+    busyTimeoutMs: deps.busyTimeoutMs,
   });
   const retrievalLog = deps.experiential.logRetrievals
     ? createRetrievalLogger(experientialDb, { onError: stderrOnError("retrieval-log") })

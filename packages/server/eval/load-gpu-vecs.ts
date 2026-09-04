@@ -5,9 +5,8 @@
 //
 // Usage: bun eval/load-gpu-vecs.ts <config.json> <ids.json> <vecs.f32>
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { loadVec } from "../src/search/vec";
 
 const [configPath, idsPath, vecsPath] = process.argv.slice(2);
@@ -28,7 +27,7 @@ async function main(): Promise<void> {
       `size mismatch: ${buf.length} bytes vs ${ids.length} ids * ${bytesPer} = ${ids.length * bytesPer}`,
     );
   }
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
   const upd = db.prepare(
     "UPDATE chunk_embeddings SET embedding = ?, generated_at = ? WHERE chunk_id = ? AND model = ?",
   );

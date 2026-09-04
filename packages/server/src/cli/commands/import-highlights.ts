@@ -15,13 +15,12 @@
 // see that comment for why those three write `audit_events` directly via `writeEvent` rather than
 // relying on `runDispatch`.
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import type { AuditEvent } from "../../audit";
 import { writeEvent } from "../../audit";
 import { ingestHighlights } from "../../capture/highlight-import";
 import { fetchReadwiseHighlights, ReadwiseApiError } from "../../capture/readwise";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import type { Database } from "../../db/types";
 import { argsHash } from "../../hash";
@@ -95,7 +94,7 @@ export async function run_import_highlights(cmd: Cmd<"import-highlights">): Prom
   }
 
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   const t0 = Date.now();
   try {
     // Provisioned defensively, like `index` (cli/commands/index.ts): an operator may reach for

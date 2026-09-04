@@ -151,7 +151,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-463 | _internal planning reference — see repo history_ | — | 2 |
 | THE-465 | Metrics Registry | docs/design/metrics-registry.md | 13 |
 | THE-466 | Server Runtime — Composition Root | docs/design/server-runtime.md | 8 |
-| THE-467 | Metrics Registry | docs/design/metrics-registry.md | 3 |
+| THE-467 | Metrics Registry | docs/design/metrics-registry.md | 4 |
 | THE-486 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 3 |
 | THE-487 | _internal planning reference — see repo history_ | — | 1 |
 | THE-488 | _internal planning reference — see repo history_ | — | 5 |
@@ -283,7 +283,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-693 | `retrieval.graphStream` config surface (THE-693, #650). | CHANGELOG.md (1.14.0) | 4 |
 | THE-694 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 10 |
 | THE-695 | `obsidian_tc_acl_walk_pruned_total` — the graph-walk ACL filter's recall cost is now observable (THE-891 item 3, #847). | CHANGELOG.md (1.23.0) | 9 |
-| THE-696 | `notes_fts` integrity is checkable, and repairable (THE-696, #648). | CHANGELOG.md (1.14.0) | 5 |
+| THE-696 | `notes_fts` integrity is checkable, and repairable (THE-696, #648). | CHANGELOG.md (1.14.0) | 6 |
 | THE-697 | `obsidian-tc index` — the derived-state command that was missing (THE-697, #648). | CHANGELOG.md (1.14.0) | 4 |
 | THE-698 | Scheduled episode evaluation (THE-698, #648). | CHANGELOG.md (1.14.0) | 7 |
 | THE-699 | `--acl-allow` — the eval harness can finally vary ACL state (THE-699, #660). | CHANGELOG.md (1.15.0) | 2 |
@@ -301,12 +301,12 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-717 | `experiential.citationPreferences` folds retrieval-level citation outcomes into learned preferences (#836, THE-644). | CHANGELOG.md (1.23.0) | 25 |
 | THE-718 | `chunk_retrievals.outcome` is RETIRED (#731, THE-718). | CHANGELOG.md (1.20.0) | 16 |
 | THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 7 |
-| THE-720 | Liveness reporting: three new `doctor --probe` checks. | CHANGELOG.md (1.17.0) | 9 |
+| THE-720 | Liveness reporting: three new `doctor --probe` checks. | CHANGELOG.md (1.17.0) | 10 |
 | THE-721 | Experiential Reflection — Evaluator & Preference Extraction | docs/design/experiential-reflection.md | 1 |
-| THE-722 | `audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722). | CHANGELOG.md (1.17.1) | 4 |
+| THE-722 | `audit.kbHealth` — a reader for the 302 audit reports nothing could read (#684, THE-722). | CHANGELOG.md (1.17.1) | 5 |
 | THE-723 | The scheduler's backoff cap had become a global 5-minute ceiling on every background job (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
 | THE-725 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
-| THE-726 | `agent_episodes.task_result` gets an on-demand writer (THE-726). | CHANGELOG.md (1.24.0) | 30 |
+| THE-726 | `agent_episodes.task_result` gets an on-demand writer (THE-726). | CHANGELOG.md (1.24.0) | 31 |
 | THE-727 | Operation-aware authorization (#697, THE-727). | CHANGELOG.md (1.20.0) | 3 |
 | THE-730 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 1 |
 | THE-732 | _internal planning reference — see repo history_ | — | 1 |
@@ -321,7 +321,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-742 | Rerun hygiene: WAL staging, audit attribution, policy refusals, exit codes (#730, THE-738, THE-739, THE-740, THE-742). | CHANGELOG.md (1.20.0) | 2 |
 | THE-743 | `ToolAnnotations.idempotentHint` (#733, THE-743). | CHANGELOG.md (1.20.0) | 2 |
 | THE-744 | An invocation that plans zero passes now records that it ran (#733, THE-744). | CHANGELOG.md (1.20.0) | 6 |
-| THE-745 | `busy_timeout` is installed before any pragma that can contend (#723, THE-745). | CHANGELOG.md (1.20.0) | 4 |
+| THE-745 | `busy_timeout` is installed before any pragma that can contend (#723, THE-745). | CHANGELOG.md (1.20.0) | 5 |
 | THE-746 | Per-decision eligibility reasons (#733, THE-746). | CHANGELOG.md (1.20.0) | 5 |
 | THE-747 | `reflect --max-judged` outlived the judge it capped (#724, THE-747). | CHANGELOG.md (1.20.0) | 2 |
 | THE-748 | _internal planning reference — see repo history_ | — | 1 |
@@ -358,12 +358,13 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 | THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 60 |
+| THE-935 | `db.busyTimeoutMs` reachable from config (THE-935; issue #878). | CHANGELOG.md (Unreleased) | 13 |
 | THE-936 | `call_capability` now echoes the envelope keys it received on validation failure (THE-936; issue #876). | CHANGELOG.md (Unreleased) | 1 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
-| THE-939 | `doctor` warns on sync-service conflict copies in the install directory (THE-939; issue #881). | CHANGELOG.md (Unreleased) | 4 |
+| THE-939 | `doctor` warns on sync-service conflict copies in the install directory (THE-939; issue #881). | CHANGELOG.md (Unreleased) | 5 |
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 
-349 distinct ticket(s) across 492 source file(s) under
-`packages/*/src`; 282 resolved to a public summary, 67
+350 distinct ticket(s) across 493 source file(s) under
+`packages/*/src`; 283 resolved to a public summary, 67
 fall back to the internal-reference placeholder above.

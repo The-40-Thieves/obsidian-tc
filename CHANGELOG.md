@@ -20,6 +20,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`file.sync-conflict-*.ts`) all write untracked sibling files into a synced clone that parse
   and grep exactly like real source — a new `install.conflict-copies` check names every match
   found under the install directory. `.gitignore` also gained the three patterns.
+- **`db.busyTimeoutMs` reachable from config (THE-935; issue #878).** SQLite's busy-handler
+  timeout (`DEFAULT_BUSY_TIMEOUT_MS = 5000`) was previously an override reachable only from a
+  test, with no config key or env var — threaded now to all three DB adapters
+  (`bun-sqlite`/`node-better-sqlite3`/`node-node-sqlite`) via `openDatabase`. Default stays 5000
+  (no behaviour change for an unset config); raising it is documented as symptom treatment, since
+  sustained contention is fixed by splitting the shared database per vault, and the key's
+  description now states that stdio MCP spawns one server process per client, so the concurrent
+  client count is what busy_timeout has to absorb.
 
 ### Fixed
 

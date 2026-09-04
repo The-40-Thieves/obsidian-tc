@@ -27,9 +27,8 @@
 // usage:
 //   bun eval/densify-index.ts <config.json> --k 8 --floor 0.0
 //   bun eval/densify-index.ts <config.json> --settle          # one-time drift absorb
-import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { computeKnnEdges, reconcileDerivedEdges } from "../src/search/derived-edges";
@@ -60,7 +59,7 @@ if (!settleOnly) {
 const config = loadConfig(configPath);
 const vault = config.vaults[0];
 if (!vault) throw new Error("config.vaults is empty");
-const db = await openDatabase(join(config.cacheDir, "cache.db"));
+const db = await openConfiguredDatabase(config, "cache.db");
 const chunks = (db.prepare("SELECT count(*) AS n FROM chunks").get() as { n: number }).n;
 
 if (settleOnly) {

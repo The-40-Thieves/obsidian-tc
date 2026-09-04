@@ -24,7 +24,11 @@ import { describe, expect, it } from "vitest";
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
 
-const doctor = read("../src/cli/commands/doctor.ts");
+// THE-935 fix round 3: probeDerivedTables (the table this whole file classifies) moved to
+// doctor-probes.ts when doctor.ts crossed biome's line cap — read the file it actually lives in
+// now, so this assertion keeps testing the CODE rather than a copy of it, the property its own
+// header comment above already claims.
+const doctor = read("../src/cli/commands/doctor-probes.ts");
 const entities = read("../src/memory/entities.ts");
 const memoryTools = read("../src/tools/m5/memory-tools.ts");
 

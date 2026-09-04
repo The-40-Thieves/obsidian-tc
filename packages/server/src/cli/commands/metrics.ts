@@ -1,15 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { vaultMetrics } from "../../experiential/metrics";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
 export async function run_metrics(cmd: Cmd<"metrics">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });

@@ -1,6 +1,5 @@
-import { join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { buildServerRuntime } from "../../runtime/server-runtime";
 import { rerunSession, stageSandbox } from "../../workspace/rerun";
 import {
@@ -92,7 +91,7 @@ async function stageForSandbox(
   sessionId: string,
   expectVaultId: string | undefined,
 ): Promise<{ vaultId: string; root: string; cacheDir: string; dispose(): void }> {
-  const probeDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const probeDb = await openConfiguredDatabase(cfg, "cache.db");
   let vaultId: string;
   try {
     const row = getSession(probeDb, sessionId);
@@ -107,7 +106,11 @@ async function stageForSandbox(
   } finally {
     probeDb.close?.();
   }
-  const staged = await stageSandbox(configuredVaultPath(cfg, vaultId), cfg.cacheDir);
+  const staged = await stageSandbox(
+    configuredVaultPath(cfg, vaultId),
+    cfg.cacheDir,
+    cfg.db.busyTimeoutMs,
+  );
   return { vaultId, ...staged };
 }
 
@@ -191,7 +194,7 @@ async function runRerunInner(cmd: Cmd<"rerun">): Promise<void> {
       // being re-run was already read (by `stageForSandbox`) before staging ran, so the staged
       // copy already carries it, and any DB-side effect of a re-issued mutating call must land in
       // the disposable copy too, not the real cache.db.
-      const db = await openDatabase(join(runtimeCfg.cacheDir, "cache.db"));
+      const db = await openConfiguredDatabase(runtimeCfg, "cache.db");
       try {
         const result = await rerunSession({
           db,

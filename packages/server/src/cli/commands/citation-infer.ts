@@ -1,8 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type InferCitationsOptions, inferCitations } from "../../experiential/citation";
 import { runCitationIndexPasses } from "../../experiential/citation-index";
@@ -35,7 +34,7 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
   }
   const transcript = cmd.transcript ? readFileSync(cmd.transcript, "utf8") : "";
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });

@@ -1,9 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { persistCalibration } from "../../experiential/calibration";
 import {
@@ -26,7 +25,7 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
     process.exit(2);
   }
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   // THE-644 item 1: persist detectGaps' report here so it can be read back (the THE-611 MCP tool)
   // instead of recomputed. Provisioned unconditionally, same as `note-quality`'s CLI handler.
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {

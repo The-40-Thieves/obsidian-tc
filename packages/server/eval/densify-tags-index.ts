@@ -19,9 +19,8 @@
 //
 // usage:
 //   bun eval/densify-tags-index.ts <config.json> [--fanout 25]
-import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import {
   countDerivedEdges,
   reconcileDerivedEdges,
@@ -40,7 +39,7 @@ async function main(): Promise<void> {
   }
   const config = loadConfig(configPath);
   const vaultId = config.vaults[0]?.id ?? "main";
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
 
   const before = countDerivedEdges(db, vaultId, "shared_tag");
   // Clear first — see the header. Reconciling against a non-empty set diffs, it does not rebuild.

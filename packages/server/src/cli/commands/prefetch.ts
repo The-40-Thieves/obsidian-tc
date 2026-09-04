@@ -1,7 +1,6 @@
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { ToolRegistry } from "../../mcp/registry";
 import { compileEgressFilter } from "../../plane/egress-filter";
@@ -14,7 +13,7 @@ import { type Cmd, resolveOrUsageExit } from "../shared";
 export async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   // THE-934 fix round 2 (N2): threaded for consistency — vault_context's own retrieval only ever
   // embeds the QUERY side here (reranker/roles are both null, so neither the generative nor
   // rerank egress legs are reachable at all), but the provider itself is real and this keeps the

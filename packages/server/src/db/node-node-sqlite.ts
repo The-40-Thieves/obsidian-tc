@@ -23,7 +23,7 @@ interface NsDatabase {
  * established. Loadable extensions (sqlite-vec) are intentionally NOT exposed here, so vector search
  * uses the in-process brute-force fallback (see the `loadExtension` note in db/types.ts).
  */
-export async function openNodeSqlite(path: string): Promise<Db> {
+export async function openNodeSqlite(path: string, busyTimeoutMs?: number): Promise<Db> {
   const { DatabaseSync } = (await import("node:sqlite")) as unknown as {
     DatabaseSync: new (location: string) => NsDatabase;
   };
@@ -31,7 +31,9 @@ export async function openNodeSqlite(path: string): Promise<Db> {
   // Same per-connection baseline as the other adapters (THE-273), shared so the ORDER cannot drift
   // between them — busy_timeout must precede anything that can contend (THE-745). See
   // db/pragmas.ts. Applied via exec since node:sqlite has no dedicated pragma() helper.
-  for (const p of connectionPragmas()) db.exec(`PRAGMA ${p}`);
+  // busyTimeoutMs is forwarded rather than called bare (THE-935) so config's db.busyTimeoutMs
+  // reaches this connection instead of silently falling back to the default.
+  for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {

@@ -17,12 +17,11 @@
 // Usage: bun eval/seed-activation.ts <config.json> <golden.yaml> [--events N] [--decay D]
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
 import { provisionExperientialDb } from "../src/db/experiential";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { recomputeActivation } from "../src/experiential/activation";
 import { GoldenSetSchema } from "./metrics";
 
@@ -55,7 +54,7 @@ async function main(): Promise<void> {
   const norm = (p: string): string => p.replace(/\\/g, "/");
 
   // Map every expected golden path -> its chunk ids (from the champion index).
-  const cache = await openDatabase(join(config.cacheDir, "cache.db"));
+  const cache = await openConfiguredDatabase(config, "cache.db");
   const chunkIdsForPath = cache.prepare("SELECT id FROM chunks WHERE vault_id = ? AND path = ?");
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
   const expected = new Set<string>();
@@ -69,7 +68,9 @@ async function main(): Promise<void> {
   cache.close?.();
 
   // Provision experiential.db in the SAME cacheDir; reset the two tables the recompute reads/writes.
-  const edb = await provisionExperientialDb(config.cacheDir, EXPERIENTIAL_MIGRATIONS);
+  const edb = await provisionExperientialDb(config.cacheDir, EXPERIENTIAL_MIGRATIONS, {
+    busyTimeoutMs: config.db.busyTimeoutMs,
+  });
   edb.exec("DELETE FROM chunk_retrievals");
   edb.exec("DELETE FROM vault_object_state");
 

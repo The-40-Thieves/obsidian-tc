@@ -13,12 +13,11 @@
 // source vault under an explicit --vault target) is still a hard error with nothing written, the
 // same "no partial write" property the schema-validation gate has.
 import { mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import type { AuditEvent } from "../../audit";
 import { writeEvent } from "../../audit";
 import { provisionExperientialDb } from "../../db/experiential";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
 import type { ImportStatsByTable } from "../../experiential/context-bundle";
 import {
@@ -144,7 +143,7 @@ export async function run_context_import(cmd: Cmd<"context-import">): Promise<vo
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   const t0 = Date.now();
   try {
     const result = importContextBundle(edb, cacheDb, bundle, { dryRun: !!cmd.dryRun });

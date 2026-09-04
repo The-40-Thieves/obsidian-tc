@@ -1,6 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { openDatabase } from "../../db/open";
+import { openConfiguredDatabase } from "../../db/open";
 import { createGatewayClient, type GatewayClient } from "../../gateway";
 import { compileEgressFilter } from "../../plane/egress-filter";
 import { runLlmDensify } from "../../search/densify-runner";
@@ -22,7 +21,7 @@ export async function run_densify_llm(cmd: Cmd<"densify-llm">): Promise<void> {
     process.exit(2);
   }
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const cacheDb = await openDatabase(join(cfg.cacheDir, "cache.db"));
+  const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
   // THE-934 fix round 1: egress.excludePaths — an excluded note is dropped before it can be a
   // densify-llm batch member (search/densify-runner.ts), and the gateway constructed below is
   // guarded at the port either way.

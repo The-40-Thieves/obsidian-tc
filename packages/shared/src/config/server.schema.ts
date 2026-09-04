@@ -61,6 +61,21 @@ export const ServerConfigObject = z.object({
     .describe(
       "Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth.",
     ),
+  // THE-935 (GH #878): the first config surface over db/pragmas.ts — no `db` block existed before
+  // this, so it is introduced here, beside cacheDir, rather than nested under it.
+  db: z
+    .object({
+      busyTimeoutMs: z
+        .number()
+        .int()
+        .min(1)
+        .default(5000)
+        .describe(
+          "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection (THE-745) so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising obsidian_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault (THE-467), not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
+        ),
+    })
+    .prefault({})
+    .describe("SQLite connection tuning, applied on every cache.db and experiential.db open."),
   vaults: z
     .array(VaultConfigSchema)
     .min(1)

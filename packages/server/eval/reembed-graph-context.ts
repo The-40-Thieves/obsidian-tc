@@ -11,9 +11,8 @@
 // Variants (ticket THE-440, cheap first, no LLM):
 //   titles          (a) neighbor NOTE TITLES breadcrumb — "linked: A, B, C"
 //   titles-headings (b) neighbor titles + each neighbor's folder/domain as light heading context
-import { join } from "node:path";
 import { loadConfig } from "../src/config/load";
-import { openDatabase } from "../src/db/open";
+import { openConfiguredDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { enrichChunkText } from "../src/search/chunk";
@@ -60,7 +59,7 @@ async function main(): Promise<void> {
     // carry the same filter or an excluded note's text reaches this provider unguarded.
     excludeFilter: compileEgressFilter(config.egress.excludePaths),
   });
-  const db = await openDatabase(join(config.cacheDir, "cache.db"));
+  const db = await openConfiguredDatabase(config, "cache.db");
 
   if (CONTROL) {
     dropVecChunks(db);

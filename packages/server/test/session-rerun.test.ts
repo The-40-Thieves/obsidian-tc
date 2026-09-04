@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { withReadOnlyAcl } from "../src/cli/commands/rerun";
 import { openDatabase } from "../src/db/open";
+import { DEFAULT_BUSY_TIMEOUT_MS } from "../src/db/pragmas";
 import {
   RERUN_CALLER_PREFIX,
   rerunCaller,
@@ -545,7 +546,7 @@ describe("THE-740 — replayed calls are attributable, not indistinguishable", (
 describe("THE-645 item 3 — sandbox staging", () => {
   it("copies the vault so a write to the copy leaves the original untouched", async () => {
     v = readOnlyVault({ "a.md": "original" });
-    const sb = await stageSandbox(v.root, cacheDir as string);
+    const sb = await stageSandbox(v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
     try {
       expect(readFileSync(join(sb.root, "a.md"), "utf8")).toBe("original");
       writeFileSync(join(sb.root, "a.md"), "changed in sandbox");
@@ -568,7 +569,7 @@ describe("THE-645 item 3 — sandbox staging", () => {
     live.prepare("INSERT INTO t VALUES ('before-staging','present')").run();
     // The connection stays OPEN across staging — this is the production shape (`serve` holds one),
     // and it is what leaves the write sitting in an uncheckpointed -wal that a file copy misses.
-    const sb = await stageSandbox(v.root, cacheDir as string);
+    const sb = await stageSandbox(v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
     try {
       expect(existsSync(join(sb.cacheDir, "cache.db"))).toBe(true);
       const staged = await openDatabase(join(sb.cacheDir, "cache.db"));
@@ -592,7 +593,7 @@ describe("THE-645 item 3 — sandbox staging", () => {
 
   it("dispose removes the staged copy", async () => {
     v = readOnlyVault({ "a.md": "x" });
-    const sb = await stageSandbox(v.root, cacheDir as string);
+    const sb = await stageSandbox(v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
     const staged = sb.root;
     sb.dispose();
     expect(existsSync(staged)).toBe(false);
