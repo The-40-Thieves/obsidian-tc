@@ -33,6 +33,9 @@ import {
   runtimeCheck,
   snapshotsCheck,
 } from "./checks";
+// THE-939: install.conflict-copies lives in its own module, same reasoning as capture-location
+// above — its own resolution step (finding the install root) that no other check needs.
+import { type ConflictCopiesView, conflictCopiesCheck } from "./conflict-copies";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
@@ -98,6 +101,10 @@ export interface DoctorConfigView {
    *  supplied — no `--probe` gate, unlike the store-touching views above, since this reads only
    *  two already-resolved config values. */
   captureLocation?: CaptureLocationView;
+  /** THE-939: does the install directory contain a sync-service conflict-copy sibling? Always
+   *  present when supplied — no `--probe` gate, same reasoning as captureLocation above: the walk
+   *  is bounded and read-only, cheap enough to run on every default doctor pass. */
+  conflictCopies?: ConflictCopiesView;
 }
 
 export interface AssembleOptions {
@@ -176,6 +183,10 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // resolve inside a vault a sync client might be watching? Same optional-view reasoning as
   // retrieval/snapshots above.
   if (config.captureLocation) checks.push(captureLocationCheck(config.captureLocation));
+  // THE-939: sync-service conflict copies (iCloud/Dropbox/Syncthing) in the install directory —
+  // untracked, so no repo risk, but indistinguishable from real source to any tool that walks the
+  // tree. Same optional-view reasoning as captureLocation above.
+  if (config.conflictCopies) checks.push(conflictCopiesCheck(config.conflictCopies));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

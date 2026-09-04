@@ -15,6 +15,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `max_files` and `max_bytes` apply to a resumed page exactly as to the first; a cursor naming a
   path deleted since it was issued still resumes correctly, since resumption is ordering-based,
   not existence-based.
+- **`doctor` warns on sync-service conflict copies in the install directory (THE-939; issue
+  #881).** iCloud (`file 2.ts`), Dropbox (`file (conflicted copy).ts`), and Syncthing
+  (`file.sync-conflict-*.ts`) all write untracked sibling files into a synced clone that parse
+  and grep exactly like real source — a new `install.conflict-copies` check names every match
+  found under the install directory. `.gitignore` also gained the three patterns.
 
 ### Fixed
 

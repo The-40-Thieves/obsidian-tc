@@ -12,6 +12,11 @@
 export type { CaptureLocationView } from "./capture-location";
 export { captureLocationCheck } from "./capture-location";
 export type { DerivedColumnState, DerivedTableState, KbHealthProbe } from "./checks";
+// THE-939: install.conflict-copies' view type and its own install-root resolver, so the CLI can
+// build both without importing through checks.ts — same barrel reasoning as every other
+// doctor/*.ts submodule in this file.
+export type { ConflictCopiesView } from "./conflict-copies";
+export { conflictCopiesCheck, resolveInstallRoot } from "./conflict-copies";
 // entrypoints.liveness — the verb-side companion to derived.liveness. Same probe-injection
 // contract, so the CLI builds its probe without importing through the checks module.
 export type {

@@ -42,6 +42,11 @@ venv/
 Thumbs.db
 desktop.ini
 
+# Sync-service conflict copies (THE-939, GH #881): iCloud/Dropbox/Syncthing write these into the tree
+* [0-9].*
+* (conflicted copy)*
+*.sync-conflict-*
+
 # IDE
 .vscode/
 .idea/
