@@ -79,28 +79,63 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
       name: "bundle_folder",
       domain: "automation",
       description:
-        "Aggregate all notes under a folder into a single markdown/XML bundle (Smart Context). ACL-filtered; file-count and byte budgeted with an explicit truncated flag.",
+        "Aggregate all notes under a folder into a single markdown/XML bundle (Smart Context). ACL-filtered; file-count and byte budgeted with an explicit truncated flag. When truncated, resume with the returned cursor; max_files and max_bytes apply per page, so loop until cursor is absent.",
       inputSchema: z
         .object({
           vault: VaultId,
           root: VaultPath,
-          max_files: z.number().int().positive().max(500).default(100),
-          max_bytes: z.number().int().positive().default(500_000),
+          max_files: z
+            .number()
+            .int()
+            .positive()
+            .max(500)
+            .default(100)
+            .describe(
+              "Per-page file cap; applies to a resumed page (via cursor) exactly as to the first.",
+            ),
+          max_bytes: z
+            .number()
+            .int()
+            .positive()
+            .default(500_000)
+            .describe(
+              "Per-page byte budget; applies to a resumed page (via cursor) exactly as to the first. The 500,000 default truncates a medium folder — page with cursor, or set this to your largest folder's size; the server's maxResponseBytes cap still applies.",
+            ),
           extensions: z.array(z.string()).default([".md"]),
           include_frontmatter: z.boolean().default(true),
           format: z.enum(["markdown", "xml"]).default("markdown"),
+          cursor: z
+            .string()
+            .optional()
+            .describe(
+              "Resume after this vault-relative path (from a prior truncated response); emits only files that sort strictly after it in the tool's deterministic path order.",
+            ),
         })
         .strict(),
-      outputSchema: BundleResultSchema.extend({ vault: z.string(), root: z.string() }),
+      outputSchema: BundleResultSchema.extend({
+        vault: z.string(),
+        root: z.string(),
+        cursor: z
+          .string()
+          .optional()
+          .describe(
+            "Vault-relative path of the last emitted file, present only when truncated is true. Pass back as input cursor to resume.",
+          ),
+      }),
       requiredScopes: ["read:context"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = normalizeVaultPath(input.root);
         enforcePathAcl(ctx.acl, "read", sub, v.root);
+        // walkVault sorts with localeCompare, which is not guaranteed to agree with the
+        // code-point `>` comparison used below to filter past `cursor` — re-sort explicitly
+        // so emission order is a deterministic, total order that the cursor can rely on.
         const all = walkVault(v.root, { sub, extensions: input.extensions })
           .map((e) => e.relPath)
-          .filter((rel) => readableRel(ctx.acl, rel));
-        const capped = all.slice(0, input.max_files);
+          .filter((rel) => readableRel(ctx.acl, rel))
+          .sort();
+        const paged = input.cursor ? all.filter((rel) => rel > (input.cursor as string)) : all;
+        const capped = paged.slice(0, input.max_files);
         const entries = capped.map((rel) => ({
           rel,
           content: readNote(resolveVaultPath(v.root, rel)).raw,
@@ -109,9 +144,11 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
           maxBytes: input.max_bytes,
           includeFrontmatter: input.include_frontmatter,
           format: input.format,
-          preTruncated: all.length > input.max_files,
+          preTruncated: paged.length > input.max_files,
         });
-        return { vault: v.id, root: sub, ...result };
+        const lastFile = result.files.at(-1);
+        const cursor = result.truncated && lastFile ? lastFile.path : undefined;
+        return { vault: v.id, root: sub, ...result, ...(cursor ? { cursor } : {}) };
       },
     }),
 
