@@ -38,6 +38,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   message naming `osv-scanner` as this repo's second advisory feed when every attempt is a
   registry error. A real finding (a vulnerability table) or any other non-zero exit still fails on
   the FIRST attempt, unretried.
+- **`draft-release` marks a prerelease tag as a prerelease and keeps it off "Latest" (THE-957).**
+  `publish-npm`, `publish-reranker-local`, `build-docker` and the `mirror-plugin-release` /
+  `publish-smithery` skip guards each already classified a version containing `-` as a
+  prerelease, but `draft-release`'s `action-gh-release` step derived neither flag at all — so an
+  RC tag (e.g. `v1.28.0-rc.1`) would have published as a normal, Latest GitHub release, which
+  `/releases/latest`, BRAT and the Obsidian community directory all read. `verify-tag` now
+  classifies the version ONCE (`scripts/release-version-info.mjs`) and exposes it as job outputs
+  (`version`, `prerelease`); every downstream job reads that shared classification instead of
+  recomputing its own, and `draft-release` passes `prerelease: true` / `make_latest: false` for
+  such a tag.
 
 ### Added
 

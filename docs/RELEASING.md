@@ -59,6 +59,23 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
    THE-955) → the Smithery listing (`publish-smithery`, THE-956). See *What a tag produces* and
    *Ordered npm publish* below for the details.
 
+   **RC tags (THE-957).** `verify-tag` classifies the version ONCE
+   (`scripts/release-version-info.mjs`, a hyphen in the version means a prerelease — `1.28.0-rc.1`,
+   `1.28.0-beta`) and every downstream job now reads that single `needs.verify-tag.outputs.*`
+   classification instead of each re-deriving its own. Tagging a prerelease version therefore
+   behaves consistently across the whole pipeline:
+
+   - npm: the three umbrella packages (and `reranker-local`) publish to the `next` dist-tag, never
+     `latest` (*Ordered npm publish* below).
+   - Docker: the image still gets its version tag, but **no `:latest` tag** is pushed.
+   - GitHub Release: `draft-release` passes `prerelease: true` and `make_latest: false` to
+     `action-gh-release`, so an RC is marked as a prerelease **and** never becomes "Latest" —
+     before THE-957 this step passed neither flag, so an RC tag would have published as a normal,
+     Latest release, which `/releases/latest`, BRAT and the Obsidian community directory all read.
+   - `mirror-plugin-release` and `publish-smithery` both skip outright: no un-prefixed mirror tag
+     and no live Smithery listing for a prerelease (unchanged from THE-955/THE-956, now reading
+     the shared classification instead of recomputing it).
+
 5. **Verify the assets** — the Release is already PUBLISHED, not a draft. `publish.yml` sets
    `draft: false` deliberately (*"releases were left as drafts, so 'Latest' went stale"*), so there
    is no publish step to perform; the tag both builds and publishes. This step is verification only:
