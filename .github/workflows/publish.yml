@@ -814,6 +814,11 @@ jobs:
         shell: bash
       # Upload the zips AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
       # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
+      # `if-no-files-found: error`, not the default `warn` (fix round 1, review finding 7): this
+      # upload's own layout is what keeps `mirror-plugin-release`'s `--assets-dir
+      # plugin-artifact/dist` pointing at the right subdirectory (see that job's comment) — a
+      # silent zero-file upload here would only surface as a missing-asset failure in a DIFFERENT
+      # job, with no clue that this step is where it actually went wrong.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: plugin
@@ -823,6 +828,7 @@ jobs:
             packages/plugin/dist/manifest.json
             packages/plugin/dist/main.js
             packages/plugin/dist/styles.css
+          if-no-files-found: error
 
   build-docker:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
@@ -1014,8 +1020,16 @@ jobs:
   # plugin's manifest version never had a matching release until this job was added (fixed by hand
   # for 1.27.0; see scripts/mirror-plugin-release.mjs's header for the rejection text). `needs:
   # [draft-release]` on purpose: the signed `v<version>` release must exist FIRST, so that
-  # `--latest=false` below has something to defer Latest to — this job's own script asserts that
-  # held, after creating the mirror release, and fails loudly if it did not.
+  # `--latest=false` below has something to defer Latest to — this job's own script now asserts
+  # that holds UNCONDITIONALLY on every run, not only right after creation (fix round 1, review
+  # finding 2: a `gh run rerun` almost always lands on the idempotent "already mirrored" path, so
+  # a post-creation-only check would go green over a Latest that had since flipped).
+  #
+  # `if: github.event_name == 'push'` ONLY (fix round 1, review finding 4) — no
+  # `workflow_dispatch`/`dry_run` path at all, matching `publish-registry` below exactly. This job
+  # is the one job in this file that CREATES A NEW TAG; a dispatched dry run targets a branch, not
+  # a real release commit, and would otherwise let this job tag and publicly release a branch
+  # commit under a real-looking version before failing on the Latest check.
   #
   # The un-prefixed `<version>` tag this job creates CANNOT re-trigger this workflow: the trigger
   # above is `on.push.tags: ['v*']`, and a bare `<version>` never starts with `v` (and no workflow
@@ -1023,23 +1037,47 @@ jobs:
   # regardless). Idempotent on job re-run — the script's "already mirrored" path (verified live
   # against the real repo in this task's report) skips straight to filling in any missing asset
   # and touches nothing that already exists.
+  #
+  # Prereleases (a version containing "-") are skipped by the "is pre-release" step below (fix
+  # round 1, review finding 3): the un-prefixed tag is reserved for stable releases the community
+  # directory should see, mirroring `build-docker`'s own prerelease classification. The script
+  # carries the identical check as a second, independent gate — see its header.
   mirror-plugin-release:
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push'
     needs: [draft-release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: is pre-release
+        id: prerelease
+        run: |
+          version=$(node -p "require('./packages/server/package.json').version")
+          if [[ "$version" == *"-"* ]]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+      - name: skip (prerelease — the un-prefixed tag is reserved for stable releases)
+        if: steps.prerelease.outputs.value == 'true'
+        run: echo "::notice::mirror-plugin-release skipped — this is a prerelease; no un-prefixed tag is created for it."
+        shell: bash
       # Reuses build-plugin's own "plugin" artifact upload rather than rebuilding — its upload
       # paths (packages/plugin/dist/{manifest.json,main.js,styles.css}, plus the two zips) share
       # the common ancestor packages/plugin, so a download lands the three loose assets under
-      # <path>/dist/.
+      # <path>/dist/. That upload now carries `if-no-files-found: error` specifically so a
+      # collapse of that shared ancestor (e.g. the zip steps ever stop producing files) fails
+      # loudly there, in the job that would actually cause it, rather than surfacing here as an
+      # opaque "required asset missing on disk" (fix round 1, review finding 7).
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.prerelease.outputs.value != 'true'
         with:
           name: plugin
           path: plugin-artifact
       - name: mirror the un-prefixed plugin release (THE-955)
+        if: steps.prerelease.outputs.value != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           MIRROR_SHA: ${{ github.sha }}
@@ -1059,24 +1097,85 @@ jobs:
   # the top of this file. `needs: [build-mcpb, draft-release]`: the bundle artifact must exist,
   # and the version must be a real, released one (`draft-release`) before Smithery is told about
   # it — mirrors why `publish-registry` needs `publish-npm` before telling the MCP Registry.
+  # (`draft-release` already needs `build-mcpb` too, so the second entry here is redundant in the
+  # DAG sense — kept anyway because it documents this job's own real dependency, not just an
+  # inherited one, review finding 9.)
+  #
+  # Least-privilege (fix round 1, review finding 1): this is the only job in the file that runs
+  # unvetted third-party install/publish tooling against a live external registry, so it does NOT
+  # inherit the workflow-level `permissions:` block (`contents: write`, `packages: write`,
+  # `id-token: write`, `attestations: write`) the way an unscoped job otherwise would — job-level
+  # `permissions:` REPLACES that block, not adds to it, the same mechanism `publish-registry`
+  # above uses to narrow to just `id-token: write` + `contents: read`. `id-token: write` in
+  # particular would let a compromised transitive dependency of `@smithery/cli` mint an OIDC token
+  # this repo already trusts for the MCP Registry publish (`publish-registry` above) — narrowing
+  # this job to `contents: read` removes that specific blast radius. `persist-credentials: false`
+  # on the checkout stops the job's GITHUB_TOKEN from being written to `.git/config` at all (it is
+  # never needed here — this job's own step reads `secrets.SMITHERY_API_KEY`, not `github.token`).
+  # `--ignore-scripts` on the npm install skips that dependency tree's install-time lifecycle
+  # scripts; the CLI was confirmed to still run fully under it (`smithery --version` and
+  # `smithery mcp publish --help` both succeeded from an `--ignore-scripts` install — see
+  # task-5-report.md's fix-round-1 evidence) — this is a real fallback-tested claim, not an
+  # assumption. `actions/setup-node` pinned to `node-version: '24'` matches `publish-npm`'s own
+  # pin, so this job's npm/node version cannot silently drift out from under the `ubuntu-latest`
+  # image the way an un-pinned toolchain can.
+  #
+  # Re-runs intentionally RE-PUBLISH rather than being skipped by a preflight (unlike
+  # `publish-npm`'s F3 or `publish-registry`'s exact-match GET, review finding 8): probed live
+  # 2026-09-05 against the already-published 1.27.0 bundle (task-5-report.md) and a repeat publish
+  # of an already-listed version returns `status: SUCCESS` with a fresh `deploymentId`, not an
+  # error — so a re-run redeploying the hosted `mcpUrl` is a deliberate, safe choice here, not a
+  # missing safety check.
+  #
+  # Prereleases (a version containing "-") are skipped by the "is pre-release" step below (fix
+  # round 1, review finding 3): the live Smithery listing is what users actually hit, so an RC
+  # must never be deployed there. `scripts/publish-smithery.mjs` carries the identical check as a
+  # second, independent gate — see its header.
   publish-smithery:
     if: github.event_name == 'push'
     needs: [build-mcpb, draft-release]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: is pre-release
+        id: prerelease
+        run: |
+          version=$(node -p "require('./packages/server/package.json').version")
+          if [[ "$version" == *"-"* ]]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+      - name: skip (prerelease — the live Smithery listing is reserved for stable releases)
+        if: steps.prerelease.outputs.value == 'true'
+        run: echo "::notice::publish-smithery skipped — this is a prerelease; nothing is published to the live listing for it."
+        shell: bash
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.prerelease.outputs.value != 'true'
         with:
           name: mcpb
           path: mcpb-artifact
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        if: steps.prerelease.outputs.value != 'true'
+        with:
+          node-version: '24'
       # `npm install -g`, not `npx`, so the pinned version is resolved and installed exactly
       # once and its own log line (`added N packages`) shows what actually landed, rather than
       # trusting a per-invocation `npx -y` resolution silently. EXACT version, not a range —
       # this CLI is what talks to a live third-party registry with our repo's own credentials.
-      - name: install @smithery/cli (pinned 4.11.1)
-        run: npm install -g @smithery/cli@4.11.1
+      # `--ignore-scripts` — see the job comment above for the fallback-tested claim that the CLI
+      # still runs fully without its dependency tree's install-time lifecycle scripts.
+      - name: install @smithery/cli (pinned 4.11.1, --ignore-scripts)
+        if: steps.prerelease.outputs.value != 'true'
+        run: npm install -g @smithery/cli@4.11.1 --ignore-scripts
         shell: bash
       - name: publish the .mcpb bundle to Smithery (THE-956)
+        if: steps.prerelease.outputs.value != 'true'
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
         run: |

@@ -14,14 +14,25 @@
 //
 // `--latest=false` is load-bearing: without it, GitHub would flip "Latest" from `v<version>`
 // (the signed, canonical release) onto this un-prefixed mirror the moment it's created. This
-// script asserts that stayed put, AFTER creating the release, and fails loudly if it didn't.
+// script asserts that held — UNCONDITIONALLY, on every path (fresh, filled-missing, and
+// already-mirrored alike), not only right after creation. Review finding (fix round 1): a
+// re-run that only checked post-creation would go green on `gh run rerun` even after Latest had
+// since flipped onto the mirror, because a re-run almost always lands on the already-mirrored
+// path — exactly the path that used to skip the check entirely.
 //
-// The un-prefixed tag is unsigned by construction — CI holds no maintainer signing key (see
-// docs/RELEASE-SIGNING.md), so unlike an annotated `v*` tag it cannot carry a `git verify-tag`
-// signature. Said again in the release notes below and in publish.yml's job comment.
+// Prereleases (a version containing "-", e.g. 1.28.0-rc.1) are skipped outright: the un-prefixed
+// tag is reserved for stable releases the community directory should see, never an RC. This is a
+// TRUE no-op — checked before any filesystem read or `gh`/`git` call — mirrored by the same
+// prerelease gate at the workflow-step level (publish.yml), so the guard holds even if a caller
+// invokes this script directly.
 //
-// External commands (`gh`) go through an injectable `runner` so tests can fake them with no
-// subprocess and no network — mirrors check-mcp-name.mjs's pure/injectable shape, extended to
+// Dry-run performs READS, never writes: it still calls `gh release view` / `git ls-remote` (or
+// their fakes) to classify which real path would run, so `--dry-run` can be exercised safely
+// against the live repo (see task-5-report.md's acceptance evidence) — but it never creates a
+// tag, a release, or uploads an asset.
+//
+// External commands (`gh`, `git`) go through an injectable `runner` so tests can fake them with
+// no subprocess and no network — mirrors check-mcp-name.mjs's pure/injectable shape, extended to
 // side-effecting calls the way this task's brief asked for. `gh` resolves the target repo from
 // the `{owner}/{repo}` placeholders itself (current git remote), so no owner/repo is hardcoded
 // here — this also lets `--dry-run` be run safely against the real repo from any checkout of it.
@@ -58,6 +69,11 @@ export function parseArgs(argv) {
   return args;
 }
 
+/** A prerelease version (e.g. "1.28.0-rc.1") contains a "-" per semver; a stable one never does. */
+export function isPrerelease(version) {
+  return version.includes("-");
+}
+
 /**
  * Pure check against an already-parsed manifest.json, injectable so it's testable with no
  * filesystem. Returns a list of problem strings; an empty list means the gate passes.
@@ -79,7 +95,15 @@ export function missingAssetNames(existingNames, required = REQUIRED_ASSET_NAMES
   return required.filter((name) => !existing.has(name));
 }
 
-/** Returns the release's current asset names, or `null` if release `version` does not exist. */
+/**
+ * Returns the release's current asset names, or `null` if release `version` does not exist.
+ * Matches ONLY `gh`'s exact "release not found" message (confirmed verbatim against the live
+ * repo — `gh release view <missing> 2>&1` prints exactly `release not found` on stderr, nothing
+ * on stdout, exit 1; see task-5-report.md's fix-round-1 evidence) — any other failure (an auth
+ * problem, an org SSO block, a network error) is a REAL error and is rethrown, never read as
+ * "release absent". Review finding (fix round 1): the previous broad `/not found/i` regex would
+ * have matched an auth-style 404 too and silently walked into a tag+release creation attempt.
+ */
 export function readExistingRelease(version, runner) {
   try {
     const out = runner("gh", [
@@ -96,22 +120,22 @@ export function readExistingRelease(version, runner) {
       .map((s) => s.trim())
       .filter(Boolean);
   } catch (err) {
-    const text = `${err.stderr ?? ""}${err.stdout ?? ""}${err.message ?? ""}`;
-    if (/release not found|not found/i.test(text)) return null;
+    if ((err.stderr ?? "").trim() === "release not found") return null;
     throw err;
   }
 }
 
-/** Returns whether the lightweight ref `refs/tags/<version>` already exists on the remote. */
+/**
+ * Returns whether the lightweight ref `refs/tags/<version>` already exists on the remote, via
+ * `git ls-remote --tags origin refs/tags/<version>` — empty stdout means absent, a non-empty line
+ * means present (confirmed live: `git ls-remote --tags origin refs/tags/<real-tag>` prints one
+ * `<sha>\trefs/tags/<tag>` line; a nonexistent ref prints nothing, exit 0 either way — see
+ * task-5-report.md). A non-zero exit from `git` itself (network/auth failure) propagates as a
+ * real error rather than being read as "absent" — there is no catch here to swallow it.
+ */
 export function tagExists(version, runner) {
-  try {
-    runner("gh", ["api", `repos/{owner}/{repo}/git/ref/tags/${version}`]);
-    return true;
-  } catch (err) {
-    const text = `${err.stderr ?? ""}${err.stdout ?? ""}${err.message ?? ""}`;
-    if (/404|not found/i.test(text)) return false;
-    throw err;
-  }
+  const out = runner("git", ["ls-remote", "--tags", "origin", `refs/tags/${version}`]);
+  return out.trim().length > 0;
 }
 
 /** Returns the tag name of the repo's current "Latest" release. */
@@ -137,7 +161,8 @@ function releaseNotes(version) {
 
 /**
  * Orchestrates the mirror. `runner` is injected (defaults to `defaultRunner`) so every branch is
- * testable without a subprocess or network access.
+ * testable without a subprocess or network access. The `v<version>` "Latest" assertion runs
+ * UNCONDITIONALLY at the end of every real (non-dry-run, non-prerelease) path — see the header.
  */
 export function mirrorPluginRelease({
   version,
@@ -146,6 +171,14 @@ export function mirrorPluginRelease({
   dryRun = false,
   runner = defaultRunner,
 }) {
+  if (isPrerelease(version)) {
+    console.log(
+      `mirror-plugin-release: ${version} is a prerelease (contains "-") — the un-prefixed tag is ` +
+        "reserved for stable releases only. Skipping; nothing read or written.",
+    );
+    return { action: "skipped-prerelease" };
+  }
+
   const manifestPath = join(assetsDir, "manifest.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const problems = manifestProblems(manifest, version);
@@ -161,6 +194,7 @@ export function mirrorPluginRelease({
   }
 
   const existingNames = readExistingRelease(version, runner);
+  let result;
 
   if (existingNames !== null) {
     const missing = missingAssetNames(existingNames);
@@ -168,70 +202,74 @@ export function mirrorPluginRelease({
       console.log(
         `mirror-plugin-release: release ${version} already exists and carries all 3 assets — already mirrored.`,
       );
-      return { action: "already-mirrored" };
+      result = { action: "already-mirrored" };
+    } else {
+      console.log(
+        `mirror-plugin-release: release ${version} exists but is missing: ${missing.join(", ")}.`,
+      );
+      if (dryRun) {
+        console.log(`mirror-plugin-release: [dry-run] would upload: ${missing.join(", ")}`);
+        return { action: "dry-run-partial", missing };
+      }
+      const missingPaths = missing.map((name) => join(assetsDir, name));
+      runner("gh", ["release", "upload", version, ...missingPaths]);
+      console.log(`mirror-plugin-release: uploaded missing asset(s): ${missing.join(", ")}.`);
+      result = { action: "filled-missing", missing };
     }
-    console.log(
-      `mirror-plugin-release: release ${version} exists but is missing: ${missing.join(", ")}.`,
-    );
-    if (dryRun) {
-      console.log(`mirror-plugin-release: [dry-run] would upload: ${missing.join(", ")}`);
-      return { action: "dry-run-partial", missing };
-    }
-    const missingPaths = missing.map((name) => join(assetsDir, name));
-    runner("gh", ["release", "upload", version, ...missingPaths]);
-    console.log(`mirror-plugin-release: uploaded missing asset(s): ${missing.join(", ")}.`);
-    return { action: "filled-missing", missing };
-  }
-
-  const hasTag = tagExists(version, runner);
-  if (dryRun) {
-    console.log(
-      `mirror-plugin-release: [dry-run] release ${version} does not exist. Would ` +
-        `${hasTag ? "reuse the existing" : "create a"} tag ${version} at ${sha}, then create ` +
-        `release ${version} (--latest=false) with assets: ${REQUIRED_ASSET_NAMES.join(", ")}.`,
-    );
-    return { action: "dry-run-fresh" };
-  }
-
-  if (!hasTag) {
-    runner("gh", [
-      "api",
-      "repos/{owner}/{repo}/git/refs",
-      "-f",
-      `ref=refs/tags/${version}`,
-      "-f",
-      `sha=${sha}`,
-    ]);
-    console.log(`mirror-plugin-release: created tag ${version} at ${sha}.`);
   } else {
-    console.log(`mirror-plugin-release: tag ${version} already exists, reusing it.`);
+    const hasTag = tagExists(version, runner);
+    if (dryRun) {
+      console.log(
+        `mirror-plugin-release: [dry-run] release ${version} does not exist. Would ` +
+          `${hasTag ? "reuse the existing" : "create a"} tag ${version} at ${sha}, then create ` +
+          `release ${version} (--latest=false) with assets: ${REQUIRED_ASSET_NAMES.join(", ")}.`,
+      );
+      return { action: "dry-run-fresh" };
+    }
+
+    if (!hasTag) {
+      runner("gh", [
+        "api",
+        "repos/{owner}/{repo}/git/refs",
+        "-f",
+        `ref=refs/tags/${version}`,
+        "-f",
+        `sha=${sha}`,
+      ]);
+      console.log(`mirror-plugin-release: created tag ${version} at ${sha}.`);
+    } else {
+      console.log(`mirror-plugin-release: tag ${version} already exists, reusing it.`);
+    }
+
+    runner("gh", [
+      "release",
+      "create",
+      version,
+      "--latest=false",
+      "--verify-tag",
+      "--title",
+      `TC Bridge ${version} (companion plugin)`,
+      "--notes",
+      releaseNotes(version),
+      ...assetPaths,
+    ]);
+    console.log(`mirror-plugin-release: created release ${version} with 3 assets.`);
+    result = { action: "created" };
   }
 
-  runner("gh", [
-    "release",
-    "create",
-    version,
-    "--latest=false",
-    "--verify-tag",
-    "--title",
-    `TC Bridge ${version} (companion plugin)`,
-    "--notes",
-    releaseNotes(version),
-    ...assetPaths,
-  ]);
-  console.log(`mirror-plugin-release: created release ${version} with 3 assets.`);
-
+  // Unconditional on every real path — see the header comment for why "already-mirrored" (the
+  // path a `gh run rerun` almost always lands on) must run this check too, not only "created".
   const latestTag = latestReleaseTag(runner);
   const expectedLatest = `v${version}`;
   if (latestTag !== expectedLatest) {
     throw new Error(
-      `after creating release ${version}, the repo's Latest release is "${latestTag}", expected ` +
-        `"${expectedLatest}" — --latest=false should have kept v${version} as Latest. The mirror ` +
-        "release was created; investigate the Latest flag before trusting it.",
+      `the repo's Latest release is "${latestTag}", expected "${expectedLatest}" — --latest=false ` +
+        `should have kept v${version} as Latest. Release ${version} action: "${result.action}"; ` +
+        "investigate the Latest flag before trusting it.",
     );
   }
   console.log(`mirror-plugin-release: confirmed ${expectedLatest} is still the Latest release.`);
-  return { action: "created" };
+  return result;
 }
 
 function main() {

@@ -18,6 +18,14 @@ version number." **As of THE-955, that un-prefixed release is created automatica
 `v*` tag — no manual step is needed to satisfy this prerequisite any more; only steps 3-4 below
 remain owner-run.
 
+**The portal's own release cache can lag the real release by days** — Obsidian forum thread
+115948 covers exactly this ("No release matches your manifest version" persisting after a
+release genuinely exists), and Obsidian staff's answer there was to wait for the portal's
+periodic rescan rather than treat it as a real mismatch. So seeing that notice immediately after
+a tag — even once `mirror-plugin-release` has already created the un-prefixed release — is
+expected, not a signal that the automation failed; confirm the release itself first (the release
+URL below), and only suspect the CI job if the release is genuinely missing or incomplete.
+
 **As of THE-950, the repo-root `manifest.json` IS `packages/plugin/manifest.json` (byte-identical,
 `release.mjs`-mirrored, `check-version-coherence.mjs`-gated).** Before THE-950 the root
 `manifest.json` was the MCPB 0.3 bundle manifest (`name: obsidian-tc`, THE-220) — the validator's

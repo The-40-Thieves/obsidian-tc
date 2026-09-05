@@ -1,14 +1,20 @@
 // Tests for scripts/publish-smithery.mjs (THE-956).
 //
 // The `smithery` call goes through an injected fake runner — no subprocess, no network, no real
-// key. `classifyPublishResult`/`parsePublishOutput` are pure and tested directly; the "duplicate"
-// fixture is explicitly SYNTHETIC — task-5-report.md documents that a live second-publish probe
-// of an already-published version never actually produced a distinct duplicate response, so this
-// exercises the defensive branch only, not an observed CLI behaviour.
+// key. `classifyPublishResult`/`parsePublishOutput` are pure and tested directly.
+//
+// Fix round 1 (task-5-review.md finding 1): an earlier revision kept a synthetic "duplicate
+// response" branch even though the live probe in task-5-report.md found no real CLI response it
+// could ever match — a repeat publish of an already-listed version returns `status: SUCCESS` with
+// a fresh `deploymentId`, never an error. Per the controller's ruling ("delete synthetic code that
+// no observed response can reach, unless the implementer shows a real CLI error string it
+// matches"), that branch and its two tests were deleted rather than kept as untested, unreachable
+// code — see "re-run safety" in the script's own header for what replaced it.
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import {
   classifyPublishResult,
+  isPrerelease,
   parseArgs,
   parsePublishOutput,
   publishToSmithery,
@@ -35,6 +41,14 @@ afterEach(() => {
 
 // ---- pure helpers ----------------------------------------------------------------------------
 
+test("isPrerelease: a version with a hyphen is a prerelease", () => {
+  assert.equal(isPrerelease("1.28.0-rc.1"), true);
+});
+
+test("isPrerelease: a plain semver is not a prerelease", () => {
+  assert.equal(isPrerelease(VERSION), false);
+});
+
 test("parsePublishOutput: finds the JSON line after human progress text (real 2026-09-05 shape)", () => {
   const parsed = parsePublishOutput(REAL_SUCCESS_STDOUT);
   assert.equal(parsed.status, "SUCCESS");
@@ -53,32 +67,19 @@ test("classifyPublishResult: SUCCESS is ok", () => {
       deploymentId: "d1",
       mcpUrl: "https://x",
     },
-    combinedOutput: REAL_SUCCESS_STDOUT,
   });
   assert.equal(result.ok, true);
   assert.match(result.message, /published the-40-thieves\/obsidian-tc/);
 });
 
-test("classifyPublishResult: a synthetic duplicate-text response is treated as success (defensive, unobserved live)", () => {
-  const result = classifyPublishResult({
-    parsed: null,
-    combinedOutput: '✗ 400 {"error":"already published"}',
-  });
-  assert.equal(result.ok, true);
-  assert.match(result.message, /already published/);
-});
-
-test("classifyPublishResult: a non-SUCCESS, non-duplicate status fails", () => {
-  const result = classifyPublishResult({
-    parsed: { status: "FAILED" },
-    combinedOutput: '{"status":"FAILED"}',
-  });
+test("classifyPublishResult: a non-SUCCESS status fails", () => {
+  const result = classifyPublishResult({ parsed: { status: "FAILED" } });
   assert.equal(result.ok, false);
   assert.match(result.message, /status "FAILED"/);
 });
 
 test("classifyPublishResult: no parseable output at all fails", () => {
-  const result = classifyPublishResult({ parsed: null, combinedOutput: "network error\n" });
+  const result = classifyPublishResult({ parsed: null });
   assert.equal(result.ok, false);
   assert.match(result.message, /no parseable JSON status line/);
 });
@@ -94,6 +95,34 @@ test("parseArgs: --dry-run is optional and defaults to false", () => {
 });
 
 // ---- orchestration (fake runner) -------------------------------------------------------------
+
+test("prerelease: skips entirely, before even the missing-key check", () => {
+  delete process.env.SMITHERY_API_KEY;
+  let calls = 0;
+  const runner = () => {
+    calls++;
+    return REAL_SUCCESS_STDOUT;
+  };
+  const result = publishToSmithery({ bundle: BUNDLE, version: "1.28.0-rc.1", runner });
+  assert.equal(result.action, "skipped-prerelease");
+  assert.equal(calls, 0);
+});
+
+test("prerelease: also skips in --dry-run", () => {
+  let calls = 0;
+  const runner = () => {
+    calls++;
+    return REAL_SUCCESS_STDOUT;
+  };
+  const result = publishToSmithery({
+    bundle: BUNDLE,
+    version: "1.28.0-rc.1",
+    dryRun: true,
+    runner,
+  });
+  assert.equal(result.action, "skipped-prerelease");
+  assert.equal(calls, 0);
+});
 
 test("missing key: fails with a message naming SMITHERY_API_KEY, before any runner call", () => {
   delete process.env.SMITHERY_API_KEY;
@@ -120,26 +149,31 @@ test("SUCCESS: publishes and returns the parsed deployment info", () => {
   assert.equal(result.action, "published");
 });
 
-test("duplicate (synthetic): a second publish is treated as success, not a job failure", () => {
-  process.env.SMITHERY_API_KEY = "test-key-not-real";
-  const runner = () => {
-    const err = new Error("smithery exited 1");
-    err.status = 1;
-    err.stdout = "";
-    err.stderr = '✗ 400 {"error":"already published"}\n';
-    throw err;
-  };
-  const result = publishToSmithery({ bundle: BUNDLE, version: VERSION, runner });
-  assert.equal(result.action, "published");
-  assert.match(result.message, /already published/);
-});
-
-test("other failure: a non-SUCCESS, non-duplicate result fails the job", () => {
+test("other failure: a non-SUCCESS result fails the job", () => {
   process.env.SMITHERY_API_KEY = "test-key-not-real";
   const runner = () => '{"deploymentId":"d1","qualifiedName":"x/y","status":"FAILED"}';
   assert.throws(
     () => publishToSmithery({ bundle: BUNDLE, version: VERSION, runner }),
     /status "FAILED"/,
+  );
+});
+
+test("a repeat-publish-shaped runner failure (no distinct duplicate response) still fails the job", () => {
+  // Documents the deleted branch's replacement behaviour: since the live CLI never returns a
+  // distinguishable "duplicate" response (see the script's header), any genuine runner failure —
+  // even one whose text happens to mention "already published" — is judged the same as any other
+  // non-SUCCESS output: no parseable JSON status line means the job fails, full stop.
+  process.env.SMITHERY_API_KEY = "test-key-not-real";
+  const runner = () => {
+    const err = new Error("smithery exited 1");
+    err.status = 1;
+    err.stdout = "";
+    err.stderr = "some unrelated CLI error, not real 2026-09-05 output\n";
+    throw err;
+  };
+  assert.throws(
+    () => publishToSmithery({ bundle: BUNDLE, version: VERSION, runner }),
+    /no parseable JSON status line/,
   );
 });
 

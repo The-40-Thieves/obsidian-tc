@@ -14,6 +14,25 @@
 // child process solely through its INHERITED environment (execFileSync inherits process.env by
 // default) — it is never appended to argv, so it can never appear in a process listing, a crash's
 // argv dump, or anything this script prints.
+//
+// Prereleases (a version containing "-", e.g. 1.28.0-rc.1) are skipped outright: the live
+// Smithery listing (`mcpUrl`) is what users actually hit, so an RC must never be deployed there.
+// This is a TRUE no-op, checked before even the SMITHERY_API_KEY presence check — mirrored by the
+// same prerelease gate at the workflow-step level (publish.yml), so the guard holds even if a
+// caller invokes this script directly.
+//
+// Dry-run performs no call at all here (there is nothing to read before publishing, unlike
+// mirror-plugin-release.mjs's classification reads) — it just prints the command it would run.
+//
+// No idempotency preflight, unlike this repo's other publish jobs (publish-npm's F3,
+// publish-registry's exact-match GET): probed live 2026-09-05 against the already-published
+// 1.27.0 bundle (task-5-report.md) and a REPEAT publish of an already-listed version is not an
+// error — Smithery accepts it as a new release (`status: SUCCESS`, a fresh `deploymentId`) and
+// redeploys the hosted `mcpUrl`. So a re-run of this job is safe by construction; there is no
+// "duplicate/already published" response for this script to special-case, because none exists —
+// an earlier revision carried a defensive branch for one anyway and its own live probe evidence
+// showed nothing could ever reach it, so per review it was removed rather than kept as untested,
+// unreachable code (fix round 1, task-5-review.md finding 1).
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -44,6 +63,11 @@ export function parseArgs(argv) {
   return args;
 }
 
+/** A prerelease version (e.g. "1.28.0-rc.1") contains a "-" per semver; a stable one never does. */
+export function isPrerelease(version) {
+  return version.includes("-");
+}
+
 /**
  * Parses the CLI's own JSON status line out of its combined stdio. `smithery mcp publish` prints
  * human progress lines ("Publishing ... to Smithery Registry...", "✓ Release ... accepted")
@@ -71,24 +95,15 @@ export function parsePublishOutput(output) {
 
 /**
  * Classifies one publish attempt, pure and injectable so it's testable with no subprocess.
- * Returns `{ ok, message }`.
+ * Returns `{ ok, message }`. SUCCESS is the only passing status — no "duplicate" branch (see the
+ * header: the live probe found no such response, so there is nothing real for one to match).
  */
-export function classifyPublishResult({ parsed, combinedOutput }) {
+export function classifyPublishResult({ parsed }) {
   if (parsed?.status === "SUCCESS") {
     return {
       ok: true,
       message: `published ${parsed.qualifiedName} — deployment ${parsed.deploymentId} (${parsed.mcpUrl}).`,
     };
-  }
-  // Probed live 2026-09-05 against the already-published 1.27.0 release (task-5-report.md): a
-  // SECOND publish of an already-published version did NOT error or return a distinct
-  // "duplicate" response — Smithery accepted it as a new release, status SUCCESS, a fresh
-  // deploymentId. No "already published"/"duplicate" text was ever observed from the real CLI,
-  // so this branch is defensive only (kept in case a future CLI version starts rejecting a
-  // re-publish outright) — it must not silently regress a re-run into a hard job failure if that
-  // day comes, but nothing today is known to exercise it.
-  if (/already published|duplicate/i.test(combinedOutput)) {
-    return { ok: true, message: "already published (duplicate response treated as success)." };
   }
   return {
     ok: false,
@@ -109,6 +124,14 @@ export function publishToSmithery({
   runner = defaultRunner,
   name = SMITHERY_NAME,
 }) {
+  if (isPrerelease(version)) {
+    console.log(
+      `publish-smithery: ${version} is a prerelease (contains "-") — Smithery publish is ` +
+        "reserved for stable releases only. Skipping; nothing read or written.",
+    );
+    return { action: "skipped-prerelease" };
+  }
+
   if (dryRun) {
     console.log(
       `publish-smithery: [dry-run] would run: smithery mcp publish ${bundle} -n ${name} (release ${version})`,
@@ -136,7 +159,7 @@ export function publishToSmithery({
 
   const combined = `${stdout}${stderr}`;
   const parsed = parsePublishOutput(combined);
-  const result = classifyPublishResult({ parsed, combinedOutput: combined });
+  const result = classifyPublishResult({ parsed });
 
   if (!result.ok) {
     const exitNote = failure ? ` (smithery exited ${failure.status ?? "non-zero"})` : "";
