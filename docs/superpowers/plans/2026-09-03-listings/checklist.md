@@ -5,6 +5,9 @@ Ordered list of what to fire or confirm once `v1.26.0` tags and `publish.yml` fi
 owner's to run, in this order: item 1 is a prerequisite for items 4-7, and item 3 has its own
 release-tag prerequisite.
 
+**Items 3's release-tag prerequisite and item 4 are now both confirm-only** (THE-955 and THE-956
+respectively — see the notes on each item below); item 5 (mcp.so) is still fully manual.
+
 ## 1. MCP Registry entry — automatic, confirm only
 
 - Fires on the `v*` tag push, no owner action to trigger it (`publish.yml`'s `publish-registry`
@@ -24,13 +27,16 @@ release-tag prerequisite.
   task) and `docs/project-facts.json`'s `domainCount` (31).
 - Verify: `gh repo view The-40-Thieves/obsidian-tc --json description,repositoryTopics`.
 
-## 3. Community store listing — TC Bridge companion plugin — manual, owner
+## 3. Community store listing — TC Bridge companion plugin — manual, owner (release-tag prerequisite now automatic)
 
 - Text already prepared (THE-943): the file at
   `docs/superpowers/plans/2026-09-03-listings/community-obsidian.md` — do not duplicate its
-  content here. It carries its own release-tag prerequisite and "Do NOT submit until" checklist
-  (a tagged release must exist with `tc-bridge` in `manifest.json` and all three loose assets
-  attached).
+  content here. It carries its own "Do NOT submit until" checklist (a tagged release must exist
+  with `tc-bridge` in `manifest.json` and all three loose assets attached) — **that release-tag
+  prerequisite is now confirm-only** (THE-955): `mirror-plugin-release` creates it automatically
+  on every `v*` tag, at the un-prefixed `<version>` tag Obsidian's validator actually reads (see
+  `docs/RELEASING.md`'s "What a tag produces"). The form SUBMISSION itself is still a one-time,
+  owner-run action once the owner decides to submit.
 - Command/URL: submit via the **self-service form at
   [community.obsidian.md](https://community.obsidian.md)** using that file's text — sign in with
   an Obsidian account, link the GitHub account that owns the repo to verify ownership, and submit.
@@ -42,18 +48,19 @@ release-tag prerequisite.
 - Verify: the submission is confirmed in the community.obsidian.md account dashboard; once
   reviewed and published, `tc-bridge` appears in Obsidian's in-app community plugin browser.
 
-## 4. Smithery — manual, owner
+## 4. Smithery — automatic, confirm only (THE-956)
 
-- Full steps + citations: [`smithery.md`](./smithery.md) (this task).
-- Command: `smithery login`, then `bun run bundle`, then
-  `smithery mcp publish ./dist/obsidian-tc.mcpb -n <qualified-name>`.
-- Expected: the CLI prints a server URL on success.
-- Verify: open the printed URL (`https://smithery.ai/server/<qualified-name>`) and confirm the
-  listing shows the current version, description, and a link back to the GitHub repo. **Check the
-  actual page, not just a clean CLI exit** — `smithery.md`'s defect section documents an open bug
+- Fires on the `v*` tag push, no owner action to trigger it (`publish.yml`'s `publish-smithery`
+  job, gated identically to `publish-registry` — a real tag push only). Full steps + citations:
+  [`smithery.md`](./smithery.md) (this task); the script: `scripts/publish-smithery.mjs`.
+- Verify: open `https://smithery.ai/servers/the-40-thieves/obsidian-tc/releases` (or the URL the
+  job's log line prints) and confirm the listing shows the current version. **Check the actual
+  page, not just a green job** — `smithery.md`'s defect section documents an open bug
   (`arcadeai-labs/smithery-cli#787`) where our exact manifest shape (no `tools`, `tools_generated:
-  true`) has produced either a hard `400 {"error":"No values to set"}` with no listing at all, or a
-  live listing showing "No capabilities found."
+  true`) has produced a live listing showing "No capabilities found" even on a successful publish.
+- A re-run of the job on an already-published version is safe: probed live 2026-09-05
+  (`scripts/publish-smithery.mjs`'s header) — Smithery accepted a second publish of the same
+  version as a new release (status `SUCCESS`, a fresh `deploymentId`), it did not error.
 
 ## 5. mcp.so — manual, owner
 

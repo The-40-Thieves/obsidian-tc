@@ -9,7 +9,22 @@ the owner to paste in when they decide to submit; this task does not submit it.
 community.obsidian.md's directory reads `manifest.json` from the plugin repository's default
 branch at submission time, and separately expects the **release matching that version** to carry
 `main.js`, `manifest.json`, and `styles.css` as individually-downloadable release assets (not
-only inside a zip) — that's what BRAT and the directory's own installer fetch.
+only inside a zip) — that's what BRAT and the directory's own installer fetch. Critically, "the
+release matching that version" means a release tagged with the **UN-PREFIXED** version
+(`1.27.0`, not `v1.27.0`) — the validator rejected the first real submission attempt
+(2026-09-05) for exactly this: "Make sure your GitHub release doesn't use a 'v' in front of the
+version number." **As of THE-955, that un-prefixed release is created automatically by CI**
+(`publish.yml`'s `mirror-plugin-release` job, `scripts/mirror-plugin-release.mjs`) on every
+`v*` tag — no manual step is needed to satisfy this prerequisite any more; only steps 3-4 below
+remain owner-run.
+
+**The portal's own release cache can lag the real release by days** — Obsidian forum thread
+115948 covers exactly this ("No release matches your manifest version" persisting after a
+release genuinely exists), and Obsidian staff's answer there was to wait for the portal's
+periodic rescan rather than treat it as a real mismatch. So seeing that notice immediately after
+a tag — even once `mirror-plugin-release` has already created the un-prefixed release — is
+expected, not a signal that the automation failed; confirm the release itself first (the release
+URL below), and only suspect the CI job if the release is genuinely missing or incomplete.
 
 **As of THE-950, the repo-root `manifest.json` IS `packages/plugin/manifest.json` (byte-identical,
 `release.mjs`-mirrored, `check-version-coherence.mjs`-gated).** Before THE-950 the root
@@ -25,10 +40,13 @@ submitting:
 
 1. Merge this rename to `main`.
 2. Cut the next release (`bun scripts/release.mjs <bump>`, tag, push — standard flow;
-   see `docs/G2.5-release-engineering.md`). Note the resulting tag, e.g. `v1.26.0`.
-3. Confirm the release's assets include `manifest.json` with `"id": "tc-bridge"` at the release
-   URL (`https://github.com/The-40-Thieves/obsidian-tc/releases/tag/<tag>`) before submitting.
-4. Fill `<RELEASE_TAG>` below with that tag, then use the text as-is.
+   see `docs/G2.5-release-engineering.md`). Note the resulting **un-prefixed** tag `mirror-plugin-
+   release` produces, e.g. `1.26.0` (not `v1.26.0`) — THE-955 creates it automatically, no
+   separate action needed.
+3. Confirm the mirrored release's assets include `manifest.json` with `"id": "tc-bridge"` at its
+   release URL (`https://github.com/The-40-Thieves/obsidian-tc/releases/tag/<un-prefixed-version>`,
+   e.g. `.../releases/tag/1.27.0`) before submitting.
+4. Fill `<RELEASE_TAG>` below with that un-prefixed tag, then use the text as-is.
 
 ## Submission form fields
 
@@ -38,7 +56,7 @@ submitting:
 | Plugin id (from manifest.json) | `tc-bridge` |
 | Plugin name | `TC Bridge` |
 | Release tag | `<RELEASE_TAG>` (see prerequisite above) |
-| Release assets required | `main.js`, `manifest.json`, `styles.css` — all three attached to `<RELEASE_TAG>` as individual files (confirmed present on every tag by the `build-plugin` job) |
+| Release assets required | `main.js`, `manifest.json`, `styles.css` — all three attached to `<RELEASE_TAG>` as individual files (built by `build-plugin`, attached to the un-prefixed release by `mirror-plugin-release`, THE-955) |
 | Author | The 40 Thieves |
 | Author URL | `https://github.com/The-40-Thieves` |
 | License | AGPL-3.0-only |
