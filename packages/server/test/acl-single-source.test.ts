@@ -17,8 +17,26 @@ const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 const CANONICAL = "packages/server/src/vault/acl-read-filter.ts";
 
 describe("read-ACL predicate has a single source of truth", () => {
+  it("scope floor: a top-level (no subdirectory) src/ file is in the scanned set (THE-954)", () => {
+    // `packages/*/src/**/*.ts` alone needs a directory segment between `src/` and the filename, so
+    // it silently drops every file directly under a package's src/ — measured on main 7dfd411f at
+    // 415 of 437 files, missing packages/server/src/index.ts among 21 others. The plain
+    // `packages/*/src/*.ts` pattern below is already fully recursive (git's `*` crosses `/`), so
+    // this floor pins a KNOWN top-level file rather than trusting a bare non-zero count, which the
+    // lossy pattern would still have produced. packages/server/src/index.ts is the server's own
+    // entrypoint — exactly the shape of file the read-ACL predicate this test guards could hide in.
+    const files = execFileSync("git", ["ls-files", "packages/*/src/*.ts"], {
+      cwd: REPO,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+
+    expect(files).toContain("packages/server/src/index.ts");
+  });
+
   it("no file outside acl-read-filter.ts declares its own read-ACL predicate", () => {
-    const files = execFileSync("git", ["ls-files", "packages/*/src/**/*.ts"], {
+    const files = execFileSync("git", ["ls-files", "packages/*/src/*.ts"], {
       cwd: REPO,
       encoding: "utf8",
     })

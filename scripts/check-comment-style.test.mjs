@@ -263,15 +263,17 @@ test("the checked-in baseline's threshold boundary is inclusive (>=), matching m
 
 // ---- scope glob -----------------------------------------------------------------------------
 
-test("scopeFiles: the two-pattern union matches what a recursive filesystem walk finds (no src/*.ts dropped)", () => {
+test("scopeFiles: matches what a recursive filesystem walk finds (no src/*.ts dropped, THE-954)", () => {
   const files = scopeFiles();
   assert.ok(files.length > 300, `expected > 300 files, got ${files.length}`);
-  // A file directly under a package's src/ (no intervening directory) must be present — this is
-  // exactly what the single-pattern `packages/*/src/**/*.ts` glob silently drops (see the docblock
-  // in check-comment-style.mjs: it lost index.ts, cli.ts and 17 others on the real tree).
+  // A KNOWN top-level file (no intervening directory under a package's src/) must be present — an
+  // identity check, not just a count, so a regression that still returns a plausible-looking count
+  // cannot pass silently. This is exactly what the lossy `packages/*/src/**/*.ts` glob alone drops
+  // (see the docblock in check-comment-style.mjs: it lost this file, cli.ts and 17 others on the
+  // real tree).
   assert.ok(
-    files.some((f) => /^packages\/[^/]+\/src\/[^/]+\.ts$/.test(f)),
-    "expected at least one file directly under a package's src/ with no subdirectory",
+    files.includes("packages/plugin/src/main.ts"),
+    "expected packages/plugin/src/main.ts (a top-level src/ file) in the scanned set",
   );
 });
 

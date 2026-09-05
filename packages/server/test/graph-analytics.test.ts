@@ -197,11 +197,13 @@ describe("THE-452 analytics are NOT the ranker", () => {
     // deliberately SUPPRESSES, so wiring it in as a positive prior is self-contradictory. Asserted
     // structurally rather than trusted to reviewer memory.
     const root = fileURLToPath(new URL("../../..", import.meta.url));
-    const files = execFileSync(
-      "git",
-      ["ls-files", "packages/server/src/search/*.ts", "packages/server/src/search/**/*.ts"],
-      { cwd: root, encoding: "utf8" },
-    )
+    // THE-954: `search/*.ts` alone is already fully recursive (git's `*` crosses `/`), so it does
+    // not need pairing with `search/**/*.ts` — that form is only needed alone, where it silently
+    // drops every top-level src/ file.
+    const files = execFileSync("git", ["ls-files", "packages/server/src/search/*.ts"], {
+      cwd: root,
+      encoding: "utf8",
+    })
       .split("\n")
       .filter(Boolean);
     expect(files.length).toBeGreaterThan(20); // an empty scan must not pass vacuously

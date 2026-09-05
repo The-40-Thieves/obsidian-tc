@@ -107,14 +107,13 @@ const EXPECTED_REAL_CALL_SITES = 2;
 const EXPECTED_REAL_SINK_ASSIGNMENTS = 1;
 
 test("non-vacuity: blanking the real repo tree still finds the pinned baseline call-site and sink counts", () => {
-  const files = execFileSync(
-    "git",
-    ["ls-files", "packages/server/src/*.ts", "packages/server/src/**/*.ts"],
-    {
-      encoding: "utf8",
-      cwd: ROOT,
-    },
-  )
+  // THE-954: `packages/server/src/*.ts` alone is already fully recursive (git's `*` crosses `/`),
+  // so it does not need pairing with `**/*.ts` the way that form would if it were used alone
+  // (`**` requires an intervening directory segment and silently drops every top-level src/ file).
+  const files = execFileSync("git", ["ls-files", "packages/server/src/*.ts"], {
+    encoding: "utf8",
+    cwd: ROOT,
+  })
     .split("\n")
     .filter(Boolean);
 

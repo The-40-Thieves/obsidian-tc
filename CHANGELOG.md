@@ -18,6 +18,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   ticket, the oldest dated release section wins — `[Unreleased]` never wins over a dated one — and
   the generator warns, naming the other candidates. Regenerating against the real CHANGELOG moved
   123 of 350 rows, each a prior hijack or a resolved multi-lead ambiguity.
+- **`check:comment-style` and `acl-single-source.test.ts` were scanning `packages/*/src/**/*.ts`,
+  which silently drops every file directly under a package's `src/` (THE-954).** `**` requires an
+  intervening path segment, so `packages/server/src/index.ts`, `cli.ts` and 20 others were never
+  scanned by the latter (measured: 415 of 437 files). The plain `packages/*/src/*.ts` form needs no
+  pairing — git's pathspec `*` already crosses `/`, so it alone matches the full recursive set — and
+  both gates now use it, each with a floor asserting a KNOWN top-level file (not just a count) stays
+  in the scanned set. Swept the same idiom out of `check-ingest-telemetry-wiring.test.mjs`,
+  `graph-analytics.test.ts`, `note-quality.test.ts`, and a `git ls-files` example in TREE.md's own
+  "Regenerating this" instructions, which was reproducing the same lossy pattern.
 
 ### Added
 
