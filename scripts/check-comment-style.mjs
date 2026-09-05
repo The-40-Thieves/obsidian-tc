@@ -223,14 +223,15 @@ function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
-/** `packages/*\/src/**\/*.ts` needs TWO git pathspecs: `**\/*.ts` alone does not match a file
- *  directly under `src/` (e.g. `packages/server/src/index.ts`) because `**` requires at least one
- *  intervening path segment. Verified empirically: the single-pattern form silently dropped 19
- *  files, including index.ts and cli.ts, off a 428-file scope. */
+/** `packages/*\/src/**\/*.ts` needs a directory segment between `src/` and the filename, so it
+ *  silently drops every file directly under a package's `src/` (e.g. `packages/server/src/index.ts`)
+ *  — THE-954, measured empirically at 19 files off a 428-file scope. The plain `packages/*\/src/*.ts`
+ *  form does not have that gap: git's pathspec `*` already crosses `/`, so it matches every nested
+ *  `.ts` file too — verified against the real tree, where it alone returns the full scope the old
+ *  two-pattern union did. One pathspec, not a union of two working around a trap that does not
+ *  apply to this one. */
 export function scopeFiles() {
-  const a = run("git", ["ls-files", "packages/*/src/*.ts"]).split("\n").filter(Boolean);
-  const b = run("git", ["ls-files", "packages/*/src/**/*.ts"]).split("\n").filter(Boolean);
-  return [...new Set([...a, ...b])].sort();
+  return run("git", ["ls-files", "packages/*/src/*.ts"]).split("\n").filter(Boolean).sort();
 }
 
 export function loadBaseline() {

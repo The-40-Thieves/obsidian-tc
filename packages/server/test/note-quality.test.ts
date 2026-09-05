@@ -507,11 +507,13 @@ describe("THE-537 note_quality is NOT the ranker", () => {
     const { execFileSync } = await import("node:child_process");
     const { fileURLToPath } = await import("node:url");
     const root = fileURLToPath(new URL("../../..", import.meta.url));
-    const tracked = execFileSync(
-      "git",
-      ["ls-files", "packages/server/src/search/*.ts", "packages/server/src/search/**/*.ts"],
-      { cwd: root, encoding: "utf8" },
-    )
+    // THE-954: `search/*.ts` alone is already fully recursive (git's `*` crosses `/`), so it does
+    // not need pairing with `search/**/*.ts` — that form is only needed alone, where it silently
+    // drops every top-level src/ file.
+    const tracked = execFileSync("git", ["ls-files", "packages/server/src/search/*.ts"], {
+      cwd: root,
+      encoding: "utf8",
+    })
       .split("\n")
       .filter(Boolean);
     // A zero-file scan would pass vacuously — the exact failure this repo's other source gates

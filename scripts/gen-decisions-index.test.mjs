@@ -18,6 +18,7 @@ import {
   FALLBACK_SUMMARY,
   parseChangelogEntries,
   renderDocument,
+  resolveChangelogLeads,
   ticketsIn,
 } from "./gen-decisions-index.mjs";
 
@@ -112,6 +113,81 @@ test("boldSummaryOf: collapses internal whitespace from a wrapped bullet", () =>
 
 test("boldSummaryOf: null when no bold span present", () => {
   assert.equal(boldSummaryOf("- plain bullet, no bold (THE-1)"), null);
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3b. resolveChangelogLeads: attributes a ticket to the bullet whose LEAD names it (THE-952).
+// ---------------------------------------------------------------------------------------------
+
+test("resolveChangelogLeads: a lead citation resolves the ticket", () => {
+  const text = "## [1.0.0]\n\n- **Shipped the thing (THE-100).** Full detail here.\n";
+  const entries = parseChangelogEntries(text);
+  const resolved = resolveChangelogLeads(entries);
+  assert.equal(resolved.get("100").summary, "Shipped the thing (THE-100).");
+  assert.equal(resolved.get("100").location, "CHANGELOG.md (1.0.0)");
+});
+
+test(
+  "resolveChangelogLeads: an Unreleased bullet's BODY mentioning a shipped ticket does not " +
+    "hijack that ticket's row — only a LEAD citation attributes a bullet",
+  () => {
+    const text = [
+      "## [Unreleased]",
+      "",
+      "- **Unrelated new work.** This touches the same area as THE-467 in passing.",
+      "",
+      "## [1.0.0] - 2025-01-01",
+      "",
+      "- **Original fix shipped (THE-467).** The real summary for this ticket.",
+    ].join("\n");
+    const entries = parseChangelogEntries(text);
+    const resolved = resolveChangelogLeads(entries);
+    assert.equal(resolved.get("467").summary, "Original fix shipped (THE-467).");
+    assert.equal(resolved.get("467").location, "CHANGELOG.md (1.0.0)");
+  },
+);
+
+test(
+  "resolveChangelogLeads: two leads citing the same ticket -> the OLDEST dated section wins, " +
+    "and the ambiguity callback names the other candidate",
+  () => {
+    const text = [
+      "## [2.0.0]",
+      "",
+      "- **Newer bullet reusing the id (THE-9).** Newer summary.",
+      "",
+      "## [1.0.0]",
+      "",
+      "- **Original bullet (THE-9).** Original summary.",
+    ].join("\n");
+    const entries = parseChangelogEntries(text);
+    const ambiguous = [];
+    const resolved = resolveChangelogLeads(entries, (num, chosen, others) =>
+      ambiguous.push({ num, chosen, others }),
+    );
+    assert.equal(resolved.get("9").summary, "Original bullet (THE-9).");
+    assert.equal(resolved.get("9").location, "CHANGELOG.md (1.0.0)");
+    assert.equal(ambiguous.length, 1);
+    assert.equal(ambiguous[0].num, "9");
+    assert.equal(ambiguous[0].others.length, 1);
+    assert.equal(ambiguous[0].others[0].version, "2.0.0");
+  },
+);
+
+test("resolveChangelogLeads: an Unreleased lead never wins over a dated section's lead", () => {
+  const text = [
+    "## [Unreleased]",
+    "",
+    "- **Unreleased bullet (THE-12).** Draft summary.",
+    "",
+    "## [1.0.0]",
+    "",
+    "- **Shipped bullet (THE-12).** Shipped summary.",
+  ].join("\n");
+  const entries = parseChangelogEntries(text);
+  const resolved = resolveChangelogLeads(entries);
+  assert.equal(resolved.get("12").summary, "Shipped bullet (THE-12).");
+  assert.equal(resolved.get("12").location, "CHANGELOG.md (1.0.0)");
 });
 
 // ---------------------------------------------------------------------------------------------

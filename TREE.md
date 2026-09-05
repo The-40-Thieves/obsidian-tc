@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,280 tracked code files · 215,828 lines.
+**Scale:** 1,280 tracked code files · 215,978 lines.
 
-TypeScript 198,483 · JavaScript 12,663 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 360.
+TypeScript 198,505 · JavaScript 12,791 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 360.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -264,7 +264,7 @@ and wrapped by `scripts/check-boundaries.mjs` (THE-525).
 ### Regenerating this
 
 ```sh
-git ls-files 'packages/server/src/**/*.ts' 'packages/shared/src/**/*.ts' > /tmp/srcfiles.txt
+git ls-files 'packages/server/src/*.ts' 'packages/shared/src/*.ts' > /tmp/srcfiles.txt
 xargs -a /tmp/srcfiles.txt ./node_modules/.bin/depcruise \
   --config .dependency-cruiser.cjs --output-type json > /tmp/depgraph.json
 ```
