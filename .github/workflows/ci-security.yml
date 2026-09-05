@@ -264,13 +264,26 @@ jobs:
         run: cargo deny check
 
   bun-audit:
+    # osv-scanner (below) is the SECOND advisory feed for every lockfile in this repo, and it does
+    # not depend on npm's bulk advisory endpoint at all. A bun-audit red whose log shows ONLY
+    # registry errors (503/502/504/timeout/ConnectionClosed/ETIMEDOUT/ECONNRESET against
+    # /-/npm/v1/security/advisories/bulk) is an OUTAGE, not a finding — read osv-scanner's result
+    # for this same PR before treating it as one. THE-953: on 2026-09-04 that endpoint answered
+    # 503, or nothing at all, for two hours straight (GitHub runners AND Cave alike), and `bun
+    # audit` has no retry of its own, so PRs #897-#901 all sat fully green except this job, three
+    # re-runs each. Each `bun audit` step below now goes through `.github/actions/bun-audit`
+    # (run.sh, tested off-runner by scripts/bun-audit-retry.test.mjs), which retries such an
+    # error up to 3 times with 30/60/120s backoff and, if every attempt is a registry error, fails
+    # the STEP with a distinct `::error title=npm advisory endpoint outage::` message naming
+    # osv-scanner as the second feed. A real finding (a vulnerability table) or any other
+    # non-zero exit still fails on the FIRST attempt, unretried.
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: ./.github/actions/setup-repo
       - name: bun audit
-        run: bun audit
+        uses: ./.github/actions/bun-audit
       # docs/ is a SEPARATE bun workspace with its own lockfile, and `bun audit` only walks the
       # lockfile it is invoked against — so the root run above never saw the docs toolchain. A high
       # sharp/libvips advisory sat there unnoticed until Dependabot (which scans every manifest)
@@ -287,8 +300,9 @@ jobs:
         working-directory: docs
       - name: bun audit (docs workspace)
         if: always()
-        run: bun audit
-        working-directory: docs
+        uses: ./.github/actions/bun-audit
+        with:
+          working-directory: docs
       # packages/reranker-local is a THIRD separate bun workspace (its own lockfile, not a root
       # workspace member — see reranker-local's job in ci-server.yml), so it is invisible to both
       # audits above for the same reason docs/ was: `bun audit` only walks the lockfile it runs
@@ -300,8 +314,9 @@ jobs:
         working-directory: packages/reranker-local
       - name: bun audit (reranker-local workspace)
         if: always()
-        run: bun audit
-        working-directory: packages/reranker-local
+        uses: ./.github/actions/bun-audit
+        with:
+          working-directory: packages/reranker-local
 
   osv-scanner:
     # Cross-ecosystem dependency scan, complementing bun-audit/cargo-audit above rather than

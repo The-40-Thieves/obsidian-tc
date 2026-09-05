@@ -27,6 +27,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   in the scanned set. Swept the same idiom out of `check-ingest-telemetry-wiring.test.mjs`,
   `graph-analytics.test.ts`, `note-quality.test.ts`, and a `git ls-files` example in TREE.md's own
   "Regenerating this" instructions, which was reproducing the same lossy pattern.
+- **`bun-audit` retries npm's bulk advisory endpoint with backoff instead of holding green PRs on
+  an outage (THE-953).** On 2026-09-04 `registry.npmjs.org/-/npm/v1/security/advisories/bulk`
+  answered 503, or nothing at all, for two hours straight, and `bun audit` has no retry of its
+  own — five PRs sat fully green except this job, three re-runs each. `ci-security.yml`'s three
+  `bun audit` steps (root, docs/, packages/reranker-local) now go through a new
+  `.github/actions/bun-audit` composite action that retries a registry error (a
+  5xx/timeout/ConnectionClosed/ETIMEDOUT/ECONNRESET against that endpoint) up to 3 times with
+  30/60/120s backoff, and fails with a distinct `::error title=npm advisory endpoint outage::`
+  message naming `osv-scanner` as this repo's second advisory feed when every attempt is a
+  registry error. A real finding (a vulnerability table) or any other non-zero exit still fails on
+  the FIRST attempt, unretried.
 
 ### Added
 
