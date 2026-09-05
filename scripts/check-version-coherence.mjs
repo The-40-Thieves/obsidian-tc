@@ -5,6 +5,10 @@
 // No dependencies; run from the repo root.
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import {
+  bunLockWorkspaceVersionProblems,
+  WORKSPACE_PACKAGE_JSON,
+} from "./lib/bun-lock-workspace-versions.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads provably contained to the repo root (defense in depth for tooling).
@@ -70,38 +74,26 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
 // packages/plugin's OWN package.json version is deliberately outside that set (only its Obsidian
 // manifest.json is, checked below) — bun.lock still needs to agree with IT, not with the release
 // version.
-// bun.lock is a lenient JSON dialect (bun accepts trailing commas that plain JSON does not); strip
-// them before parsing rather than pull in a JSON5 dependency for one field.
+// bun.lock is a lenient JSON dialect (bun accepts trailing commas that plain JSON does not).
+// WORKSPACE_PACKAGE_JSON and bunLockWorkspaceVersionProblems are shared with
+// scripts/lib/bun-lock-workspace-versions.mjs (THE-948), which release.mjs uses to rewrite these
+// same fields — one inventory of lockstep workspace paths, and one assertion about them, not two
+// of each that can drift apart.
 {
   const lockText = readFileSync(resolve(ROOT, "bun.lock"), "utf8");
-  const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
-  const workspacePackages = {
-    "packages/native": "packages/native/package.json",
-    "packages/plugin": "packages/plugin/package.json",
-    "packages/server": "packages/server/package.json",
-    "packages/shared": "packages/shared/package.json",
-  };
-  const lockDrift = [];
-  for (const [wsPath, pkgPath] of Object.entries(workspacePackages)) {
-    const ws = lock.workspaces?.[wsPath];
-    if (!ws || ws.version === undefined) {
-      lockDrift.push(`bun.lock has no "${wsPath}" workspace with a version field`);
-      continue;
-    }
-    const pkgVersion = readJson(pkgPath).version;
-    if (ws.version !== pkgVersion) {
-      lockDrift.push(
-        `bun.lock workspaces["${wsPath}"].version is "${ws.version}", but ${pkgPath}'s version ` +
-          `is "${pkgVersion}" — run \`bun install\` to refresh the lockfile.`,
-      );
-    }
-  }
+  const packageVersions = Object.fromEntries(
+    Object.entries(WORKSPACE_PACKAGE_JSON).map(([wsPath, pkgPath]) => [
+      wsPath,
+      readJson(pkgPath).version,
+    ]),
+  );
+  const lockDrift = bunLockWorkspaceVersionProblems(lockText, packageVersions);
   if (lockDrift.length) {
     console.error(`\nFAIL: bun.lock workspace-version drift:\n  ${lockDrift.join("\n  ")}`);
     process.exit(1);
   }
   console.log(
-    `bun.lock workspace versions OK (${Object.keys(workspacePackages).length} workspaces)`,
+    `bun.lock workspace versions OK (${Object.keys(WORKSPACE_PACKAGE_JSON).length} workspaces)`,
   );
 }
 

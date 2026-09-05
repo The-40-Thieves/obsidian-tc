@@ -4,9 +4,10 @@
 #
 # THE-950: the repo-root manifest.json is now the companion plugin's Obsidian manifest (Obsidian's
 # community-directory validator reads it from the default branch), not the MCPB bundle manifest.
-# The MCPB manifest lives at mcpb/manifest.json and scripts/bundle-mcpb.ts swaps its content onto
-# the root manifest.json for the duration of the `mcpb pack` call (restored immediately after), so
-# root manifest.json is still the file that ends up at the bundle's root — do not add it here.
+# The MCPB manifest lives at mcpb/manifest.json. THE-951: scripts/bundle-mcpb.ts packs from a
+# throwaway staging directory (scripts/lib/mcpb-staging.mjs) whose OWN manifest.json is a fresh
+# copy of mcpb/manifest.json's content — the live root manifest.json is never read from or written
+# to during a pack, so do not add it here; it just isn't part of the packed tree at all.
 
 # Source — the bundle ships built dist/, not TypeScript sources
 packages/*/src/
@@ -28,8 +29,8 @@ docs/
 # Other workspace packages — the bundle ships only the server runtime
 packages/plugin/
 
-# Source location of the MCPB manifest (THE-950) — its content is copied onto the root
-# manifest.json at pack time, not shipped as a second top-level manifest.json.
+# Source location of the MCPB manifest (THE-950) — its content is copied to the staging
+# directory's manifest.json at pack time (THE-951), not shipped as a second top-level manifest.json.
 /mcpb/
 
 # Rust / native build intermediates

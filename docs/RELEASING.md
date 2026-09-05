@@ -18,7 +18,10 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
    `reranker-local`, `server.json`, the MCPB manifest at `mcpb/manifest.json`, and the companion
    plugin's `manifest.json` / `package.json` / `versions.json` in lockstep — including mirroring
    the bumped plugin `manifest.json` onto the repo-root `manifest.json`, THE-950), rolls
-   `CHANGELOG.md`'s `[Unreleased]` section into the new version, refreshes `bun.lock`, runs
+   `CHANGELOG.md`'s `[Unreleased]` section into the new version, rewrites `bun.lock`'s
+   `workspaces[*].version` fields for the four lockstep workspace members (THE-948: `bun install`
+   does not refresh these after a version-only `package.json` bump, so `release.mjs` does it
+   itself, via `scripts/lib/bun-lock-workspace-versions.mjs`, before running `bun install`), runs
    `bun run format`, and runs the coherence gate. It does **not** commit, push, or tag.
 
    THE-944: `packages/reranker-local` is not a root workspace member (its own README explains why),
