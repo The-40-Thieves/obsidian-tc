@@ -47,10 +47,33 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REQUIRE_SIGNED_TAG: "true"
+    # THE-957: classify the version ONCE here rather than in every downstream job. Before this,
+    # publish-npm, publish-reranker-local, build-docker's "is pre-release" step, and the
+    # mirror-plugin-release / publish-smithery skip guards each independently re-derived
+    # "does the version contain a hyphen" from packages/server/package.json -- and draft-release
+    # derived NONE of them, so its action-gh-release step passed neither `prerelease:` nor
+    # `make_latest:`, meaning an RC tag (e.g. v1.28.0-rc.1) would have published as a normal,
+    # Latest GitHub release. Every job below that reads `needs.verify-tag.outputs.*` already had
+    # verify-tag in its TRANSITIVE needs chain (checked against the DAG below) before gaining it
+    # as a direct dependency here -- adding it changes no scheduling, only which outputs a job can
+    # see, since a job's `needs` context only exposes outputs of jobs it directly needs.
+    #
+    # Fix round 1 (review finding 4): `version` was declared but read by nobody, so the "ONCE"
+    # claim above was only true of `prerelease`. build-docker now reads
+    # `needs.verify-tag.outputs.version` too (its own "extract version" step, re-reading the same
+    # packages/server/package.json, was a dead local recompute) -- both outputs are now genuinely
+    # single-sourced.
+    outputs:
+      version: ${{ steps.version-info.outputs.version }}
+      prerelease: ${{ steps.version-info.outputs.prerelease }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0 # tag objects + their signatures are not in a shallow clone
+      # Fix round 2 (re-review): the signature gate now runs FIRST, before any repo code executes
+      # from the tagged tree -- "classify the release version" below runs `node
+      # scripts/release-version-info.mjs`, and nothing should execute code out of an unverified
+      # tag's tree ahead of the one check that establishes the tag is trustworthy at all.
       - name: verify the release tag is signed
         env:
           TAG: ${{ github.ref_name }}
@@ -85,6 +108,32 @@ jobs:
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
           fi
           exit 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: classify the release version (THE-957)
+        id: version-info
+        env:
+          TAG_REF: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        # scripts/release-version-info.mjs (tested: 1.28.0 -> false, 1.28.0-rc.1 / -beta -> true)
+        # prints {"version":...,"prerelease":...} JSON; jq turns that into two GITHUB_OUTPUT
+        # lines. Fix round 1 (review INFO finding): on a real tag push the script is also handed
+        # the tag name and refuses to classify at all if it does not name the same version as
+        # packages/server/package.json (its own `::error title=tag/version mismatch::` line) --
+        # a tag `v1.28.0-rc.1` on a commit whose package.json still says `1.28.0` must fail here,
+        # not silently classify as stable. A workflow_dispatch dry run targets a BRANCH (no tag
+        # object exists to compare), so the tag arg is only passed when ref_type is actually tag.
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = "tag" ]; then
+            node scripts/release-version-info.mjs packages/server/package.json "$TAG_REF" \
+              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
+          else
+            node scripts/release-version-info.mjs \
+              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
 
   build-native:
     # THE-528: gate the entire release on the tag check. Without this `needs:`, verify-tag was an
@@ -181,7 +230,9 @@ jobs:
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || !inputs.dry_run
-    needs: build-native
+    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # build-native already needs verify-tag, so this changes no scheduling, only visibility.
+    needs: [build-native, verify-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -332,16 +383,15 @@ jobs:
       #      `pending` existed to provide.
       #
       # Prereleases go to `next`, never `latest`: bare `npm publish` defaults to `latest` regardless
-      # of semver, which would otherwise drag the stable tag onto a prerelease.
+      # of semver, which would otherwise drag the stable tag onto a prerelease. THE-957: the
+      # prerelease/dist-tag classification comes from verify-tag's single computation now, not a
+      # local recompute -- $version is still read locally for the log lines below.
       - name: publish umbrellas to the release dist-tag (obsidian-tc last)
         if: steps.preflight.outputs.already_published != 'true'
         run: |
           set -euo pipefail
           version=$(node -p "require('./packages/server/package.json').version")
-          case "$version" in
-            *-*) tag=next ;;
-            *) tag=latest ;;
-          esac
+          if [ "$PRERELEASE" = "true" ]; then tag=next; else tag=latest; fi
           echo "publishing $version to dist-tag: $tag"
           for dir in packages/native packages/shared packages/server; do
             name=$(node -p "require('./$dir/package.json').name")
@@ -351,6 +401,7 @@ jobs:
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PRERELEASE: ${{ needs.verify-tag.outputs.prerelease }}
       # THE-299: CycloneDX SBOMs (npm >=9.5 built-in) uploaded as workflow artifacts beside the
       # npm provenance attestations. Non-blocking BY DESIGN: a release must not brick on SBOM
       # generation, but a skip is surfaced as an explicit workflow warning, never silently.
@@ -609,16 +660,18 @@ jobs:
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
+      # THE-957: prerelease classification comes from verify-tag's single computation now, not a
+      # local recompute. Reranker-local's own version stays in lockstep with the repo version
+      # (docs/RELEASING.md), so verify-tag's server-package.json-derived flag applies here too.
       - name: publish (trusted publishing / OIDC — requires the one-time manual first publish, see report)
         if: steps.preflight.outputs.already_published != 'true'
         working-directory: packages/reranker-local
+        env:
+          PRERELEASE: ${{ needs.verify-tag.outputs.prerelease }}
         run: |
           set -euo pipefail
           version=$(node -p "require('./package.json').version")
-          case "$version" in
-            *-*) tag=next ;;
-            *) tag=latest ;;
-          esac
+          if [ "$PRERELEASE" = "true" ]; then tag=next; else tag=latest; fi
           echo "publishing $version to dist-tag: $tag"
           npm publish --provenance --access public --tag "$tag"
         shell: bash
@@ -859,22 +912,12 @@ jobs:
       # version also makes the prerelease test agree with publish-npm's (THE-574), which already
       # classifies from the version string rather than the ref: a tag named v1.12.0-beta.1 was
       # previously detected as a prerelease only because its NAME contained a hyphen.
-      - name: extract version
-        id: version
-        run: |
-          version=$(node -p "require('./packages/server/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-        shell: bash
-      - name: is pre-release
-        id: prerelease
-        run: |
-          version=$(node -p "require('./packages/server/package.json').version")
-          if [[ "$version" == *"-"* ]]; then
-            echo "value=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=false" >> "$GITHUB_OUTPUT"
-          fi
-        shell: bash
+      #
+      # THE-957 fix round 1: was its own "extract version" step re-reading
+      # packages/server/package.json here, and a separate "is pre-release" step doing the same for
+      # the hyphen check. Both are now needs.verify-tag.outputs.* (version, prerelease) directly —
+      # verify-tag already reads the identical file via scripts/release-version-info.mjs, so this
+      # was a genuinely dead local recompute, not just a duplicate-looking one.
       # OCI labels are INHERITED from the base image unless overridden. oven/bun:1-slim carries its
       # own org.opencontainers.image.revision and .created, so the published image advertised Bun's
       # commit (0d9b296a, which exists in no obsidian-tc history) and Bun's build date (2026-05-13)
@@ -892,11 +935,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/the-40-thieves/obsidian-tc:${{ steps.version.outputs.version }}
-            ${{ steps.prerelease.outputs.value == 'false' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
+            ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
+            ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
           labels: |
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-only
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
@@ -916,7 +959,7 @@ jobs:
       - name: syft — SBOM of the published image (SPDX)
         continue-on-error: true
         env:
-          IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ steps.version.outputs.version }}
+          IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
         run: |
           set -uo pipefail
           mkdir -p sboms
@@ -968,7 +1011,10 @@ jobs:
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || !inputs.dry_run
-    needs: [publish-npm, build-binaries, build-plugin, build-docker, build-mcpb]
+    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # publish-npm, build-binaries, build-docker and build-mcpb each already need verify-tag, so
+    # this changes no scheduling, only which outputs this job can see.
+    needs: [publish-npm, build-binaries, build-plugin, build-docker, build-mcpb, verify-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -987,6 +1033,19 @@ jobs:
           # publish on tag (was draft: true — releases were left as drafts, so "Latest" went stale)
           draft: false
           generate_release_notes: true
+          # THE-957: without these, an RC tag (e.g. v1.28.0-rc.1) published as a normal, Latest
+          # GitHub release -- which /releases/latest, BRAT and the Obsidian directory all read --
+          # because this step derived neither flag from the version at all, unlike every sibling
+          # job (publish-npm's dist-tag, build-docker's ghcr :latest tag, mirror-plugin-release
+          # and publish-smithery's skip guards). Both inputs exist on the pinned
+          # softprops/action-gh-release@3d0d9888 (v3.0.2) -- confirmed via `gh api
+          # repos/softprops/action-gh-release/contents/action.yml?ref=3d0d9888...`, see this
+          # task's report. `prerelease` and `make_latest` are independent knobs on GitHub's
+          # Releases API (a prerelease can still be requested as Latest); passing both, driven by
+          # the SAME verify-tag classification every other job now shares, is what keeps an RC
+          # release marked prerelease AND off Latest together.
+          prerelease: ${{ needs.verify-tag.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.verify-tag.outputs.prerelease != 'true' }}
           # THE-731: `artifacts/**/*.zip` used to sit between the .mcpb and manifest.json lines and
           # was REDUNDANT — build-plugin emits exactly one zip, obsidian-tc-plugin-<version>.zip,
           # which already matches `obsidian-tc-*`. Being matched by two patterns queued it for
@@ -1048,24 +1107,19 @@ jobs:
   # carries the identical check as a second, independent gate — see its header.
   mirror-plugin-release:
     if: github.event_name == 'push'
-    needs: [draft-release]
+    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # draft-release already needs verify-tag (both directly and transitively via publish-npm /
+    # build-binaries / build-docker / build-mcpb), so this changes no scheduling, only visibility.
+    needs: [draft-release, verify-tag]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - name: is pre-release
-        id: prerelease
-        run: |
-          version=$(node -p "require('./packages/server/package.json').version")
-          if [[ "$version" == *"-"* ]]; then
-            echo "value=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=false" >> "$GITHUB_OUTPUT"
-          fi
-        shell: bash
+      # THE-957: was its own "is pre-release" step recomputing this from the version string; now
+      # reads verify-tag's single classification directly.
       - name: skip (prerelease — the un-prefixed tag is reserved for stable releases)
-        if: steps.prerelease.outputs.value == 'true'
+        if: needs.verify-tag.outputs.prerelease == 'true'
         run: echo "::notice::mirror-plugin-release skipped — this is a prerelease; no un-prefixed tag is created for it."
         shell: bash
       # Reuses build-plugin's own "plugin" artifact upload rather than rebuilding — its upload
@@ -1076,12 +1130,12 @@ jobs:
       # loudly there, in the job that would actually cause it, rather than surfacing here as an
       # opaque "required asset missing on disk" (fix round 1, review finding 7).
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: steps.prerelease.outputs.value != 'true'
+        if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: plugin
           path: plugin-artifact
       - name: mirror the un-prefixed plugin release (THE-955)
-        if: steps.prerelease.outputs.value != 'true'
+        if: needs.verify-tag.outputs.prerelease != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           MIRROR_SHA: ${{ github.sha }}
@@ -1137,7 +1191,10 @@ jobs:
   # second, independent gate — see its header.
   publish-smithery:
     if: github.event_name == 'push'
-    needs: [build-mcpb, draft-release]
+    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # build-mcpb needs verify-tag directly, and draft-release needs it transitively, so this
+    # changes no scheduling, only visibility.
+    needs: [build-mcpb, draft-release, verify-tag]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1145,27 +1202,19 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
-      - name: is pre-release
-        id: prerelease
-        run: |
-          version=$(node -p "require('./packages/server/package.json').version")
-          if [[ "$version" == *"-"* ]]; then
-            echo "value=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=false" >> "$GITHUB_OUTPUT"
-          fi
-        shell: bash
+      # THE-957: was its own "is pre-release" step recomputing this from the version string; now
+      # reads verify-tag's single classification directly.
       - name: skip (prerelease — the live Smithery listing is reserved for stable releases)
-        if: steps.prerelease.outputs.value == 'true'
+        if: needs.verify-tag.outputs.prerelease == 'true'
         run: echo "::notice::publish-smithery skipped — this is a prerelease; nothing is published to the live listing for it."
         shell: bash
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: steps.prerelease.outputs.value != 'true'
+        if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: mcpb
           path: mcpb-artifact
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        if: steps.prerelease.outputs.value != 'true'
+        if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           node-version: '24'
       # `npm install -g`, not `npx`, so the pinned version is resolved and installed exactly
@@ -1175,11 +1224,11 @@ jobs:
       # `--ignore-scripts` — see the job comment above for the fallback-tested claim that the CLI
       # still runs fully without its dependency tree's install-time lifecycle scripts.
       - name: install @smithery/cli (pinned 4.11.1, --ignore-scripts)
-        if: steps.prerelease.outputs.value != 'true'
+        if: needs.verify-tag.outputs.prerelease != 'true'
         run: npm install -g @smithery/cli@4.11.1 --ignore-scripts
         shell: bash
       - name: publish the .mcpb bundle to Smithery (THE-956)
-        if: steps.prerelease.outputs.value != 'true'
+        if: needs.verify-tag.outputs.prerelease != 'true'
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
         run: |

@@ -27,6 +27,27 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   in the scanned set. Swept the same idiom out of `check-ingest-telemetry-wiring.test.mjs`,
   `graph-analytics.test.ts`, `note-quality.test.ts`, and a `git ls-files` example in TREE.md's own
   "Regenerating this" instructions, which was reproducing the same lossy pattern.
+- **`bun-audit` retries npm's bulk advisory endpoint with backoff instead of holding green PRs on
+  an outage (THE-953).** On 2026-09-04 `registry.npmjs.org/-/npm/v1/security/advisories/bulk`
+  answered 503, or nothing at all, for two hours straight, and `bun audit` has no retry of its
+  own — five PRs sat fully green except this job, three re-runs each. `ci-security.yml`'s three
+  `bun audit` steps (root, docs/, packages/reranker-local) now go through a new
+  `.github/actions/bun-audit` composite action that retries a registry error (a
+  5xx/timeout/ConnectionClosed/ConnectionRefused/DNSResolveFailed/ETIMEDOUT/ECONNRESET against that endpoint) up to 3 times with
+  30/60s backoff, and fails with a distinct `::error title=npm advisory endpoint outage::`
+  message naming `osv-scanner` as this repo's second advisory feed when every attempt is a
+  registry error. A real finding (a vulnerability table) or any other non-zero exit still fails on
+  the FIRST attempt, unretried.
+- **`draft-release` marks a prerelease tag as a prerelease and keeps it off "Latest" (THE-957).**
+  `publish-npm`, `publish-reranker-local`, `build-docker` and the `mirror-plugin-release` /
+  `publish-smithery` skip guards each already classified a version containing `-` as a
+  prerelease, but `draft-release`'s `action-gh-release` step derived neither flag at all — so an
+  RC tag (e.g. `v1.28.0-rc.1`) would have published as a normal, Latest GitHub release, which
+  `/releases/latest`, BRAT and the Obsidian community directory all read. `verify-tag` now
+  classifies the version ONCE (`scripts/release-version-info.mjs`) and exposes it as job outputs
+  (`version`, `prerelease`); every downstream job reads that shared classification instead of
+  recomputing its own, and `draft-release` passes `prerelease: true` / `make_latest: false` for
+  such a tag.
 
 ### Added
 

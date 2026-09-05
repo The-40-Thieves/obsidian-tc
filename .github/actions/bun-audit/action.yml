@@ -1,0 +1,48 @@
+name: bun-audit
+description: >-
+  `bun audit` with retry-with-backoff on npm's bulk advisory endpoint (THE-953). On 2026-09-04
+  that endpoint (registry.npmjs.org/-/npm/v1/security/advisories/bulk) answered 503, or nothing at
+  all, for two hours straight -- from GitHub runners AND from Cave -- and `bun audit` has no
+  retry of its own, so every PR sat fully green except this job, three re-runs each. The retry
+  below fires ONLY on an "error:"-prefixed line naming that endpoint or a transport failure
+  (timeout/ConnectionClosed/ConnectionRefused/DNSResolveFailed/ETIMEDOUT/ECONNRESET/fetch failed); a genuine finding (a vulnerability
+  table) or any other non-zero exit still fails on the FIRST attempt, unretried, per run.sh's
+  classification -- fix round 1 narrowed this from a bare substring sweep after a real advisory
+  whose version range or CVE id contained "503" was misclassified as an outage.
+
+# One place, three callers: ci-security.yml's bun-audit job runs this action against the root,
+# docs/ and packages/reranker-local lockfiles (three separate bun workspaces, THE-505 style
+# single-source composite rather than duplicating the retry loop three times). The retry SHELL
+# lives in run.sh so ci-security.yml's own actionlint job -- which shellchecks every composite
+# action's run: block (THE-940, check-actions-shellcheck.mjs) -- covers it; it is also directly
+# unit-testable off-runner (scripts/bun-audit-retry.test.mjs) against a fake `bun` on PATH, which
+# an inline `run:` block scalar embedded in this file would not be.
+
+inputs:
+  working-directory:
+    description: Directory to run `bun audit` in.
+    required: false
+    default: '.'
+  attempts:
+    description: Maximum attempts before failing. Bun's own audit timeout is ~5 min per attempt.
+    required: false
+    default: '3'
+  backoff-seconds:
+    description: >-
+      Space-separated backoff schedule, one entry per retry -- with the default 3 attempts that
+      is 2 entries (a schedule longer than attempts - 1 is harmless; entries past the last retry
+      are never read).
+    required: false
+    default: '30 60'
+
+runs:
+  using: composite
+  steps:
+    - id: audit
+      shell: bash
+      env:
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        BUN_AUDIT_ATTEMPTS: ${{ inputs.attempts }}
+        BUN_AUDIT_BACKOFF_SECONDS: ${{ inputs.backoff-seconds }}
+      run: |
+        bash "${{ github.action_path }}/run.sh" "$WORKING_DIRECTORY"
