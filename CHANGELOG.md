@@ -6,6 +6,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **`docs/decisions-index.md` now attributes a ticket only by its CHANGELOG bullet's LEAD citation
+  (THE-952).** `scripts/gen-decisions-index.mjs` used to resolve a THE-xxx id to the first bullet
+  (top to bottom, `[Unreleased]` sorting first) whose text mentioned it ANYWHERE — so a later bullet
+  that parenthetically named an already-shipped ticket in passing silently hijacked that ticket's
+  row, while the drift gate stayed green because the generated file was still self-consistent.
+  `resolveChangelogLeads` now only counts a bullet's first `**...**` bold span (the lead, which by
+  convention closes with the PR/ticket citation); when more than one bullet's lead cites the same
+  ticket, the oldest dated release section wins — `[Unreleased]` never wins over a dated one — and
+  the generator warns, naming the other candidates. Regenerating against the real CHANGELOG moved
+  123 of 350 rows, each a prior hijack or a resolved multi-lead ambiguity.
+
 ### Added
 
 - **Un-prefixed plugin release, mirrored automatically on every tag (THE-955).** Obsidian's

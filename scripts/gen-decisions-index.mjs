@@ -13,7 +13,14 @@
  * picked in order:
  *   1. The bold summary of the CHANGELOG.md release-note bullet that cites it — CHANGELOG is
  *      public and its bullets already are the "public one-liner" this index needs, written once by
- *      a human rather than mined a second time.
+ *      a human rather than mined a second time. A bullet only counts when it cites the ticket in
+ *      its LEAD (the bullet's first `**...**` bold span, which by convention closes with the
+ *      PR/ticket citation, e.g. `**...(#899, THE-938; issue #879).**`) — a mention later in the
+ *      bullet's body never attributes the row (THE-952: an [Unreleased] bullet that parenthetically
+ *      names an already-shipped ticket used to hijack that ticket's row this way). When more than
+ *      one bullet's lead cites the same ticket, the OLDEST dated release section wins — an
+ *      `[Unreleased]` lead never wins over a dated one — and the generator warns, naming the other
+ *      candidates, since that shape means the same ticket id was reused for two different changes.
  *   2. Failing that, the title of the first docs/adr/, docs/design/, or docs/superpowers/specs/
  *      file that mentions it, in that search order.
  *   3. Failing both, an explicit internal-reference placeholder — never a guess, never empty.
@@ -83,6 +90,54 @@ export function boldSummaryOf(block) {
   const m = /\*\*(.+?)\*\*/s.exec(block);
   if (!m) return null;
   return m[1].replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Resolves each THE-xxx ticket to the CHANGELOG entry whose LEAD (bold summary, per boldSummaryOf)
+ * names it — never a mention elsewhere in the bullet's body (THE-952). `entries` is
+ * parseChangelogEntries' output; entries must already be in the file's own top-to-bottom order
+ * (newest release first, `[Unreleased]` above all dated sections — this file's own convention),
+ * since "oldest" below is read off that order rather than re-parsed from the version string.
+ *
+ * A ticket lead-cited by more than one bullet resolves to the OLDEST dated section — an
+ * `[Unreleased]` lead never wins over a dated one, since a shipped ticket's row belongs to the
+ * release that actually shipped it. `onAmbiguous(num, chosen, others)` fires once per such ticket
+ * so the CLI can warn; it is a callback (not a returned list) so a pure caller — the tests — can
+ * ignore it, matching `boldSummaryOf`/`parseChangelogEntries`'s own no-side-effects contract.
+ *
+ * Returns Map<ticketNum, { summary, location }>, the same shape `main()` used to build inline.
+ */
+export function resolveChangelogLeads(entries, onAmbiguous = () => {}) {
+  const candidatesByTicket = new Map(); // ticket number -> [{ version, summary }], file order
+  for (const entry of entries) {
+    const summary = boldSummaryOf(entry.block);
+    if (!summary) continue;
+    for (const num of ticketsIn(summary)) {
+      if (!candidatesByTicket.has(num)) candidatesByTicket.set(num, []);
+      candidatesByTicket.get(num).push({ version: entry.version, summary });
+    }
+  }
+
+  const resolved = new Map();
+  for (const [num, candidates] of candidatesByTicket) {
+    let chosen = candidates[0];
+    if (candidates.length > 1) {
+      const dated = candidates.filter((c) => c.version !== null);
+      // File order is newest-first, so the LAST entry in a version-ordered slice is the oldest.
+      const pool = dated.length > 0 ? dated : candidates;
+      chosen = pool[pool.length - 1];
+      onAmbiguous(
+        num,
+        chosen,
+        candidates.filter((c) => c !== chosen),
+      );
+    }
+    resolved.set(num, {
+      summary: chosen.summary,
+      location: `CHANGELOG.md (${chosen.version ?? "unreleased"})`,
+    });
+  }
+  return resolved;
 }
 
 /** First `# heading` line of a markdown doc's text, trimmed. Falls back to the path if none. */
@@ -183,20 +238,15 @@ function main() {
     process.exit(1);
   }
 
-  // ── 2. CHANGELOG.md: bold summary of the first bullet that cites a ticket ─────────────────────
+  // ── 2. CHANGELOG.md: bold LEAD of the bullet that cites a ticket (THE-952) ────────────────────
   const changelogEntries = parseChangelogEntries(readFileSync("CHANGELOG.md", "utf8"));
-  const fromChangelog = new Map(); // ticket number -> { summary, location }
-  for (const entry of changelogEntries) {
-    for (const num of entry.ticketNums) {
-      if (fromChangelog.has(num)) continue;
-      const summary = boldSummaryOf(entry.block);
-      if (!summary) continue;
-      fromChangelog.set(num, {
-        summary,
-        location: `CHANGELOG.md (${entry.version ?? "unreleased"})`,
-      });
-    }
-  }
+  const fromChangelog = resolveChangelogLeads(changelogEntries, (num, chosen, others) => {
+    console.warn(
+      `gen-decisions-index: THE-${num} is lead-cited by more than one CHANGELOG bullet; using ` +
+        `${chosen.version ?? "Unreleased"} ("${chosen.summary}"). Also lead-cited by: ` +
+        others.map((o) => `${o.version ?? "Unreleased"} ("${o.summary}")`).join(", "),
+    );
+  });
 
   // ── 3. doc fallback: docs/adr, docs/design, docs/superpowers/specs, in that search order ──────
   const docsByDir = DOC_DIRS.map((dir) => ({
