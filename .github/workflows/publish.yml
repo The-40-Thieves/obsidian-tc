@@ -57,6 +57,12 @@ jobs:
     # verify-tag in its TRANSITIVE needs chain (checked against the DAG below) before gaining it
     # as a direct dependency here -- adding it changes no scheduling, only which outputs a job can
     # see, since a job's `needs` context only exposes outputs of jobs it directly needs.
+    #
+    # Fix round 1 (review finding 4): `version` was declared but read by nobody, so the "ONCE"
+    # claim above was only true of `prerelease`. build-docker now reads
+    # `needs.verify-tag.outputs.version` too (its own "extract version" step, re-reading the same
+    # packages/server/package.json, was a dead local recompute) -- both outputs are now genuinely
+    # single-sourced.
     outputs:
       version: ${{ steps.version-info.outputs.version }}
       prerelease: ${{ steps.version-info.outputs.prerelease }}
@@ -69,9 +75,26 @@ jobs:
           node-version: '24'
       - name: classify the release version (THE-957)
         id: version-info
+        env:
+          TAG_REF: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         # scripts/release-version-info.mjs (tested: 1.28.0 -> false, 1.28.0-rc.1 / -beta -> true)
-        # prints {"version":...,"prerelease":...} JSON; jq turns that into two GITHUB_OUTPUT lines.
-        run: node scripts/release-version-info.mjs | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
+        # prints {"version":...,"prerelease":...} JSON; jq turns that into two GITHUB_OUTPUT
+        # lines. Fix round 1 (review INFO finding): on a real tag push the script is also handed
+        # the tag name and refuses to classify at all if it does not name the same version as
+        # packages/server/package.json (its own `::error title=tag/version mismatch::` line) --
+        # a tag `v1.28.0-rc.1` on a commit whose package.json still says `1.28.0` must fail here,
+        # not silently classify as stable. A workflow_dispatch dry run targets a BRANCH (no tag
+        # object exists to compare), so the tag arg is only passed when ref_type is actually tag.
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = "tag" ]; then
+            node scripts/release-version-info.mjs packages/server/package.json "$TAG_REF" \
+              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
+          else
+            node scripts/release-version-info.mjs \
+              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
+          fi
         shell: bash
       - name: verify the release tag is signed
         env:
@@ -885,15 +908,12 @@ jobs:
       # version also makes the prerelease test agree with publish-npm's (THE-574), which already
       # classifies from the version string rather than the ref: a tag named v1.12.0-beta.1 was
       # previously detected as a prerelease only because its NAME contained a hyphen.
-      - name: extract version
-        id: version
-        run: |
-          version=$(node -p "require('./packages/server/package.json').version")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-        shell: bash
-      # THE-957: was its own "is pre-release" step recomputing this from the version string, one
-      # of five places in this file that did. Now reads verify-tag's single classification
-      # (needs.verify-tag.outputs.prerelease) directly in the `tags:` expression below instead.
+      #
+      # THE-957 fix round 1: was its own "extract version" step re-reading
+      # packages/server/package.json here, and a separate "is pre-release" step doing the same for
+      # the hyphen check. Both are now needs.verify-tag.outputs.* (version, prerelease) directly —
+      # verify-tag already reads the identical file via scripts/release-version-info.mjs, so this
+      # was a genuinely dead local recompute, not just a duplicate-looking one.
       # OCI labels are INHERITED from the base image unless overridden. oven/bun:1-slim carries its
       # own org.opencontainers.image.revision and .created, so the published image advertised Bun's
       # commit (0d9b296a, which exists in no obsidian-tc history) and Bun's build date (2026-05-13)
@@ -911,11 +931,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/the-40-thieves/obsidian-tc:${{ steps.version.outputs.version }}
+            ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
             ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
           labels: |
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-only
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
@@ -935,7 +955,7 @@ jobs:
       - name: syft — SBOM of the published image (SPDX)
         continue-on-error: true
         env:
-          IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ steps.version.outputs.version }}
+          IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
         run: |
           set -uo pipefail
           mkdir -p sboms

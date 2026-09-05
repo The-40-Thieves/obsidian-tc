@@ -273,7 +273,7 @@ jobs:
     # audit` has no retry of its own, so PRs #897-#901 all sat fully green except this job, three
     # re-runs each. Each `bun audit` step below now goes through `.github/actions/bun-audit`
     # (run.sh, tested off-runner by scripts/bun-audit-retry.test.mjs), which retries such an
-    # error up to 3 times with 30/60/120s backoff and, if every attempt is a registry error, fails
+    # error up to 3 times with 30/60s backoff and, if every attempt is a registry error, fails
     # the STEP with a distinct `::error title=npm advisory endpoint outage::` message naming
     # osv-scanner as the second feed. A real finding (a vulnerability table) or any other
     # non-zero exit still fails on the FIRST attempt, unretried.
@@ -295,6 +295,14 @@ jobs:
       # from the moment the root audit above found anything, these three steps were skipped and the
       # docs workspace went unscanned: precisely the condition they exist to cover. PR #413 is the
       # worked example — its bun-audit log shows the root's two advisories and then stops.
+      #
+      # Fix round 1 (review INFO finding): "bun audit (docs workspace)" below is now `uses:` a
+      # composite action, not a plain `run:` step, so this guarantee rests on how the runner
+      # applies a caller's `if: always()` to a composite's own inner steps rather than on a bare
+      # shell step — per actions/runner#1682, the runner treats the composite's steps as if each
+      # inherited the caller's condition, so the inner audit still runs. Live run 33951060517 could
+      # not exercise the failure path (nothing failed upstream that day); if this ever regresses,
+      # it would look like the docs/reranker-local audits silently going unscanned again.
       - if: always()
         run: bun install --frozen-lockfile --ignore-scripts
         working-directory: docs

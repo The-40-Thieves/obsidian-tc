@@ -34,7 +34,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `bun audit` steps (root, docs/, packages/reranker-local) now go through a new
   `.github/actions/bun-audit` composite action that retries a registry error (a
   5xx/timeout/ConnectionClosed/ETIMEDOUT/ECONNRESET against that endpoint) up to 3 times with
-  30/60/120s backoff, and fails with a distinct `::error title=npm advisory endpoint outage::`
+  30/60s backoff, and fails with a distinct `::error title=npm advisory endpoint outage::`
   message naming `osv-scanner` as this repo's second advisory feed when every attempt is a
   registry error. A real finding (a vulnerability table) or any other non-zero exit still fails on
   the FIRST attempt, unretried.
