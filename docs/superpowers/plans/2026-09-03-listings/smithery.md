@@ -1,8 +1,22 @@
-# Smithery listing — obsidian-tc (THE-945)
+# Smithery listing — obsidian-tc (THE-945, THE-956)
 
-**Status: PREPARED, NOT SUBMITTED.** No `smithery mcp publish` has been run against the real
-Smithery registry. This file is the exact steps + citations for the owner to run when they decide
-to submit; this task does not submit it.
+**Status: AUTOMATED (THE-956).** `publish.yml`'s `publish-smithery` job now runs `smithery mcp
+publish` on every `v*` tag, via `scripts/publish-smithery.mjs` and the `SMITHERY_API_KEY` repo
+secret (set 2026-09-05) — no manual step remains. This file stays as the citations + the manual
+steps below for reference (they describe exactly what the CI job automates) and for the known
+upstream defect that still needs a human glance at the listing page after every publish.
+
+## Re-publish safety (probed live 2026-09-05, THE-956)
+
+A second `smithery mcp publish` of an ALREADY-published version does not error and does not return
+any distinct "already published"/"duplicate" response — the real CLI (4.11.1) accepted it as a new
+release, `status: SUCCESS`, with a fresh `deploymentId` each time. This was checked against the
+live registry (a repeat publish of the 1.27.0 bundle already listed under
+`the-40-thieves/obsidian-tc`) specifically to answer whether a job re-run on a resumed release
+could ever fail on a duplicate — it cannot; `scripts/publish-smithery.mjs` still carries a
+defensive "duplicate response" classification for any future CLI version that starts rejecting a
+re-publish outright, but nothing observed today exercises it. See task-5-report.md for the exact
+verbatim output.
 
 ## Which Smithery flow fits us
 

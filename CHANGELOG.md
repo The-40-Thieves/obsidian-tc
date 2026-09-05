@@ -6,6 +6,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Un-prefixed plugin release, mirrored automatically on every tag (THE-955).** Obsidian's
+  community-directory validator reads the release whose tag EQUALS `manifest.json`'s version, not
+  this repo's own `v<version>` tags — the first real community.obsidian.md submission attempt was
+  rejected for exactly this. `publish.yml`'s new `mirror-plugin-release` job
+  (`scripts/mirror-plugin-release.mjs`) now creates a second, `--latest=false` release tagged with
+  the bare version, carrying the same three loose plugin assets, immediately after the signed
+  `v<version>` release exists; idempotent on re-run, and asserts `v<version>` stays "Latest" after
+  creating it.
+- **Smithery listing published automatically on every tag (THE-956).** The last directory listing
+  that still needed a human hand: `publish.yml`'s new `publish-smithery` job
+  (`scripts/publish-smithery.mjs`) publishes the `.mcpb` bundle to `the-40-thieves/obsidian-tc` on
+  the Smithery Registry via the `SMITHERY_API_KEY` repo secret, gated identically to
+  `publish-registry` (a real `v*` tag only). A repeat publish of an already-listed version is
+  treated as success (probed live against the real registry).
+
 ## [1.27.0] - 2026-09-04
 
 ### Added

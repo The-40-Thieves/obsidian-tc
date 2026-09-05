@@ -51,8 +51,10 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
    (dependency order, `obsidian-tc` last) → the MCP Registry entry (`publish-registry`, gated on
    every npm package `server.json` references resolving live on npmjs — see *MCP Registry publish*
    below) → standalone binaries →
-   Docker/ghcr → the `.mcpb` bundle → the companion-plugin assets → a draft GitHub Release with
-   checksums. See *What a tag produces* and *Ordered npm publish* below for the details.
+   Docker/ghcr → the `.mcpb` bundle → the companion-plugin assets → a published GitHub Release
+   with checksums (`draft-release`) → the un-prefixed plugin release (`mirror-plugin-release`,
+   THE-955) → the Smithery listing (`publish-smithery`, THE-956). See *What a tag produces* and
+   *Ordered npm publish* below for the details.
 
 5. **Verify the assets** — the Release is already PUBLISHED, not a draft. `publish.yml` sets
    `draft: false` deliberately (*"releases were left as drafts, so 'Latest' went stale"*), so there
@@ -120,11 +122,17 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
      `obsidian`, `obsidian-md`, `rust`, `typescript` as of this task) and add any newly-relevant
      one; there is no automated coherence gate for topics the way there is for the tool count.
 
-8. **Fire the directory listings (THE-945).** Not automated, and not on the critical path of the
-   tag itself — the registry entry from step 6 only reaches an aggregator that scrapes it (Glama,
-   PulseMCP); Smithery and mcp.so each need their own submission, and the companion plugin's
-   community-store PR is separate again. Full steps, commands, and verification URLs for every one
-   of them: `docs/superpowers/plans/2026-09-03-listings/checklist.md`.
+8. **Fire the directory listings (THE-945).** The registry entry from step 6 only reaches an
+   aggregator that scrapes it (Glama, PulseMCP); the companion plugin's community-store submission
+   is a one-time, owner-run form (see prerequisite note below); Smithery and mcp.so used to each
+   need their own manual submission too. **Smithery is now automatic** (`publish-smithery`,
+   THE-956, gated identically to `publish-registry` — a real `v*` tag only): this step is
+   confirm-only — open the URL the job's log line prints
+   (`https://smithery.ai/servers/the-40-thieves/obsidian-tc/releases`) and check it directly, not
+   just the job's exit code — a known upstream defect (`arcadeai-labs/smithery-cli#787`) can leave
+   a live listing showing "No capabilities found" even on success. mcp.so still needs a manual
+   submission. Full steps, commands, and verification URLs for every one of them:
+   `docs/superpowers/plans/2026-09-03-listings/checklist.md`.
 
 ## What a tag produces
 
@@ -140,7 +148,16 @@ should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
   `styles.css` set for BRAT).
 - **`.mcpb` bundle** — the single-file MCPB server bundle.
 - **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64).
-- **Draft GitHub Release** — binaries, plugin zip, and `SHASUMS256.txt`.
+- **Published GitHub Release** (`v<x.y.z>`) — binaries, plugin zip, and `SHASUMS256.txt`.
+- **Un-prefixed plugin release** (`<x.y.z>`, THE-955) — `mirror-plugin-release` mirrors the three
+  loose companion-plugin assets (`main.js`, `manifest.json`, `styles.css`) from the `v<x.y.z>`
+  release onto a second, `--latest=false` release tagged with the bare version — the tag
+  Obsidian's community directory actually reads. Unsigned by construction (CI holds no maintainer
+  signing key); idempotent on re-run. See `scripts/mirror-plugin-release.mjs`.
+- **Smithery listing** (THE-956) — `publish-smithery` publishes the `.mcpb` bundle to
+  `the-40-thieves/obsidian-tc` on the Smithery Registry via `SMITHERY_API_KEY`. A repeat publish
+  of an already-listed version is treated as success (probed live 2026-09-05 — see
+  `scripts/publish-smithery.mjs`'s header). See `docs/superpowers/plans/2026-09-03-listings/smithery.md`.
 
 ## MCP Registry publish (THE-940)
 

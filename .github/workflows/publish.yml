@@ -1007,3 +1007,80 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/check-release-assets.sh "${{ github.ref_name }}" artifacts/SHASUMS256.txt
+
+  # THE-955: Obsidian's community-directory validator (and the community.obsidian.md self-service
+  # submission form) reads the release whose TAG EQUALS manifest.json's version, not this repo's
+  # own `v<version>` convention — every obsidian-tc release is tagged `v<version>`, so the
+  # plugin's manifest version never had a matching release until this job was added (fixed by hand
+  # for 1.27.0; see scripts/mirror-plugin-release.mjs's header for the rejection text). `needs:
+  # [draft-release]` on purpose: the signed `v<version>` release must exist FIRST, so that
+  # `--latest=false` below has something to defer Latest to — this job's own script asserts that
+  # held, after creating the mirror release, and fails loudly if it did not.
+  #
+  # The un-prefixed `<version>` tag this job creates CANNOT re-trigger this workflow: the trigger
+  # above is `on.push.tags: ['v*']`, and a bare `<version>` never starts with `v` (and no workflow
+  # in this repo listens on `release` events either, so `gh release create` fires nothing further
+  # regardless). Idempotent on job re-run — the script's "already mirrored" path (verified live
+  # against the real repo in this task's report) skips straight to filling in any missing asset
+  # and touches nothing that already exists.
+  mirror-plugin-release:
+    if: github.event_name == 'push' || !inputs.dry_run
+    needs: [draft-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      # Reuses build-plugin's own "plugin" artifact upload rather than rebuilding — its upload
+      # paths (packages/plugin/dist/{manifest.json,main.js,styles.css}, plus the two zips) share
+      # the common ancestor packages/plugin, so a download lands the three loose assets under
+      # <path>/dist/.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: plugin
+          path: plugin-artifact
+      - name: mirror the un-prefixed plugin release (THE-955)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./packages/server/package.json').version")
+          node scripts/mirror-plugin-release.mjs \
+            --version "$version" \
+            --assets-dir plugin-artifact/dist \
+            --sha "$MIRROR_SHA"
+        shell: bash
+
+  # THE-956: the last directory listing still needing a human hand on every tag. Gated exactly
+  # like `publish-registry` above (tag-only, no workflow_dispatch/dry_run path at all) — a
+  # dispatched dry run never has a real .mcpb bundle worth publishing to a live registry, and
+  # `github.event_name == 'push'` is already scoped to `on.push.tags: ['v*']` by the trigger at
+  # the top of this file. `needs: [build-mcpb, draft-release]`: the bundle artifact must exist,
+  # and the version must be a real, released one (`draft-release`) before Smithery is told about
+  # it — mirrors why `publish-registry` needs `publish-npm` before telling the MCP Registry.
+  publish-smithery:
+    if: github.event_name == 'push'
+    needs: [build-mcpb, draft-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mcpb
+          path: mcpb-artifact
+      # `npm install -g`, not `npx`, so the pinned version is resolved and installed exactly
+      # once and its own log line (`added N packages`) shows what actually landed, rather than
+      # trusting a per-invocation `npx -y` resolution silently. EXACT version, not a range —
+      # this CLI is what talks to a live third-party registry with our repo's own credentials.
+      - name: install @smithery/cli (pinned 4.11.1)
+        run: npm install -g @smithery/cli@4.11.1
+        shell: bash
+      - name: publish the .mcpb bundle to Smithery (THE-956)
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./packages/server/package.json').version")
+          node scripts/publish-smithery.mjs --bundle mcpb-artifact/obsidian-tc.mcpb --version "$version"
+        shell: bash
