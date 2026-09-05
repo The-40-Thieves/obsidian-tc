@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 // push, or tag — branch + PR + review + human tag stay manual by design.
 import { readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { updateBunLockWorkspaceVersions } from "./lib/bun-lock-workspace-versions.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads/writes provably contained to the repo root (defense in depth).
@@ -351,6 +352,21 @@ for (const p of [
     }
     writeFileSync(target, after);
     console.log(`  SECURITY.md supported-version bumped to ${nextMinor}.x`);
+  }
+}
+
+// THE-948: `bun install` does not refresh bun.lock's `workspaces[*].version` fields after a
+// version-only package.json bump (measured at the 1.26.0 and 1.27.0 cuts — `bun install` reported
+// no changes, and check-version-coherence.mjs's lockfile assertion failed on every cut until the
+// four entries were edited by hand, done for 1.26.0 as f54806ec). Rewrite them here, in the same
+// pass as the package.json bumps above, before `bun install` runs.
+{
+  const lockPath = inRepo("bun.lock");
+  const before = readFileSync(lockPath, "utf8");
+  const after = updateBunLockWorkspaceVersions(before, next);
+  if (after !== before) {
+    writeFileSync(lockPath, after);
+    console.log("  set bun.lock workspace versions");
   }
 }
 

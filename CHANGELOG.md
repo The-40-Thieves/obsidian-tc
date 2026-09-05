@@ -45,6 +45,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `publish-registry` (a real `v*` tag only). A repeat publish of an already-listed version is
   treated as success (probed live against the real registry).
 
+### Fixed
+
+- **`release.mjs` now refreshes `bun.lock`'s workspace versions itself (THE-948).** `bun install`
+  does not touch `bun.lock`'s `workspaces[*].version` fields after a version-only `package.json`
+  bump (measured at the 1.26.0 and 1.27.0 cuts — `bun install` reported no changes, and
+  `check-version-coherence.mjs`'s lockfile assertion, THE-947, failed on every cut until the four
+  entries were edited by hand). `release.mjs` now rewrites them itself, via the pure
+  `updateBunLockWorkspaceVersions` in the new `scripts/lib/bun-lock-workspace-versions.mjs`, in the
+  same pass as the `package.json` bumps and before `bun install` / `bun run format` / the coherence
+  gate run.
+
 ## [1.27.0] - 2026-09-04
 
 ### Added
