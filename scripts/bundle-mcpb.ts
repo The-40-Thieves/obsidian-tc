@@ -11,20 +11,24 @@
 // see docs/RELEASING.md). The MCPB bundle manifest that used to live at the repo root now lives at
 // mcpb/manifest.json. `mcpb pack <dir>` always reads manifest.json from the root of the directory
 // it packs and has no flag to point it elsewhere on the pinned CLI (`npx @anthropic-ai/mcpb@2.1.2
-// pack --help` — no `--manifest` option; a newer/unreleased CLI.md documents one, but 2.1.2 is the
-// latest version published to npm as of 2026-09). So the MCPB manifest is swapped onto the root
-// manifest.json for the duration of the pack call only, then the plugin manifest is restored — in
-// a try/finally so a failed pack never leaves the plugin's manifest.json overwritten on disk.
+// pack --help` — no `--manifest` option; re-checked for THE-951, still true on 2.1.2, the latest
+// published to npm as of 2026-09). THE-951: packing therefore happens from a throwaway staging
+// directory (scripts/lib/mcpb-staging.mjs) that carries the MCPB manifest as its own manifest.json
+// — the live tree is never written to except `outFile` itself. The previous approach swapped the
+// MCPB manifest onto the live root manifest.json for the duration of the pack call and restored it
+// in a `finally`, which was not kill-safe: a process killed between the swap and the restore left
+// the plugin's manifest.json permanently overwritten on disk (reproduced with `kill -9` by the
+// THE-950 review).
 import { existsSync, statSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
+import { packFromStaging } from "./lib/mcpb-staging.mjs";
 
 const MCPB = "@anthropic-ai/mcpb@2.1.2";
 const repoRoot = resolve(import.meta.dir, "..");
 const serverEntry = join(repoRoot, "packages", "server", "dist", "cli.js");
 const mcpbManifestPath = join(repoRoot, "mcpb", "manifest.json");
-const rootManifestPath = join(repoRoot, "manifest.json");
 const outDir = join(repoRoot, "dist");
 const outFile = join(outDir, "obsidian-tc.mcpb");
 
@@ -39,17 +43,14 @@ if (!existsSync(serverEntry)) {
   throw new Error(`server entry not found after build: ${serverEntry}`);
 }
 
-// 2. Validate the MCPB manifest, swap it onto the bundle root (root manifest.json is the plugin's
-// the rest of the time), pack, then restore the plugin manifest — always, even on a failed pack.
+// 2. Validate the MCPB manifest, then stage the bundle inputs into a throwaway directory and pack
+// from there — see scripts/lib/mcpb-staging.mjs for why. The staging directory is always removed,
+// success or failure.
 await mkdir(outDir, { recursive: true });
 await $`npx -y ${MCPB} validate ${mcpbManifestPath}`.cwd(repoRoot);
-const originalRootManifest = await readFile(rootManifestPath);
-try {
-  await writeFile(rootManifestPath, await readFile(mcpbManifestPath));
-  await $`npx -y ${MCPB} pack ${repoRoot} ${outFile}`.cwd(repoRoot);
-} finally {
-  await writeFile(rootManifestPath, originalRootManifest);
-}
+await packFromStaging(repoRoot, outFile, {
+  pack: (stagingDir, out) => $`npx -y ${MCPB} pack ${stagingDir} ${out}`.cwd(repoRoot),
+});
 
 // 3. Confirm the artifact exists and report its size.
 if (!existsSync(outFile)) throw new Error(`bundle was not produced: ${outFile}`);

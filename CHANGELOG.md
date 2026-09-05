@@ -55,6 +55,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `updateBunLockWorkspaceVersions` in the new `scripts/lib/bun-lock-workspace-versions.mjs`, in the
   same pass as the `package.json` bumps and before `bun install` / `bun run format` / the coherence
   gate run.
+- **`bundle-mcpb.ts` packs from a staging directory instead of swapping the repo-root
+  `manifest.json` (THE-951).** The previous in-place swap-then-restore was not kill-safe: a process
+  killed between the swap and the `finally` restore left the root `manifest.json` (the companion
+  plugin's Obsidian manifest, THE-950) permanently overwritten with the MCPB bundle manifest. The
+  bundle is now packed from a `mkdtemp` staging directory populated with hardlinks to the bundle
+  inputs plus `mcpb/manifest.json` copied in as `manifest.json`; the live tree is never written to
+  except the `.mcpb` output itself, and the staging directory is always removed in `finally`.
 
 ## [1.27.0] - 2026-09-04
 
