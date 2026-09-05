@@ -70,32 +70,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0 # tag objects + their signatures are not in a shallow clone
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24'
-      - name: classify the release version (THE-957)
-        id: version-info
-        env:
-          TAG_REF: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
-        # scripts/release-version-info.mjs (tested: 1.28.0 -> false, 1.28.0-rc.1 / -beta -> true)
-        # prints {"version":...,"prerelease":...} JSON; jq turns that into two GITHUB_OUTPUT
-        # lines. Fix round 1 (review INFO finding): on a real tag push the script is also handed
-        # the tag name and refuses to classify at all if it does not name the same version as
-        # packages/server/package.json (its own `::error title=tag/version mismatch::` line) --
-        # a tag `v1.28.0-rc.1` on a commit whose package.json still says `1.28.0` must fail here,
-        # not silently classify as stable. A workflow_dispatch dry run targets a BRANCH (no tag
-        # object exists to compare), so the tag arg is only passed when ref_type is actually tag.
-        run: |
-          set -euo pipefail
-          if [ "$REF_TYPE" = "tag" ]; then
-            node scripts/release-version-info.mjs packages/server/package.json "$TAG_REF" \
-              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
-          else
-            node scripts/release-version-info.mjs \
-              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
-          fi
-        shell: bash
+      # Fix round 2 (re-review): the signature gate now runs FIRST, before any repo code executes
+      # from the tagged tree -- "classify the release version" below runs `node
+      # scripts/release-version-info.mjs`, and nothing should execute code out of an unverified
+      # tag's tree ahead of the one check that establishes the tag is trustworthy at all.
       - name: verify the release tag is signed
         env:
           TAG: ${{ github.ref_name }}
@@ -130,6 +108,32 @@ jobs:
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
           fi
           exit 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: classify the release version (THE-957)
+        id: version-info
+        env:
+          TAG_REF: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        # scripts/release-version-info.mjs (tested: 1.28.0 -> false, 1.28.0-rc.1 / -beta -> true)
+        # prints {"version":...,"prerelease":...} JSON; jq turns that into two GITHUB_OUTPUT
+        # lines. Fix round 1 (review INFO finding): on a real tag push the script is also handed
+        # the tag name and refuses to classify at all if it does not name the same version as
+        # packages/server/package.json (its own `::error title=tag/version mismatch::` line) --
+        # a tag `v1.28.0-rc.1` on a commit whose package.json still says `1.28.0` must fail here,
+        # not silently classify as stable. A workflow_dispatch dry run targets a BRANCH (no tag
+        # object exists to compare), so the tag arg is only passed when ref_type is actually tag.
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = "tag" ]; then
+            node scripts/release-version-info.mjs packages/server/package.json "$TAG_REF" \
+              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
+          else
+            node scripts/release-version-info.mjs \
+              | jq -r '"version=\(.version)", "prerelease=\(.prerelease)"' >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
 
   build-native:
     # THE-528: gate the entire release on the tag check. Without this `needs:`, verify-tag was an

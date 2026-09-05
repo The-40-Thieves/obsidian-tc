@@ -266,7 +266,7 @@ jobs:
   bun-audit:
     # osv-scanner (below) is the SECOND advisory feed for every lockfile in this repo, and it does
     # not depend on npm's bulk advisory endpoint at all. A bun-audit red whose log shows ONLY
-    # registry errors (503/502/504/timeout/ConnectionClosed/ETIMEDOUT/ECONNRESET against
+    # registry errors (503/502/504/timeout/ConnectionClosed/ConnectionRefused/DNSResolveFailed/ETIMEDOUT/ECONNRESET against
     # /-/npm/v1/security/advisories/bulk) is an OUTAGE, not a finding — read osv-scanner's result
     # for this same PR before treating it as one. THE-953: on 2026-09-04 that endpoint answered
     # 503, or nothing at all, for two hours straight (GitHub runners AND Cave alike), and `bun

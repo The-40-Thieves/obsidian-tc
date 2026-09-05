@@ -157,6 +157,21 @@ test("a ConnectionClosed error: line (2026-09-03 shape, no endpoint path) is ret
   assert.match(output, /::error title=npm advisory endpoint outage::/);
 });
 
+// Fix round 2 (re-review): bun 1.4.0's real reason tokens, captured live -- exact shape is
+// "error: POST <url>/-/npm/v1/security/advisories/bulk - DNSResolveFailed" (same "- <reason>"
+// tail the 503 fixture above uses, so this also exercises the endpoint-path branch; the new
+// DNSResolveFailed transport marker is a second, independent match on the same line).
+test("a captured DNSResolveFailed line (real bun 1.4.0 reason token) is retried", () => {
+  const binDir = makeBunShim(
+    'echo "error: POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk - DNSResolveFailed"\nexit 1',
+  );
+  const { status, output } = runAudit(binDir, { attempts: "2" });
+  assert.equal(status, 1);
+  assert.match(output, /attempt 1\/2/);
+  assert.match(output, /attempt 2\/2/);
+  assert.match(output, /::error title=npm advisory endpoint outage::/);
+});
+
 test("every attempt is a registry timeout: fails after 3 attempts with the outage message", () => {
   const binDir = makeBunShim(
     'echo "error: POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk timed out"\nexit 1',

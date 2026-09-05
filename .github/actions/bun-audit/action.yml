@@ -5,7 +5,7 @@ description: >-
   all, for two hours straight -- from GitHub runners AND from Cave -- and `bun audit` has no
   retry of its own, so every PR sat fully green except this job, three re-runs each. The retry
   below fires ONLY on an "error:"-prefixed line naming that endpoint or a transport failure
-  (timeout/ConnectionClosed/ETIMEDOUT/ECONNRESET/fetch failed); a genuine finding (a vulnerability
+  (timeout/ConnectionClosed/ConnectionRefused/DNSResolveFailed/ETIMEDOUT/ECONNRESET/fetch failed); a genuine finding (a vulnerability
   table) or any other non-zero exit still fails on the FIRST attempt, unretried, per run.sh's
   classification -- fix round 1 narrowed this from a bare substring sweep after a real advisory
   whose version range or CVE id contained "503" was misclassified as an outage.

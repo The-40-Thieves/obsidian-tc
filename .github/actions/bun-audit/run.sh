@@ -26,6 +26,12 @@
 #       regardless of (a) -- a real `bun audit` run never emits both shapes at once, so this only
 #       ever fires as a second, independent guard against a misclassification.
 #
+# Fix round 2 (re-review): TRANSPORT_MARKERS gained 'ConnectionRefused' and 'DNSResolveFailed' --
+# real bun 1.4.0 reason tokens captured from live runs (`error: POST <url>/.../bulk -
+# ConnectionRefused`, `... - DNSResolveFailed`), the same "- <reason>" shape as the "- 503" case
+# the endpoint-path branch already covers on its own; these two only add coverage for a DNS/refused
+# failure whose line does NOT otherwise repeat the endpoint path.
+#
 # Configurable via env for the off-runner test (scripts/bun-audit-retry.test.mjs), which points
 # BUN_AUDIT_BIN at a fake `bun` shim on PATH and sets BUN_AUDIT_BACKOFF_SECONDS to "0 0" so the
 # test runs instantly:
@@ -50,7 +56,7 @@ fi
 
 # Transport-failure keywords that, on an "error:"-prefixed line, mean the registry itself is
 # unreachable rather than that it returned a real result.
-TRANSPORT_MARKERS=('ConnectionClosed' 'ETIMEDOUT' 'ECONNRESET' 'timed out' 'fetch failed')
+TRANSPORT_MARKERS=('ConnectionClosed' 'ConnectionRefused' 'DNSResolveFailed' 'ETIMEDOUT' 'ECONNRESET' 'timed out' 'fetch failed')
 ENDPOINT_PATH='/-/npm/v1/security/advisories/bulk'
 
 # A real finding is always summarised this way ("1 vulnerability (1 high)", "3 vulnerabilities",
