@@ -274,8 +274,31 @@ test("already-mirrored path goes RED when Latest is the mirror, not v<version> (
 
   assert.throws(
     () => mirrorPluginRelease({ version: VERSION, assetsDir: dir, sha: SHA, runner }),
-    /Latest release is "1\.27\.0", expected "v1\.27\.0".*action: "already-mirrored"/s,
+    /Latest release is "1\.27\.0" — the un-prefixed mirror release itself.*action: "already-mirrored"/s,
   );
+});
+
+test("already-mirrored path PASSES when Latest is a NEWER stable release (fix round 2 — narrower invariant)", () => {
+  // Exact reviewer scenario: re-running v1.28.0's mirror job after v1.28.1 has already shipped.
+  // Latest correctly points at v1.28.1 (a later release, not the mirror) — that must be a pass,
+  // not a permanent failure just because it differs from v<version>.
+  const dir = makeAssetsDir({ version: "1.28.0" });
+  const calls = [];
+  const runner = (cmd, args) => {
+    calls.push([cmd, ...args]);
+    if (cmd === "gh" && args[0] === "release" && args[1] === "view") {
+      return "main.js\nmanifest.json\nstyles.css\n";
+    }
+    if (cmd === "gh" && args[0] === "api" && args[1] === "repos/{owner}/{repo}/releases/latest") {
+      return "v1.28.1\n"; // a LATER release, not v1.28.0 and not the "1.28.0" mirror itself
+    }
+    return "";
+  };
+
+  const result = mirrorPluginRelease({ version: "1.28.0", assetsDir: dir, sha: SHA, runner });
+
+  assert.equal(result.action, "already-mirrored");
+  assert.ok(calls.some((c) => c.join(" ").includes("releases/latest")));
 });
 
 test("partial-assets path: uploads only the missing asset(s), then still verifies Latest", () => {
@@ -316,7 +339,7 @@ test("manifest mismatch: fails before any gh/git call", () => {
   assert.equal(calls.length, 0, "no gh/git call should run before manifest validation passes");
 });
 
-test("latest-flipped (fresh path): fails after creation with a clear message", () => {
+test("fresh path: fails only when the newly created release ITSELF becomes Latest", () => {
   const dir = makeAssetsDir();
   const runner = (_cmd, args) => {
     if (args[0] === "release" && args[1] === "view") {
@@ -326,15 +349,34 @@ test("latest-flipped (fresh path): fails after creation with a clear message", (
     }
     if (args[0] === "ls-remote") return "";
     if (args[0] === "api" && args[1] === "repos/{owner}/{repo}/releases/latest") {
-      return "v1.0.0-legacy\n"; // wrong — should still be v1.27.0
+      return `${VERSION}\n`; // WRONG: the mirror itself, not v<version> or anything else
     }
     return "";
   };
 
   assert.throws(
     () => mirrorPluginRelease({ version: VERSION, assetsDir: dir, sha: SHA, runner }),
-    /Latest release is "v1\.0\.0-legacy", expected "v1\.27\.0"/,
+    /Latest release is "1\.27\.0" — the un-prefixed mirror release itself/,
   );
+});
+
+test("fresh path: PASSES when Latest is an unrelated older v-tag, not just v<version> exactly (fix round 2)", () => {
+  const dir = makeAssetsDir();
+  const runner = (_cmd, args) => {
+    if (args[0] === "release" && args[1] === "view") {
+      const err = new Error("release not found");
+      err.stderr = "release not found";
+      throw err;
+    }
+    if (args[0] === "ls-remote") return "";
+    if (args[0] === "api" && args[1] === "repos/{owner}/{repo}/releases/latest") {
+      return "v1.0.0-legacy\n"; // some other real tag — not v1.27.0, and not the 1.27.0 mirror
+    }
+    return "";
+  };
+
+  const result = mirrorPluginRelease({ version: VERSION, assetsDir: dir, sha: SHA, runner });
+  assert.equal(result.action, "created");
 });
 
 test("dry-run (fresh): prints the plan and issues no mutating gh/git call", () => {

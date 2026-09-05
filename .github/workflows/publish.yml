@@ -1020,10 +1020,14 @@ jobs:
   # plugin's manifest version never had a matching release until this job was added (fixed by hand
   # for 1.27.0; see scripts/mirror-plugin-release.mjs's header for the rejection text). `needs:
   # [draft-release]` on purpose: the signed `v<version>` release must exist FIRST, so that
-  # `--latest=false` below has something to defer Latest to — this job's own script now asserts
-  # that holds UNCONDITIONALLY on every run, not only right after creation (fix round 1, review
-  # finding 2: a `gh run rerun` almost always lands on the idempotent "already mirrored" path, so
-  # a post-creation-only check would go green over a Latest that had since flipped).
+  # `--latest=false` below has something to defer Latest to — this job's own script now asserts,
+  # UNCONDITIONALLY on every run (not only right after creation), that the un-prefixed MIRROR
+  # ITSELF never becomes Latest (fix round 1, review finding 2: a `gh run rerun` almost always
+  # lands on the idempotent "already mirrored" path, so a post-creation-only check would go green
+  # over a Latest that had since flipped onto the mirror). Fix round 2: that assertion is
+  # narrower than "Latest === v<version>" — a LATER release becoming Latest (e.g. re-running
+  # v1.28.0's mirror job after v1.28.1 has already shipped) is expected drift and still passes;
+  # only the mirror displacing whatever is genuinely newest is a failure.
   #
   # `if: github.event_name == 'push'` ONLY (fix round 1, review finding 4) — no
   # `workflow_dispatch`/`dry_run` path at all, matching `publish-registry` below exactly. This job

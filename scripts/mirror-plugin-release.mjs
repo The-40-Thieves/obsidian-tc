@@ -14,11 +14,14 @@
 //
 // `--latest=false` is load-bearing: without it, GitHub would flip "Latest" from `v<version>`
 // (the signed, canonical release) onto this un-prefixed mirror the moment it's created. This
-// script asserts that held — UNCONDITIONALLY, on every path (fresh, filled-missing, and
-// already-mirrored alike), not only right after creation. Review finding (fix round 1): a
-// re-run that only checked post-creation would go green on `gh run rerun` even after Latest had
-// since flipped onto the mirror, because a re-run almost always lands on the already-mirrored
-// path — exactly the path that used to skip the check entirely.
+// script asserts the MIRROR NEVER BECOMES LATEST — UNCONDITIONALLY, on every path (fresh,
+// filled-missing, and already-mirrored alike), not only right after creation. Review finding
+// (fix round 1): a re-run that only checked post-creation would go green on `gh run rerun` even
+// after Latest had since flipped onto the mirror, because a re-run almost always lands on the
+// already-mirrored path — exactly the path that used to skip the check entirely. Fix round 2:
+// the check is narrower than "Latest === v<version>" — it only fails when Latest IS the mirror
+// itself, so a LATER release becoming Latest (normal drift once a newer version ships) is not a
+// failure, only the mirror release displacing whatever is genuinely newest.
 //
 // Prereleases (a version containing "-", e.g. 1.28.0-rc.1) are skipped outright: the un-prefixed
 // tag is reserved for stable releases the community directory should see, never an RC. This is a
@@ -161,8 +164,10 @@ function releaseNotes(version) {
 
 /**
  * Orchestrates the mirror. `runner` is injected (defaults to `defaultRunner`) so every branch is
- * testable without a subprocess or network access. The `v<version>` "Latest" assertion runs
- * UNCONDITIONALLY at the end of every real (non-dry-run, non-prerelease) path — see the header.
+ * testable without a subprocess or network access. The "mirror never becomes Latest" assertion
+ * runs UNCONDITIONALLY at the end of every real (non-dry-run, non-prerelease) path — see the
+ * header. It is narrower than "Latest === v<version>": any tag OTHER than the un-prefixed
+ * `<version>` itself is a pass, including a later release that has since become Latest.
  */
 export function mirrorPluginRelease({
   version,
@@ -259,16 +264,25 @@ export function mirrorPluginRelease({
 
   // Unconditional on every real path — see the header comment for why "already-mirrored" (the
   // path a `gh run rerun` almost always lands on) must run this check too, not only "created".
+  //
+  // NARROW invariant only (fix round 2, reviewer-specified): --latest=false exists to keep the
+  // un-prefixed MIRROR itself off Latest, never to pin Latest to this specific v<version>. The
+  // wider "Latest === v<version>" assertion this replaced made a re-run permanently red the
+  // moment any later version shipped — v1.28.0's mirror job re-run after v1.28.1 had already
+  // released would find Latest correctly pointing at v1.28.1 and fail forever, even though
+  // nothing is wrong. Fail ONLY when Latest has become the mirror itself; any other tag — the
+  // expected v<version>, or a later release entirely — is a pass.
   const latestTag = latestReleaseTag(runner);
-  const expectedLatest = `v${version}`;
-  if (latestTag !== expectedLatest) {
+  if (latestTag === version) {
     throw new Error(
-      `the repo's Latest release is "${latestTag}", expected "${expectedLatest}" — --latest=false ` +
-        `should have kept v${version} as Latest. Release ${version} action: "${result.action}"; ` +
-        "investigate the Latest flag before trusting it.",
+      `the repo's Latest release is "${latestTag}" — the un-prefixed mirror release itself has ` +
+        `become Latest. --latest=false should have kept it off Latest. Release ${version} action: ` +
+        `"${result.action}"; investigate before trusting this release.`,
     );
   }
-  console.log(`mirror-plugin-release: confirmed ${expectedLatest} is still the Latest release.`);
+  console.log(
+    `mirror-plugin-release: confirmed the un-prefixed mirror ${version} is not Latest (Latest is "${latestTag}").`,
+  );
   return result;
 }
 
