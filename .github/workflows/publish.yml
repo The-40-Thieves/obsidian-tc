@@ -825,6 +825,12 @@ jobs:
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || !inputs.dry_run
+    # THE-958: this was the one build job with no `needs:` at all, so it started in parallel with
+    # verify-tag and built the plugin artifact even when the signature check failed. Nothing it
+    # produced could publish (draft-release and mirror-plugin-release need verify-tag), but
+    # THE-528's rule is to gate the ENTIRE release on the tag check, and every sibling build job
+    # carries this edge.
+    needs: verify-tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
