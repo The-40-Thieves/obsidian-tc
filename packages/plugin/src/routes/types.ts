@@ -5,7 +5,7 @@
 // datacore/metadata-menu/daily-notes/templater/tasks — import from here, so nothing here
 // may import from a route-family module or from routes.ts itself, or the split
 // reintroduces the cycle it exists to avoid.
-import { type App, normalizePath, type TFile } from "obsidian";
+import { type App, normalizePath, TFile } from "obsidian";
 
 export interface BridgeReq {
   body?: unknown;
@@ -81,6 +81,5 @@ export function internalPlugin(app: InternalApp, id: string): InternalPluginLite
 // than duplicated per family, per check:duplicate-exports/check:duplication.
 export function fileByPath(app: App, rel: string): TFile | null {
   const f = app.vault.getAbstractFileByPath(normalizePath(rel));
-  // TFile is the leaf type; folders lack the `extension` field we duck-check here.
-  return f && "extension" in f ? (f as TFile) : null;
+  return f instanceof TFile ? f : null;
 }

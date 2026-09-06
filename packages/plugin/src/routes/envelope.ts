@@ -47,7 +47,7 @@ export const safeHandler = (h: RouteHandler): RouteHandler => {
 export const body = (req: BridgeReq): Record<string, unknown> =>
   typeof req.body === "object" && req.body !== null ? (req.body as Record<string, unknown>) : {};
 export const str = (o: Record<string, unknown>, k: string): string | undefined =>
-  typeof o[k] === "string" ? (o[k] as string) : undefined;
+  typeof o[k] === "string" ? o[k] : undefined;
 
 // Resolve a community plugin's `api`, mapping absence onto the error taxonomy: the plugin not
 // installed -> plugin_missing; installed but exposing no usable api -> plugin_unreachable.

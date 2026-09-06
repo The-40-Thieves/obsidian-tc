@@ -95,7 +95,7 @@ export default class TcBridge extends Plugin {
         console.warn(
           `[tc-bridge] degraded: ${shapeWarnings.join("; ")} — Obsidian internals may have moved; some bridges will degrade.`,
         );
-      console.info(`[tc-bridge] registered ${count} bridge routes under /obsidian-tc/v1`);
+      console.debug(`[tc-bridge] registered ${count} bridge routes under /obsidian-tc/v1`);
     }
   }
 
@@ -133,9 +133,9 @@ export default class TcBridge extends Plugin {
     }
 
     // Legacy public addRoute() builder (older LRA).
-    const addRoute = lra.api?.addRoute;
-    if (addRoute) {
-      for (const r of routes) addRoute.call(lra.api, PREFIX + r.path)[r.method](r.handler);
+    const api = lra.api;
+    if (api?.addRoute) {
+      for (const r of routes) api.addRoute(PREFIX + r.path)[r.method](r.handler);
       return routes.length;
     }
 

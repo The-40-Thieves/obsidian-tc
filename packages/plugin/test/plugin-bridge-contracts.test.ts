@@ -22,6 +22,7 @@
 //      THE-749 exists to make visible. If a future change adds real validation, the assertion here
 //      will flip from "silently wrong" to "typed error" and this test will fail — that flip IS the
 //      tripwire, and updating this test in step with such a change is the intended workflow.
+import { TFile } from "obsidian";
 import { describe, expect, it } from "vitest";
 import { buildDataviewRoutes } from "../src/routes/dataview";
 import { buildExcalidrawRoutes } from "../src/routes/excalidraw";
@@ -48,6 +49,12 @@ function makeRes() {
 }
 const req = (body?: unknown): BridgeReq => ({ body });
 
+/** Build a real `TFile` instance (THE-964: fileByPath narrows with `instanceof TFile`, so a
+ *  plain object literal no longer resolves through `getAbstractFileByPath`). */
+function tfile(fields: { path: string; basename: string; extension: string }): TFile {
+  return Object.assign(new TFile(), fields);
+}
+
 /**
  * A minimal InternalApp whose community-plugin registry and vault are fully controllable per
  * test. `plugins` keys are the REAL Obsidian plugin ids (CAP_IDS values in ../src/routes/types.ts,
@@ -55,7 +62,7 @@ const req = (body?: unknown): BridgeReq => ({ body });
  */
 function fakeApp(
   plugins: Record<string, Record<string, unknown>> = {},
-  files: Record<string, { path: string; basename: string; extension: string }> = {},
+  files: Record<string, TFile> = {},
   markdownFiles: { path: string; basename: string }[] = [],
 ): InternalApp {
   return {
@@ -196,7 +203,7 @@ describe("text-extractor (ocr) — /ocr/attachment", () => {
   //     canFileBeExtracted: (filePath: string) => boolean
   //     isInCache: (file: TFile) => Promise<boolean>
   //   }
-  const file = { path: "Scans/receipt.png", basename: "receipt", extension: "png" };
+  const file = tfile({ path: "Scans/receipt.png", basename: "receipt", extension: "png" });
 
   it("parses a real extractText()/isInCache() pair into the bridge envelope", async () => {
     const app = fakeApp(
@@ -272,14 +279,24 @@ describe("templater — /templater/list, /templater/execute", () => {
   });
 
   it("parses a real create_new_note_from_template() TFile result into the execute envelope", async () => {
-    const created = { path: "Journal/2026-08-20.md", basename: "2026-08-20", extension: "md" };
+    const created = tfile({
+      path: "Journal/2026-08-20.md",
+      basename: "2026-08-20",
+      extension: "md",
+    });
     const app = fakeApp(
       {
         "templater-obsidian": {
           templater: { create_new_note_from_template: async () => created },
         },
       },
-      { "Templates/Daily.md": { path: "Templates/Daily.md", basename: "Daily", extension: "md" } },
+      {
+        "Templates/Daily.md": tfile({
+          path: "Templates/Daily.md",
+          basename: "Daily",
+          extension: "md",
+        }),
+      },
     );
     const { res, seen } = makeRes();
     await findRoute(buildTemplaterRoutes(app), "/templater/execute")(
@@ -388,7 +405,11 @@ describe("excalidraw and tasks — no plugin-API return shape to pin", () => {
   // verify the premise against current code first.
 
   it("excalidraw: only checks plugin PRESENCE, then reads/writes the vault file directly (excalidraw.ts:15,30) — never touches `.api`", async () => {
-    const file = { path: "Draw.excalidraw.md", basename: "Draw.excalidraw", extension: "md" };
+    const file = tfile({
+      path: "Draw.excalidraw.md",
+      basename: "Draw.excalidraw",
+      extension: "md",
+    });
     const app = fakeApp(
       { "obsidian-excalidraw-plugin": { api: "anything — not even an object" as unknown } },
       { "Draw.excalidraw.md": file },
