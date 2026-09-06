@@ -364,7 +364,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-939 | `doctor` warns on sync-service conflict copies in the install directory (#900, THE-939; issue #881). | CHANGELOG.md (1.27.0) | 5 |
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
+| THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (THE-963). | CHANGELOG.md (Unreleased) | 3 |
 
-350 distinct ticket(s) across 493 source file(s) under
-`packages/*/src`; 250 resolved to a public summary, 100
+351 distinct ticket(s) across 493 source file(s) under
+`packages/*/src`; 251 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

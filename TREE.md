@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,288 tracked code files · 217,014 lines.
+**Scale:** 1,288 tracked code files · 217,028 lines.
 
-TypeScript 198,506 · JavaScript 13,710 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 476.
+TypeScript 198,520 · JavaScript 13,710 · SQL 1,940 · Python 1,640 · Rust 742 · Shell 476.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -99,7 +99,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
-| `providers/` | 6 | 1,225 |  |
+| `providers/` | 6 | 1,232 |  |
 | `workspace/` | 3 | 970 | session tracking |
 | `metrics/` | 4 | 862 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 822 | Obsidian plugin bridge clients |
@@ -151,7 +151,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 639 | `packages/server/src/experiential/citation.ts` |
 | 627 | `packages/server/src/metrics/registry.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
-| 613 | `packages/server/src/providers/registry.ts` |
+| 616 | `packages/server/src/providers/registry.ts` |
 | 612 | `packages/server/src/transports/http.ts` |
 | 611 | `packages/server/src/search/graph_search.ts` |
 | 599 | `packages/server/src/tools/m3/base-tools.ts` |

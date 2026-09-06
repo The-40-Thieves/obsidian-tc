@@ -125,6 +125,10 @@ async function loadSession(localModelPath: string): Promise<Session> {
       // typechecks whether or not @huggingface/transformers is installed. That is deliberate: this
       // package's own `tsc` must not require the optional runtime dependency to be present.
       const transformersPackage = "@huggingface/transformers";
+      // The Obsidian community-directory scanner lints this whole monorepo, plugin and server
+      // alike, so it flags the dynamic import below even though this package ships as a separate
+      // reranker service, never inside the plugin bundle (THE-963).
+      // eslint-disable-next-line no-unsanitized/method -- transformersPackage is a variable, not a literal, so tsc need not resolve this optional dependency.
       const { AutoModelForSequenceClassification, AutoTokenizer, env } = (await import(
         transformersPackage
       )) as TransformersModule;

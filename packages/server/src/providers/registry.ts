@@ -393,6 +393,9 @@ export interface LocalRerankerResolution {
 export async function resolveLocalRerankerModule(
   c: ProviderDescriptor,
   ctx: ResolveContext,
+  // The Obsidian community-directory scanner lints this whole monorepo, but packages/server never
+  // ships inside the plugin bundle (THE-963).
+  // eslint-disable-next-line no-unsanitized/method -- the default calls import(s) on a caller-given specifier so tests can inject a stub for the real dynamic import.
   importModule: (specifier: string) => Promise<unknown> = (s) => import(s),
 ): Promise<LocalRerankerResolution> {
   const attempts: LocalRerankerResolutionAttempt[] = [];
