@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.28.1] - 2026-09-06
+
 ### Fixed
 
 - **The six directory-scanner warnings in TC Bridge's own code are cleared (#911, THE-964).**
