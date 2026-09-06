@@ -8,13 +8,19 @@ Extends the Local REST API plugin with namespaced endpoints for:
 
 - Command palette dispatch
 - Templater execution
-- Dataview DQL queries
+- Dataview DQL and Datacore queries
 - Tasks plugin queries
 - OCR via Text Extractor
 - QuickAdd triggers
-- Smart Connections embeddings
-- Smart Context bundling
-- Workspaces and Bookmarks state
+- Omnisearch queries
+- Excalidraw read/write
+- Metadata Menu fields
+- MakeMD spaces
+- Daily-notes resolution
+- Obsidian Git status/diff/log/stage
+- Remotely Save status/trigger
+
+(The route families above are `src/routes/*.ts`; the list is what ships, not a roadmap.)
 
 The server can operate without this plugin (degraded mode — filesystem-only operations). Install the plugin for the full feature surface.
 
