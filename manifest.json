@@ -6,5 +6,6 @@
   "description": "Companion bridge plugin for The 40 Thieves' vault-access MCP server. Extends Local REST API with command dispatch and plugin firepower bridges.",
   "author": "The 40 Thieves",
   "authorUrl": "https://github.com/The-40-Thieves",
+  "fundingUrl": "https://buymeacoffee.com/suavecito585",
   "isDesktopOnly": true
 }
