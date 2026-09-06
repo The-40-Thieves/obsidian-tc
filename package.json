@@ -50,6 +50,7 @@
     "docs:decisions-index": "node scripts/gen-decisions-index.mjs",
     "docs:decisions-index:check": "node scripts/gen-decisions-index.mjs --check",
     "format": "biome format --write .",
+    "gen:smithery-card": "bun packages/server/scripts/gen-smithery-server-card.ts",
     "lint": "biome check --error-on-warnings .",
     "knip": "knip",
     "map": "node scripts/gen-tree-map.mjs",
