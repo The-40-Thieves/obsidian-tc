@@ -6,6 +6,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The reranker-local lock-deadline test no longer depends on a 5ms timer beating a 20ms window
+  (#916, THE-965).** "gives up at the overall wait deadline when the lock never becomes stale" kept the
+  test's lock artificially fresh with a `setInterval` re-touching `owner.json` every 5ms against a
+  `lockStaleMs: 20`; one delayed tick under runner load let the lock go legitimately stale and
+  `fetchAndVerifyModel` took it over instead of ever reaching the deadline, flaking on the 1.28.2
+  release PR. The lock's owner.json is now written once, with `startedAt` 60s in the future — a
+  negative `lockAgeMs` that stays below `lockStaleMs` for the test's whole 60ms deadline window,
+  with no timer to lag — so the waiter can only exit via the deadline, which is what the test asserts.
+
 ## [1.28.2] - 2026-09-06
 
 ### Added

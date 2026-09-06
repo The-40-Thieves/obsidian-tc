@@ -420,31 +420,30 @@ describe("cross-process lock (THE-944 review round 2, G1)", () => {
   });
 
   // THE-944 review round 3 (G1): the explicit backstop UNDER the stale-takeover check — a lock
-  // whose age never crosses lockStaleMs (here, its owner.json is kept artificially "fresh" on an
-  // interval faster than the poll) must still not be waited on forever. The overall deadline
+  // whose age never crosses lockStaleMs must still not be waited on forever. The overall deadline
   // (lockStaleMs * the exported multiplier) throws a clear, actionable error naming the lock path.
+  //
+  // A lock that "never goes stale" is modeled with a SINGLE owner.json write whose startedAt is
+  // 60s in the FUTURE (same as "a holder whose clock is ahead of ours") rather than a periodic
+  // refresher racing the deadline: lockAgeMs computes `Date.now() - owner.startedAt`, which stays
+  // negative — and so never `> lockStaleMs` — for the whole test, with no timer involved. The
+  // write still uses temp-then-rename, the same atomic technique production's
+  // writeLockOwnerAtomic uses, so a concurrent read never observes a torn write.
+  //
+  // THE-965: an earlier version of this test used a `setInterval` re-touching owner.json with
+  // `startedAt: Date.now()` every 5ms against a 20ms lockStaleMs, racing acquireLockOrObserveVerified's
+  // own poll loop — one delayed tick under runner load let the lock go legitimately stale and the
+  // waiter took it over instead of ever reaching the deadline, flaking CI on the 1.28.2 release PR.
+  // (A still earlier round had a different flake from a non-atomic write; the temp-then-rename
+  // fix for that is preserved above, but the timer itself is what THE-965 removes.)
   it("gives up at the overall wait deadline when the lock never becomes stale, naming the lock path", async () => {
     const finalDir = modelDirFor(root, SPEC);
     const lockDir = `${finalDir}.lock`;
     await mkdir(lockDir, { recursive: true });
-    // Atomic temp-then-rename — the SAME technique production's writeLockOwnerAtomic uses. A raw
-    // in-place writeFile here would race with acquireLockOrObserveVerified's own concurrent reads:
-    // a reader catching a torn write mid-flight sees unparseable JSON, falls through to lockAgeMs's
-    // mtime fallback, and reads the LOCK DIRECTORY's ORIGINAL (long-past) mtime — triggering an
-    // unintended EARLY stale-takeover that races this test's own deadline it's trying to reach.
-    // Confirmed by observing it: an earlier, non-atomic version of this refresh flaked exactly that
-    // way (the call returned successfully — via a premature takeover — instead of ever reaching the
-    // deadline).
-    const touch = async () => {
-      const finalPath = join(lockDir, "owner.json");
-      const tmpPath = join(lockDir, `owner.json.tmp-test-${Date.now()}-${Math.random()}`);
-      await writeFile(tmpPath, JSON.stringify({ pid: 123, startedAt: Date.now() }));
-      await rename(tmpPath, finalPath).catch(() => undefined);
-    };
-    await touch();
-    const refresh = setInterval(() => {
-      void touch();
-    }, 5);
+    const finalPath = join(lockDir, "owner.json");
+    const tmpPath = join(lockDir, `owner.json.tmp-test-${Date.now()}-${Math.random()}`);
+    await writeFile(tmpPath, JSON.stringify({ pid: 123, startedAt: Date.now() + 60_000 }));
+    await rename(tmpPath, finalPath);
     try {
       let message = "";
       try {
@@ -460,7 +459,6 @@ describe("cross-process lock (THE-944 review round 2, G1)", () => {
       expect(message).toMatch(/gave up waiting for the model-fetch lock/);
       expect(message).toContain(lockDir);
     } finally {
-      clearInterval(refresh);
       await rm(lockDir, { recursive: true, force: true });
     }
   });
