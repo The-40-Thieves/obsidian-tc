@@ -6,10 +6,29 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-09-06
+
+### Added
+
+- **Un-prefixed plugin release, mirrored automatically on every tag (#904, THE-955).** Obsidian's
+  community-directory validator reads the release whose tag EQUALS `manifest.json`'s version, not
+  this repo's own `v<version>` tags — the first real community.obsidian.md submission attempt was
+  rejected for exactly this. `publish.yml`'s new `mirror-plugin-release` job
+  (`scripts/mirror-plugin-release.mjs`) now creates a second, `--latest=false` release tagged with
+  the bare version, carrying the same three loose plugin assets, immediately after the signed
+  `v<version>` release exists; idempotent on re-run, and asserts `v<version>` stays "Latest" after
+  creating it.
+- **Smithery listing published automatically on every tag (#904, THE-956).** The last directory listing
+  that still needed a human hand: `publish.yml`'s new `publish-smithery` job
+  (`scripts/publish-smithery.mjs`) publishes the `.mcpb` bundle to `the-40-thieves/obsidian-tc` on
+  the Smithery Registry via the `SMITHERY_API_KEY` repo secret, gated identically to
+  `publish-registry` (a real `v*` tag only). A repeat publish of an already-listed version is
+  treated as success (probed live against the real registry).
+
 ### Fixed
 
 - **The four `import()` sites community.obsidian.md's automated review flagged as errors now carry
-  scoped disables, and the plugin's release assets are attested (THE-963).** The directory's scanner (`obsidianmd/obsidian-workflows`) lints every `.ts`
+  scoped disables, and the plugin's release assets are attested (#909, THE-963).** The directory's scanner (`obsidianmd/obsidian-workflows`) lints every `.ts`
   file under the repo root with a fixed ignore list that has no notion of workspace boundaries, so
   server and eval code were judged as plugin code; the one blocking rule that fired,
   `no-unsanitized/method`, did so on four deliberately non-literal `import()` specifiers
@@ -25,7 +44,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   bytes. The directory only re-reviews on the next release whose tag equals the manifest version,
   so the verdict itself lands with 1.28.0.
 - **`docs/decisions-index.md` now attributes a ticket only by its CHANGELOG bullet's LEAD citation
-  (THE-952).** `scripts/gen-decisions-index.mjs` used to resolve a THE-xxx id to the first bullet
+  (#905, THE-952).** `scripts/gen-decisions-index.mjs` used to resolve a THE-xxx id to the first bullet
   (top to bottom, `[Unreleased]` sorting first) whose text mentioned it ANYWHERE — so a later bullet
   that parenthetically named an already-shipped ticket in passing silently hijacked that ticket's
   row, while the drift gate stayed green because the generated file was still self-consistent.
@@ -35,7 +54,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   the generator warns, naming the other candidates. Regenerating against the real CHANGELOG moved
   123 of 350 rows, each a prior hijack or a resolved multi-lead ambiguity.
 - **`check:comment-style` and `acl-single-source.test.ts` were scanning `packages/*/src/**/*.ts`,
-  which silently drops every file directly under a package's `src/` (THE-954).** `**` requires an
+  which silently drops every file directly under a package's `src/` (#905, THE-954).** `**` requires an
   intervening path segment, so `packages/server/src/index.ts`, `cli.ts` and 20 others were never
   scanned by the latter (measured: 415 of 437 files). The plain `packages/*/src/*.ts` form needs no
   pairing — git's pathspec `*` already crosses `/`, so it alone matches the full recursive set — and
@@ -44,7 +63,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `graph-analytics.test.ts`, `note-quality.test.ts`, and a `git ls-files` example in TREE.md's own
   "Regenerating this" instructions, which was reproducing the same lossy pattern.
 - **`bun-audit` retries npm's bulk advisory endpoint with backoff instead of holding green PRs on
-  an outage (THE-953).** On 2026-09-04 `registry.npmjs.org/-/npm/v1/security/advisories/bulk`
+  an outage (#907, THE-953).** On 2026-09-04 `registry.npmjs.org/-/npm/v1/security/advisories/bulk`
   answered 503, or nothing at all, for two hours straight, and `bun audit` has no retry of its
   own — five PRs sat fully green except this job, three re-runs each. `ci-security.yml`'s three
   `bun audit` steps (root, docs/, packages/reranker-local) now go through a new
@@ -54,7 +73,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   message naming `osv-scanner` as this repo's second advisory feed when every attempt is a
   registry error. A real finding (a vulnerability table) or any other non-zero exit still fails on
   the FIRST attempt, unretried.
-- **`draft-release` marks a prerelease tag as a prerelease and keeps it off "Latest" (THE-957).**
+- **`draft-release` marks a prerelease tag as a prerelease and keeps it off "Latest" (#907, THE-957).**
   `publish-npm`, `publish-reranker-local`, `build-docker` and the `mirror-plugin-release` /
   `publish-smithery` skip guards each already classified a version containing `-` as a
   prerelease, but `draft-release`'s `action-gh-release` step derived neither flag at all — so an
@@ -64,27 +83,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`version`, `prerelease`); every downstream job reads that shared classification instead of
   recomputing its own, and `draft-release` passes `prerelease: true` / `make_latest: false` for
   such a tag.
-
-### Added
-
-- **Un-prefixed plugin release, mirrored automatically on every tag (THE-955).** Obsidian's
-  community-directory validator reads the release whose tag EQUALS `manifest.json`'s version, not
-  this repo's own `v<version>` tags — the first real community.obsidian.md submission attempt was
-  rejected for exactly this. `publish.yml`'s new `mirror-plugin-release` job
-  (`scripts/mirror-plugin-release.mjs`) now creates a second, `--latest=false` release tagged with
-  the bare version, carrying the same three loose plugin assets, immediately after the signed
-  `v<version>` release exists; idempotent on re-run, and asserts `v<version>` stays "Latest" after
-  creating it.
-- **Smithery listing published automatically on every tag (THE-956).** The last directory listing
-  that still needed a human hand: `publish.yml`'s new `publish-smithery` job
-  (`scripts/publish-smithery.mjs`) publishes the `.mcpb` bundle to `the-40-thieves/obsidian-tc` on
-  the Smithery Registry via the `SMITHERY_API_KEY` repo secret, gated identically to
-  `publish-registry` (a real `v*` tag only). A repeat publish of an already-listed version is
-  treated as success (probed live against the real registry).
-
-### Fixed
-
-- **`release.mjs` now refreshes `bun.lock`'s workspace versions itself (THE-948).** `bun install`
+- **`release.mjs` now refreshes `bun.lock`'s workspace versions itself (#906, THE-948).** `bun install`
   does not touch `bun.lock`'s `workspaces[*].version` fields after a version-only `package.json`
   bump (measured at the 1.26.0 and 1.27.0 cuts — `bun install` reported no changes, and
   `check-version-coherence.mjs`'s lockfile assertion, THE-947, failed on every cut until the four
@@ -93,7 +92,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   same pass as the `package.json` bumps and before `bun install` / `bun run format` / the coherence
   gate run.
 - **`bundle-mcpb.ts` packs from a staging directory instead of swapping the repo-root
-  `manifest.json` (THE-951).** The previous in-place swap-then-restore was not kill-safe: a process
+  `manifest.json` (#906, THE-951).** The previous in-place swap-then-restore was not kill-safe: a process
   killed between the swap and the `finally` restore left the root `manifest.json` (the companion
   plugin's Obsidian manifest, THE-950) permanently overwritten with the MCPB bundle manifest. The
   bundle is now packed from a `mkdtemp` staging directory populated with hardlinks to the bundle
