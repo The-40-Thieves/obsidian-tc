@@ -6,6 +6,29 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.28.2] - 2026-09-06
+
+### Added
+
+- **TC Bridge's manifest carries a `fundingUrl` (#914).** Obsidian shows it as a support link on
+  the plugin's in-app page; the community-directory listing's Sponsor field is set by hand and
+  points at the same page. A repo-level `.github/FUNDING.yml` adds GitHub's Sponsor button for
+  visitors arriving from npm, the MCP registry, or Smithery. The manifest test that had pinned the
+  field as absent now pins the exact URL.
+
+### Fixed
+
+- **The README that community.obsidian.md renders as TC Bridge's listing now describes the plugin
+  (#913).** The directory shows the repo-root README as the listing's Overview and derives its
+  About text from it, so a plugin user's first instruction was `npm install -g obsidian-tc` and the
+  server's ACLs and retrieval read as the plugin's own. A plugin-facing section now leads with what
+  TC Bridge is, that Local REST API must be installed first, that its key is a vault root password,
+  and that the old `obsidian-tc` id is retired. Also dropped the hand-maintained date on the Status
+  line (release.mjs bumps the version there but never the date, stale since 1.14.x), corrected the
+  trademark note that still said the plugin name carries "obsidian", and replaced
+  `packages/plugin/README.md`'s bridge list, which named three things that are not route families
+  and omitted seven that are.
+
 ## [1.28.1] - 2026-09-06
 
 ### Fixed
