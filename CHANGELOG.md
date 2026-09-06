@@ -8,6 +8,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **The four `import()` sites community.obsidian.md's automated review flagged as errors now carry
+  scoped disables, and the plugin's release assets are attested (THE-963).** The directory's scanner (`obsidianmd/obsidian-workflows`) lints every `.ts`
+  file under the repo root with a fixed ignore list that has no notion of workspace boundaries, so
+  server and eval code were judged as plugin code; the one blocking rule that fired,
+  `no-unsanitized/method`, did so on four deliberately non-literal `import()` specifiers
+  (`packages/reranker-local/src/index.ts`, `packages/server/eval/perf/boot-probe.ts`,
+  `packages/server/src/providers/module-loader.ts` and `registry.ts`), each already commented with
+  why it cannot be a string literal — now paired with a scoped
+  `eslint-disable-next-line no-unsanitized/method` carrying that same reason. Everything else in
+  the review was a non-blocking warning, including its recommendation to attest the plugin's
+  release assets: `publish.yml`'s `build-plugin` job now runs
+  `actions/attest-build-provenance` against `packages/plugin/dist/{main.js,manifest.json,styles.css}`
+  on every tag push and verifies the attestation landed with `gh attestation verify`, covering both
+  the signed `v<version>` release and the `mirror-plugin-release` mirror that re-uploads the same
+  bytes. The directory only re-reviews on the next release whose tag equals the manifest version,
+  so the verdict itself lands with 1.28.0.
 - **`docs/decisions-index.md` now attributes a ticket only by its CHANGELOG bullet's LEAD citation
   (THE-952).** `scripts/gen-decisions-index.mjs` used to resolve a THE-xxx id to the first bullet
   (top to bottom, `[Unreleased]` sorting first) whose text mentioned it ANYWHERE — so a later bullet

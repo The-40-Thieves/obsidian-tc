@@ -162,6 +162,10 @@ export async function loadProviderModule<T>(opts: LoadProviderModuleOpts): Promi
 
   let mod: Record<string, unknown>;
   try {
+    // The Obsidian community-directory scanner lints this whole monorepo, but this file is
+    // packages/server, never bundled into the plugin (THE-963). The `hardened` securityProfile
+    // check above, not this comment, is the actual gate on executing arbitrary code.
+    // eslint-disable-next-line no-unsanitized/method -- abs is a user-configured module path, never a literal; loading it is this function's whole feature.
     mod = (await import(pathToFileURL(abs).href)) as Record<string, unknown>;
   } catch (cause) {
     throw err.invalidInput(`${opts.slot}.modulePath could not be imported`, {

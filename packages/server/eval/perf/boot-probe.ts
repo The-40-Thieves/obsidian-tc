@@ -72,6 +72,9 @@ export async function runBootProbe(): Promise<BootProbeResult> {
   const { ToolRegistry } = await import("../../src/mcp/registry");
   const registrars: Array<(r: InstanceType<typeof ToolRegistry>, d: never) => void> = [];
   for (const m of MODULES) {
+    // This file is server eval tooling, never bundled into the plugin, but the Obsidian
+    // community-directory scanner lints every .ts under the repo root regardless (THE-963).
+    // eslint-disable-next-line no-unsanitized/method -- template literal over MODULES, a fixed file-local array, one probed module per iteration.
     const mod = (await import(`../../src/tools/${m}/index`)) as Record<string, unknown>;
     const entry = Object.entries(mod).find(([k]) => k.startsWith("register"));
     if (!entry)
