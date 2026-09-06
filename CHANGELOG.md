@@ -6,6 +6,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Smithery listing now publishes a real server card instead of an empty one (#918, THE-966).**
+  `scripts/publish-smithery.mjs` shelled out to `smithery mcp publish`, and that CLI forwards only
+  the MCPB manifest's `tools` array into the release — a shape that cannot carry a tool's
+  `inputSchema` (upstream smithery-cli#787, open since July 2026), while the registry requires one
+  per tool to build a server card. Our manifest declares no `tools`, so every publish through the
+  CLI succeeded with an empty card: `the-40-thieves/obsidian-tc` showed "No capabilities found" and
+  was absent from Smithery search. The script now calls the registry API directly
+  (`PUT /servers/{qualifiedName}/releases`) with a `serverCard` built from the server's own real
+  tool/prompt/resource definitions (a new generator, `packages/server/scripts/gen-smithery-server-card.ts`,
+  wired into `publish.yml`'s `build-mcpb` job) — never hand-copied schemas. The old CLI install step
+  is gone from `publish.yml`.
+
 ## [1.28.3] - 2026-09-06
 
 ### Fixed

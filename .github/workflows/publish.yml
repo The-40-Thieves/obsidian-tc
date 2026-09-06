@@ -1033,10 +1033,20 @@ jobs:
           (cd packages/server && bun run build)
       - name: pack the .mcpb bundle
         run: bun run bundle
+      # THE-966: the Smithery server card (real tool/prompt/resource definitions, WITH inputSchema
+      # — see scripts/publish-smithery.mjs's header for why the old CLI-publish path could never
+      # carry one). Generated here, not in the publish-smithery job, because that job's runner is
+      # Node-only (least-privilege — see its own comment block) and this generator needs bun to
+      # import the server's TS source directly; landing both files in dist/ lets one
+      # upload-artifact ship them together for publish-smithery to download as `mcpb-artifact/`.
+      - name: generate the Smithery server card
+        run: bun run gen:smithery-card
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mcpb
-          path: dist/obsidian-tc.mcpb
+          path: |
+            dist/obsidian-tc.mcpb
+            dist/smithery-server-card.json
 
   draft-release:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
@@ -1191,24 +1201,34 @@ jobs:
   # DAG sense — kept anyway because it documents this job's own real dependency, not just an
   # inherited one, review finding 9.)
   #
-  # Least-privilege (fix round 1, review finding 1): this is the only job in the file that runs
-  # unvetted third-party install/publish tooling against a live external registry, so it does NOT
-  # inherit the workflow-level `permissions:` block (`contents: write`, `packages: write`,
-  # `id-token: write`, `attestations: write`) the way an unscoped job otherwise would — job-level
-  # `permissions:` REPLACES that block, not adds to it, the same mechanism `publish-registry`
-  # above uses to narrow to just `id-token: write` + `contents: read`. `id-token: write` in
-  # particular would let a compromised transitive dependency of `@smithery/cli` mint an OIDC token
+  # HISTORY (THE-966): this job used to `npm install -g @smithery/cli@4.11.1 --ignore-scripts` and
+  # shell out to `smithery mcp publish`. That CLI forwards only the MCPB manifest's `tools` array
+  # into the release, and MCPB manifests cannot carry a tool's `inputSchema` (upstream
+  # smithery-cli#787, open since July 2026) while the registry requires one per tool to build a
+  # server card — our manifest declares no `tools`, so every publish through the CLI succeeded with
+  # an EMPTY card (`the-40-thieves/obsidian-tc` showed "No capabilities found" and was absent from
+  # Smithery search). The CLI install step is gone: `scripts/publish-smithery.mjs` now calls the
+  # registry API directly (`PUT /servers/{qualifiedName}/releases`) with Node 24's built-in
+  # `fetch`/`FormData`, sending a `serverCard` built from the server's own real tool/prompt/resource
+  # definitions (`bun run gen:smithery-card` in build-mcpb above) — no external CLI, no
+  # `--ignore-scripts` fallback needed, because there is no longer a third-party dependency tree to
+  # skip lifecycle scripts on.
+  #
+  # Least-privilege (fix round 1, review finding 1; still true after THE-966's rewrite): this job
+  # is the only one in the file that talks to a live external registry with this repo's own
+  # `SMITHERY_API_KEY`, so it does NOT inherit the workflow-level `permissions:` block (`contents:
+  # write`, `packages: write`, `id-token: write`, `attestations: write`) the way an unscoped job
+  # otherwise would — job-level `permissions:` REPLACES that block, not adds to it, the same
+  # mechanism `publish-registry` above uses to narrow to just `id-token: write` + `contents: read`.
+  # `id-token: write` in particular would let anything reachable from this step mint an OIDC token
   # this repo already trusts for the MCP Registry publish (`publish-registry` above) — narrowing
-  # this job to `contents: read` removes that specific blast radius. `persist-credentials: false`
-  # on the checkout stops the job's GITHUB_TOKEN from being written to `.git/config` at all (it is
-  # never needed here — this job's own step reads `secrets.SMITHERY_API_KEY`, not `github.token`).
-  # `--ignore-scripts` on the npm install skips that dependency tree's install-time lifecycle
-  # scripts; the CLI was confirmed to still run fully under it (`smithery --version` and
-  # `smithery mcp publish --help` both succeeded from an `--ignore-scripts` install — see
-  # task-5-report.md's fix-round-1 evidence) — this is a real fallback-tested claim, not an
-  # assumption. `actions/setup-node` pinned to `node-version: '24'` matches `publish-npm`'s own
-  # pin, so this job's npm/node version cannot silently drift out from under the `ubuntu-latest`
-  # image the way an un-pinned toolchain can.
+  # this job to `contents: read` removes that blast radius regardless of what runs here.
+  # `persist-credentials: false` on the checkout stops the job's GITHUB_TOKEN from being written to
+  # `.git/config` at all (it is never needed here — this job's own step reads
+  # `secrets.SMITHERY_API_KEY`, not `github.token`). `actions/setup-node` pinned to `node-version:
+  # '24'` matches `publish-npm`'s own pin, so this job's node version cannot silently drift out from
+  # under the `ubuntu-latest` image the way an un-pinned toolchain can — `scripts/publish-smithery.mjs`
+  # relies on Node 24's built-in `fetch`/`FormData`/`Blob`, not a version range.
   #
   # Re-runs intentionally RE-PUBLISH rather than being skipped by a preflight (unlike
   # `publish-npm`'s F3 or `publish-registry`'s exact-match GET, review finding 8): probed live
@@ -1249,22 +1269,15 @@ jobs:
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           node-version: '24'
-      # `npm install -g`, not `npx`, so the pinned version is resolved and installed exactly
-      # once and its own log line (`added N packages`) shows what actually landed, rather than
-      # trusting a per-invocation `npx -y` resolution silently. EXACT version, not a range —
-      # this CLI is what talks to a live third-party registry with our repo's own credentials.
-      # `--ignore-scripts` — see the job comment above for the fallback-tested claim that the CLI
-      # still runs fully without its dependency tree's install-time lifecycle scripts.
-      - name: install @smithery/cli (pinned 4.11.1, --ignore-scripts)
-        if: needs.verify-tag.outputs.prerelease != 'true'
-        run: npm install -g @smithery/cli@4.11.1 --ignore-scripts
-        shell: bash
-      - name: publish the .mcpb bundle to Smithery (THE-956)
+      - name: publish the server card + .mcpb bundle to Smithery (THE-956, THE-966)
         if: needs.verify-tag.outputs.prerelease != 'true'
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
         run: |
           set -euo pipefail
           version=$(node -p "require('./packages/server/package.json').version")
-          node scripts/publish-smithery.mjs --bundle mcpb-artifact/obsidian-tc.mcpb --version "$version"
+          node scripts/publish-smithery.mjs \
+            --bundle mcpb-artifact/obsidian-tc.mcpb \
+            --server-card mcpb-artifact/smithery-server-card.json \
+            --version "$version"
         shell: bash
