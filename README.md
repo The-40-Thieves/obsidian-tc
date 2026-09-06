@@ -27,6 +27,34 @@ npx obsidian-tc /path/to/vault
 Lexical search and every note tool work immediately; semantic and graph-seeded retrieval need
 an embeddings backend (Ollama by default), which is the upgrade a config file buys you.
 
+## TC Bridge: the companion Obsidian plugin
+
+If you arrived here from Obsidian's plugin browser, this section is the part about you. The
+directory listing for **TC Bridge** points at this repository because the plugin lives in it, but
+the plugin is a small optional bridge, not the server described on the rest of this page.
+
+TC Bridge extends the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api)
+plugin with namespaced endpoints that the obsidian-tc server calls for features that only exist
+inside a running Obsidian: command-palette dispatch, Templater, Dataview and Datacore queries,
+Tasks, QuickAdd, Omnisearch, Excalidraw, Metadata Menu, MakeMD spaces, daily notes, OCR via Text
+Extractor, Obsidian Git, and Remotely Save. Every filesystem-level feature of the server (governed
+writes, search, memory) works without it.
+
+- **Install and enable Local REST API first.** TC Bridge registers its routes on that plugin's
+  server and reuses its bearer-token auth. It opens no port of its own and is desktop-only.
+- **The plugin is not the server.** The folder ACLs, human-in-the-loop confirmations and retrieval
+  described below run in the obsidian-tc process, which you install and run separately (see
+  [Quick start](#quick-start)). To reach the bridges, the server's per-vault config needs
+  `restApiUrl` and `restApiKey`; the walkthrough is
+  [docs/QUICKSTART.md, step 6](./docs/QUICKSTART.md#6-optional-light-up-the-plugin-bridges-live-mode).
+- **The Local REST API key is a vault root password.** The bridge routes run with the same
+  authority as that plugin's own endpoints, so read the
+  [companion plugin trust boundary](./SECURITY.md#companion-plugin-trust-boundary) before handing
+  the key to any agent.
+- **Formerly "Obsidian Turbocharged" (id `obsidian-tc`).** That id is retired; settings migrate on
+  first load and the old id's final release only shows a pointer here. Details in
+  [packages/plugin/README.md](./packages/plugin/README.md).
+
 ## Why this exists
 
 An AI agent with raw filesystem access to your Obsidian vault can do real damage: overwrite years of notes, delete the wrong folder, read the journal you never meant to expose, or quietly leak plugin API keys sitting in `.obsidian/`. Most Obsidian MCP servers hand an agent that access with little more than an API key between it and everything you have written.
@@ -75,7 +103,7 @@ Beyond Tools, the server exposes your vault as MCP **Resources** (`resources/lis
 
 ## Status
 
-✅ **Shipped — v1.28.1** (2026-08-02). Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.28.1`. The surface is **163 tools across 31 domains**, presented by default via the triad facade described above.
+✅ **Shipped — v1.28.1.** Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.28.1`. The surface is **163 tools across 31 domains**, presented by default via the triad facade described above.
 
 The v1.6–v1.7 line turned the server into a **measured memory engine** (full detail in the [CHANGELOG](./CHANGELOG.md)):
 
@@ -334,7 +362,7 @@ is covered in [docs/CUTOVER.md](./docs/CUTOVER.md).
 
 ## Trademark
 
-obsidian-tc is an independent, community-built open-source project. It is **not** affiliated with, endorsed by, or sponsored by Obsidian or its maker, Dynalist Inc. "Obsidian" is a trademark of Dynalist Inc.; it is used here only nominatively — to describe the application this MCP server interoperates with — including within the package, image, and plugin names (`obsidian-tc`), which denote compatibility, not origin or endorsement. For the official app, visit [obsidian.md](https://obsidian.md).
+obsidian-tc is an independent, community-built open-source project. It is **not** affiliated with, endorsed by, or sponsored by Obsidian or its maker, Dynalist Inc. "Obsidian" is a trademark of Dynalist Inc.; it is used here only nominatively — to describe the application this MCP server interoperates with — including within the package and image names (`obsidian-tc`) and the companion plugin's retired former id, which denote compatibility, not origin or endorsement. For the official app, visit [obsidian.md](https://obsidian.md).
 
 ## License
 
