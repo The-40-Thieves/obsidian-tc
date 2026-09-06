@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.28.3] - 2026-09-06
+
 ### Fixed
 
 - **The reranker-local lock-deadline test no longer depends on a 5ms timer beating a 20ms window
