@@ -3,8 +3,8 @@
 // plugin.md, 2026-09-03): a submitted plugin's `id` "must not contain 'obsidian'"; the
 // `id`/folder-name pairing is required for local development to load correctly. This suite pins
 // the manifest fields the rename must produce so a future edit to manifest.json cannot silently
-// reintroduce a directory-blocking id/name or drop the isDesktopOnly/fundingUrl requirements this
-// task set.
+// reintroduce a directory-blocking id/name, drop isDesktopOnly, or repoint the fundingUrl added
+// 2026-09-06.
 import { describe, expect, it } from "vitest";
 import manifest from "../manifest.json";
 
@@ -27,8 +27,11 @@ describe("packages/plugin/manifest.json — community-directory rules (THE-943)"
     expect(manifest.isDesktopOnly).toBe(true);
   });
 
-  it("has no fundingUrl key", () => {
-    expect(Object.hasOwn(manifest, "fundingUrl")).toBe(false);
+  // The owner's support link (2026-09-06). Pinned to the exact URL so a manifest edit cannot
+  // silently repoint where users send money; the directory listing's Sponsor field is set by
+  // hand at community.obsidian.md and must match this.
+  it("fundingUrl is the owner's Buy Me a Coffee page", () => {
+    expect(manifest.fundingUrl).toBe("https://buymeacoffee.com/suavecito585");
   });
 
   it("minAppVersion is unchanged (1.7.0)", () => {
