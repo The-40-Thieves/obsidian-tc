@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.28.4] - 2026-09-06
+
 ### Fixed
 
 - **The Smithery listing now publishes a real server card instead of an empty one (#918, THE-966).**
