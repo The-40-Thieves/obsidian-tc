@@ -6,6 +6,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The six directory-scanner warnings in TC Bridge's own code are cleared (#911, THE-964).**
+  community.obsidian.md's review passed 1.28.0 with 0 errors, but six type-aware
+  `eslint-plugin-obsidianmd` warnings were still live in the plugin's own runtime code (everything
+  else the scanner reported was server/reranker code out of the plugin workspace, THE-963):
+  `no-console` (a registration count logged via `console.info`, now `console.debug`),
+  `@typescript-eslint/unbound-method` (an LRA `addRoute` builder detached from its object before
+  calling), `obsidianmd/no-tfile-tfolder-cast` (`fileByPath`'s duck-typed `"extension" in f` check,
+  now a real `instanceof TFile`), and three `@typescript-eslint/no-unnecessary-type-assertion`
+  sites (`envelope.ts`'s `str()`, and two in `git.ts`) where TS 7.0.2 already narrows the value
+  without a cast. The directory only re-reviews on the next release whose tag equals the manifest
+  version.
+
 ## [1.28.0] - 2026-09-06
 
 ### Added

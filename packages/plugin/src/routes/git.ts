@@ -22,18 +22,19 @@ interface GitManagerLite {
 
 /** Resolve obsidian-git's gitManager, mapping absence onto the error taxonomy. */
 function gitManagerOf(app: InternalApp, res: BridgeRes): GitManagerLite | null {
-  const plugin = communityPlugin(app, "git") as
-    | (CommunityPlugin & { gitManager?: GitManagerLite })
-    | undefined;
+  const plugin = communityPlugin(app, "git");
   if (!plugin) {
     fail(res, "plugin_missing", "obsidian-git is not installed", { plugin: "git" });
     return null;
   }
-  if (!plugin.gitManager) {
+  // gitManager is obsidian-git-specific — not part of the shared CommunityPlugin shape other
+  // families duck-type from — so it is cast locally, only once `plugin` is known defined.
+  const gitManager = (plugin as CommunityPlugin & { gitManager?: GitManagerLite }).gitManager;
+  if (!gitManager) {
     fail(res, "plugin_unreachable", "obsidian-git exposes no gitManager", { plugin: "git" });
     return null;
   }
-  return plugin.gitManager;
+  return gitManager;
 }
 
 export function buildGitRoutes(app: InternalApp): RouteDef[] {
@@ -140,7 +141,7 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           return fail(res, "invalid_input", "paths must be a non-empty string array");
         let staged = 0;
         try {
-          for (const p of paths as string[]) {
+          for (const p of paths) {
             await gm.stage(p, true);
             staged++;
           }

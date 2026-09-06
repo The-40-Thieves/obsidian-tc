@@ -2,13 +2,27 @@
 // package ships types plus a stub whose functions throw outside the app, so importing routes.ts
 // under vitest without this fails at module load, before any assertion runs.
 //
-// Deliberately minimal: routes.ts imports five names and only THREE are values. `App` and `TFile`
-// are types, erased at compile time, so they need no runtime counterpart. Adding more here would
-// invent API surface the code under test does not use, and a mock that is richer than its subject
-// hides the coupling it exists to reveal.
+// Deliberately minimal: routes.ts imports six names and only `App` stays type-only, erased at
+// compile time with no runtime counterpart needed. `TFile` (THE-964) IS a value here — fileByPath
+// narrows with `instanceof TFile`, which needs a real class to check against — but stays a bare
+// field bag with no vault-wiring behaviour. Adding more here would invent API surface the code
+// under test does not use, and a mock that is richer than its subject hides the coupling it exists
+// to reveal.
 
 /** Obsidian's public API version, surfaced verbatim by GET /probe as `obsidian_version`. */
 export const apiVersion = "1.13.1";
+
+/**
+ * Minimal stand-in for the real `TFile` class — just enough shape for `instanceof TFile` to
+ * narrow `fileByPath`'s duck-typed vault lookups. Fixtures build one with `Object.assign(new
+ * TFile(), {...})` rather than a plain object literal, since the route code under test now
+ * checks `instanceof TFile`, not a shape/`extension` duck-check.
+ */
+export class TFile {
+  path!: string;
+  basename!: string;
+  extension!: string;
+}
 
 /**
  * Real `normalizePath` collapses duplicate slashes, strips a leading slash, and normalises
