@@ -72,23 +72,34 @@ respectively — see the notes on each item below); item 5 (mcp.so) is still ful
 - Verify: the listing appears at `https://mcp.so/servers/<slug>` (slug assigned by mcp.so — search
   the mcp.so homepage for "obsidian-tc" or "The 40 Thieves" if the slug isn't obvious).
 
-## 6. Glama — automatic, confirm only (no submission)
+## 6. Glama — manual, owner (submission required)
 
-- Glama scrapes the official MCP Registry directly; it does not take a submission. Nothing to fire
-  once item 1 is live. Per the registry's own aggregator guidance, aggregators poll "on a regular
-  but infrequent basis (e.g., once per hour)"
-  (<https://modelcontextprotocol.io/registry/registry-aggregators>).
-- Verify: <https://glama.ai/mcp/servers?query=obsidian-tc> shows the listing. May lag the registry
-  publish by up to the aggregator's own poll interval — absence after a day is worth an owner
-  glance, not an alarm.
+> **Corrected 2026-09-06.** This item used to say Glama scrapes the official MCP Registry
+> automatically and takes no submission. That is false: obsidian-tc has been in
+> `registry.modelcontextprotocol.io` since well before `1.28` (latest `1.28.4` confirmed live), yet
+> `https://glama.ai/mcp/servers/The-40-Thieves/obsidian-tc` 404s. codecalc
+> (`glama.ai/mcp/servers/The-40-Thieves/codecalc`) and alexandria-mcp
+> (`glama.ai/mcp/servers/suavecito585/alexandria-mcp`) only appear because they were submitted —
+> registry presence alone does not get a server listed.
+- Submit via the **submit flow at [glama.ai/mcp/servers](https://glama.ai/mcp/servers)** (submit
+  button), signing in with GitHub as `suavecito585`.
+- Once listed, claim the server on its `/score` page. Claiming requires the repo's root
+  `glama.json` to name the maintainer — **obsidian-tc does not have one yet**; adding it is a
+  prerequisite for this item, tracked as a separate concern, not done here.
+- After claiming, complete the profile: run Sync Server, set related servers, enable Try in
+  Browser, and build a Glama release from the Dockerfile admin page.
+- Verify: <https://glama.ai/mcp/servers/The-40-Thieves/obsidian-tc> resolves (not 404) and shows
+  the current version.
 
-## 7. PulseMCP — automatic, confirm only (no submission)
+## 7. PulseMCP — manual, owner (submission form currently paused)
 
-- Same mechanism as Glama — scrapes the official registry, no submission, nothing to fire beyond
-  item 1.
-- Expected: an obsidian-tc listing at `https://www.pulsemcp.com/servers/<slug>` (slug assigned by
-  PulseMCP), showing the registry description and linking back to the GitHub repo — same shape and
-  same lag caveat as item 6.
+> **Corrected 2026-09-06.** This item used to say PulseMCP scrapes the official MCP Registry
+> automatically and takes no submission, matching item 6's claim. That is false for the same
+> reason: `https://api.pulsemcp.com/v0beta/servers?query=obsidian-tc` returns no result for a
+> server that has been in the registry for weeks.
+- Submission form: <https://www.pulsemcp.com/submit> — **currently answers 403 as of 2026-09-06**
+  (the form appears paused). Re-check that URL periodically; there is no other submission path
+  confirmed today.
 - Verify: browse/search <https://www.pulsemcp.com/servers> for "obsidian-tc" or "The 40 Thieves";
   an exact search query-string shape was not confirmed today, so use the on-page search box rather
   than a constructed URL.
@@ -98,5 +109,7 @@ respectively — see the notes on each item below); item 5 (mcp.so) is still ful
 Items 1-2 depend only on the tag (1 fires itself; 2 is a same-day owner action). Items 3-5
 additionally depend on release assets actually being present — item 3 needs the `tc-bridge`
 manifest/asset trio on the release; Smithery and mcp.so just need the repo plus a real published
-version, which items 1-2 already establish. Items 6-7 need nothing from the owner beyond item 1
-landing, so they are the last thing to check, not the first thing to chase.
+version, which items 1-2 already establish. **Corrected 2026-09-06:** items 6-7 were previously
+described here as needing nothing from the owner beyond item 1 landing — that is false (see the
+corrections on each item above); both are owner-fired submissions, and item 6 additionally needs a
+root `glama.json` before the server can be claimed.
