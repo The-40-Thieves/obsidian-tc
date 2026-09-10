@@ -1,0 +1,4 @@
+[[IgnoredVulns]]
+id = "GHSA-4j2p-28q2-5m79"
+reason = "CVE-2026-69112 is reachable only through accelerate's own load_checkpoint_in_model/load_checkpoint_and_dispatch with a caller-supplied sharded index; transformers 5.14.1, peft 0.19.1 and FlagEmbedding 1.4.0 never call them; BAAI/bge-m3 ships no sharded index; upstream declined to fix (huggingface/accelerate#4067, 2026-09-08). Dependabot alert #7 dismissed not_used 2026-09-10; see THE-1035."
+ignoreUntil = 2026-12-31

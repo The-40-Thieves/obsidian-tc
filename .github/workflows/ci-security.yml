@@ -325,6 +325,15 @@ jobs:
         uses: ./.github/actions/bun-audit
         with:
           working-directory: packages/reranker-local
+          # GHSA-vwc7-r8mq-g2x9 (adm-zip extraction follows destination symlinks) has NO fixed
+          # version: npm shows no adm-zip release after 0.6.0, and package.json's `overrides` entry
+          # already pins adm-zip to that latest 0.6.0 (THE-1036) -- without it, onnxruntime-node's
+          # own `^0.5.16` range resolves an EARLIER, MORE vulnerable adm-zip that also carries
+          # GHSA-xcpc-8h2w-3j85 (confirmed empirically: removing the override moves the resolved
+          # version from 0.6.0 to 0.5.18 and audit findings from 1 to 2). This job would otherwise
+          # fail on every PR forever with no fix available; see packages/reranker-local/osv-scanner.toml
+          # for the matching osv-scanner ignore and its longer reasoning.
+          ignore: GHSA-vwc7-r8mq-g2x9
 
   osv-scanner:
     # Cross-ecosystem dependency scan, complementing bun-audit/cargo-audit above rather than

@@ -34,6 +34,14 @@ inputs:
       are never read).
     required: false
     default: '30 60'
+  ignore:
+    description: >-
+      Space-separated GHSA (or numeric advisory) IDs to pass to `bun audit --ignore=<id>`, one
+      flag per ID (THE-1036). For an advisory with NO fixed version published upstream -- so
+      `bun audit fix` can never clear it and it would otherwise fail this job on every PR forever
+      -- rather than disabling the audit outright. Leave empty (the default) to ignore nothing.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -44,5 +52,6 @@ runs:
         WORKING_DIRECTORY: ${{ inputs.working-directory }}
         BUN_AUDIT_ATTEMPTS: ${{ inputs.attempts }}
         BUN_AUDIT_BACKOFF_SECONDS: ${{ inputs.backoff-seconds }}
+        BUN_AUDIT_IGNORE: ${{ inputs.ignore }}
       run: |
         bash "${{ github.action_path }}/run.sh" "$WORKING_DIRECTORY"

@@ -38,7 +38,7 @@ function makeBunShim(body) {
 
 /** Run the real run.sh with the fake bun on PATH and a 0s backoff, so the test is instant
  *  (BUN_AUDIT_BACKOFF_SECONDS overrides the composite action's real 30/60 default). */
-function runAudit(binDir, { attempts = "3", backoff = "0 0" } = {}) {
+function runAudit(binDir, { attempts = "3", backoff = "0 0", ignore = "" } = {}) {
   const cwd = makeTmpDir("bun-audit-cwd-");
   try {
     const output = execFileSync("bash", [RUN_SH, cwd], {
@@ -47,6 +47,7 @@ function runAudit(binDir, { attempts = "3", backoff = "0 0" } = {}) {
         PATH: `${binDir}:${process.env.PATH}`,
         BUN_AUDIT_ATTEMPTS: attempts,
         BUN_AUDIT_BACKOFF_SECONDS: backoff,
+        BUN_AUDIT_IGNORE: ignore,
       },
     });
     return { status: 0, output };
@@ -76,6 +77,43 @@ test("a real finding (a vulnerability table + summary line) fails on the FIRST a
   assert.match(output, /attempt 1\/3/);
   assert.doesNotMatch(output, /attempt 2/);
   assert.doesNotMatch(output, /::error title=npm advisory endpoint outage::/);
+});
+
+// ---- BUN_AUDIT_IGNORE / --ignore threading (THE-1036) ------------------------------------------
+
+test("BUN_AUDIT_IGNORE unset: bun is invoked with no --ignore flag at all", () => {
+  const binDir = makeBunShim(
+    ['echo "args: $*"', 'echo "No vulnerabilities found (checked 1 packages)"', "exit 0"].join(
+      "\n",
+    ),
+  );
+  const { status, output } = runAudit(binDir);
+  assert.equal(status, 0);
+  assert.match(output, /^args: audit$/m);
+});
+
+test("BUN_AUDIT_IGNORE with one id passes a single --ignore=<id> flag", () => {
+  const binDir = makeBunShim(
+    ['echo "args: $*"', 'echo "No vulnerabilities found (checked 1 packages)"', "exit 0"].join(
+      "\n",
+    ),
+  );
+  const { status, output } = runAudit(binDir, { ignore: "GHSA-vwc7-r8mq-g2x9" });
+  assert.equal(status, 0);
+  assert.match(output, /^args: audit --ignore=GHSA-vwc7-r8mq-g2x9$/m);
+});
+
+test("BUN_AUDIT_IGNORE with several space-separated ids passes one --ignore flag per id", () => {
+  const binDir = makeBunShim(
+    ['echo "args: $*"', 'echo "No vulnerabilities found (checked 1 packages)"', "exit 0"].join(
+      "\n",
+    ),
+  );
+  const { status, output } = runAudit(binDir, {
+    ignore: "GHSA-vwc7-r8mq-g2x9 GHSA-4j2p-28q2-5m79",
+  });
+  assert.equal(status, 0);
+  assert.match(output, /^args: audit --ignore=GHSA-vwc7-r8mq-g2x9 --ignore=GHSA-4j2p-28q2-5m79$/m);
 });
 
 // Fix round 1 (adversarial review, HIGH finding): the original bare-substring markers ('503',

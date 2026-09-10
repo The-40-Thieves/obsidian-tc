@@ -6,6 +6,38 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **The 2026-09-08..10 advisories cleared across all three bun workspaces (THE-1036).** Root:
+  `hono` 4.13.0 -> 4.13.5 (three moderate advisories, incomplete-fix follow-up to CVE-2026-39408),
+  `js-yaml` 4.3.1 -> 4.3.2 (high, unbounded merge-key CPU use), `vitest`/`@vitest/mocker` 4.1.10 ->
+  4.1.11 (moderate, `@vitest/mocker` path traversal) — the vitest bump needed `@vitest/coverage-v8`
+  moved to 4.1.11 too in `packages/server` and `packages/plugin`, since it peer-pins vitest to its
+  own exact version and `bun audit fix` does not follow a non-vulnerable dependent. `docs/`
+  (a separate install root, THE-604): `astro` 7.1.3 -> 7.2.8 (critical AVIF RCE, plus a moderate
+  base-path auth bypass), `js-yaml` 4.3.1 -> 4.3.2, `sharp` 0.35.3 -> 0.35.4 (high, libheif),
+  `smol-toml` 1.6.1 -> 1.7.1 (high, malformed-TOML DoS), `svgo` 4.0.2 -> 4.1.0 (high,
+  `removeScripts` sanitizer bypass). `packages/reranker-local`: `sharp` 0.35.3 -> 0.35.4. All are
+  floor bumps inside existing ranges; no source change. `bun audit` is clean in all three
+  workspaces and `osv-scanner scan source --recursive .` reports no issues.
+
+  Two advisories have no fix and are now ignored rather than left failing every PR forever:
+  `adm-zip@0.6.0` (moderate, GHSA-vwc7-r8mq-g2x9, symlink-following extraction) has no npm release
+  after 0.6.0 — it is a transitive dep of `onnxruntime-node` via `@huggingface/transformers`, and
+  `packages/reranker-local/package.json`'s `overrides` entry already pins it to 0.6.0 deliberately:
+  removing the override lets `onnxruntime-node`'s own `^0.5.16` range resolve an *older*, more
+  vulnerable `adm-zip` that also carries GHSA-xcpc-8h2w-3j85 (confirmed empirically — the override
+  is the least-bad option, not a redundant pin). `accelerate==1.14.0` (services/bge-m3-service,
+  GHSA-4j2p-28q2-5m79) is reachable only through APIs (`load_checkpoint_in_model`/
+  `load_checkpoint_and_dispatch` with a caller-supplied sharded index) that neither this repo's
+  pinned `transformers`/`peft`/`FlagEmbedding` versions nor BAAI/bge-m3's model layout ever
+  exercise; upstream declined to fix (huggingface/accelerate#4067). `.github/actions/bun-audit`
+  gained an `ignore` input (`bun audit --ignore=<GHSA>`, repeatable via a space-separated list),
+  wired for the reranker-local step in `ci-security.yml`; `osv-scanner.toml` files under
+  `packages/reranker-local/` and `services/bge-m3-service/` — next to each lockfile/manifest, which
+  is where osv-scanner's recursive walk picks up a directory-scoped config — carry the matching
+  `[[IgnoredVulns]]` entries, both with `ignoreUntil = 2026-12-31` to force a re-look.
+
 ## [1.28.4] - 2026-09-06
 
 ### Fixed
