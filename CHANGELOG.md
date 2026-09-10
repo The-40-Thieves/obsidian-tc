@@ -38,6 +38,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   is where osv-scanner's recursive walk picks up a directory-scoped config — carry the matching
   `[[IgnoredVulns]]` entries, both with `ignoreUntil = 2026-12-31` to force a re-look.
 
+- **`BGE_MODEL_REVISION` and `BGE_RERANKER_REVISION` now actually pin what loads, not just what is
+  reported (THE-1035).** `services/bge-m3-service`'s encoder called `BGEM3FlagModel(model_id, ...)`
+  with no revision at all — FlagEmbedding 1.4's inference classes accept none — and the reranker's
+  `CrossEncoder(model_id, ...)` accepted a `revision=` kwarg but never received it; both used the
+  configured revision only afterwards, in a cosmetic `huggingface_hub.model_info` call that reported
+  a sha without constraining the load. A silent upstream update to either model could change vectors
+  even with a commit sha configured. Both loaders now resolve the pin to a local snapshot via a
+  shared `huggingface_hub.snapshot_download(repo_id, revision)` helper *before* constructing the
+  model, and load from that snapshot path instead of the bare hub id — allow-listing only the file
+  types a loader reads (so an offline start never demands an asset the old code never fetched, while
+  still excluding the unused ONNX export) — reporting the sha that was actually loaded rather than
+  echoed from the request. A local directory as the configured model id is passed straight through
+  unchanged, the reranker also resolves against `SENTENCE_TRANSFORMERS_HOME` when set, and the
+  encoder now refuses to load a snapshot missing either multi-vector head file
+  (`colbert_linear.pt` / `sparse_linear.pt`), which FlagEmbedding otherwise initialises randomly and
+  serves silently.
+
 ## [1.28.4] - 2026-09-06
 
 ### Fixed
