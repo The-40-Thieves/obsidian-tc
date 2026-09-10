@@ -49,8 +49,18 @@ loopback by default; the bearer token is defence-in-depth, not the only control.
 ## Safety properties (by design)
 
 - **Bearer auth on 127.0.0.1** - loopback bind + required token; no unauthenticated inference.
-- **Revision pinning** - `BGE_MODEL_REVISION` should be an immutable commit sha in production; a
-  silent upstream model update thus cannot change your vectors without a config change.
+- **Revision pinning** - `BGE_MODEL_REVISION` and `BGE_RERANKER_REVISION` should be immutable commit
+  shas in production. Both the encoder and the reranker resolve their pin to a local snapshot via
+  `huggingface_hub.snapshot_download` *before* the model loads, allow-listing only the file types a
+  loader reads (skipping the unused ONNX export) so an offline start never demands an asset the old
+  code never fetched, and load that snapshot rather than the bare hub id - so the pin constrains
+  what actually loads, not just what the `revision` field in the response reports, and a silent
+  upstream model update cannot change your vectors without a config change. A local directory as
+  `BGE_MODEL_ID` / `BGE_RERANKER_MODEL_ID` is passed straight to the loader unchanged (the pin can't
+  be verified against a hub revision there); the reranker also honours `SENTENCE_TRANSFORMERS_HOME`
+  as the snapshot cache directory. The encoder additionally refuses to load a snapshot missing
+  either `colbert_linear.pt` or `sparse_linear.pt` - FlagEmbedding otherwise initialises that head
+  randomly and serves it silently.
 - **No `trust_remote_code`** - the model loads with stock transformers code only.
 - **Bounded queue + single-worker batch scheduler** - one model call at a time (the GPU model is not
   re-entrant; interleaving thrashes it), with concurrent in-flight requests capped. Past the cap the
@@ -74,7 +84,7 @@ adapter speaks this, and `composeModelClient` routes `ModelClient.rerank` to it.
 | Var | Default | Meaning |
 | --- | --- | --- |
 | `BGE_MODEL_ID` | `BAAI/bge-m3` | Model to serve. |
-| `BGE_MODEL_REVISION` | `main` | Pin to a commit sha in production. |
+| `BGE_MODEL_REVISION` | `main` | Pin to a commit sha in production; resolved to a local snapshot before the model loads. |
 | `BGE_HOST` | `127.0.0.1` | Bind address (keep loopback). |
 | `BGE_PORT` | `8002` | Port. |
 | `BGE_AUTH_TOKEN` | *(empty)* | Bearer token; required for `/v1/encode`. Unset means `/v1/encode` is 503. |
