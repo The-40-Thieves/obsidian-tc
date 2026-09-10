@@ -1,0 +1,4 @@
+[[IgnoredVulns]]
+id = "GHSA-vwc7-r8mq-g2x9"
+reason = "adm-zip extraction follows destination symlinks (arbitrary file overwrite). No fixed version: npm shows no adm-zip release after 0.6.0, the version already in use here. The advisory's vulnerable range (>=0.5.9 <=0.6.0) covers every version onnxruntime-node's own ^0.5.16 dependency range can resolve to, and 0.6.0 is the least-vulnerable of those -- package.json's `overrides` entry pins it there deliberately (see the matching bun-audit ignore comment in .github/workflows/ci-security.yml, THE-1036)."
+ignoreUntil = 2026-12-31

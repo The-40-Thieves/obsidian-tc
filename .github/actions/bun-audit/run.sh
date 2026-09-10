@@ -38,12 +38,19 @@
 #   BUN_AUDIT_BIN              -- the audited command (default: bun)
 #   BUN_AUDIT_ATTEMPTS         -- max attempts before failing (default: 3)
 #   BUN_AUDIT_BACKOFF_SECONDS  -- space-separated seconds, one entry per retry (default: 30 60)
+#   BUN_AUDIT_IGNORE           -- space-separated GHSA/advisory IDs, one `--ignore=<id>` flag each
+#                                 (THE-1036; default: empty, ignores nothing)
 set -uo pipefail
 
 WORKING_DIR="${1:?usage: run.sh <working-directory>}"
 BIN="${BUN_AUDIT_BIN:-bun}"
 ATTEMPTS="${BUN_AUDIT_ATTEMPTS:-3}"
 read -r -a BACKOFF <<< "${BUN_AUDIT_BACKOFF_SECONDS:-30 60}"
+read -r -a IGNORE_IDS <<< "${BUN_AUDIT_IGNORE:-}"
+IGNORE_FLAGS=()
+for id in "${IGNORE_IDS[@]}"; do
+  IGNORE_FLAGS+=("--ignore=$id")
+done
 
 # Fix round 1 (MEDIUM finding): ATTEMPTS < 1 (or non-numeric) previously fell through the while
 # loop silently -- the step exited 0 having never invoked `bun audit`, which is this repo's own
@@ -88,7 +95,7 @@ is_registry_error() {
 attempt=1
 while [ "$attempt" -le "$ATTEMPTS" ]; do
   echo "bun-audit: attempt $attempt/$ATTEMPTS ($WORKING_DIR)"
-  if output=$(cd "$WORKING_DIR" && "$BIN" audit 2>&1); then
+  if output=$(cd "$WORKING_DIR" && "$BIN" audit "${IGNORE_FLAGS[@]}" 2>&1); then
     status=0
   else
     status=$?
