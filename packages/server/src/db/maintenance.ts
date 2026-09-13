@@ -294,8 +294,17 @@ export function runMaintenanceSweep(
   // the database" — bounded work per call, distinct from `'optimize'` (merges everything into one
   // b-tree in a single transaction — a ~1.2s write-lock on the reporter's 154MB index, reserved
   // for the explicit operator path, `obsidian-tc compact`; see cli/commands/compact.ts). N=16
-  // matches the ticket's suggested shape and converges over successive sweeps rather than
-  // blocking this one.
+  // matches the ticket's suggested shape.
+  //
+  // THE-1039 fix round 1 (D5) — corrected: a positive-N sweep does NOT converge to a fully merged
+  // index (the prior wording here, "converges over successive sweeps", overstated it). A positive
+  // N only merges b-trees "eligible" for it: "There are U or more such b-trees on a single level
+  // ... where U is the [FTS5] usermerge option" (default 4), "[or] A merge has already been
+  // started" (fts5.html 6.8) — below that threshold it is a no-op, confirmed both in
+  // fts5_index.c's `sqlite3Fts5IndexMerge` (`nMin = p->pConfig->nUsermerge` for `nMerge>=0`) and
+  // measured directly (3 segments stayed at 3 after 10 successive `'merge', 16` calls). This arm
+  // is bounded incremental work, not a consolidation guarantee — full consolidation (`'optimize'`,
+  // fts5_index.c's negative-N path) is `obsidian-tc compact`'s job, not this sweep's.
   //
   // The special command takes TWO columns, `(tbl, rank)`, not one — sqlite.org's own example is
   // `INSERT INTO ft(ft, rank) VALUES('merge', 500)`. The ticket's suggested `(tbl)`-only form
