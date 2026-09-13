@@ -927,3 +927,76 @@ describe("THE-1044 R: a keep-chomp value ending the block survives a neighbour's
     expect(read(out)).toEqual({ text: "changed\n", right: 2 });
   });
 });
+
+describe("THE-1045: anchor collection walks a collision group by pair identity", () => {
+  function setKey(raw: string, key: string, value: unknown) {
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), [key]: value };
+    return serializeNote(fm, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+      frontmatterAtEof: p.frontmatterAtEof,
+    });
+  }
+  const read = (out: string) => parseNote(out).frontmatter;
+
+  // `*key` materializes into a second `1:` pair, which the collision-group collapse then drops —
+  // but that pair's VALUE carries `&v`. Anchor collection went through doc.get, whose findPair
+  // falls back to key-VALUE equality and returns the FIRST pair of the group, so `&v` was never
+  // collected: `c: *v` dangled, doc.toString() threw, and the block was plain-stringified.
+  const ANCHOR_UNDER_A_DROPPED_PAIR =
+    "---\n1: &key 1\n*key : &v third\n'1': second\nb: *key\nc: *v\n---\n";
+
+  it("Q1: an anchor under a shadowed pair of an alias-key group is collected", () => {
+    expect(read(ANCHOR_UNDER_A_DROPPED_PAIR)).toEqual({ "1": "second", b: 1, c: "third" });
+    const out = setKey(ANCHOR_UNDER_A_DROPPED_PAIR, "b", 2);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ "1": "second", b: 2, c: "third" });
+    // The document path keeps the source's own key quoting; the fallback re-quotes from scratch.
+    expect(out).toBe("---\n'1': second\nb: 2\nc: third\n---\n");
+  });
+
+  it("Q2: an anchor on the SURVIVING pair's value keeps its aliases", () => {
+    const raw =
+      "---\n1: &key 1\n*key : &v third\n'1': &s second\nb: *key\nc: *v\nd: *s\n---\nbody\n";
+    expect(read(raw)).toEqual({ "1": "second", b: 1, c: "third", d: "second" });
+    const out = setKey(raw, "b", 2);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ "1": "second", b: 2, c: "third", d: "second" });
+    expect(out).toContain("&s");
+    expect(out).toContain("*s");
+  });
+
+  it("Q3: an anchor no dropped pair defines is left alone", () => {
+    const out = setKey("---\na: &x [1, 2]\nb: *x\nkeep: &y 7\nd: *y\n---\n", "a", 9);
+    expect(read(out)).toEqual({ a: 9, b: [1, 2], keep: 7, d: 7 });
+    expect(out).toContain("keep: &y 7");
+    expect(out).toContain("d: *y");
+  });
+
+  it("Q4: a block the emitter cannot rewrite falls back AND reports it once", () => {
+    const calls: { path?: string; error: string }[] = [];
+    // An alias whose anchor is not in the block: the library refuses it on read and on emit, so
+    // every source-following path throws and the caller's mapping is plain-stringified instead.
+    const out = serializeNote({ a: 1, b: 2 }, "body\n", "a: 1\nb: *nope", {
+      frontmatterEol: "\n",
+      frontmatterAtEof: false,
+      path: "notes/broken.md",
+      onFallback: (info) => calls.push(info),
+    });
+    expect(out).toBe("---\na: 1\nb: 2\n---\nbody\n");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.path).toBe("notes/broken.md");
+    expect(calls[0]?.error).toContain("Unresolved alias");
+  });
+
+  it("Q5: a block the emitter DOES rewrite reports nothing", () => {
+    const calls: unknown[] = [];
+    const out = serializeNote({ a: 9 }, "body\n", "a: 1", {
+      frontmatterEol: "\n",
+      path: "notes/ok.md",
+      onFallback: (info) => calls.push(info),
+    });
+    expect(out).toBe("---\na: 9\n---\nbody\n");
+    expect(calls).toEqual([]);
+  });
+});

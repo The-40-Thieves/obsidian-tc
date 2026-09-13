@@ -14,6 +14,7 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";
+import { frontmatterFallbackSink } from "../../../util/errors";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
 import { requireConfirmation } from "../../../vault/hitl";
@@ -407,6 +408,8 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter, {
         frontmatterEol: parsed.frontmatterEol,
         frontmatterAtEof: parsed.frontmatterAtEof,
+        path: rel,
+        onFallback: frontmatterFallbackSink,
       });
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a

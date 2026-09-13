@@ -6,6 +6,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole
+  block was re-emitted by a plain stringify, losing every anchor, comment and byte of source
+  formatting, and nothing said so (THE-1045).** Anchor collection reached a pair's value through
+  `doc.get`, whose `findPair` falls back to key-VALUE equality and hands back the FIRST pair of a
+  collision group, so an anchor under a later pair was never collected; the group collapse then
+  dropped that pair, its alias dangled, `Document.toString()` threw `Unresolved alias`, and the
+  blanket `catch` fell through to the stringify without a word. Collection now walks the document's
+  own pairs by node identity, and only the pairs a collapse actually drops contribute anchors, so an
+  anchor on the pair that survives keeps its aliases. The plain-stringify fallback itself is
+  unchanged but no longer silent: `serializeNote` accepts an optional `path` and `onFallback`, and
+  every note-writing tool wires it to a stderr sink naming the note and the emitter's own message.
+  Origin: the THE-1044 review.
+
 ## [1.30.0] - 2026-09-13
 
 ### Added

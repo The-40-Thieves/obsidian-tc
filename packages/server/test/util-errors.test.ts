@@ -4,7 +4,7 @@
 // it is the one a naive `(e as Error).message` gets wrong, and the one this repo has been bitten by
 // before (a failure encoded as a valid domain value is invisible in exactly this shape).
 import { describe, expect, it, vi } from "vitest";
-import { errorMessage, stderrOnError } from "../src/util/errors";
+import { errorMessage, frontmatterFallbackSink, stderrOnError } from "../src/util/errors";
 
 describe("errorMessage", () => {
   it("reads .message off a real Error", () => {
@@ -40,6 +40,30 @@ describe("stderrOnError", () => {
     try {
       expect(() => stderrOnError("episodes")("disk full")).not.toThrow();
       expect(write).toHaveBeenCalledWith("[episodes] disk full\n");
+    } finally {
+      write.mockRestore();
+    }
+  });
+});
+
+describe("frontmatterFallbackSink", () => {
+  it("names the note and the emitter's own message", () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      frontmatterFallbackSink({ path: "notes/a.md", error: "Unresolved alias: v" });
+      expect(write).toHaveBeenCalledWith(
+        "[frontmatter-fallback] notes/a.md: Unresolved alias: v\n",
+      );
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("still reports when the caller passed no path", () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      frontmatterFallbackSink({ error: "boom" });
+      expect(write).toHaveBeenCalledWith("[frontmatter-fallback] <unknown>: boom\n");
     } finally {
       write.mockRestore();
     }

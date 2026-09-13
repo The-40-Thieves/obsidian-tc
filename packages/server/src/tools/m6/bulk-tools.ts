@@ -25,6 +25,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
@@ -324,6 +325,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const body = serializeNote(fm, parsed.body, parsed.rawFrontmatter, {
               frontmatterEol: parsed.frontmatterEol,
               frontmatterAtEof: parsed.frontmatterAtEof,
+              path: rel,
+              onFallback: frontmatterFallbackSink,
             });
             writeNoteAtomic(abs, body, false);
             deps.reindex?.(v.id, rel, body);

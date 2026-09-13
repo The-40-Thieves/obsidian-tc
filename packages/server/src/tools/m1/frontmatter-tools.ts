@@ -8,6 +8,7 @@
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import type { Frontmatter } from "../../vault/frontmatter";
@@ -364,6 +365,8 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const content = serializeNote(hasKeys ? next : null, body, rawFm, {
           frontmatterEol: fmEol,
           frontmatterAtEof: fmAtEof,
+          path: rel,
+          onFallback: frontmatterFallbackSink,
         });
         writeNoteAtomic(abs, content, true);
         deps.reindex?.(v.id, rel, content);
