@@ -47,12 +47,28 @@ function leadingRun(s: string, ch: string): number {
   return n;
 }
 
+/** Leading indentation of `line` in COLUMNS, a tab expanding to the next multiple of 4 — review
+ *  round 3 G1: a raw character count treats a leading tab as 1 column instead of the 4 CommonMark
+ *  gives it, letting a tab-indented delimiter pass as a fence when it is really indented code. */
+function leadingIndentColumns(line: string): number {
+  let col = 0;
+  for (const ch of line) {
+    if (ch === " ") col += 1;
+    else if (ch === "\t") col = Math.floor(col / 4) * 4 + 4;
+    else break;
+  }
+  return col;
+}
+
 /** CommonMark-ish fenced-code state machine, shared by `fenceMask` and `hasUnterminatedFence`
- *  (GH #926; review round 1 I2/M8, round 2 Codex's shorter-closer-with-trailing-text repro). A
- *  line opens a fence when, after stripping AT MOST 3 leading spaces (a 4-space-or-more indent is
- *  an indented code block, not a fence — review M8), its trimmed form is a run of 3+ backticks or
- *  3+ tildes (an optional info string may follow, per CommonMark). Once open, a line closes it
- *  only when its trimmed form is NOTHING BUT a run of the SAME character, at least as long as the
+ *  (GH #926; review round 1 I2/M8, round 2 Codex's shorter-closer-with-trailing-text repro, round
+ *  3 G1/G2). A line opens a fence when, after stripping AT MOST 3 columns of leading indentation
+ *  (tabs expand to the next 4-column stop — round 3 G1; 4+ columns is an indented code block, not
+ *  a fence — round 1 M8), its trimmed form is a run of 3+ backticks or 3+ tildes, with two
+ *  exceptions: a backtick run's info string (the text after the run) may not itself contain a
+ *  backtick — CommonMark disallows this because it would collide with inline code spans — while a
+ *  tilde run's info string has no such restriction (round 3 G2). Once open, a line closes it only
+ *  when its trimmed form is NOTHING BUT a run of the SAME character, at least as long as the
  *  opener's run — shorter (a 3-backtick line inside a 4-backtick fence), a different character (a
  *  ``` inside a ~~~ block), or trailing text after the run (` ``` extra`) are all content, not a
  *  close. */
@@ -66,12 +82,11 @@ function createFenceTracker() {
     /** Feed one raw (untrimmed) line; returns true iff this line is itself a fence delimiter
      *  (open or close) — never real content, never a heading. */
     feed(line: string): boolean {
-      const indent = (/^ */.exec(line) as RegExpExecArray)[0].length;
-      if (indent > 3) return false;
+      if (leadingIndentColumns(line) > 3) return false;
       const t = line.trim();
       if (char === null) {
         const backticks = leadingRun(t, "`");
-        if (backticks >= 3) {
+        if (backticks >= 3 && !t.slice(backticks).includes("`")) {
           char = "`";
           openLen = backticks;
           return true;
@@ -198,7 +213,11 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
   while (start > 0) {
     const prev = lines[start - 1] ?? "";
     if (prev.trim() === "") break;
-    if (!mask[start - 1] && HEADING.test(prev)) break;
+    // Review round 3 B1: a fence boundary (delimiter or fenced content) terminates the paragraph
+    // exactly like a blank line or a heading does — the walk must never step onto a masked line,
+    // or a `replace`/`prepend` on a block just past a fenced example deletes the fence too.
+    if (mask[start - 1]) break;
+    if (HEADING.test(prev)) break;
     start--;
   }
   return { found: true, startIndex: start, endIndex: bi + 1 };
@@ -233,14 +252,22 @@ export function replaceInSection(
   oldString: string,
   newString: string,
   eol: string,
+  // Review round 2 B2: the exact literal suffix (a block anchor's trailing `^id` marker, taken
+  // verbatim off the end of the section text) to exclude from matching and reattach unmodified —
+  // I4's heading-line protection has no block-anchor analogue since the marker is a SUFFIX of a
+  // line, not the whole line. "" (default) protects nothing.
+  excludeTrailing = "",
 ): ReplaceTextResult {
   const lines = body.split(/\r?\n/);
   const sectionText = lines.slice(span.startIndex, span.endIndex).join(eol);
+  const searchableText = excludeTrailing
+    ? sectionText.slice(0, sectionText.length - excludeTrailing.length)
+    : sectionText;
   // Review round 1 I3: a caller's old_string/new_string are plain strings, and a multi-line one is
   // very likely authored with "\n" regardless of the note's own EOL — normalize both sides (and
   // the section text being searched) to "\n" for matching, then reassemble with `eol` so a CRLF
   // note stays CRLF end to end.
-  const normalizedSection = sectionText.replace(/\r\n/g, "\n");
+  const normalizedSection = searchableText.replace(/\r\n/g, "\n");
   const normalizedOld = oldString.replace(/\r\n/g, "\n");
   const count = countOccurrences(normalizedSection, normalizedOld);
   if (count !== 1) return { body, count };
@@ -248,7 +275,7 @@ export function replaceInSection(
   // Review round 2 N1: `String.replace(str, replacement)` treats a STRING replacement as a
   // template ($&, $$, $1, ...) — a replacement callback inserts `normalizedNew` literally.
   const nextNormalizedSection = normalizedSection.replace(normalizedOld, () => normalizedNew);
-  const nextSection = nextNormalizedSection.split("\n").join(eol);
+  const nextSection = nextNormalizedSection.split("\n").join(eol) + excludeTrailing;
   const next = [
     ...lines.slice(0, span.startIndex),
     ...nextSection.split(/\r?\n/),

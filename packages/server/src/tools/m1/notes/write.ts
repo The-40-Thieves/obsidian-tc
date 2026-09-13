@@ -26,6 +26,7 @@ import type { M1Deps } from "../shared";
 import type { PatchResult } from "./anchors";
 import {
   dropDuplicateLeadingHeading,
+  escapeRegExp,
   hasUnterminatedFence,
   patchByBlock,
   patchByHeading,
@@ -291,12 +292,25 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           anchor.type === "heading"
             ? { ...resolved, startIndex: resolved.startIndex + 1 }
             : resolved;
+        // Review round 2 B2: a block anchor's own I4-analogue — the trailing `^id` token on the
+        // marker line (the section's last line) must survive too. Only the marker SUFFIX is
+        // protected; ordinary text before it on the same line is still fair game.
+        let excludeTrailing = "";
+        if (anchor.type === "block") {
+          const bodyLines = parsed.body.split(/\r?\n/);
+          const markerLine = bodyLines[resolved.endIndex - 1] ?? "";
+          const markerMatch = new RegExp(`(?:^|\\s)\\^${escapeRegExp(anchor.block_id)}\\s*$`).exec(
+            markerLine,
+          );
+          excludeTrailing = markerMatch?.[0] ?? "";
+        }
         const { body: nextBody, count } = replaceInSection(
           parsed.body,
           matchWindow,
           oldString,
           newString,
           eol,
+          excludeTrailing,
         );
         if (count === 0)
           throw err.invalidInput("old_string not found in section", { path: rel, anchor });

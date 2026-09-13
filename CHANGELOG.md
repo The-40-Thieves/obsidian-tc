@@ -21,22 +21,33 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **`patch_note` heading anchor correctness, `read_note` section read, exact-string replace
   (THE-1038, #922, #926, #927, #928).** `patch_note`'s anchor resolution moved into a shared
-  `notes/anchors.ts` and now: skips fenced code (` ``` `/`~~~`, closing on the same fence
-  character) in every heading scan, so a `## heading`-shaped line inside a code block is no
-  longer treated as a real anchor or section boundary (#926); refuses an anchor (heading or block
-  id) that matches more than one line instead of silently binding to the first match, which used
-  to let a second `replace` on a duplicated heading insert a whole second body (#922 shape 3);
-  drops a duplicate leading heading from `replace` content when it repeats the anchor's own
-  heading, so both calling conventions produce one heading instead of two (#922 shape 2); and
-  refuses an operation that would flip the note from a terminated fence state to an unterminated
-  one, comparing before/after so an already-broken note is not refused on every later patch (#926
-  suggested guard). `read_note` gains an optional `anchor` (patch_note's own vocabulary) returning
+  `notes/anchors.ts` and now: recognizes fenced code (` ``` `/`~~~`) per CommonMark's actual
+  fence-closing rule — a closer must be the same character, at least as long as the opener, and
+  nothing but the delimiter run; a delimiter indented 4+ columns (a tab expands to the next
+  4-column stop) is an indented code block, not a fence; a backtick opener whose info string
+  itself contains a backtick is not a valid fence (tilde openers are exempt) — so a `## heading`-
+  shaped line inside a code block is never treated as a real anchor or section boundary (#926),
+  and a block anchor's own paragraph-start walk stops at a fence boundary the same way it stops at
+  a blank line or a heading, rather than deleting a fenced example above the block it targets.
+  Refuses an anchor (heading or block id) that matches more than one line — or only inside a
+  fenced code block — instead of silently binding to the first match, which used to let a second
+  `replace` on a duplicated heading insert a whole second body (#922 shape 3). Drops a duplicate
+  leading heading from `replace` content when it repeats the anchor's own heading, so both calling
+  conventions produce one heading instead of two (#922 shape 2). Refuses an operation that would
+  flip the note from a terminated fence state to an unterminated one, comparing before/after so an
+  already-broken note is not refused on every later patch (#926 suggested guard). `read_note`
+  gains an optional `anchor` (patch_note's own vocabulary) returning
   `section: {text, start_line, end_line, heading_level?}` for exactly the span a matching
   `patch_note` call would touch, with `content_hash` staying the whole-note hash so it round-trips
   into `prev_hash` (#927). `patch_note` gains `operation: "replace_text"` (`old_string`/
-  `new_string`), an exact-string substitution scoped to the resolved anchor's section that refuses
-  on 0 or 2+ matches (#928). Setext headings, trailing-footer/`stop_before` bounding (#922 shape
-  1), and mixed-EOL preservation remain open on THE-1038.
+  `new_string`), an exact-string substitution scoped to the resolved anchor's section (excluding a
+  heading anchor's own heading line, and a block anchor's own `^id` marker token, from the match
+  window) that refuses on 0 or 2+ matches and matches a multi-line `old_string` against a CRLF
+  note's section regardless of which line ending the caller authored it with — the section's own
+  line ending is preserved on write; frontmatter delimiters are LF even around a CRLF body
+  (pre-existing, unrelated to this anchor work). Setext headings, trailing-footer/`stop_before`
+  bounding (#922 shape 1), and a scoped `replace_text`/`replace` normalizing a note with genuinely
+  MIXED line endings to one detected EOL remain open on THE-1038.
 
 - **The 2026-09-08..10 advisories cleared across all three bun workspaces (THE-1036).** Root:
   `hono` 4.13.0 -> 4.13.5 (three moderate advisories, incomplete-fix follow-up to CVE-2026-39408),

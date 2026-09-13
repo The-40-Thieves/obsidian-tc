@@ -5,6 +5,18 @@
 import { describe, expect, it } from "vitest";
 import { makeTestVault } from "./m1-helpers";
 
+type Section = { text: string; start_line: number; end_line: number; heading_level?: number };
+
+/** Proves start_line/end_line against the RAW file content, per the review's own formula.
+ *  Review round 2 T5: joins with the note's OWN eol (not a hardcoded "\n"), so this is a real
+ *  proof on a CRLF note too, not just LF ones. */
+function assertLineNumbersMatch(content: string, section: Section): void {
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
+  const rawLines = content.split(/\r?\n/);
+  const recomputed = rawLines.slice(section.start_line - 1, section.end_line).join(eol);
+  expect(recomputed).toBe(section.text);
+}
+
 describe("GH #927: read_note section read", () => {
   // Lines (1-based) in the raw file:
   // 1 ---            2 title: Test     3 ---
@@ -150,7 +162,8 @@ describe("GH #927: read_note section read", () => {
     }
   });
 
-  it("a CRLF note's section text keeps CRLF line endings", async () => {
+  it("a CRLF note's section text keeps CRLF line endings, with proven line numbers", async () => {
+    // Review round 2 T5: the line-number invariant is now applied here too, not just to LF notes.
     const crlf = "# One\r\nfirst\r\nsecond\r\n# Two\r\nkeep\r\n";
     const v = makeTestVault({ files: { "a.md": crlf } });
     try {
@@ -160,10 +173,16 @@ describe("GH #927: read_note section read", () => {
         anchor: { type: "heading", heading: "One" },
       });
       expect(r.ok).toBe(true);
-      if (r.ok)
-        expect((r.data as { section?: { text: string } }).section?.text).toBe(
-          "# One\r\nfirst\r\nsecond",
-        );
+      if (r.ok) {
+        const section = (r.data as { section?: Section }).section as Section;
+        expect(section).toEqual({
+          text: "# One\r\nfirst\r\nsecond",
+          start_line: 1,
+          end_line: 3,
+          heading_level: 1,
+        });
+        assertLineNumbersMatch(crlf, section);
+      }
     } finally {
       v.cleanup();
     }
@@ -171,15 +190,6 @@ describe("GH #927: read_note section read", () => {
 });
 
 describe("Review round 1 C1: read_note section line numbers", () => {
-  type Section = { text: string; start_line: number; end_line: number; heading_level?: number };
-
-  /** Proves start_line/end_line against the RAW file content, per the review's own formula. */
-  function assertLineNumbersMatch(content: string, section: Section): void {
-    const rawLines = content.split(/\r?\n/);
-    const recomputed = rawLines.slice(section.start_line - 1, section.end_line).join("\n");
-    expect(recomputed).toBe(section.text);
-  }
-
   it("C1(a): an empty preamble reports start_line === end_line, never end_line < start_line", async () => {
     const raw = "---\ntitle: x\n---\n# H\nbody\n";
     const v = makeTestVault({ files: { "a.md": raw } });
@@ -1230,6 +1240,190 @@ describe("Review round 2 N3: replace_text wiring parity with replace", () => {
       expect(reindexed[0]?.path).toBe("a.md");
       expect(reindexed[0]?.content).toContain("new");
       expect(reindexed[0]?.content).not.toContain("old");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 3 G1/G2: CommonMark fence-recognition edge cases", () => {
+  it("G1: a TAB-indented fence delimiter is content (a tab expands to a 4-column stop)", async () => {
+    // A leading tab is 4 columns of indentation per CommonMark, same as 4 spaces — content, not
+    // a fence. Without column-aware indentation, this masks ## B and a replace on A consumes
+    // the rest of the note.
+    const raw = "## A\nold\n\t```\nmore\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nnew\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("G2: a backtick fence opener whose info string contains a backtick is not a valid fence", async () => {
+    // Verbatim shape from the review: the backtick run's info string ("js`x`") itself contains a
+    // backtick, which CommonMark disallows for backtick fences — the line is ordinary text, so
+    // ## B remains a real, live heading and the odd-fence guard must not fire.
+    const raw = "## A\n```js`x`\ntext\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\n```js`x`\ntext\nNEW\n## B\nkeep");
+      // ## B survives as a real, independently-resolvable heading.
+      const r2 = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "B",
+        content: "TAIL",
+      });
+      expect(r2.ok).toBe(true);
+      if (r2.ok) expect((r2.data as { lines_removed: number }).lines_removed).toBe(0);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("G2: a TILDE fence opener's info string MAY contain a backtick (tildes are exempt)", async () => {
+    const raw = "## A\n~~~js`x`\n## FakeInside\n~~~\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      // The tilde fence validly opened (backtick in info string is fine for ~~~), so
+      // "## FakeInside" stayed masked and NEW lands right before the real ## B.
+      expect(v.read("a.md")).toBe("## A\n~~~js`x`\n## FakeInside\n~~~\nNEW\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 3 B1: block paragraph-start walk stops at a fence boundary", () => {
+  // Codex re-check: with a fenced ^id no longer a resolution candidate (M5/N2), the primary
+  // match on the real (non-fenced) ^dup is found, but the paragraph-start walk previously
+  // crossed the fence boundary above it, treating the fenced example as part of the "paragraph" —
+  // a replace on the real block deleted the fenced example too.
+  const raw = "## A\n```\nsample ^dup\n```\nreal ^dup\n\n## B\nkeep";
+  const fencedBlock = "```\nsample ^dup\n```";
+
+  it("replace touches only the real block; the fenced example survives byte-identical", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        anchor: { type: "block", block_id: "dup" },
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\n```\nsample ^dup\n```\nNEW\n\n## B\nkeep");
+      expect(out).toContain(fencedBlock);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("append touches only after the real block; the fenced example survives byte-identical", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "block", block_id: "dup" },
+        content: "AFTER",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\n```\nsample ^dup\n```\nreal ^dup\nAFTER\n\n## B\nkeep");
+      expect(out).toContain(fencedBlock);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("prepend touches only before the real block; the fenced example survives byte-identical", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "prepend",
+        anchor: { type: "block", block_id: "dup" },
+        content: "BEFORE",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\n```\nsample ^dup\n```\nBEFORE\nreal ^dup\n\n## B\nkeep");
+      expect(out).toContain(fencedBlock);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 2 B2: replace_text on a block anchor preserves the ^id marker", () => {
+  it("refuses to match the marker itself — old_string not found in section", async () => {
+    const raw = "para one ^blk1\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "blk1" },
+        old_string: "^blk1",
+        new_string: "",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.message).toBe("old_string not found in section");
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("still matches ordinary text before the marker, which survives untouched", async () => {
+    const raw = "para one ^blk1\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "blk1" },
+        old_string: "one",
+        new_string: "TWO",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("para TWO ^blk1\nkeep");
     } finally {
       v.cleanup();
     }
