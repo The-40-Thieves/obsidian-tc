@@ -725,6 +725,119 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     TEST_BUDGET_MS,
   );
 
+  // J1 (pre-merge, P1) — `--json <path>` wrote wherever it was pointed, with no check that the path
+  // aliases a database: `--json <cacheDir>/cache.db` TRUNCATED the database it had just inspected,
+  // and `--json <into>/cache.db` replaced the verified copy with JSON after printing the mv for it.
+  // Refused before anything is opened, so a mistyped path changes nothing.
+  describe("J1 — --json may not alias a database this command manages", () => {
+    it(
+      "--dry-run --json <cacheDir>/cache.db refuses, and the database is untouched",
+      async () => {
+        const { cacheDir, configPath } = setupConfig();
+        await seedInflatedCacheDb(cacheDir);
+        const dbPath = join(cacheDir, "cache.db");
+        const hashBefore = sha256(dbPath);
+
+        const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", dbPath]);
+
+        expect(r.code).toBe(1);
+        expect(r.stderr).toMatch(/--json .*would overwrite/);
+        expect(r.stderr).not.toContain("fatal:");
+        expect(sha256(dbPath)).toBe(hashBefore);
+      },
+      TEST_BUDGET_MS,
+    );
+
+    it(
+      "--into <dir> --json <dir>/cache.db refuses before the copy is made",
+      async () => {
+        const { cacheDir, configPath } = setupConfig();
+        await seedInflatedCacheDb(cacheDir);
+        const dbPath = join(cacheDir, "cache.db");
+        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-json-alias-"));
+        dirs.push(destDir);
+        const hashBefore = sha256(dbPath);
+
+        const r = runCli([
+          "compact",
+          "--config",
+          configPath,
+          "--into",
+          destDir,
+          "--json",
+          join(destDir, "cache.db"),
+        ]);
+
+        expect(r.code).toBe(1);
+        expect(r.stderr).toMatch(/--json .*would overwrite/);
+        expect(sha256(dbPath)).toBe(hashBefore);
+        // Refused BEFORE the copy: no half-made destination left behind either.
+        expect(existsSync(join(destDir, "cache.db"))).toBe(false);
+      },
+      TEST_BUDGET_MS,
+    );
+
+    it(
+      "a -wal sidecar of a managed database is refused too",
+      async () => {
+        const { cacheDir, configPath } = setupConfig();
+        await seedInflatedCacheDb(cacheDir);
+        const r = runCli([
+          "compact",
+          "--config",
+          configPath,
+          "--dry-run",
+          "--json",
+          join(cacheDir, "cache.db-wal"),
+        ]);
+        expect(r.code).toBe(1);
+        expect(r.stderr).toMatch(/--json .*would overwrite/);
+      },
+      TEST_BUDGET_MS,
+    );
+  });
+
+  // J2 (pre-merge, P2) — only the BUSY branch carried the partial `ftsOptimized` out; any other
+  // failure after `'optimize'` committed its merge rethrew bare, so the report read
+  // `ftsOptimized: []` while `notes_fts_data` had demonstrably shrunk (Codex measured 17 -> 3 rows
+  // with an empty list and exit 1). The in-place hook forces a non-busy failure at that point.
+  it(
+    "J2: a non-busy failure after the merge still reports the tables it optimized",
+    async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const dbPath = join(cacheDir, "cache.db");
+      const countDataRows = async (): Promise<number> => {
+        const db = await openDatabase(dbPath, 5000, { readonly: true });
+        try {
+          return (db.prepare("SELECT COUNT(*) AS n FROM notes_fts_data").get() as { n: number }).n;
+        } finally {
+          db.close?.();
+        }
+      };
+      const before = await countDataRows();
+
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW: "1",
+      });
+
+      expect(r.code).toBe(1);
+      // The merge really did commit — this is the write the empty list was hiding.
+      expect(await countDataRows()).toBeLessThan(before);
+
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        error?: string;
+        ftsOptimized: string[];
+      }>;
+      const cacheReport = report.find((x) => x.db === "cache.db");
+      expect(cacheReport?.error).toMatch(/OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW/);
+      expect(cacheReport?.ftsOptimized).toEqual(["notes_fts"]);
+    },
+    TEST_BUDGET_MS,
+  );
+
   // THE-1039 breaker ruling (#2) — the CLI-level proof that a native readonly failure reaches the
   // fallback and the command still works. `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW=1` throws at the
   // probe step inside the adapter, where macOS's deferred "unable to open database file" lands, so

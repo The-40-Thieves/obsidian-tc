@@ -459,6 +459,7 @@ plur tools degrade to `plugin_missing` with no network call.
 | `OBSIDIAN_TC_PROFILE=1` | Emit startup/dispatch profiling timings to stderr (diagnostic). |
 | `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` | **Test-only.** Forces the inspection-connection open (`compact --dry-run`/`--into`, `doctor`) onto its writable-descriptor fallback, which no longer guarantees the file's bytes are unchanged. Not for production use. |
 | `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW` | **Test-only.** Makes the NATIVE readonly open attempt fail inside the adapter — `1` at the first statement (where a deferred SQLite open failure lands), `construct` at construction — so the writable-fallback path is exercisable on a platform whose native open succeeds. Not for production use. |
+| `OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` | **Test-only.** Fails `compact`'s in-place path immediately after FTS5 `'optimize'` commits, so the report's partial `ftsOptimized` list is exercisable. Not for production use. |
 | `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE` | **Test-only.** Interferes with `compact --into` after its `VACUUM INTO`: `1` = a plain error, `busy` = `SQLITE_BUSY`, `delete:<table>` = drop one row from the copy so verification sees a real mismatch, `count-error:<table>` = make that table's `COUNT(*)` fail on the copy. Not for production use. |
 
 Secrets (`restApiKey`, embedding API keys, the JWT secret, gateway/plur tokens)

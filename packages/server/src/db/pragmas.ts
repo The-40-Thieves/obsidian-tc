@@ -30,12 +30,10 @@ export function forceReadonlyOpenFallback(): boolean {
 }
 
 /**
- * THE-1039 (M1) — test-only fault hook for `compact --into`, here beside the other two so this
- * ticket's hooks stay enumerable in one place. `=1` makes the step right after `VACUUM INTO` throw a
- * plain Error, `=busy` a SQLITE_BUSY-shaped one; unset injects nothing. It replaces a fixture that
- * needed `VACUUM INTO` to leave a copy for a later step to choke on — build-dependent, and untrue on
- * macOS, where no copy was produced and the retained-copy assertion failed.
- */
+ * THE-1039 (M1) — test-only fault hook for `compact --into`, beside the others so this ticket's hooks
+ * stay enumerable in one place. `=1` makes the step right after `VACUUM INTO` throw, `=busy` a
+ * SQLITE_BUSY-shaped error; unset injects nothing. It replaces a fixture that needed `VACUUM INTO` to
+ * leave a copy for a later step to choke on — build-dependent, and untrue on macOS. */
 export function forcedCompactIntoFailure():
   | { kind: "throw"; error: Error }
   | { kind: "delete"; table: string }
@@ -58,12 +56,20 @@ export function forcedCompactIntoFailure():
   return { kind: "throw", error };
 }
 
+/** THE-1039 (J2) — test-only hook throwing a NON-BUSY error right after the in-place `'optimize'`
+ *  committed its merge: `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE` cannot reach that point, and no
+ *  fixture makes the VACUUM after a successful merge fail on demand. */
+export function forcedPostOptimizeThrow(): Error | undefined {
+  return process.env.OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW === "1"
+    ? new Error("OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1")
+    : undefined;
+}
+
 /**
  * THE-1039 — test-only hook making the NATIVE readonly attempt FAIL inside the adapter, so the real
  * attempt -> refusal check -> writable-open path runs where the native open would otherwise succeed.
  * `=1` throws at the PROBE step, modelling the macOS shape (construction succeeds, the first
- * statement fails); `=construct` throws before the handle is used. Unset in production.
- */
+ * statement fails); `=construct` throws before the handle is used. Unset in production. */
 export function forcedReadonlyOpenThrow(): "construct" | "probe" | undefined {
   const mode = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW;
   if (mode === "1") return "probe";

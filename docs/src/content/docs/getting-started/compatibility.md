@@ -64,7 +64,7 @@ This exists so the degraded path can be tested deliberately — it is what CI us
 you suspect a native/JS behavioural difference: if a bug disappears under the flag, the native path
 is implicated.
 
-Three further escape hatches share this shape but are **test-only** — unlike the flag above they are
+Four further escape hatches share this shape but are **test-only** — unlike the flag above they are
 not a supported operating mode, because each deliberately weakens a safety property:
 
 - `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` forces the inspection-connection open used by
@@ -76,6 +76,9 @@ not a supported operating mode, because each deliberately weakens a safety prope
   writable-fallback path can be exercised on a platform whose native open succeeds. `=construct`
   fails at construction instead. This is the inverse of the flag above, which skips the native
   attempt rather than failing it.
+- `OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` fails `compact`'s in-place path immediately
+  after FTS5 `'optimize'` has committed its merge, so the report can be checked for the FTS work it
+  must still name when a later step fails.
 - `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=1` (or `=busy`) makes the step after `compact --into`'s
   `VACUUM INTO` fail, so the "an incomplete copy remains at …" reporting path can be exercised
   without depending on a platform's SQLite to corrupt a fixture in a particular way;
