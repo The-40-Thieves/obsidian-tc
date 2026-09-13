@@ -40,23 +40,71 @@ export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** GH #926: a line whose trimmed form starts with ``` or ~~~ opens a fence; it closes only on a
- *  line starting with the SAME fence character, so a ``` nested inside a ~~~ block is content,
- *  not a close. Returns, per line, whether a heading test on that line must be ignored — true for
- *  the delimiter lines themselves (never real headings) and every line strictly between them. */
+/** Length of the leading run of `ch` in `s` (0 if `s` doesn't start with `ch`). */
+function leadingRun(s: string, ch: string): number {
+  let n = 0;
+  while (s[n] === ch) n++;
+  return n;
+}
+
+/** CommonMark-ish fenced-code state machine, shared by `fenceMask` and `hasUnterminatedFence`
+ *  (GH #926; review round 1 I2/M8, round 2 Codex's shorter-closer-with-trailing-text repro). A
+ *  line opens a fence when, after stripping AT MOST 3 leading spaces (a 4-space-or-more indent is
+ *  an indented code block, not a fence — review M8), its trimmed form is a run of 3+ backticks or
+ *  3+ tildes (an optional info string may follow, per CommonMark). Once open, a line closes it
+ *  only when its trimmed form is NOTHING BUT a run of the SAME character, at least as long as the
+ *  opener's run — shorter (a 3-backtick line inside a 4-backtick fence), a different character (a
+ *  ``` inside a ~~~ block), or trailing text after the run (` ``` extra`) are all content, not a
+ *  close. */
+function createFenceTracker() {
+  let char: "`" | "~" | null = null;
+  let openLen = 0;
+  return {
+    get fenced(): boolean {
+      return char !== null;
+    },
+    /** Feed one raw (untrimmed) line; returns true iff this line is itself a fence delimiter
+     *  (open or close) — never real content, never a heading. */
+    feed(line: string): boolean {
+      const indent = (/^ */.exec(line) as RegExpExecArray)[0].length;
+      if (indent > 3) return false;
+      const t = line.trim();
+      if (char === null) {
+        const backticks = leadingRun(t, "`");
+        if (backticks >= 3) {
+          char = "`";
+          openLen = backticks;
+          return true;
+        }
+        const tildes = leadingRun(t, "~");
+        if (tildes >= 3) {
+          char = "~";
+          openLen = tildes;
+          return true;
+        }
+        return false;
+      }
+      const runLen = leadingRun(t, char);
+      if (runLen >= openLen && runLen === t.length) {
+        char = null;
+        openLen = 0;
+        return true;
+      }
+      return false;
+    },
+  };
+}
+
+/** GH #926: track fence state across `lines`. Returns, per line, whether a heading test on that
+ *  line must be ignored — true for the delimiter lines themselves (never real headings) and every
+ *  line strictly between them. */
 function fenceMask(lines: string[]): boolean[] {
   const mask = new Array<boolean>(lines.length).fill(false);
-  let fenceChar: "`" | "~" | null = null;
+  const tracker = createFenceTracker();
   for (let i = 0; i < lines.length; i++) {
-    const wasFenced = fenceChar !== null;
-    const t = (lines[i] ?? "").trim();
-    if (fenceChar === null) {
-      if (t.startsWith("```")) fenceChar = "`";
-      else if (t.startsWith("~~~")) fenceChar = "~";
-    } else if (t.startsWith(fenceChar === "`" ? "```" : "~~~")) {
-      fenceChar = null;
-    }
-    mask[i] = wasFenced || fenceChar !== null;
+    const wasFenced = tracker.fenced;
+    const isDelim = tracker.feed(lines[i] ?? "");
+    mask[i] = wasFenced || isDelim;
   }
   return mask;
 }
@@ -66,23 +114,9 @@ function fenceMask(lines: string[]): boolean[] {
  *  refusing outright, so a note that already had an unclosed fence is not refused on every
  *  subsequent, unrelated patch. */
 export function hasUnterminatedFence(body: string): boolean {
-  let fenceChar: "`" | "~" | null = null;
+  const tracker = createFenceTracker();
   let toggles = 0;
-  for (const raw of body.split(/\r?\n/)) {
-    const t = raw.trim();
-    if (fenceChar === null) {
-      if (t.startsWith("```")) {
-        fenceChar = "`";
-        toggles++;
-      } else if (t.startsWith("~~~")) {
-        fenceChar = "~";
-        toggles++;
-      }
-    } else if (t.startsWith(fenceChar === "`" ? "```" : "~~~")) {
-      fenceChar = null;
-      toggles++;
-    }
-  }
+  for (const line of body.split(/\r?\n/)) if (tracker.feed(line)) toggles++;
   return toggles % 2 === 1;
 }
 
@@ -148,10 +182,14 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     return { found: true, startIndex: hi, endIndex: end, headingLevel: level };
   }
 
-  // block
+  // block — GH #926 review round 2 (N2) / M5: a `^id` marker that only exists as sample text
+  // inside a fenced code block is never a candidate, for resolution OR ambiguity counting.
   const re = new RegExp(`(?:^|\\s)\\^${escapeRegExp(anchor.block_id)}\\s*$`);
   const matches: number[] = [];
-  for (let i = 0; i < lines.length; i++) if (re.test(lines[i] ?? "")) matches.push(i);
+  for (let i = 0; i < lines.length; i++) {
+    if (mask[i]) continue;
+    if (re.test(lines[i] ?? "")) matches.push(i);
+  }
   if (matches.length === 0) return { found: false, reason: "not_found" };
   if (matches.length > 1)
     return { found: false, reason: "ambiguous", matchLines: matches.map((i) => i + 1) };
@@ -164,6 +202,21 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     start--;
   }
   return { found: true, startIndex: start, endIndex: bi + 1 };
+}
+
+/** Count of `needle` in `haystack`, advancing the search by ONE character per match (not
+ *  `needle.length`) so overlapping occurrences are counted — review round 1 M7: `"aa"` in `"aaa"`
+ *  is 2 matches (positions 0 and 1), not 1. */
+function countOccurrences(haystack: string, needle: string): number {
+  if (needle.length === 0) return 0;
+  let count = 0;
+  let from = 0;
+  for (;;) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx === -1) return count;
+    count++;
+    from = idx + 1;
+  }
 }
 
 /** GH #928: `patch_note operation:"replace_text"` — an exact-string substitution scoped to one
@@ -183,9 +236,19 @@ export function replaceInSection(
 ): ReplaceTextResult {
   const lines = body.split(/\r?\n/);
   const sectionText = lines.slice(span.startIndex, span.endIndex).join(eol);
-  const count = sectionText.split(oldString).length - 1;
+  // Review round 1 I3: a caller's old_string/new_string are plain strings, and a multi-line one is
+  // very likely authored with "\n" regardless of the note's own EOL — normalize both sides (and
+  // the section text being searched) to "\n" for matching, then reassemble with `eol` so a CRLF
+  // note stays CRLF end to end.
+  const normalizedSection = sectionText.replace(/\r\n/g, "\n");
+  const normalizedOld = oldString.replace(/\r\n/g, "\n");
+  const count = countOccurrences(normalizedSection, normalizedOld);
   if (count !== 1) return { body, count };
-  const nextSection = sectionText.replace(oldString, newString);
+  const normalizedNew = newString.replace(/\r\n/g, "\n");
+  // Review round 2 N1: `String.replace(str, replacement)` treats a STRING replacement as a
+  // template ($&, $$, $1, ...) — a replacement callback inserts `normalizedNew` literally.
+  const nextNormalizedSection = normalizedSection.replace(normalizedOld, () => normalizedNew);
+  const nextSection = nextNormalizedSection.split("\n").join(eol);
   const next = [
     ...lines.slice(0, span.startIndex),
     ...nextSection.split(/\r?\n/),

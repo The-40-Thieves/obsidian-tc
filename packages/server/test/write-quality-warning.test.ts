@@ -149,6 +149,35 @@ describe("THE-643 write-time quality_warning", () => {
     }
   });
 
+  it("patch_note replace_text surfaces quality_warning too (THE-1038 review round 2 N3)", async () => {
+    const edb = edb0();
+    noteQualityRow(edb, {
+      vault_id: "test",
+      path: "a.md",
+      computed_at: 43,
+      flags: JSON.stringify(["contradicted"]),
+    });
+    const v = makeTestVault({ files: { "a.md": "# H\nold\n" }, edb });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "heading", heading: "H" },
+        old_string: "old",
+        new_string: "new",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok)
+        expect((r.data as { quality_warning: unknown }).quality_warning).toEqual({
+          flags: ["contradicted"],
+          computed_at: 43,
+        });
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("quality_warning is scoped to (vault, path) — a row under a different vault id doesn't leak", async () => {
     const edb = edb0();
     noteQualityRow(edb, {

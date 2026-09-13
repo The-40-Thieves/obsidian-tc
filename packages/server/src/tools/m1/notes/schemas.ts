@@ -284,12 +284,34 @@ export const PatchInput = z
           path: ["new_string"],
           message: "new_string is required when operation is replace_text",
         });
-    } else if (i.content === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["content"],
-        message: "content is required unless operation is replace_text",
-      });
+      // Review round 1 M6: enforce the REVERSE direction of "iff" too — content belongs to
+      // append/prepend/replace only.
+      if (i.content !== undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["content"],
+          message:
+            "content must not be set when operation is replace_text; use old_string/new_string",
+        });
+    } else {
+      if (i.content === undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["content"],
+          message: "content is required unless operation is replace_text",
+        });
+      if (i.old_string !== undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["old_string"],
+          message: "old_string is only valid when operation is replace_text",
+        });
+      if (i.new_string !== undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["new_string"],
+          message: "new_string is only valid when operation is replace_text",
+        });
     }
   });
 

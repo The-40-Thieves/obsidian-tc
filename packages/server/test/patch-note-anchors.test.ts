@@ -868,3 +868,370 @@ describe("a CRLF note keeps its EOL across every patch_note operation", () => {
     }
   });
 });
+
+describe("Review round 1 I2/M8 + round 2 Codex: CommonMark-correct fence closing", () => {
+  it("I2: a shorter closer inside a longer fence does not close it; the real close does", async () => {
+    // Verbatim shape from #926's own issue body (a 4-backtick wrapper around a 3-backtick sample).
+    const raw = ["## A", "````", "```", "## Inside", "```", "````", "## B"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      // The section correctly extends past the inner 3-backtick lines and "## Inside" (all
+      // content inside the outer 4-backtick fence) and lands right before the real "## B".
+      expect(v.read("a.md")).toBe(
+        ["## A", "````", "```", "## Inside", "```", "````", "NEW", "## B"].join("\n"),
+      );
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("M8 / Codex: a fence delimiter indented 4+ spaces is content, not a fence delimiter", async () => {
+    // Codex's exact repro: a 4-space-indented ``` must not open a fence, or the real ## B is
+    // hidden and the whole tail of the note is swallowed by the next replace/append.
+    const raw = "## A\nold\n\n    ```\n\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      // The indented ``` never opened a fence, so ## B is a real boundary and survives untouched.
+      expect(v.read("a.md")).toBe("## A\nnew\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("Codex: a closer with trailing text after the delimiter run does not close the fence", async () => {
+    const raw = [
+      "## A",
+      "```",
+      "inside",
+      "``` trailing",
+      "more inside",
+      "```",
+      "## B",
+      "keep",
+    ].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      // "``` trailing" (trailing text after the run) is not a valid closer — content survives,
+      // the REAL closer (bare ```) ends the fence, and NEW lands right before the real ## B.
+      expect(v.read("a.md")).toBe(
+        ["## A", "```", "inside", "``` trailing", "more inside", "```", "NEW", "## B", "keep"].join(
+          "\n",
+        ),
+      );
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 1 I4: replace_text preserves the anchor heading line", () => {
+  it("refuses to match the heading line itself — old_string not found in section", async () => {
+    const raw = "## A\nold value\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "## A",
+        new_string: "",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.message).toBe("old_string not found in section");
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("still matches ordinary body text within the same heading section", async () => {
+    const raw = "## A\nold value\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old value",
+        new_string: "new value",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nnew value\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 1 M5 / round 2 N2: a fenced block-id marker is never a candidate", () => {
+  const raw = ["para one ^dup", "```", "sample ^dup", "```", "keep"].join("\n");
+
+  it("patch_note resolves to the real (non-fenced) block, not ambiguous", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "block", block_id: "dup" },
+        content: "AFTER",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe(
+        ["para one ^dup", "AFTER", "```", "sample ^dup", "```", "keep"].join("\n"),
+      );
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a block-id marker that ONLY exists inside a fence is 'not found', not resolved into the fence", async () => {
+    const fencedOnly = ["intro", "```", "sample ^ghost", "```", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": fencedOnly } });
+    try {
+      const patch = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "block", block_id: "ghost" },
+        content: "x",
+      });
+      expect(patch.ok).toBe(false);
+      if (!patch.ok) expect(patch.error.message).toBe("block reference not found");
+
+      const read = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "block", block_id: "ghost" },
+      });
+      expect(read.ok).toBe(false);
+      if (!read.ok) expect(read.error.message).toBe("block reference not found");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("read_note resolves to the real (non-fenced) block's paragraph text", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "block", block_id: "dup" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok)
+        expect((r.data as { section?: { text: string } }).section?.text).toBe("para one ^dup");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 1 M6: replace_text/content are mutually exclusive by operation", () => {
+  it("old_string/new_string on a non-replace_text operation is validation_error", async () => {
+    const v = makeTestVault({ files: { "a.md": "## A\nx" } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "y",
+        old_string: "z",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("validation_error");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("content on replace_text is validation_error", async () => {
+    const v = makeTestVault({ files: { "a.md": "## A\nx" } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "x",
+        new_string: "y",
+        content: "unexpected",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("validation_error");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 1 M7 / I3: replace_text matching correctness", () => {
+  it("M7: overlapping matches are counted with a 1-character advance, not skipped", async () => {
+    // "aa" occurs at position 0 and 1 within "aaa" — 2 overlapping matches, refused as ambiguous.
+    const raw = "## A\naaa\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "aa",
+        new_string: "x",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.details).toMatchObject({ count: 2 });
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("I3: a multi-line old_string authored with \\n matches inside a CRLF note", async () => {
+    const raw = "## A\r\nline one\r\nline two\r\n## B\r\nkeep\r\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "line one\nline two",
+        new_string: "replaced",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\r\nreplaced\r\n## B\r\nkeep\r\n");
+      expect(out).not.toMatch(/[^\r]\n/);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 2 N1: replace_text inserts new_string literally, not as a $-pattern", () => {
+  it("$&, $$, $1 in new_string are written verbatim", async () => {
+    const raw = "## A\nold\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old",
+        new_string: "$& $$ $1",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\n$& $$ $1\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("old_string === new_string containing $ is a byte-for-byte no-op", async () => {
+    // "$$" is one of the patterns String.replace expands even with NO regex capture groups (it
+    // collapses to a single literal "$") — a "$5" probe would pass by coincidence even with the
+    // bug, since a bare $-digit with no capture groups is left alone either way.
+    const raw = "## A\nprice is $$ today\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "price is $$ today",
+        new_string: "price is $$ today",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 2 N3: replace_text wiring parity with replace", () => {
+  it("captures a snapshot when snapshots are enabled", async () => {
+    const raw = "## A\nold\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw }, snapshots: { enabled: true, retention: 5 } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old",
+        new_string: "new",
+      });
+      expect(r.ok).toBe(true);
+      const rows = v.db
+        .prepare("SELECT COUNT(*) AS n FROM note_snapshots WHERE vault_id = ? AND path = ?")
+        .get("test", "a.md") as { n: number };
+      expect(rows.n).toBeGreaterThan(0);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("invokes reindex with the new content", async () => {
+    const raw = "## A\nold\n## B\nkeep";
+    const reindexed: Array<{ path: string; content: string }> = [];
+    const v = makeTestVault({
+      files: { "a.md": raw },
+      reindex: (_vaultId, path, content) => reindexed.push({ path, content }),
+    });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old",
+        new_string: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(reindexed).toHaveLength(1);
+      expect(reindexed[0]?.path).toBe("a.md");
+      expect(reindexed[0]?.content).toContain("new");
+      expect(reindexed[0]?.content).not.toContain("old");
+    } finally {
+      v.cleanup();
+    }
+  });
+});

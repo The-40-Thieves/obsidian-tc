@@ -283,9 +283,17 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         const oldString = input.old_string as string;
         const newString = input.new_string as string;
         const resolved = resolveSectionOrThrow(parsed.body, anchor, rel);
+        // Review round 1 I4: the tool description promises replace_text "preserves the anchor
+        // heading line" the same way `replace` does — exclude line 0 of a heading anchor's
+        // section (the heading itself) from the match window, so old_string can never rewrite or
+        // delete it. Block/frontmatter anchors have no such marker line to protect.
+        const matchWindow =
+          anchor.type === "heading"
+            ? { ...resolved, startIndex: resolved.startIndex + 1 }
+            : resolved;
         const { body: nextBody, count } = replaceInSection(
           parsed.body,
-          resolved,
+          matchWindow,
           oldString,
           newString,
           eol,
