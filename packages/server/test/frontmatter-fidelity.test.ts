@@ -479,10 +479,13 @@ describe("THE-1043: the emitter works on the original block's lines", () => {
   // Promoted from THE-1040's X4 `it.todo`: the line-list model makes it pass. A `|+`
   // (keep-chomp) block scalar's trailing blank lines sit outside the yaml library's own value
   // range, but they are still LINES no other key owns, so removing a neighbour leaves them be.
+  // THE-1044 corrected the expectation: those lines survived, but the closing "---" then ate the
+  // line break the LAST of them needs, so the byte output asserted here read back a newline short.
   it("X4 (promoted): removing a neighbour preserves a `|+` block scalar's trailing blank lines", () => {
-    expect(removeKeys("---\ntext: |+\n  hello\n\n\ngone: 1\n---\n", "gone")).toBe(
-      "---\ntext: |+\n  hello\n\n\n---\n",
-    );
+    const raw = "---\ntext: |+\n  hello\n\n\ngone: 1\n---\n";
+    const out = removeKeys(raw, "gone");
+    expect(out).toBe("---\ntext: |+\n  hello\n\n\n\n---\n");
+    expect(parseNote(out).frontmatter).toEqual({ text: parseNote(raw).frontmatter?.text });
   });
 });
 
@@ -597,5 +600,174 @@ describe("THE-1044: aliases stay valid and an assigned scalar is never trimmed",
   it("K8: a brand-new note (no original block) keeps a keep-chomp value too", () => {
     const out = serializeNote({ text: "hello\n\n\n" }, "body\n");
     expect(read(out)).toEqual({ text: "hello\n\n\n" });
+  });
+});
+
+// THE-1044 round 2: the same class on the REMOVAL/SPLICE path. A block scalar's trailing newlines
+// are content; the separator between the block's last line and the closing "---" is exactly one
+// block EOL and is never taken from the value. `parseNote`'s capture stops one line break short of
+// that delimiter, so a block ENDING in a keep-chomp scalar — emitted or spliced back verbatim —
+// used to read one newline light the moment any neighbour moved.
+describe("THE-1044 R: a keep-chomp value ending the block survives a neighbour's edit", () => {
+  function setKey(raw: string, key: string, value: unknown) {
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), [key]: value };
+    return serializeNote(fm, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+      frontmatterAtEof: p.frontmatterAtEof,
+    });
+  }
+  function removeKeys(raw: string, ...keys: string[]) {
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}) };
+    for (const k of keys) delete fm[k];
+    const hasKeys = Object.keys(fm).length > 0;
+    return serializeNote(hasKeys ? fm : null, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+      frontmatterAtEof: p.frontmatterAtEof,
+    });
+  }
+  const read = (out: string) => parseNote(out).frontmatter;
+
+  it("R1: keep-chomp FIRST, the only other key removed (LF)", () => {
+    const raw = "---\ntext: |+\n  hello\n\n\ngone: 1\n---\n";
+    expect(read(raw)).toEqual({ text: "hello\n\n\n", gone: 1 });
+    const out = removeKeys(raw, "gone");
+    expect(read(out)).toEqual({ text: "hello\n\n\n" });
+    expect(out).toBe("---\ntext: |+\n  hello\n\n\n\n---\n");
+  });
+
+  it("R2: keep-chomp FIRST, a middle key removed while another still follows", () => {
+    const raw = "---\ntext: |+\n  hello\n\n\nmid: 1\nlast: 2\n---\n";
+    expect(read(raw)).toEqual({ text: "hello\n\n\n", mid: 1, last: 2 });
+    const out = removeKeys(raw, "mid");
+    expect(read(out)).toEqual({ text: "hello\n\n\n", last: 2 });
+    expect(out).toBe("---\ntext: |+\n  hello\n\n\nlast: 2\n---\n");
+  });
+
+  it("R3: keep-chomp MIDDLE, the key after it removed (LF)", () => {
+    const raw = "---\nfirst: 1\ntext: |+\n  hello\n\n\nlast: 2\n---\n";
+    expect(read(raw)).toEqual({ first: 1, text: "hello\n\n\n", last: 2 });
+    const out = removeKeys(raw, "last");
+    expect(read(out)).toEqual({ first: 1, text: "hello\n\n\n" });
+    expect(out).toBe("---\nfirst: 1\ntext: |+\n  hello\n\n\n\n---\n");
+  });
+
+  it("R4: keep-chomp FIRST, the key after it CHANGED", () => {
+    const raw = "---\ntext: |+\n  hello\n\n\ngone: 1\n---\n";
+    const out = setKey(raw, "gone", 9);
+    expect(read(out)).toEqual({ text: "hello\n\n\n", gone: 9 });
+    expect(out).toBe("---\ntext: |+\n  hello\n\n\ngone: 9\n---\n");
+  });
+
+  it("R5: keep-chomp already LAST in the source, the key before it removed", () => {
+    const raw = "---\ngone: 1\ntext: |+\n  hello\n\n\n\n---\n";
+    expect(read(raw)).toEqual({ gone: 1, text: "hello\n\n\n" });
+    const out = removeKeys(raw, "gone");
+    expect(read(out)).toEqual({ text: "hello\n\n\n" });
+    expect(out).toBe("---\ntext: |+\n  hello\n\n\n\n---\n");
+  });
+
+  it("R6: keep-chomp already LAST in the source, the key before it CHANGED", () => {
+    const raw = "---\nfirst: 1\ntext: |+\n  hello\n\n\n\n---\n";
+    expect(read(raw)).toEqual({ first: 1, text: "hello\n\n\n" });
+    const out = setKey(raw, "first", 9);
+    expect(read(out)).toEqual({ first: 9, text: "hello\n\n\n" });
+    expect(out).toBe("---\nfirst: 9\ntext: |+\n  hello\n\n\n\n---\n");
+  });
+
+  it("R7: keep-chomp FIRST on CRLF, the key after it removed", () => {
+    const raw = "---\r\ntext: |+\r\n  hello\r\n\r\n\r\ngone: 1\r\n---\r\n";
+    expect(read(raw)).toEqual({ text: "hello\n\n\n", gone: 1 });
+    const out = removeKeys(raw, "gone");
+    expect(read(out)).toEqual({ text: "hello\n\n\n" });
+    expect(out).toBe("---\r\ntext: |+\r\n  hello\r\n\r\n\r\n\r\n---\r\n");
+  });
+
+  it("R8: keep-chomp already LAST on CRLF, the key before it CHANGED", () => {
+    const raw = "---\r\ngone: 1\r\ntext: |+\r\n  hello\r\n\r\n\r\n\r\n---\r\n";
+    expect(read(raw)).toEqual({ gone: 1, text: "hello\n\n\n" });
+    const out = setKey(raw, "gone", 9);
+    expect(read(out)).toEqual({ gone: 9, text: "hello\n\n\n" });
+  });
+
+  it("R9: a CLIP (`|`) scalar ending the block gains no blank line", () => {
+    const raw = "---\ngone: 1\ntext: |\n  hello\n---\n";
+    expect(read(raw)).toEqual({ gone: 1, text: "hello\n" });
+    const out = removeKeys(raw, "gone");
+    expect(out).toBe("---\ntext: |\n  hello\n---\n");
+    expect(read(out)).toEqual({ text: "hello\n" });
+  });
+
+  it("R10: a genuine trailing blank source line is not duplicated when a key changes", () => {
+    const out = setKey("---\na: 1\n\n---\nbody\n", "a", 9);
+    expect(out).toBe("---\na: 9\n\n---\nbody\n");
+    expect(read(out)).toEqual({ a: 9 });
+  });
+
+  it("R11: the reported removal case, with a body and two trailing newlines", () => {
+    const raw = "---\ntext: |+\n  hello\n\n\nright: 2\n---\nbody\n";
+    expect(read(raw)).toEqual({ text: "hello\n\n\n", right: 2 });
+    expect(read(removeKeys(raw, "right"))).toEqual({ text: "hello\n\n\n" });
+    const two = "---\ntext: |+\n  hello\n\nright: 2\n---\nbody\n";
+    expect(read(two)).toEqual({ text: "hello\n\n", right: 2 });
+    expect(read(removeKeys(two, "right"))).toEqual({ text: "hello\n\n" });
+  });
+
+  it("R12: a non-string top-level key in an ALIAS block re-parses and does not throw", () => {
+    const raw = "---\n1: &x [1, 2]\nb: *x\n---\n";
+    expect(read(raw)).toEqual({ "1": [1, 2], b: [1, 2] });
+    expect(() => read(setKey(raw, "b", 9))).not.toThrow();
+    expect(read(setKey(raw, "b", 9))).toEqual({ "1": [1, 2], b: 9 });
+    expect(() => read(removeKeys(raw, "b"))).not.toThrow();
+    expect(read(removeKeys(raw, "b"))).toEqual({ "1": [1, 2] });
+  });
+
+  // N1: a mapping keyed `1:`/`true:` reaches the emitter as the JS string "1"/"true", and the
+  // Document API matches a plain string against the key NODE's value — so a numeric key was
+  // neither found nor replaced: remove wrote the block back unchanged and reported success, set
+  // appended a second, string-keyed line beside the existing one.
+  it("N1: a NUMERIC key in an alias block is removed, not silently skipped", () => {
+    const raw = "---\n1: &x [1, 2]\nb: *x\nc: 3\n---\n";
+    expect(read(raw)).toEqual({ "1": [1, 2], b: [1, 2], c: 3 });
+    const out = removeKeys(raw, "1");
+    expect(out).not.toBe(raw);
+    expect(read(out)).toEqual({ b: [1, 2], c: 3 });
+    expect(out).not.toContain("*x");
+  });
+
+  it("N1: a NUMERIC key in an alias block is REPLACED, not duplicated", () => {
+    const out = setKey("---\n1: &x [1, 2]\nb: *x\nc: 3\n---\n", "1", 9);
+    expect(read(out)).toEqual({ "1": 9, b: [1, 2], c: 3 });
+    expect(out.match(/^\s*("?1"?):/gm)).toHaveLength(1);
+  });
+
+  it("N1: a BOOLEAN key in an alias block is replaced and removed", () => {
+    const raw = "---\ntrue: &x [1, 2]\nb: *x\n---\n";
+    expect(read(raw)).toEqual({ true: [1, 2], b: [1, 2] });
+    expect(read(setKey(raw, "true", 9))).toEqual({ true: 9, b: [1, 2] });
+    expect(read(removeKeys(raw, "true"))).toEqual({ b: [1, 2] });
+  });
+
+  // N2: doc.set mutates a Scalar in place, so a scalar-to-scalar change kept the node's anchor
+  // while a collection-to-scalar change dropped it. The anchor on a CHANGED node goes when nothing
+  // aliases it any more; one on an untouched key is left exactly as the author wrote it.
+  it("N2: an orphaned anchor on a CHANGED scalar is dropped", () => {
+    const out = setKey("---\na: &x 1\nb: *x\n---\n", "a", 99);
+    expect(out).toBe("---\na: 99\nb: 1\n---\n");
+    expect(read(out)).toEqual({ a: 99, b: 1 });
+  });
+
+  it("N2: an anchor still referenced by a surviving alias is kept", () => {
+    const out = setKey("---\na: &x [1, 2]\nb: *x\nc: 3\n---\n", "c", 9);
+    expect(out).toContain("&x");
+    expect(out).toContain("*x");
+    expect(read(out)).toEqual({ a: [1, 2], b: [1, 2], c: 9 });
+  });
+
+  it("N2: an orphaned anchor on an UNTOUCHED key is left alone", () => {
+    const out = setKey("---\na: &x 1\nb: *x\n---\n", "b", 2);
+    expect(out).toBe("---\na: &x 1\nb: 2\n---\n");
+    expect(read(out)).toEqual({ a: 1, b: 2 });
   });
 });

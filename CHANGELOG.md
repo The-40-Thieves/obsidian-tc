@@ -97,10 +97,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   are re-stringified (`zip: 01234` comes back quoted, a flow collection is respaced); a block with
   no alias keeps the verbatim line list unchanged. Separately, assigning a string with trailing
   newlines (`set text = "hello\n\n\n"`) emitted `text: |+` and then trimmed the blank lines that
-  ARE the value, so the key read back as `"hello\n"`: only the stringifier's own single terminating
-  line break is dropped now, and a block ending in a keep-chomp scalar gets back the one line break
-  the closing `---` consumes. `|-` (strip), `|` (clip) and `|+` (keep) assignments all round-trip
-  byte-for-byte on LF and CRLF.
+  ARE the value, so the key read back as `"hello\n"`. The rule is now uniform across both paths: a
+  block scalar's trailing newlines are LINES, and the separator between the block's last line and
+  the closing `---` is exactly one block EOL, never taken from a value. Only the stringifier's own
+  single terminating break is dropped, and a block that ENDS in a keep-chomp scalar — whether the
+  key was just assigned or was spliced back verbatim after a *following* key was removed or changed
+  — gets back the one break the delimiter consumes. That removal case was the same defect one step
+  further out: `---\ntext: |+\n  hello\n\n\nright: 2\n---` lost a newline off `text` the moment
+  `right` went, with the block's bytes looking untouched. `|-` (strip), `|` (clip) and `|+` (keep)
+  round-trip byte-for-byte on LF and CRLF, with the keep-chomp key first, middle or last. Two
+  further document-mode defects go with it: a NON-STRING top-level key (`1:`, `true:`) in an
+  alias-bearing block is now addressed by its own key node's string form, where before a removal was
+  silently skipped (reporting success over a byte-identical file) and a set appended a duplicate
+  string-keyed line beside it; and an `&anchor` left on a CHANGED value that nothing aliases any
+  more is dropped, so a scalar-to-scalar change no longer keeps an orphan (`a: &x 1` → `a: 99`,
+  not `a: &x 99`) where a collection-to-scalar change already dropped it. An anchor on a key the
+  caller did not touch is left exactly as written, orphaned or not.
 
 ## [1.29.0] - 2026-09-13
 

@@ -8,9 +8,9 @@
 // comments and blank lines all survive. Only added/changed keys are re-serialized; a removed
 // key's lines are dropped, leaving exactly one line break between its neighbours. A
 // frontmatter-unchanged write keeps the block verbatim; without the original it falls back to a
-// plain stringify (new notes). SOURCE slicing (not doc.toString) is what guarantees fidelity —
-// the Document API alone canonicalizes leading-zero integers. A block carrying an ALIAS is the
-// one exception and goes through the Document anyway; see emitViaDocument.
+// plain stringify (new notes). SOURCE slicing (not doc.toString) is what guarantees fidelity — the
+// Document API alone canonicalizes leading-zero integers; a block carrying an ALIAS is the one
+// exception and goes through the Document anyway (emitViaDocument).
 import { isDeepStrictEqual } from "node:util";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import YAML, { isMap, isNode, isScalar, YAMLParseError } from "yaml";
@@ -44,10 +44,9 @@ export interface ParsedNote {
 /**
  * Split a note into its frontmatter object (if any) and verbatim body.
  *
- * `path` is optional and purely diagnostic — parseNote stays a pure parsing primitive over
- * `raw` (some callers round-trip an in-memory buffer with no file behind it, e.g.
- * parseEntityNote's graph-integrity check). THE-823: every production call site that reads a
- * note off disk passes one, so a caller with no path is the deliberate exception, not a gap.
+ * `path` is optional and purely diagnostic — parseNote stays a pure parsing primitive over `raw`
+ * (some callers round-trip an in-memory buffer with no file behind it, e.g. parseEntityNote's
+ * graph-integrity check). THE-823: every call site that reads a note off disk passes one.
  */
 export function parseNote(raw: string, path?: string): ParsedNote {
   const m = FRONTMATTER.exec(raw);
@@ -89,8 +88,7 @@ export function parseNote(raw: string, path?: string): ParsedNote {
 }
 
 /** Stringifier output as block lines joined on the block's own eol. THE-1044: only the ONE
- *  terminating line break the stringifier always appends goes — a `|+` scalar's trailing blank
- *  lines are the VALUE, and trimming them changes what the key reads back as. */
+ *  terminating break it always appends goes — a `|+` scalar's trailing blank lines are the VALUE. */
 function blockText(text: string, eol: string): string {
   const body = text.endsWith("\n") ? text.slice(0, -1) : text;
   return eol === "\n" ? body : body.split("\n").join(eol);
@@ -101,42 +99,79 @@ function emitEntry(key: string, value: unknown, eol: string): string {
   return blockText(YAML.stringify({ [key]: value }, { lineWidth: 0 }), eol);
 }
 
-/** THE-1044: parseNote's capture stops one line break short of the closing "---", so a block whose
- *  last EMITTED entry ends on a blank line reads back one newline light. Only an emitted entry is
- *  multi-line here, so a part ending in `eol` is always that `|+` case — never a blank source
- *  line, which arrives as its own empty part. */
-function closeBlock(parts: string[], eol: string): string {
-  const text = parts.join(eol);
-  return parts[parts.length - 1]?.endsWith(eol) ? text + eol : text;
+/** THE-1044: the separator between the block's last line and the closing "---" is one block EOL,
+ *  never taken from a value. A block scalar's trailing newlines are LINES, and parseNote's capture
+ *  stops one break short of that delimiter, so a block ending in a keep-chomp (`|+`) scalar reads
+ *  one newline light. Decided by ROUND TRIP, so a merely-blank line never gains a twin. */
+function closeBlock(text: string, next: Frontmatter, eol: string): string {
+  if (!text.endsWith(eol)) return text;
+  try {
+    if (isDeepStrictEqual(YAML.parse(text), next)) return text;
+    return isDeepStrictEqual(YAML.parse(text + eol), next) ? text + eol : text;
+  } catch {
+    return text;
+  }
 }
 
 /** THE-1044: a block carrying any alias is edited as a DOCUMENT, not as a line list — the library
  *  keeps `&anchor`/`*alias` and node comments across set/delete, where re-emitting one key alone
- *  leaves a sibling's `*x` on an anchor that no longer exists and the note stops parsing. The cost
- *  is byte fidelity for the WHOLE block: every scalar is re-stringified, so an untouched
- *  `zip: 01234` comes back quoted. Correctness first. Null = no alias, use the line list. */
+ *  leaves a sibling's `*x` on an anchor that is gone and the note stops parsing. The cost is byte
+ *  fidelity for the WHOLE block (an untouched `zip: 01234` comes back quoted); correctness first.
+ *  Null = no alias, use the line list. */
 function emitViaDocument(
   doc: ReturnType<typeof YAML.parseDocument>,
   prevObj: Frontmatter,
   next: Frontmatter,
   eol: string,
 ): string | null {
-  let aliased = false;
+  if (!hasAlias(doc)) return null;
+  const changed = (k: string) => !(k in prevObj) || !isDeepStrictEqual(prevObj[k], next[k]);
+  const doomed = Object.keys(prevObj).filter((k) => !(k in next) || changed(k));
+  materializeAliases(doc, doomed);
+  for (const k of Object.keys(prevObj)) if (!(k in next)) doc.delete(docKey(doc, k));
+  for (const k of Object.keys(next)) if (changed(k)) doc.set(docKey(doc, k), next[k]);
+  for (const k of doomed) dropOrphanAnchor(doc, k);
+  return blockText(doc.toString({ lineWidth: 0 }), eol);
+}
+
+/** Whether the document holds an alias — any of them, or one naming `anchor`. */
+function hasAlias(doc: ReturnType<typeof YAML.parseDocument>, anchor?: string): boolean {
+  let found = false;
   YAML.visit(doc, {
-    Alias() {
-      aliased = true;
+    Alias(_k, node) {
+      if (anchor !== undefined && node.source !== anchor) return undefined;
+      found = true;
       return YAML.visit.BREAK;
     },
   });
-  if (!aliased) return null;
-  const changed = (k: string) => !(k in prevObj) || !isDeepStrictEqual(prevObj[k], next[k]);
-  materializeAliases(
-    doc,
-    Object.keys(prevObj).filter((k) => !(k in next) || changed(k)),
-  );
-  for (const k of Object.keys(prevObj)) if (!(k in next)) doc.delete(k);
-  for (const k of Object.keys(next)) if (changed(k)) doc.set(k, next[k]);
-  return blockText(doc.toString({ lineWidth: 0 }), eol);
+  return found;
+}
+
+/** THE-1044: the document's OWN key node for a caller key, matched on its string form — a mapping
+ *  keyed `1:`/`true:` arrives as the JS string, which get/set/delete compare against the key node's
+ *  `value`, so the pair was missed: a removal was skipped and a set appended a duplicate. A key the
+ *  document does not have comes back unchanged, which is what appends a genuinely new one. */
+function docKey(doc: ReturnType<typeof YAML.parseDocument>, key: string): unknown {
+  const map = doc.contents;
+  if (!isMap(map)) return key;
+  for (const pair of map.items) {
+    const k = (pair as { key?: unknown }).key;
+    if (String(isScalar(k) ? k.value : k) === key) return k;
+  }
+  return key;
+}
+
+/** THE-1044: `doc.set` mutates a Scalar in place, so a scalar-to-scalar change kept the old node's
+ *  `&anchor` while a collection-to-scalar change dropped it. An anchor on a CHANGED value goes once
+ *  nothing aliases it; one on an untouched key is left as written. */
+function dropOrphanAnchor(doc: ReturnType<typeof YAML.parseDocument>, key: string): void {
+  const node = doc.get(docKey(doc, key), true);
+  if (!isNode(node)) return;
+  YAML.visit(node, {
+    Node(_k, n) {
+      if (n.anchor && !hasAlias(doc, n.anchor)) n.anchor = undefined;
+    },
+  });
 }
 
 /** Replace every alias to an anchor defined inside `keys` — the values about to be replaced or
@@ -145,7 +180,7 @@ function emitViaDocument(
 function materializeAliases(doc: ReturnType<typeof YAML.parseDocument>, keys: string[]): void {
   const anchors = new Set<string>();
   for (const key of keys) {
-    const node = doc.get(key, true);
+    const node = doc.get(docKey(doc, key), true);
     if (!isNode(node)) continue;
     YAML.visit(node, {
       Node(_k, n) {
@@ -201,7 +236,7 @@ function emitFrontmatter(
         // before the closing "---", so `original` is the exact text to re-wrap.
         if (isDeepStrictEqual(prevObj, next)) return original;
         const viaDoc = isMap(map) ? emitViaDocument(doc, prevObj, next, eol) : null;
-        if (viaDoc !== null) return closeBlock([viaDoc], eol);
+        if (viaDoc !== null) return closeBlock(viaDoc, next, eol);
         const lines = sourceLines(original);
         const groups = keyGroups(original, lines, isMap(map) ? map : null);
         if (groups) {
@@ -222,20 +257,19 @@ function emitFrontmatter(
             i++;
           }
           for (const k of Object.keys(next)) if (!seen.has(k)) out.push(emitEntry(k, next[k], eol));
-          if (out.length > 0) return closeBlock(out, eol);
+          if (out.length > 0) return closeBlock(out.join(eol), next, eol);
         }
       }
     } catch {}
   }
-  return closeBlock([blockText(YAML.stringify(next, { lineWidth: 0 }), eol)], eol);
+  return closeBlock(blockText(YAML.stringify(next, { lineWidth: 0 }), eol), next, eol);
 }
 
 /** The lines of one group. A group that OWNS its lines keeps them verbatim while its key is
- *  unchanged (inline comment and all), re-emits the key in their place when it changed, and
- *  drops them when it was removed. A group that owns nothing — a root flow mapping, braces and
- *  all — is rebuilt key by key instead, comments re-emitted as full lines around it, so a changed
- *  flow root comes back in BLOCK style (an UNTOUCHED one never reaches here). An unchanged key
- *  splices from its node range only when it HAS a value node: `{a, b: 2}`'s bare `a` has none. */
+ *  unchanged (inline comment and all), re-emits the key in their place when it changed, and drops
+ *  them when it was removed. A group that owns nothing — a root flow mapping, braces and all — is
+ *  rebuilt key by key, comments re-emitted as full lines around it, so a changed flow root comes
+ *  back in BLOCK style. An unchanged key splices from its node range only when it HAS one. */
 function emitGroup(
   group: LineGroup,
   text: string,
@@ -283,9 +317,8 @@ interface KeySpan {
 }
 
 /** Lines rewritten as a unit: one block-style key, or every key of a shared line. `before`/`after`
- *  are comments the rewritten lines carry outside every key — inside or on a flow mapping's braces
- *  — re-emitted as full lines around the rebuild. Content is preserved, placement is not: appended
- *  to an emitted line instead, a trailing comment joins a multi-line value and corrupts it. */
+ *  are comments those lines carry outside every key — on or inside a flow mapping's braces — moved
+ *  to full lines around the rebuild: appended to an emitted line, one joins a multi-line value. */
 interface LineGroup {
   firstLine: number;
   lastLine: number;
@@ -331,14 +364,11 @@ function lineSpanOf(lines: SourceLine[], start: number, end: number): [number, n
 /**
  * THE-1043: map every key to the lines its node covers, and to whether it OWNS them. Ownership
  * means block style — nothing but whitespace before the key on its first line, nothing but
- * whitespace or a comment (which belongs to the key) after its value on the last. Keys whose
- * line ranges touch form one group, the unit the emitter keeps, rebuilds or drops — `map.items`
- * is a parsed document's own mapping order, so groups come out in ascending line order. Null = a
- * non-scalar key, for which the caller falls back to a plain stringify.
- *
- * A FLOW root (`{a: 1, b: 2}`) is the exception: no key owns a line there and the braces belong
- * to no key, so the whole collection is ONE group, rebuilt from the changed mapping with the
- * comments on and inside the braces kept as `before`/`after`.
+ * whitespace or a comment (which belongs to the key) after its value on the last. Keys whose line
+ * ranges touch form one group, the unit the emitter keeps, rebuilds or drops, in `map.items` order.
+ * Null = a non-scalar key, for which the caller falls back to a plain stringify. A FLOW root
+ * (`{a: 1, b: 2}`) is the exception: no key owns a line and the braces belong to none, so the whole
+ * collection is ONE group, rebuilt with the comments on and inside the braces as `before`/`after`.
  */
 function keyGroups(
   text: string,
@@ -414,10 +444,9 @@ function commentLines(chunk: string): string[] {
 
 /**
  * THE-1040 F1/C2/C4/O1: what (if anything) of a raw block survives once the caller's mapping is
- * empty. Comments are content, never discarded just because every real key is gone — but an
- * INLINE comment belongs to its key, so only a full-line comment or a blank line survives. A
- * block with no real mapping at all comes back byte-for-byte: `.trim()` decides only whether to
- * keep it, never what gets returned. Null (nothing survived) drops the delimiters.
+ * empty. Comments are content, never discarded just because every real key is gone — but an INLINE
+ * comment belongs to its key, so only a full-line comment or a blank line survives. A block with no
+ * real mapping comes back byte-for-byte; null (nothing survived) drops the delimiters.
  */
 function survivingComments(original: string | null | undefined, eol: string): string | null {
   if (!original) return null;
