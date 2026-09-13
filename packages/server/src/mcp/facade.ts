@@ -27,8 +27,8 @@ export const JSON_SCHEMA_OPTS = {
   reused: "inline",
   unrepresentable: "any",
 } as const;
-// THE-294: z.toJSONSchema is a pure function of a static schema; memoize by identity — every schema
-// here is a stable module const or a registered tool's inputSchema — so each converts at most once.
+// THE-294 / THE-1041 (GH #934): each JSON-Schema conversion is memoized by schema identity, one
+// WeakMap per io mode — toJson is io:"output", toInputJson is io:"input".
 const jsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
 export function toJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = jsonSchemaMemo.get(schema);
@@ -39,10 +39,6 @@ export function toJson(schema: z.ZodType): Tool["inputSchema"] {
   return cached;
 }
 
-// THE-1041 / GH #934: zod's default io:"output" mode reads .default()/.prefault() fields as
-// required and plain (non-strict) objects as additionalProperties:false, diverging from what
-// safeParse accepts. Every INPUT-advertising site (never outputSchema) converts through this
-// instead; a separate memo, since input/output conversions of the same schema must not collide.
 const inputJsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
 export function toInputJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = inputJsonSchemaMemo.get(schema);
