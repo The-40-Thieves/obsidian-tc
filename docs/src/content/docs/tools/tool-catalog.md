@@ -132,7 +132,7 @@ _163 tools. Access is a coarse hint; the required scopes are authoritative._
 | `read_frontmatter` | read | `read:notes` | Read a note's parsed YAML frontmatter (null when the note has none). Domain: metadata. |
 | `read_kanban_board` | read | `read:notes` | Parse a Kanban board note into its columns and cards (text + checked state). Domain: structured. |
 | `read_metadata_fields` | read | `read:metadata-menu` | Read a note's typed metadata fields via the Metadata Menu plugin: returns each configured field's name, value, type, validity, and source (frontmatter vs inline). Read-only field introspection. |
-| `read_note` | read | `read:notes` | Read a note's raw content, parsed frontmatter, body, content hash, and stat. |
+| `read_note` | read | `read:notes` | Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged. |
 | `read_notes` | read | `read:notes` | Batch-read notes. Returns successful notes and a per-path error list (partial). |
 | `read_property` | read | `read:notes` | Read a single frontmatter property. Set nested=true to address a dotted path (e.g. meta.author.name) through nested objects. |
 | `read_snapshot` | read | `read:notes` | Read the full stored content of a single snapshot by id. |

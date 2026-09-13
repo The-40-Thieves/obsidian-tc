@@ -5,6 +5,171 @@
 import { describe, expect, it } from "vitest";
 import { makeTestVault } from "./m1-helpers";
 
+describe("GH #927: read_note section read", () => {
+  // Lines (1-based) in the raw file:
+  // 1 ---            2 title: Test     3 ---
+  // 4 intro text     5 # One           6 first section
+  // 7 para with ref ^blk1              8 # Two          9 second
+  const raw = [
+    "---",
+    "title: Test",
+    "---",
+    "intro text",
+    "# One",
+    "first section",
+    "para with ref ^blk1",
+    "# Two",
+    "second",
+  ].join("\n");
+
+  it("returns the preamble for a frontmatter anchor, with raw-file line numbers", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "frontmatter" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const d = r.data as {
+          section?: { text: string; start_line: number; end_line: number };
+          content_hash: string;
+        };
+        expect(d.section).toEqual({ text: "intro text", start_line: 4, end_line: 4 });
+        // content_hash is the WHOLE-note hash so it round-trips into patch_note's prev_hash.
+        const whole = await v.call("read_note", { vault: "test", path: "a.md" });
+        expect(whole.ok && (whole.data as { content_hash: string }).content_hash).toBe(
+          d.content_hash,
+        );
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("returns the section INCLUDING its heading line for a heading anchor", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "One" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const d = r.data as {
+          section?: { text: string; start_line: number; end_line: number; heading_level?: number };
+        };
+        expect(d.section).toEqual({
+          text: "# One\nfirst section\npara with ref ^blk1",
+          start_line: 5,
+          end_line: 7,
+          heading_level: 1,
+        });
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("returns the paragraph for a block anchor, with no heading_level", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "block", block_id: "blk1" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const d = r.data as { section?: Record<string, unknown> };
+        expect(d.section).toEqual({
+          text: "first section\npara with ref ^blk1",
+          start_line: 6,
+          end_line: 7,
+        });
+        expect(d.section).not.toHaveProperty("heading_level");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("omits section (not null) when no anchor is given", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", { vault: "test", path: "a.md" });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.data).not.toHaveProperty("section");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("anchor not found -> invalid_input, matching patch_note's message", async () => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const heading = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "Ghost" },
+      });
+      expect(heading.ok).toBe(false);
+      if (!heading.ok) {
+        expect(heading.error.code).toBe("invalid_input");
+        expect(heading.error.message).toBe("target heading not found");
+      }
+      const block = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "block", block_id: "ghost" },
+      });
+      expect(block.ok).toBe(false);
+      if (!block.ok) expect(block.error.message).toBe("block reference not found");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("an ambiguous anchor is refused the same way patch_note refuses it", async () => {
+    const v = makeTestVault({ files: { "a.md": "## A\nold\n## A\nkeep" } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "A" },
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.details).toMatchObject({ count: 2, lines: [1, 3] });
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a CRLF note's section text keeps CRLF line endings", async () => {
+    const crlf = "# One\r\nfirst\r\nsecond\r\n# Two\r\nkeep\r\n";
+    const v = makeTestVault({ files: { "a.md": crlf } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "One" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok)
+        expect((r.data as { section?: { text: string } }).section?.text).toBe(
+          "# One\r\nfirst\r\nsecond",
+        );
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("GH #922 shape 2: replace is idempotent on the anchor heading", () => {
   it("drops a duplicate leading heading from replace content (verbatim repro)", async () => {
     const raw = ["## A", "old", "## B", "keep"].join("\n");

@@ -25,6 +25,19 @@ export const NoteStatOut = z
   .object({ size: z.number(), mtime: z.string(), ctime: z.string() })
   .nullable();
 
+/** THE-1038 / GH #927: the span `resolveSection` (notes/anchors.ts) resolved when `read_note` is
+ *  called with an `anchor`. `text` includes the section's own marker line — the heading line for
+ *  a heading anchor, or the block paragraph including its `^id` line — matching what a `replace`
+ *  on the same anchor would discard. `start_line`/`end_line` are 1-based and inclusive, relative
+ *  to the raw file `content` (frontmatter lines counted in). `heading_level` is present only for
+ *  a heading anchor. */
+export const ReadNoteSectionOut = z.object({
+  text: z.string(),
+  start_line: z.number(),
+  end_line: z.number(),
+  heading_level: z.number().optional(),
+});
+
 export const ReadNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
@@ -34,6 +47,8 @@ export const ReadNoteOutput = z.object({
   has_frontmatter: z.boolean(),
   content_hash: z.string(),
   stat: NoteStatOut,
+  // Omitted (not null) when the caller passed no `anchor` — see ReadNoteSectionOut.
+  section: ReadNoteSectionOut.optional(),
 });
 
 /** read_notes' per-note entry is hand-assembled in the loop below and is NARROWER than

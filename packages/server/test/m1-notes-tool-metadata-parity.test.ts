@@ -63,13 +63,14 @@ function toSnapshot(tool: ReturnType<typeof buildNotesTools>[number]): ToolSnaps
 const EXPECTED: ToolSnapshot[] = [
   {
     name: "read_note",
-    description: "Read a note's raw content, parsed frontmatter, body, content hash, and stat.",
+    description:
+      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged.",
     domain: "notes",
     requiredScopes: ["read:notes"],
     tags: [],
     hasPathAcl: true,
     destructive: false,
-    inputKeys: ["path", "vault"],
+    inputKeys: ["anchor", "path", "vault"],
     outputKeys: [
       "body",
       "content",
@@ -77,6 +78,7 @@ const EXPECTED: ToolSnapshot[] = [
       "frontmatter",
       "has_frontmatter",
       "path",
+      "section",
       "stat",
       "vault",
     ],
