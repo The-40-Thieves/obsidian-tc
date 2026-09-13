@@ -591,22 +591,67 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
           jsonPath,
         ]);
 
-        // The copy exists and is byte-complete; what the command cannot do is PROVE that table matches.
+        // The copy is byte-complete and installable; what the command cannot do is PROVE that one
+        // table's row count. That is "partial" — exit 0, the mv recommended, the table named — and
+        // it must never print the bare words "verified copy".
+        expect(r.code, `compact --into exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
         expect(existsSync(join(destDir, "cache.db"))).toBe(true);
-        expect(r.stdout).not.toContain("verified copy at");
+        expect(r.stdout).not.toContain("verified copy");
+        expect(r.stdout).toMatch(
+          /copy verified EXCEPT vec_chunks \(not comparable: no such module: vec0\)/,
+        );
+        expect(r.stdout).toMatch(/copied page-for-page by VACUUM INTO but not row-counted/);
+        expect(r.stdout).toMatch(/to install it: mv /);
         const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
           db: string;
-          integrityIssues: string[];
+          verification?: string;
+          notComparable?: { table: string; reason: string }[];
+          integrityOk: boolean;
         }>;
-        const issues = report.find((x) => x.db === "cache.db")?.integrityIssues ?? [];
-        expect(issues.join(" ")).toMatch(
-          /vec_chunks: live=not comparable \(no such module: vec0\)/,
-        );
-        expect(issues.join(" ")).toMatch(/copy=not comparable/);
+        const cacheReport = report.find((x) => x.db === "cache.db");
+        expect(cacheReport?.verification).toBe("partial");
+        expect(cacheReport?.integrityOk).toBe(true);
+        expect(cacheReport?.notComparable).toEqual([
+          { table: "vec_chunks", reason: "no such module: vec0" },
+        ]);
       },
       TEST_BUDGET_MS,
     );
   });
+
+  // I2 ruling — the THIRD outcome: a genuine count divergence between copy and live is still a
+  // FAILURE (exit 1, never installable), as distinct from "not comparable" above. `VACUUM INTO` is
+  // faithful by construction, so the only deterministic way to produce one is the test-only hook
+  // deleting a row from the COPY before verification.
+  it(
+    "a real row-count mismatch is 'failed', not 'partial': exit 1, no install recommendation",
+    async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-mismatch-"));
+      dirs.push(destDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "delete:notes_fts",
+      });
+
+      expect(r.code).toBe(1);
+      expect(r.stdout).toContain("FAILED verification");
+      expect(r.stdout).not.toContain("to install it:");
+      expect(r.stdout).not.toContain("verified copy");
+      expect(r.stderr).toMatch(/row-count mismatch: notes_fts: live=300 copy=299/);
+
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        verification?: string;
+        integrityOk: boolean;
+      }>;
+      const cacheReport = report.find((x) => x.db === "cache.db");
+      expect(cacheReport?.verification).toBe("failed");
+      expect(cacheReport?.integrityOk).toBe(false);
+    },
+    TEST_BUDGET_MS,
+  );
 
   // M6 (final review) — `PRAGMA wal_checkpoint(TRUNCATE)` RETURNS `(busy, log, checkpointed)`; it
   // does not throw. A reader holding a read transaction blocks the truncation (measured: busy=1

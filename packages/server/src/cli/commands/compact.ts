@@ -18,12 +18,17 @@ import { type Cmd, resolveOrUsageExit } from "../shared";
 const COMPACTABLE_DBS = ["cache.db", "experiential.db"] as const;
 type CompactableDb = (typeof COMPACTABLE_DBS)[number];
 
-/** THE-1039 (A1, A4) — an EXPECTED, reportable failure for one database, as opposed to a bug.
- *  `run_compact` catches `unknown` per database (see its comment for the incident), so EVERY error
- *  becomes a report row; this class only carries what `errorReport` can SAY about one. ONE class
- *  with optional facts, not a subclass per failure (M8): only `CompactIntoFailedError` is ever
- *  `instanceof`-checked. `ftsOptimized` is the PARTIAL list `'optimize'` had already committed
- *  before the failure (M4) — real work an operator must hear about even if the VACUUM never ran. */
+/** A table whose `COUNT(*)` threw on at least one connection, with the error explaining it. */
+export interface NotComparableTable {
+  table: string;
+  reason: string;
+}
+
+/** THE-1039 (A1, A4) — an EXPECTED, reportable failure for one database, not a bug. `run_compact`
+ *  catches `unknown` per database, so EVERY error becomes a report row; this only carries what
+ *  `errorReport` can SAY about one. ONE class with optional facts, not a subclass each (M8): only
+ *  `CompactIntoFailedError` is `instanceof`-checked. `ftsOptimized` is the PARTIAL list `'optimize'`
+ *  committed before the failure (M4) — real work, even if the VACUUM never ran. */
 export class CompactError extends Error {
   constructor(
     message: string,
@@ -50,9 +55,8 @@ export function compactDestinationExistsError(destPath: string): CompactError {
 }
 
 /** E1 — any step AFTER `VACUUM INTO` created (or partially created) `destPath` throwing: the copy's
- *  open, `'optimize'`, its VACUUM, the checkpoint, an integrity check, the row-count comparison.
- *  That used to propagate naming only the LIVE path, leaving the copy invisible and a retry failing
- *  on "already exists". `instanceof`-checked by `errorReport`, which is why it stays a type. */
+ *  open, `'optimize'`, its VACUUM, the checkpoint, an integrity check, the comparison. That used to
+ *  name only the LIVE path, leaving the copy invisible. `instanceof`-checked, hence still a type. */
 export class CompactIntoFailedError extends CompactError {
   constructor(
     readonly destPath: string,
@@ -65,10 +69,9 @@ export class CompactIntoFailedError extends CompactError {
   }
 }
 
-/** One database's compaction (or dry-run inspection) result — every shape is one type so
- *  `run_compact` prints and `--json`-serializes through one path. Byte counts are the FOOTPRINT
- *  (main + `-wal`, A2's `dbFootprintBytes`, as doctor's `db.reclaimable-space` uses), bar
- *  `freelistBytes`. */
+/** One database's compaction (or dry-run) result — every shape is one type, so `run_compact` prints
+ *  and `--json`-serializes through one path. Byte counts are the FOOTPRINT (main + `-wal`, A2's
+ *  `dbFootprintBytes`, as doctor's `db.reclaimable-space` uses), bar `freelistBytes`. */
 export interface DbCompactReport {
   db: CompactableDb;
   path: string;
@@ -102,10 +105,15 @@ export interface DbCompactReport {
    *  in place, which opens writable by design). `"fallback"` is reported out loud — see
    *  `printReport` — because bytes are only guaranteed unchanged on `"native"`. */
   readonlyMode?: "native" | "fallback";
-  /** M6: a checkpoint another connection's read prevented — invisible before, while `afterBytes`
-   *  counted the `-wal` it left behind (a NEGATIVE reclaim, measured). Reported, but NOT a
-   *  verification failure and NOT an exit-code change: nothing is wrong, less was reclaimed. */
+  /** M6: a checkpoint a reader prevented — invisible before, while `afterBytes` counted the `-wal`
+   *  it left (a NEGATIVE reclaim, measured). Reported; not a failure, not an exit-code change. */
   checkpointBlocked?: string;
+  /** I2 ruling — `--into`'s three outcomes. "partial" is exit 0 and DOES recommend the copy, with
+   *  the un-row-counted tables named; it never prints the bare words "verified copy". */
+  verification?: "verified" | "partial" | "failed";
+  /** I2 — tables `COUNT(*)` could not read (vec0 without sqlite-vec, chiefly): copied page-for-page
+   *  by `VACUUM INTO` (measured), simply not proven by a count. */
+  notComparable?: NotComparableTable[];
   /** `--into` only. */
   into?: {
     path: string;
@@ -140,10 +148,9 @@ function ftsIntegrityCheck(db: Database, table: string): { ok: boolean; reason?:
   }
 }
 
-/** Every table worth comparing for the `--into` row-count check: every real one, MINUS the
- *  sqlite-internal ones and MINUS each FTS table's shadow tables (`<t>_data`, `_idx`, `_content`,
- *  `_docsize`, `_config`), which are EXPECTED to disagree once `optimizeFtsTables` merges segments
- *  on the copy. The FTS virtual table IS compared: its count is the document count. */
+/** Every table worth comparing for `--into`'s row-count check: every real one, MINUS sqlite-internal
+ *  ones and MINUS each FTS table's shadow tables (`_data`, `_idx`, `_content`, `_docsize`,
+ *  `_config`), EXPECTED to disagree once `'optimize'` merges segments. The FTS table IS compared. */
 function realTableNames(db: Database): string[] {
   const shadowPrefixes = FTS_TABLE_NAMES.map((t) => `${t}_`);
   return (
@@ -157,37 +164,43 @@ function realTableNames(db: Database): string[] {
     .filter((n) => !shadowPrefixes.some((p) => n.startsWith(p)));
 }
 
-/** Row count per table, or the reason it could not be counted. I2: a failure became `-1` on BOTH
- *  connections and `-1 === -1` read as a MATCH, so on a semantic store `COUNT(*) FROM vec_chunks`
- *  ("no such module: vec0" — this command never loads sqlite-vec) left the largest table unverified
- *  under the words "verified copy". Uncountable on either side is now a reported mismatch. `VACUUM
- *  INTO` does preserve vec0 content with the module absent (measured), so this is a VERIFICATION
- *  gap, not corruption: the copy is fine, this command cannot prove it for that table. */
+/** Row count per table, or the raw error that prevented counting. I2: a failure became `-1` on BOTH
+ *  connections and `-1 === -1` read as a MATCH, so `COUNT(*) FROM vec_chunks` ("no such module:
+ *  vec0" — this command never loads sqlite-vec) left a semantic store's largest table unverified
+ *  under the words "verified copy". Its own outcome now, neither pass nor fail. */
 function tableRowCounts(db: Database, tables: string[]): Record<string, number | string> {
   const out: Record<string, number | string> = {};
   for (const t of tables) {
     try {
       out[t] = (db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n;
     } catch (e) {
-      out[t] = `not comparable (${(e as Error)?.message ?? String(e)})`;
+      // The RAW error: callers word it ("not comparable (…)") where they present it.
+      out[t] = (e as Error)?.message ?? String(e);
     }
   }
   return out;
 }
 
-/** Compare every table's row count between the live database and its `VACUUM INTO` copy.
- *  Best-effort, not a proof: the live database can be written between the snapshot and this
- *  comparison, so a mismatch on an actively-written table is not necessarily corruption — reported
- *  either way, since this command cannot tell it from "the copy is short a table". */
-function verifyRowCounts(live: Database, copy: Database): string[] {
+/** Compare each table's row count between the live database and its `VACUUM INTO` copy. Best-effort,
+ *  not a proof: the live file can be written between snapshot and comparison, so a mismatch on an
+ *  actively-written table may not be corruption — reported anyway, since this cannot tell. */
+function verifyRowCounts(
+  live: Database,
+  copy: Database,
+): { mismatches: string[]; notComparable: NotComparableTable[] } {
   const tables = realTableNames(live);
   const liveCounts = tableRowCounts(live, tables);
   const copyCounts = tableRowCounts(copy, tables);
-  const mismatch = (t: string): boolean =>
-    typeof liveCounts[t] !== "number" ||
-    typeof copyCounts[t] !== "number" ||
-    liveCounts[t] !== copyCounts[t];
-  return tables.filter(mismatch).map((t) => `${t}: live=${liveCounts[t]} copy=${copyCounts[t]}`);
+  const notComparable: NotComparableTable[] = [];
+  const mismatches: string[] = [];
+  for (const t of tables) {
+    const reason = [liveCounts[t], copyCounts[t]].find((v) => typeof v === "string");
+    // I2 ruling: uncountable is its OWN outcome, not a failure — only the row-count PROOF is missing.
+    if (typeof reason === "string") notComparable.push({ table: t, reason });
+    else if (liveCounts[t] !== copyCounts[t])
+      mismatches.push(`${t}: live=${liveCounts[t]} copy=${copyCounts[t]}`);
+  }
+  return { mismatches, notComparable };
 }
 
 async function dryRunOneDatabase(
@@ -297,21 +310,27 @@ async function compactOneDatabase(
       let copyDb: Database | undefined;
       let ftsOptimized: string[];
       let integrity: { ok: boolean; issues: string[] };
-      let rowCountMismatches: string[];
+      let rowCounts: { mismatches: string[]; notComparable: NotComparableTable[] };
       let snapshotAt: string;
       let checkpointBlocked: string | undefined;
       try {
         db.exec(`VACUUM INTO ${quoteSqlString(destPath)}`);
         snapshotAt = new Date().toISOString(); // THE-1039 fix round 1 (A5)
         copyDb = await openDatabase(destPath, busyTimeoutMs);
-        // M1: stands in for the copy-side `'optimize'` throwing — see `forcedCompactIntoFailure`.
+        // M1: stands in for the copy-side `'optimize'` throwing, or (`delete:<table>`) a real
+        // copy-vs-live divergence — see `forcedCompactIntoFailure`.
         const forced = forcedCompactIntoFailure();
-        if (forced !== undefined) throw forced;
+        if (forced?.kind === "throw") throw forced.error;
+        if (forced?.kind === "delete") {
+          copyDb.exec(
+            `DELETE FROM "${forced.table}" WHERE rowid = (SELECT MIN(rowid) FROM "${forced.table}")`,
+          );
+        }
         ftsOptimized = optimizeFtsTables(copyDb);
         copyDb.exec("VACUUM");
         checkpointBlocked = checkpointTruncate(copyDb);
         integrity = verifyIntegrity(copyDb);
-        rowCountMismatches = verifyRowCounts(db, copyDb);
+        rowCounts = verifyRowCounts(db, copyDb);
       } catch (e) {
         // E1 + round 4: classify on "does the copy exist" BEFORE the busy check — a busy from a
         // copy-side step used to lose `destPath`. The busy WORDING survives as the wrapped cause.
@@ -325,7 +344,12 @@ async function compactOneDatabase(
       }
       // F1: `into` is populated either way (the copy stays on disk), but printReport only
       // recommends installing it when `ok`.
-      const ok = integrity.ok && rowCountMismatches.length === 0;
+      const ok = integrity.ok && rowCounts.mismatches.length === 0;
+      const verification = !ok
+        ? "failed"
+        : rowCounts.notComparable.length > 0
+          ? "partial"
+          : "verified";
       const copyBytes = dbFootprintBytes(destPath);
       return {
         db: name,
@@ -339,10 +363,12 @@ async function compactOneDatabase(
         reclaimedBytes: beforeBytes - copyBytes,
         ftsOptimized,
         integrityOk: ok,
+        verification,
+        ...(rowCounts.notComparable.length > 0 ? { notComparable: rowCounts.notComparable } : {}),
         ...(db.readonlyMode !== undefined ? { readonlyMode: db.readonlyMode } : {}),
         integrityIssues: [
           ...integrity.issues,
-          ...rowCountMismatches.map((m) => `row-count mismatch: ${m}`),
+          ...rowCounts.mismatches.map((m) => `row-count mismatch: ${m}`),
         ],
         ...(checkpointBlocked !== undefined ? { checkpointBlocked } : {}),
         into: {
@@ -354,7 +380,7 @@ async function compactOneDatabase(
           mv:
             `mv ${quoteShString(destPath)} ${quoteShString(path)} && ` +
             `rm -f ${quoteShString(`${path}-wal`)} ${quoteShString(`${path}-shm`)}`,
-          rowCountMismatches,
+          rowCountMismatches: rowCounts.mismatches,
           snapshotAt,
         },
       };
@@ -435,8 +461,19 @@ function printReport(r: DbCompactReport): void {
     );
     note();
     if (r.integrityOk) {
-      // THE-1039 fix round 1 (F1): only reached when verification passed.
-      process.stdout.write(`  verified copy at ${r.into.path}\n`);
+      // F1: only reached when verification passed. I2: "partial" installs too, but the bare words
+      // "verified copy" are reserved for the outcome that proved EVERY table.
+      if (r.verification === "partial") {
+        const named = (r.notComparable ?? [])
+          .map((t) => `${t.table} (not comparable: ${t.reason})`)
+          .join(", ");
+        process.stdout.write(`  copy verified EXCEPT ${named}\n`);
+        process.stdout.write(
+          "  those tables were copied page-for-page by VACUUM INTO but not row-counted\n",
+        );
+      } else {
+        process.stdout.write(`  verified copy at ${r.into.path}\n`);
+      }
       process.stdout.write(`  to install it: ${r.into.mv}\n`);
       // THE-1039 fix round 1 (A5): the copy is a point-in-time snapshot, not a live mirror.
       process.stdout.write(
@@ -468,8 +505,8 @@ function printReport(r: DbCompactReport): void {
 }
 
 /** A1/A4: one database's failure as a report row, so the loop records it and moves on. Takes
- *  `unknown`, not just `CompactError`: cli.ts's `fatal:` handler printed `(err as Error).message`
- *  too, so wrapping ANY error loses nothing while letting the OTHER database compact. */
+ *  `unknown`: cli.ts's `fatal:` handler printed `(err as Error).message` too, so wrapping ANY error
+ *  loses nothing while letting the OTHER database compact. */
 function errorReport(
   name: CompactableDb,
   path: string,
@@ -500,10 +537,9 @@ function errorReport(
 }
 
 /** `obsidian-tc compact` — see the file header for the in-place-vs-`--into` ruling. Runs cache.db
- *  then experiential.db, skipping either that is absent. A1 incident closed: a `SQLITE_BUSY` on the
- *  SECOND database used to `process.exit(1)` before the FIRST one's success was reported. Every
- *  outcome lands in `reports` first; report/`--json` always emit, and the exit code goes non-zero
- *  once at the end if any database failed or failed verification. */
+ *  then experiential.db, skipping either absent. A1 incident closed: a `SQLITE_BUSY` on the SECOND
+ *  database used to `process.exit(1)` before the FIRST one's success was reported. Every outcome
+ *  lands in `reports` first; report/`--json` always emit, and the exit code is decided once, last. */
 export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   const busyTimeoutMs = cfg.db.busyTimeoutMs;

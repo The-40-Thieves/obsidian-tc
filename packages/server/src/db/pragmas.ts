@@ -36,12 +36,20 @@ export function forceReadonlyOpenFallback(): boolean {
  * needed `VACUUM INTO` to leave a copy for a later step to choke on — build-dependent, and untrue on
  * macOS, where no copy was produced and the retained-copy assertion failed.
  */
-export function forcedCompactIntoFailure(): Error | undefined {
+export function forcedCompactIntoFailure():
+  | { kind: "throw"; error: Error }
+  | { kind: "delete"; table: string }
+  | undefined {
   const mode = process.env.OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE;
+  if (mode === undefined) return undefined;
+  // `delete:<table>` drops one row from the COPY before verification, the only deterministic way to
+  // produce a REAL row-count mismatch: `VACUUM INTO` is faithful by design, so nothing a fixture can
+  // do to the source will make the copy disagree.
+  if (mode.startsWith("delete:")) return { kind: "delete", table: mode.slice("delete:".length) };
   if (mode !== "1" && mode !== "busy") return undefined;
-  const e = new Error(`OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=${mode}`);
-  if (mode === "busy") (e as Error & { code?: string }).code = "SQLITE_BUSY";
-  return e;
+  const error = new Error(`OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=${mode}`);
+  if (mode === "busy") (error as Error & { code?: string }).code = "SQLITE_BUSY";
+  return { kind: "throw", error };
 }
 
 /**
