@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,303 tracked code files · 223,261 lines.
+**Scale:** 1,304 tracked code files · 224,986 lines.
 
-TypeScript 203,297 · JavaScript 14,542 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
+TypeScript 205,022 · JavaScript 14,542 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,13 +89,13 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 91 | 18,817 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,932 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 27 | 6,941 | work-memory tier: activation, retrieval log, forget, citations |
-| `cli/` | 40 | 5,242 | arg parsing + subcommands |
+| `cli/` | 40 | 5,423 | arg parsing + subcommands |
 | `mcp/` | 19 | 5,012 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 19 | 4,280 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `doctor/` | 15 | 2,661 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `doctor/` | 15 | 2,678 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `db/` | 15 | 1,988 | provisioning, migrate runner, experiential store |
 | `vault/` | 17 | 1,950 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `migrations/` | 53 | 1,940 | hand-registered SQL. **Two chains** — see below |
-| `db/` | 15 | 1,658 | provisioning, migrate runner, experiential store |
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
@@ -148,6 +148,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 645 | `packages/server/src/runtime/tool-wiring.ts` |
+| 641 | `packages/server/src/cli/commands/compact.ts` |
 | 639 | `packages/server/src/experiential/citation.ts` |
 | 627 | `packages/server/src/metrics/registry.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
@@ -167,7 +168,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 508 | `packages/server/src/mcp/facade.ts` |
 | 503 | `packages/server/src/tools/m6/bulk-tools.ts` |
 
-28 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+29 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
@@ -286,7 +287,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**457 modules · 2087 dependencies · 129 distinct subsystem pairs · 950 cross-subsystem imports.**
+**457 modules · 2090 dependencies · 129 distinct subsystem pairs · 951 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -335,8 +336,8 @@ flowchart LR
   tools -->|184| vault
   tools -->|77| mcp
   search -->|52| db
+  cli -->|50| db
   tools -->|50| search
-  cli -->|49| db
   runtime -->|27| search
   experiential -->|25| db
   runtime -->|20| db
@@ -384,8 +385,8 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 235 | `tools` | 391 |
-| `db` | 190 | `runtime` | 161 |
-| `search` | 111 | `cli` | 124 |
+| `db` | 191 | `runtime` | 161 |
+| `search` | 111 | `cli` | 125 |
 | `mcp` | 101 | `search` | 93 |
 | `experiential` | 51 | `experiential` | 36 |
 <!-- END GENERATED: tree-fan -->
