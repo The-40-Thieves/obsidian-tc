@@ -198,6 +198,68 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     },
   );
 
+  // THE-1039 fix round 3 (E1, Greptile, T-Rex-verified) — a step AFTER `VACUUM INTO` has already
+  // created `destPath` throwing used to report only the LIVE database's path; the copy actually
+  // left on disk was invisible from both stdout and --json, so an operator had no way to find it.
+  describe.skipIf(!sqlite3CliOk)(
+    "E1 — a failure AFTER VACUUM INTO names the retained copy on both stdout and --json",
+    () => {
+      it("reports destination + retainedCopy when optimizing the copy throws", async () => {
+        const { cacheDir, configPath } = setupConfig();
+        const dbPath = join(cacheDir, "cache.db");
+        const db = await openDatabase(dbPath);
+        provisionCacheDb(db, { version: "test" });
+        expect(ensureNotesFts(db)).toBe(true);
+        db.exec(
+          "INSERT INTO notes_fts (vault_id, path, title, content) VALUES ('v1', 'a.md', 'A', 'hello world')",
+        );
+        db.close?.();
+        // `VACUUM INTO` is a page-level snapshot copy — it still succeeds on a source whose FTS5
+        // shadow schema is this badly broken (dropping the `_config` table, not merely emptying
+        // it as F1's fixture does). The resulting COPY is what then throws when `'optimize'` tries
+        // to instantiate the fts5 virtual table module against it — "vtable constructor failed" —
+        // a genuine step failure AFTER `destPath` already exists, unlike F1's fixture (which
+        // copies fine AND optimizes fine; only the integrity-check catches it afterward).
+        execFileSync("sqlite3", [
+          dbPath,
+          ".dbconfig defensive off",
+          "DROP TABLE notes_fts_config;",
+        ]);
+
+        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-e1-"));
+        dirs.push(destDir);
+        const jsonPath = join(cacheDir, "report.json");
+        const r = runCli([
+          "compact",
+          "--config",
+          configPath,
+          "--into",
+          destDir,
+          "--json",
+          jsonPath,
+        ]);
+
+        expect(r.code).toBe(1);
+        const destPath = join(destDir, "cache.db");
+        // The copy is still on disk — VACUUM INTO ran before the throwing step.
+        expect(existsSync(destPath)).toBe(true);
+        expect(r.stderr).toContain(destPath);
+        expect(r.stderr).toMatch(/incomplete copy remains/);
+
+        const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+          db: string;
+          error?: string;
+          destination?: string;
+          retainedCopy?: boolean;
+        }>;
+        const cacheReport = report.find((x) => x.db === "cache.db");
+        expect(cacheReport?.error).toMatch(/vtable constructor failed/);
+        expect(cacheReport?.destination).toBe(destPath);
+        expect(cacheReport?.retainedCopy).toBe(true);
+      }, 30_000);
+    },
+  );
+
   // THE-1039 fix round 1 (A4).
   it("--into a directory that already has this database's file name: a plain-language error, exit 1, not a raw fatal:", async () => {
     const { cacheDir, configPath } = setupConfig();
