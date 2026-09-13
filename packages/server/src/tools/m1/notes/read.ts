@@ -19,11 +19,15 @@ import { PatchAnchor, ReadNoteOutput, ReadNotesOutput } from "./schemas";
 
 /** Number of raw-file lines preceding `parsed.body`'s line 0 — the frontmatter delimiter pair
  *  plus its YAML line count (0 when the note has no frontmatter). Used to translate a
- *  resolveSection span (body-relative) into read_note's raw-file line numbers. */
+ *  resolveSection span (body-relative) into read_note's raw-file line numbers.
+ *
+ *  Review round 1 C1(b): NO special case for an empty `rawFrontmatter` — parseNote's frontmatter
+ *  regex requires an actual `\n` between the two `---` delimiters to capture `""`, so an empty
+ *  capture still means one real (blank) YAML line occupying a raw line (`---\n\n---\n` is 3 raw
+ *  lines); `"".split(/\r?\n/).length` is 1, which is correct here, not a value to override to 0. */
 function frontmatterLineOffset(rawFrontmatter: string | null): number {
   if (rawFrontmatter === null) return 0;
-  const yamlLines = rawFrontmatter.length === 0 ? 0 : rawFrontmatter.split(/\r?\n/).length;
-  return yamlLines + 2; // the opening and closing "---" delimiter lines
+  return rawFrontmatter.split(/\r?\n/).length + 2; // + the opening and closing "---" lines
 }
 
 export function createReadNoteTool(deps: M1Deps): ToolDefinition {
@@ -54,10 +58,24 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
         const resolved = resolveSectionOrThrow(parsed.body, input.anchor, rel);
         const bodyLines = parsed.body.split(/\r?\n/);
         const offset = frontmatterLineOffset(parsed.rawFrontmatter);
+        // Review round 1 C1(c): a trailing line terminator makes split()'s last element a
+        // phantom "line" (the position after the final terminator, not real content) — a section
+        // whose endIndex reaches it (an unbounded section running to EOF) must not report that
+        // phantom as a real end_line, or count it in `text`.
+        const hasTrailingPhantom =
+          bodyLines.length > 0 &&
+          bodyLines[bodyLines.length - 1] === "" &&
+          /\r?\n$/.test(parsed.body);
+        const realLineCount = hasTrailingPhantom ? bodyLines.length - 1 : bodyLines.length;
+        const endIndex = Math.min(resolved.endIndex, realLineCount);
+        const isEmpty = resolved.startIndex === resolved.endIndex;
         section = {
-          text: bodyLines.slice(resolved.startIndex, resolved.endIndex).join(eol),
+          text: bodyLines.slice(resolved.startIndex, endIndex).join(eol),
           start_line: resolved.startIndex + 1 + offset,
-          end_line: resolved.endIndex + offset,
+          // C1(a): an empty section (only the frontmatter/preamble anchor can be zero-length)
+          // reports start_line === end_line rather than end_line = start_line - 1 — see
+          // ReadNoteSectionOut's doc comment for why.
+          end_line: isEmpty ? resolved.startIndex + 1 + offset : endIndex + offset,
           ...(resolved.headingLevel !== undefined ? { heading_level: resolved.headingLevel } : {}),
         };
       }

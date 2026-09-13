@@ -29,8 +29,20 @@ export const NoteStatOut = z
  *  called with an `anchor`. `text` includes the section's own marker line — the heading line for
  *  a heading anchor, or the block paragraph including its `^id` line — matching what a `replace`
  *  on the same anchor would discard. `start_line`/`end_line` are 1-based and inclusive, relative
- *  to the raw file `content` (frontmatter lines counted in). `heading_level` is present only for
- *  a heading anchor. */
+ *  to the raw file `content` (frontmatter lines counted in) — `content.split(/\r?\n/)` sliced
+ *  `[start_line-1, end_line)` and joined reproduces `text` exactly. `heading_level` is present
+ *  only for a heading anchor.
+ *
+ *  Review round 1 C1: two documented exceptions to the inclusive-range rule above, both because a
+ *  trailing line terminator makes `split(/\r?\n/)`'s last element a phantom "line" (the position
+ *  after the final terminator, not real content) rather than genuine content:
+ *  - EMPTY section (a preamble immediately followed by the first heading — the only anchor that
+ *    can span zero lines): `text` is `""` and `start_line === end_line`, both naming the raw line
+ *    the section is anchored before (NOT a one-line range — there is no real content at that
+ *    line). This is the chosen representation for a zero-length span; `end_line < start_line`
+ *    would violate "inclusive" and is never produced.
+ *  - a section that runs to end-of-file in a note whose raw content ends with a line terminator:
+ *    `end_line` (and `text`) stop at the last REAL line, never the phantom one past it. */
 export const ReadNoteSectionOut = z.object({
   text: z.string(),
   start_line: z.number(),

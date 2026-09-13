@@ -170,6 +170,104 @@ describe("GH #927: read_note section read", () => {
   });
 });
 
+describe("Review round 1 C1: read_note section line numbers", () => {
+  type Section = { text: string; start_line: number; end_line: number; heading_level?: number };
+
+  /** Proves start_line/end_line against the RAW file content, per the review's own formula. */
+  function assertLineNumbersMatch(content: string, section: Section): void {
+    const rawLines = content.split(/\r?\n/);
+    const recomputed = rawLines.slice(section.start_line - 1, section.end_line).join("\n");
+    expect(recomputed).toBe(section.text);
+  }
+
+  it("C1(a): an empty preamble reports start_line === end_line, never end_line < start_line", async () => {
+    const raw = "---\ntitle: x\n---\n# H\nbody\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "frontmatter" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const section = (r.data as { section?: Section }).section as Section;
+        expect(section.text).toBe("");
+        expect(section.end_line).toBeGreaterThanOrEqual(section.start_line);
+        // The chosen empty-section convention (documented on ReadNoteSectionOut): both name the
+        // raw line the section is anchored before — "# H" is raw line 4.
+        expect(section).toEqual({ text: "", start_line: 4, end_line: 4 });
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("C1(b): an empty frontmatter block still occupies a raw line — offset is not zeroed", async () => {
+    const raw = "---\n\n---\n# H\nbody\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "H" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const section = (r.data as { section?: Section }).section as Section;
+        // "# H" is raw line 4 (---, <blank>, ---, # H), not raw line 3.
+        expect(section.start_line).toBe(4);
+        assertLineNumbersMatch(raw, section);
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("C1(c): a trailing newline's phantom split() element is not counted as a real line", async () => {
+    const raw = "# Only\na\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "Only" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const section = (r.data as { section?: Section }).section as Section;
+        // The file has exactly 2 real lines; end_line must not reach a phantom 3rd.
+        expect(section.end_line).toBe(2);
+        expect(section.text).toBe("# Only\na");
+        assertLineNumbersMatch(raw, section);
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a non-empty preamble running to EOF with a trailing newline excludes the phantom line", async () => {
+    // No heading at all: the preamble is the WHOLE body, ending at real EOF.
+    const raw = "intro one\nintro two\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "frontmatter" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const section = (r.data as { section?: Section }).section as Section;
+        expect(section).toEqual({ text: "intro one\nintro two", start_line: 1, end_line: 2 });
+        assertLineNumbersMatch(raw, section);
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("GH #928: patch_note operation replace_text", () => {
   it("replaces a unique exact string within the resolved section", async () => {
     const raw = ["## A", "the old value stays", "## B", "the old value stays"].join("\n");
