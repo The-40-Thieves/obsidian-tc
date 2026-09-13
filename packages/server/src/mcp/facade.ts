@@ -39,6 +39,23 @@ export function toJson(schema: z.ZodType): Tool["inputSchema"] {
   return cached;
 }
 
+// THE-1041 / GH #934: zod's default io:"output" mode reads .default()/.prefault() fields as
+// required and plain (non-strict) objects as additionalProperties:false, diverging from what
+// safeParse accepts. Every INPUT-advertising site (never outputSchema) converts through this
+// instead; a separate memo, since input/output conversions of the same schema must not collide.
+const inputJsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
+export function toInputJson(schema: z.ZodType): Tool["inputSchema"] {
+  let cached = inputJsonSchemaMemo.get(schema);
+  if (cached === undefined) {
+    cached = z.toJSONSchema(schema, {
+      ...JSON_SCHEMA_OPTS,
+      io: "input",
+    }) as unknown as Tool["inputSchema"];
+    inputJsonSchemaMemo.set(schema, cached);
+  }
+  return cached;
+}
+
 // THE-824: what the WIRE `destructive` annotation says, as distinct from `def.destructive` (which
 // also drives dispatch-time authorization via isMutatingCall/hitlRequired and must stay untouched
 // by advertisement concerns). A tool that calls requireConfirmation only conditionally never sets
@@ -144,7 +161,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
         (hasResources
           ? " To enumerate the whole caller-visible catalog grouped by domain instead of searching it, read the obsidian-tc://catalog resource."
           : ""),
-      inputSchema: toJson(FIND_CAPABILITY_SCHEMA),
+      inputSchema: toInputJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
@@ -152,7 +169,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       title: "Describe capability",
       description:
         "Return the full input schema, required scopes, and safety hints (read-only / destructive) for a single capability by name.",
-      inputSchema: toJson(DESCRIBE_CAPABILITY_SCHEMA),
+      inputSchema: toInputJson(DESCRIBE_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
@@ -160,7 +177,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       title: "Call capability",
       description:
         "Invoke a capability by name with its arguments. Routes into the same authorization, ACL, HITL, idempotency, and rate-limit pipeline as a direct tool call, so every safety gate applies and the target's own schema validates the arguments.",
-      inputSchema: toJson(CALL_CAPABILITY_SCHEMA),
+      inputSchema: toInputJson(CALL_CAPABILITY_SCHEMA),
       // Advisory only; the real read-only/destructive verdict is the TARGET tool's, enforced in dispatch.
       annotations: { openWorldHint: false },
     },
@@ -247,7 +264,7 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     name: def.name,
     title: titleize(def.name),
     description: def.description,
-    input_schema: toJson(def.inputSchema),
+    input_schema: toInputJson(def.inputSchema),
     ...(def.outputSchema ? { output_schema: toJson(def.outputSchema) } : {}),
     required_scopes: def.requiredScopes,
     annotations: { read_only: !mutating, destructive: isAdvertisedDestructive(def) },
@@ -377,7 +394,7 @@ export function domainTools(tools: ToolDefinition[]): Tool[] {
       name: dom,
       title: spec?.title ?? titleize(dom),
       description: `${spec?.blurb ?? "Miscellaneous capabilities."} Call with "action" naming one capability and "args" its arguments.\nActions:\n${lines}`,
-      inputSchema: toJson(
+      inputSchema: toInputJson(
         z.object({
           action: z.enum(actions as [string, ...string[]]),
           args: z.record(z.string(), z.unknown()).default({}),
