@@ -112,7 +112,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   string-keyed line beside it; and an `&anchor` left on a CHANGED value that nothing aliases any
   more is dropped, so a scalar-to-scalar change no longer keeps an orphan (`a: &x 1` → `a: 99`,
   not `a: &x 99`) where a collection-to-scalar change already dropped it. An anchor on a key the
-  caller did not touch is left exactly as written, orphaned or not.
+  caller did not touch is left exactly as written, orphaned or not. Keys that collide in the JS
+  object a caller sees but not in the YAML (`1:` alongside `'1':`) resolve the way the reader does —
+  a set updates the LAST matching pair, a remove drops every one of them so a shadowed duplicate
+  cannot resurface. Finally, assigning a keep-chomp value to a key whose original scalar was clip or
+  strip (`|`/`|-`) used to let the source's blank separator line become part of the new value
+  (`text: |` + `set text = "changed\n\n"` read back `"changed\n\n\n"`); blank lines immediately
+  after an emitted keep-chomp scalar are now dropped, since they can no longer separate anything.
 
 ## [1.29.0] - 2026-09-13
 

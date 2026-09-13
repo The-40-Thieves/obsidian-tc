@@ -770,4 +770,65 @@ describe("THE-1044 R: a keep-chomp value ending the block survives a neighbour's
     expect(out).toBe("---\na: &x 1\nb: 2\n---\n");
     expect(read(out)).toEqual({ a: 1, b: 2 });
   });
+
+  // C1: `1:` and `'1':` are distinct YAML keys that collapse to the same JS key, where the LAST
+  // one wins. The emitter must follow that: a set updates the last matching pair, a remove drops
+  // ALL of them (a shadowed duplicate must never resurface), a read follows the last.
+  const COLLIDE = "---\n1: &x first\n'1': second\nb: *x\n---\n";
+
+  it("C1: colliding keys — a set updates the pair the reader actually sees", () => {
+    expect(read(COLLIDE)).toEqual({ "1": "second", b: "first" });
+    expect(read(setKey(COLLIDE, "1", 9))).toEqual({ "1": 9, b: "first" });
+  });
+
+  it("C1: colliding keys — a remove drops every matching pair", () => {
+    expect(read(removeKeys(COLLIDE, "1"))).toEqual({ b: "first" });
+  });
+
+  it("C1: the same for a BOOLEAN key collision", () => {
+    const raw = "---\ntrue: &x first\n'true': second\nb: *x\n---\n";
+    expect(read(raw)).toEqual({ true: "second", b: "first" });
+    expect(read(setKey(raw, "true", 9))).toEqual({ true: 9, b: "first" });
+    expect(read(removeKeys(raw, "true"))).toEqual({ b: "first" });
+  });
+
+  // C2: assigning a keep-chomp value to a key whose ORIGINAL scalar was clip/strip leaves the
+  // source's blank separator line sitting right after the new `|+` scalar, where it is no longer a
+  // separator but content. Value correctness wins: those blank lines go.
+  it("C2: a keep-chomp assignment does not absorb the blank line after it (first)", () => {
+    const raw = "---\ntext: |\n  hello\n\nright: 2\n---\n";
+    expect(read(raw)).toEqual({ text: "hello\n", right: 2 });
+    expect(read(setKey(raw, "text", "changed\n\n"))).toEqual({ text: "changed\n\n", right: 2 });
+  });
+
+  it("C2: the same in the MIDDLE of the block", () => {
+    const raw = "---\nleft: 1\ntext: |\n  hello\n\nright: 2\n---\n";
+    expect(read(setKey(raw, "text", "changed\n\n"))).toEqual({
+      left: 1,
+      text: "changed\n\n",
+      right: 2,
+    });
+  });
+
+  it("C2: the same as the LAST key of the block", () => {
+    const raw = "---\nleft: 1\ntext: |\n  hello\n\n---\n";
+    expect(read(setKey(raw, "text", "changed\n\n"))).toEqual({ left: 1, text: "changed\n\n" });
+  });
+
+  it("C2: the same from a STRIP (`|-`) original", () => {
+    const raw = "---\ntext: |-\n  hello\n\nright: 2\n---\n";
+    expect(read(setKey(raw, "text", "changed\n\n"))).toEqual({ text: "changed\n\n", right: 2 });
+  });
+
+  it("C2: the same on CRLF", () => {
+    const raw = "---\r\ntext: |\r\n  hello\r\n\r\nright: 2\r\n---\r\n";
+    expect(read(setKey(raw, "text", "changed\n\n"))).toEqual({ text: "changed\n\n", right: 2 });
+  });
+
+  it("C2: a CLIP assignment keeps the blank separator line", () => {
+    const raw = "---\ntext: |\n  hello\n\nright: 2\n---\n";
+    const out = setKey(raw, "text", "changed\n");
+    expect(out).toBe("---\ntext: |\n  changed\n\nright: 2\n---\n");
+    expect(read(out)).toEqual({ text: "changed\n", right: 2 });
+  });
 });
