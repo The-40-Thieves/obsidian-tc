@@ -3,6 +3,7 @@ import { registerMaintenanceSweep, runMaintenanceSweep } from "../src/db/mainten
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { Scheduler } from "../src/scheduler/scheduler";
+import { ensureChunkFts, upsertChunkFtsRow } from "../src/search/chunk_fts";
 import { ensureNotesFts } from "../src/search/fts";
 import { openMemoryDb } from "./helpers";
 
@@ -260,6 +261,44 @@ describe("THE-1039 FTS5 merge in the sweep", () => {
     const after = ftsDataRows(db);
     expect(counts.fts_merged).toEqual(["notes_fts"]);
     expect(after).toBeLessThan(before);
+  });
+
+  // T4 (fix round 1, cross-vendor review test-gap finding): the notes_fts test above is a
+  // CONTENTFUL table (`content=''` is absent — it stores vault_id/path/title/content directly).
+  // chunk_fts is CONTENTLESS (`content=''`, `contentless_delete=1` — see chunk_fts.ts's own
+  // header for why), a materially different shadow-table shape, and nothing exercised it.
+  it("merges chunk_fts (a CONTENTLESS FTS5 table) written across many separate transactions, strictly shrinking chunk_fts_data", () => {
+    const db = freshDb();
+    expect(ensureChunkFts(db)).toBe(true);
+    const chunkFtsDataRows = (): number =>
+      (db.prepare("SELECT COUNT(*) AS n FROM chunk_fts_data").get() as { n: number }).n;
+    // Each upsert is its own transaction, same reasoning as the notes_fts test above. Written
+    // directly against chunk_fts's own rowid-keyed write path (upsertChunkFtsRow) rather than via
+    // `chunks` + indexing, since the sweep's merge only cares that the FTS table itself exists and
+    // has multiple unmerged segments — not that it agrees with `chunks` (ensureChunkFts's own
+    // count-divergence reconcile is a SEPARATE concern, already covered elsewhere).
+    for (let i = 0; i < 60; i++) {
+      upsertChunkFtsRow(db, i + 1, `content for chunk number ${i} repeated searchable content`);
+    }
+    const before = chunkFtsDataRows();
+    const counts = sweep(db);
+    const after = chunkFtsDataRows();
+    expect(counts.fts_merged).toEqual(["chunk_fts"]);
+    expect(after).toBeLessThan(before);
+  });
+
+  it("merges BOTH notes_fts and chunk_fts in one sweep when both are present", () => {
+    const db = freshDb();
+    expect(ensureNotesFts(db)).toBe(true);
+    expect(ensureChunkFts(db)).toBe(true);
+    const insNotes = db.prepare(
+      "INSERT INTO notes_fts (vault_id, path, title, content) VALUES ('v1', ?, ?, ?)",
+    );
+    for (let i = 0; i < 20; i++) insNotes.run(`n${i}.md`, `N ${i}`, `note content ${i}`);
+    for (let i = 0; i < 20; i++) upsertChunkFtsRow(db, i + 1, `chunk content ${i}`);
+
+    const counts = sweep(db);
+    expect(counts.fts_merged.slice().sort()).toEqual(["chunk_fts", "notes_fts"]);
   });
 
   it("is a no-op (fts_merged: []) on a store with no FTS tables, and never throws", () => {
