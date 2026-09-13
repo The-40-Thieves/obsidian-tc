@@ -1982,3 +1982,117 @@ describe("Pre-merge U3: an ATX closing sequence is not part of the title", () =>
     }
   });
 });
+
+describe("Pre-merge U4: a bare closing sequence leaves an EMPTY title", () => {
+  // `## ##` is an empty h2 per CommonMark (spec: `### ###` is an empty h3) — the outer separator
+  // consumed the space, so the closing-sequence strip never saw one and the title read "##",
+  // inventing an anchor target and a bogus ambiguity/duplicate match against a literal "##".
+  for (const { label, line, want } of [
+    { label: "## ##", line: "## ##", want: "##" },
+    { label: "### ###", line: "### ###", want: "###" },
+    { label: "## #", line: "## #", want: "#" },
+  ]) {
+    it(`${label} is not an anchor target titled "${want}"`, async () => {
+      const raw = `# Top\n${line}\nbody`;
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("read_note", {
+          vault: "test",
+          path: "a.md",
+          anchor: { type: "heading", heading: want },
+        });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+          expect(r.error.code).toBe("invalid_input");
+          expect(r.error.message).toBe("target heading not found");
+        }
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+
+  it("two bare closing sequences are not an AMBIGUOUS '##' either", async () => {
+    const raw = "## ##\nold\n## ##\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "##" },
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.message).toBe("target heading not found");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("## ## is still a real section boundary, empty title and all", async () => {
+    const raw = "## A\nold\n## ##\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nnew\n## ##\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a closing sequence with content keeps that content: '## C #' is C, '## C#' is C#", async () => {
+    const v = makeTestVault({ files: { "a.md": "## C #\nold\n## C#\nkeep" } });
+    try {
+      const spaced = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "C" },
+      });
+      expect(spaced.ok).toBe(true);
+      if (spaced.ok) {
+        expect((spaced.data as { section?: Section }).section?.text).toBe("## C #\nold");
+      }
+      const flush = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "C#" },
+      });
+      expect(flush.ok).toBe(true);
+      if (flush.ok) {
+        expect((flush.data as { section?: Section }).section?.text).toBe("## C#\nkeep");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("'##' and '## ' keep an empty title: a boundary, never a target", async () => {
+    const raw = "## A\nold\n##\nmid\n## \nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "##" },
+      });
+      expect(r.ok).toBe(false);
+      const bounded = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "A" },
+      });
+      expect(bounded.ok).toBe(true);
+      if (bounded.ok) {
+        expect((bounded.data as { section?: Section }).section?.end_line).toBe(2);
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+});

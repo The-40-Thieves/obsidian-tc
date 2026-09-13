@@ -58,7 +58,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   separator after a heading's hashes (`##\u00a0B` is not a heading). An ATX closing sequence is
   syntax, not title text, in every consumer of the shared matcher — `## A ##` resolves, bounds,
   counts toward ambiguity and de-duplicates as the heading `A`, while `## A#` keeps the hash in its
-  title. ATX heading boundaries (and anchor
+  title; a BARE closing sequence (`## ##`, `### ###`, `## #`) is an empty heading, so it bounds a
+  section but is never an anchor target and never counts toward ambiguity. ATX heading boundaries (and anchor
   targets) now tolerate up to 3 columns of leading indentation and an empty title (`"##"` alone, or
   `"## "`), matching real ATX heading recognition instead of requiring a heading to start at column
   0 with non-empty text. Setext headings, trailing-footer/`stop_before` bounding (#922 shape 1),

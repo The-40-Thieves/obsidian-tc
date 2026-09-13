@@ -85,8 +85,8 @@ function trimAsciiEnd(line: string): string {
 /** Recognizes an ATX heading LINE as a section BOUNDARY — review round 4 R3: tolerates up to 3
  *  columns of leading ASCII space/tab indentation (4+ is an indented code block, not a heading —
  *  the same CommonMark rule fences use, review round 3 M8), an optional closing hash sequence
- *  (`"## A ##"` has the title `"A"` — pre-merge U3), and an EMPTY title (`"##"` alone, or
- *  `"## "` with nothing after) — a real, if untargetable, boundary (no caller can anchor to
+ *  (`"## A ##"` has the title `"A"` — pre-merge U3), and an EMPTY title (`"##"` alone, `"## "` with
+ *  nothing after, or a bare closing sequence like `"## ##"` / `"### ###"` — pre-merge U4) — a real, if untargetable, boundary (no caller can anchor to
  *  `heading: ""` — the schema requires `min(1)`). Review round 5 D1: this is the ONE heading
  *  recognizer in this module — `dropDuplicateLeadingHeading` tests caller-supplied content with it
  *  too. A second, stricter column-0 regex used to live here for that narrower job, which meant an
@@ -103,7 +103,11 @@ function matchHeadingBoundary(line: string): { level: number; title: string } | 
   // preceded by a space or tab, so a trailing hash run written flush against the text (`## A#`)
   // stays part of the title. Stripped here, in the ONE shared matcher, so every consumer agrees:
   // boundary scan, anchor target, ambiguity count, and the duplicate-heading drop.
-  const title = (m[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "");
+  // Pre-merge U4: a remainder that is NOTHING BUT a hash run is the closing sequence of an EMPTY
+  // heading (CommonMark: `### ###` is an empty h3); the strip above cannot see it, its separator
+  // having been consumed by this regex's own `[ \t]+` — untreated, the title reads `"##"`.
+  const rest2 = m[2] ?? "";
+  const title = /^#+[ \t]*$/.test(rest2) ? "" : rest2.replace(/[ \t]+#+[ \t]*$/, "");
   return { level: (m[1] ?? "").length, title: title.trim() };
 }
 
