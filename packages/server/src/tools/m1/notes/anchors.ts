@@ -1,9 +1,9 @@
 // THE-1038 / GH #927: anchor resolution used to be private to write.ts (patch_note) because
-// nothing else in the notes domain needed it. read_note's section read (added in a later commit
-// on this branch) needs the exact same heading/block/preamble resolution patch_note already
-// computes on every call, so it moved here — one place to fix the heading-scan defects (#922,
-// #926) instead of two. Pure functions over strings: no filesystem, no vault types, nothing
-// beyond the shared error taxonomy for the ambiguous-anchor refusal (GH #922 shape 3).
+// nothing else in the notes domain needed it. read_note's section read needs the exact same
+// heading/block/preamble resolution patch_note already computes on every call, so it lives here —
+// one place to fix the heading-scan defects (#922, #926) instead of two. Pure functions over
+// strings: no filesystem, no vault types, nothing beyond the shared error taxonomy for the
+// ambiguous-anchor refusal (GH #922 shape 3).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 export const HEADING = /^(#{1,6})\s+(.*?)\s*$/;

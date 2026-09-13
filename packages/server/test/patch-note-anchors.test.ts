@@ -287,6 +287,30 @@ describe("GH #928: patch_note operation replace_text", () => {
     }
   });
 
+  it("surfaces the snapshot no-op for replace_text when snapshots are disabled, like replace", async () => {
+    const raw = ["## A", "old value", "## B", "keep"].join("\n");
+    const skipped: Array<{ vaultId: string; path: string; op: string }> = [];
+    const v = makeTestVault({
+      files: { "a.md": raw },
+      snapshots: { enabled: false, retention: 10 },
+      onSnapshotSkipped: (vaultId, path, op) => skipped.push({ vaultId, path, op }),
+    });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old value",
+        new_string: "new value",
+      });
+      expect(r.ok).toBe(true);
+      expect(skipped).toEqual([{ vaultId: "test", path: "a.md", op: "patch_note" }]);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("prev_hash is still enforced for replace_text", async () => {
     const raw = ["## A", "old value", "## B", "keep"].join("\n");
     const v = makeTestVault({ files: { "a.md": raw } });

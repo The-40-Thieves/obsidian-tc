@@ -364,8 +364,12 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter);
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a
-      // destructive replace instead of letting the "safety net" call succeed while writing nothing.
-      if (input.operation === "replace" && !deps.snapshots?.enabled)
+      // destructive replace (GH #928: replace_text is the same shape — it discards content too)
+      // instead of letting the "safety net" call succeed while writing nothing.
+      if (
+        (input.operation === "replace" || input.operation === "replace_text") &&
+        !deps.snapshots?.enabled
+      )
         deps.onSnapshotSkipped?.(v.id, rel, "patch_note");
       captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "patch_note", ctx.now);
       writeNoteAtomic(abs, next, false);
