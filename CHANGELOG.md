@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-09-13
+
 ### Added
 
-- **`obsidian-tc compact` and a `doctor` reclaimable-space row (THE-1039, GH #930).** No CLI verb
+- **`obsidian-tc compact` and a `doctor` reclaimable-space row (#933, THE-1039, GH #929/#930).** No CLI verb
   ever reclaimed database space, and no doctor check ever surfaced that it was needed. `compact`
   runs FTS5 `'optimize'` on every present `notes_fts`/`chunk_fts` table then `VACUUM`
   (`--into <dir>` copies via `VACUUM INTO` instead, verified, leaving the live file untouched and
@@ -22,7 +24,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
-- **`call_capability` never redeemed an `elicit_token` nested in its inner `args` (#925, THE-1037).**
+- **`call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037).**
   `mcp/server.ts`'s tools/call handler stripped `elicit_token` from the OUTER envelope into
   `ctx.elicitToken` before dispatch, but forwarded call_capability's INNER `args.args` untouched —
   so a token placed where a conditionally-gated tool's own `describe_capability` schema says it
@@ -34,7 +36,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   same way. When both the outer envelope and the inner args carry a token, the inner one wins.
 
 - **`patch_note` heading anchor correctness, `read_note` section read, exact-string replace
-  (THE-1038, #922, #926, #927, #928).** `patch_note`'s anchor resolution moved into a shared
+  (#932, THE-1038, #922, #926, #927, #928).** `patch_note`'s anchor resolution moved into a shared
   `notes/anchors.ts` and now: recognizes fenced code (` ``` `/`~~~`) per CommonMark's actual
   fence-closing rule — a closer must be the same character, at least as long as the opener, and
   nothing but the delimiter run; a delimiter indented 4+ columns (a tab expands to the next
@@ -122,7 +124,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `[[IgnoredVulns]]` entries, both with `ignoreUntil = 2026-12-31` to force a re-look.
 
 - **`BGE_MODEL_REVISION` and `BGE_RERANKER_REVISION` now actually pin what loads, not just what is
-  reported (THE-1035).** `services/bge-m3-service`'s encoder called `BGEM3FlagModel(model_id, ...)`
+  reported (#923, THE-1035).** `services/bge-m3-service`'s encoder called `BGEM3FlagModel(model_id, ...)`
   with no revision at all — FlagEmbedding 1.4's inference classes accept none — and the reranker's
   `CrossEncoder(model_id, ...)` accepted a `revision=` kwarg but never received it; both used the
   configured revision only afterwards, in a cosmetic `huggingface_hub.model_info` call that reported

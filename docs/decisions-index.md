@@ -365,9 +365,9 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 | THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (#909, THE-963). | CHANGELOG.md (1.28.0) | 3 |
-| THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#925, THE-1037). | CHANGELOG.md (Unreleased) | 2 |
-| THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (THE-1038, #922, #926, #927, #928). | CHANGELOG.md (Unreleased) | 4 |
-| THE-1039 | The maintenance sweep now runs FTS5's own `'merge'` on `notes_fts`/`chunk_fts`, instead of relying on `PRAGMA optimize` (which explicitly excludes virtual tables) to do it (THE-1039, GH #929). | CHANGELOG.md (Unreleased) | 19 |
+| THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 2 |
+| THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |
+| THE-1039 | The maintenance sweep now runs FTS5's own `'merge'` on `notes_fts`/`chunk_fts`, instead of relying on `PRAGMA optimize` (which explicitly excludes virtual tables) to do it (THE-1039, GH #929). | CHANGELOG.md (1.29.0) | 19 |
 
 354 distinct ticket(s) across 498 source file(s) under
 `packages/*/src`; 254 resolved to a public summary, 100
