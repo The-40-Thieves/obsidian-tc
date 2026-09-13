@@ -257,3 +257,32 @@ describe("THE-1040 fix round 3: S1 (unchanged key's inline comment survives a si
     expect(out).toBe("---\r\nlist:\r\n  - x\r\n  - y\r\ntail: ok\r\n---\r\nbody\r\n");
   });
 });
+
+// Round-3 re-review addition: an unchanged block scalar (literal `|`, folded `>`, keep-chomp
+// `|+`) must stay intact — lineBounds must not walk past its own trailing "\n" into the NEXT
+// key's line — when a SIBLING key changes and only that sibling's own entry is re-emitted.
+describe("THE-1040 fix round 3 review: an unchanged block scalar survives a sibling's change", () => {
+  it("literal `|` block scalar is untouched when a sibling key changes", () => {
+    const raw = "---\ntext: |\n  a\nnext: 1\n---\nbody\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), next: 9 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\ntext: |\n  a\nnext: 9\n---\nbody\n");
+  });
+
+  it("folded `>` block scalar is untouched when a sibling key changes", () => {
+    const raw = "---\ntext: >\n  a\nnext: 1\n---\nbody\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), next: 9 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\ntext: >\n  a\nnext: 9\n---\nbody\n");
+  });
+
+  it("keep-chomp `|+` block scalar is untouched when a sibling key changes", () => {
+    const raw = "---\ntext: |+\n  a\nnext: 1\n---\nbody\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), next: 9 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\ntext: |+\n  a\nnext: 9\n---\nbody\n");
+  });
+});
