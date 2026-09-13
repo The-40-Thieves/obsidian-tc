@@ -71,6 +71,11 @@ not a supported operating mode, because each deliberately weakens a safety prope
   `compact --dry-run`, `compact --into` and `doctor` onto its writable-descriptor fallback. That
   fallback exists for one platform-specific open failure and cannot promise the database's bytes
   are unchanged, so forcing it gives up the guarantee those commands otherwise hold.
+- `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW=1` makes the *native* readonly open attempt fail inside the
+  adapter, at the first statement — where a deferred SQLite open failure actually lands — so the
+  writable-fallback path can be exercised on a platform whose native open succeeds. `=construct`
+  fails at construction instead. This is the inverse of the flag above, which skips the native
+  attempt rather than failing it.
 - `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=1` (or `=busy`) makes the step after `compact --into`'s
   `VACUUM INTO` fail, so the "an incomplete copy remains at …" reporting path can be exercised
   without depending on a platform's SQLite to corrupt a fixture in a particular way.

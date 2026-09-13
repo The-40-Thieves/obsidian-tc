@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 
 /**
  * The per-connection baseline every adapter applies (THE-273), as pragma BODIES without the
@@ -21,29 +21,20 @@ import { closeSync, existsSync, openSync, statSync } from "node:fs";
 export const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 
 /**
- * THE-1039 fix round 3 (C2) — test-only escape hatch, same shape as `search/native.ts`'s
- * `OBSIDIAN_TC_FORCE_JS_FALLBACK`: forces every adapter's readonly-first-with-fallback open (see
- * `OpenOptions` in types.ts) straight to its fallback branch, without needing to actually break the
- * native `SQLITE_OPEN_READONLY` open on this machine (that failure is macOS/WAL-specific and this
- * sandbox cannot reproduce it — see bun-sqlite.ts's C1 comment). A production process never sets
- * this; a test does, to exercise and assert on the fallback branch deterministically on any OS.
+ * THE-1039 (C2) — test-only escape hatch, the shape of `search/native.ts`'s
+ * `OBSIDIAN_TC_FORCE_JS_FALLBACK`: SKIPS the native readonly attempt so the fallback branch can be
+ * asserted on any OS. It cannot exercise a native FAILURE — `forcedReadonlyOpenThrow` is for that.
  */
 export function forceReadonlyOpenFallback(): boolean {
   return process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK === "1";
 }
 
 /**
- * THE-1039 fix round 4 (M1) — test-only fault hook for `compact --into`, beside
- * `forceReadonlyOpenFallback` so this ticket's test-only hooks stay enumerable in one place.
- * `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=1` makes the step right after `VACUUM INTO` throw a plain
- * Error; `=busy` makes it throw a SQLITE_BUSY-shaped one. Returns `undefined` (inject nothing) when
- * unset, which is every production process.
- *
- * It replaces a fixture that corrupted a source database with the `sqlite3` CLI and relied on
- * `VACUUM INTO` still producing a copy for a later step to choke on: that premise is
- * build-dependent, and on macOS's SQLite no copy was created at all, so `build-test (macos-latest)`
- * failed the retained-copy assertion while Linux passed. A hook at the exact position under test is
- * deterministic on every SQLite build.
+ * THE-1039 (M1) — test-only fault hook for `compact --into`, here beside the other two so this
+ * ticket's hooks stay enumerable in one place. `=1` makes the step right after `VACUUM INTO` throw a
+ * plain Error, `=busy` a SQLITE_BUSY-shaped one; unset injects nothing. It replaces a fixture that
+ * needed `VACUUM INTO` to leave a copy for a later step to choke on — build-dependent, and untrue on
+ * macOS, where no copy was produced and the retained-copy assertion failed.
  */
 export function forcedCompactIntoFailure(): Error | undefined {
   const mode = process.env.OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE;
@@ -54,57 +45,46 @@ export function forcedCompactIntoFailure(): Error | undefined {
 }
 
 /**
- * THE-1039 fix round 4 (H1), widened and made diagnosable in fix round 5 — the ONE
- * native-readonly-open failure class an adapter may fall back from, or the reason it may not.
+ * THE-1039 — test-only hook making the NATIVE readonly attempt FAIL inside the adapter, so the real
+ * attempt -> refusal check -> writable-open path runs where the native open would otherwise succeed.
+ * `=1` throws at the PROBE step, modelling the macOS shape (construction succeeds, the first
+ * statement fails); `=construct` throws before the handle is used. Unset in production.
+ */
+export function forcedReadonlyOpenThrow(): "construct" | "probe" | undefined {
+  const mode = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW;
+  if (mode === "1") return "probe";
+  return mode === "construct" ? "construct" : undefined;
+}
+
+/**
+ * THE-1039 — the fallback condition is THE PATH, and nothing about the error: readonly failed, so
+ * try writable, provided the target is an existing REGULAR FILE. Matching the error's shape instead
+ * (a `code`/`errno`/text test) broke `build-test (macos-latest)` twice, since the macOS error is not
+ * observable from this sandbox. The file guard is what the original unconditional fallback lacked:
+ * node:sqlite's fallback is a plain open, so a missing file would be CREATED rather than reported.
  *
- * Round 3's catch was unconditional, which silently routed three unrelated failures onto the
- * writable descriptor: a MISSING file (node:sqlite's fallback is a plain open, so it CREATES the
- * database), an UNREADABLE one, and SQLite refusing a readonly open because HOT-JOURNAL recovery is
- * pending — the worst of the three, since the writable open then PERFORMS that rollback
- * (`SQLITE_READONLY_ROLLBACK`, "attempt to write a readonly database"), a mutation class none of the
- * readonly guarantees here ever claimed to cover.
- *
- * C1's macOS failure — the only reason the fallback exists — is the `SQLITE_CANTOPEN` class, now
- * detected by THREE independent signals, since round 4's narrower code/text match refused the
- * fallback on macOS and broke `build-test (macos-latest)`: a `code` containing `SQLITE_CANTOPEN`, a
- * numeric `errno` of 14 (what some bindings report instead of a string), or the message "unable to
- * open database file". The message is matched RAW — this runs in the adapter's own catch, before any
- * caller prefixes it (`compact`/`probeDbSpace` add `<db>: ` only when printing or reporting).
- *
- * Round 5 also drops the write-access requirement and tests readability by OPENING the file rather
- * than via `accessSync`/`fs.constants`: the fallback descriptor does want write access, but a
- * readable-not-writable file should fail LOUDLY in the fallback open, not be refused here — and the
- * round-4 refusal could not be attributed to either check without naming which clause fired.
+ * Two consequences are accepted deliberately: a permissions-denied file falls through to the
+ * writable open, which fails with SQLite's own error (louder than a refusal invented here); and a
+ * pending HOT-JOURNAL rollback (`SQLITE_READONLY_ROLLBACK`) also falls through, so the writable open
+ * PERFORMS that recovery — inspecting a database whose writer died mid-transaction can complete its
+ * rollback where the native readonly open is unavailable.
  *
  * @returns the reason the fallback is refused, or `undefined` when it may proceed.
  */
-export function readonlyFallbackRefusal(path: string, e: unknown): string | undefined {
-  let fd: number | undefined;
+export function readonlyFallbackRefusal(path: string): string | undefined {
   try {
     if (!statSync(path).isFile()) return "the path is not a regular file";
-    fd = openSync(path, "r"); // the same access the readonly open itself needs
   } catch (err) {
     const code = (err as { code?: unknown } | null | undefined)?.code;
-    return `the file is not readable (${String(code ?? (err as Error)?.message)})`;
-  } finally {
-    if (fd !== undefined) closeSync(fd);
+    return `the path could not be stat'd (${String(code ?? (err as Error)?.message)})`;
   }
-  const facts = e as { code?: unknown; errno?: unknown } | null | undefined;
-  if (typeof facts?.code === "string" && facts.code.includes("SQLITE_CANTOPEN")) return undefined;
-  if (facts?.errno === SQLITE_CANTOPEN) return undefined;
-  if (/unable to open database file/i.test(e instanceof Error ? e.message : String(e))) {
-    return undefined;
-  }
-  return `the error is not the SQLITE_CANTOPEN class (${errorFacts(e)})`;
+  return undefined;
 }
 
 /** The boolean form, for call sites and tests that only need the verdict. */
-export function readonlyOpenFallbackable(path: string, e: unknown): boolean {
-  return readonlyFallbackRefusal(path, e) === undefined;
+export function readonlyOpenFallbackable(path: string): boolean {
+  return readonlyFallbackRefusal(path) === undefined;
 }
-
-/** SQLite's primary result code for "unable to open database file". */
-const SQLITE_CANTOPEN = 14;
 
 /** The observable facts of an open failure, for a diagnostic a CI log can be read against. */
 function errorFacts(e: unknown): string {
@@ -114,18 +94,16 @@ function errorFacts(e: unknown): string {
   }`;
 }
 
-/** `-wal`/`-shm` existence, snapshotted before any open attempt, to answer the one question a
- *  failing fallback otherwise cannot: did the FAILED readonly attempt create a sidecar and poison
- *  the open after it? Recorded, never deleted — unlinking a `-shm` another process may hold mapped
- *  is its own corruption risk, and this path exists to INSPECT. */
+/** `-wal`/`-shm` existence before any open attempt: did the FAILED readonly attempt create a sidecar
+ *  and poison the open after it? Recorded, never deleted — unlinking a `-shm` another process may
+ *  hold mapped is its own corruption risk, and this path exists to INSPECT. */
 function sidecarState(path: string): string {
   return `-wal=${existsSync(`${path}-wal`)} -shm=${existsSync(`${path}-shm`)}`;
 }
 
-/** Annotate and return the error to throw: the original message (plus `code`/`errno`/stack, so
- *  `busyReason` and open.ts's better-sqlite3-unavailable sniff still see what they expect) with the
- *  diagnosis appended. The detail deliberately never names an adapter or says "cannot find module"
- *  — open.ts routes on exactly those words. */
+/** The error to throw: the original message (plus `code`/`errno`/stack, which `busyReason` and
+ *  open.ts's better-sqlite3-unavailable sniff both read) with the diagnosis appended. That detail
+ *  must never name an adapter or say "cannot find module" — open.ts routes on those words. */
 function annotated(e: unknown, detail: string): unknown {
   if (e instanceof Error) {
     e.message = `${e.message} [${detail}]`;
@@ -135,23 +113,58 @@ function annotated(e: unknown, detail: string): unknown {
 }
 
 /**
- * THE-1039 fix round 5 — the readonly-first-with-fallback open, ONCE, for all three adapters (each
- * passes its own two constructors); round 4 hand-rolled it three times. The two failure shapes are
- * distinguishable in the thrown message: "fallback refused because <reason>" versus "fallback open
- * also failed (<facts>)", the latter carrying the sidecar state before the first attempt and after.
+ * The readonly-first-with-fallback open, ONCE, for all three adapters (each passes its own two
+ * constructors plus a probe/close pair for its handle type).
+ *
+ * `configure` + `probe` run INSIDE the attempt, which is load-bearing, not tidiness: **bun:sqlite's
+ * `{ readonly: true }` constructor is LAZY.** Measured directly — against a database in a directory
+ * this process cannot write, the constructor SUCCEEDS and the failure surfaces on the FIRST
+ * STATEMENT (SQLite defers the WAL `-shm` mapping until first access, and a readonly connection that
+ * must create `-shm` and cannot reports "unable to open database file" there). A wrapper guarding
+ * only construction hands back a "native" handle that fails later, outside it — which is why two
+ * rounds of diagnostics never appeared in the macOS log at all. Applying the readonly pragma set and
+ * one cheap header read before returning converts a deferred failure into an open failure the
+ * fallback can handle; both branches are probed, so neither returns a handle unproven for reading.
+ *
+ * Both failure shapes stay distinguishable in the thrown message: "fallback refused because
+ * <reason>" versus "fallback open also failed (<facts>)", the latter carrying the sidecar state
+ * before the first attempt and after it.
  */
 export function openReadonlyWithFallback<T>(
   path: string,
   nativeOpen: () => T,
   fallbackOpen: () => T,
+  handle: { configure: (db: T) => void; probe: (db: T) => void; close: (db: T) => void },
 ): { db: T; readonlyMode: "native" | "fallback" } {
   const sidecarsBefore = sidecarState(path);
+  const forcedThrow = forcedReadonlyOpenThrow();
+  const cantopen = (): Error =>
+    Object.assign(new Error("unable to open database file"), {
+      code: "SQLITE_CANTOPEN",
+      errno: 14,
+    });
+  const ready = (db: T, step: "construct" | "probe" | undefined): T => {
+    try {
+      if (step === "construct") throw cantopen();
+      handle.configure(db);
+      if (step === "probe") throw cantopen();
+      handle.probe(db);
+      return db;
+    } catch (e) {
+      try {
+        handle.close(db);
+      } catch {
+        /* the handle is being discarded; a close failure adds nothing */
+      }
+      throw e;
+    }
+  };
   let nativeFailure: unknown;
   if (!forceReadonlyOpenFallback()) {
     try {
-      return { db: nativeOpen(), readonlyMode: "native" };
+      return { db: ready(nativeOpen(), forcedThrow), readonlyMode: "native" };
     } catch (e) {
-      const refusal = readonlyFallbackRefusal(path, e);
+      const refusal = readonlyFallbackRefusal(path);
       if (refusal !== undefined) {
         throw annotated(
           e,
@@ -162,7 +175,7 @@ export function openReadonlyWithFallback<T>(
     }
   }
   try {
-    return { db: fallbackOpen(), readonlyMode: "fallback" };
+    return { db: ready(fallbackOpen(), undefined), readonlyMode: "fallback" };
   } catch (e) {
     const first =
       nativeFailure === undefined ? "not attempted (forced)" : errorFacts(nativeFailure);

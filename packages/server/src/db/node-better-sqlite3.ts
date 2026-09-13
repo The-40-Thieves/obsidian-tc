@@ -46,30 +46,33 @@ export async function openBetterSqlite3(
   // guarantee this implies.
   let db: InstanceType<typeof BetterSqlite3>;
   let readonlyMode: "native" | "fallback" | undefined;
+  // Same per-connection baseline as the other adapters (THE-273), shared so the ORDER cannot drift —
+  // busy_timeout must precede anything that can contend (THE-745). See db/pragmas.ts; better-sqlite3
+  // takes pragma bodies bare, and busyTimeoutMs is forwarded rather than called bare (THE-935). The readonly subset is applied INSIDE the open attempt — see
+  // `openReadonlyWithFallback` for why that placement is load-bearing.
   if (opts.readonly) {
-    // Fix round 4 (H1), round 5: one shared, diagnosable implementation of the strategy — see
-    // `openReadonlyWithFallback`. `fileMustExist` keeps the fallback from creating a missing file.
     const open = openReadonlyWithFallback(
       path,
       () => new BetterSqlite3(path, { readonly: true }),
-      () => new BetterSqlite3(path, { fileMustExist: true }),
+      () => new BetterSqlite3(path, { fileMustExist: true }), // never creates a missing file
+      {
+        configure: (d) => {
+          for (const p of readonlyConnectionPragmas(busyTimeoutMs)) d.pragma(p);
+        },
+        probe: (d) => {
+          d.prepare("PRAGMA schema_version").get();
+        },
+        close: (d) => {
+          d.close();
+        },
+      },
     );
     db = open.db;
     readonlyMode = open.readonlyMode;
   } else {
     db = new BetterSqlite3(path);
+    for (const p of connectionPragmas(busyTimeoutMs)) db.pragma(p);
   }
-  // Server-tuned per-connection baseline (THE-273), shared with the other adapters so the ORDER
-  // cannot drift between them — busy_timeout must precede anything that can contend (THE-745).
-  // See db/pragmas.ts. better-sqlite3 caches statements internally, so prepareCached here mainly
-  // bounds wrapper allocation (the real win is on bun:sqlite). busyTimeoutMs is forwarded rather
-  // than called bare (THE-935) so config's db.busyTimeoutMs reaches this connection instead of
-  // silently falling back to the default. readonly gets the writer-pragma-free subset — see
-  // readonlyConnectionPragmas' comment.
-  for (const p of opts.readonly
-    ? readonlyConnectionPragmas(busyTimeoutMs)
-    : connectionPragmas(busyTimeoutMs))
-    db.pragma(p);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {

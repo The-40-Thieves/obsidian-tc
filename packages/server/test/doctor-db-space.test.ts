@@ -392,25 +392,65 @@ describe("probeDbSpace — a real cache.db", () => {
   });
 });
 
-// THE-1039 fix round 4 (H1) — round 3's readonly-first open fell back on ANY native-open failure,
-// so a missing file, a permissions error, or SQLite refusing the readonly open because hot-journal
-// recovery is pending all silently took the writable path. node:sqlite's fallback (a plain open)
-// CREATES a missing file, and the hot-journal case makes the writable open PERFORM that recovery —
-// a mutation class none of the round-3 comments claimed to cover. The fallback is now narrowed to
-// the one failure class it was introduced for.
-describe("readonly open fallback narrowing (H1)", () => {
+// THE-1039 breaker ruling — the fallback condition is THE PATH, and nothing about the error.
+//
+// Round 3 fell back on ANY native-open failure, which let node:sqlite's plain-open fallback CREATE a
+// missing database. Rounds 4 and 5 fixed that by also matching the error's shape (code/errno/text),
+// and both broke `build-test (macos-latest)`, because the real macOS error is not observable from
+// this sandbox. The condition is now round 3's — readonly threw, so try writable — plus the one
+// guard it was missing: the target must be an existing regular file.
+describe("readonly open fallback condition (breaker ruling)", () => {
+  const withDb = async (
+    fn: (dbPath: string, dir: string) => void | Promise<void>,
+  ): Promise<void> => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-cond-"));
+    try {
+      const dbPath = join(cacheDir, "cache.db");
+      const db = await openDatabase(dbPath);
+      provisionCacheDb(db, { version: "test" });
+      db.close?.();
+      await fn(dbPath, cacheDir);
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  };
+
+  it("an existing regular file is fallbackable, whatever the error was", async () => {
+    await withDb((dbPath) => {
+      expect(readonlyOpenFallbackable(dbPath)).toBe(true);
+      expect(readonlyFallbackRefusal(dbPath)).toBeUndefined();
+    });
+  });
+
+  it("a missing file is refused, and names why", async () => {
+    await withDb((dbPath) => {
+      const missing = `${dbPath}.nope`;
+      expect(readonlyOpenFallbackable(missing)).toBe(false);
+      expect(readonlyFallbackRefusal(missing)).toMatch(/ENOENT/);
+    });
+  });
+
+  it("a directory is refused", async () => {
+    await withDb((_dbPath, dir) => {
+      expect(readonlyOpenFallbackable(dir)).toBe(false);
+      expect(readonlyFallbackRefusal(dir)).toMatch(/not a regular file/);
+    });
+  });
+
   it("a missing file errors and is NOT created by a fallback open", async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-missing-"));
     try {
       const dbPath = join(cacheDir, "cache.db");
-      await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow();
+      await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(
+        /fallback refused because/,
+      );
       expect(existsSync(dbPath)).toBe(false);
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }
   });
 
-  // The node:sqlite adapter is the one where the unnarrowed fallback was a FILE-CREATING bug, not
+  // The node:sqlite adapter is the one where an unguarded fallback was a FILE-CREATING bug, not
   // merely a wrong open mode: it has no "writable but must exist" option, so its fallback is a
   // plain open, which creates the database. Exercised directly because `openDatabase` prefers
   // better-sqlite3 wherever it resolves (its own `fileMustExist: true` fallback refuses to create),
@@ -426,9 +466,12 @@ describe("readonly open fallback narrowing (H1)", () => {
     }
   });
 
-  // chmod has no POSIX owner/group/other meaning on win32 — see the permission-state block above.
+  // A permissions-denied file now FALLS THROUGH to the writable open, per the ruling, and that open
+  // fails with SQLite's own error — louder than a refusal invented here. What must not happen is a
+  // bare error with no indication of which of the two opens failed: that silence is exactly what
+  // rounds 4 and 5 printed on macOS.
   it.skipIf(process.platform === "win32")(
-    "an unreadable file errors rather than being retried writable",
+    "an unreadable file reaches the fallback open and reports that it failed too",
     async () => {
       const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-denied-"));
       const dbPath = join(cacheDir, "cache.db");
@@ -438,148 +481,70 @@ describe("readonly open fallback narrowing (H1)", () => {
         db.close?.();
         chmodSync(dbPath, 0o000);
 
-        expect(readonlyOpenFallbackable(dbPath, new Error("unable to open database file"))).toBe(
-          false,
+        await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(
+          /fallback open also failed/,
         );
-        await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow();
+        await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(/sidecars/);
       } finally {
         chmodSync(dbPath, 0o644);
         rmSync(cacheDir, { recursive: true, force: true });
       }
     },
   );
+});
 
-  it("classifies only the CANTOPEN class on a readable, writable file", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-classify-"));
+// THE-1039 breaker ruling (#2) — bun:sqlite's readonly constructor is LAZY: it succeeds and the
+// failure surfaces on the first statement, so a wrapper guarding only construction hands back a
+// handle that fails later, outside it. That is why rounds 4 and 5 printed a raw SQLite message with
+// none of their own diagnostics. `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW` makes the native attempt
+// throw where macOS does (at the probe, after construction) so the real attempt -> refusal check ->
+// writable-open path runs on a platform whose native open succeeds — the gap the existing
+// FORCE_FALLBACK hook cannot reach, because it skips the native attempt entirely.
+describe("OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW — the real fallback path, on any platform", () => {
+  const withForcedThrow = async (mode: string, fn: () => Promise<void>): Promise<void> => {
+    const prior = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW;
+    process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW = mode;
     try {
-      const dbPath = join(cacheDir, "cache.db");
-      const db = await openDatabase(dbPath);
-      provisionCacheDb(db, { version: "test" });
-      db.close?.();
-
-      expect(readonlyOpenFallbackable(dbPath, new Error("unable to open database file"))).toBe(
-        true,
-      );
-      const coded = Object.assign(new Error("some binding wording"), { code: "SQLITE_CANTOPEN" });
-      expect(readonlyOpenFallbackable(dbPath, coded)).toBe(true);
-      // The hot-journal-recovery refusal: a readonly connection cannot roll back a hot journal, and
-      // falling back to a writable open would PERFORM that rollback. Never fallbackable.
-      expect(
-        readonlyOpenFallbackable(dbPath, new Error("attempt to write a readonly database")),
-      ).toBe(false);
-      expect(readonlyOpenFallbackable(join(cacheDir, "nope.db"), new Error("unable to open"))).toBe(
-        false,
-      );
+      await fn();
     } finally {
-      rmSync(cacheDir, { recursive: true, force: true });
+      if (prior === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW;
+      else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW = prior;
     }
-  });
+  };
 
-  // Fix round 5 — round 4's narrowing refused the fallback on macOS and broke `build-test
-  // (macos-latest)` with `cache.db: unable to open database file`, which this sandbox (Linux, where
-  // the native readonly open succeeds and the predicate is never consulted) cannot reproduce. These
-  // feed the predicate the error SHAPES a failing macOS open can take, against a real readable file,
-  // so the CANTOPEN class is covered by three independent signals rather than one text match.
-  describe("the CANTOPEN class, by every signal a binding may report it with", () => {
-    const withDb = async (fn: (dbPath: string) => void): Promise<void> => {
-      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-shapes-"));
+  for (const mode of ["1", "construct"]) {
+    it(`a native readonly failure at the ${mode === "1" ? "probe" : "construction"} step falls back and reads`, async () => {
+      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-throw-"));
       try {
-        const dbPath = join(cacheDir, "cache.db");
-        const db = await openDatabase(dbPath);
+        const db = await openDatabase(join(cacheDir, "cache.db"));
         provisionCacheDb(db, { version: "test" });
         db.close?.();
-        fn(dbPath);
+
+        await withForcedThrow(mode, async () => {
+          const reader = await openDatabase(join(cacheDir, "cache.db"), 5000, { readonly: true });
+          try {
+            expect(reader.readonlyMode).toBe("fallback");
+            // The fallback handle is configured AND probed, so it has proven it can read.
+            expect(
+              (reader.prepare("PRAGMA journal_mode").get() as { journal_mode: string })
+                .journal_mode,
+            ).toBe("wal");
+          } finally {
+            reader.close?.();
+          }
+
+          const view = await probeDbSpace(cacheDir, 5000);
+          expect(view.status).toBe("ok");
+          if (view.status !== "ok") throw new Error("unreachable");
+          expect(view.state.readonlyMode).toBe("fallback");
+          const check = await dbSpaceCheck(view).run(ctx);
+          expect(check.summary).toContain(
+            "inspection connection was not read-only on this platform",
+          );
+        });
       } finally {
         rmSync(cacheDir, { recursive: true, force: true });
       }
-    };
-
-    it("message only, no code and no errno (the shape macOS reported)", async () => {
-      await withDb((dbPath) => {
-        const macos = new Error("unable to open database file");
-        expect((macos as { code?: unknown }).code).toBeUndefined();
-        expect((macos as { errno?: unknown }).errno).toBeUndefined();
-        expect(readonlyOpenFallbackable(dbPath, macos)).toBe(true);
-      });
     });
-
-    it("code + errno, message unrelated (a bun:sqlite-shaped CANTOPEN)", async () => {
-      await withDb((dbPath) => {
-        const coded = Object.assign(new Error("failed to open database"), {
-          code: "SQLITE_CANTOPEN",
-          errno: 14,
-        });
-        expect(readonlyOpenFallbackable(dbPath, coded)).toBe(true);
-      });
-    });
-
-    it("errno 14 alone, no code and an unrelated message", async () => {
-      await withDb((dbPath) => {
-        const numeric = Object.assign(new Error("sqlite3_open_v2 failed"), { errno: 14 });
-        expect(readonlyOpenFallbackable(dbPath, numeric)).toBe(true);
-      });
-    });
-
-    it("a busy error is NOT the CANTOPEN class", async () => {
-      await withDb((dbPath) => {
-        expect(readonlyOpenFallbackable(dbPath, new Error("database is locked"))).toBe(false);
-        expect(readonlyFallbackRefusal(dbPath, new Error("database is locked"))).toMatch(
-          /not the SQLITE_CANTOPEN class/,
-        );
-      });
-    });
-
-    // Round 4 required W_OK here and so refused the fallback for a readable-not-writable file.
-    // Dropped: the fallback open itself fails loudly on such a file (the honest outcome), and the
-    // requirement was one of the two candidate causes of the macOS refusal.
-    it.skipIf(process.platform === "win32")(
-      "a readable but NOT writable file is still fallbackable",
-      async () => {
-        await withDb((dbPath) => {
-          chmodSync(dbPath, 0o444);
-          try {
-            expect(
-              readonlyOpenFallbackable(dbPath, new Error("unable to open database file")),
-            ).toBe(true);
-          } finally {
-            chmodSync(dbPath, 0o644);
-          }
-        });
-      },
-    );
-
-    it("a missing file is refused even for a CANTOPEN-shaped error", async () => {
-      await withDb((dbPath) => {
-        const missing = `${dbPath}.nope`;
-        const cantopen = Object.assign(new Error("unable to open database file"), {
-          code: "SQLITE_CANTOPEN",
-          errno: 14,
-        });
-        expect(readonlyOpenFallbackable(missing, cantopen)).toBe(false);
-        expect(readonlyFallbackRefusal(missing, cantopen)).toMatch(/ENOENT/);
-      });
-    });
-  });
-
-  // Fix round 5 (#2) — the round-4 macOS failure printed only "unable to open database file", which
-  // cannot distinguish "the predicate refused" from "the fallback open failed too". Every propagating
-  // readonly-open failure now carries which one happened, plus the error facts behind the decision.
-  it("a refused fallback names the refusal reason in the thrown error", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-diagnostic-"));
-    const dbPath = join(cacheDir, "cache.db");
-    try {
-      const db = await openDatabase(dbPath);
-      provisionCacheDb(db, { version: "test" });
-      db.close?.();
-      chmodSync(dbPath, 0o000);
-
-      await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(
-        /fallback refused because/,
-      );
-      await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(/not readable/);
-    } finally {
-      chmodSync(dbPath, 0o644);
-      rmSync(cacheDir, { recursive: true, force: true });
-    }
-  });
+  }
 });

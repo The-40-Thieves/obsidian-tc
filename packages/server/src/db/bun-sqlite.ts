@@ -98,29 +98,34 @@ export async function openBunSqlite(
   // --dry-run` and doctor's `db.reclaimable-space` are meant to run against safely.
   let db: InstanceType<typeof BunDatabase>;
   let readonlyMode: "native" | "fallback" | undefined;
+  // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the ORDER
+  // cannot drift between them — busy_timeout must precede anything that can contend (THE-745). See
+  // db/pragmas.ts. busyTimeoutMs is forwarded rather than called bare (THE-935) so config's
+  // db.busyTimeoutMs reaches this connection. readonly gets the writer-pragma-free subset, applied
+  // INSIDE the open attempt — see `openReadonlyWithFallback` for why that placement is load-bearing.
   if (opts.readonly) {
-    // Fix round 4 (H1), round 5: the fallback fires only for the one failure class it exists for,
-    // and the decision plus both failure shapes are diagnosable from the thrown error — see
-    // `openReadonlyWithFallback`. `{ readwrite: true }` (no `create`) still refuses a MISSING file.
     const open = openReadonlyWithFallback(
       path,
       () => new BunDatabase(path, { readonly: true }),
-      () => new BunDatabase(path, { readwrite: true }),
+      () => new BunDatabase(path, { readwrite: true }), // no `create`: still refuses a missing file
+      {
+        configure: (d) => {
+          for (const p of readonlyConnectionPragmas(busyTimeoutMs)) d.exec(`PRAGMA ${p}`);
+        },
+        probe: (d) => {
+          d.prepare("PRAGMA schema_version").get();
+        },
+        close: (d) => {
+          d.close();
+        },
+      },
     );
     db = open.db;
     readonlyMode = open.readonlyMode;
   } else {
     db = new BunDatabase(path, { create: true });
+    for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
   }
-  // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the
-  // ORDER cannot drift between them — busy_timeout must precede anything that can contend
-  // (THE-745). See db/pragmas.ts. busyTimeoutMs is forwarded rather than called bare (THE-935) so
-  // config's db.busyTimeoutMs reaches this connection instead of silently falling back to the
-  // default. readonly gets the writer-pragma-free subset — see readonlyConnectionPragmas' comment.
-  for (const p of opts.readonly
-    ? readonlyConnectionPragmas(busyTimeoutMs)
-    : connectionPragmas(busyTimeoutMs))
-    db.exec(`PRAGMA ${p}`);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     // THE-687: bun:sqlite types its bind parameters as SQLQueryBindings, while the Statement port

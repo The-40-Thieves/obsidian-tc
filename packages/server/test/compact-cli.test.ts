@@ -467,6 +467,64 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     }, 30_000);
   });
 
+  // THE-1039 breaker ruling (#2) — the CLI-level proof that a native readonly failure reaches the
+  // fallback and the command still works. `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW=1` throws at the
+  // probe step inside the adapter, where macOS's deferred "unable to open database file" lands, so
+  // this runs the real attempt -> refusal check -> writable-open path on Linux. Rounds 4 and 5 had
+  // no test that could do this: FORCE_FALLBACK skips the native attempt instead of failing it.
+  describe("a native readonly failure reaches the fallback and the command still succeeds", () => {
+    it("--dry-run: exit 0, readonlyMode fallback, and the notice", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW: "1",
+      });
+
+      expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
+      expect(r.stdout).toMatch(/inspection connection was not read-only on this platform/);
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        readonlyMode?: string;
+      }>;
+      expect(report.find((x) => x.db === "cache.db")?.readonlyMode).toBe("fallback");
+    }, 30_000);
+
+    it("--into: exit 0, a verified copy, and readonlyMode fallback on the source read", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-throw-into-"));
+      dirs.push(destDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW: "1",
+      });
+
+      expect(r.code, `compact --into exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
+      expect(existsSync(join(destDir, "cache.db"))).toBe(true);
+      expect(r.stdout).toMatch(/verified copy at/);
+      expect(r.stdout).toMatch(/inspection connection was not read-only on this platform/);
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        readonlyMode?: string;
+      }>;
+      expect(report.find((x) => x.db === "cache.db")?.readonlyMode).toBe("fallback");
+    }, 30_000);
+
+    it("doctor: the db.reclaimable-space row reports the fallback", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const r = runCli(["doctor", "--config", configPath], {
+        OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW: "1",
+      });
+
+      expect(r.stdout + r.stderr).toMatch(/db\.reclaimable-space/);
+      expect(r.stdout + r.stderr).toMatch(
+        /inspection connection was not read-only on this platform/,
+      );
+    }, 60_000);
+  });
+
   // THE-1039 fix round 4 (H4) — round 3's dangling-WAL byte-for-byte assertion covered doctor's
   // `probeDbSpace` only. `compact --dry-run` and `--into`'s SOURCE read are the other two
   // inspection call sites with the same contract, exercised here against the same fixture helper

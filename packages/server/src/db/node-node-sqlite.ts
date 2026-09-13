@@ -54,30 +54,34 @@ export async function openNodeSqlite(
   // implies.
   let db: NsDatabase;
   let readonlyMode: "native" | "fallback" | undefined;
+  // Same per-connection baseline as the other adapters (THE-273), shared so the ORDER cannot drift —
+  // busy_timeout must precede anything that can contend (THE-745). See db/pragmas.ts; applied via
+  // exec since node:sqlite has no pragma() helper, busyTimeoutMs forwarded not bare (THE-935). The readonly subset runs INSIDE the open attempt
+  // — see `openReadonlyWithFallback`. This adapter is also the one where an unguarded fallback was a
+  // FILE-CREATING bug: with no "writable, must exist" option its fallback is a plain open.
   if (opts.readonly) {
-    // Fix round 4 (H1), round 5 — see `openReadonlyWithFallback`. This adapter is the one where an
-    // unnarrowed fallback was a FILE-CREATING bug rather than merely a wrong open mode: with no
-    // "writable, must exist" option its fallback is a plain open, which creates a missing database.
     const open = openReadonlyWithFallback(
       path,
       () => new DatabaseSync(path, { readOnly: true }),
       () => new DatabaseSync(path),
+      {
+        configure: (d) => {
+          for (const p of readonlyConnectionPragmas(busyTimeoutMs)) d.exec(`PRAGMA ${p}`);
+        },
+        probe: (d) => {
+          d.prepare("PRAGMA schema_version").get();
+        },
+        close: (d) => {
+          d.close();
+        },
+      },
     );
     db = open.db;
     readonlyMode = open.readonlyMode;
   } else {
     db = new DatabaseSync(path);
+    for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
   }
-  // Same per-connection baseline as the other adapters (THE-273), shared so the ORDER cannot drift
-  // between them — busy_timeout must precede anything that can contend (THE-745). See
-  // db/pragmas.ts. Applied via exec since node:sqlite has no dedicated pragma() helper.
-  // busyTimeoutMs is forwarded rather than called bare (THE-935) so config's db.busyTimeoutMs
-  // reaches this connection instead of silently falling back to the default. readonly gets the
-  // writer-pragma-free subset — see readonlyConnectionPragmas' comment.
-  for (const p of opts.readonly
-    ? readonlyConnectionPragmas(busyTimeoutMs)
-    : connectionPragmas(busyTimeoutMs))
-    db.exec(`PRAGMA ${p}`);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {
