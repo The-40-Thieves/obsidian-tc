@@ -368,10 +368,10 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 2 |
 | THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |
 | THE-1039 | The maintenance sweep now runs FTS5's own `'merge'` on `notes_fts`/`chunk_fts`, instead of relying on `PRAGMA optimize` (which explicitly excludes virtual tables) to do it (THE-1039, GH #929). | CHANGELOG.md (1.29.0) | 19 |
-| THE-1040 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937). | CHANGELOG.md (Unreleased) | 1 |
+| THE-1040 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937; #940). | CHANGELOG.md (Unreleased) | 1 |
 | THE-1041 | `describe_capability` and `tools/list` advertised input schemas converted in zod's default `io:"output"` mode, diverging from what the server actually validates on 98 of 163 registered capabilities (GH #934, THE-1041). | CHANGELOG.md (Unreleased) | 1 |
 | THE-1042 | Validation errors now say the fix, not just the field (THE-1042, GH #935). | CHANGELOG.md (Unreleased) | 5 |
-| THE-1043 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937). | CHANGELOG.md (Unreleased) | 1 |
+| THE-1043 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937; #940). | CHANGELOG.md (Unreleased) | 1 |
 
 358 distinct ticket(s) across 499 source file(s) under
 `packages/*/src`; 258 resolved to a public summary, 100
