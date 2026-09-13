@@ -314,6 +314,36 @@ describe("THE-1043: the emitter works on the original block's lines", () => {
     expect(removeKeys("---\n{a: 1,\n b: 2}\n---\nbody\n", "a")).toBe("---\nb: 2\n---\nbody\n");
   });
 
+  // F1 (fix round 1): a MULTI-LINE flow root put its braces on lines of their own, which no key
+  // owned — left verbatim around block-style re-emitted entries they produced invalid YAML
+  // ("---\n{\na: 9\nb: 2\n}\n---"). The whole root collection, braces included, is one unit.
+  it("F1: a multi-line root flow mapping is re-emitted whole when a key changes", () => {
+    expect(setKey("---\n{\na: 1,\nb: 2\n}\n---\nbody\n", "a", 9)).toBe(
+      "---\na: 9\nb: 2\n---\nbody\n",
+    );
+  });
+
+  it("F1: a multi-line root flow mapping is re-emitted whole when a key is removed", () => {
+    expect(removeKeys("---\n{\na: 1,\nb: 2\n}\n---\nbody\n", "a")).toBe("---\nb: 2\n---\nbody\n");
+  });
+
+  it("F1: comments outside the braces survive a flow mapping's rewrite", () => {
+    expect(setKey("---\n# lead\n{a: 1, b: 2}\n# tail\n---\nbody\n", "a", 9)).toBe(
+      "---\n# lead\na: 9\nb: 2\n# tail\n---\nbody\n",
+    );
+    expect(setKey("---\n# lead\n{\na: 1,\nb: 2\n}\n# tail\n---\nbody\n", "a", 9)).toBe(
+      "---\n# lead\na: 9\nb: 2\n# tail\n---\nbody\n",
+    );
+  });
+
+  // A flow line's unchanged key splices back by its own node range, so it must BE a mapping entry
+  // on its own: `{a: , b: 2}`'s empty value still ranges as one, `{a, b: 2}`'s bare key does not
+  // and re-serializes instead. Both must stay re-readable after a sibling changes.
+  it("F1: an unchanged bare or empty-valued key on a flow line stays a valid entry", () => {
+    expect(setKey("---\n{a: , b: 2}\n---\nbody\n", "b", 3)).toBe("---\na: \nb: 3\n---\nbody\n");
+    expect(setKey("---\n{a, b: 2}\n---\nbody\n", "b", 3)).toBe("---\na: null\nb: 3\n---\nbody\n");
+  });
+
   it("P2: removing the last key with a multi-line value keeps its neighbours on separate lines", () => {
     expect(removeKeys("---\n# lead\nlist:\n  - x\n  - y\n# tail\n---\n", "list")).toBe(
       "---\n# lead\n# tail\n---\n",
@@ -376,6 +406,21 @@ describe("THE-1043: the emitter works on the original block's lines", () => {
   it("P5: a note that DOES end with a newline after the delimiter keeps it", () => {
     expect(setKey("---\na: 1\n---\n", "a", 9)).toBe("---\na: 9\n---\n");
   });
+
+  // Two gaps Codex found alongside THE-1043 that are PRE-EXISTING at 3e55e254 — neither is a
+  // line-list problem (both are about what a re-serialized VALUE loses), and both are filed
+  // separately. Named here so the inputs are not lost.
+  it.todo(
+    "anchors/aliases (pre-existing, separately ticketed): re-emitting an anchored key leaves its " +
+      'alias dangling — input: "---\\na: &x [1, 2]\\nb: *x\\n---\\n", set or remove "a" -> "b: *x" ' +
+      "no longer resolves and the note stops parsing",
+  );
+
+  it.todo(
+    "keep-chomp round-trip (pre-existing, separately ticketed): ASSIGNING a string with trailing " +
+      'newlines emits `|+` without them — input: "---\\ntext: 1\\n---\\n", set text to ' +
+      '"hello\\n\\n\\n" -> "text: |+\\n  hello\\n"',
+  );
 
   // Promoted from THE-1040's X4 `it.todo`: the line-list model makes it pass. A `|+`
   // (keep-chomp) block scalar's trailing blank lines sit outside the yaml library's own value

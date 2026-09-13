@@ -72,11 +72,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   THE-1040: a standalone comment or blank line vanished whenever any key CHANGED (`update_frontmatter`,
   `bulk_set_property`, and `add_tag` on a comment-only block), and a closing `---` that ended the
   file gained a trailing newline on every write, a no-op `merge` included. A key now owns its lines
-  only when its node both starts and ends one; a key sharing a line with siblings has that whole
-  line re-emitted from the changed mapping instead. Every line no changed or removed key owns is
-  emitted verbatim, and a removed key's lines are spliced out leaving exactly one line break — the
-  block's own EOL — between the neighbours. `parseNote` gained `frontmatterAtEof` (threaded to
-  `serializeNote` by every round-trip caller) for the EOF delimiter. THE-1040's known `|+`
+  only when its node both starts and ends one; a ROOT FLOW MAPPING owns no lines at all and is
+  re-emitted whole — braces included, single- or multi-line — from the changed mapping, so a
+  changed one comes back in BLOCK style (its flow style is not round-tripped; an untouched one is
+  returned verbatim). Every line no changed or removed key owns is emitted verbatim, and a removed
+  key's lines are spliced out leaving exactly one line break — the block's own EOL — between the
+  neighbours. `parseNote` gained `frontmatterAtEof` (threaded to `serializeNote` by all seven
+  round-trip call sites) for the EOF delimiter. THE-1040's known `|+`
   keep-chomp gap is closed by the same model and its `it.todo` is promoted to a real test.
 
 ## [1.29.0] - 2026-09-13

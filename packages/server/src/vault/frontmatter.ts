@@ -112,9 +112,8 @@ function normalizeSlice(text: string, eol: string): string {
 /**
  * Build the frontmatter YAML body. With original (the verbatim source), the block is rewritten
  * as a LINE LIST: every line no changed/removed key owns is emitted verbatim (comments, blank
- * lines, unchanged keys with their inline comments), a changed key replaces its own lines, and a
- * removed key's lines are dropped — so the join leaves exactly one `eol` between the neighbours.
- * Without an original, plain-stringify the object.
+ * lines, unchanged keys with their inline comments), a changed key replaces its own lines, a
+ * removed key's lines are dropped. Without an original, plain-stringify the object.
  */
 function emitFrontmatter(
   next: Frontmatter,
@@ -138,7 +137,7 @@ function emitFrontmatter(
         // here used to eat a no-op merge's own trailing blank lines.
         if (isDeepStrictEqual(prevObj, next)) return original;
         const lines = sourceLines(original);
-        const groups = keyGroups(original, lines, isMap(map) ? map.items : []);
+        const groups = keyGroups(original, lines, isMap(map) ? map : null);
         if (groups) {
           const out: string[] = [];
           const seen = new Set<string>();
@@ -168,8 +167,12 @@ function emitFrontmatter(
 
 /** The lines of one group. A group that OWNS its lines keeps them verbatim while its key is
  *  unchanged (inline comment and all), re-emits the key in their place when it changed, and
- *  drops them when it was removed. A group that owns nothing — a root flow mapping — is rebuilt
- *  key by key instead, an unchanged key splicing back from its own node range. */
+ *  drops them when it was removed. A group that owns nothing — a root flow mapping, braces and
+ *  all — is rebuilt key by key instead: a changed root flow mapping is therefore re-emitted in
+ *  BLOCK style and its flow style is not round-tripped (an UNTOUCHED one never reaches here —
+ *  emitFrontmatter returns the block verbatim). An unchanged key splices back from its own node
+ *  range, but only when it HAS a value node: `{a, b: 2}`'s bare `a` ranges over the key name
+ *  alone, which is not a mapping entry on a line of its own, so it re-serializes instead. */
 function emitGroup(
   group: LineGroup,
   text: string,
@@ -200,15 +203,13 @@ function delimiterEol(original: string | null | undefined, body: string): string
 }
 
 /** One source line's [start, end), the end EXCLUDING its terminator — so a CRLF block's "\r"
- *  is never part of an emitted line and can never double up against the joining eol. */
+ *  never reaches an emitted line and can never double up against the joining eol. */
 interface SourceLine {
   start: number;
   end: number;
 }
 
-/** A mapping key, the lines it occupies, and its own [start, end) node range. `spliceable` is
- *  false for a key with no value node at all (`a:`), whose range covers only the key name and so
- *  is not a mapping entry on its own. */
+/** A mapping key, the lines it occupies, and its own [start, end) node range. */
 interface KeySpan {
   key: string;
   start: number;
@@ -250,38 +251,46 @@ function lineIndexAt(lines: SourceLine[], offset: number): number {
   return 0;
 }
 
+/** The [firstLine, lastLine] a node's [start, end) byte range occupies. A multi-line node (a
+ *  list, a block scalar, a braced flow collection) commonly ends just PAST its own trailing
+ *  break, at the START of the next line — which belongs to whatever follows, not to it. */
+function lineSpanOf(lines: SourceLine[], start: number, end: number): [number, number] {
+  const firstLine = lineIndexAt(lines, start);
+  const endLine = lineIndexAt(lines, end);
+  const endAt = lines[endLine];
+  if (endAt && end === endAt.start && endLine > firstLine) return [firstLine, endLine - 1];
+  return [firstLine, endLine];
+}
+
 /**
  * THE-1043: map every key to the lines its node covers, and to whether it OWNS them. Ownership
  * means block style — nothing but whitespace before the key on its first line, nothing but
- * whitespace or a comment (which belongs to the key) after its value on the last. A key that
- * shares a line with siblings — a root flow mapping `{a: 1, b: 2}` — owns nothing, so that whole
- * line is re-emitted from the changed mapping instead of spliced by line. Keys whose line ranges
- * touch form one group, the unit the emitter keeps, rebuilds or drops — `items` is a parsed
- * document's own mapping order, so groups come out in ascending line order. Null = a non-scalar
- * key, for which the caller falls back to a plain stringify.
+ * whitespace or a comment (which belongs to the key) after its value on the last. Keys whose
+ * line ranges touch form one group, the unit the emitter keeps, rebuilds or drops — `map.items`
+ * is a parsed document's own mapping order, so groups come out in ascending line order. Null = a
+ * non-scalar key, for which the caller falls back to a plain stringify.
+ *
+ * A FLOW root (`{a: 1, b: 2}`, single- or multi-line) is the exception: no key owns a line there,
+ * and the braces belong to no key at all — left to survive as lines of their own they would wrap
+ * block-style re-emitted entries in stray `{`/`}`. The whole root collection is one group,
+ * braces included, rebuilt from the changed mapping. Comments outside the braces are untouched.
  */
 function keyGroups(
   text: string,
   lines: SourceLine[],
-  items: Array<{ key: unknown; value: unknown }>,
+  map: { items: Array<{ key: unknown; value: unknown }>; flow?: boolean; range?: unknown } | null,
 ): LineGroup[] | null {
   const groups: LineGroup[] = [];
-  for (const item of items) {
+  for (const item of map?.items ?? []) {
     const kNode = item.key;
     if (!isScalar(kNode) || !kNode.range) return null;
     const vr = isNode(item.value) ? item.value.range : null;
     const start = kNode.range[0];
     const end = vr ? vr[1] : kNode.range[1];
-    const firstLine = lineIndexAt(lines, start);
-    const endLine = lineIndexAt(lines, end);
+    const [firstLine, lastLine] = lineSpanOf(lines, start, end);
     const first = lines[firstLine];
-    const endAt = lines[endLine];
-    if (!first || !endAt) return null;
-    // A multi-line node (a list, a block scalar) commonly ends just PAST its own trailing break,
-    // at the start of the next line — which belongs to whatever follows, not to this key.
-    const lastLine = end === endAt.start && endLine > firstLine ? endLine - 1 : endLine;
     const last = lines[lastLine];
-    if (!last) return null;
+    if (!first || !last) return null;
     const tail = text.slice(Math.min(end, last.end), last.end).trimStart();
     const span: KeySpan = {
       key: String(kNode.value),
@@ -307,22 +316,22 @@ function keyGroups(
       });
     }
   }
-  return groups;
+  if (!map?.flow) return groups;
+  const range = map.range;
+  if (!Array.isArray(range) || typeof range[0] !== "number" || typeof range[1] !== "number")
+    return null;
+  const [firstLine, lastLine] = lineSpanOf(lines, range[0], range[1]);
+  return [{ firstLine, lastLine, keys: groups.flatMap((g) => g.keys), ownsLines: false }];
 }
 
 /**
- * THE-1040 F1/C2/C4/O1: what (if anything) of a raw frontmatter block survives once the
- * caller's mapping is empty — comments are content, never silently discarded just because every
- * real key is gone (or never existed), but an INLINE comment belongs to its key and goes with it
- * (only a FULL-LINE comment, or a blank line, can survive). Three outcomes:
- *  - the raw block has no real YAML mapping at all (comment-only, e.g. a note untouched
- *    by a no-op `merge`) — returned byte-for-byte unchanged; `.trim()` decides only
- *    whether to keep it, never what gets returned (C2: an interior blank line survives).
- *  - the raw block HAD real keys, now all gone (an update/remove emptied it) — every line those
- *    keys owned is dropped and the rest is rejoined with the block's own `eol` (THE-1043: one
- *    line break between the survivors, whatever the removed span's own boundaries looked like).
- *  - nothing survives either way (a blank/whitespace-only block, or one with only keys
- *    and no comments) — null, so the caller drops the delimiters entirely.
+ * THE-1040 F1/C2/C4/O1: what (if anything) of a raw block survives once the caller's mapping is
+ * empty. Comments are content, never discarded just because every real key is gone (or never
+ * existed) — but an INLINE comment belongs to its key, so only a full-line comment or a blank
+ * line can survive. A block with no real mapping at all (comment-only, e.g. a note untouched by
+ * a no-op `merge`) comes back byte-for-byte — `.trim()` decides only whether to keep it, never
+ * what gets returned. Otherwise the lines its keys owned are dropped and the rest rejoined on
+ * the block's own `eol`. Null (nothing survived) tells the caller to drop the delimiters.
  */
 function survivingComments(original: string | null | undefined, eol: string): string | null {
   if (!original) return null;
@@ -336,7 +345,7 @@ function survivingComments(original: string | null | undefined, eol: string): st
   const map = doc.contents;
   if (!isMap(map)) return keep(original);
   const lines = sourceLines(original);
-  const groups = keyGroups(original, lines, map.items);
+  const groups = keyGroups(original, lines, map);
   if (!groups) return keep(original);
   const owned = new Set<number>();
   for (const g of groups) for (let i = g.firstLine; i <= g.lastLine; i++) owned.add(i);
