@@ -163,11 +163,11 @@ function emitFrontmatter(
 /** The lines of one group. A group that OWNS its lines keeps them verbatim while its key is
  *  unchanged (inline comment and all), re-emits the key in their place when it changed, and
  *  drops them when it was removed. A group that owns nothing — a root flow mapping, braces and
- *  all — is rebuilt key by key instead: a changed root flow mapping is therefore re-emitted in
- *  BLOCK style and its flow style is not round-tripped (an UNTOUCHED one never reaches here —
- *  emitFrontmatter returns the block verbatim). An unchanged key splices back from its own node
- *  range, but only when it HAS a value node: `{a, b: 2}`'s bare `a` ranges over the key name
- *  alone, which is not a mapping entry on a line of its own, so it re-serializes instead. */
+ *  all — is rebuilt key by key instead, its comments re-emitted as full lines around it: a changed
+ *  root flow mapping therefore comes back in BLOCK style and its flow style is not round-tripped
+ *  (an UNTOUCHED one never reaches here — emitFrontmatter returns the block verbatim). An
+ *  unchanged key splices back from its own node range, but only when it HAS a value node:
+ *  `{a, b: 2}`'s bare `a` ranges over the key name alone, not a mapping entry of its own. */
 function emitGroup(
   group: LineGroup,
   text: string,
@@ -181,13 +181,8 @@ function emitGroup(
     s.spliceable && isDeepStrictEqual(prevObj[s.key], next[s.key])
       ? normalizeSlice(text.slice(s.start, s.end), eol)
       : normalizeSlice(emitEntry(s.key, next[s.key]), eol);
-  if (!group.ownsLines) {
-    const out = kept.map(rebuild);
-    const at = out.length - 1;
-    const end = out[at];
-    if (group.tail && end !== undefined) out[at] = `${end}${group.tail}`;
-    return out;
-  }
+  if (!group.ownsLines)
+    return [...(group.before ?? []), ...kept.map(rebuild), ...(group.after ?? [])];
   const only = kept[0];
   if (!only) return [];
   if (!isDeepStrictEqual(prevObj[only.key], next[only.key]))
@@ -220,15 +215,17 @@ interface KeySpan {
   spliceable: boolean;
 }
 
-/** Lines rewritten as a unit: one block-style key, or every key of a shared line. `tail` is what
- *  the last line carries OUTSIDE the rewritten node — an inline comment after a flow mapping's
- *  closing brace — re-attached to the rebuilt last line rather than swallowed. */
+/** Lines rewritten as a unit: one block-style key, or every key of a shared line. `before`/`after`
+ *  are comments the rewritten lines carry outside every key — inside or on a flow mapping's braces
+ *  — re-emitted as full lines around the rebuild. Content is preserved, placement is not: appended
+ *  to an emitted line instead, a trailing comment joins a multi-line value and corrupts it. */
 interface LineGroup {
   firstLine: number;
   lastLine: number;
   keys: KeySpan[];
   ownsLines: boolean;
-  tail?: string;
+  before?: string[];
+  after?: string[];
 }
 
 /** Split the raw block into lines (its capture carries no trailing break, so the last entry is
@@ -275,8 +272,8 @@ function lineSpanOf(lines: SourceLine[], start: number, end: number): [number, n
  *
  * A FLOW root (`{a: 1, b: 2}`, single- or multi-line) is the exception: no key owns a line there,
  * and the braces belong to no key — left as lines of their own they would wrap block-style
- * re-emitted entries in stray `{`/`}`. The whole collection is one group, braces included,
- * rebuilt from the changed mapping (`tail` keeps what follows the closing one).
+ * re-emitted entries in stray `{`/`}`. The whole collection is one group, braces included, rebuilt
+ * from the changed mapping, with the comments on and inside the braces kept as `before`/`after`.
  */
 function keyGroups(
   text: string,
@@ -325,12 +322,29 @@ function keyGroups(
     return null;
   const [firstLine, lastLine] = lineSpanOf(lines, range[0], range[1]);
   const last = lines[lastLine];
-  // Anything after the closing brace on its line — an inline comment — is outside the collection
-  // and belongs to no key, so the rebuild must not eat it. The opening side can only be leading
-  // whitespace (a "#" there would comment the brace out), and re-attaching THAT would indent the
-  // rebuilt root out of the mapping, so it is dropped on purpose.
-  const tail = last ? text.slice(Math.min(range[1], last.end), last.end) : "";
-  return [{ firstLine, lastLine, keys: groups.flatMap((g) => g.keys), ownsLines: false, tail }];
+  const keys = groups.flatMap((g) => g.keys);
+  // Everything the braces hold that belongs to no key — the comment after "{", a comment line
+  // between entries — plus whatever follows "}" on its line. Whitespace there is not content and
+  // is dropped; a comment is kept.
+  const before: string[] = [];
+  let at = range[0];
+  for (const k of keys) {
+    if (k.start > at) before.push(...commentLines(text.slice(at, k.start)));
+    at = Math.max(at, k.end);
+  }
+  if (range[1] > at) before.push(...commentLines(text.slice(at, range[1])));
+  const after = last ? commentLines(text.slice(Math.min(range[1], last.end), last.end)) : [];
+  return [{ firstLine, lastLine, keys, ownsLines: false, before, after }];
+}
+
+/** The comments in a stretch of source no node covers, one per line, `#` onwards. */
+function commentLines(chunk: string): string[] {
+  const out: string[] = [];
+  for (const line of chunk.split("\n")) {
+    const at = line.indexOf("#");
+    if (at !== -1) out.push(line.slice(at).trimEnd());
+  }
+  return out;
 }
 
 /**

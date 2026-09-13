@@ -336,38 +336,72 @@ describe("THE-1043: the emitter works on the original block's lines", () => {
     );
   });
 
-  // G1 (fix round 2): the whole-root group takes the entire closing-brace LINE, so an inline
-  // comment after "}" sat inside the rebuilt span and vanished. Text on a brace line OUTSIDE the
-  // braces belongs to no key and survives — re-attached, with its own spacing, to the rebuilt
-  // mapping's last line.
-  it("G1: an inline comment after a flow mapping's closing brace survives a key change", () => {
+  // G1/H1/H2 (fix rounds 2-3): text on or inside a flow root's braces belongs to no key, and a
+  // rebuild used to swallow it. It is preserved as FULL-LINE comments — what is inside or on the
+  // opening brace before the rebuilt mapping, what follows the closing brace after it. Placement
+  // is normalized, content is not: appending a tail to the last emitted line glued it into a
+  // multi-line value (H1), and a whitespace-only tail padded that value with spaces.
+  it("G1: a comment after a flow mapping's closing brace survives a key change", () => {
     expect(setKey("---\n# lead\n{\na: 1,\nb: 2\n} # closing\n# tail\n---\nbody\n", "a", 9)).toBe(
-      "---\n# lead\na: 9\nb: 2 # closing\n# tail\n---\nbody\n",
+      "---\n# lead\na: 9\nb: 2\n# closing\n# tail\n---\nbody\n",
     );
   });
 
   it("G1: same, on a key removal", () => {
     expect(removeKeys("---\n# lead\n{\na: 1,\nb: 2\n} # closing\n# tail\n---\nbody\n", "a")).toBe(
-      "---\n# lead\nb: 2 # closing\n# tail\n---\nbody\n",
+      "---\n# lead\nb: 2\n# closing\n# tail\n---\nbody\n",
     );
   });
 
   it("G1: same, CRLF", () => {
     const raw = "---\r\n# lead\r\n{\r\na: 1,\r\nb: 2\r\n} # closing\r\n# tail\r\n---\r\nbody\r\n";
     expect(setKey(raw, "a", 9)).toBe(
-      "---\r\n# lead\r\na: 9\r\nb: 2 # closing\r\n# tail\r\n---\r\nbody\r\n",
+      "---\r\n# lead\r\na: 9\r\nb: 2\r\n# closing\r\n# tail\r\n---\r\nbody\r\n",
     );
     expect(removeKeys(raw, "a")).toBe(
-      "---\r\n# lead\r\nb: 2 # closing\r\n# tail\r\n---\r\nbody\r\n",
+      "---\r\n# lead\r\nb: 2\r\n# closing\r\n# tail\r\n---\r\nbody\r\n",
     );
   });
 
   it("G1: same, for the single-line flow form", () => {
     expect(setKey("---\n{a: 1, b: 2} # note\n---\nbody\n", "a", 9)).toBe(
-      "---\na: 9\nb: 2 # note\n---\nbody\n",
+      "---\na: 9\nb: 2\n# note\n---\nbody\n",
     );
     expect(removeKeys("---\n{a: 1, b: 2} # note\n---\nbody\n", "a")).toBe(
-      "---\nb: 2 # note\n---\nbody\n",
+      "---\nb: 2\n# note\n---\nbody\n",
+    );
+  });
+
+  it("H1: the closing-brace comment never joins an emitted multi-line value", () => {
+    const out = setKey("---\n{a: 1, b: 2} # close\n---", "b", "hello\nworld\n");
+    expect(out).toBe("---\na: 1\nb: |\n  hello\n  world\n# close\n---");
+    expect(parseNote(out).frontmatter?.b).toBe("hello\nworld\n");
+  });
+
+  it("H1: same, CRLF", () => {
+    const out = setKey("---\r\n{a: 1, b: 2} # close\r\n---\r\n", "b", "hello\nworld\n");
+    expect(out).toBe("---\r\na: 1\r\nb: |\r\n  hello\r\n  world\r\n# close\r\n---\r\n");
+    expect(parseNote(out).frontmatter?.b).toBe("hello\nworld\n");
+  });
+
+  it("H1: a whitespace-only brace tail is dropped, not appended to the value", () => {
+    const out = setKey("---\n{a: 1, b: 2}   \n---\nbody\n", "b", "hello\nworld\n");
+    expect(out).toBe("---\na: 1\nb: |\n  hello\n  world\n---\nbody\n");
+    expect(parseNote(out).frontmatter?.b).toBe("hello\nworld\n");
+  });
+
+  it("H2: a comment on the opening brace survives, before the rebuilt mapping", () => {
+    expect(setKey("---\n{ # open\na: 1, b: 2\n} # close\n---", "a", 9)).toBe(
+      "---\n# open\na: 9\nb: 2\n# close\n---",
+    );
+    expect(removeKeys("---\n{ # open\na: 1, b: 2\n} # close\n---", "a")).toBe(
+      "---\n# open\nb: 2\n# close\n---",
+    );
+  });
+
+  it("H2: a full-line comment between two flow entries survives", () => {
+    expect(setKey("---\n{\na: 1,\n# mid\nb: 2\n}\n---\nbody\n", "a", 9)).toBe(
+      "---\n# mid\na: 9\nb: 2\n---\nbody\n",
     );
   });
 
