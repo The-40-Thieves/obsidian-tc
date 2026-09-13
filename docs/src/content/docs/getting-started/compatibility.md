@@ -64,13 +64,13 @@ This exists so the degraded path can be tested deliberately — it is what CI us
 you suspect a native/JS behavioural difference: if a bug disappears under the flag, the native path
 is implicated.
 
-Two further escape hatches share this shape but are **test-only** — unlike the flag above they are
+Three further escape hatches share this shape but are **test-only** — unlike the flag above they are
 not a supported operating mode, because each deliberately weakens a safety property:
 
 - `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` forces the inspection-connection open used by
   `compact --dry-run`, `compact --into` and `doctor` onto its writable-descriptor fallback. That
-  fallback exists for one platform-specific open failure and cannot promise the database's bytes
-  are unchanged, so forcing it gives up the guarantee those commands otherwise hold.
+  fallback cannot promise the database's bytes are unchanged, so forcing it gives up the guarantee
+  those commands otherwise hold.
 - `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW=1` makes the *native* readonly open attempt fail inside the
   adapter, at the first statement — where a deferred SQLite open failure actually lands — so the
   writable-fallback path can be exercised on a platform whose native open succeeds. `=construct`
@@ -80,8 +80,22 @@ not a supported operating mode, because each deliberately weakens a safety prope
   `VACUUM INTO` fail, so the "an incomplete copy remains at …" reporting path can be exercised
   without depending on a platform's SQLite to corrupt a fixture in a particular way.
 
-Neither is gated to test builds — like `OBSIDIAN_TC_FORCE_JS_FALLBACK`, they are plain environment
-reads — so the only thing keeping them out of production is not setting them.
+None of them is gated to test builds — like `OBSIDIAN_TC_FORCE_JS_FALLBACK`, they are plain
+environment reads — so the only thing keeping them out of production is not setting them.
+
+### The read-only inspection connection, and where it is unavailable
+
+`compact --dry-run`, `compact --into` and `doctor`'s `db.reclaimable-space` row read the database
+through a **read-only** connection, so looking at a store never changes its bytes or its journal
+mode. Where SQLite refuses that open, they fall back to a writable file descriptor that issues no
+write statement — which is safe in every ordinary case but cannot stop SQLite performing its own
+checkpoint-on-close against a WAL left dangling by an unclean shutdown.
+
+**On macOS this fallback is the normal path, not an exception.** Under Bun, the read-only open of a
+WAL-mode database fails there, so `compact` prints a one-line notice and the doctor row reports
+`readonlyMode=fallback` with the consequence in its details, on every run. That is the honest state
+of the inspection path on that platform rather than a fault to chase: the numbers are the same, and
+the only thing given up is the byte-for-byte guarantee against a dangling WAL.
 
 ## Why you can rely on this
 

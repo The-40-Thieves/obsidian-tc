@@ -31,10 +31,10 @@ export interface DbSpaceState {
   /** `freelist_count * page_size` — bytes a VACUUM would return to the filesystem. */
   freelistBytes: number;
   ftsData: FtsDataRowCount[];
-  /** THE-1039 fix round 4 (H2) — which open strategy the probe's readonly connection actually took
-   *  (`db/pragmas.ts`'s `readonlyOpenFallbackable`). Only `"native"` guarantees the inspection left
-   *  the file's bytes unchanged, so `"fallback"` is named in the summary instead of staying a field
-   *  nothing reads. Absent when the probe predates this field (a hand-built view in a test). */
+  /** THE-1039 (H2) — which open strategy the probe's readonly connection actually took
+   *  (`db/pragmas.ts`'s `openReadonlyWithFallback`). Only `"native"` guarantees the inspection left
+   *  the file's bytes unchanged, so `"fallback"` is named in the row instead of staying a field
+   *  nothing reads. Absent when the view was hand-built (every check-factory test). */
   readonlyMode?: "native" | "fallback";
 }
 
@@ -90,12 +90,17 @@ export function dbSpaceCheck(view: DbSpaceView): Check {
         ftsData: ftsData.map((f) => `${f.table}_data=${f.dataRows} rows`),
         ...(readonlyMode !== undefined ? { readonlyMode } : {}),
       };
-      // H2: the weaker guarantee, stated in the row itself — never silent.
-      const fallbackNote =
-        readonlyMode === "fallback"
-          ? " — inspection connection was not read-only on this platform; a dangling WAL left by an " +
-            "unclean shutdown may be checkpointed on close"
-          : "";
+      // I1: the consequence goes in DETAILS, not the summary line. On macOS under bun the native
+      // readonly open fails as the NORM, so every default `doctor` run there would otherwise carry
+      // this sentence on its one-line summary — noise that reads like a new finding every time.
+      // The summary keeps the one WORD that differs; `compact`'s own one-line notice is unchanged,
+      // since that command prints a short block rather than a scanned list of rows.
+      if (readonlyMode === "fallback") {
+        details.readonlyModeNote =
+          "inspection connection was not read-only on this platform; a dangling WAL left by an " +
+          "unclean shutdown may be checkpointed on close";
+      }
+      const fallbackNote = readonlyMode === "fallback" ? " [readonlyMode=fallback]" : "";
       const ratio = fileBytes > 0 ? freelistBytes / fileBytes : 0;
       if (ratio > WARN_FREELIST_RATIO) {
         return {

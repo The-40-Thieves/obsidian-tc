@@ -81,11 +81,6 @@ export function readonlyFallbackRefusal(path: string): string | undefined {
   return undefined;
 }
 
-/** The boolean form, for call sites and tests that only need the verdict. */
-export function readonlyOpenFallbackable(path: string): boolean {
-  return readonlyFallbackRefusal(path) === undefined;
-}
-
 /** The observable facts of an open failure, for a diagnostic a CI log can be read against. */
 function errorFacts(e: unknown): string {
   const o = e as { code?: unknown; errno?: unknown } | null | undefined;

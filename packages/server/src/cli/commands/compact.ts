@@ -1,14 +1,11 @@
 // THE-1039 (GH #930) — `obsidian-tc compact`: the operator compaction path 26 CLI verbs never had.
-// `maintenance.ts`'s sweep deliberately never VACUUMs ("disruptive under WAL") and now runs only a
-// BOUNDED FTS5 'merge' (THE-1039 item 1, GH #929) — this is the explicit, full-'optimize' path an
-// operator reaches for on purpose.
+// `maintenance.ts`'s sweep never VACUUMs ("disruptive under WAL") and runs only a BOUNDED FTS5
+// 'merge' (GH #929); this is the explicit full-'optimize' path, reached on purpose.
 //
-// RULING (do not re-open): the default path VACUUMs cache.db/experiential.db IN PLACE and never
-// swaps files — a rename over a database another process (a live server, another CLI invocation)
-// holds open would strand that process on the old inode, which is worse than the space this
-// command reclaims. `--into <dir>` is the copy path: it leaves the live file untouched and prints
-// the exact `mv` for the operator to run once nothing else has the database open — this command
-// never moves a file itself.
+// RULING (do not re-open): the default path VACUUMs IN PLACE and never swaps files — a rename over a
+// database another process holds open strands that process on the old inode, worse than the space
+// reclaimed. `--into <dir>` is the copy path: the live file is untouched and the exact `mv` is
+// printed for the operator to run once nothing else has the database open; this command never moves.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dbFootprintBytes, FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
@@ -21,34 +18,41 @@ import { type Cmd, resolveOrUsageExit } from "../shared";
 const COMPACTABLE_DBS = ["cache.db", "experiential.db"] as const;
 type CompactableDb = (typeof COMPACTABLE_DBS)[number];
 
-/** THE-1039 fix round 1 (A1, A4) — an EXPECTED, reportable failure for one database, as opposed to
- *  a bug. C3: NOT "any error that is not one of these crashes the process" — `run_compact` catches
- *  `unknown` per database (see its comment for the incident this closes), so EVERY error becomes a
- *  report row; subclassing only changes what `errorReport` can say (a busy reason, a dest path). */
-export class CompactError extends Error {}
-
-/** Thrown when a VACUUM (in place or INTO) hits SQLITE_BUSY — another connection holds the
- *  database open past `db.busyTimeoutMs`. An operator needs "something else has this open", not a
- *  raw SQLite error code. */
-export class CompactBusyError extends CompactError {
-  constructor(readonly dbName: CompactableDb) {
-    super(`${dbName} is busy — another connection holds it open`);
+/** THE-1039 (A1, A4) — an EXPECTED, reportable failure for one database, as opposed to a bug.
+ *  `run_compact` catches `unknown` per database (see its comment for the incident), so EVERY error
+ *  becomes a report row; this class only carries what `errorReport` can SAY about one. ONE class
+ *  with optional facts, not a subclass per failure (M8): only `CompactIntoFailedError` is ever
+ *  `instanceof`-checked. `ftsOptimized` is the PARTIAL list `'optimize'` had already committed
+ *  before the failure (M4) — real work an operator must hear about even if the VACUUM never ran. */
+export class CompactError extends Error {
+  constructor(
+    message: string,
+    readonly facts: { busy?: boolean; destPath?: string; ftsOptimized?: string[] } = {},
+  ) {
+    super(message);
   }
 }
 
-/** THE-1039 fix round 1 (A4) — `--into <dir>` already containing this database's file name.
- *  Previously a bare `Error`, caught only by cli.ts's generic `fatal:` handler; now routed through
- *  the same plain-language, per-database reporting path as every other expected failure here. */
-export class CompactDestinationExistsError extends CompactError {
-  constructor(readonly destPath: string) {
-    super(`${destPath} already exists — VACUUM INTO refuses to overwrite it`);
-  }
+/** A VACUUM (in place or INTO) hit SQLITE_BUSY — another connection holds the database open past
+ *  `db.busyTimeoutMs`. An operator needs "something else has this open", not a raw error code. */
+export function compactBusyError(dbName: CompactableDb, ftsOptimized?: string[]): CompactError {
+  return new CompactError(`${dbName} is busy — another connection holds it open`, {
+    busy: true,
+    ...(ftsOptimized !== undefined ? { ftsOptimized } : {}),
+  });
 }
 
-/** E1 (fix round 3, Greptile) — any step AFTER `VACUUM INTO` created (or partially created)
- *  `destPath` throwing: the copy's open, `'optimize'`, its VACUUM, the checkpoint, an integrity
- *  check, the row-count comparison. That used to propagate naming only the LIVE path, leaving the
- *  copy invisible and a retry failing on "already exists"; `destPath` rides along instead. */
+/** `--into <dir>` already contains this database's file name. Routed through the same
+ *  plain-language, per-database reporting path as every other expected failure here, rather than
+ *  cli.ts's generic `fatal:` handler. */
+export function compactDestinationExistsError(destPath: string): CompactError {
+  return new CompactError(`${destPath} already exists — VACUUM INTO refuses to overwrite it`);
+}
+
+/** E1 — any step AFTER `VACUUM INTO` created (or partially created) `destPath` throwing: the copy's
+ *  open, `'optimize'`, its VACUUM, the checkpoint, an integrity check, the row-count comparison.
+ *  That used to propagate naming only the LIVE path, leaving the copy invisible and a retry failing
+ *  on "already exists". `instanceof`-checked by `errorReport`, which is why it stays a type. */
 export class CompactIntoFailedError extends CompactError {
   constructor(
     readonly destPath: string,
@@ -56,26 +60,26 @@ export class CompactIntoFailedError extends CompactError {
   ) {
     super(
       `--into failed after creating ${destPath}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { destPath },
     );
   }
 }
 
-/** One database's compaction (or dry-run inspection) result — dry-run/real and in-place/--into
- *  are all one type so `run_compact` prints and `--json`-serializes every shape through one path.
- *  Byte counts are the database's FOOTPRINT (main file + `-wal`, A2's `dbFootprintBytes` — same
- *  function doctor's `db.reclaimable-space` uses), except `freelistBytes`. */
+/** One database's compaction (or dry-run inspection) result — every shape is one type so
+ *  `run_compact` prints and `--json`-serializes through one path. Byte counts are the FOOTPRINT
+ *  (main + `-wal`, A2's `dbFootprintBytes`, as doctor's `db.reclaimable-space` uses), bar
+ *  `freelistBytes`. */
 export interface DbCompactReport {
   db: CompactableDb;
   path: string;
   dryRun: boolean;
   /** A1/A4: set when this database's operation failed outright (busy, or an `--into` collision).
-   *  Every other field is a best-effort pre-failure snapshot; `integrityOk` is `false`, which
-   *  drives the exit code the same way a verification failure does. */
+   *  Every other field is a best-effort pre-failure snapshot; `integrityOk` is `false`, driving the
+   *  exit code as a verification failure does. */
   error?: string;
   /** E1 — any `--into` outcome leaving a copy needing operator attention: a step failing after
-   *  `VACUUM INTO` created it (with `error`), or a clean run that failed verification
-   *  (`integrityOk: false`, with `into`, no `error`). Unset for a verified copy, whose
-   *  `into.path`/`into.mv` already say "install this" — a different message entirely. */
+   *  `VACUUM INTO` created it (with `error`), or a run that failed verification (`integrityOk:
+   *  false`, no `error`). Unset for a verified copy, whose `into.mv` already says "install this". */
   destination?: string;
   /** E1 — whether `destination` exists on disk right now, checked fresh at report-build time
    *  (never assumed from whichever step failed), so a report never claims a file is there when
@@ -94,11 +98,14 @@ export interface DbCompactReport {
   freelistBytes?: number;
   /** `--dry-run` only: each present FTS table's `<t>_data` row count. */
   ftsDataRows?: Record<string, number>;
-  /** H2: which open strategy the INSPECTION connection actually took (`--dry-run`, and `--into`'s
-   *  source read). Absent on the in-place path, which opens writable by design. `"fallback"` is
-   *  reported out loud — see `printReport` — because bytes are only guaranteed unchanged on
-   *  `"native"` (db/pragmas.ts's `readonlyConnectionPragmas`). */
+  /** H2: which strategy the INSPECTION connection took (`--dry-run`, `--into`'s source read; absent
+   *  in place, which opens writable by design). `"fallback"` is reported out loud — see
+   *  `printReport` — because bytes are only guaranteed unchanged on `"native"`. */
   readonlyMode?: "native" | "fallback";
+  /** M6: a checkpoint another connection's read prevented — invisible before, while `afterBytes`
+   *  counted the `-wal` it left behind (a NEGATIVE reclaim, measured). Reported, but NOT a
+   *  verification failure and NOT an exit-code change: nothing is wrong, less was reclaimed. */
+  checkpointBlocked?: string;
   /** `--into` only. */
   into?: {
     path: string;
@@ -133,12 +140,10 @@ function ftsIntegrityCheck(db: Database, table: string): { ok: boolean; reason?:
   }
 }
 
-/** Every table name in `db` worth comparing for the `--into` row-count check: every real table,
- *  MINUS the sqlite-internal ones and MINUS each FTS table's own shadow tables (`<t>_data`,
- *  `<t>_idx`, `<t>_content`, `<t>_docsize`, `<t>_config`) — those are EXPECTED to disagree after
- *  `optimizeFtsTables` merges segments on the copy, without an indexed document changing. The FTS
- *  virtual table itself IS compared: its row count is the document count `'optimize'` never
- *  changes. */
+/** Every table worth comparing for the `--into` row-count check: every real one, MINUS the
+ *  sqlite-internal ones and MINUS each FTS table's shadow tables (`<t>_data`, `_idx`, `_content`,
+ *  `_docsize`, `_config`), which are EXPECTED to disagree once `optimizeFtsTables` merges segments
+ *  on the copy. The FTS virtual table IS compared: its count is the document count. */
 function realTableNames(db: Database): string[] {
   const shadowPrefixes = FTS_TABLE_NAMES.map((t) => `${t}_`);
   return (
@@ -152,32 +157,37 @@ function realTableNames(db: Database): string[] {
     .filter((n) => !shadowPrefixes.some((p) => n.startsWith(p)));
 }
 
-/** Row count per table in `tables`. -1 marks a table that failed to count (surfaces as a mismatch
- *  below, rather than silently vanishing from the comparison). */
-function tableRowCounts(db: Database, tables: string[]): Record<string, number> {
-  const out: Record<string, number> = {};
+/** Row count per table, or the reason it could not be counted. I2: a failure became `-1` on BOTH
+ *  connections and `-1 === -1` read as a MATCH, so on a semantic store `COUNT(*) FROM vec_chunks`
+ *  ("no such module: vec0" — this command never loads sqlite-vec) left the largest table unverified
+ *  under the words "verified copy". Uncountable on either side is now a reported mismatch. `VACUUM
+ *  INTO` does preserve vec0 content with the module absent (measured), so this is a VERIFICATION
+ *  gap, not corruption: the copy is fine, this command cannot prove it for that table. */
+function tableRowCounts(db: Database, tables: string[]): Record<string, number | string> {
+  const out: Record<string, number | string> = {};
   for (const t of tables) {
     try {
       out[t] = (db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get() as { n: number }).n;
-    } catch {
-      out[t] = -1;
+    } catch (e) {
+      out[t] = `not comparable (${(e as Error)?.message ?? String(e)})`;
     }
   }
   return out;
 }
 
 /** Compare every table's row count between the live database and its `VACUUM INTO` copy.
- *  Best-effort, not a proof: the live database can still be written between the snapshot and this
+ *  Best-effort, not a proof: the live database can be written between the snapshot and this
  *  comparison, so a mismatch on an actively-written table is not necessarily corruption — reported
- *  either way, since this command cannot tell that from "the copy is short a table" and must not
- *  guess. */
+ *  either way, since this command cannot tell it from "the copy is short a table". */
 function verifyRowCounts(live: Database, copy: Database): string[] {
   const tables = realTableNames(live);
   const liveCounts = tableRowCounts(live, tables);
   const copyCounts = tableRowCounts(copy, tables);
-  return tables
-    .filter((t) => liveCounts[t] !== copyCounts[t])
-    .map((t) => `${t}: live=${liveCounts[t]} copy=${copyCounts[t]}`);
+  const mismatch = (t: string): boolean =>
+    typeof liveCounts[t] !== "number" ||
+    typeof copyCounts[t] !== "number" ||
+    liveCounts[t] !== copyCounts[t];
+  return tables.filter(mismatch).map((t) => `${t}: live=${liveCounts[t]} copy=${copyCounts[t]}`);
 }
 
 async function dryRunOneDatabase(
@@ -223,11 +233,10 @@ async function dryRunOneDatabase(
   }
 }
 
-/** Run FTS5 `'optimize'` on every present FTS table on `db` — step a. In the in-place path `db`
- *  is the live connection; under `--into` it is the freshly `VACUUM INTO`-ed copy instead (see
- *  `compactOneDatabase`'s `--into` branch for why: the live file must never be written to). */
-function optimizeFtsTables(db: Database): string[] {
-  const optimized: string[] = [];
+/** Step a: FTS5 `'optimize'` on every present FTS table. In place that is the live connection;
+ *  under `--into` it is the copy, since the live file must never be written to. */
+function optimizeFtsTables(db: Database, into: string[] = []): string[] {
+  const optimized = into;
   for (const t of FTS_TABLE_NAMES) {
     if (tableExists(db, t)) {
       db.exec(`INSERT INTO ${t}(${t}) VALUES('optimize')`);
@@ -237,9 +246,8 @@ function optimizeFtsTables(db: Database): string[] {
   return optimized;
 }
 
-/** Step c: `PRAGMA integrity_check` plus the FTS integrity-check insert on each present FTS table,
- *  against whichever connection (`live` after an in-place VACUUM, or the opened copy under
- *  `--into`) is passed in. */
+/** Step c: `PRAGMA integrity_check` plus the FTS integrity-check insert per present FTS table, on
+ *  whichever connection is passed (live after an in-place VACUUM, the copy under `--into`). */
 function verifyIntegrity(db: Database): { ok: boolean; issues: string[] } {
   const issues: string[] = [];
   const check = (db.prepare("PRAGMA integrity_check").get() as { integrity_check: string })
@@ -254,12 +262,16 @@ function verifyIntegrity(db: Database): { ok: boolean; issues: string[] } {
   return { ok: issues.length === 0, issues };
 }
 
-/** THE-1039 fix round 1 (F3) — `VACUUM`'s freed pages can sit entirely in the WAL until
- *  checkpointed: measured directly, a 1.2 MB `-wal` held everything a VACUUM had just freed while
- *  the main file stayed at its pre-VACUUM size. `TRUNCATE` checkpoints every frame in and empties
- *  `-wal`, so a footprint read right after this is accurate without reopening the connection. */
-function checkpointTruncate(db: Database): void {
-  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+/** F3 — `VACUUM`'s freed pages can sit entirely in the WAL until checkpointed (measured: a 1.2 MB
+ *  `-wal` held everything freed while the main file stayed at its pre-VACUUM size). `TRUNCATE`
+ *  checkpoints every frame in and empties `-wal`, so a footprint read after this is accurate. */
+function checkpointTruncate(db: Database): string | undefined {
+  // M6: this PRAGMA RETURNS `(busy, log, checkpointed)` instead of throwing; `busy = 1` means a
+  // reader prevented the truncation, so `-wal` survives and the footprint still counts it.
+  const row = db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy?: number } | undefined;
+  return row?.busy === 1
+    ? "WAL checkpoint was blocked by another connection; after-size includes the -wal"
+    : undefined;
 }
 
 async function compactOneDatabase(
@@ -269,11 +281,10 @@ async function compactOneDatabase(
   intoDir: string | undefined,
 ): Promise<DbCompactReport> {
   const beforeBytes = dbFootprintBytes(path);
-  // F2: under `--into`, `db` only ever runs `VACUUM INTO` — a read of the source per
-  // sqlite.org/lang_vacuum.html ("the original database file is unchanged"), confirmed directly
-  // against node:sqlite/better-sqlite3 — plus the read-only row-count comparison after, so
-  // `readonly: true` never applies `journal_mode = WAL` to a database still in DELETE mode. The
-  // in-place path needs a WRITABLE connection (it runs VACUUM itself), so only `--into` gets it.
+  // F2: under `--into`, `db` only runs `VACUUM INTO` (a read of the source per
+  // sqlite.org/lang_vacuum.html, "the original database file is unchanged") plus the row-count
+  // comparison, so `readonly: true` never flips a DELETE-mode database into WAL. The in-place path
+  // runs VACUUM itself and so needs a WRITABLE connection.
   const db = await openDatabase(path, busyTimeoutMs, { readonly: intoDir !== undefined });
   try {
     if (intoDir !== undefined) {
@@ -281,13 +292,14 @@ async function compactOneDatabase(
       // COPY once it exists, which is what keeps the live file byte-for-byte untouched.
       mkdirSync(intoDir, { recursive: true });
       const destPath = join(intoDir, name);
-      if (existsSync(destPath)) throw new CompactDestinationExistsError(destPath);
+      if (existsSync(destPath)) throw compactDestinationExistsError(destPath);
 
       let copyDb: Database | undefined;
       let ftsOptimized: string[];
       let integrity: { ok: boolean; issues: string[] };
       let rowCountMismatches: string[];
       let snapshotAt: string;
+      let checkpointBlocked: string | undefined;
       try {
         db.exec(`VACUUM INTO ${quoteSqlString(destPath)}`);
         snapshotAt = new Date().toISOString(); // THE-1039 fix round 1 (A5)
@@ -297,34 +309,30 @@ async function compactOneDatabase(
         if (forced !== undefined) throw forced;
         ftsOptimized = optimizeFtsTables(copyDb);
         copyDb.exec("VACUUM");
-        checkpointTruncate(copyDb);
+        checkpointBlocked = checkpointTruncate(copyDb);
         integrity = verifyIntegrity(copyDb);
         rowCountMismatches = verifyRowCounts(db, copyDb);
       } catch (e) {
-        // E1 + fix round 4: classify on "does the copy exist", BEFORE the busy check — a
-        // SQLITE_BUSY raised by a copy-side step used to become a bare CompactBusyError and lose
-        // the one path an operator needs. The busy WORDING survives as the wrapped cause.
+        // E1 + round 4: classify on "does the copy exist" BEFORE the busy check — a busy from a
+        // copy-side step used to lose `destPath`. The busy WORDING survives as the wrapped cause.
         if (existsSync(destPath)) {
-          throw new CompactIntoFailedError(
-            destPath,
-            busyReason(e) ? new CompactBusyError(name) : e,
-          );
+          throw new CompactIntoFailedError(destPath, busyReason(e) ? compactBusyError(name) : e);
         }
-        if (busyReason(e)) throw new CompactBusyError(name);
+        if (busyReason(e)) throw compactBusyError(name);
         throw e;
       } finally {
         copyDb?.close?.();
       }
-      // F1: `into` is populated either way (the copy stays on disk regardless), but printReport
-      // only recommends installing it when `ok` — never after a failed verification.
+      // F1: `into` is populated either way (the copy stays on disk), but printReport only
+      // recommends installing it when `ok`.
       const ok = integrity.ok && rowCountMismatches.length === 0;
       const copyBytes = dbFootprintBytes(destPath);
       return {
         db: name,
         path,
         dryRun: false,
-        // E1: any non-clean --into outcome also names its file at the top level, not only inside
-        // `into`, so a --json consumer checks one field regardless of which failure shape.
+        // E1: a non-clean --into outcome names its file at the top level too, so a --json
+        // consumer checks one field whichever failure shape it was.
         ...(ok ? {} : { destination: destPath, retainedCopy: existsSync(destPath) }),
         beforeBytes,
         afterBytes: beforeBytes, // the LIVE file — untouched by --into
@@ -336,23 +344,31 @@ async function compactOneDatabase(
           ...integrity.issues,
           ...rowCountMismatches.map((m) => `row-count mismatch: ${m}`),
         ],
+        ...(checkpointBlocked !== undefined ? { checkpointBlocked } : {}),
         into: {
           path: destPath,
           copyBytes,
-          mv: `mv ${quoteShString(destPath)} ${quoteShString(path)}`,
+          // The sidecars belong to the file being replaced: SQLite IGNORES a stale `-wal`/`-shm`
+          // whose header does not match its database, so removing them is completeness rather than
+          // safety — it stops an operator finding orphans beside the installed copy.
+          mv:
+            `mv ${quoteShString(destPath)} ${quoteShString(path)} && ` +
+            `rm -f ${quoteShString(`${path}-wal`)} ${quoteShString(`${path}-shm`)}`,
           rowCountMismatches,
           snapshotAt,
         },
       };
     }
 
-    let ftsOptimized: string[];
+    // M4: accumulated in place, so a failure LATER (a busy VACUUM) still reports committed FTS work.
+    const ftsOptimized: string[] = [];
+    let checkpointBlocked: string | undefined;
     try {
-      ftsOptimized = optimizeFtsTables(db);
+      optimizeFtsTables(db, ftsOptimized);
       db.exec("VACUUM");
-      checkpointTruncate(db); // THE-1039 fix round 1 (F3) — see that function's own comment
+      checkpointBlocked = checkpointTruncate(db); // F3 — see that function's own comment
     } catch (e) {
-      if (busyReason(e)) throw new CompactBusyError(name);
+      if (busyReason(e)) throw compactBusyError(name, ftsOptimized);
       throw e;
     }
     const integrity = verifyIntegrity(db);
@@ -367,6 +383,7 @@ async function compactOneDatabase(
       ftsOptimized,
       integrityOk: integrity.ok,
       integrityIssues: integrity.issues,
+      ...(checkpointBlocked !== undefined ? { checkpointBlocked } : {}),
     };
   } finally {
     db.close?.();
@@ -409,10 +426,14 @@ function printReport(r: DbCompactReport): void {
     return;
   }
   const tail = r.ftsOptimized.length > 0 ? `, optimized ${r.ftsOptimized.join(", ")}` : "";
+  const note = (): void => {
+    if (r.checkpointBlocked !== undefined) process.stdout.write(`  note: ${r.checkpointBlocked}\n`);
+  };
   if (r.into) {
     process.stdout.write(
       `${r.db}: live ${r.beforeBytes} bytes, copy ${r.into.copyBytes} bytes (${r.reclaimedBytes} reclaimable, main + -wal)${tail}\n`,
     );
+    note();
     if (r.integrityOk) {
       // THE-1039 fix round 1 (F1): only reached when verification passed.
       process.stdout.write(`  verified copy at ${r.into.path}\n`);
@@ -440,15 +461,15 @@ function printReport(r: DbCompactReport): void {
   process.stdout.write(
     `${r.db}: ${r.beforeBytes} -> ${r.afterBytes} bytes (${r.reclaimedBytes} reclaimed, main + -wal)${tail}\n`,
   );
+  note();
   if (!r.integrityOk) {
     for (const issue of r.integrityIssues) process.stderr.write(`  ! ${issue}\n`);
   }
 }
 
-/** A1/A4: one database's failure as a report row, so the loop below records it and moves on. Takes
- *  `unknown`, not just `CompactError`: cli.ts's `fatal:` handler only ever printed
- *  `(err as Error).message` too, so wrapping ANY error loses nothing an operator would have seen
- *  while still letting the OTHER database compact. */
+/** A1/A4: one database's failure as a report row, so the loop records it and moves on. Takes
+ *  `unknown`, not just `CompactError`: cli.ts's `fatal:` handler printed `(err as Error).message`
+ *  too, so wrapping ANY error loses nothing while letting the OTHER database compact. */
 function errorReport(
   name: CompactableDb,
   path: string,
@@ -461,6 +482,8 @@ function errorReport(
     e instanceof CompactIntoFailedError
       ? { destination: e.destPath, retainedCopy: existsSync(e.destPath) }
       : {};
+  // M4: FTS work already committed before the failure, not an invented empty list.
+  const ftsOptimized = e instanceof CompactError ? (e.facts.ftsOptimized ?? []) : [];
   return {
     db: name,
     path,
@@ -470,18 +493,17 @@ function errorReport(
     beforeBytes: existsSync(path) ? dbFootprintBytes(path) : 0,
     afterBytes: existsSync(path) ? dbFootprintBytes(path) : 0,
     reclaimedBytes: 0,
-    ftsOptimized: [],
+    ftsOptimized,
     integrityOk: false,
     integrityIssues: [message],
   };
 }
 
-/** `obsidian-tc compact` — see the file header for the ruling on in-place VACUUM vs `--into`.
- *  Runs cache.db then experiential.db, in order, skipping either that does not exist.
- *  A1 incident this closes: a `SQLITE_BUSY` on the SECOND database used to `process.exit(1)` before
- *  the FIRST database's success was reported. Every outcome — success or any failure (see
- *  `errorReport`) — lands in `reports` first; report/`--json` always emit, and the exit code goes
- *  non-zero once at the end if any database failed or failed verification. */
+/** `obsidian-tc compact` — see the file header for the in-place-vs-`--into` ruling. Runs cache.db
+ *  then experiential.db, skipping either that is absent. A1 incident closed: a `SQLITE_BUSY` on the
+ *  SECOND database used to `process.exit(1)` before the FIRST one's success was reported. Every
+ *  outcome lands in `reports` first; report/`--json` always emit, and the exit code goes non-zero
+ *  once at the end if any database failed or failed verification. */
 export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   const busyTimeoutMs = cfg.db.busyTimeoutMs;

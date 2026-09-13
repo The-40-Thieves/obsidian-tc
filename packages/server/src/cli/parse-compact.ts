@@ -31,6 +31,12 @@ export function parseCompact(rest: string[]): CompactCommand {
   const into = flagValue("--into");
   const json = flagValue("--json");
   const input = flagValue("--config") ?? scan.find((a) => !a.startsWith("-"));
+  // M5: the two are mutually exclusive and `--dry-run` silently won, so `--into` was ignored AND
+  // the "needs ~2x free space" note was suppressed — an operator asking "what would --into do"
+  // got a plain in-place dry run and no sign of it. Refused here rather than silently preferred.
+  if (rest.includes("--dry-run") && into !== undefined) {
+    throw new CliError("--dry-run and --into are mutually exclusive: --dry-run changes nothing");
+  }
   return {
     kind: "compact",
     ...(input !== undefined ? { input } : {}),

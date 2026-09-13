@@ -983,6 +983,20 @@ describe("THE-1039 (GH #930) — parseCliArgs compact", () => {
       parseCliArgs([
         "compact",
         "--dry-run",
+        "--json",
+        "/tmp/report.json",
+        "--config",
+        "/etc/otc.json",
+      ]),
+    ).toStrictEqual({
+      kind: "compact",
+      input: "/etc/otc.json",
+      dryRun: true,
+      json: "/tmp/report.json",
+    });
+    expect(
+      parseCliArgs([
+        "compact",
         "--into",
         "/tmp/out",
         "--json",
@@ -993,10 +1007,18 @@ describe("THE-1039 (GH #930) — parseCliArgs compact", () => {
     ).toStrictEqual({
       kind: "compact",
       input: "/etc/otc.json",
-      dryRun: true,
       into: "/tmp/out",
       json: "/tmp/report.json",
     });
+  });
+
+  // M5: `--dry-run` used to silently win, so `--into` was ignored and the ~2x-free-space note was
+  // suppressed with it — a dry run of the copy path looked like a dry run of the in-place path.
+  it("--dry-run with --into is refused, not silently resolved", () => {
+    const r = parseCliArgs(["compact", "--dry-run", "--into", "/tmp/out"]);
+    expect(r.kind).toBe("error");
+    if (r.kind !== "error") throw new Error("unreachable");
+    expect(r.message).toMatch(/mutually exclusive/);
   });
 
   it("--into with no value is a usage error, same as every other value-taking flag", () => {

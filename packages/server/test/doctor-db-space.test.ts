@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { probeDbSpace } from "../src/cli/commands/doctor-probes";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { openDatabase } from "../src/db/open";
-import { readonlyFallbackRefusal, readonlyOpenFallbackable } from "../src/db/pragmas";
+import { readonlyFallbackRefusal } from "../src/db/pragmas";
 import { provisionCacheDb } from "../src/db/provision";
 import { type DbSpaceView, dbSpaceCheck } from "../src/doctor/db-space";
 import { ensureNotesFts } from "../src/search/fts";
@@ -356,10 +356,16 @@ describe("probeDbSpace — a real cache.db", () => {
       if (view.status !== "ok") throw new Error("unreachable");
       expect(view.state.readonlyMode).toBe("fallback");
 
+      // I1: the consequence lives in DETAILS — macOS takes this path on every run, so the summary
+      // line must not read like a new finding each time; the summary keeps the WORD.
       const check = await dbSpaceCheck(view).run(ctx);
-      expect(check.summary).toContain("inspection connection was not read-only on this platform");
-      expect(check.summary).toContain("may be checkpointed on close");
+      expect(check.summary).toContain("readonlyMode=fallback");
+      expect(check.summary).not.toContain("may be checkpointed on close");
       expect(check.details?.readonlyMode).toBe("fallback");
+      expect(check.details?.readonlyModeNote).toContain(
+        "inspection connection was not read-only on this platform",
+      );
+      expect(check.details?.readonlyModeNote).toContain("may be checkpointed on close");
     } finally {
       if (priorEnv === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
       else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
@@ -383,7 +389,7 @@ describe("probeDbSpace — a real cache.db", () => {
       if (view.status !== "ok") throw new Error("unreachable");
       expect(["native", "fallback"]).toContain(view.state.readonlyMode);
       const check = await dbSpaceCheck(view).run(ctx);
-      expect(check.summary.includes("was not read-only")).toBe(
+      expect(check.summary.includes("readonlyMode=fallback")).toBe(
         view.state.readonlyMode === "fallback",
       );
     } finally {
@@ -417,7 +423,6 @@ describe("readonly open fallback condition (breaker ruling)", () => {
 
   it("an existing regular file is fallbackable, whatever the error was", async () => {
     await withDb((dbPath) => {
-      expect(readonlyOpenFallbackable(dbPath)).toBe(true);
       expect(readonlyFallbackRefusal(dbPath)).toBeUndefined();
     });
   });
@@ -425,14 +430,12 @@ describe("readonly open fallback condition (breaker ruling)", () => {
   it("a missing file is refused, and names why", async () => {
     await withDb((dbPath) => {
       const missing = `${dbPath}.nope`;
-      expect(readonlyOpenFallbackable(missing)).toBe(false);
       expect(readonlyFallbackRefusal(missing)).toMatch(/ENOENT/);
     });
   });
 
   it("a directory is refused", async () => {
     await withDb((_dbPath, dir) => {
-      expect(readonlyOpenFallbackable(dir)).toBe(false);
       expect(readonlyFallbackRefusal(dir)).toMatch(/not a regular file/);
     });
   });
@@ -538,7 +541,7 @@ describe("OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW — the real fallback path, on a
           if (view.status !== "ok") throw new Error("unreachable");
           expect(view.state.readonlyMode).toBe("fallback");
           const check = await dbSpaceCheck(view).run(ctx);
-          expect(check.summary).toContain(
+          expect(check.details?.readonlyModeNote).toContain(
             "inspection connection was not read-only on this platform",
           );
         });
