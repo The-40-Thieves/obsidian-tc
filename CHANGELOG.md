@@ -19,6 +19,55 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   closure, and inside the domain-grouped facade's dispatch closure, which forwards inner args the
   same way. When both the outer envelope and the inner args carry a token, the inner one wins.
 
+- **`patch_note` heading anchor correctness, `read_note` section read, exact-string replace
+  (THE-1038, #922, #926, #927, #928).** `patch_note`'s anchor resolution moved into a shared
+  `notes/anchors.ts` and now: recognizes fenced code (` ``` `/`~~~`) per CommonMark's actual
+  fence-closing rule — a closer must be the same character, at least as long as the opener, and
+  nothing but the delimiter run; a delimiter indented 4+ columns (a tab expands to the next
+  4-column stop) is an indented code block, not a fence; a backtick opener whose info string
+  itself contains a backtick is not a valid fence (tilde openers are exempt) — so a `## heading`-
+  shaped line inside a code block is never treated as a real anchor or section boundary (#926),
+  and a block anchor's own paragraph-start walk stops at a fence boundary the same way it stops at
+  a blank line or a heading, rather than deleting a fenced example above the block it targets.
+  Refuses an anchor (heading or block id) that matches more than one line — or only inside a
+  fenced code block — instead of silently binding to the first match, which used to let a second
+  `replace` on a duplicated heading insert a whole second body (#922 shape 3). Drops a duplicate
+  leading heading from `replace` content when it repeats the anchor's own heading, so both calling
+  conventions produce one heading instead of two (#922 shape 2) — recognized with the same
+  indentation-insensitive matcher the body scans use, so an indented anchor heading's duplicate is
+  dropped whether or not the caller echoed the indentation. Refuses an operation that would
+  flip the note from a terminated fence state to an unterminated one, comparing before/after so an
+  already-broken note is not refused on every later patch (#926 suggested guard). `read_note`
+  gains an optional `anchor` (patch_note's own vocabulary) returning
+  `section: {text, start_line, end_line, heading_level?}` for exactly the span a matching
+  `patch_note` call would touch, with `content_hash` staying the whole-note hash so it round-trips
+  into `prev_hash` (#927). `patch_note` gains `operation: "replace_text"` (`old_string`/
+  `new_string`), an exact-string substitution scoped to the resolved anchor's section (excluding a
+  heading anchor's own heading line, and a block anchor's own `^id` marker token, from the match
+  window) that refuses on 0 or 2+ matches and matches a multi-line `old_string` against a CRLF
+  note's section regardless of which line ending the caller authored it with — the section's own
+  line ending is preserved on write; frontmatter delimiters are LF even around a CRLF body
+  (pre-existing, unrelated to this anchor work). A block anchor's own marker-protection extends to
+  a marker that is ALONE on its line: the protected suffix is that whole line verbatim, indentation
+  and the line break before it included, not just the `^id` token, so `old_string` can never
+  consume part of the marker line and leave it re-indented, glued onto the replacement, or pushed
+  behind an inserted blank line. Fence AND heading structure now count only ASCII space/tab as whitespace — any other
+  whitespace-looking character (NBSP, ideographic space, ...) is content, not structure, even though
+  a Unicode-aware `.trim()` would have hidden it: that holds for leading indentation, for what may
+  trail a fence delimiter run (a closer with a trailing NBSP no longer closes a fence), and for the
+  separator after a heading's hashes (`##\u00a0B` is not a heading). An ATX closing sequence is
+  syntax, not title text, in every consumer of the shared matcher — `## A ##` resolves, bounds,
+  counts toward ambiguity and de-duplicates as the heading `A`, while `## A#` keeps the hash in its
+  title; a BARE closing sequence (`## ##`, `### ###`, `## #`) is an empty heading, so it bounds a
+  section but is never an anchor target and never counts toward ambiguity. ATX heading boundaries (and anchor
+  targets) now tolerate up to 3 columns of leading indentation and an empty title (`"##"` alone, or
+  `"## "`), matching real ATX heading recognition instead of requiring a heading to start at column
+  0 with non-empty text. Setext headings, trailing-footer/`stop_before` bounding (#922 shape 1),
+  and a scoped `replace_text`/`replace` normalizing a note with genuinely MIXED line endings to one
+  detected EOL remain open on THE-1038; a comment-only frontmatter block (`---\n# comment\n---`)
+  being dropped by `vault/frontmatter.ts`'s serializer on any body-only patch is a pre-existing
+  defect outside this ticket's anchor-resolution scope, tracked separately as THE-1040.
+
 - **The 2026-09-08..10 advisories cleared across all three bun workspaces (THE-1036).** Root:
   `hono` 4.13.0 -> 4.13.5 (three moderate advisories, incomplete-fix follow-up to CVE-2026-39408),
   `js-yaml` 4.3.1 -> 4.3.2 (high, unbounded merge-key CPU use), `vitest`/`@vitest/mocker` 4.1.10 ->

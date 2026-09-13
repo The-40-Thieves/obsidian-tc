@@ -6,9 +6,10 @@
 // move_note/copy_note (path mutation) and delete_note (removal) split out separately — see
 // move-copy.ts and delete.ts.
 //
-// patch_note's anchor-resolution helpers (patchByHeading/patchByBlock/patchByPreamble and their
-// shared PatchResult/removedSpan/HEADING/escapeRegExp) are private to this file: nothing else in
-// the notes domain calls them, so they are not promoted to a shared module.
+// THE-1038 / GH #927: patch_note's anchor-resolution helpers (patchByHeading/patchByBlock/
+// patchByPreamble and their shared PatchResult/removedSpan/escapeRegExp) used to be
+// private to this file — nothing else in the notes domain called them. read_note's section read
+// needs the same resolution, so they moved to ./anchors.ts; read.ts imports from there too.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
@@ -22,6 +23,18 @@ import { persistGovernedNote } from "../../../vault/persist-note";
 import { captureSnapshot } from "../../../vault/snapshots";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
+import type { PatchResult } from "./anchors";
+import {
+  dropDuplicateLeadingHeading,
+  escapeRegExp,
+  hasUnterminatedFence,
+  patchByBlock,
+  patchByHeading,
+  patchByPreamble,
+  replaceInSection,
+  resolveSection,
+  resolveSectionOrThrow,
+} from "./anchors";
 import {
   AppendInput,
   AppendNoteOutput,
@@ -30,143 +43,6 @@ import {
   WriteInput,
   WriteNoteOutput,
 } from "./schemas";
-
-// ── patch_note's private anchor-resolution helpers ─────────────────────────────
-
-const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
-
-/** THE-603: what a patch* helper produced, plus the blast radius of a `replace` — the count and
- *  byte size of lines the operation actually discarded (always 0 for append/prepend, which only
- *  insert). `bodyLineCount` is the WHOLE body's line count (not just the targeted section), so a
- *  caller can judge "removed most of the note" rather than just "removed a lot of lines". */
-interface PatchResult {
-  body: string;
-  removedLines: number;
-  removedBytes: number;
-  bodyLineCount: number;
-}
-
-function removedSpan(lines: string[], from: number, to: number, eol: string): [number, number] {
-  const removed = lines.slice(from, to);
-  return [removed.length, removed.length > 0 ? Buffer.byteLength(removed.join(eol), "utf8") : 0];
-}
-
-/** Insert/replace content relative to a heading section. Returns null if the
- *  heading is not found. The section spans the heading line to the next heading
- *  of the same or higher level (or EOF). `eol` preserves the note's line ending. */
-function patchByHeading(
-  body: string,
-  op: "append" | "prepend" | "replace",
-  target: string,
-  content: string,
-  eol: string,
-): PatchResult | null {
-  const lines = body.split(/\r?\n/);
-  const want = target.trim().toLowerCase();
-  let hi = -1;
-  let level = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const m = HEADING.exec(lines[i] ?? "");
-    if (m && (m[2] ?? "").trim().toLowerCase() === want) {
-      hi = i;
-      level = (m[1] ?? "").length;
-      break;
-    }
-  }
-  if (hi < 0) return null;
-  let end = lines.length;
-  for (let j = hi + 1; j < lines.length; j++) {
-    const m = HEADING.exec(lines[j] ?? "");
-    if (m && (m[1] ?? "").length <= level) {
-      end = j;
-      break;
-    }
-  }
-  const ins = content.split(/\r?\n/);
-  let next: string[];
-  let removedLines = 0;
-  let removedBytes = 0;
-  if (op === "prepend") next = [...lines.slice(0, hi + 1), ...ins, ...lines.slice(hi + 1)];
-  else if (op === "append") next = [...lines.slice(0, end), ...ins, ...lines.slice(end)];
-  else {
-    [removedLines, removedBytes] = removedSpan(lines, hi + 1, end, eol);
-    next = [...lines.slice(0, hi + 1), ...ins, ...lines.slice(end)];
-  }
-  return { body: next.join(eol), removedLines, removedBytes, bodyLineCount: lines.length };
-}
-
-/** Escape a string for literal use inside a RegExp. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** THE-198: insert/replace content relative to a block reference (`^block-id`).
- *  The block spans backward from the `^id` line to the paragraph start (a blank
- *  line, a heading, or body start). Returns null when the block id is absent. */
-function patchByBlock(
-  body: string,
-  op: "append" | "prepend" | "replace",
-  blockId: string,
-  content: string,
-  eol: string,
-): PatchResult | null {
-  const lines = body.split(/\r?\n/);
-  const re = new RegExp(`(?:^|\\s)\\^${escapeRegExp(blockId)}\\s*$`);
-  let bi = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (re.test(lines[i] ?? "")) {
-      bi = i;
-      break;
-    }
-  }
-  if (bi < 0) return null;
-  let start = bi;
-  while (start > 0) {
-    const prev = lines[start - 1] ?? "";
-    if (prev.trim() === "" || HEADING.test(prev)) break;
-    start--;
-  }
-  const ins = content.split(/\r?\n/);
-  let next: string[];
-  let removedLines = 0;
-  let removedBytes = 0;
-  if (op === "prepend") next = [...lines.slice(0, start), ...ins, ...lines.slice(start)];
-  else if (op === "append") next = [...lines.slice(0, bi + 1), ...ins, ...lines.slice(bi + 1)];
-  else {
-    [removedLines, removedBytes] = removedSpan(lines, start, bi + 1, eol);
-    next = [...lines.slice(0, start), ...ins, ...lines.slice(bi + 1)];
-  }
-  return { body: next.join(eol), removedLines, removedBytes, bodyLineCount: lines.length };
-}
-
-/** THE-198: insert/replace content in the body preamble — the region above the
- *  first heading (the frontmatter-adjacent top of the note). Always resolvable. */
-function patchByPreamble(
-  body: string,
-  op: "append" | "prepend" | "replace",
-  content: string,
-  eol: string,
-): PatchResult {
-  const lines = body.split(/\r?\n/);
-  let end = lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    if (HEADING.test(lines[i] ?? "")) {
-      end = i;
-      break;
-    }
-  }
-  const ins = content.split(/\r?\n/);
-  let next: string[];
-  let removedLines = 0;
-  let removedBytes = 0;
-  if (op === "prepend") next = [...ins, ...lines];
-  else if (op === "append") next = [...lines.slice(0, end), ...ins, ...lines.slice(end)];
-  else {
-    [removedLines, removedBytes] = removedSpan(lines, 0, end, eol);
-    next = [...ins, ...lines.slice(end)];
-  }
-  return { body: next.join(eol), removedLines, removedBytes, bodyLineCount: lines.length };
-}
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -373,7 +249,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     vaultArg: "vault",
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.',
+      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.",
     inputSchema: PatchInput,
     outputSchema: PatchNoteOutput,
     requiredScopes: ["write:notes"],
@@ -399,17 +275,112 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         type: "heading" as const,
         heading: input.target_heading as string,
       };
-      let patched: PatchResult | null;
-      if (anchor.type === "heading")
-        patched = patchByHeading(parsed.body, input.operation, anchor.heading, input.content, eol);
-      else if (anchor.type === "block")
-        patched = patchByBlock(parsed.body, input.operation, anchor.block_id, input.content, eol);
-      else patched = patchByPreamble(parsed.body, input.operation, input.content, eol);
-      if (patched === null)
-        throw err.invalidInput(
-          anchor.type === "block" ? "block reference not found" : "target heading not found",
-          { path: rel, anchor },
+      let patched: PatchResult;
+      if (input.operation === "replace_text") {
+        // GH #928: an exact-string substitution scoped to the resolved anchor's section — reuses
+        // the same not-found/ambiguous resolution and messages as read_note. confirm_replace never
+        // applies here: a bounded, uniqueness-checked substitution is not the operation THE-603
+        // guards against.
+        const oldString = input.old_string as string;
+        const newString = input.new_string as string;
+        const resolved = resolveSectionOrThrow(parsed.body, anchor, rel);
+        // Review round 1 I4: the tool description promises replace_text "preserves the anchor
+        // heading line" the same way `replace` does — exclude line 0 of a heading anchor's
+        // section (the heading itself) from the match window, so old_string can never rewrite or
+        // delete it. Block/frontmatter anchors have no such marker line to protect.
+        const matchWindow =
+          anchor.type === "heading"
+            ? { ...resolved, startIndex: resolved.startIndex + 1 }
+            : resolved;
+        // Review round 2 B2: a block anchor's own I4-analogue — the trailing `^id` token on the
+        // marker line (the section's last line) must survive too. Only the marker SUFFIX is
+        // protected; ordinary text before it on the same line is still fair game. Review round 4
+        // R1: when the marker is ALONE on its line (nothing precedes the match but whitespace),
+        // the protected suffix must extend to include the LINE BREAK before it too, not just the
+        // marker token — otherwise old_string can consume that separator (e.g. "text\n") and the
+        // substitution glues the marker onto whatever replaces it. Greptile's inline-marker
+        // counter-suggestion was declined: the regex already requires whitespace-or-line-start
+        // immediately before `^id`, so that leading separator is already part of `markerMatch[0]`
+        // for an inline marker (`"para ^blk1"` protects the space in `" ^blk1"`) — no extra logic
+        // needed there, only for the standalone-line case where the separator is a PRECEDING
+        // newline, outside the marker line itself.
+        let excludeTrailing = "";
+        if (anchor.type === "block") {
+          const bodyLines = parsed.body.split(/\r?\n/);
+          const markerLineIndex = resolved.endIndex - 1;
+          const markerLine = bodyLines[markerLineIndex] ?? "";
+          const markerMatch = new RegExp(`(?:^|\\s)\\^${escapeRegExp(anchor.block_id)}\\s*$`).exec(
+            markerLine,
+          );
+          if (markerMatch) {
+            // Review round 5 D2: for a standalone marker the protected suffix is the WHOLE marker
+            // line verbatim (plus the line break before it, when the section has an earlier line),
+            // not the regex match — `(?:^|\s)` consumes exactly ONE whitespace character, so a
+            // 2-space indent left one space, and with it the preceding newline, inside the
+            // searchable window while a 1-character tab indent happened not to. Nothing about a
+            // marker's own line, indentation included, may change.
+            const markerAloneOnLine = markerLine.slice(0, markerMatch.index).trim() === "";
+            if (!markerAloneOnLine) excludeTrailing = markerMatch[0];
+            else if (markerLineIndex > resolved.startIndex) excludeTrailing = eol + markerLine;
+            else excludeTrailing = markerLine;
+          }
+        }
+        const { body: nextBody, count } = replaceInSection(
+          parsed.body,
+          matchWindow,
+          oldString,
+          newString,
+          eol,
+          excludeTrailing,
         );
+        if (count === 0)
+          throw err.invalidInput("old_string not found in section", { path: rel, anchor });
+        if (count > 1)
+          throw err.invalidInput(
+            `old_string matches ${count} times in the section; must occur exactly once`,
+            { path: rel, anchor, count },
+          );
+        patched = {
+          body: nextBody,
+          removedLines: oldString.split(/\r?\n/).length,
+          removedBytes: Buffer.byteLength(oldString, "utf8"),
+          bodyLineCount: parsed.body.split(/\r?\n/).length,
+        };
+      } else {
+        // GH #922 shape 2: `replace` content that repeats the anchor's own heading duplicates it
+        // — drop that line rather than refuse. Only heading anchors have an anchor-line
+        // convention to dedupe against; only checked when resolution is unambiguous (an
+        // ambiguous/missing anchor is reported below by the real resolve inside patchByHeading,
+        // unaffected by this).
+        let content = input.content as string;
+        if (anchor.type === "heading" && input.operation === "replace") {
+          const check = resolveSection(parsed.body, anchor);
+          if (check.found && check.headingLevel !== undefined)
+            content = dropDuplicateLeadingHeading(content, check.headingLevel, anchor.heading);
+        }
+        let result: PatchResult | null;
+        if (anchor.type === "heading")
+          result = patchByHeading(parsed.body, input.operation, anchor.heading, content, eol);
+        else if (anchor.type === "block")
+          result = patchByBlock(parsed.body, input.operation, anchor.block_id, content, eol);
+        else result = patchByPreamble(parsed.body, input.operation, content, eol);
+        if (result === null)
+          throw err.invalidInput(
+            anchor.type === "block" ? "block reference not found" : "target heading not found",
+            { path: rel, anchor },
+          );
+        patched = result;
+      }
+
+      // GH #926 suggested guard: an operation that flips the body from a terminated fence state
+      // (an even count of fence-delimiter lines) to an unterminated one has almost certainly cut
+      // through a code block. Compared before/after so a note that ALREADY has an unclosed fence
+      // is not refused on every subsequent, unrelated patch.
+      if (!hasUnterminatedFence(parsed.body) && hasUnterminatedFence(patched.body))
+        throw err.invalidInput("patch would leave an unterminated code fence", {
+          path: rel,
+          anchor,
+        });
 
       // THE-603: a replace on a heading anchor is the only shape that can consume the ENTIRE
       // body with no terminator to bound it (a lone H1 has no same-or-higher heading below it —
@@ -436,8 +407,12 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter);
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a
-      // destructive replace instead of letting the "safety net" call succeed while writing nothing.
-      if (input.operation === "replace" && !deps.snapshots?.enabled)
+      // destructive replace (GH #928: replace_text is the same shape — it discards content too)
+      // instead of letting the "safety net" call succeed while writing nothing.
+      if (
+        (input.operation === "replace" || input.operation === "replace_text") &&
+        !deps.snapshots?.enabled
+      )
         deps.onSnapshotSkipped?.(v.id, rel, "patch_note");
       captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "patch_note", ctx.now);
       writeNoteAtomic(abs, next, false);

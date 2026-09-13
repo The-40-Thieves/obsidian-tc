@@ -25,6 +25,31 @@ export const NoteStatOut = z
   .object({ size: z.number(), mtime: z.string(), ctime: z.string() })
   .nullable();
 
+/** THE-1038 / GH #927: the span `resolveSection` (notes/anchors.ts) resolved when `read_note` is
+ *  called with an `anchor`. `text` includes the section's own marker line — the heading line for
+ *  a heading anchor, or the block paragraph including its `^id` line — matching what a `replace`
+ *  on the same anchor would discard. `start_line`/`end_line` are 1-based and inclusive, relative
+ *  to the raw file `content` (frontmatter lines counted in) — `content.split(/\r?\n/)` sliced
+ *  `[start_line-1, end_line)` and joined reproduces `text` exactly. `heading_level` is present
+ *  only for a heading anchor.
+ *
+ *  Review round 1 C1: two documented exceptions to the inclusive-range rule above, both because a
+ *  trailing line terminator makes `split(/\r?\n/)`'s last element a phantom "line" (the position
+ *  after the final terminator, not real content) rather than genuine content:
+ *  - EMPTY section (a preamble immediately followed by the first heading — the only anchor that
+ *    can span zero lines): `text` is `""` and `start_line === end_line`, both naming the raw line
+ *    the section is anchored before (NOT a one-line range — there is no real content at that
+ *    line). This is the chosen representation for a zero-length span; `end_line < start_line`
+ *    would violate "inclusive" and is never produced.
+ *  - a section that runs to end-of-file in a note whose raw content ends with a line terminator:
+ *    `end_line` (and `text`) stop at the last REAL line, never the phantom one past it. */
+export const ReadNoteSectionOut = z.object({
+  text: z.string(),
+  start_line: z.number(),
+  end_line: z.number(),
+  heading_level: z.number().optional(),
+});
+
 export const ReadNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
@@ -34,6 +59,8 @@ export const ReadNoteOutput = z.object({
   has_frontmatter: z.boolean(),
   content_hash: z.string(),
   stat: NoteStatOut,
+  // Omitted (not null) when the caller passed no `anchor` — see ReadNoteSectionOut.
+  section: ReadNoteSectionOut.optional(),
 });
 
 /** read_notes' per-note entry is hand-assembled in the loop below and is NARROWER than
@@ -117,7 +144,9 @@ export const PatchAnchorOut = z.discriminatedUnion("type", [
 export const PatchNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  operation: z.enum(["append", "prepend", "replace"]),
+  // THE-1038 / GH #928: replace_text — an exact-string substitution scoped to the resolved
+  // anchor's section.
+  operation: z.enum(["append", "prepend", "replace", "replace_text"]),
   anchor: PatchAnchorOut,
   // Present only when anchor.type === "heading" (legacy target_heading echo) — omitted, not
   // null, for the block/frontmatter arms.
@@ -127,6 +156,7 @@ export const PatchNoteOutput = z.object({
   prev_hash: z.string(),
   // THE-603: the blast radius of this write. 0 for append/prepend, which only insert; a
   // catastrophic replace and a two-line replace used to return structurally identical payloads.
+  // For replace_text: the line count and byte size of `old_string` (GH #928).
   lines_removed: z.number(),
   bytes_removed: z.number(),
   quality_warning: QualityWarningOut,
@@ -215,21 +245,74 @@ export const PatchInput = z
   .object({
     vault: VaultId,
     path: VaultPath,
-    operation: z.enum(["append", "prepend", "replace"]),
+    operation: z.enum(["append", "prepend", "replace", "replace_text"]),
     // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
     target_heading: z.string().min(1).optional(),
     anchor: PatchAnchor.optional(),
-    content: z.string(),
+    // Required unless operation is replace_text (see the superRefine below).
+    content: z.string().optional(),
+    // THE-1038 / GH #928: replace_text's exact-string substitution, scoped to the resolved
+    // anchor's section. Required (both fields) iff operation is replace_text.
+    old_string: z.string().min(1).optional(),
+    new_string: z.string().optional(),
     prev_hash: z.string().optional(),
     // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
     // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
     // has no same-or-higher-level heading to bound it and so consumes the entire document below
-    // it. Ignored for append/prepend and for block/frontmatter anchors, which cannot hit this.
+    // it. Ignored for append/prepend, for block/frontmatter anchors (which cannot hit this), and
+    // for replace_text (a bounded, uniqueness-checked substitution is not the operation this
+    // guards against).
     confirm_replace: z.boolean().default(false),
   })
   .strict()
-  .refine((i) => i.anchor !== undefined || i.target_heading !== undefined, {
-    message: "either anchor or target_heading is required",
+  .superRefine((i, ctx) => {
+    if (i.anchor === undefined && i.target_heading === undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "either anchor or target_heading is required",
+      });
+    if (i.operation === "replace_text") {
+      if (i.old_string === undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["old_string"],
+          message: "old_string is required when operation is replace_text",
+        });
+      if (i.new_string === undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["new_string"],
+          message: "new_string is required when operation is replace_text",
+        });
+      // Review round 1 M6: enforce the REVERSE direction of "iff" too — content belongs to
+      // append/prepend/replace only.
+      if (i.content !== undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["content"],
+          message:
+            "content must not be set when operation is replace_text; use old_string/new_string",
+        });
+    } else {
+      if (i.content === undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["content"],
+          message: "content is required unless operation is replace_text",
+        });
+      if (i.old_string !== undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["old_string"],
+          message: "old_string is only valid when operation is replace_text",
+        });
+      if (i.new_string !== undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["new_string"],
+          message: "new_string is only valid when operation is replace_text",
+        });
+    }
   });
 
 export const MoveInput = z
