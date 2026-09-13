@@ -86,6 +86,7 @@ export class ToolRegistry {
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
   private readonly vaultKindResolver?: RegistryOptions["vaultKindResolver"];
+  private readonly visibleVaultIds?: RegistryOptions["visibleVaultIds"];
   private readonly strictOutputSchema: boolean;
   // WP4.3: the dispatch orchestrator (registry/dispatch.ts) takes everything it needs as one
   // DispatchDeps object rather than reaching back into ToolRegistry — built once here (every field
@@ -114,6 +115,7 @@ export class ToolRegistry {
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
     this.vaultKindResolver = opts.vaultKindResolver;
+    this.visibleVaultIds = opts.visibleVaultIds;
     this.strictOutputSchema = opts.strictOutputSchema ?? strictOutputSchemaDefault();
     this.observability = new DispatchObservability({
       toolStore: this.toolStore,
@@ -140,6 +142,7 @@ export class ToolRegistry {
       aclResolver: this.aclResolver,
       rootResolver: this.rootResolver,
       vaultKindResolver: this.vaultKindResolver,
+      visibleVaultIds: this.visibleVaultIds,
     };
   }
 

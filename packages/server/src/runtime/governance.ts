@@ -126,6 +126,17 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
         return undefined;
       }
     },
+    // THE-1042 (GH #935): vault ids visible to a bad-vault error's did_you_mean/visible_vaults
+    // hint — the SAME gate list_vaults itself uses (THE-924), so a vaultBound caller is never
+    // hinted toward a vault it cannot reach.
+    visibleVaultIds: (ctx) => {
+      if (ctx.vaultBound !== true) return vaultRegistry.list().map((v) => v.id);
+      try {
+        return [vaultRegistry.resolve(ctx.vaultId).id];
+      } catch {
+        return [];
+      }
+    },
     // THE-209: append a per-invocation trace record to the active session's JSONL trace.
     sessionTracer: (session, record) => {
       try {

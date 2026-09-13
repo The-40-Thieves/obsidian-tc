@@ -6,6 +6,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Validation errors now say the fix, not just the field (THE-1042, GH #935).** An
+  `unrecognized_keys` rejection now names the schema's accepted keys, a nearest-name suggestion
+  within edit distance 2, and a static alias table for cross-tool spellings edit distance can't
+  catch (`search_text`'s `root` vs. a `path`/`folder` typo, and the reverse). A bad `vault` — the
+  `VaultId` regex/min/max issue, or `vault_not_found` — now carries the vault ids visible to that
+  caller (the same gate `list_vaults` uses, THE-924: a `vaultBound` caller sees only its own id) and
+  a `did you mean "<id>"?` suggestion when a case-folded or slugified form matches one. Both hints
+  are structured in `details` first (`accepted_keys`/`key_hints`, `visible_vaults`/`did_you_mean`)
+  and rendered into the THE-823 text channel second, capped at one extra line per issue.
+
 ### Fixed
 
 - **`describe_capability` and `tools/list` advertised input schemas converted in zod's default

@@ -13,7 +13,6 @@ import {
   type Tool,
 } from "@modelcontextprotocol/server";
 import { type ErrorJSON, err, isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
-import { z } from "zod";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
@@ -27,6 +26,7 @@ import {
 } from "./client-features";
 import { extractClientInfo } from "./client-info";
 import { splitElicitToken } from "./elicit-token";
+import { formatErrorDetail } from "./error-rendering";
 import {
   buildInstructions,
   callCapability,
@@ -221,33 +221,6 @@ function asResourceProtocolError(e: unknown, uri: string): Error {
 function asStructured(data: unknown): Record<string, unknown> | undefined {
   return data !== null && typeof data === "object" && !Array.isArray(data)
     ? (data as Record<string, unknown>)
-    : undefined;
-}
-
-// THE-823: real MCP clients drop `structuredContent` on an isError result and render the text block
-// alone, so `details.issues` (the Zod issue array `err.validation` / parseInput attach — see
-// registry/input-binding.ts) has to reach the caller through TEXT, not just structuredContent, or a
-// caller sees "input validation failed" with nothing to act on. Capped at MAX_RENDERED_ISSUES so a
-// schema with a large issue list (e.g. many missing required fields) cannot produce an unbounded
-// text block; the rest are counted, not dropped silently.
-const MAX_RENDERED_ISSUES = 5;
-
-/** Render a capped slice of Zod issues into a human-readable, field-naming string.
- *  `z.prettifyError` is the one zod4 formatter that renders `unrecognized_keys`
- *  (whose `path` is always `[]`) usefully — it reads `issue.keys` instead. */
-function renderIssues(issues: readonly z.core.$ZodIssue[]): string {
-  const capped = issues.slice(0, MAX_RENDERED_ISSUES);
-  const rendered = z.prettifyError(new z.ZodError(capped as z.core.$ZodIssue[]));
-  const omitted = issues.length - capped.length;
-  return omitted > 0 ? `${rendered}\n…and ${omitted} more` : rendered;
-}
-
-/** The offending-field detail to append after an error's headline sentence, or undefined when
- *  `details` carries nothing this can render (e.g. no `issues` array). */
-function formatErrorDetail(error: ErrorJSON): string | undefined {
-  const issues = error.details?.issues;
-  return Array.isArray(issues) && issues.length > 0
-    ? renderIssues(issues as z.core.$ZodIssue[])
     : undefined;
 }
 

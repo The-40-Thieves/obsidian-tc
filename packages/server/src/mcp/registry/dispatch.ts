@@ -19,7 +19,7 @@ import {
   markEffectCommitted,
   readIdempotency,
 } from "./idempotency";
-import { applyVaultAcl, enforceVaultBinding, parseInput } from "./input-binding";
+import { applyVaultAcl, enforceVaultBinding, parseInput, vaultFailureHint } from "./input-binding";
 import {
   assertScopesGranted,
   checkHitl,
@@ -70,6 +70,7 @@ export interface DispatchDeps {
   aclResolver?: RegistryOptions["aclResolver"];
   rootResolver?: RegistryOptions["rootResolver"];
   vaultKindResolver?: RegistryOptions["vaultKindResolver"];
+  visibleVaultIds?: RegistryOptions["visibleVaultIds"];
 }
 
 /** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
@@ -568,8 +569,19 @@ export async function runDispatch(
         /* diagnostics sink must never mask the original failure */
       }
     }
-    const error =
+    const thrown =
       e instanceof ObsidianTcError ? e : new ObsidianTcError("internal", "internal error");
+    // THE-1042 (GH #935): the ONE site both vault-failure shapes funnel through — parseInput's
+    // validation_error (a vault-path issue) and VaultRegistry.resolve's vault_not_found thrown deep
+    // inside a handler both land in this catch, so the fix hint is added here once rather than
+    // patched into every tool. A no-op for every other error code (see vaultFailureHint).
+    const error = vaultFailureHint(
+      thrown,
+      deps.toolStore.get(name),
+      rawInput,
+      ctx,
+      deps.visibleVaultIds,
+    );
     const duration = Math.max(0, now() - start);
     audit("error", duration, 0, error.code);
     deps.observability.meter((m) => {
