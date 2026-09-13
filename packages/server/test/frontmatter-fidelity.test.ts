@@ -142,3 +142,73 @@ describe("THE-1040 fix round 1: C1-C3", () => {
     expect(out).toBe("---\r\na: 1\r\nb: 22\r\nc: 3\r\n---\r\nbody\r\n");
   });
 });
+
+// Fix round 2, from the task re-review's O1 and Codex's X1-X4: survivingComments stripped a
+// removed key's own NODE range, not its full source LINE(S) — leaving an inline trailing
+// comment and (via the CRLF join added for X2) a residual line-break behind as orphaned
+// fragments. Line-based removal fixes both by construction.
+describe("THE-1040 fix round 2: O1 (line-based key removal) and X1-X4", () => {
+  function removeKeys(raw: string, ...keys: string[]) {
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}) };
+    for (const k of keys) delete fm[k];
+    const hasKeys = Object.keys(fm).length > 0;
+    return serializeNote(hasKeys ? fm : null, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+    });
+  }
+
+  it("O1: an inline trailing comment on the removed key's own line goes with it", () => {
+    const raw = "---\n# keep me\ntags: [x] # note\n---\nbody\n";
+    expect(removeKeys(raw, "tags")).toBe("---\n# keep me\n---\nbody\n");
+  });
+
+  it("O1: a removed key's multi-line list value (with a trailing comment on the key line) is fully stripped", () => {
+    const raw = "---\n# keep me\ntags: # note\n  - a\n  - b\n---\nbody\n";
+    expect(removeKeys(raw, "tags")).toBe("---\n# keep me\n---\nbody\n");
+  });
+
+  it("O1: a full-line comment between two removed keys survives, unattached to either", () => {
+    const raw = "---\na: 1\n# between\nb: 2\n---\nbody\n";
+    expect(removeKeys(raw, "a", "b")).toBe("---\n# between\n---\nbody\n");
+  });
+
+  it("O1: a removed key followed by a blank line and a comment keeps both", () => {
+    const raw = "---\nonly: 1\n\n# note\n---\nbody\n";
+    expect(removeKeys(raw, "only")).toBe("---\n\n# note\n---\nbody\n");
+  });
+
+  it("X1: removing a neighbor key leaves a CRLF multi-line list value intact (no doubled \\r)", () => {
+    const raw = "---\r\nlist:\r\n  - x\r\n  - y\r\ngone: 1\r\ntail: ok\r\n---\r\nbody\r\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}) };
+    delete fm.gone;
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\r\nlist:\r\n  - x\r\n  - y\r\ntail: ok\r\n---\r\nbody\r\n");
+  });
+
+  it("X2: surviving comment lines join with the block's own CRLF, not a hardcoded LF", () => {
+    const raw = "---\r\n# leading\r\ngone: 1\r\n# trailing\r\n---\r\n";
+    expect(removeKeys(raw, "gone")).toBe("---\r\n# leading\r\n# trailing\r\n---\r\n");
+  });
+
+  it("X3: a no-op merge changes no bytes, trailing blank lines included", () => {
+    const raw = "---\na: 1\n\n\n---\nbody\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}) }; // merge with {} — unchanged
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe(raw);
+  });
+
+  // X4: a `|+` (keep-chomp) block scalar's trailing blank lines are NOT part of the yaml
+  // library's own value range for "text" — they sit in the gap between "text"'s value end
+  // and the next key's start, which the line-based rewrite (correctly) attributes to the
+  // REMOVED neighbor's own line span, not to "text"'s preserved slice. Confirmed empirically:
+  // removing "gone" here still collapses "text: |+\n  hello\n\n\n" to "text: |+\n  hello\n".
+  // Fixing this needs a YAML-node-range editor (walking chomp/indicator semantics), which the
+  // ruling explicitly declined building. Left `.todo`, named, rather than silently passing.
+  it.todo(
+    "X4 (known gap, not fixed): removing a neighbor key preserves a `|+` block scalar's own trailing blank lines — input: " +
+      '"---\\ntext: |+\\n  hello\\n\\n\\ngone: 1\\n---\\n", remove "gone"',
+  );
+});

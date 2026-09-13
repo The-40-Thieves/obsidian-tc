@@ -48,9 +48,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   round-trip caller (`patch_note`, `update_frontmatter`, `add_tag`/`remove_tag`,
   `bulk_set_property`, the two Kanban card tools), closing the LF-delimiter-on-CRLF-notes residue
   noted on THE-1038; a CRLF block's untouched keys also stay joined by CRLF instead of a hardcoded
-  LF when a sibling key changes. The block's own LINES are preserved verbatim; a trailing
-  space/tab after the closing `---` delimiter itself is normalized away on re-emit, same as before
-  this fix.
+  LF when a sibling key changes, and a CRLF multi-line value (a list, a block scalar) spliced back
+  unchanged no longer picks up a doubled `\r`. A removed key's surviving lines are now identified
+  by the full SOURCE LINE(S) it occupies, not its YAML node's byte range, so an *inline* trailing
+  comment (`tags: [x] # note`) is correctly treated as belonging to the key and goes with it —
+  only a full-line comment, or a blank line, can survive a removal — and a multi-line value (a
+  list, a block scalar) is stripped in full rather than leaving orphaned fragment lines behind. A
+  genuine no-op (e.g. `merge` with empty properties) changes no bytes, trailing blank lines
+  included. The block's own LINES are preserved verbatim; a trailing space/tab after the closing
+  `---` delimiter itself is normalized away on re-emit, same as before this fix.
 
 ## [1.29.0] - 2026-09-13
 

@@ -90,6 +90,17 @@ function emitEntry(key: string, value: unknown): string {
   return YAML.stringify({ [key]: value }, { lineWidth: 0 }).replace(/\n+$/, "");
 }
 
+/** THE-1040 X1: normalize a raw slice's line breaks to the block's own EOL, and drop a
+ *  trailing empty line — or a stray "\r" a YAML node's range boundary can leave just
+ *  short of its own line terminator on a CRLF source (observed on a multi-line block
+ *  value's range end) — so splicing an unchanged key's slice back in and joining it with
+ *  a sibling entry via the block's own eol (C3) never doubles up a line terminator. */
+function normalizeSlice(text: string, eol: string): string {
+  const lines = text.split(/\r?\n/);
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines.join(eol).replace(/\r+$/, "");
+}
+
 /**
  * Build the frontmatter YAML body. With original (the verbatim source), unchanged
  * keys are spliced back from the source byte-for-byte and only added/changed keys are
@@ -108,7 +119,11 @@ function emitFrontmatter(
       const prev = doc.toJS();
       if (isMap(map) && prev && typeof prev === "object" && !Array.isArray(prev)) {
         const prevObj = prev as Frontmatter;
-        if (isDeepStrictEqual(prevObj, next)) return original.replace(/[\r\n]+$/, "");
+        // THE-1040 X3: no stripping — parseNote's capture already excludes the ONE line
+        // break immediately before the closing "---" (its lazy match stops there), so
+        // `original` is already the exact text to re-wrap; stripping trailing "\r"/"\n"
+        // here used to eat a no-op merge's own trailing blank lines.
+        if (isDeepStrictEqual(prevObj, next)) return original;
         const entries: string[] = [];
         const seen = new Set<string>();
         for (const item of map.items) {
@@ -121,7 +136,7 @@ function emitFrontmatter(
           const kr = kNode.range;
           const vr = isNode(vNode) ? vNode.range : null;
           if (isDeepStrictEqual(prevObj[k], next[k]) && kr && vr) {
-            entries.push(original.slice(kr[0], vr[1]).replace(/\n+$/, ""));
+            entries.push(normalizeSlice(original.slice(kr[0], vr[1]), eol));
           } else {
             entries.push(emitEntry(k, next[k]));
           }
@@ -143,15 +158,43 @@ function delimiterEol(original: string | null | undefined, body: string): string
 }
 
 /**
- * THE-1040 F1/C2/C4: what (if anything) of a raw frontmatter block survives once the
+ * Expand a node's [start, end) byte range to the FULL source line(s) it occupies: back
+ * up `start` to the beginning of its line, and extend `end` to the end of its line
+ * (through the trailing "\n" when one follows). A node whose line has no trailing "\n"
+ * (the raw block's last line — parseNote's capture never includes one) instead pulls in
+ * the PRECEDING "\n", so removing it collapses cleanly rather than leaving a stray blank
+ * line at the deletion point. THE-1040 O1: this is what keeps an INLINE trailing comment
+ * (`tags: [x] # note`) or a multi-line value (a list, a block scalar) glued to the key
+ * being removed, rather than orphaning fragments of it as a "surviving" line.
+ */
+function lineSpan(text: string, start: number, end: number): [number, number] {
+  const prevNl = text.lastIndexOf("\n", start - 1);
+  let lineStart = prevNl === -1 ? 0 : prevNl + 1;
+  const nextNl = text.indexOf("\n", end);
+  let lineEnd: number;
+  if (nextNl === -1) {
+    lineEnd = text.length;
+    if (lineStart > 0) lineStart -= 1;
+  } else {
+    lineEnd = nextNl + 1;
+  }
+  return [lineStart, lineEnd];
+}
+
+/**
+ * THE-1040 F1/C2/C4/O1: what (if anything) of a raw frontmatter block survives once the
  * caller's mapping is empty — comments are content, never silently discarded just
- * because every real key is gone (or never existed). Three outcomes:
+ * because every real key is gone (or never existed), but an INLINE comment belongs to
+ * its key and goes with it (only a FULL-LINE comment, or a blank line, can survive).
+ * Three outcomes:
  *  - the raw block has no real YAML mapping at all (comment-only, e.g. a note untouched
  *    by a no-op `merge`) — returned byte-for-byte unchanged; `.trim()` decides only
  *    whether to keep it, never what gets returned (C2: an interior blank line survives).
  *  - the raw block HAD real keys, now all gone (an update/remove emptied it) — every
- *    key/value span is stripped out and whatever non-blank lines remain (standalone
- *    comments) are kept, filtered and rejoined.
+ *    key's FULL SOURCE LINE(S) are stripped out (O1: the whole line span, not just the
+ *    node's own byte range, so an inline trailing comment and a multi-line value go with
+ *    the key that owned them) and whatever text remains — untouched, blank lines and all
+ *    — is kept as-is.
  *  - nothing survives either way (a blank/whitespace-only block, or one with only keys
  *    and no comments) — null, so the caller drops the delimiters entirely.
  */
@@ -172,21 +215,17 @@ function survivingComments(original: string | null | undefined): string | null {
     if (!kr) return original.trim().length > 0 ? original : null;
     const vNode = item.value;
     const vr = isNode(vNode) ? vNode.range : null;
-    spans.push([kr[0], vr ? vr[1] : kr[1]]);
+    spans.push(lineSpan(original, kr[0], vr ? vr[1] : kr[1]));
   }
   spans.sort((a, b) => a[0] - b[0]);
   let out = "";
   let cursor = 0;
   for (const [start, end] of spans) {
-    out += original.slice(cursor, start);
+    out += original.slice(cursor, Math.max(cursor, start));
     cursor = Math.max(cursor, end);
   }
   out += original.slice(cursor);
-  const kept = out
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-    .join("\n");
-  return kept.length > 0 ? kept : null;
+  return out.trim().length > 0 ? out : null;
 }
 
 export interface SerializeNoteOptions {

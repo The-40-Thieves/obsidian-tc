@@ -161,6 +161,28 @@ describe("THE-1040 F1: a surviving comment is kept when the last real key is rem
   });
 });
 
+// THE-1040 O1 (fix round 2): an INLINE trailing comment belongs to its key and goes with
+// it when the key is removed — only a full-line comment (or a blank line) can survive.
+describe("THE-1040 O1: an inline comment does not orphan when its key is removed", () => {
+  it("update_frontmatter remove drops the key's own inline comment but keeps a standalone one", async () => {
+    const v = makeTestVault({
+      files: { "a.md": "---\n# keep me\nonly: 1 # inline, goes with only\n---\nbody\n" },
+    });
+    try {
+      const r = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "remove",
+        key: "only",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\n# keep me\n---\nbody\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 // THE-1040 C1: the delimiter EOL comes from the OPENING "---"'s own line break, captured
 // at parse time — not inferred from the YAML content or the body, which can each carry a
 // different (or no) line-break signal of their own.
