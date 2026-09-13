@@ -40,3 +40,23 @@ export function connectionPragmas(busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_M
     "mmap_size = 268435456",
   ];
 }
+
+/**
+ * THE-1039 fix round 1 (F2) — the pragma set for a connection opened `readonly: true`.
+ *
+ * `journal_mode = WAL` is the one pragma above that is NOT purely connection-local: on a database
+ * still in the (default) DELETE journal mode, setting it requires an exclusive write lock and
+ * rewrites the file header plus creates `-wal`/`-shm` sidecars — a byte-for-byte and journal-mode
+ * change to a file an "inspect it" caller (`compact --dry-run`, `--into`'s SOURCE read, doctor's
+ * `probeDbSpace`) has no business writing to. `synchronous`/`cache_size`/`temp_store`/`mmap_size`
+ * are pure per-connection tuning with no on-disk effect either way, but are dropped too here for
+ * the same reason `journal_mode` is: a caller asking for `readonly` gets a connection that issues
+ * no PRAGMA capable of writing, not a connection that merely refrains from THIS release's known
+ * offender. `busy_timeout` is kept — it is session state, never written to the file, and a reader
+ * can still hit `SQLITE_BUSY` against a writer holding an exclusive checkpoint.
+ */
+export function readonlyConnectionPragmas(
+  busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_MS,
+): string[] {
+  return [`busy_timeout = ${busyTimeoutMs}`];
+}

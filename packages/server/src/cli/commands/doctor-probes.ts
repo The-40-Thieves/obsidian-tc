@@ -14,12 +14,12 @@
 // a pre-existing drift from an earlier reordering, not something this move introduced, fixed as a
 // side effect of relocating each block with its function instead of copying whatever text was
 // textually adjacent.
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
+import { dbFootprintBytes, FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
 import { openDatabase } from "../../db/open";
 import type {
-  DbSpaceState,
+  DbSpaceView,
   DerivedColumnState,
   DerivedTableState,
   EntryPointsProbe,
@@ -420,19 +420,20 @@ export async function probeEntryPoints(
  * page_size` (bytes a VACUUM would reclaim), and each present FTS table's `<t>_data` shadow-table
  * row count. Unlike every other probe in this file, doctor.ts calls this UNCONDITIONALLY — no
  * `--probe` gate — because it is read-only and cheap (a `stat`, two PRAGMAs, one `COUNT(*)` per
- * present FTS table's shadow table; no FTS write, no gateway call). Never throws: a missing or
- * unopenable cache.db degrades to `undefined` (rendered as "no store yet"), same contract as every
- * other probe here.
+ * present FTS table's shadow table; no FTS write, no gateway call).
+ *
+ * THE-1039 fix round 1: opened `readonly: true` (F2) — an inspection must not itself flip a
+ * DELETE-mode database into WAL. Returns a three-way `DbSpaceView` rather than degrading every
+ * failure to the same `undefined` (A3): "missing" (no file — a fresh install) and "unopenable"
+ * (the file exists but the open/read failed — permissions, an exclusive lock, corruption) are
+ * different findings and must render different sentences; only "missing" is truly benign.
  */
-export async function probeDbSpace(
-  cacheDir: string,
-  busyTimeoutMs: number,
-): Promise<DbSpaceState | undefined> {
+export async function probeDbSpace(cacheDir: string, busyTimeoutMs: number): Promise<DbSpaceView> {
   const path = join(cacheDir, "cache.db");
-  if (!existsSync(path)) return undefined;
+  if (!existsSync(path)) return { status: "missing" };
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    db = await openDatabase(path, busyTimeoutMs);
+    db = await openDatabase(path, busyTimeoutMs, { readonly: true });
     const opened = db;
     const pageSize = (opened.prepare("PRAGMA page_size").get() as { page_size: number }).page_size;
     const freelistCount = (
@@ -442,9 +443,19 @@ export async function probeDbSpace(
       table: t,
       dataRows: (opened.prepare(`SELECT COUNT(*) AS n FROM "${t}_data"`).get() as { n: number }).n,
     }));
-    return { fileBytes: statSync(path).size, freelistBytes: freelistCount * pageSize, ftsData };
-  } catch {
-    return undefined;
+    return {
+      status: "ok",
+      // THE-1039 fix round 1 (A2): `dbFootprintBytes` (main file + `-wal` sidecar), the SAME
+      // function `compact` uses for its before/after sizes — see that module's own comment for
+      // why one accounting is used identically in both places.
+      state: {
+        fileBytes: dbFootprintBytes(path),
+        freelistBytes: freelistCount * pageSize,
+        ftsData,
+      },
+    };
+  } catch (e) {
+    return { status: "unopenable", reason: (e as Error)?.message ?? String(e) };
   } finally {
     try {
       db?.close?.();

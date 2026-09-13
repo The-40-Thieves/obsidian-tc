@@ -25,6 +25,17 @@ export interface Database {
   close?(): void;
 }
 
+/**
+ * THE-1039 fix round 1 (F2) — every `openDatabase`/adapter-open call site's third parameter.
+ * `readonly: true` opens the native handle with `SQLITE_OPEN_READONLY` (no `-wal`/`-shm` sidecar
+ * creation, no journal-mode write) and applies `pragmas.ts`'s `readonlyConnectionPragmas` instead
+ * of the writer set — see that function's own comment for why `journal_mode = WAL` specifically
+ * cannot run against a connection an "inspect it" caller opened.
+ */
+export interface OpenOptions {
+  readonly?: boolean;
+}
+
 /** prepareCached when the adapter provides it (production bun / better-sqlite3), else prepare. */
 export function cachedPrepare(db: Database, sql: string): Statement {
   return db.prepareCached ? db.prepareCached(sql) : db.prepare(sql);

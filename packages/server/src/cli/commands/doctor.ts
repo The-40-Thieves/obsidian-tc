@@ -319,7 +319,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       // the check reports not-applicable rather than a false "no conflict copies found".
       conflictCopies: { installRoot: resolveInstallRoot() },
       // THE-1039 (GH #930): always present, no --probe gate — see probeDbSpace's own comment.
-      dbSpace: { ...(dbSpace !== undefined ? { state: dbSpace } : {}) },
+      dbSpace,
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,

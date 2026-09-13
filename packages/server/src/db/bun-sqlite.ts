@@ -1,9 +1,9 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectionPragmas } from "./pragmas";
+import { connectionPragmas, readonlyConnectionPragmas } from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
-import type { Database as Db, RunResult, Statement } from "./types";
+import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 // THE-663 follow-up: bun:sqlite uses APPLE'S SYSTEM SQLite on macOS, and Apple builds it without
 // extension support — `This build of sqlite3 does not support dynamic extension loading`, measured
@@ -53,7 +53,11 @@ function useEmbeddedSqlite(BunDatabase: { setCustomSQLite?: (p: string) => void 
  * bun: specifier is only evaluated when Bun actually calls openBunSqlite, so the
  * same bundle also loads under Node (which then uses the better-sqlite3 adapter).
  */
-export async function openBunSqlite(path: string, busyTimeoutMs?: number): Promise<Db> {
+export async function openBunSqlite(
+  path: string,
+  busyTimeoutMs?: number,
+  opts: OpenOptions = {},
+): Promise<Db> {
   // THE-687: an unconditional ignore, NOT `expect-error`, and the distinction is load-bearing.
   // This file is compiled by TWO projects with different `types`: the main one pins ["node"], where
   // bun:sqlite does not resolve and the suppression is REQUIRED; tsconfig.bun-smoke.json adds
@@ -67,13 +71,21 @@ export async function openBunSqlite(path: string, busyTimeoutMs?: number): Promi
   const { Database: BunDatabase } = await import("bun:sqlite");
   // Must precede the constructor below — setCustomSQLite is a no-op once a Database exists.
   useEmbeddedSqlite(BunDatabase);
-  const db = new BunDatabase(path, { create: true });
+  // THE-1039 fix round 1 (F2): `readonly: true` maps to bun:sqlite's own `readonly` option
+  // (SQLITE_OPEN_READONLY) — `create` is dropped in that branch since a readonly open cannot
+  // create a missing file, and should not silently succeed at "creating" nothing.
+  const db = opts.readonly
+    ? new BunDatabase(path, { readonly: true })
+    : new BunDatabase(path, { create: true });
   // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the
   // ORDER cannot drift between them — busy_timeout must precede anything that can contend
   // (THE-745). See db/pragmas.ts. busyTimeoutMs is forwarded rather than called bare (THE-935) so
   // config's db.busyTimeoutMs reaches this connection instead of silently falling back to the
-  // default.
-  for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
+  // default. readonly gets the writer-pragma-free subset — see readonlyConnectionPragmas' comment.
+  for (const p of opts.readonly
+    ? readonlyConnectionPragmas(busyTimeoutMs)
+    : connectionPragmas(busyTimeoutMs))
+    db.exec(`PRAGMA ${p}`);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     // THE-687: bun:sqlite types its bind parameters as SQLQueryBindings, while the Statement port

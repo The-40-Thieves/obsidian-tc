@@ -23,17 +23,26 @@ export interface FtsDataRowCount {
 }
 
 export interface DbSpaceState {
+  /** THE-1039 fix round 1 (A2): main file + `-wal` sidecar when present
+   *  (`db/introspect.ts`'s `dbFootprintBytes`) — the SAME accounting `obsidian-tc compact` uses
+   *  for its before/after sizes, so the two surfaces can't silently disagree on "how big is this
+   *  database". Stated explicitly in the summary text below, not left implicit in the number. */
   fileBytes: number;
   /** `freelist_count * page_size` — bytes a VACUUM would return to the filesystem. */
   freelistBytes: number;
   ftsData: FtsDataRowCount[];
 }
 
-export interface DbSpaceView {
-  /** Undefined only when cache.db does not exist yet (a fresh install) — this check still runs,
-   *  reporting that state, rather than being omitted like a `--probe`-gated one. */
-  state?: DbSpaceState;
-}
+/**
+ * THE-1039 fix round 1 (A3) — `probeDbSpace` collapsed "cache.db does not exist" and "cache.db
+ * exists but could not be opened" (permissions, an exclusive lock, corruption) into the same
+ * `undefined`, so a READ-ONLY store reported the fresh-install line instead of a finding. Three
+ * distinct states now, so each renders its own honest sentence.
+ */
+export type DbSpaceView =
+  | { status: "missing" }
+  | { status: "unopenable"; reason: string }
+  | { status: "ok"; state: DbSpaceState };
 
 /** THE-1039 ruling: warn when freelist bytes exceed 10% of the file. */
 const WARN_FREELIST_RATIO = 0.1;
@@ -53,11 +62,20 @@ export function dbSpaceCheck(view: DbSpaceView): Check {
     id: "db.reclaimable-space",
     category: "storage",
     run: () => {
-      if (!view.state) {
+      if (view.status === "missing") {
         return {
           status: "ok" as CheckStatus,
           summary: "db.reclaimable-space: no cache.db yet (fresh install)",
           details: { state: "no store" },
+        };
+      }
+      if (view.status === "unopenable") {
+        return {
+          status: "warning" as CheckStatus,
+          summary: `db.reclaimable-space: cache.db exists but could not be opened (${view.reason})`,
+          details: { state: "unopenable", reason: view.reason },
+          remediation:
+            "Check file permissions and whether another process holds an exclusive lock on cache.db, then run `obsidian-tc doctor` again.",
         };
       }
       const { fileBytes, freelistBytes, ftsData } = view.state;
@@ -71,15 +89,15 @@ export function dbSpaceCheck(view: DbSpaceView): Check {
         return {
           status: "warning" as CheckStatus,
           summary:
-            `db.reclaimable-space: cache.db is ${fileBytes} bytes; ${freelistBytes} bytes ` +
-            `(${(ratio * 100).toFixed(1)}%) reclaimable by VACUUM — over the 10% floor`,
+            `db.reclaimable-space: cache.db is ${fileBytes} bytes (main + -wal); ${freelistBytes} ` +
+            `bytes (${(ratio * 100).toFixed(1)}%) reclaimable by VACUUM — over the 10% floor`,
           details,
           remediation: "obsidian-tc compact",
         };
       }
       return {
         status: "ok" as CheckStatus,
-        summary: `db.reclaimable-space: cache.db is ${fileBytes} bytes; ${freelistBytes} bytes reclaimable by VACUUM`,
+        summary: `db.reclaimable-space: cache.db is ${fileBytes} bytes (main + -wal); ${freelistBytes} bytes reclaimable by VACUUM`,
         details,
       };
     },

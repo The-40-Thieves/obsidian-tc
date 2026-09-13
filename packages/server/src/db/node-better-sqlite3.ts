@@ -1,5 +1,5 @@
-import { connectionPragmas } from "./pragmas";
-import type { Database as Db, RunResult, Statement } from "./types";
+import { connectionPragmas, readonlyConnectionPragmas } from "./pragmas";
+import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 /**
  * Node runtime adapter over better-sqlite3 (synchronous, production-grade, no
@@ -19,16 +19,29 @@ import type { Database as Db, RunResult, Statement } from "./types";
  * loads better-sqlite3 (it uses bun:sqlite instead). Every caller reaches this
  * through the async openDatabase(), so the sync -> async change is transparent.
  */
-export async function openBetterSqlite3(path: string, busyTimeoutMs?: number): Promise<Db> {
+export async function openBetterSqlite3(
+  path: string,
+  busyTimeoutMs?: number,
+  opts: OpenOptions = {},
+): Promise<Db> {
   const { default: BetterSqlite3 } = await import("better-sqlite3");
-  const db = new BetterSqlite3(path);
+  // THE-1039 fix round 1 (F2): `readonly: true` maps straight to better-sqlite3's own `readonly`
+  // option — `SQLITE_OPEN_READONLY` at the native layer, which "prevents -wal/-shm sidecar
+  // creation" per better-sqlite3's own source (src/objects/database.cpp). `fileMustExist` is NOT
+  // set: every caller here already checks existsSync before opening, so the native ENOENT is an
+  // acceptable (if redundant) failure mode rather than a behavior this adapter needs to special-case.
+  const db = opts.readonly ? new BetterSqlite3(path, { readonly: true }) : new BetterSqlite3(path);
   // Server-tuned per-connection baseline (THE-273), shared with the other adapters so the ORDER
   // cannot drift between them — busy_timeout must precede anything that can contend (THE-745).
   // See db/pragmas.ts. better-sqlite3 caches statements internally, so prepareCached here mainly
   // bounds wrapper allocation (the real win is on bun:sqlite). busyTimeoutMs is forwarded rather
   // than called bare (THE-935) so config's db.busyTimeoutMs reaches this connection instead of
-  // silently falling back to the default.
-  for (const p of connectionPragmas(busyTimeoutMs)) db.pragma(p);
+  // silently falling back to the default. readonly gets the writer-pragma-free subset — see
+  // readonlyConnectionPragmas' comment.
+  for (const p of opts.readonly
+    ? readonlyConnectionPragmas(busyTimeoutMs)
+    : connectionPragmas(busyTimeoutMs))
+    db.pragma(p);
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {
