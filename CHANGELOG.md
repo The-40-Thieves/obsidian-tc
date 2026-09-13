@@ -51,9 +51,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   a marker that is ALONE on its line: the protected suffix is that whole line verbatim, indentation
   and the line break before it included, not just the `^id` token, so `old_string` can never
   consume part of the marker line and leave it re-indented, glued onto the replacement, or pushed
-  behind an inserted blank line. Fence AND heading-boundary indentation now count only ASCII space/tab — any other
-  leading whitespace-looking character (NBSP, ideographic space, ...) is content, not indentation,
-  even though a Unicode-aware `.trim()` would have hidden it. ATX heading boundaries (and anchor
+  behind an inserted blank line. Fence AND heading structure now count only ASCII space/tab as whitespace — any other
+  whitespace-looking character (NBSP, ideographic space, ...) is content, not structure, even though
+  a Unicode-aware `.trim()` would have hidden it: that holds for leading indentation, for what may
+  trail a fence delimiter run (a closer with a trailing NBSP no longer closes a fence), and for the
+  separator after a heading's hashes (`##\u00a0B` is not a heading). An ATX closing sequence is
+  syntax, not title text, in every consumer of the shared matcher — `## A ##` resolves, bounds,
+  counts toward ambiguity and de-duplicates as the heading `A`, while `## A#` keeps the hash in its
+  title. ATX heading boundaries (and anchor
   targets) now tolerate up to 3 columns of leading indentation and an empty title (`"##"` alone, or
   `"## "`), matching real ATX heading recognition instead of requiring a heading to start at column
   0 with non-empty text. Setext headings, trailing-footer/`stop_before` bounding (#922 shape 1),

@@ -68,9 +68,24 @@ function stripAsciiIndent(line: string): { col: number; rest: string } {
   return { col, rest: line.slice(i) };
 }
 
+/** Strip ONLY trailing ASCII space/tab off `line` — the counterpart of `stripAsciiIndent` for the
+ *  other end of a fence delimiter line (pre-merge U1). `trimEnd()` strips every Unicode
+ *  whitespace, which let a closer with a trailing NBSP (or ideographic space) close a fence that
+ *  CommonMark leaves open: only spaces and tabs may follow the delimiter run. */
+function trimAsciiEnd(line: string): string {
+  let end = line.length;
+  while (end > 0) {
+    const ch = line[end - 1];
+    if (ch === " " || ch === "\t") end--;
+    else break;
+  }
+  return line.slice(0, end);
+}
+
 /** Recognizes an ATX heading LINE as a section BOUNDARY — review round 4 R3: tolerates up to 3
  *  columns of leading ASCII space/tab indentation (4+ is an indented code block, not a heading —
- *  the same CommonMark rule fences use, review round 3 M8) and an EMPTY title (`"##"` alone, or
+ *  the same CommonMark rule fences use, review round 3 M8), an optional closing hash sequence
+ *  (`"## A ##"` has the title `"A"` — pre-merge U3), and an EMPTY title (`"##"` alone, or
  *  `"## "` with nothing after) — a real, if untargetable, boundary (no caller can anchor to
  *  `heading: ""` — the schema requires `min(1)`). Review round 5 D1: this is the ONE heading
  *  recognizer in this module — `dropDuplicateLeadingHeading` tests caller-supplied content with it
@@ -80,9 +95,16 @@ function stripAsciiIndent(line: string): { col: number; rest: string } {
 function matchHeadingBoundary(line: string): { level: number; title: string } | null {
   const { col, rest } = stripAsciiIndent(line);
   if (col > 3) return null;
-  const m = /^(#{1,6})(?:\s+(.*?))?\s*$/.exec(rest);
+  // Pre-merge U2: the separator after the hashes is ASCII space/tab or end of line — `\s` also
+  // accepted NBSP and friends, which turned a non-heading into a section boundary.
+  const m = /^(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/.exec(rest);
   if (!m) return null;
-  return { level: (m[1] ?? "").length, title: (m[2] ?? "").trim() };
+  // Pre-merge U3: an ATX closing sequence (`## A ##`) is syntax, not title text — it must be
+  // preceded by a space or tab, so a trailing hash run written flush against the text (`## A#`)
+  // stays part of the title. Stripped here, in the ONE shared matcher, so every consumer agrees:
+  // boundary scan, anchor target, ambiguity count, and the duplicate-heading drop.
+  const title = (m[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "");
+  return { level: (m[1] ?? "").length, title: title.trim() };
 }
 
 /** CommonMark-ish fenced-code state machine, shared by `fenceMask` and `hasUnterminatedFence`
@@ -91,7 +113,9 @@ function matchHeadingBoundary(line: string): { level: number; title: string } | 
  *  MOST 3 columns of ASCII space/tab indentation (tabs expand to the next 4-column stop — round 3
  *  G1; 4+ columns is an indented code block, not a fence — round 1 M8; any OTHER leading
  *  whitespace-looking character, e.g. NBSP, is content, not indentation — round 4 R2), its
- *  trimmed-of-trailing-whitespace form is a run of 3+ backticks or 3+ tildes, with two exceptions:
+ *  form — with only trailing ASCII space/tab stripped, since a trailing NBSP makes the line content
+ *  rather than a delimiter (pre-merge U1) — is a run of 3+ backticks or 3+ tildes, with two
+ *  exceptions:
  *  a backtick run's info string (the text after the run) may not itself contain a backtick —
  *  CommonMark disallows this because it would collide with inline code spans — while a tilde
  *  run's info string has no such restriction (round 3 G2). Once open, a line closes it only when
@@ -110,7 +134,7 @@ function createFenceTracker() {
     feed(line: string): boolean {
       const { col, rest } = stripAsciiIndent(line);
       if (col > 3) return false;
-      const t = rest.trimEnd();
+      const t = trimAsciiEnd(rest);
       if (char === null) {
         const backticks = leadingRun(t, "`");
         if (backticks >= 3 && !t.slice(backticks).includes("`")) {

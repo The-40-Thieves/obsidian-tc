@@ -1817,3 +1817,168 @@ describe("Review round 5 D2: a standalone ^id marker line is protected verbatim"
     }
   });
 });
+
+describe("Pre-merge U1: only ASCII space/tab may trail a fence delimiter", () => {
+  // `trimEnd()` strips Unicode whitespace, so a closer with a trailing NBSP/ideographic space
+  // closed the fence; CommonMark allows only trailing spaces and tabs after the delimiter run.
+  for (const { label, ws } of [
+    { label: "NBSP (U+00A0)", ws: " " },
+    { label: "an ideographic space (U+3000)", ws: "　" },
+  ]) {
+    const raw = `## A\n\`\`\`\ncode\n\`\`\`${ws}\n## Fake\nsample\n\`\`\`\n## B\nkeep`;
+
+    it(`${label} after the delimiter run is content, so the fence runs to the real closer (${label})`, async () => {
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("read_note", {
+          vault: "test",
+          path: "a.md",
+          anchor: { type: "heading", heading: "A" },
+        });
+        expect(r.ok).toBe(true);
+        if (r.ok) {
+          const d = r.data as { section?: Section };
+          // "## Fake" is inside the still-open fence: A's section runs to line 7, not line 4.
+          expect(d.section?.start_line).toBe(1);
+          expect(d.section?.end_line).toBe(7);
+          assertLineNumbersMatch(raw, d.section as Section);
+        }
+      } finally {
+        v.cleanup();
+      }
+    });
+
+    it(`${label}: the heading hidden behind such a line is not an anchor target`, async () => {
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("patch_note", {
+          vault: "test",
+          path: "a.md",
+          operation: "replace_text",
+          anchor: { type: "heading", heading: "Fake" },
+          old_string: "sample",
+          new_string: "EDITED",
+        });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+          expect(r.error.code).toBe("invalid_input");
+          expect(r.error.message).toBe("target heading not found");
+        }
+        expect(v.read("a.md")).toBe(raw);
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+});
+
+describe("Pre-merge U2: ATX requires ASCII space/tab after the hashes", () => {
+  for (const { label, ws } of [
+    { label: "NBSP (U+00A0)", ws: " " },
+    { label: "an ideographic space (U+3000)", ws: "　" },
+  ]) {
+    it(`${label} after the hashes is not a heading, so it is not a section boundary`, async () => {
+      const raw = `## A\nold\n##${ws}B\nkeep\n## C\nsafe`;
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("read_note", {
+          vault: "test",
+          path: "a.md",
+          anchor: { type: "heading", heading: "A" },
+        });
+        expect(r.ok).toBe(true);
+        if (r.ok) {
+          const d = r.data as { section?: Section };
+          // A's section ends at the real "## C" (line 5), so it covers lines 1-4.
+          expect(d.section?.start_line).toBe(1);
+          expect(d.section?.end_line).toBe(4);
+          assertLineNumbersMatch(raw, d.section as Section);
+        }
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+});
+
+describe("Pre-merge U3: an ATX closing sequence is not part of the title", () => {
+  it("drops a duplicate leading heading written with a closing sequence", async () => {
+    const raw = "## A\nold\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "## A ##\nnew",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nnew\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("resolves a closing-sequence heading as an anchor TARGET and a boundary", async () => {
+    const raw = "## A ##\nold\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "A" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const d = r.data as { section?: Section };
+        expect(d.section).toEqual({
+          text: "## A ##\nold",
+          start_line: 1,
+          end_line: 2,
+          heading_level: 2,
+        });
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("counts a closing-sequence heading toward ambiguity", async () => {
+    const raw = "## A\nold\n## A ##\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.message).toBe("ambiguous heading: matches 2 lines (1, 3)");
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a trailing hash run NOT preceded by a space stays part of the title", async () => {
+    const raw = "## A#\nold\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "A#" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { section?: Section }).section?.start_line).toBe(1);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
