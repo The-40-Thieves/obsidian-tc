@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-09-13
+
 ### Added
 
-- **Validation errors now say the fix, not just the field (THE-1042, GH #935).** An
+- **Validation errors now say the fix, not just the field (THE-1042, #939, GH #935).** An
   `unrecognized_keys` rejection now names the schema's accepted keys, a nearest-name suggestion
   within edit distance 2, and a static alias table for cross-tool spellings edit distance can't
   catch (`search_text`'s `root` vs. a `path`/`folder` typo, and the reverse). A bad `vault` — the
@@ -22,7 +24,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **`describe_capability` and `tools/list` advertised input schemas converted in zod's default
   `io:"output"` mode, diverging from what the server actually validates on 98 of 163 registered
-  capabilities (GH #934, THE-1041).** Every `.default()`/`.prefault()` field (e.g. `write_note`'s
+  capabilities (GH #934, THE-1041, #938).** Every `.default()`/`.prefault()` field (e.g. `write_note`'s
   `options`) read as `required`, and every plain (non-`.strict()`) object read with
   `additionalProperties: false` even though the server strips unknown keys there and accepts the
   call — over-blocking and under-blocking a client that validated or generated calls from the
@@ -85,7 +87,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   keep-chomp gap is closed by the same model and its `it.todo` is promoted to a real test.
 
 - **Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned
-  string's trailing newlines (THE-1044).** Two pre-existing defects in how a CHANGED key's value is
+  string's trailing newlines (THE-1044, #941).** Two pre-existing defects in how a CHANGED key's value is
   re-emitted — both found by the review pass on THE-1043, both of which reported success while
   writing a note that came back wrong. On `---\na: &x [1, 2]\nb: *x\n---`, setting or removing `a` re-emitted that key
   alone and left `b: *x` pointing at an anchor that no longer existed — the next `read_note` refused
