@@ -215,7 +215,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-590 | _internal planning reference — see repo history_ | — | 3 |
 | THE-591 | _internal planning reference — see repo history_ | — | 7 |
 | THE-600 | _internal planning reference — see repo history_ | — | 4 |
-| THE-603 | _internal planning reference — see repo history_ | — | 7 |
+| THE-603 | _internal planning reference — see repo history_ | — | 8 |
 | THE-605 | Context bundle export/import | docs/design/experiential-context-bundle.md | 5 |
 | THE-606 | `bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown (THE-661, THE-606, THE-625, THE-614). | CHANGELOG.md (1.14.0) | 2 |
 | THE-607 | `bun run map` and `check:boundaries` refuse to run against a stale `dist/` (THE-664, THE-607, THE-604). | CHANGELOG.md (1.14.0) | 1 |
@@ -366,7 +366,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 | THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (#909, THE-963). | CHANGELOG.md (1.28.0) | 3 |
 | THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#925, THE-1037). | CHANGELOG.md (Unreleased) | 2 |
+| THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (THE-1038, #922, #926, #927, #928). | CHANGELOG.md (Unreleased) | 4 |
 
-352 distinct ticket(s) across 494 source file(s) under
-`packages/*/src`; 252 resolved to a public summary, 100
+353 distinct ticket(s) across 495 source file(s) under
+`packages/*/src`; 253 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.
