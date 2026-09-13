@@ -1,24 +1,23 @@
 // YAML frontmatter parse/serialize. Body bytes are preserved verbatim. Frontmatter
 // key order is preserved; existing keys keep their position, new keys append.
 //
-// Fidelity: serializeNote, given the ORIGINAL frontmatter text
-// (parseNote().rawFrontmatter), rewrites the block as a LINE LIST — every source line
-// no changed or removed key owns is emitted byte-for-byte, so YAML scalar quirks
-// (leading-zero strings like zip: 01234, trailing-zero versions like 1.10, hex/octal/
-// sci values), standalone comments, inline comments and blank lines all survive.
-// Only added/changed keys are re-serialized; a removed key's lines are dropped, leaving
-// exactly one line break between its neighbours. A frontmatter-unchanged write (e.g. a
-// body-only patch) keeps the block verbatim. Without the original it falls back to a
-// plain stringify (new notes). NOTE: the yaml Document API alone still canonicalizes
-// leading-zero integers, so SOURCE slicing (not doc.toString) is what guarantees
-// fidelity.
+// Fidelity: serializeNote, given the ORIGINAL frontmatter text (parseNote().rawFrontmatter),
+// rewrites the block as a LINE LIST — every source line no changed or removed key owns is
+// emitted byte-for-byte, so YAML scalar quirks (leading-zero strings like zip: 01234,
+// trailing-zero versions like 1.10, hex/octal/sci values), standalone comments, inline
+// comments and blank lines all survive. Only added/changed keys are re-serialized; a removed
+// key's lines are dropped, leaving exactly one line break between its neighbours. A
+// frontmatter-unchanged write (e.g. a body-only patch) keeps the block verbatim; without the
+// original it falls back to a plain stringify (new notes). NOTE: the yaml Document API alone
+// still canonicalizes leading-zero integers, so SOURCE slicing (not doc.toString) is what
+// guarantees fidelity.
 import { isDeepStrictEqual } from "node:util";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import YAML, { isMap, isNode, isScalar, YAMLParseError } from "yaml";
 
-// THE-1040 C1: the opening delimiter's own line break gets its own capture group so
-// parseNote can hand it straight to a caller — the ONLY reliable EOL signal for a block
-// whose content never happens to carry an internal line break (one key, one comment).
+// THE-1040 C1: the opening delimiter's own line break gets its own capture group so parseNote
+// can hand it straight to a caller — the ONLY reliable EOL signal for a block whose content
+// never happens to carry an internal line break (one key, one comment).
 const FRONTMATTER = /^---(\r?\n)([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/;
 
 export type Frontmatter = Record<string, unknown>;
@@ -36,9 +35,9 @@ export interface ParsedNote {
    *  serializeNote's `frontmatterEol` option on every round-trip write; null when there
    *  was no frontmatter block to have one. */
   frontmatterEol: FrontmatterEol | null;
-  /** THE-1043: the closing "---" ended the file with no line break of its own. An empty body
-   *  cannot tell that apart from a note that does end in one, so pass this to serializeNote's
-   *  `frontmatterAtEof` option or a round-trip write appends a newline the note never had. */
+  /** THE-1043: the closing "---" ended the file with no line break of its own — an empty body
+   *  cannot tell that apart from a note that does end in one. Pass it to serializeNote's
+   *  `frontmatterAtEof`, or a round-trip write appends a newline the note never had. */
   frontmatterAtEof: boolean;
 }
 
@@ -98,23 +97,19 @@ function emitEntry(key: string, value: unknown): string {
   return YAML.stringify({ [key]: value }, { lineWidth: 0 }).replace(/\n+$/, "");
 }
 
-/** THE-1040 X1: normalize a raw slice's line breaks to the block's own EOL, and drop a
- *  trailing empty line — or a stray "\r" a YAML node's range boundary can leave just
- *  short of its own line terminator on a CRLF source (observed on a multi-line block
- *  value's range end) — so splicing an unchanged key's slice back in and joining it with
- *  a sibling entry via the block's own eol (C3) never doubles up a line terminator. */
+/** THE-1040 X1: normalize a slice's line breaks to the block's own EOL, dropping a trailing empty
+ *  line — or a stray "\r" a YAML node's range boundary can leave just short of its own line
+ *  terminator on a CRLF source — so re-joining it with a sibling never doubles a terminator. */
 function normalizeSlice(text: string, eol: string): string {
   const lines = text.split(/\r?\n/);
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   return lines.join(eol).replace(/\r+$/, "");
 }
 
-/**
- * Build the frontmatter YAML body. With original (the verbatim source), the block is rewritten
- * as a LINE LIST: every line no changed/removed key owns is emitted verbatim (comments, blank
- * lines, unchanged keys with their inline comments), a changed key replaces its own lines, a
- * removed key's lines are dropped. Without an original, plain-stringify the object.
- */
+/** Build the frontmatter YAML body. With original (the verbatim source), the block is rewritten
+ *  as a LINE LIST: every line no changed/removed key owns is emitted verbatim (comments, blank
+ *  lines, unchanged keys with their inline comments), a changed key replaces its own lines, a
+ *  removed key's lines are dropped. Without an original, plain-stringify the object. */
 function emitFrontmatter(
   next: Frontmatter,
   original: string | null | undefined,
@@ -186,7 +181,13 @@ function emitGroup(
     s.spliceable && isDeepStrictEqual(prevObj[s.key], next[s.key])
       ? normalizeSlice(text.slice(s.start, s.end), eol)
       : normalizeSlice(emitEntry(s.key, next[s.key]), eol);
-  if (!group.ownsLines) return kept.map(rebuild);
+  if (!group.ownsLines) {
+    const out = kept.map(rebuild);
+    const at = out.length - 1;
+    const end = out[at];
+    if (group.tail && end !== undefined) out[at] = `${end}${group.tail}`;
+    return out;
+  }
   const only = kept[0];
   if (!only) return [];
   if (!isDeepStrictEqual(prevObj[only.key], next[only.key]))
@@ -194,16 +195,15 @@ function emitGroup(
   return lines.slice(group.firstLine, group.lastLine + 1).map((l) => text.slice(l.start, l.end));
 }
 
-/** Fallback delimiter EOL for a caller with no captured `frontmatterEol` (a brand-new
- *  note with nothing to follow, or a caller that predates THE-1040 C1) — inferred from
- *  whatever CRLF signal the raw block or body happens to carry. `serializeNote` prefers
- *  the authoritative `options.frontmatterEol` over this whenever it's given. */
+/** Fallback delimiter EOL for a caller with no captured `frontmatterEol` (a brand-new note with
+ *  nothing to follow) — inferred from whatever CRLF signal the raw block or body happens to
+ *  carry. `serializeNote` prefers the authoritative `options.frontmatterEol` whenever given. */
 function delimiterEol(original: string | null | undefined, body: string): string {
   return original?.includes("\r\n") || body.includes("\r\n") ? "\r\n" : "\n";
 }
 
-/** One source line's [start, end), the end EXCLUDING its terminator — so a CRLF block's "\r"
- *  never reaches an emitted line and can never double up against the joining eol. */
+/** One source line's [start, end), the end EXCLUDING its terminator — a CRLF block's "\r" never
+ *  reaches an emitted line, so it can never double up against the joining eol. */
 interface SourceLine {
   start: number;
   end: number;
@@ -220,16 +220,19 @@ interface KeySpan {
   spliceable: boolean;
 }
 
-/** Lines rewritten as a unit: one block-style key, or every key of a shared line. */
+/** Lines rewritten as a unit: one block-style key, or every key of a shared line. `tail` is what
+ *  the last line carries OUTSIDE the rewritten node — an inline comment after a flow mapping's
+ *  closing brace — re-attached to the rebuilt last line rather than swallowed. */
 interface LineGroup {
   firstLine: number;
   lastLine: number;
   keys: KeySpan[];
   ownsLines: boolean;
+  tail?: string;
 }
 
-/** Split the raw block into lines. parseNote's capture carries no trailing line break, so the
- *  last entry is always the block's last line of content. */
+/** Split the raw block into lines (its capture carries no trailing break, so the last entry is
+ *  always the block's last line of content). */
 function sourceLines(text: string): SourceLine[] {
   const lines: SourceLine[] = [];
   for (let start = 0; ; ) {
@@ -251,9 +254,9 @@ function lineIndexAt(lines: SourceLine[], offset: number): number {
   return 0;
 }
 
-/** The [firstLine, lastLine] a node's [start, end) byte range occupies. A multi-line node (a
- *  list, a block scalar, a braced flow collection) commonly ends just PAST its own trailing
- *  break, at the START of the next line — which belongs to whatever follows, not to it. */
+/** The [firstLine, lastLine] a node's [start, end) byte range occupies. A multi-line node (a list,
+ *  a block scalar, a braced flow collection) commonly ends just PAST its own trailing break, at
+ *  the START of the next line — which belongs to whatever follows, not to it. */
 function lineSpanOf(lines: SourceLine[], start: number, end: number): [number, number] {
   const firstLine = lineIndexAt(lines, start);
   const endLine = lineIndexAt(lines, end);
@@ -271,9 +274,9 @@ function lineSpanOf(lines: SourceLine[], start: number, end: number): [number, n
  * non-scalar key, for which the caller falls back to a plain stringify.
  *
  * A FLOW root (`{a: 1, b: 2}`, single- or multi-line) is the exception: no key owns a line there,
- * and the braces belong to no key at all — left to survive as lines of their own they would wrap
- * block-style re-emitted entries in stray `{`/`}`. The whole root collection is one group,
- * braces included, rebuilt from the changed mapping. Comments outside the braces are untouched.
+ * and the braces belong to no key — left as lines of their own they would wrap block-style
+ * re-emitted entries in stray `{`/`}`. The whole collection is one group, braces included,
+ * rebuilt from the changed mapping (`tail` keeps what follows the closing one).
  */
 function keyGroups(
   text: string,
@@ -321,17 +324,23 @@ function keyGroups(
   if (!Array.isArray(range) || typeof range[0] !== "number" || typeof range[1] !== "number")
     return null;
   const [firstLine, lastLine] = lineSpanOf(lines, range[0], range[1]);
-  return [{ firstLine, lastLine, keys: groups.flatMap((g) => g.keys), ownsLines: false }];
+  const last = lines[lastLine];
+  // Anything after the closing brace on its line — an inline comment — is outside the collection
+  // and belongs to no key, so the rebuild must not eat it. The opening side can only be leading
+  // whitespace (a "#" there would comment the brace out), and re-attaching THAT would indent the
+  // rebuilt root out of the mapping, so it is dropped on purpose.
+  const tail = last ? text.slice(Math.min(range[1], last.end), last.end) : "";
+  return [{ firstLine, lastLine, keys: groups.flatMap((g) => g.keys), ownsLines: false, tail }];
 }
 
 /**
  * THE-1040 F1/C2/C4/O1: what (if anything) of a raw block survives once the caller's mapping is
  * empty. Comments are content, never discarded just because every real key is gone (or never
  * existed) — but an INLINE comment belongs to its key, so only a full-line comment or a blank
- * line can survive. A block with no real mapping at all (comment-only, e.g. a note untouched by
- * a no-op `merge`) comes back byte-for-byte — `.trim()` decides only whether to keep it, never
- * what gets returned. Otherwise the lines its keys owned are dropped and the rest rejoined on
- * the block's own `eol`. Null (nothing survived) tells the caller to drop the delimiters.
+ * line can survive. A block with no real mapping at all (comment-only, e.g. a note untouched by a
+ * no-op `merge`) comes back byte-for-byte — `.trim()` decides only whether to keep it, never what
+ * gets returned. Otherwise the lines its keys owned are dropped, the rest rejoined on the block's
+ * own `eol`, and null (nothing survived) tells the caller to drop the delimiters.
  */
 function survivingComments(original: string | null | undefined, eol: string): string | null {
   if (!original) return null;

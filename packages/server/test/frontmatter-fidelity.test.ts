@@ -336,6 +336,41 @@ describe("THE-1043: the emitter works on the original block's lines", () => {
     );
   });
 
+  // G1 (fix round 2): the whole-root group takes the entire closing-brace LINE, so an inline
+  // comment after "}" sat inside the rebuilt span and vanished. Text on a brace line OUTSIDE the
+  // braces belongs to no key and survives — re-attached, with its own spacing, to the rebuilt
+  // mapping's last line.
+  it("G1: an inline comment after a flow mapping's closing brace survives a key change", () => {
+    expect(setKey("---\n# lead\n{\na: 1,\nb: 2\n} # closing\n# tail\n---\nbody\n", "a", 9)).toBe(
+      "---\n# lead\na: 9\nb: 2 # closing\n# tail\n---\nbody\n",
+    );
+  });
+
+  it("G1: same, on a key removal", () => {
+    expect(removeKeys("---\n# lead\n{\na: 1,\nb: 2\n} # closing\n# tail\n---\nbody\n", "a")).toBe(
+      "---\n# lead\nb: 2 # closing\n# tail\n---\nbody\n",
+    );
+  });
+
+  it("G1: same, CRLF", () => {
+    const raw = "---\r\n# lead\r\n{\r\na: 1,\r\nb: 2\r\n} # closing\r\n# tail\r\n---\r\nbody\r\n";
+    expect(setKey(raw, "a", 9)).toBe(
+      "---\r\n# lead\r\na: 9\r\nb: 2 # closing\r\n# tail\r\n---\r\nbody\r\n",
+    );
+    expect(removeKeys(raw, "a")).toBe(
+      "---\r\n# lead\r\nb: 2 # closing\r\n# tail\r\n---\r\nbody\r\n",
+    );
+  });
+
+  it("G1: same, for the single-line flow form", () => {
+    expect(setKey("---\n{a: 1, b: 2} # note\n---\nbody\n", "a", 9)).toBe(
+      "---\na: 9\nb: 2 # note\n---\nbody\n",
+    );
+    expect(removeKeys("---\n{a: 1, b: 2} # note\n---\nbody\n", "a")).toBe(
+      "---\nb: 2 # note\n---\nbody\n",
+    );
+  });
+
   // A flow line's unchanged key splices back by its own node range, so it must BE a mapping entry
   // on its own: `{a: , b: 2}`'s empty value still ranges as one, `{a, b: 2}`'s bare key does not
   // and re-serializes instead. Both must stay re-readable after a sibling changes.

@@ -75,7 +75,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   only when its node both starts and ends one; a ROOT FLOW MAPPING owns no lines at all and is
   re-emitted whole — braces included, single- or multi-line — from the changed mapping, so a
   changed one comes back in BLOCK style (its flow style is not round-tripped; an untouched one is
-  returned verbatim). Every line no changed or removed key owns is emitted verbatim, and a removed
+  returned verbatim), with an inline comment after the closing brace re-attached rather than
+  swallowed with the brace line. Every line no changed or removed key owns is emitted verbatim, and a removed
   key's lines are spliced out leaving exactly one line break — the block's own EOL — between the
   neighbours. `parseNote` gained `frontmatterAtEof` (threaded to `serializeNote` by all seven
   round-trip call sites) for the EOF delimiter. THE-1040's known `|+`
