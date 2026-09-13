@@ -1,10 +1,12 @@
 // THE-292 — periodic cache.db maintenance. Expiry was lazy-only: idempotency rows and elicit
 // tokens are checked at read time but never purged, and the event_log retention config
 // (observability.retention.eventLogDays) had no enforcement — cache.db grew without bound. The
-// sweep DELETEs expired rows, trims event_log, then runs PRAGMA optimize. It is deliberately
-// EXPIRED-ONLY for idempotency rows: reaping a crashed in-flight row here could cross-attach a
-// stale completion onto a fresh claim — the dispatch-path reclaim (idempotencyReclaimSeconds,
-// THE-293) owns that concern. No automatic VACUUM (disruptive under WAL).
+// sweep DELETEs expired rows, trims event_log, then runs PRAGMA optimize and a bounded FTS5
+// 'merge' (THE-1039, GH #929) on notes_fts/chunk_fts. It is deliberately EXPIRED-ONLY for
+// idempotency rows: reaping a crashed in-flight row here could cross-attach a stale completion
+// onto a fresh claim — the dispatch-path reclaim (idempotencyReclaimSeconds, THE-293) owns that
+// concern. No automatic VACUUM (disruptive under WAL) — see cli/commands/compact.ts for the
+// explicit operator path that does one.
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Scheduler } from "../scheduler/scheduler";
@@ -37,6 +39,11 @@ export interface SweepCounts {
   /** THE-715: `job_schedule` rows with a NULL `name`. Structurally unreachable — every read keys on
    *  `name` — so they are pure dead weight, and the count is 0 forever once the backlog clears. */
   orphan_schedule_rows: number;
+  /** THE-1039 (GH #929): FTS5 tables that got a bounded `'merge'` this sweep — `[]` when neither
+   *  `notes_fts` nor `chunk_fts` exists (OBSIDIAN_TC_DISABLE_FTS=1, or a store predating either
+   *  index). Not a row count: `'merge'` does not report one, and the point is observability of
+   *  WHICH tables were touched, not how much. */
+  fts_merged: string[];
 }
 
 /** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
@@ -279,10 +286,33 @@ export function runMaintenanceSweep(
           ...(opts.dryRun !== undefined ? { dryRun: opts.dryRun } : {}),
         })
       : 0;
+  // THE-1039 (GH #929): PRAGMA optimize is the query-planner statistics pragma — it runs ANALYZE
+  // where useful and explicitly EXCLUDES virtual tables, so it never reaches an FTS5 index.
+  // notes_fts settled at ~3x its merged size on the reporter's vault because nothing ever ran
+  // FTS5's OWN merge. Per sqlite.org/fts5.html section 6.8, "The 'merge' Command": a positive N
+  // "merges b-tree structures together until roughly N pages of merged data have been written to
+  // the database" — bounded work per call, distinct from `'optimize'` (merges everything into one
+  // b-tree in a single transaction — a ~1.2s write-lock on the reporter's 154MB index, reserved
+  // for the explicit operator path, `obsidian-tc compact`; see cli/commands/compact.ts). N=16
+  // matches the ticket's suggested shape and converges over successive sweeps rather than
+  // blocking this one.
+  //
+  // The special command takes TWO columns, `(tbl, rank)`, not one — sqlite.org's own example is
+  // `INSERT INTO ft(ft, rank) VALUES('merge', 500)`. The ticket's suggested `(tbl)`-only form
+  // (matching the single-column 'optimize'/'rebuild'/'integrity-check' idiom used elsewhere in
+  // this file) fails with "2 values for 1 columns" — caught by this file's own test before this
+  // shipped.
+  const ftsMerged: string[] = [];
   try {
     db.exec("PRAGMA optimize");
+    for (const t of ["notes_fts", "chunk_fts"]) {
+      if (tableExists(db, t)) {
+        db.exec(`INSERT INTO ${t}(${t}, rank) VALUES('merge', 16)`);
+        ftsMerged.push(t);
+      }
+    }
   } catch {
-    /* optimize is advisory; a failure must not mask the delete counts */
+    /* optimize/merge is advisory; a failure must not mask the delete counts */
   }
   // THE-715: prune NULL-name job_schedule rows.
   //
@@ -319,6 +349,7 @@ export function runMaintenanceSweep(
     episode_content_redacted: episodeContentRedacted,
     sessions_closed: sessionsClosed,
     orphan_schedule_rows: orphanScheduleRows,
+    fts_merged: ftsMerged,
   };
 }
 

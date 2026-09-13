@@ -66,6 +66,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episode_content_redacted: 0,
         sessions_closed: 0,
         orphan_schedule_rows: 0,
+        fts_merged: [],
       }),
     ).toBe(3);
     expect(
@@ -80,8 +81,31 @@ describe("sweepTotal — every arm joins the total", () => {
         episode_content_redacted: 0,
         sessions_closed: 0,
         orphan_schedule_rows: 0,
+        fts_merged: [],
       }),
     ).toBe(127);
+  });
+
+  it("THE-1039: fts_merged is a string[], not a row count — it must not corrupt the numeric total", () => {
+    // Object.values(counts).reduce((a, b) => a + b, 0) would silently degrade to string
+    // concatenation (or NaN) the moment a non-numeric arm joins SweepCounts. sweepTotal must
+    // exclude fts_merged by name rather than by "is it a number", so this stays true regardless
+    // of which OTHER arm ran.
+    expect(
+      sweepTotal({
+        idempotency_keys: 1,
+        elicit_tokens: 0,
+        event_log: 0,
+        jobs: 0,
+        episodes: 0,
+        chunk_retrievals: 0,
+        trace_files: 0,
+        episode_content_redacted: 0,
+        sessions_closed: 0,
+        orphan_schedule_rows: 0,
+        fts_merged: ["notes_fts", "chunk_fts"],
+      }),
+    ).toBe(1);
   });
 
   it("counts an arm that does not exist yet — the 'free for a future arm' claim", () => {
@@ -116,6 +140,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episode_content_redacted: 0,
         sessions_closed: 0,
         orphan_schedule_rows: 0,
+        fts_merged: [],
       }),
     ).toBe(0);
   });

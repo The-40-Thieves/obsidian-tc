@@ -51,10 +51,16 @@ export interface MaintenanceWiringDeps {
   now?: () => number;
 }
 
-/** Total pruned across EVERY arm. Split out so the "a new arm is counted for free" claim is a
- *  callable function rather than a comment — see maintenance-wiring.test.ts. */
+/** Total pruned across EVERY NUMERIC arm. Split out so the "a new arm is counted for free" claim
+ *  is a callable function rather than a comment — see maintenance-wiring.test.ts.
+ *
+ *  THE-1039: `fts_merged` (the tables an FTS5 merge touched) is a `string[]`, not a row count —
+ *  summing `Object.values` unfiltered would silently degrade to string concatenation the moment
+ *  it joined the mix. Excluded by NAME rather than by `typeof v === "number"`, so a future
+ *  numeric arm still joins the total automatically without this function changing again. */
 export function sweepTotal(counts: SweepCounts): number {
-  return Object.values(counts).reduce((a, b) => a + b, 0);
+  const { fts_merged: _fts_merged, ...numeric } = counts;
+  return Object.values(numeric).reduce((a, b) => a + b, 0);
 }
 
 /**
@@ -103,9 +109,13 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     onSweep: (counts) => {
       const total = sweepTotal(counts);
+      // THE-1039: `rows_dropped` is MorgianaEventDataSchema's `record<string, number>` — a table
+      // that got an FTS5 merge is not a row dropped, and `fts_merged` (string[]) does not fit the
+      // schema's value type anyway. Excluded here the same way sweepTotal excludes it from the sum.
+      const { fts_merged: _fts_merged, ...rowsDropped } = counts;
       deps.morgiana.emit(deps.eventVaultId, "tc.maintenance.sweep", {
         count: total,
-        rows_dropped: { ...counts },
+        rows_dropped: rowsDropped,
       });
       try {
         writeEvent(deps.db, {
