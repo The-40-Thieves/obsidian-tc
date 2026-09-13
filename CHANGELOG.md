@@ -119,6 +119,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   strip (`|`/`|-`) used to let the source's blank separator line become part of the new value
   (`text: |` + `set text = "changed\n\n"` read back `"changed\n\n\n"`); blank lines immediately
   after an emitted keep-chomp scalar are now dropped, since they can no longer separate anything.
+  Colliding keys include an ALIAS used as a mapping key (`*key : third` beside `1:` and `'1':`):
+  materializing it makes it a literal duplicate, so the pairs the reader cannot see are dropped
+  along with it rather than persisting a block that fails the next read with "Map keys must be
+  unique".
 
 ## [1.29.0] - 2026-09-13
 

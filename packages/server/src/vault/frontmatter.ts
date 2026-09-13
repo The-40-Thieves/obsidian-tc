@@ -29,10 +29,9 @@ export interface ParsedNote {
   /** Verbatim YAML text from inside the block (null when absent). Pass it back to
    *  serializeNote so keys the caller did not change keep their exact source. */
   rawFrontmatter: string | null;
-  /** THE-1040 C1: the line ending the OPENING "---" actually used, captured at parse
-   *  time — independent of whatever the YAML content or body happen to contain. Pass to
-   *  serializeNote's `frontmatterEol` option on every round-trip write; null when there
-   *  was no frontmatter block to have one. */
+  /** THE-1040 C1: the line ending the OPENING "---" actually used, captured at parse time —
+   *  independent of what the YAML content or body contain. Pass to serializeNote's `frontmatterEol`
+   *  on every round-trip write; null when there was no frontmatter block to have one. */
   frontmatterEol: FrontmatterEol | null;
   /** THE-1043: the closing "---" ended the file with no line break of its own — an empty body
    *  cannot tell that apart from a note that does end in one. Pass it to serializeNote's
@@ -126,7 +125,15 @@ function emitViaDocument(
   materializeAliases(doc, doomed);
   for (const k of Object.keys(prevObj))
     if (!(k in next)) for (const node of docKeys(doc, k)) doc.delete(node);
-  for (const k of Object.keys(next)) if (changed(k)) doc.set(docKey(doc, k), next[k]);
+  for (const k of Object.keys(next)) {
+    if (!changed(k)) continue;
+    // THE-1044: two of a key's pairs that now stringify alike are "Map keys must be unique" on
+    // the next read, so only the pair the reader resolves survives. Materialization has already
+    // copied every anchor out from under the others, so dropping them strands nothing.
+    const nodes = docKeys(doc, k);
+    for (const shadowed of nodes.slice(0, -1)) doc.delete(shadowed);
+    doc.set(nodes[nodes.length - 1] ?? k, next[k]);
+  }
   for (const k of doomed) dropOrphanAnchor(doc, k);
   return blockText(doc.toString({ lineWidth: 0 }), eol);
 }
@@ -145,11 +152,10 @@ function hasAlias(doc: ReturnType<typeof YAML.parseDocument>, anchor?: string): 
 }
 
 /** THE-1044: the document's OWN key nodes for a caller key, matched on their string form — a
- *  mapping keyed `1:`/`true:` arrives as the JS string, which get/set/delete compare against the key
- *  node's `value`, so the pair was missed: a removal was skipped and a set appended a duplicate.
- *  There can be SEVERAL (`1:` and `'1':` are distinct YAML keys collapsing to one JS key), and the
- *  reader sees the LAST — so a set follows the last and a remove drops them all, or a shadowed
- *  duplicate resurfaces. */
+ *  mapping keyed `1:`/`true:` arrives as the JS string, which get/set/delete compare against the
+ *  key node's `value`, so the pair was missed entirely. There can be SEVERAL (`1:`, `'1':` and an
+ *  alias key are distinct YAML keys collapsing to one JS key) and the reader sees the LAST — so a
+ *  set follows the last and a remove drops them all, or a shadowed duplicate resurfaces. */
 function docKeys(doc: ReturnType<typeof YAML.parseDocument>, key: string): unknown[] {
   const map = doc.contents;
   if (!isMap(map)) return [];

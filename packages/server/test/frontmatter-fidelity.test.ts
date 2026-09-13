@@ -825,6 +825,38 @@ describe("THE-1044 R: a keep-chomp value ending the block survives a neighbour's
     expect(read(setKey(raw, "text", "changed\n\n"))).toEqual({ text: "changed\n\n", right: 2 });
   });
 
+  // P2: an ALIAS used as a mapping KEY. `*key : third` is a third pair whose key resolves to the
+  // same JS key as `1:` and `'1':`, so materializing it (its anchor sits under a key being
+  // replaced) turns the block into two literal `1:` pairs — "Map keys must be unique" on the next
+  // read. The pairs the reader cannot see go with it; their anchors were already copied out.
+  const ALIAS_KEY = "---\n1: &key 1\n'1': second\n*key : third\nb: *key\n---\n";
+
+  it("P2: setting a key whose alias-KEY pair collides emits valid, exact YAML", () => {
+    expect(read(ALIAS_KEY)).toEqual({ "1": "third", b: 1 });
+    const out = setKey(ALIAS_KEY, "1", 9);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ "1": 9, b: 1 });
+  });
+
+  it("P2: removing that key drops every pair it owns", () => {
+    expect(read(removeKeys(ALIAS_KEY, "1"))).toEqual({ b: 1 });
+  });
+
+  it("P2: the anchor under the pair being REPLACED is still found", () => {
+    const raw = "---\n1: 1\n'1': &key second\n*key : third\nb: *key\n---\n";
+    expect(read(raw)).toEqual({ "1": "second", second: "third", b: "second" });
+    const out = setKey(raw, "1", 9);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ "1": 9, second: "third", b: "second" });
+  });
+
+  it("P2: an alias KEY that collides with nothing round-trips", () => {
+    const raw = "---\nkey: &k fresh\n*k : third\nb: 1\n---\n";
+    expect(read(raw)).toEqual({ key: "fresh", fresh: "third", b: 1 });
+    expect(read(setKey(raw, "b", 9))).toEqual({ key: "fresh", fresh: "third", b: 9 });
+    expect(read(setKey(raw, "fresh", 9))).toEqual({ key: "fresh", fresh: 9, b: 1 });
+  });
+
   it("C2: a CLIP assignment keeps the blank separator line", () => {
     const raw = "---\ntext: |\n  hello\n\nright: 2\n---\n";
     const out = setKey(raw, "text", "changed\n");
