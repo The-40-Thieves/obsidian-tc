@@ -294,15 +294,30 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
             : resolved;
         // Review round 2 B2: a block anchor's own I4-analogue — the trailing `^id` token on the
         // marker line (the section's last line) must survive too. Only the marker SUFFIX is
-        // protected; ordinary text before it on the same line is still fair game.
+        // protected; ordinary text before it on the same line is still fair game. Review round 4
+        // R1: when the marker is ALONE on its line (nothing precedes the match but whitespace),
+        // the protected suffix must extend to include the LINE BREAK before it too, not just the
+        // marker token — otherwise old_string can consume that separator (e.g. "text\n") and the
+        // substitution glues the marker onto whatever replaces it. Greptile's inline-marker
+        // counter-suggestion was declined: the regex already requires whitespace-or-line-start
+        // immediately before `^id`, so that leading separator is already part of `markerMatch[0]`
+        // for an inline marker (`"para ^blk1"` protects the space in `" ^blk1"`) — no extra logic
+        // needed there, only for the standalone-line case where the separator is a PRECEDING
+        // newline, outside the marker line itself.
         let excludeTrailing = "";
         if (anchor.type === "block") {
           const bodyLines = parsed.body.split(/\r?\n/);
-          const markerLine = bodyLines[resolved.endIndex - 1] ?? "";
+          const markerLineIndex = resolved.endIndex - 1;
+          const markerLine = bodyLines[markerLineIndex] ?? "";
           const markerMatch = new RegExp(`(?:^|\\s)\\^${escapeRegExp(anchor.block_id)}\\s*$`).exec(
             markerLine,
           );
-          excludeTrailing = markerMatch?.[0] ?? "";
+          if (markerMatch) {
+            excludeTrailing = markerMatch[0];
+            const markerAloneOnLine = markerLine.slice(0, markerMatch.index).trim() === "";
+            if (markerAloneOnLine && markerLineIndex > resolved.startIndex)
+              excludeTrailing = eol + excludeTrailing;
+          }
         }
         const { body: nextBody, count } = replaceInSection(
           parsed.body,

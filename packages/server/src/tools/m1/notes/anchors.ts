@@ -47,31 +47,58 @@ function leadingRun(s: string, ch: string): number {
   return n;
 }
 
-/** Leading indentation of `line` in COLUMNS, a tab expanding to the next multiple of 4 — review
- *  round 3 G1: a raw character count treats a leading tab as 1 column instead of the 4 CommonMark
- *  gives it, letting a tab-indented delimiter pass as a fence when it is really indented code. */
-function leadingIndentColumns(line: string): number {
+/** Strip ONLY ASCII space/tab indentation off the start of `line`, expanding a tab to the next
+ *  4-column stop (CommonMark's rule, shared by fence AND heading indentation — review round 3
+ *  G1/R3). `col` is the total indentation width in columns; `rest` is the line from the first
+ *  non-space/tab character onward. Any OTHER leading whitespace-LOOKING character (NBSP U+00A0,
+ *  ideographic space U+3000, ...) does NOT count as indentation — `rest` starts there instead, so
+ *  the line is content, not a fence delimiter or heading, however it looks after a Unicode-aware
+ *  `.trim()` — review round 4 R2. */
+function stripAsciiIndent(line: string): { col: number; rest: string } {
+  let i = 0;
   let col = 0;
-  for (const ch of line) {
-    if (ch === " ") col += 1;
-    else if (ch === "\t") col = Math.floor(col / 4) * 4 + 4;
-    else break;
+  while (i < line.length) {
+    const ch = line[i];
+    if (ch === " ") {
+      col += 1;
+      i++;
+    } else if (ch === "\t") {
+      col = Math.floor(col / 4) * 4 + 4;
+      i++;
+    } else break;
   }
-  return col;
+  return { col, rest: line.slice(i) };
+}
+
+/** Recognizes an ATX heading LINE as a section BOUNDARY — review round 4 R3: tolerates up to 3
+ *  columns of leading ASCII space/tab indentation (4+ is an indented code block, not a heading —
+ *  the same CommonMark rule fences use, review round 3 M8) and an EMPTY title (`"##"` alone, or
+ *  `"## "` with nothing after) — a real, if untargetable, boundary (no caller can anchor to
+ *  `heading: ""` — the schema requires `min(1)`). Distinct from the stricter `HEADING` regex
+ *  below, which `dropDuplicateLeadingHeading` uses for a narrower purpose (exact duplicate-heading
+ *  detection in caller-supplied content, not body-boundary scanning) and is deliberately
+ *  unchanged. */
+function matchHeadingBoundary(line: string): { level: number; title: string } | null {
+  const { col, rest } = stripAsciiIndent(line);
+  if (col > 3) return null;
+  const m = /^(#{1,6})(?:\s+(.*?))?\s*$/.exec(rest);
+  if (!m) return null;
+  return { level: (m[1] ?? "").length, title: (m[2] ?? "").trim() };
 }
 
 /** CommonMark-ish fenced-code state machine, shared by `fenceMask` and `hasUnterminatedFence`
  *  (GH #926; review round 1 I2/M8, round 2 Codex's shorter-closer-with-trailing-text repro, round
- *  3 G1/G2). A line opens a fence when, after stripping AT MOST 3 columns of leading indentation
- *  (tabs expand to the next 4-column stop — round 3 G1; 4+ columns is an indented code block, not
- *  a fence — round 1 M8), its trimmed form is a run of 3+ backticks or 3+ tildes, with two
- *  exceptions: a backtick run's info string (the text after the run) may not itself contain a
- *  backtick — CommonMark disallows this because it would collide with inline code spans — while a
- *  tilde run's info string has no such restriction (round 3 G2). Once open, a line closes it only
- *  when its trimmed form is NOTHING BUT a run of the SAME character, at least as long as the
- *  opener's run — shorter (a 3-backtick line inside a 4-backtick fence), a different character (a
- *  ``` inside a ~~~ block), or trailing text after the run (` ``` extra`) are all content, not a
- *  close. */
+ *  3 G1/G2, round 4 R2's ASCII-only indentation). A line opens a fence when, after stripping AT
+ *  MOST 3 columns of ASCII space/tab indentation (tabs expand to the next 4-column stop — round 3
+ *  G1; 4+ columns is an indented code block, not a fence — round 1 M8; any OTHER leading
+ *  whitespace-looking character, e.g. NBSP, is content, not indentation — round 4 R2), its
+ *  trimmed-of-trailing-whitespace form is a run of 3+ backticks or 3+ tildes, with two exceptions:
+ *  a backtick run's info string (the text after the run) may not itself contain a backtick —
+ *  CommonMark disallows this because it would collide with inline code spans — while a tilde
+ *  run's info string has no such restriction (round 3 G2). Once open, a line closes it only when
+ *  its trimmed form is NOTHING BUT a run of the SAME character, at least as long as the opener's
+ *  run — shorter (a 3-backtick line inside a 4-backtick fence), a different character (a ``` inside
+ *  a ~~~ block), or trailing text after the run (` ``` extra`) are all content, not a close. */
 function createFenceTracker() {
   let char: "`" | "~" | null = null;
   let openLen = 0;
@@ -82,8 +109,9 @@ function createFenceTracker() {
     /** Feed one raw (untrimmed) line; returns true iff this line is itself a fence delimiter
      *  (open or close) — never real content, never a heading. */
     feed(line: string): boolean {
-      if (leadingIndentColumns(line) > 3) return false;
-      const t = line.trim();
+      const { col, rest } = stripAsciiIndent(line);
+      if (col > 3) return false;
+      const t = rest.trimEnd();
       if (char === null) {
         const backticks = leadingRun(t, "`");
         if (backticks >= 3 && !t.slice(backticks).includes("`")) {
@@ -155,7 +183,9 @@ export type SectionResolution =
  *  skipped while fenced (GH #926) in every scan below: the anchor scan, the section-end scan, the
  *  preamble's end-of-region scan, and the block anchor's paragraph-start walk. GH #922 shape 3: a
  *  heading (or block id) matching more than one line is `ambiguous`, not silently bound to the
- *  first match — `matchLines` are 1-based, relative to `body`. */
+ *  first match — `matchLines` are 1-based, relative to `body`. Every heading recognition below
+ *  uses `matchHeadingBoundary` (up to 3 columns of ASCII indentation tolerated, empty title
+ *  allowed — review round 4 R3), never the stricter `HEADING` regex. */
 export function resolveSection(body: string, anchor: ResolvedAnchor): SectionResolution {
   const lines = body.split(/\r?\n/);
   const mask = fenceMask(lines);
@@ -164,7 +194,7 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     let end = lines.length;
     for (let i = 0; i < lines.length; i++) {
       if (mask[i]) continue;
-      if (HEADING.test(lines[i] ?? "")) {
+      if (matchHeadingBoundary(lines[i] ?? "")) {
         end = i;
         break;
       }
@@ -177,9 +207,8 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     const matches: Array<{ index: number; level: number }> = [];
     for (let i = 0; i < lines.length; i++) {
       if (mask[i]) continue;
-      const m = HEADING.exec(lines[i] ?? "");
-      if (m && (m[2] ?? "").trim().toLowerCase() === want)
-        matches.push({ index: i, level: (m[1] ?? "").length });
+      const m = matchHeadingBoundary(lines[i] ?? "");
+      if (m && m.title.toLowerCase() === want) matches.push({ index: i, level: m.level });
     }
     if (matches.length === 0) return { found: false, reason: "not_found" };
     if (matches.length > 1)
@@ -188,8 +217,8 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     let end = lines.length;
     for (let j = hi + 1; j < lines.length; j++) {
       if (mask[j]) continue;
-      const m = HEADING.exec(lines[j] ?? "");
-      if (m && (m[1] ?? "").length <= level) {
+      const m = matchHeadingBoundary(lines[j] ?? "");
+      if (m && m.level <= level) {
         end = j;
         break;
       }
@@ -217,7 +246,7 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     // exactly like a blank line or a heading does — the walk must never step onto a masked line,
     // or a `replace`/`prepend` on a block just past a fenced example deletes the fence too.
     if (mask[start - 1]) break;
-    if (HEADING.test(prev)) break;
+    if (matchHeadingBoundary(prev)) break;
     start--;
   }
   return { found: true, startIndex: start, endIndex: bi + 1 };

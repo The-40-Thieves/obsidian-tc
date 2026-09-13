@@ -45,9 +45,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   window) that refuses on 0 or 2+ matches and matches a multi-line `old_string` against a CRLF
   note's section regardless of which line ending the caller authored it with — the section's own
   line ending is preserved on write; frontmatter delimiters are LF even around a CRLF body
-  (pre-existing, unrelated to this anchor work). Setext headings, trailing-footer/`stop_before`
-  bounding (#922 shape 1), and a scoped `replace_text`/`replace` normalizing a note with genuinely
-  MIXED line endings to one detected EOL remain open on THE-1038.
+  (pre-existing, unrelated to this anchor work). A block anchor's own marker-protection extends to
+  a marker that is ALONE on its line: the line break before it is protected too, not just the
+  `^id` token, so `old_string` can never consume that separator and glue the marker onto whatever
+  replaces it. Fence AND heading-boundary indentation now count only ASCII space/tab — any other
+  leading whitespace-looking character (NBSP, ideographic space, ...) is content, not indentation,
+  even though a Unicode-aware `.trim()` would have hidden it. ATX heading boundaries (and anchor
+  targets) now tolerate up to 3 columns of leading indentation and an empty title (`"##"` alone, or
+  `"## "`), matching real ATX heading recognition instead of requiring a heading to start at column
+  0 with non-empty text. Setext headings, trailing-footer/`stop_before` bounding (#922 shape 1),
+  and a scoped `replace_text`/`replace` normalizing a note with genuinely MIXED line endings to one
+  detected EOL remain open on THE-1038; a comment-only frontmatter block (`---\n# comment\n---`)
+  being dropped by `vault/frontmatter.ts`'s serializer on any body-only patch is a pre-existing
+  defect outside this ticket's anchor-resolution scope, tracked separately as THE-1040.
 
 - **The 2026-09-08..10 advisories cleared across all three bun workspaces (THE-1036).** Root:
   `hono` 4.13.0 -> 4.13.5 (three moderate advisories, incomplete-fix follow-up to CVE-2026-39408),

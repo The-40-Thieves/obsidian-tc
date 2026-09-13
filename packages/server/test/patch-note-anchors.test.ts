@@ -1429,3 +1429,238 @@ describe("Review round 2 B2: replace_text on a block anchor preserves the ^id ma
     }
   });
 });
+
+describe("Review round 4 R1: replace_text protects a standalone ^id marker's own line", () => {
+  it("a standalone marker: old_string consuming the preceding newline is refused, not glued", async () => {
+    // Verbatim shape from the review: the marker is ALONE on its line. Before the fix,
+    // excludeTrailing only protected "^id" itself, leaving the newline before it searchable —
+    // old_string:"text\n" matched and the substitution glued the marker onto the new text.
+    const raw = "## A\ntext\n^id\n\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "id" },
+        old_string: "text\n",
+        new_string: "new",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.message).toBe("old_string not found in section");
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a standalone marker: old_string WITHOUT the trailing newline still matches, marker stays on its own line", async () => {
+    const raw = "## A\ntext\n^id\n\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "id" },
+        old_string: "text",
+        new_string: "changed",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nchanged\n^id\n\n## B\nkeep");
+      // The marker is still resolvable as its own, standalone anchor afterward.
+      const after = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "block", block_id: "id" },
+      });
+      expect(after.ok).toBe(true);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("an INLINE marker (side by side with the standalone case): the leading separator before the marker is protected", async () => {
+    // Greptile ruling: the block-id regex requires whitespace-or-line-start before ^id, so the
+    // separator immediately before the marker stays inside the protected suffix even for an
+    // inline marker — replacing "para " (with the trailing space) would orphan the marker the
+    // same way R1 does for a standalone one.
+    const raw = "para ^blk1\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const refused = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "blk1" },
+        old_string: "para ",
+        new_string: "new ",
+      });
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) expect(refused.error.message).toBe("old_string not found in section");
+
+      const ok = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "blk1" },
+        old_string: "para",
+        new_string: "new",
+      });
+      expect(ok.ok).toBe(true);
+      expect(v.read("a.md")).toBe("new ^blk1\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 4 R2: only ASCII space/tab count as fence indentation", () => {
+  it("a leading NBSP (U+00A0) before a fence delimiter is content, not indentation", async () => {
+    const raw = "## A\n ```\n## B\nkeep\n ```";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("read_note", {
+        vault: "test",
+        path: "a.md",
+        anchor: { type: "heading", heading: "A" },
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        // The NBSP-prefixed ``` never opens a fence, so ## B is a real, unmasked boundary — A's
+        // section is just its own single content line, not lines 1-5.
+        const section = (r.data as { section?: { text: string; end_line: number } }).section;
+        expect(section?.end_line).toBe(2);
+      }
+      const replaceB = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "B",
+        content: "new",
+      });
+      expect(replaceB.ok).toBe(true);
+      // ## B's own section (just "keep" and the trailing NBSP-``` line) is replaced — the fence
+      // never opened, so this is ordinary content, not a protected code block.
+      expect(v.read("a.md")).toBe("## A\n ```\n## B\nnew");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a leading IDEOGRAPHIC SPACE (U+3000) before a fence delimiter is content, not indentation", async () => {
+    const raw = "## A\n　```\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      // NEW lands right before the real ## B, proving the U+3000-prefixed ``` never masked it.
+      expect(v.read("a.md")).toBe("## A\n　```\nNEW\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 4 R3: ATX headings with leading spaces or an empty title are boundaries", () => {
+  it("a heading indented up to 3 spaces is a real section boundary", async () => {
+    const raw = "## A\nold\n  ## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      // "  ## B" survives as a real boundary — the bug deleted it along with "old".
+      expect(v.read("a.md")).toBe("## A\nnew\n  ## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("an indented heading is still resolvable as an anchor TARGET", async () => {
+    const raw = "## A\nold\n  ## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "B",
+        content: "AFTER",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nold\n  ## B\nkeep\nAFTER");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("an empty ATX heading ('##' alone) is a real section boundary", async () => {
+    const raw = "## A\nold\n##\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nnew\n##\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("an empty ATX heading with a trailing space ('## ') is a real section boundary", async () => {
+    const raw = "## A\nold\n## \nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nnew\n## \nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("4+ leading spaces is indented code, not a heading boundary", async () => {
+    const raw = "## A\nold\n    ## B\nmore\n## C\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      // "    ## B" (4 spaces) is code, not a boundary — A's section extends past it to ## C.
+      expect(v.read("a.md")).toBe("## A\nnew\n## C\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
