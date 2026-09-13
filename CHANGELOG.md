@@ -8,6 +8,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **`call_capability` never redeemed an `elicit_token` nested in its inner `args` (#925, THE-1037).**
+  `mcp/server.ts`'s tools/call handler stripped `elicit_token` from the OUTER envelope into
+  `ctx.elicitToken` before dispatch, but forwarded call_capability's INNER `args.args` untouched —
+  so a token placed where a conditionally-gated tool's own `describe_capability` schema says it
+  goes (inside the target's own args) hit that `.strict()` schema as an unrecognized key, making a
+  gated tool called through the facade permanently undeliverable. Hoisted the strip into one
+  `splitElicitToken` helper
+  (`mcp/elicit-token.ts`), now called at the outer envelope, inside call_capability's dispatch
+  closure, and inside the domain-grouped facade's dispatch closure, which forwards inner args the
+  same way. When both the outer envelope and the inner args carry a token, the inner one wins.
+
 - **The 2026-09-08..10 advisories cleared across all three bun workspaces (THE-1036).** Root:
   `hono` 4.13.0 -> 4.13.5 (three moderate advisories, incomplete-fix follow-up to CVE-2026-39408),
   `js-yaml` 4.3.1 -> 4.3.2 (high, unbounded merge-key CPU use), `vitest`/`@vitest/mocker` 4.1.10 ->
