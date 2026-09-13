@@ -459,6 +459,61 @@ describe("GH #926: fence-aware heading scan", () => {
     }
   });
 
+  it("verbatim #926 repro: replace on the section correctly consumes the whole section, orphaning no fence", async () => {
+    // The issue's exact repro call. The section-end fix means `replace` now legitimately consumes
+    // the fenced sample and the trailing paragraph too — they are genuinely part of "Release
+    // template"'s section, unlike the pre-fix bug which stopped mid-fence and left it orphaned.
+    const raw = [
+      "# Probe",
+      "",
+      "## Release template",
+      "",
+      "Use this block when publishing:",
+      "",
+      "```markdown",
+      "## Platform Links",
+      "- Spotify:",
+      "- Apple:",
+      "```",
+      "",
+      "Remember to update the index after publishing.",
+      "",
+      "## Next section",
+      "",
+      "content here",
+    ].join("\n");
+    const v = makeTestVault({ files: { "probe.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "probe.md",
+        operation: "replace",
+        target_heading: "Release template",
+        confirm_replace: false,
+        content: "\nREPLACED\n",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("probe.md");
+      expect(out).toBe(
+        [
+          "# Probe",
+          "",
+          "## Release template",
+          "",
+          "REPLACED",
+          "",
+          "## Next section",
+          "",
+          "content here",
+        ].join("\n"),
+      );
+      // No orphaned fence: the fenced sample was entirely inside the replaced section.
+      expect((out.match(/```/g) ?? []).length).toBe(0);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("does not bind an anchor to a heading that only exists as sample text inside a fence", async () => {
     const raw = ["# Doc", "", "```md", "## Target", "sample", "```", "", "## Real", "keep"].join(
       "\n",
@@ -624,6 +679,68 @@ describe("GH #926 suggested guard: odd fence-delimiter count is refused", () => 
       });
       expect(r.ok).toBe(true);
       expect(v.read("a.md")).toContain("## A\nnew\n## B");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("a CRLF note keeps its EOL across every patch_note operation", () => {
+  const crlf = "## A\r\nold\r\n## B\r\nkeep\r\n";
+
+  it("append preserves CRLF", async () => {
+    const v = makeTestVault({ files: { "a.md": crlf } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "NEW",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\r\nold\r\nNEW\r\n## B\r\nkeep\r\n");
+      expect(out).not.toMatch(/[^\r]\n/);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("replace preserves CRLF", async () => {
+    const v = makeTestVault({ files: { "a.md": crlf } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\r\nnew\r\n## B\r\nkeep\r\n");
+      expect(out).not.toMatch(/[^\r]\n/);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("replace_text preserves CRLF", async () => {
+    const v = makeTestVault({ files: { "a.md": crlf } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old",
+        new_string: "changed",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\r\nchanged\r\n## B\r\nkeep\r\n");
+      expect(out).not.toMatch(/[^\r]\n/);
     } finally {
       v.cleanup();
     }
