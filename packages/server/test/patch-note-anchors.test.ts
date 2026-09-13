@@ -95,6 +95,90 @@ describe("GH #926: fence-aware heading scan", () => {
   });
 });
 
+describe("GH #922 shape 3: ambiguous anchor is refused, not first-match-bound", () => {
+  it("refuses a heading anchor that matches more than one line, with the count and 1-based lines", async () => {
+    // Exactly what shape 2 (idempotent replace, next commit) can produce today: two identical
+    // adjacent headings. The next replace on "A" must refuse rather than silently bind to the
+    // first copy and double the body.
+    const raw = ["## A", "old", "## A", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new body",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.details).toMatchObject({ count: 2, lines: [1, 3] });
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("matches headings case-insensitively and by trimmed text when counting ambiguity", async () => {
+    const raw = ["## Notes", "one", "##   notes  ", "two"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "notes",
+        content: "x",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.details).toMatchObject({ count: 2 });
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("refuses a block id that occurs on more than one line", async () => {
+    const raw = ["para one ^dup", "para two ^dup"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "block", block_id: "dup" },
+        content: "x",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.details).toMatchObject({ count: 2, lines: [1, 2] });
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a heading that only exists inside a fence does not count toward ambiguity", async () => {
+    const raw = ["## A", "old", "```", "## A", "```", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(v.read("a.md")).toContain("## A\nnew\n## B");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("GH #926 suggested guard: odd fence-delimiter count is refused", () => {
   it("refuses a replace that would leave an unterminated fence", async () => {
     // Before: a properly closed fence lives entirely inside ## B's section (2 delimiters, even).

@@ -2,7 +2,9 @@
 // nothing else in the notes domain needed it. read_note's section read (added in a later commit
 // on this branch) needs the exact same heading/block/preamble resolution patch_note already
 // computes on every call, so it moved here — one place to fix the heading-scan defects (#922,
-// #926) instead of two. Pure functions over strings: no filesystem, no vault types.
+// #926) instead of two. Pure functions over strings: no filesystem, no vault types, nothing
+// beyond the shared error taxonomy for the ambiguous-anchor refusal (GH #922 shape 3).
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 export const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
 
@@ -95,12 +97,16 @@ export interface SectionSpan {
   headingLevel?: number;
 }
 
-export type SectionResolution = ({ found: true } & SectionSpan) | { found: false };
+export type SectionResolution =
+  | ({ found: true } & SectionSpan)
+  | { found: false; reason: "not_found" }
+  | { found: false; reason: "ambiguous"; matchLines: number[] };
 
-/** Resolve `anchor` against `body`'s first match. Pure: never throws, never touches disk. Heading
- *  matching is skipped while fenced (GH #926) in every scan below: the anchor scan, the
- *  section-end scan, the preamble's end-of-region scan, and the block anchor's paragraph-start
- *  walk. */
+/** Resolve `anchor` against `body`. Pure: never throws, never touches disk. Heading matching is
+ *  skipped while fenced (GH #926) in every scan below: the anchor scan, the section-end scan, the
+ *  preamble's end-of-region scan, and the block anchor's paragraph-start walk. GH #922 shape 3: a
+ *  heading (or block id) matching more than one line is `ambiguous`, not silently bound to the
+ *  first match — `matchLines` are 1-based, relative to `body`. */
 export function resolveSection(body: string, anchor: ResolvedAnchor): SectionResolution {
   const lines = body.split(/\r?\n/);
   const mask = fenceMask(lines);
@@ -119,18 +125,17 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
 
   if (anchor.type === "heading") {
     const want = anchor.heading.trim().toLowerCase();
-    let hi = -1;
-    let level = 0;
+    const matches: Array<{ index: number; level: number }> = [];
     for (let i = 0; i < lines.length; i++) {
       if (mask[i]) continue;
       const m = HEADING.exec(lines[i] ?? "");
-      if (m && (m[2] ?? "").trim().toLowerCase() === want) {
-        hi = i;
-        level = (m[1] ?? "").length;
-        break;
-      }
+      if (m && (m[2] ?? "").trim().toLowerCase() === want)
+        matches.push({ index: i, level: (m[1] ?? "").length });
     }
-    if (hi < 0) return { found: false };
+    if (matches.length === 0) return { found: false, reason: "not_found" };
+    if (matches.length > 1)
+      return { found: false, reason: "ambiguous", matchLines: matches.map((m) => m.index + 1) };
+    const { index: hi, level } = matches[0] as { index: number; level: number };
     let end = lines.length;
     for (let j = hi + 1; j < lines.length; j++) {
       if (mask[j]) continue;
@@ -145,14 +150,12 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
 
   // block
   const re = new RegExp(`(?:^|\\s)\\^${escapeRegExp(anchor.block_id)}\\s*$`);
-  let bi = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (re.test(lines[i] ?? "")) {
-      bi = i;
-      break;
-    }
-  }
-  if (bi < 0) return { found: false };
+  const matches: number[] = [];
+  for (let i = 0; i < lines.length; i++) if (re.test(lines[i] ?? "")) matches.push(i);
+  if (matches.length === 0) return { found: false, reason: "not_found" };
+  if (matches.length > 1)
+    return { found: false, reason: "ambiguous", matchLines: matches.map((i) => i + 1) };
+  const bi = matches[0] as number;
   let start = bi;
   while (start > 0) {
     const prev = lines[start - 1] ?? "";
@@ -161,6 +164,41 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     start--;
   }
   return { found: true, startIndex: start, endIndex: bi + 1 };
+}
+
+function ambiguousError(
+  kind: "heading" | "block reference",
+  matchLines: number[],
+  extra: Record<string, unknown>,
+) {
+  return err.invalidInput(
+    `ambiguous ${kind}: matches ${matchLines.length} lines (${matchLines.join(", ")})`,
+    { ...extra, count: matchLines.length, lines: matchLines },
+  );
+}
+
+function notFoundError(anchor: ResolvedAnchor, extra?: Record<string, unknown>) {
+  return err.invalidInput(
+    anchor.type === "block" ? "block reference not found" : "target heading not found",
+    { ...extra, anchor },
+  );
+}
+
+/** Resolve `anchor`, throwing the same `invalid_input` both tools surface for an anchor that
+ *  cannot be resolved unambiguously — read_note (GH #927) matches patch_note's messages exactly. */
+export function resolveSectionOrThrow(
+  body: string,
+  anchor: ResolvedAnchor,
+  path?: string,
+): SectionSpan {
+  const r = resolveSection(body, anchor);
+  if (r.found) return r;
+  const extra = path ? { path } : undefined;
+  if (r.reason === "not_found") throw notFoundError(anchor, extra);
+  throw ambiguousError(anchor.type === "block" ? "block reference" : "heading", r.matchLines, {
+    ...extra,
+    anchor,
+  });
 }
 
 function splice(
@@ -185,9 +223,10 @@ function splice(
   return { body: next.join(eol), removedLines, removedBytes, bodyLineCount: lines.length };
 }
 
-/** Insert/replace content relative to a heading section. Returns null if the
- *  heading is not found. The section spans the heading line to the next heading
- *  of the same or higher level (or EOF). `eol` preserves the note's line ending. */
+/** Insert/replace content relative to a heading section. Returns null if the heading is not
+ *  found; throws GH #922 shape 3's ambiguous-anchor refusal when more than one heading matches.
+ *  The section spans the heading line to the next heading of the same or higher level (or EOF),
+ *  skipping fenced code (GH #926). `eol` preserves the note's line ending. */
 export function patchByHeading(
   body: string,
   op: "append" | "prepend" | "replace",
@@ -196,14 +235,18 @@ export function patchByHeading(
   eol: string,
 ): PatchResult | null {
   const r = resolveSection(body, { type: "heading", heading: target });
-  if (!r.found) return null;
+  if (!r.found) {
+    if (r.reason === "not_found") return null;
+    throw ambiguousError("heading", r.matchLines, { heading: target });
+  }
   const lines = body.split(/\r?\n/);
   return splice(lines, op, r.startIndex + 1, r.startIndex + 1, r.endIndex, content, eol);
 }
 
-/** THE-198: insert/replace content relative to a block reference (`^block-id`).
- *  The block spans backward from the `^id` line to the paragraph start (a blank
- *  line, a heading, or body start). Returns null when the block id is absent. */
+/** THE-198: insert/replace content relative to a block reference (`^block-id`). The block spans
+ *  backward from the `^id` line to the paragraph start (a blank line, a heading, or body start),
+ *  skipping fenced code in the heading check (GH #926). Returns null when the block id is absent;
+ *  throws GH #922 shape 3's ambiguous-anchor refusal when the id occurs on more than one line. */
 export function patchByBlock(
   body: string,
   op: "append" | "prepend" | "replace",
@@ -212,7 +255,10 @@ export function patchByBlock(
   eol: string,
 ): PatchResult | null {
   const r = resolveSection(body, { type: "block", block_id: blockId });
-  if (!r.found) return null;
+  if (!r.found) {
+    if (r.reason === "not_found") return null;
+    throw ambiguousError("block reference", r.matchLines, { block_id: blockId });
+  }
   const lines = body.split(/\r?\n/);
   return splice(lines, op, r.startIndex, r.startIndex, r.endIndex, content, eol);
 }
