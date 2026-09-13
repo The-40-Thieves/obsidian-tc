@@ -33,7 +33,9 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   fenced code block — instead of silently binding to the first match, which used to let a second
   `replace` on a duplicated heading insert a whole second body (#922 shape 3). Drops a duplicate
   leading heading from `replace` content when it repeats the anchor's own heading, so both calling
-  conventions produce one heading instead of two (#922 shape 2). Refuses an operation that would
+  conventions produce one heading instead of two (#922 shape 2) — recognized with the same
+  indentation-insensitive matcher the body scans use, so an indented anchor heading's duplicate is
+  dropped whether or not the caller echoed the indentation. Refuses an operation that would
   flip the note from a terminated fence state to an unterminated one, comparing before/after so an
   already-broken note is not refused on every later patch (#926 suggested guard). `read_note`
   gains an optional `anchor` (patch_note's own vocabulary) returning
@@ -46,9 +48,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   note's section regardless of which line ending the caller authored it with — the section's own
   line ending is preserved on write; frontmatter delimiters are LF even around a CRLF body
   (pre-existing, unrelated to this anchor work). A block anchor's own marker-protection extends to
-  a marker that is ALONE on its line: the line break before it is protected too, not just the
-  `^id` token, so `old_string` can never consume that separator and glue the marker onto whatever
-  replaces it. Fence AND heading-boundary indentation now count only ASCII space/tab — any other
+  a marker that is ALONE on its line: the protected suffix is that whole line verbatim, indentation
+  and the line break before it included, not just the `^id` token, so `old_string` can never
+  consume part of the marker line and leave it re-indented, glued onto the replacement, or pushed
+  behind an inserted blank line. Fence AND heading-boundary indentation now count only ASCII space/tab — any other
   leading whitespace-looking character (NBSP, ideographic space, ...) is content, not indentation,
   even though a Unicode-aware `.trim()` would have hidden it. ATX heading boundaries (and anchor
   targets) now tolerate up to 3 columns of leading indentation and an empty title (`"##"` alone, or

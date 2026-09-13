@@ -6,8 +6,6 @@
 // ambiguous-anchor refusal (GH #922 shape 3).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 
-export const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
-
 /** Mirrors the PatchAnchor input union (schemas.ts) without a zod dependency here. */
 export type ResolvedAnchor =
   | { type: "heading"; heading: string }
@@ -74,10 +72,11 @@ function stripAsciiIndent(line: string): { col: number; rest: string } {
  *  columns of leading ASCII space/tab indentation (4+ is an indented code block, not a heading —
  *  the same CommonMark rule fences use, review round 3 M8) and an EMPTY title (`"##"` alone, or
  *  `"## "` with nothing after) — a real, if untargetable, boundary (no caller can anchor to
- *  `heading: ""` — the schema requires `min(1)`). Distinct from the stricter `HEADING` regex
- *  below, which `dropDuplicateLeadingHeading` uses for a narrower purpose (exact duplicate-heading
- *  detection in caller-supplied content, not body-boundary scanning) and is deliberately
- *  unchanged. */
+ *  `heading: ""` — the schema requires `min(1)`). Review round 5 D1: this is the ONE heading
+ *  recognizer in this module — `dropDuplicateLeadingHeading` tests caller-supplied content with it
+ *  too. A second, stricter column-0 regex used to live here for that narrower job, which meant an
+ *  indented anchor heading was a valid TARGET whose indented duplicate in `content` went
+ *  undetected, reviving the GH #922 shape 2 duplication the drop exists to prevent. */
 function matchHeadingBoundary(line: string): { level: number; title: string } | null {
   const { col, rest } = stripAsciiIndent(line);
   if (col > 3) return null;
@@ -185,7 +184,7 @@ export type SectionResolution =
  *  heading (or block id) matching more than one line is `ambiguous`, not silently bound to the
  *  first match — `matchLines` are 1-based, relative to `body`. Every heading recognition below
  *  uses `matchHeadingBoundary` (up to 3 columns of ASCII indentation tolerated, empty title
- *  allowed — review round 4 R3), never the stricter `HEADING` regex. */
+ *  allowed — review round 4 R3). */
 export function resolveSection(body: string, anchor: ResolvedAnchor): SectionResolution {
   const lines = body.split(/\r?\n/);
   const mask = fenceMask(lines);
@@ -422,10 +421,14 @@ export function dropDuplicateLeadingHeading(
   let i = 0;
   while (i < lines.length && (lines[i] ?? "").trim() === "") i++;
   if (i >= lines.length) return content;
-  const m = HEADING.exec(lines[i] ?? "");
+  // Review round 5 D1: recognized with `matchHeadingBoundary`, the same matcher every body scan
+  // uses, so the comparison is indentation-insensitive on both sides — an indented anchor heading
+  // is a resolvable target (round 4 R3), so its duplicate in `content` must be detectable whether
+  // the caller echoed the indentation or not.
+  const m = matchHeadingBoundary(lines[i] ?? "");
   if (!m) return content;
-  if ((m[1] ?? "").length !== level) return content;
-  if ((m[2] ?? "").trim().toLowerCase() !== heading.trim().toLowerCase()) return content;
+  if (m.level !== level) return content;
+  if (m.title.toLowerCase() !== heading.trim().toLowerCase()) return content;
   return [...lines.slice(0, i), ...lines.slice(i + 1)].join("\n");
 }
 

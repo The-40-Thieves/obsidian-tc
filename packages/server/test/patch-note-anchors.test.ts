@@ -1664,3 +1664,156 @@ describe("Review round 4 R3: ATX headings with leading spaces or an empty title 
     }
   });
 });
+
+describe("Review round 5 D1: the duplicate-heading drop uses the same heading recognition", () => {
+  // R3 made an indented ATX heading a valid boundary AND anchor target, but the content-side
+  // duplicate check still used the strict column-0 `HEADING` regex — so the GH #922 shape 2
+  // duplication this function exists to prevent came straight back for an indented anchor.
+  it("drops an indented duplicate heading from replace content (indented target)", async () => {
+    const raw = "## A\nold\n  ## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "B",
+        content: "  ## B\nnew",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\nold\n  ## B\nnew");
+      expect((out.match(/^\s*## B$/gm) ?? []).length).toBe(1);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("drops an UN-indented duplicate heading against an indented target", async () => {
+    const raw = "## A\nold\n  ## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "B",
+        content: "## B\nnew",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nold\n  ## B\nnew");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("drops an indented duplicate heading against an UN-indented target", async () => {
+    const raw = "## A\nold\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "B",
+        content: "   ## B\nnew",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nold\n## B\nnew");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("keeps a 4+-indented heading in content: that is indented code, not a duplicate", async () => {
+    const raw = "## A\nold\n## B\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "B",
+        content: "    ## B\nnew",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nold\n## B\n    ## B\nnew");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("Review round 5 D2: a standalone ^id marker line is protected verbatim", () => {
+  // The protected suffix used to be cut at the single whitespace character the block-id regex
+  // matched, not at the start of the marker LINE — so a 2-space-indented marker left one space
+  // (and the line break before it) inside the searchable window, while a 1-character (tab) indent
+  // happened not to. The indentation is part of the marker line and must survive byte-identical.
+  for (const { label, indent } of [
+    { label: "two spaces", indent: "  " },
+    { label: "a tab", indent: "\t" },
+    { label: "no indent", indent: "" },
+  ]) {
+    const raw = `## A\ntext\n${indent}^id\n\n## B\nkeep`;
+
+    it(`${label}: old_string "text" substitutes and leaves the marker line byte-identical`, async () => {
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("patch_note", {
+          vault: "test",
+          path: "a.md",
+          operation: "replace_text",
+          anchor: { type: "block", block_id: "id" },
+          old_string: "text",
+          new_string: "new",
+        });
+        expect(r.ok).toBe(true);
+        expect(v.read("a.md")).toBe(`## A\nnew\n${indent}^id\n\n## B\nkeep`);
+      } finally {
+        v.cleanup();
+      }
+    });
+
+    it(`${label}: old_string "text\\n" is refused, not accepted against the marker line`, async () => {
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("patch_note", {
+          vault: "test",
+          path: "a.md",
+          operation: "replace_text",
+          anchor: { type: "block", block_id: "id" },
+          old_string: "text\n",
+          new_string: "new",
+        });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+          expect(r.error.code).toBe("invalid_input");
+          expect(r.error.message).toBe("old_string not found in section");
+        }
+        expect(v.read("a.md")).toBe(raw);
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+
+  it("a standalone marker alone in its section: its indentation is not searchable either", async () => {
+    const raw = "  ^id\nkeep";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "id" },
+        old_string: " ",
+        new_string: "X",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.message).toBe("old_string not found in section");
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+});

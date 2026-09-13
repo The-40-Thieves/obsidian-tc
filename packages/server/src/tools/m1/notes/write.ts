@@ -7,7 +7,7 @@
 // move-copy.ts and delete.ts.
 //
 // THE-1038 / GH #927: patch_note's anchor-resolution helpers (patchByHeading/patchByBlock/
-// patchByPreamble and their shared PatchResult/removedSpan/HEADING/escapeRegExp) used to be
+// patchByPreamble and their shared PatchResult/removedSpan/escapeRegExp) used to be
 // private to this file — nothing else in the notes domain called them. read_note's section read
 // needs the same resolution, so they moved to ./anchors.ts; read.ts imports from there too.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
@@ -313,10 +313,16 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
             markerLine,
           );
           if (markerMatch) {
-            excludeTrailing = markerMatch[0];
+            // Review round 5 D2: for a standalone marker the protected suffix is the WHOLE marker
+            // line verbatim (plus the line break before it, when the section has an earlier line),
+            // not the regex match — `(?:^|\s)` consumes exactly ONE whitespace character, so a
+            // 2-space indent left one space, and with it the preceding newline, inside the
+            // searchable window while a 1-character tab indent happened not to. Nothing about a
+            // marker's own line, indentation included, may change.
             const markerAloneOnLine = markerLine.slice(0, markerMatch.index).trim() === "";
-            if (markerAloneOnLine && markerLineIndex > resolved.startIndex)
-              excludeTrailing = eol + excludeTrailing;
+            if (!markerAloneOnLine) excludeTrailing = markerMatch[0];
+            else if (markerLineIndex > resolved.startIndex) excludeTrailing = eol + markerLine;
+            else excludeTrailing = markerLine;
           }
         }
         const { body: nextBody, count } = replaceInSection(
