@@ -212,3 +212,48 @@ describe("THE-1040 fix round 2: O1 (line-based key removal) and X1-X4", () => {
       '"---\\ntext: |+\\n  hello\\n\\n\\ngone: 1\\n---\\n", remove "gone"',
   );
 });
+
+// Fix round 3, from the round-2 re-review: S1 — emitFrontmatter spliced an UNCHANGED key back
+// from its own AST node range, dropping an inline trailing comment on that key's line whenever
+// a SIBLING key changed. Same class as O1 (an inline comment belongs to its key), applied to
+// the preserve path instead of the remove path — and reusing O1's line-boundary machinery
+// exposed a real bug in it (a multi-line node's own range often already ends at the START of
+// the next line, so searching forward for "the next \n" walked into that next line's own
+// terminator and swallowed an unrelated neighbor — see lineBounds' own comment).
+describe("THE-1040 fix round 3: S1 (unchanged key's inline comment survives a sibling's change)", () => {
+  it("S1: an unchanged key's inline trailing comment survives when a sibling key changes (LF)", () => {
+    const raw = "---\na: 1\nb: 2 # keep this comment\n---\nbody\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), a: 9 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\na: 9\nb: 2 # keep this comment\n---\nbody\n");
+  });
+
+  it("S1: same, CRLF", () => {
+    const raw = "---\r\na: 1\r\nb: 2 # keep this comment\r\n---\r\nbody\r\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), a: 9 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\r\na: 9\r\nb: 2 # keep this comment\r\n---\r\nbody\r\n");
+  });
+
+  it("S1: an unchanged multi-line value with a trailing comment on its key line survives a sibling's change", () => {
+    const raw = "---\na: 1\ntags: # keep\n  - x\n  - y\n---\nbody\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), a: 9 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\na: 9\ntags: # keep\n  - x\n  - y\n---\nbody\n");
+  });
+
+  // Regression guard for the bug S1's own fix uncovered in lineBounds: an unchanged
+  // multi-line list's own AST range already ends at the START of the next key's line, so
+  // this proves that boundary is no longer walked into and the following key survives too.
+  it("S1: removing a neighbor key next to an unchanged multi-line list leaves both intact (CRLF)", () => {
+    const raw = "---\r\nlist:\r\n  - x\r\n  - y\r\ngone: 1\r\ntail: ok\r\n---\r\nbody\r\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}) };
+    delete fm.gone;
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\r\nlist:\r\n  - x\r\n  - y\r\ntail: ok\r\n---\r\nbody\r\n");
+  });
+});

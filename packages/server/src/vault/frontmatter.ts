@@ -136,7 +136,13 @@ function emitFrontmatter(
           const kr = kNode.range;
           const vr = isNode(vNode) ? vNode.range : null;
           if (isDeepStrictEqual(prevObj[k], next[k]) && kr && vr) {
-            entries.push(normalizeSlice(original.slice(kr[0], vr[1]), eol));
+            // THE-1040 S1: splice back the key's FULL source line(s) (lineBounds — the
+            // PRESERVE form, unlike lineSpan's removal-only preceding-newline swallow),
+            // not just its own node range — otherwise an inline trailing comment on an
+            // unchanged key's line (`b: 2 # keep this comment`) is dropped whenever a
+            // SIBLING key changes, since the comment sits outside [kr[0], vr[1]).
+            const [ls, le] = lineBounds(original, kr[0], vr[1]);
+            entries.push(normalizeSlice(original.slice(ls, le), eol));
           } else {
             entries.push(emitEntry(k, next[k]));
           }
@@ -158,26 +164,44 @@ function delimiterEol(original: string | null | undefined, body: string): string
 }
 
 /**
- * Expand a node's [start, end) byte range to the FULL source line(s) it occupies: back
- * up `start` to the beginning of its line, and extend `end` to the end of its line
- * (through the trailing "\n" when one follows). A node whose line has no trailing "\n"
- * (the raw block's last line — parseNote's capture never includes one) instead pulls in
- * the PRECEDING "\n", so removing it collapses cleanly rather than leaving a stray blank
- * line at the deletion point. THE-1040 O1: this is what keeps an INLINE trailing comment
- * (`tags: [x] # note`) or a multi-line value (a list, a block scalar) glued to the key
- * being removed, rather than orphaning fragments of it as a "surviving" line.
+ * Expand a node's [start, end) byte range to the full source LINE boundaries it
+ * occupies: back `start` up to the start of its line, extend `end` to the end of its
+ * line (through the trailing "\n" when one follows, else the end of the text — no
+ * further adjustment). Shared by lineSpan (removal) and S1's unchanged-key splice
+ * (preservation); this pure form never touches a neighboring line either way.
+ *
+ * A multi-line node (a list, a block scalar) commonly has its OWN range end already
+ * sitting exactly at a line boundary — just past its trailing "\n", at the START of
+ * whatever line follows — rather than mid-line. Searching forward from there for "the
+ * next \n" would walk straight into that FOLLOWING line's own terminator instead,
+ * swallowing an entire neighboring key. So when `end` already sits at a line start (or
+ * text start), it needs no extension at all; only a genuinely mid-line `end` (e.g. an
+ * inline trailing comment past a scalar value) searches forward.
+ */
+function lineBounds(text: string, start: number, end: number): [number, number] {
+  const prevNl = text.lastIndexOf("\n", start - 1);
+  const lineStart = prevNl === -1 ? 0 : prevNl + 1;
+  if (end === 0 || text[end - 1] === "\n") return [lineStart, end];
+  const nextNl = text.indexOf("\n", end);
+  const lineEnd = nextNl === -1 ? text.length : nextNl + 1;
+  return [lineStart, lineEnd];
+}
+
+/**
+ * `lineBounds`, plus: a node whose line has no trailing "\n" of its own (the raw
+ * block's LAST line — parseNote's capture never includes a trailing one) instead pulls
+ * in the PRECEDING "\n", so REMOVING this span collapses cleanly rather than leaving a
+ * stray blank line at the deletion point. THE-1040 O1: this is what keeps an inline
+ * trailing comment (`tags: [x] # note`) or a multi-line value (a list, a block scalar)
+ * glued to the key being removed, rather than orphaning fragments of it as a
+ * "surviving" line. Removal-only: S1's PRESERVE case uses plain `lineBounds` instead —
+ * swallowing a preceding "\n" there would glue an unchanged key onto a spurious leading
+ * blank line once it's spliced back next to its (possibly changed) neighbor.
  */
 function lineSpan(text: string, start: number, end: number): [number, number] {
-  const prevNl = text.lastIndexOf("\n", start - 1);
-  let lineStart = prevNl === -1 ? 0 : prevNl + 1;
-  const nextNl = text.indexOf("\n", end);
-  let lineEnd: number;
-  if (nextNl === -1) {
-    lineEnd = text.length;
-    if (lineStart > 0) lineStart -= 1;
-  } else {
-    lineEnd = nextNl + 1;
-  }
+  const [lineStart, lineEnd] = lineBounds(text, start, end);
+  const hasOwnTrailingNewline = text.indexOf("\n", end) !== -1;
+  if (!hasOwnTrailingNewline && lineStart > 0) return [lineStart - 1, lineEnd];
   return [lineStart, lineEnd];
 }
 

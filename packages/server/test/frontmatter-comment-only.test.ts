@@ -226,3 +226,27 @@ describe("THE-1040 C1: delimiter EOL follows the note's own opening delimiter", 
     }
   });
 });
+
+// THE-1040 S1 (fix round 3): an unchanged key's INLINE trailing comment must survive when
+// a SIBLING key changes — emitFrontmatter used to splice an unchanged key back from just its
+// own AST node range, which never included the comment.
+describe("THE-1040 S1: an unchanged key's inline comment survives a sibling's change", () => {
+  it("update_frontmatter set on one key keeps another key's inline comment", async () => {
+    const v = makeTestVault({
+      files: { "a.md": "---\na: 1\nb: 2 # keep this comment\n---\nbody\n" },
+    });
+    try {
+      const r = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "set",
+        key: "a",
+        value: 9,
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\na: 9\nb: 2 # keep this comment\n---\nbody\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+});

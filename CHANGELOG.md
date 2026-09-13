@@ -55,8 +55,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   only a full-line comment, or a blank line, can survive a removal — and a multi-line value (a
   list, a block scalar) is stripped in full rather than leaving orphaned fragment lines behind. A
   genuine no-op (e.g. `merge` with empty properties) changes no bytes, trailing blank lines
-  included. The block's own LINES are preserved verbatim; a trailing space/tab after the closing
-  `---` delimiter itself is normalized away on re-emit, same as before this fix.
+  included. An UNCHANGED key's own inline trailing comment (`b: 2 # keep this comment`) now
+  survives too, splicing that key back by its full source line rather than just its YAML node's
+  byte range, so it is not silently dropped whenever a *sibling* key changes. The block's own
+  LINES are preserved verbatim; a trailing space/tab after the closing `---` delimiter itself is
+  normalized away on re-emit, same as before this fix.
 
 ## [1.29.0] - 2026-09-13
 
