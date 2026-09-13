@@ -892,6 +892,34 @@ describe("THE-1044 R: a keep-chomp value ending the block survives a neighbour's
     expect(read(out)).toEqual({ key: "fresh", fresh: "third", b: 2 });
   });
 
+  // P4: materializing an alias key can land it in a collision group the caller never touched —
+  // `*key` resolves to `1`, which is already a pair. Nothing else collapses a group no edit names,
+  // so the group keeps the pair the reader resolves and the dropped pairs' anchors are copied into
+  // their aliases first, exactly as a set on that key would.
+  const ALIAS_KEY_UNTOUCHED = "---\n1: &key 1\n'1': second\n*key : third\nb: *key\n---\n";
+
+  it("P4: setting an unrelated key collapses the alias KEY's collision group", () => {
+    expect(read(ALIAS_KEY_UNTOUCHED)).toEqual({ "1": "third", b: 1 });
+    const out = setKey(ALIAS_KEY_UNTOUCHED, "b", 2);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ "1": "third", b: 2 });
+    expect(out.match(/^'?1'?:/gm)?.length).toBe(1);
+  });
+
+  it("P4: an alias under a dropped pair keeps the value it had", () => {
+    const out = setKey(ALIAS_KEY_UNTOUCHED, "c", 5);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ "1": "third", b: 1, c: 5 });
+  });
+
+  it("P4: the same collapse on CRLF", () => {
+    const raw = "---\r\n1: &key 1\r\n'1': second\r\n*key : third\r\nb: *key\r\n---\r\n";
+    const out = setKey(raw, "b", 2);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ "1": "third", b: 2 });
+    expect(out.split("\n").every((l) => l === "" || l.endsWith("\r"))).toBe(true);
+  });
+
   it("C2: a CLIP assignment keeps the blank separator line", () => {
     const raw = "---\ntext: |\n  hello\n\nright: 2\n---\n";
     const out = setKey(raw, "text", "changed\n");

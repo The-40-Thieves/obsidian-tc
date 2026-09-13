@@ -126,7 +126,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   one: a key whose ONLY pair was `*k : third` was invisible to the key scan, so a remove silently
   no-opped (or, after an earlier set, resurrected the old aliased value) and a set appended a second
   pair below the one shadowing it. The `? *k` key form does not survive an edit — correctness over
-  byte fidelity, as everywhere else in this fix.
+  byte fidelity, as everywhere else in this fix. Materializing one can also land it in a collision
+  group the caller never touched (`*key` resolving to `1` beside an existing `1:`), which nothing
+  else would collapse; that group is now reduced to the pair the reader resolves whoever asked for
+  the write, and any alias whose anchor sat under a dropped pair is materialized with the value it
+  had first (an untouched `b: *key` keeps reading `1`).
 
 ## [1.29.0] - 2026-09-13
 

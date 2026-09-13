@@ -1,14 +1,12 @@
-// YAML frontmatter parse/serialize. Body bytes are preserved verbatim. Frontmatter
-// key order is preserved; existing keys keep their position, new keys append.
-// Fidelity: serializeNote, given the ORIGINAL frontmatter text (parseNote().rawFrontmatter),
-// rewrites the block as a LINE LIST — every source line no changed or removed key owns is emitted
-// byte-for-byte, so YAML scalar quirks (leading-zero strings like zip: 01234, trailing-zero
-// versions like 1.10, hex/octal/sci values), standalone comments, inline comments and blank lines
-// all survive. Only added/changed keys are re-serialized; a removed key's lines are dropped,
-// leaving exactly one line break between its neighbours. A frontmatter-unchanged write keeps the
-// block verbatim; without the original it falls back to a plain stringify (new notes). SOURCE
-// slicing (not doc.toString) is what guarantees fidelity — the Document API alone canonicalizes
-// leading-zero integers; a block carrying an ALIAS is the one exception (emitViaDocument).
+// YAML frontmatter parse/serialize. Body bytes are verbatim; key order is preserved, existing keys
+// keep their position, new keys append. Fidelity: serializeNote, given the ORIGINAL frontmatter
+// text (parseNote().rawFrontmatter), rewrites the block as a LINE LIST — every source line no
+// changed or removed key owns is emitted byte-for-byte, so YAML scalar quirks (leading zeros like
+// zip: 01234, trailing zeros like 1.10, hex/octal/sci), comments and blank lines all survive. Only
+// added/changed keys are re-serialized; a removed key's lines are dropped, leaving exactly one line
+// break between its neighbours. An unchanged mapping keeps the block verbatim; with no original it
+// plain-stringifies (new notes). SOURCE slicing, not doc.toString, is what guarantees that: the
+// Document API canonicalizes leading zeros; an ALIAS block is the one exception (emitViaDocument).
 import { isDeepStrictEqual } from "node:util";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import YAML, { isAlias, isMap, isNode, isScalar, YAMLParseError } from "yaml";
@@ -110,8 +108,7 @@ function closeBlock(text: string, next: Frontmatter, eol: string): string {
 /** THE-1044: a block carrying any alias is edited as a DOCUMENT, not as a line list — the library
  *  keeps `&anchor`/`*alias` and node comments across set/delete, where re-emitting one key alone
  *  leaves a sibling's `*x` on an anchor that is gone and the note stops parsing. The cost is byte
- *  fidelity for the WHOLE block (an untouched `zip: 01234` comes back quoted); correctness first.
- *  Null = no alias, use the line list. */
+ *  fidelity for the WHOLE block; correctness first. Null = no alias, use the line list. */
 function emitViaDocument(
   doc: ReturnType<typeof YAML.parseDocument>,
   prevObj: Frontmatter,
@@ -119,7 +116,7 @@ function emitViaDocument(
   eol: string,
 ): string | null {
   if (!hasAlias(doc)) return null;
-  materializeAliasKeys(doc);
+  collapseAliasKeyGroups(doc, materializeAliasKeys(doc));
   const changed = (k: string) => !(k in prevObj) || !isDeepStrictEqual(prevObj[k], next[k]);
   const doomed = Object.keys(prevObj).filter((k) => !(k in next) || changed(k));
   materializeAliases(doc, doomed);
@@ -153,9 +150,9 @@ function hasAlias(doc: ReturnType<typeof YAML.parseDocument>, anchor?: string): 
 
 /** THE-1044: the document's OWN key nodes for a caller key, matched on their string form — a
  *  mapping keyed `1:`/`true:` arrives as the JS string, which get/set/delete compare against the
- *  key node's `value`, so the pair was missed entirely. There can be SEVERAL (`1:`, `'1':` and an
- *  alias key are distinct YAML keys collapsing to one JS key) and the reader sees the LAST — so a
- *  set follows the last and a remove drops them all, or a shadowed duplicate resurfaces. */
+ *  node's `value`, so the pair was missed. There can be SEVERAL (`1:`, `'1':` and a materialized
+ *  alias key are distinct YAML keys on one JS key); the reader sees the LAST, so a set follows it
+ *  and a remove drops them all, or a shadowed duplicate resurfaces. */
 function docKeys(doc: ReturnType<typeof YAML.parseDocument>, key: string): unknown[] {
   const map = doc.contents;
   if (!isMap(map)) return [];
@@ -189,15 +186,32 @@ function dropOrphanAnchor(doc: ReturnType<typeof YAML.parseDocument>, key: strin
 
 /** THE-1044: an alias used as a mapping KEY becomes the scalar it resolves to before any key node
  *  is matched — an Alias stringifies as `*k`, so docKeys never sees the pair and a remove no-ops.
- *  The `? *k` byte form is the cost. A COLLECTION-valued alias key stays: `*k` is the reader's too. */
-function materializeAliasKeys(doc: ReturnType<typeof YAML.parseDocument>): void {
+ *  The `? *k` byte form is the cost. A COLLECTION-valued one stays: `*k` is the reader's key. */
+function materializeAliasKeys(doc: ReturnType<typeof YAML.parseDocument>): string[] {
   const map = doc.contents;
-  if (!isMap(map)) return;
+  if (!isMap(map)) return [];
+  const made: string[] = [];
   for (const pair of map.items) {
     const key = pair.key;
     if (!isAlias(key)) continue;
     const src = key.resolve(doc);
-    if (isScalar(src)) pair.key = doc.createNode(src.toJS(doc));
+    if (!isScalar(src)) continue;
+    const node = doc.createNode(src.toJS(doc));
+    pair.key = node;
+    made.push(String(isScalar(node) ? node.value : node));
+  }
+  return made;
+}
+
+/** THE-1044: a materialized alias key can collide with a pair the caller never touched (`*key`
+ *  beside `1:`), and nothing else collapses a group no edit names. The pair the reader resolves
+ *  survives; a dropped pair's anchor goes into its aliases first, so `b: *key` keeps its value. */
+function collapseAliasKeyGroups(doc: ReturnType<typeof YAML.parseDocument>, keys: string[]): void {
+  for (const key of keys) {
+    const shadowed = docKeys(doc, key).slice(0, -1);
+    if (shadowed.length === 0) continue;
+    materializeAliases(doc, [key]);
+    for (const node of shadowed) doc.delete(node);
   }
 }
 
