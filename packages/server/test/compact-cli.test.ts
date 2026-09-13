@@ -7,7 +7,17 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  ftruncateSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -292,5 +302,43 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     // The reported afterBytes must match what is ACTUALLY on disk once the process has fully
     // exited (main file only at that point — our own checkpoint(TRUNCATE) already emptied -wal).
     expect(cacheReport?.afterBytes).toBe(statSync(dbPath).size);
+  }, 30_000);
+
+  // Fix round 2 addendum — `run_compact`'s catch now wraps ANY per-database failure into a report
+  // row, not only a classified `CompactError` (busy / destination-exists). A genuinely unexpected
+  // error mid-VACUUM (here: a physically corrupted experiential.db, "database disk image is
+  // malformed" — not busy, not a destination collision) must not erase cache.db's own success.
+  it("a non-CompactError failure (corrupted experiential.db) is reported, not a crash that erases cache.db's success", async () => {
+    const { cacheDir, configPath } = setupConfig();
+    await seedInflatedCacheDb(cacheDir);
+    const expPath = join(cacheDir, "experiential.db");
+    const edb = await openDatabase(expPath);
+    edb.exec("CREATE TABLE t(x)");
+    edb.exec("INSERT INTO t VALUES (1),(2),(3)");
+    edb.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    edb.close?.();
+    // Truncate to a physically malformed (not merely busy/missing) file — VACUUM on this throws a
+    // plain "database disk image is malformed" Error, never classified as a CompactError.
+    const size = statSync(expPath).size;
+    const fd = openSync(expPath, "r+");
+    ftruncateSync(fd, Math.floor(size * 0.5));
+    closeSync(fd);
+
+    const jsonPath = join(cacheDir, "report.json");
+    const r = runCli(["compact", "--config", configPath, "--json", jsonPath]);
+    expect(r.code).toBe(1);
+    expect(r.stdout).toMatch(/cache\.db:.* reclaimed/);
+    expect(r.stderr).toMatch(/experiential\.db:.*malformed/);
+
+    const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+      db: string;
+      integrityOk: boolean;
+      error?: string;
+    }>;
+    const cacheReport = report.find((x) => x.db === "cache.db");
+    const expReport = report.find((x) => x.db === "experiential.db");
+    expect(cacheReport?.integrityOk).toBe(true);
+    expect(expReport?.integrityOk).toBe(false);
+    expect(expReport?.error).toMatch(/malformed/);
   }, 30_000);
 });

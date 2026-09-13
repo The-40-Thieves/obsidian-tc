@@ -390,25 +390,28 @@ function printReport(r: DbCompactReport): void {
   }
 }
 
-/** A1/A4: the failure report row for a `CompactError` on `name`, so the loop below can record it
- *  and move on rather than aborting before an already-succeeded database's report is written. */
+/** A1/A4: the failure report row for a per-database failure, so the loop below can record it and
+ *  move on. Takes `unknown`, not just `CompactError`: cli.ts's own `fatal:` handler only ever
+ *  printed `(err as Error).message` too (no stack trace either way), so wrapping ANY error here
+ *  loses nothing an operator would have seen while still letting the OTHER database compact. */
 function errorReport(
   name: CompactableDb,
   path: string,
   dryRun: boolean,
-  e: CompactError,
+  e: unknown,
 ): DbCompactReport {
+  const message = e instanceof Error ? e.message : String(e);
   return {
     db: name,
     path,
     dryRun,
-    error: e.message,
+    error: message,
     beforeBytes: existsSync(path) ? dbFootprintBytes(path) : 0,
     afterBytes: existsSync(path) ? dbFootprintBytes(path) : 0,
     reclaimedBytes: 0,
     ftsOptimized: [],
     integrityOk: false,
-    integrityIssues: [e.message],
+    integrityIssues: [message],
   };
 }
 
@@ -418,10 +421,11 @@ function errorReport(
  *
  * A1 incident this closes: a `SQLITE_BUSY` on the SECOND database used to `process.exit(1)` from
  * inside the loop before the report/`--json` for an already-succeeded FIRST database ever ran, so
- * that success was reported nowhere. Every outcome (success or a `CompactError`) is now collected
- * into `reports` first; the report/`--json` are always emitted, and the exit code goes non-zero if
- * ANY database failed or failed verification, decided once at the end. A non-`CompactError` is a
- * bug and is not caught here — it propagates to cli.ts's generic `fatal:` handler.
+ * that success was reported nowhere. Every outcome — success, or ANY failure (a classified
+ * `CompactError`, or an unexpected one — see `errorReport`'s comment for why widening the catch
+ * that far loses no information a crash would have shown) — is now collected into `reports` first;
+ * the report/`--json` are always emitted, and the exit code goes non-zero if ANY database failed or
+ * failed verification, decided once at the end.
  */
 export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
@@ -438,11 +442,7 @@ export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
         : await compactOneDatabase(name, path, busyTimeoutMs, cmd.into);
       reports.push(report);
     } catch (e) {
-      if (e instanceof CompactError) {
-        reports.push(errorReport(name, path, dryRun, e));
-        continue;
-      }
-      throw e;
+      reports.push(errorReport(name, path, dryRun, e)); // any failure, classified or not
     }
   }
 
