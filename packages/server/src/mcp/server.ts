@@ -26,6 +26,7 @@ import {
   sampleViaClient,
 } from "./client-features";
 import { extractClientInfo } from "./client-info";
+import { splitElicitToken } from "./elicit-token";
 import {
   buildInstructions,
   callCapability,
@@ -565,9 +566,6 @@ export function createMcpServer(opts: McpServerOptions): Server {
   };
 
   server.setRequestHandler("tools/call", async (req, extra): Promise<CallToolResult> => {
-    // Bridge the HITL elicit token from tool arguments into the caller context,
-    // stripping it from the args so it never perturbs args_hash — the token is
-    // bound to the hash of the call WITHOUT the token (see elicit.ts / hitl.ts).
     const rawArgs = (req.params.arguments ?? {}) as Record<string, unknown>;
     let args: Record<string, unknown> = rawArgs;
     let ctx = opts.context(extra.mcpReq.signal);
@@ -608,11 +606,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       extra.mcpReq as { requestState?: <T>() => T | undefined }
     ).requestState?.<ElicitRequestState>();
     if (echoed !== undefined) ctx = { ...ctx, elicitState: echoed };
-    if (typeof rawArgs.elicit_token === "string") {
-      const { elicit_token, ...rest } = rawArgs;
-      args = rest;
-      ctx = { ...ctx, elicitToken: elicit_token };
-    }
+    ({ args, ctx } = splitElicitToken(rawArgs, ctx));
     // THE-583: run as a background TASK when the client asked and the tool opted in.
     //
     // Both conditions matter. A client asks with `params.task`; a tool declares `taskAugmentable`.
@@ -645,8 +639,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // schema validation fire unchanged (identical to call_capability, just grouped by domain).
     if (facadeMode === "domain" && isDomainTool(req.params.name)) {
       const action = typeof args.action === "string" ? args.action : "";
-      const actionArgs = (args.args ?? {}) as Record<string, unknown>;
-      return dispatchToResult(action, actionArgs, ctx, canElicit, log);
+      const rawActionArgs = (args.args ?? {}) as Record<string, unknown>;
+      const { args: actionArgs, ctx: actionCtx } = splitElicitToken(rawActionArgs, ctx);
+      return dispatchToResult(action, actionArgs, actionCtx, canElicit, log);
     }
     // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
     // caller-visible catalog; call_capability routes the named TARGET through registry.dispatch so
@@ -702,7 +697,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
       return callCapability(
         rawArgs,
         args,
-        (n, a) => dispatchToResult(n, a, ctx, canElicit, log),
+        (n, a) => {
+          // THE-1037 (GH #925): `a` is call_capability's INNER args, forwarded here untouched by
+          // callCapability itself — strip it the same way as the outer envelope (splitElicitToken).
+          const { args: targetArgs, ctx: targetCtx } = splitElicitToken(a, ctx);
+          return dispatchToResult(n, targetArgs, targetCtx, canElicit, log);
+        },
         errorToResult,
       );
     }

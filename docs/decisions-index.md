@@ -365,7 +365,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 | THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (#909, THE-963). | CHANGELOG.md (1.28.0) | 3 |
+| THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#925, THE-1037). | CHANGELOG.md (Unreleased) | 1 |
 
-351 distinct ticket(s) across 493 source file(s) under
-`packages/*/src`; 251 resolved to a public summary, 100
+352 distinct ticket(s) across 493 source file(s) under
+`packages/*/src`; 252 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.
