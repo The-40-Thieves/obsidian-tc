@@ -25,10 +25,9 @@ export interface NotComparableTable {
 }
 
 /** THE-1039 (A1, A4) — an EXPECTED, reportable failure for one database, not a bug. `run_compact`
- *  catches `unknown` per database, so EVERY error becomes a report row; this only carries what
- *  `errorReport` can SAY about one. ONE class with optional facts, not a subclass each (M8): only
- *  `CompactIntoFailedError` is `instanceof`-checked. `ftsOptimized` is the PARTIAL list `'optimize'`
- *  committed before the failure (M4) — real work, even if the VACUUM never ran. */
+ *  catches `unknown` per database, so EVERY error becomes a report row; this carries only what
+ *  `errorReport` can SAY about one. One class with optional facts, not a subclass each (M8): only
+ *  `CompactIntoFailedError` is `instanceof`-checked. `ftsOptimized`: what `'optimize'` committed. */
 export class CompactError extends Error {
   constructor(
     message: string,
@@ -69,9 +68,9 @@ export class CompactIntoFailedError extends CompactError {
   }
 }
 
-/** One database's compaction (or dry-run) result — every shape is one type, so `run_compact` prints
- *  and `--json`-serializes through one path. Byte counts are the FOOTPRINT (main + `-wal`, A2's
- *  `dbFootprintBytes`, as doctor's `db.reclaimable-space` uses), bar `freelistBytes`. */
+/** One database's compaction (or dry-run) result — one type for every shape, so `run_compact` prints
+ *  and `--json`-serializes through one path. Bytes are the FOOTPRINT (main + `-wal`, A2's
+ *  `dbFootprintBytes`, as doctor's row uses), bar `freelistBytes`. */
 export interface DbCompactReport {
   db: CompactableDb;
   path: string;
@@ -105,14 +104,14 @@ export interface DbCompactReport {
    *  in place, which opens writable by design). `"fallback"` is reported out loud — see
    *  `printReport` — because bytes are only guaranteed unchanged on `"native"`. */
   readonlyMode?: "native" | "fallback";
-  /** M6: a checkpoint a reader prevented — invisible before, while `afterBytes` counted the `-wal`
-   *  it left (a NEGATIVE reclaim, measured). Reported; not a failure, not an exit-code change. */
+  /** M6: a checkpoint a reader prevented — invisible before, while `afterBytes` counted the `-wal` it
+   *  left (a NEGATIVE reclaim, measured). Reported; not a failure, not an exit-code change. */
   checkpointBlocked?: string;
-  /** I2 ruling — `--into`'s three outcomes. "partial" is exit 0 and DOES recommend the copy, with
-   *  the un-row-counted tables named; it never prints the bare words "verified copy". */
+  /** I2 — `--into`'s three outcomes. "partial" is exit 0 and DOES recommend the copy, naming the
+   *  un-row-counted tables; it never prints the bare words "verified copy". */
   verification?: "verified" | "partial" | "failed";
-  /** I2 — tables `COUNT(*)` could not read (vec0 without sqlite-vec, chiefly): copied page-for-page
-   *  by `VACUUM INTO` (measured), simply not proven by a count. */
+  /** I2 — tables whose COUNT(*) hit an UNAVAILABLE MODULE (vec0 without sqlite-vec): copied
+   *  page-for-page (measured), unprovable. Any OTHER count error is a failure. */
   notComparable?: NotComparableTable[];
   /** `--into` only. */
   into?: {
@@ -126,8 +125,8 @@ export interface DbCompactReport {
   };
 }
 
-/** Single-quote a path for SQL — VACUUM INTO takes a string literal, not a bind parameter. Same
- *  idiom as workspace/rerun.ts's private copy, not imported, to keep this command's deps to db/*. */
+/** Single-quote a path for SQL — VACUUM INTO takes a literal, not a bind parameter (rerun.ts has its
+ *  own copy; not imported, to keep this command's deps to db/*). */
 function quoteSqlString(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
@@ -166,8 +165,7 @@ function realTableNames(db: Database): string[] {
 
 /** Row count per table, or the raw error that prevented counting. I2: a failure became `-1` on BOTH
  *  connections and `-1 === -1` read as a MATCH, so `COUNT(*) FROM vec_chunks` ("no such module:
- *  vec0" — this command never loads sqlite-vec) left a semantic store's largest table unverified
- *  under the words "verified copy". Its own outcome now, neither pass nor fail. */
+ *  vec0") left a semantic store's largest table unverified under "verified copy". */
 function tableRowCounts(db: Database, tables: string[]): Record<string, number | string> {
   const out: Record<string, number | string> = {};
   for (const t of tables) {
@@ -181,9 +179,9 @@ function tableRowCounts(db: Database, tables: string[]): Record<string, number |
   return out;
 }
 
-/** Compare each table's row count between the live database and its `VACUUM INTO` copy. Best-effort,
- *  not a proof: the live file can be written between snapshot and comparison, so a mismatch on an
- *  actively-written table may not be corruption — reported anyway, since this cannot tell. */
+/** Compare each table's row count between the live database and its `VACUUM INTO` copy. Best-effort:
+ *  the live file can be written between snapshot and comparison, so a mismatch on an actively-written
+ *  table may not be corruption — reported anyway, since this cannot tell. */
 function verifyRowCounts(
   live: Database,
   copy: Database,
@@ -194,11 +192,25 @@ function verifyRowCounts(
   const notComparable: NotComparableTable[] = [];
   const mismatches: string[] = [];
   for (const t of tables) {
-    const reason = [liveCounts[t], copyCounts[t]].find((v) => typeof v === "string");
-    // I2 ruling: uncountable is its OWN outcome, not a failure — only the row-count PROOF is missing.
-    if (typeof reason === "string") notComparable.push({ table: t, reason });
-    else if (liveCounts[t] !== copyCounts[t])
+    // "Not comparable" is ONLY the unavailable-module class (vec0 without sqlite-vec): copied
+    // page-for-page, unprovable. ANY other count error (busy, missing) FAILS — an unchecked table
+    // must never reach an install recommendation.
+    const errors: { side: string; error: string }[] = [];
+    for (const [side, v] of [
+      ["live", liveCounts[t]],
+      ["copy", copyCounts[t]],
+    ] as const) {
+      if (typeof v === "string") errors.push({ side, error: v });
+    }
+    const hard = errors.filter((e) => !/no such module/i.test(e.error));
+    const unavailable = errors.find((e) => /no such module/i.test(e.error));
+    if (hard.length > 0) {
+      for (const e of hard) mismatches.push(`${t}: count failed on ${e.side}: ${e.error}`);
+    } else if (unavailable !== undefined) {
+      notComparable.push({ table: t, reason: unavailable.error });
+    } else if (liveCounts[t] !== copyCounts[t]) {
       mismatches.push(`${t}: live=${liveCounts[t]} copy=${copyCounts[t]}`);
+    }
   }
   return { mismatches, notComparable };
 }
@@ -321,6 +333,7 @@ async function compactOneDatabase(
         // copy-vs-live divergence — see `forcedCompactIntoFailure`.
         const forced = forcedCompactIntoFailure();
         if (forced?.kind === "throw") throw forced.error;
+        if (forced?.kind === "countError") copyDb.exec(`DROP TABLE "${forced.table}"`);
         if (forced?.kind === "delete") {
           copyDb.exec(
             `DELETE FROM "${forced.table}" WHERE rowid = (SELECT MIN(rowid) FROM "${forced.table}")`,
@@ -536,10 +549,10 @@ function errorReport(
   };
 }
 
-/** `obsidian-tc compact` — see the file header for the in-place-vs-`--into` ruling. Runs cache.db
- *  then experiential.db, skipping either absent. A1 incident closed: a `SQLITE_BUSY` on the SECOND
- *  database used to `process.exit(1)` before the FIRST one's success was reported. Every outcome
- *  lands in `reports` first; report/`--json` always emit, and the exit code is decided once, last. */
+/** `obsidian-tc compact` — see the file header for the in-place-vs-`--into` ruling. Runs cache.db then
+ *  experiential.db, skipping either absent. A1 incident closed: a `SQLITE_BUSY` on the SECOND database
+ *  `process.exit(1)`d before the FIRST one's success was reported, so every outcome lands in `reports`
+ *  first, report/`--json` always emit, and the exit code is decided once, last. */
 export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   const busyTimeoutMs = cfg.db.busyTimeoutMs;

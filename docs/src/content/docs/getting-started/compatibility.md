@@ -80,7 +80,9 @@ not a supported operating mode, because each deliberately weakens a safety prope
   `VACUUM INTO` fail, so the "an incomplete copy remains at …" reporting path can be exercised
   without depending on a platform's SQLite to corrupt a fixture in a particular way;
   `=delete:<table>` instead drops one row from the copy, which is the only deterministic way to make
-  verification see a real row-count mismatch (`VACUUM INTO` is faithful by construction).
+  verification see a real row-count mismatch (`VACUUM INTO` is faithful by construction), and
+  `=count-error:<table>` makes that table's `COUNT(*)` fail on the copy, which must read as a
+  verification failure rather than as the "not comparable" outcome an unavailable module earns.
 
 None of them is gated to test builds — like `OBSIDIAN_TC_FORCE_JS_FALLBACK`, they are plain
 environment reads — so the only thing keeping them out of production is not setting them.

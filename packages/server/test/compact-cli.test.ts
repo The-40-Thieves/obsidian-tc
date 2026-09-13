@@ -653,6 +653,42 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     TEST_BUDGET_MS,
   );
 
+  // Post-wave ruling — "not comparable" is ONLY the unavailable-module class. Any other COUNT(*)
+  // failure (a busy live table, a missing one) is a real mismatch: an unchecked table must never
+  // reach an install recommendation. `count-error:<table>` drops it from the copy, so the count
+  // throws "no such table" — the same non-module class a SQLITE_BUSY count would land in.
+  it(
+    "a non-module count error is 'failed', not 'partial'",
+    async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-counterr-"));
+      dirs.push(destDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "count-error:idempotency_keys",
+      });
+
+      expect(r.code).toBe(1);
+      expect(r.stdout).toContain("FAILED verification");
+      expect(r.stdout).not.toContain("to install it:");
+      expect(r.stdout).not.toContain("verified copy");
+      expect(r.stderr).toMatch(
+        /count failed on copy: no such table: (main\.)?idempotency_keys|no such table: idempotency_keys/,
+      );
+
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        verification?: string;
+        notComparable?: unknown[];
+      }>;
+      const cacheReport = report.find((x) => x.db === "cache.db");
+      expect(cacheReport?.verification).toBe("failed");
+      expect(cacheReport?.notComparable).toBeUndefined();
+    },
+    TEST_BUDGET_MS,
+  );
+
   // M6 (final review) — `PRAGMA wal_checkpoint(TRUNCATE)` RETURNS `(busy, log, checkpointed)`; it
   // does not throw. A reader holding a read transaction blocks the truncation (measured: busy=1
   // while the VACUUM itself still succeeds), so `-wal` survives and `afterBytes` counts it. That was

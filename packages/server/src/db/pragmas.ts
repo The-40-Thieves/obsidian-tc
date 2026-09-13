@@ -39,6 +39,7 @@ export function forceReadonlyOpenFallback(): boolean {
 export function forcedCompactIntoFailure():
   | { kind: "throw"; error: Error }
   | { kind: "delete"; table: string }
+  | { kind: "countError"; table: string }
   | undefined {
   const mode = process.env.OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE;
   if (mode === undefined) return undefined;
@@ -46,6 +47,11 @@ export function forcedCompactIntoFailure():
   // produce a REAL row-count mismatch: `VACUUM INTO` is faithful by design, so nothing a fixture can
   // do to the source will make the copy disagree.
   if (mode.startsWith("delete:")) return { kind: "delete", table: mode.slice("delete:".length) };
+  // `count-error:<table>` makes that table's COUNT(*) FAIL on the copy (the non-module error class,
+  // which must read as a failure, never as "not comparable").
+  if (mode.startsWith("count-error:")) {
+    return { kind: "countError", table: mode.slice("count-error:".length) };
+  }
   if (mode !== "1" && mode !== "busy") return undefined;
   const error = new Error(`OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=${mode}`);
   if (mode === "busy") (error as Error & { code?: string }).code = "SQLITE_BUSY";
