@@ -227,23 +227,22 @@ async function compactOneDatabase(
           `compact --into: ${destPath} already exists — VACUUM INTO refuses to overwrite it`,
         );
       }
-      try {
-        db.exec(`VACUUM INTO ${quoteSqlString(destPath)}`);
-      } catch (e) {
-        if (busyReason(e)) throw new CompactBusyError(name);
-        throw e;
-      }
-      const copyDb = await openDatabase(destPath, busyTimeoutMs);
+      let copyDb: Database | undefined;
       let ftsOptimized: string[];
       let integrity: { ok: boolean; issues: string[] };
       let rowCountMismatches: string[];
       try {
+        db.exec(`VACUUM INTO ${quoteSqlString(destPath)}`);
+        copyDb = await openDatabase(destPath, busyTimeoutMs);
         ftsOptimized = optimizeFtsTables(copyDb);
         copyDb.exec("VACUUM");
         integrity = verifyIntegrity(copyDb);
         rowCountMismatches = verifyRowCounts(db, copyDb);
+      } catch (e) {
+        if (busyReason(e)) throw new CompactBusyError(name);
+        throw e;
       } finally {
-        copyDb.close?.();
+        copyDb?.close?.();
       }
       const ok = integrity.ok && rowCountMismatches.length === 0;
       const copyBytes = statSync(destPath).size;
@@ -269,8 +268,9 @@ async function compactOneDatabase(
       };
     }
 
-    const ftsOptimized = optimizeFtsTables(db);
+    let ftsOptimized: string[];
     try {
+      ftsOptimized = optimizeFtsTables(db);
       db.exec("VACUUM");
     } catch (e) {
       if (busyReason(e)) throw new CompactBusyError(name);
