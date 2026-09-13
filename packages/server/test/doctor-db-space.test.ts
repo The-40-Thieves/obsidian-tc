@@ -9,8 +9,17 @@
 // `DbSpaceView` — "missing" / "unopenable" / "ok" — rather than collapsing every failure into the
 // same `undefined` a fresh install also produces (a Greptile-flagged + T-Rex-verified finding: a
 // read-only cache.db was misreported as "no cache.db yet").
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -251,6 +260,119 @@ describe("probeDbSpace — a real cache.db", () => {
 
       expect(sha256(dbPath)).toBe(hashBefore);
       expect(journalMode()).toBe("wal");
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  // THE-1039 fix round 3 (C2) — round 2's fix above (a writable file descriptor that merely
+  // avoids write pragmas) was ITSELF found unsafe: closing that connection can trigger SQLite's
+  // OWN checkpoint-on-close against a DANGLING, un-checkpointed WAL (left by a writer that
+  // crashed or was killed before it could checkpoint) — a physical mutation of the main file and
+  // deletion of `-wal`, regardless of which pragmas this code chooses to issue. Fixed by trying
+  // the native `SQLITE_OPEN_READONLY` open FIRST (a readonly connection cannot take the exclusive
+  // lock a checkpoint needs, so it cannot trigger one) and falling back to round 2's approach only
+  // if that throws.
+  //
+  // This fixture is built by spawning a real child process that opens the database, disables
+  // auto-checkpointing, writes, and is then SIGKILLed before it can close (and thus before it can
+  // checkpoint) — the WAL is left genuinely dangling, not merely "not yet auto-checkpointed by
+  // this same process's next write" the way an in-process test could only approximate.
+  it("a dangling WAL (writer killed before it could checkpoint) is left byte-for-byte unchanged by a successful readonly probe", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-dangling-wal-"));
+    try {
+      const dbPath = join(cacheDir, "cache.db");
+      const scriptPath = join(cacheDir, "writer.cjs");
+      writeFileSync(
+        scriptPath,
+        [
+          'const { DatabaseSync } = require("node:sqlite");',
+          "const db = new DatabaseSync(process.argv[2]);",
+          'db.exec("PRAGMA journal_mode = WAL");',
+          'db.exec("PRAGMA wal_autocheckpoint = 0");', // never auto-checkpoint on its own
+          'db.exec("CREATE TABLE t(x)");',
+          'db.exec("INSERT INTO t VALUES (1),(2),(3)");',
+          'process.stdout.write("ready\\n");',
+          "setInterval(() => {}, 1000);", // stay alive (with the WAL un-checkpointed) until killed
+        ].join("\n"),
+      );
+
+      const child = spawn(process.execPath, [scriptPath, dbPath], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("writer did not become ready")), 10_000);
+        child.stdout.on("data", (d: Buffer) => {
+          if (d.toString().includes("ready")) {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        child.on("error", reject);
+      });
+      child.kill("SIGKILL");
+      await new Promise<void>((resolve) => child.on("exit", () => resolve()));
+
+      // Confirm this genuinely built a dangling WAL before trusting the assertions below.
+      expect(existsSync(`${dbPath}-wal`)).toBe(true);
+      expect(statSync(`${dbPath}-wal`).size).toBeGreaterThan(0);
+
+      const hashBefore = sha256(dbPath);
+      const walHashBefore = sha256(`${dbPath}-wal`);
+
+      const view = await probeDbSpace(cacheDir, 5000);
+      expect(view.status).toBe("ok");
+
+      expect(sha256(dbPath)).toBe(hashBefore);
+      expect(sha256(`${dbPath}-wal`)).toBe(walHashBefore);
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  // C2 — the FALLBACK branch (native readonly open throwing) cannot give the same bytes-unchanged
+  // guarantee: forced here via `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK` (pragmas.ts's
+  // `forceReadonlyOpenFallback`, the same test-only-escape-hatch shape as
+  // `OBSIDIAN_TC_FORCE_JS_FALLBACK` elsewhere in this repo) rather than by trying to reproduce
+  // C1's macOS-only native-open failure on this (Linux) sandbox. What the fallback DOES still
+  // guarantee — no write-capable pragma, so `journal_mode` and every logical row are unchanged —
+  // is asserted; byte-for-byte identity is deliberately NOT asserted here, since the fallback's
+  // one documented residual side effect (SQLite's own checkpoint-on-close against a dangling WAL)
+  // can change bytes even though this code issued no write.
+  it("the forced fallback path preserves journal_mode and every row, but does not promise unchanged bytes", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-forced-fallback-"));
+    try {
+      const dbPath = join(cacheDir, "cache.db");
+      const db = await openDatabase(dbPath); // openDatabase's own pragmas set journal_mode = WAL
+      provisionCacheDb(db, { version: "test" });
+      db.prepare(
+        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      ).run("v1", "k1", "t", "h", 1, 2, "{}", 2, 9_999_999_999_999);
+      db.close?.();
+
+      const priorEnv = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
+      process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = "1";
+      let reader: Awaited<ReturnType<typeof openDatabase>> | undefined;
+      try {
+        reader = await openDatabase(dbPath, 5000, { readonly: true });
+        expect(reader.readonlyMode).toBe("fallback");
+        expect(
+          (reader.prepare("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode,
+        ).toBe("wal");
+        expect(
+          (reader.prepare("SELECT COUNT(*) AS n FROM idempotency_keys").get() as { n: number }).n,
+        ).toBe(1);
+        reader.close?.();
+        reader = undefined;
+
+        // The probe itself (doctor's own call site) still succeeds while forced onto this path.
+        const view = await probeDbSpace(cacheDir, 5000);
+        expect(view.status).toBe("ok");
+      } finally {
+        reader?.close?.();
+        if (priorEnv === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
+        else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
+      }
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }

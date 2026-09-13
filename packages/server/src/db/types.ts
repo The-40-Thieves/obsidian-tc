@@ -23,6 +23,16 @@ export interface Database {
   // where callers fall back to the in-process brute-force vector scan.
   loadExtension?(path: string): void;
   close?(): void;
+  /** THE-1039 fix round 3 (C2) — set only when this connection was opened with
+   *  `{ readonly: true }`: which of the two open strategies the adapter actually used.
+   *  `"native"` means the OS-level `SQLITE_OPEN_READONLY` open succeeded — bytes and journal mode
+   *  are guaranteed unchanged. `"fallback"` means that open THREW and the adapter fell back to a
+   *  writable file descriptor that merely issues no write statement — see pragmas.ts's
+   *  `readonlyConnectionPragmas` and each adapter's own comment for why that fallback can still
+   *  physically mutate the file (SQLite's checkpoint-on-close against a dangling WAL) despite never
+   *  being asked to. Exposed so a test can assert which path a given fixture took, rather than
+   *  inferring it from side effects. `undefined` under a non-readonly open. */
+  readonlyMode?: "native" | "fallback";
 }
 
 /**
@@ -31,12 +41,23 @@ export interface Database {
  * capable of writing — chiefly `journal_mode`) and refuses to CREATE a missing file where the
  * adapter supports that distinctly from opening read-only.
  *
- * Fix round 2 (C1): does NOT use each adapter's native `SQLITE_OPEN_READONLY` open mode anymore.
- * Fix round 1 did, and CI's `build-test (macos-latest)` failed opening a WAL-mode fixture that way
- * — "unable to open database file" — while Linux x64/arm64 and Windows passed unchanged; see
- * bun-sqlite.ts's comment for the full incident. Every adapter now opens a normal READWRITE file
- * descriptor under `readonly: true` and simply never issues a write statement — see each adapter's
- * own comment for why that is the actual guarantee, not the OS-level open flag.
+ * Fix round 2 (C1) tried dropping each adapter's native `SQLITE_OPEN_READONLY` open mode entirely
+ * — fix round 1 used it, and CI's `build-test (macos-latest)` failed opening a WAL-mode fixture
+ * that way ("unable to open database file") while Linux x64/arm64 and Windows passed unchanged;
+ * see bun-sqlite.ts's comment for the full incident. That "always use a writable fd" fix was ITSELF
+ * found unsafe (fix round 3, C2): a writable file descriptor cannot stop SQLite performing its own
+ * checkpoint-on-close if this connection happens to be the one that closes a DANGLING, un-
+ * checkpointed WAL (left by a writer that crashed or was killed) — a PHYSICAL mutation of the main
+ * file's bytes and deletion of `-wal`, entirely outside any pragma this code chooses to issue.
+ *
+ * Current fix (round 3): READONLY-FIRST WITH FALLBACK. Every adapter tries the native
+ * `SQLITE_OPEN_READONLY` open FIRST; only if that throws does it fall back to a writable file
+ * descriptor that issues no write statement. `Database.readonlyMode` (above) says which path a
+ * given open actually took. The guarantee this now provides is conditional, not absolute: when the
+ * native open succeeds, this is no logical or configuration change to the file — bytes and journal
+ * mode are unchanged. When it does not and the fallback is used, bytes MAY change (the
+ * checkpoint-on-close case above) even though no write statement was issued — see each adapter's
+ * own comment.
  */
 export interface OpenOptions {
   readonly?: boolean;

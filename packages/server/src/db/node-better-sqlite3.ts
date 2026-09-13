@@ -1,4 +1,4 @@
-import { connectionPragmas, readonlyConnectionPragmas } from "./pragmas";
+import { connectionPragmas, forceReadonlyOpenFallback, readonlyConnectionPragmas } from "./pragmas";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 /**
@@ -26,19 +26,38 @@ export async function openBetterSqlite3(
 ): Promise<Db> {
   const { default: BetterSqlite3 } = await import("better-sqlite3");
   // THE-1039 fix round 2 (C1) — see bun-sqlite.ts's matching comment for the full macOS incident
-  // this reverts (fix round 1's F2 used the native `readonly` option, which CI's macOS leg failed
-  // to open a WAL-mode fixture with, while Linux/Windows passed unchanged). `opts.readonly` now
-  // maps to `{ fileMustExist: true }` WITHOUT `readonly` — per better-sqlite3's own source
+  // this reverted (fix round 1's F2 used the native `readonly` option, which CI's macOS leg failed
+  // to open a WAL-mode fixture with, while Linux/Windows passed unchanged) — applied to every
+  // adapter for consistency, not because better-sqlite3 (its own bundled SQLite, not Apple's
+  // system one) was shown to have the same failure.
+  //
+  // Fix round 3 (C2) — round 2's unconditional `{ fileMustExist: true }` (no `readonly`) was
+  // ITSELF found unsafe: a writable file descriptor cannot stop SQLite performing its own
+  // checkpoint-on-close if this connection closes a DANGLING, un-checkpointed WAL — a PHYSICAL
+  // mutation of the main file regardless of which pragmas this code issues.
+  //
+  // READONLY-FIRST WITH FALLBACK: try `{ readonly: true }` first — per better-sqlite3's own source
   // (src/objects/database.cpp): `readonly ? SQLITE_OPEN_READONLY : must_exist ?
-  // SQLITE_OPEN_READWRITE : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)` — so this opens a normal
-  // READWRITE file descriptor (sidesteps whatever macOS-specific SQLITE_OPEN_READONLY + WAL/`-shm`
-  // restriction bit bun:sqlite) while still refusing to CREATE a missing file. Never issuing a
-  // write statement (readonlyConnectionPragmas below, no INSERT/UPDATE/PRAGMA-that-sets-a-value)
-  // is what actually keeps this "read-only" in the sense that matters — the file descriptor's own
-  // OS-level permission was always redundant defense, not the primary guarantee.
-  const db = opts.readonly
-    ? new BetterSqlite3(path, { fileMustExist: true })
-    : new BetterSqlite3(path);
+  // SQLITE_OPEN_READWRITE : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)` — and fall back to
+  // `{ fileMustExist: true }` ONLY when that throws. `readonlyMode` records which path was taken.
+  // The fallback still refuses to CREATE a missing file and never issues a write statement
+  // (readonlyConnectionPragmas below); what it cannot do is prevent SQLite's checkpoint-on-close —
+  // see pragmas.ts's `readonlyConnectionPragmas` and types.ts's `OpenOptions` for the narrowed
+  // guarantee this implies.
+  let db: InstanceType<typeof BetterSqlite3>;
+  let readonlyMode: "native" | "fallback" | undefined;
+  if (opts.readonly) {
+    try {
+      if (forceReadonlyOpenFallback()) throw new Error("OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK");
+      db = new BetterSqlite3(path, { readonly: true });
+      readonlyMode = "native";
+    } catch {
+      db = new BetterSqlite3(path, { fileMustExist: true });
+      readonlyMode = "fallback";
+    }
+  } else {
+    db = new BetterSqlite3(path);
+  }
   // Server-tuned per-connection baseline (THE-273), shared with the other adapters so the ORDER
   // cannot drift between them — busy_timeout must precede anything that can contend (THE-745).
   // See db/pragmas.ts. better-sqlite3 caches statements internally, so prepareCached here mainly
@@ -77,5 +96,6 @@ export async function openBetterSqlite3(
     close: (): void => {
       db.close();
     },
+    ...(readonlyMode !== undefined ? { readonlyMode } : {}),
   };
 }

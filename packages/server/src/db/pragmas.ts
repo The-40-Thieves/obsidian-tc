@@ -19,6 +19,18 @@
 export const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 
 /**
+ * THE-1039 fix round 3 (C2) — test-only escape hatch, same shape as `search/native.ts`'s
+ * `OBSIDIAN_TC_FORCE_JS_FALLBACK`: forces every adapter's readonly-first-with-fallback open (see
+ * `OpenOptions` in types.ts) straight to its fallback branch, without needing to actually break the
+ * native `SQLITE_OPEN_READONLY` open on this machine (that failure is macOS/WAL-specific and this
+ * sandbox cannot reproduce it — see bun-sqlite.ts's C1 comment). A production process never sets
+ * this; a test does, to exercise and assert on the fallback branch deterministically on any OS.
+ */
+export function forceReadonlyOpenFallback(): boolean {
+  return process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK === "1";
+}
+
+/**
  * WAL + `synchronous = NORMAL` is the documented safe pairing; the larger page cache and mmap keep
  * the brute-force scan and the recursive graph walk resident.
  *
@@ -42,10 +54,10 @@ export function connectionPragmas(busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_M
 }
 
 /**
- * THE-1039 (F2, revised in fix round 2/C1) — the pragma set for `opts.readonly` connections.
- * `readonly` no longer means a native OS-level `SQLITE_OPEN_READONLY` open (that broke on macOS —
- * see bun-sqlite.ts's comment); the guarantee this function provides is now the WHOLE story: a
- * connection that issues no pragma capable of writing.
+ * THE-1039 (F2, revised in fix round 2/C1, narrowed again in fix round 3/C2) — the pragma set for
+ * `opts.readonly` connections, applied regardless of which open strategy the adapter actually used
+ * (see `OpenOptions`'s comment in types.ts — native readonly first, with a writable-fd fallback
+ * only if that throws).
  *
  * `journal_mode = WAL` is the one pragma above that is NOT purely connection-local: on a database
  * still in the (default) DELETE journal mode, setting it requires an exclusive write lock and
@@ -54,9 +66,17 @@ export function connectionPragmas(busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_M
  * `probeDbSpace`) has no business writing to. `synchronous`/`cache_size`/`temp_store`/`mmap_size`
  * are pure per-connection tuning with no on-disk effect either way, but are dropped too here for
  * the same reason `journal_mode` is: a caller asking for `readonly` gets a connection that issues
- * no PRAGMA capable of writing, not a connection that merely refrains from THIS release's known
- * offender. `busy_timeout` is kept — it is session state, never written to the file, and a reader
- * can still hit `SQLITE_BUSY` against a writer holding an exclusive checkpoint.
+ * no PRAGMA capable of writing. `busy_timeout` is kept — it is session state, never written to the
+ * file, and a reader can still hit `SQLITE_BUSY` against a writer holding an exclusive checkpoint.
+ *
+ * C2: "issues no write-capable pragma" is NOT the whole story on bytes-unchanged, and this
+ * function's own guarantee stops at pragmas — it says nothing about what the OPEN itself can do.
+ * When the native `SQLITE_OPEN_READONLY` open succeeds (`Database.readonlyMode === "native"`),
+ * there is no logical or configuration change AND bytes are unchanged. When it does not and the
+ * adapter falls back to a writable file descriptor (`readonlyMode === "fallback"`), this function's
+ * guarantee still holds — no write-capable pragma is issued — but bytes may STILL change, because
+ * SQLite itself can run a checkpoint against a dangling WAL when that writable connection closes.
+ * See each adapter's own comment on its fallback branch.
  */
 export function readonlyConnectionPragmas(
   busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_MS,
