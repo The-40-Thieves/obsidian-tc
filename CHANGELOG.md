@@ -15,7 +15,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   printing the exact `mv`), with `--dry-run` reporting sizes without changing anything. `doctor`'s
   new default (non-`--probe`) `db.reclaimable-space` row reports cache.db's size, freelist bytes
   reclaimable by `VACUUM`, and each FTS table's row count, warning with the `obsidian-tc compact`
-  remedy once freelist bytes exceed 10% of the file.
+  remedy once freelist bytes exceed 10% of the file. Both read the database through a read-only
+  connection and say so in one line (and in `--json`'s `readonlyMode`) on a platform where that open
+  is unavailable, since only the read-only path guarantees an inspection leaves the file's bytes
+  untouched.
 
 ### Fixed
 

@@ -64,6 +64,20 @@ This exists so the degraded path can be tested deliberately — it is what CI us
 you suspect a native/JS behavioural difference: if a bug disappears under the flag, the native path
 is implicated.
 
+Two further escape hatches share this shape but are **test-only** — unlike the flag above they are
+not a supported operating mode, because each deliberately weakens a safety property:
+
+- `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` forces the inspection-connection open used by
+  `compact --dry-run`, `compact --into` and `doctor` onto its writable-descriptor fallback. That
+  fallback exists for one platform-specific open failure and cannot promise the database's bytes
+  are unchanged, so forcing it gives up the guarantee those commands otherwise hold.
+- `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=1` (or `=busy`) makes the step after `compact --into`'s
+  `VACUUM INTO` fail, so the "an incomplete copy remains at …" reporting path can be exercised
+  without depending on a platform's SQLite to corrupt a fixture in a particular way.
+
+Neither is gated to test builds — like `OBSIDIAN_TC_FORCE_JS_FALLBACK`, they are plain environment
+reads — so the only thing keeping them out of production is not setting them.
+
 ## Why you can rely on this
 
 The baseline path is not a theoretical fallback that rots. `.github/workflows/ci-native.yml` runs a

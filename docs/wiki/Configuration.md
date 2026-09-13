@@ -144,6 +144,8 @@ Asymmetric (RS256 / ES256 / EdDSA) via a JWKS — inline `jwks` or a `jwksFile` 
 | `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` | Force the pure-JS native fallback |
 | `OBSIDIAN_TC_DISABLE_FTS=1` | Disable the FTS5 index; lexical search uses the exhaustive fallback scanner (diagnostic) |
 | `OBSIDIAN_TC_PROFILE=1` | Emit startup/dispatch profiling timings to stderr (diagnostic) |
+| `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` | **Test-only** — force the inspection-connection open (`compact --dry-run`/`--into`, `doctor`) onto its writable-descriptor fallback. Weakens the bytes-unchanged guarantee; never set it in production |
+| `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE` | **Test-only** — make the step after `compact --into`'s `VACUUM INTO` fail: `1` throws, `busy` throws a `SQLITE_BUSY`. Exists so the retained-copy reporting path is testable on every SQLite build |
 
 ## Inference gateway (generative tier)
 

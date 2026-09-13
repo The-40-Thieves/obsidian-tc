@@ -31,6 +31,11 @@ export interface DbSpaceState {
   /** `freelist_count * page_size` — bytes a VACUUM would return to the filesystem. */
   freelistBytes: number;
   ftsData: FtsDataRowCount[];
+  /** THE-1039 fix round 4 (H2) — which open strategy the probe's readonly connection actually took
+   *  (`db/pragmas.ts`'s `readonlyOpenFallbackable`). Only `"native"` guarantees the inspection left
+   *  the file's bytes unchanged, so `"fallback"` is named in the summary instead of staying a field
+   *  nothing reads. Absent when the probe predates this field (a hand-built view in a test). */
+  readonlyMode?: "native" | "fallback";
 }
 
 /**
@@ -78,26 +83,33 @@ export function dbSpaceCheck(view: DbSpaceView): Check {
             "Check file permissions and whether another process holds an exclusive lock on cache.db, then run `obsidian-tc doctor` again.",
         };
       }
-      const { fileBytes, freelistBytes, ftsData } = view.state;
+      const { fileBytes, freelistBytes, ftsData, readonlyMode } = view.state;
       const details: Record<string, string | string[]> = {
         fileBytes: String(fileBytes),
         freelistBytes: String(freelistBytes),
         ftsData: ftsData.map((f) => `${f.table}_data=${f.dataRows} rows`),
+        ...(readonlyMode !== undefined ? { readonlyMode } : {}),
       };
+      // H2: the weaker guarantee, stated in the row itself — never silent.
+      const fallbackNote =
+        readonlyMode === "fallback"
+          ? " — inspection connection was not read-only on this platform; a dangling WAL left by an " +
+            "unclean shutdown may be checkpointed on close"
+          : "";
       const ratio = fileBytes > 0 ? freelistBytes / fileBytes : 0;
       if (ratio > WARN_FREELIST_RATIO) {
         return {
           status: "warning" as CheckStatus,
           summary:
             `db.reclaimable-space: cache.db is ${fileBytes} bytes (main + -wal); ${freelistBytes} ` +
-            `bytes (${(ratio * 100).toFixed(1)}%) reclaimable by VACUUM — over the 10% floor`,
+            `bytes (${(ratio * 100).toFixed(1)}%) reclaimable by VACUUM — over the 10% floor${fallbackNote}`,
           details,
           remediation: "obsidian-tc compact",
         };
       }
       return {
         status: "ok" as CheckStatus,
-        summary: `db.reclaimable-space: cache.db is ${fileBytes} bytes (main + -wal); ${freelistBytes} bytes reclaimable by VACUUM`,
+        summary: `db.reclaimable-space: cache.db is ${fileBytes} bytes (main + -wal); ${freelistBytes} bytes reclaimable by VACUUM${fallbackNote}`,
         details,
       };
     },

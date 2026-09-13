@@ -1,7 +1,12 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectionPragmas, forceReadonlyOpenFallback, readonlyConnectionPragmas } from "./pragmas";
+import {
+  connectionPragmas,
+  forceReadonlyOpenFallback,
+  readonlyConnectionPragmas,
+  readonlyOpenFallbackable,
+} from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
@@ -99,19 +104,25 @@ export async function openBunSqlite(
   let db: InstanceType<typeof BunDatabase>;
   let readonlyMode: "native" | "fallback" | undefined;
   if (opts.readonly) {
-    try {
-      if (forceReadonlyOpenFallback()) throw new Error("OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK");
-      db = new BunDatabase(path, { readonly: true });
-      readonlyMode = "native";
-    } catch {
-      // The native open failed (C1's macOS/WAL case, or any other reason). This writable-fd
-      // connection still issues no write statement and no write-capable pragma
-      // (readonlyConnectionPragmas below), but unlike the native mode it CANNOT prevent SQLite's
-      // own checkpoint-on-close from firing against a dangling WAL — see this block's own comment
-      // above and pragmas.ts's `readonlyConnectionPragmas`.
-      db = new BunDatabase(path, { readwrite: true });
+    // Fix round 4 (H1): the fallback fires ONLY for the failure class it was introduced for — see
+    // `readonlyOpenFallbackable`. Anything else (a missing file, a permissions error, a pending
+    // hot-journal rollback) propagates, because this writable-fd connection still issues no write
+    // statement and no write-capable pragma (readonlyConnectionPragmas below) yet CANNOT prevent
+    // SQLite's own checkpoint-on-close from firing against a dangling WAL.
+    let opened: InstanceType<typeof BunDatabase> | undefined;
+    if (!forceReadonlyOpenFallback()) {
+      try {
+        opened = new BunDatabase(path, { readonly: true });
+        readonlyMode = "native";
+      } catch (e) {
+        if (!readonlyOpenFallbackable(path, e)) throw e;
+      }
+    }
+    if (opened === undefined) {
+      opened = new BunDatabase(path, { readwrite: true });
       readonlyMode = "fallback";
     }
+    db = opened;
   } else {
     db = new BunDatabase(path, { create: true });
   }

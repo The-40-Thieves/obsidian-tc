@@ -25,6 +25,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { ensureNotesFts } from "../src/search/fts";
+import { createDanglingWalDb } from "./dangling-wal-fixture";
 
 /** Whether the `sqlite3` CLI is on PATH — used ONLY to build a fixture (never to run the code
  *  under test), for the one scenario ("logical" FTS shadow-table corruption, F1) that no JS
@@ -50,11 +51,11 @@ interface Run {
   stderr: string;
 }
 
-function runCli(args: string[]): Run {
+function runCli(args: string[], env: Record<string, string> = {}): Run {
   const r = spawnSync("bun", [CLI, ...args], {
     encoding: "utf8",
     timeout: 60_000,
-    env: { ...process.env, NO_COLOR: "1" },
+    env: { ...process.env, NO_COLOR: "1", ...env },
   });
   return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -201,64 +202,80 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
   // THE-1039 fix round 3 (E1, Greptile, T-Rex-verified) — a step AFTER `VACUUM INTO` has already
   // created `destPath` throwing used to report only the LIVE database's path; the copy actually
   // left on disk was invisible from both stdout and --json, so an operator had no way to find it.
-  describe.skipIf(!sqlite3CliOk)(
-    "E1 — a failure AFTER VACUUM INTO names the retained copy on both stdout and --json",
-    () => {
-      it("reports destination + retainedCopy when optimizing the copy throws", async () => {
-        const { cacheDir, configPath } = setupConfig();
-        const dbPath = join(cacheDir, "cache.db");
-        const db = await openDatabase(dbPath);
-        provisionCacheDb(db, { version: "test" });
-        expect(ensureNotesFts(db)).toBe(true);
-        db.exec(
-          "INSERT INTO notes_fts (vault_id, path, title, content) VALUES ('v1', 'a.md', 'A', 'hello world')",
-        );
-        db.close?.();
-        // `VACUUM INTO` is a page-level snapshot copy — it still succeeds on a source whose FTS5
-        // shadow schema is this badly broken (dropping the `_config` table, not merely emptying
-        // it as F1's fixture does). The resulting COPY is what then throws when `'optimize'` tries
-        // to instantiate the fts5 virtual table module against it — "vtable constructor failed" —
-        // a genuine step failure AFTER `destPath` already exists, unlike F1's fixture (which
-        // copies fine AND optimizes fine; only the integrity-check catches it afterward).
-        execFileSync("sqlite3", [
-          dbPath,
-          ".dbconfig defensive off",
-          "DROP TABLE notes_fts_config;",
-        ]);
+  //
+  // Fix round 4 (M1): the failure injection is now `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE`
+  // (compact.ts's `forcedPostCopyFailure`), not sqlite3-CLI corruption of the source. The old
+  // fixture dropped `notes_fts_config` and relied on `VACUUM INTO` still producing a copy that
+  // `'optimize'` then choked on — a premise that does NOT hold on macOS's SQLite build, where
+  // `build-test (macos-latest)` failed `existsSync(destPath)`: no copy was created at all, so the
+  // step that was supposed to throw AFTER the copy existed never ran. The hook throws from exactly
+  // that position on every SQLite build, needs no external binary, and needs no skipIf.
+  describe("E1 — a failure AFTER VACUUM INTO names the retained copy on both stdout and --json", () => {
+    it("exits 1, keeps the copy, and reports destination + retainedCopy", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-e1-"));
+      dirs.push(destDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "1",
+      });
 
-        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-e1-"));
-        dirs.push(destDir);
-        const jsonPath = join(cacheDir, "report.json");
-        const r = runCli([
-          "compact",
-          "--config",
-          configPath,
-          "--into",
-          destDir,
-          "--json",
-          jsonPath,
-        ]);
+      expect(r.code).toBe(1);
+      const destPath = join(destDir, "cache.db");
+      // The copy is still on disk — VACUUM INTO ran before the throwing step.
+      expect(existsSync(destPath)).toBe(true);
+      expect(r.stderr).toContain(destPath);
+      expect(r.stderr).toMatch(/incomplete copy remains/);
+      expect(r.stderr).toMatch(/inspect or remove it before retrying/);
 
-        expect(r.code).toBe(1);
-        const destPath = join(destDir, "cache.db");
-        // The copy is still on disk — VACUUM INTO ran before the throwing step.
-        expect(existsSync(destPath)).toBe(true);
-        expect(r.stderr).toContain(destPath);
-        expect(r.stderr).toMatch(/incomplete copy remains/);
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        error?: string;
+        destination?: string;
+        retainedCopy?: boolean;
+      }>;
+      const cacheReport = report.find((x) => x.db === "cache.db");
+      expect(cacheReport?.error).toMatch(/OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE/);
+      expect(cacheReport?.destination).toBe(destPath);
+      expect(cacheReport?.retainedCopy).toBe(true);
+    }, 30_000);
 
-        const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
-          db: string;
-          error?: string;
-          destination?: string;
-          retainedCopy?: boolean;
-        }>;
-        const cacheReport = report.find((x) => x.db === "cache.db");
-        expect(cacheReport?.error).toMatch(/vtable constructor failed/);
-        expect(cacheReport?.destination).toBe(destPath);
-        expect(cacheReport?.retainedCopy).toBe(true);
-      }, 30_000);
-    },
-  );
+    // Fix round 4 — `busyReason(e)` used to be classified BEFORE `CompactIntoFailedError`, so a
+    // SQLITE_BUSY raised by a copy-side step (the copy's own VACUUM contending with anything
+    // holding the destination directory's database open) became a bare `CompactBusyError` and lost
+    // `destPath` — the one failure shape E1's reporting did not reach. Classification now keys on
+    // "does the destination exist", not on the error code, and the busy WORDING is preserved as
+    // the wrapped cause.
+    it("a SQLITE_BUSY raised after the copy exists still names the copy, and still says busy", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-e1-busy-"));
+      dirs.push(destDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE: "busy",
+      });
+
+      expect(r.code).toBe(1);
+      const destPath = join(destDir, "cache.db");
+      expect(existsSync(destPath)).toBe(true);
+      expect(r.stderr).toContain(destPath);
+      expect(r.stderr).toMatch(/incomplete copy remains/);
+
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        error?: string;
+        destination?: string;
+        retainedCopy?: boolean;
+      }>;
+      const cacheReport = report.find((x) => x.db === "cache.db");
+      expect(cacheReport?.destination).toBe(destPath);
+      expect(cacheReport?.retainedCopy).toBe(true);
+      expect(cacheReport?.error).toMatch(/busy/);
+      expect(cacheReport?.error).toMatch(/after creating/);
+    }, 30_000);
+  });
 
   // THE-1039 fix round 1 (A4).
   it("--into a directory that already has this database's file name: a plain-language error, exit 1, not a raw fatal:", async () => {
@@ -403,4 +420,110 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     expect(expReport?.integrityOk).toBe(false);
     expect(expReport?.error).toMatch(/malformed/);
   }, 30_000);
+
+  // THE-1039 fix round 4 (H2) — `Database.readonlyMode` existed but no caller READ it, so a real
+  // (unforced) fallback in the field was silent: the operator saw a normal `--dry-run`/`--into`
+  // report with no hint that the inspection connection had not actually been read-only, and so no
+  // hint that SQLite's own checkpoint-on-close could have touched a dangling WAL.
+  describe("H2 — a fallback inspection connection is reported, not silent", () => {
+    it("--dry-run says so on stdout and carries readonlyMode in --json when forced onto the fallback", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath], {
+        OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK: "1",
+      });
+
+      expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
+      expect(r.stdout).toMatch(/inspection connection was not read-only on this platform/);
+      expect(r.stdout).toMatch(/may be checkpointed on close/);
+
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        readonlyMode?: string;
+      }>;
+      expect(report.find((x) => x.db === "cache.db")?.readonlyMode).toBe("fallback");
+    }, 30_000);
+
+    it("says nothing and reports readonlyMode native on the ordinary path", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      await seedInflatedCacheDb(cacheDir);
+      const jsonPath = join(cacheDir, "report.json");
+      const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath]);
+
+      expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
+      expect(r.stdout).not.toMatch(/was not read-only/);
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        readonlyMode?: string;
+      }>;
+      expect(report.find((x) => x.db === "cache.db")?.readonlyMode).toBe("native");
+    }, 30_000);
+  });
+
+  // THE-1039 fix round 4 (H4) — round 3's dangling-WAL byte-for-byte assertion covered doctor's
+  // `probeDbSpace` only. `compact --dry-run` and `--into`'s SOURCE read are the other two
+  // inspection call sites with the same contract, exercised here against the same fixture helper
+  // (`dangling-wal-fixture.ts`) rather than a second hand-built copy of it.
+  //
+  // The byte assertions are conditional on the run's own reported `readonlyMode` (H2): bytes are
+  // only guaranteed unchanged on the NATIVE readonly path. On a build whose native readonly open
+  // throws (C1's macOS/WAL case) the command correctly falls back, and the fallback's one
+  // documented residual — SQLite's checkpoint-on-close — can legitimately change those bytes. The
+  // test then asserts the fallback was REPORTED instead, so neither outcome passes silently.
+  describe("H4 — a dangling WAL survives an inspection byte-for-byte on the native readonly path", () => {
+    const walSize = (dbPath: string): number =>
+      existsSync(`${dbPath}-wal`) ? statSync(`${dbPath}-wal`).size : 0;
+
+    it("--dry-run leaves the main file and -wal untouched", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      const dbPath = await createDanglingWalDb(cacheDir);
+      const hashBefore = sha256(dbPath);
+      const walBefore = walSize(dbPath);
+      const jsonPath = join(cacheDir, "report.json");
+
+      const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath]);
+      expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
+
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        readonlyMode?: string;
+      }>;
+      const mode = report.find((x) => x.db === "cache.db")?.readonlyMode;
+      if (mode === "native") {
+        expect(sha256(dbPath)).toBe(hashBefore);
+        expect(walSize(dbPath)).toBe(walBefore);
+      } else {
+        expect(r.stdout).toMatch(/was not read-only on this platform/);
+      }
+    }, 30_000);
+
+    it("--into reads the source without touching the main file or -wal", async () => {
+      const { cacheDir, configPath } = setupConfig();
+      const dbPath = await createDanglingWalDb(cacheDir);
+      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-dangling-into-"));
+      dirs.push(destDir);
+      const hashBefore = sha256(dbPath);
+      const walBefore = walSize(dbPath);
+      const jsonPath = join(cacheDir, "report.json");
+
+      const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath]);
+      expect(r.code, `compact --into exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
+      // The copy carries the WAL's un-checkpointed rows — a snapshot of the live state, not of the
+      // main file alone.
+      expect(existsSync(join(destDir, "cache.db"))).toBe(true);
+
+      const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
+        db: string;
+        readonlyMode?: string;
+      }>;
+      const mode = report.find((x) => x.db === "cache.db")?.readonlyMode;
+      if (mode === "native") {
+        expect(sha256(dbPath)).toBe(hashBefore);
+        expect(walSize(dbPath)).toBe(walBefore);
+      } else {
+        expect(r.stdout).toMatch(/was not read-only on this platform/);
+      }
+    }, 30_000);
+  });
 });

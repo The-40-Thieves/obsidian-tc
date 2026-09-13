@@ -452,6 +452,8 @@ export async function probeDbSpace(cacheDir: string, busyTimeoutMs: number): Pro
         fileBytes: dbFootprintBytes(path),
         freelistBytes: freelistCount * pageSize,
         ftsData,
+        // H2: which open strategy this inspection got — the row says so when it is the weaker one.
+        ...(opened.readonlyMode !== undefined ? { readonlyMode: opened.readonlyMode } : {}),
       },
     };
   } catch (e) {

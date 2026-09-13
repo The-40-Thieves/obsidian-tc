@@ -1,3 +1,5 @@
+import { accessSync, constants } from "node:fs";
+
 /**
  * The per-connection baseline every adapter applies (THE-273), as pragma BODIES without the
  * `PRAGMA ` keyword: better-sqlite3's `pragma()` takes them bare, and the other two adapters
@@ -28,6 +30,54 @@ export const DEFAULT_BUSY_TIMEOUT_MS = 5000;
  */
 export function forceReadonlyOpenFallback(): boolean {
   return process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK === "1";
+}
+
+/**
+ * THE-1039 fix round 4 (M1) — test-only fault hook for `compact --into`, beside
+ * `forceReadonlyOpenFallback` so this ticket's test-only hooks stay enumerable in one place.
+ * `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=1` makes the step right after `VACUUM INTO` throw a plain
+ * Error; `=busy` makes it throw a SQLITE_BUSY-shaped one. Returns `undefined` (inject nothing) when
+ * unset, which is every production process.
+ *
+ * It replaces a fixture that corrupted a source database with the `sqlite3` CLI and relied on
+ * `VACUUM INTO` still producing a copy for a later step to choke on: that premise is
+ * build-dependent, and on macOS's SQLite no copy was created at all, so `build-test (macos-latest)`
+ * failed the retained-copy assertion while Linux passed. A hook at the exact position under test is
+ * deterministic on every SQLite build.
+ */
+export function forcedCompactIntoFailure(): Error | undefined {
+  const mode = process.env.OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE;
+  if (mode !== "1" && mode !== "busy") return undefined;
+  const e = new Error(`OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=${mode}`);
+  if (mode === "busy") (e as Error & { code?: string }).code = "SQLITE_BUSY";
+  return e;
+}
+
+/**
+ * THE-1039 fix round 4 (H1) — the ONE native-readonly-open failure class an adapter may fall back
+ * from. Fix round 3's catch was unconditional, which silently routed three unrelated failures onto
+ * the writable descriptor: a MISSING file (node:sqlite's fallback is a plain open, so it CREATES
+ * the database), a PERMISSIONS error (the writable open needs strictly more access than the one
+ * that just failed), and SQLite refusing a readonly open because HOT-JOURNAL recovery is pending —
+ * the worst of the three, since the writable open then PERFORMS that rollback, a mutation class
+ * none of the readonly guarantees here ever claimed to cover.
+ *
+ * C1's macOS/WAL failure — the only reason the fallback exists — is `SQLITE_CANTOPEN`, surfaced as
+ * "unable to open database file" by all three bindings (it is the exact text `build-test
+ * (macos-latest)` reported). The hot-journal refusal is `SQLITE_READONLY_ROLLBACK` ("attempt to
+ * write a readonly database"), which this predicate therefore excludes by construction. The
+ * access check comes first because a missing or unreadable file raises the same CANTOPEN text, and
+ * `W_OK` (not merely `R_OK`) is what the fallback descriptor itself would require.
+ */
+export function readonlyOpenFallbackable(path: string, e: unknown): boolean {
+  try {
+    accessSync(path, constants.R_OK | constants.W_OK);
+  } catch {
+    return false;
+  }
+  const code = (e as { code?: unknown } | null | undefined)?.code;
+  if (typeof code === "string" && code.includes("SQLITE_CANTOPEN")) return true;
+  return /unable to open database file/i.test(e instanceof Error ? e.message : String(e));
 }
 
 /**

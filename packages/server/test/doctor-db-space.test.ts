@@ -9,25 +9,19 @@
 // `DbSpaceView` — "missing" / "unopenable" / "ok" — rather than collapsing every failure into the
 // same `undefined` a fresh install also produces (a Greptile-flagged + T-Rex-verified finding: a
 // read-only cache.db was misreported as "no cache.db yet").
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { probeDbSpace } from "../src/cli/commands/doctor-probes";
+import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { openDatabase } from "../src/db/open";
+import { readonlyOpenFallbackable } from "../src/db/pragmas";
 import { provisionCacheDb } from "../src/db/provision";
 import { type DbSpaceView, dbSpaceCheck } from "../src/doctor/db-space";
 import { ensureNotesFts } from "../src/search/fts";
+import { createDanglingWalDb } from "./dangling-wal-fixture";
 
 const ctx = { serverVersion: "test" };
 const run = (view: DbSpaceView) => dbSpaceCheck(view).run(ctx);
@@ -274,49 +268,16 @@ describe("probeDbSpace — a real cache.db", () => {
   // lock a checkpoint needs, so it cannot trigger one) and falling back to round 2's approach only
   // if that throws.
   //
-  // This fixture is built by spawning a real child process that opens the database, disables
-  // auto-checkpointing, writes, and is then SIGKILLed before it can close (and thus before it can
-  // checkpoint) — the WAL is left genuinely dangling, not merely "not yet auto-checkpointed by
-  // this same process's next write" the way an in-process test could only approximate.
+  // The fixture (fix round 4 / H4: extracted to `dangling-wal-fixture.ts`, so compact's own
+  // inspection paths assert against the same one) spawns a real child process that opens the
+  // database, disables auto-checkpointing, writes, and is then SIGKILLed before it can close (and
+  // thus before it can checkpoint) — the WAL is left genuinely dangling, not merely "not yet
+  // auto-checkpointed by this same process's next write" the way an in-process test could only
+  // approximate.
   it("a dangling WAL (writer killed before it could checkpoint) is left byte-for-byte unchanged by a successful readonly probe", async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-dangling-wal-"));
     try {
-      const dbPath = join(cacheDir, "cache.db");
-      const scriptPath = join(cacheDir, "writer.cjs");
-      writeFileSync(
-        scriptPath,
-        [
-          'const { DatabaseSync } = require("node:sqlite");',
-          "const db = new DatabaseSync(process.argv[2]);",
-          'db.exec("PRAGMA journal_mode = WAL");',
-          'db.exec("PRAGMA wal_autocheckpoint = 0");', // never auto-checkpoint on its own
-          'db.exec("CREATE TABLE t(x)");',
-          'db.exec("INSERT INTO t VALUES (1),(2),(3)");',
-          'process.stdout.write("ready\\n");',
-          "setInterval(() => {}, 1000);", // stay alive (with the WAL un-checkpointed) until killed
-        ].join("\n"),
-      );
-
-      const child = spawn(process.execPath, [scriptPath, dbPath], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("writer did not become ready")), 10_000);
-        child.stdout.on("data", (d: Buffer) => {
-          if (d.toString().includes("ready")) {
-            clearTimeout(timer);
-            resolve();
-          }
-        });
-        child.on("error", reject);
-      });
-      child.kill("SIGKILL");
-      await new Promise<void>((resolve) => child.on("exit", () => resolve()));
-
-      // Confirm this genuinely built a dangling WAL before trusting the assertions below.
-      expect(existsSync(`${dbPath}-wal`)).toBe(true);
-      expect(statSync(`${dbPath}-wal`).size).toBeGreaterThan(0);
-
+      const dbPath = await createDanglingWalDb(cacheDir);
       const hashBefore = sha256(dbPath);
       const walHashBefore = sha256(`${dbPath}-wal`);
 
@@ -373,6 +334,135 @@ describe("probeDbSpace — a real cache.db", () => {
         if (priorEnv === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
         else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
       }
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  // THE-1039 fix round 4 (H2) — `readonlyMode` reached no output surface, so a real fallback was
+  // invisible to an operator reading the doctor row. The row now names it, with the consequence
+  // (SQLite's own checkpoint-on-close against a dangling WAL) spelled out rather than implied.
+  it("H2: the doctor row says so when the inspection connection fell back", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-row-fallback-"));
+    const priorEnv = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
+    try {
+      const db = await openDatabase(join(cacheDir, "cache.db"));
+      provisionCacheDb(db, { version: "test" });
+      db.close?.();
+
+      process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = "1";
+      const view = await probeDbSpace(cacheDir, 5000);
+      expect(view.status).toBe("ok");
+      if (view.status !== "ok") throw new Error("unreachable");
+      expect(view.state.readonlyMode).toBe("fallback");
+
+      const check = await dbSpaceCheck(view).run(ctx);
+      expect(check.summary).toContain("inspection connection was not read-only on this platform");
+      expect(check.summary).toContain("may be checkpointed on close");
+      expect(check.details?.readonlyMode).toBe("fallback");
+    } finally {
+      if (priorEnv === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
+      else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  it("H2: an ordinary (native) probe says nothing about the open mode", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-row-native-"));
+    try {
+      const db = await openDatabase(join(cacheDir, "cache.db"));
+      provisionCacheDb(db, { version: "test" });
+      db.close?.();
+
+      const view = await probeDbSpace(cacheDir, 5000);
+      if (view.status !== "ok") throw new Error("unreachable");
+      expect(view.state.readonlyMode).toBe("native");
+      const check = await dbSpaceCheck(view).run(ctx);
+      expect(check.summary).not.toContain("was not read-only");
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// THE-1039 fix round 4 (H1) — round 3's readonly-first open fell back on ANY native-open failure,
+// so a missing file, a permissions error, or SQLite refusing the readonly open because hot-journal
+// recovery is pending all silently took the writable path. node:sqlite's fallback (a plain open)
+// CREATES a missing file, and the hot-journal case makes the writable open PERFORM that recovery —
+// a mutation class none of the round-3 comments claimed to cover. The fallback is now narrowed to
+// the one failure class it was introduced for.
+describe("readonly open fallback narrowing (H1)", () => {
+  it("a missing file errors and is NOT created by a fallback open", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-missing-"));
+    try {
+      const dbPath = join(cacheDir, "cache.db");
+      await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow();
+      expect(existsSync(dbPath)).toBe(false);
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  // The node:sqlite adapter is the one where the unnarrowed fallback was a FILE-CREATING bug, not
+  // merely a wrong open mode: it has no "writable but must exist" option, so its fallback is a
+  // plain open, which creates the database. Exercised directly because `openDatabase` prefers
+  // better-sqlite3 wherever it resolves (its own `fileMustExist: true` fallback refuses to create),
+  // so the defect is invisible through the shared entry point on a dev machine or CI runner.
+  it("openNodeSqlite: a missing file is never created by the fallback open", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-missing-ns-"));
+    try {
+      const dbPath = join(cacheDir, "cache.db");
+      await expect(openNodeSqlite(dbPath, 5000, { readonly: true })).rejects.toThrow();
+      expect(existsSync(dbPath)).toBe(false);
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  // chmod has no POSIX owner/group/other meaning on win32 — see the permission-state block above.
+  it.skipIf(process.platform === "win32")(
+    "an unreadable file errors rather than being retried writable",
+    async () => {
+      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-denied-"));
+      const dbPath = join(cacheDir, "cache.db");
+      try {
+        const db = await openDatabase(dbPath);
+        provisionCacheDb(db, { version: "test" });
+        db.close?.();
+        chmodSync(dbPath, 0o000);
+
+        expect(readonlyOpenFallbackable(dbPath, new Error("unable to open database file"))).toBe(
+          false,
+        );
+        await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow();
+      } finally {
+        chmodSync(dbPath, 0o644);
+        rmSync(cacheDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("classifies only the CANTOPEN class on a readable, writable file", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-classify-"));
+    try {
+      const dbPath = join(cacheDir, "cache.db");
+      const db = await openDatabase(dbPath);
+      provisionCacheDb(db, { version: "test" });
+      db.close?.();
+
+      expect(readonlyOpenFallbackable(dbPath, new Error("unable to open database file"))).toBe(
+        true,
+      );
+      const coded = Object.assign(new Error("some binding wording"), { code: "SQLITE_CANTOPEN" });
+      expect(readonlyOpenFallbackable(dbPath, coded)).toBe(true);
+      // The hot-journal-recovery refusal: a readonly connection cannot roll back a hot journal, and
+      // falling back to a writable open would PERFORM that rollback. Never fallbackable.
+      expect(
+        readonlyOpenFallbackable(dbPath, new Error("attempt to write a readonly database")),
+      ).toBe(false);
+      expect(readonlyOpenFallbackable(join(cacheDir, "nope.db"), new Error("unable to open"))).toBe(
+        false,
+      );
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }
