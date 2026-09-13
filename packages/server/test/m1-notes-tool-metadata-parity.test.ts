@@ -183,7 +183,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "patch_note",
     description:
-      'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content\'s first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.',
+      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.",
     domain: "notes",
     requiredScopes: ["write:notes"],
     tags: [],
@@ -193,6 +193,8 @@ const EXPECTED: ToolSnapshot[] = [
       "anchor",
       "confirm_replace",
       "content",
+      "new_string",
+      "old_string",
       "operation",
       "path",
       "prev_hash",

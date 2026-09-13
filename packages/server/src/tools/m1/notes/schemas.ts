@@ -132,7 +132,9 @@ export const PatchAnchorOut = z.discriminatedUnion("type", [
 export const PatchNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  operation: z.enum(["append", "prepend", "replace"]),
+  // THE-1038 / GH #928: replace_text — an exact-string substitution scoped to the resolved
+  // anchor's section.
+  operation: z.enum(["append", "prepend", "replace", "replace_text"]),
   anchor: PatchAnchorOut,
   // Present only when anchor.type === "heading" (legacy target_heading echo) — omitted, not
   // null, for the block/frontmatter arms.
@@ -142,6 +144,7 @@ export const PatchNoteOutput = z.object({
   prev_hash: z.string(),
   // THE-603: the blast radius of this write. 0 for append/prepend, which only insert; a
   // catastrophic replace and a two-line replace used to return structurally identical payloads.
+  // For replace_text: the line count and byte size of `old_string` (GH #928).
   lines_removed: z.number(),
   bytes_removed: z.number(),
   quality_warning: QualityWarningOut,
@@ -230,21 +233,52 @@ export const PatchInput = z
   .object({
     vault: VaultId,
     path: VaultPath,
-    operation: z.enum(["append", "prepend", "replace"]),
+    operation: z.enum(["append", "prepend", "replace", "replace_text"]),
     // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
     target_heading: z.string().min(1).optional(),
     anchor: PatchAnchor.optional(),
-    content: z.string(),
+    // Required unless operation is replace_text (see the superRefine below).
+    content: z.string().optional(),
+    // THE-1038 / GH #928: replace_text's exact-string substitution, scoped to the resolved
+    // anchor's section. Required (both fields) iff operation is replace_text.
+    old_string: z.string().min(1).optional(),
+    new_string: z.string().optional(),
     prev_hash: z.string().optional(),
     // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
     // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
     // has no same-or-higher-level heading to bound it and so consumes the entire document below
-    // it. Ignored for append/prepend and for block/frontmatter anchors, which cannot hit this.
+    // it. Ignored for append/prepend, for block/frontmatter anchors (which cannot hit this), and
+    // for replace_text (a bounded, uniqueness-checked substitution is not the operation this
+    // guards against).
     confirm_replace: z.boolean().default(false),
   })
   .strict()
-  .refine((i) => i.anchor !== undefined || i.target_heading !== undefined, {
-    message: "either anchor or target_heading is required",
+  .superRefine((i, ctx) => {
+    if (i.anchor === undefined && i.target_heading === undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "either anchor or target_heading is required",
+      });
+    if (i.operation === "replace_text") {
+      if (i.old_string === undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["old_string"],
+          message: "old_string is required when operation is replace_text",
+        });
+      if (i.new_string === undefined)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["new_string"],
+          message: "new_string is required when operation is replace_text",
+        });
+    } else if (i.content === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message: "content is required unless operation is replace_text",
+      });
+    }
   });
 
 export const MoveInput = z

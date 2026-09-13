@@ -166,6 +166,34 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
   return { found: true, startIndex: start, endIndex: bi + 1 };
 }
 
+/** GH #928: `patch_note operation:"replace_text"` — an exact-string substitution scoped to one
+ *  resolved section's text. `count` lets the caller distinguish "not found" (0) from "ambiguous"
+ *  (2+); `body` is unchanged (equal to the input) unless `count === 1`. */
+export interface ReplaceTextResult {
+  body: string;
+  count: number;
+}
+
+export function replaceInSection(
+  body: string,
+  span: SectionSpan,
+  oldString: string,
+  newString: string,
+  eol: string,
+): ReplaceTextResult {
+  const lines = body.split(/\r?\n/);
+  const sectionText = lines.slice(span.startIndex, span.endIndex).join(eol);
+  const count = sectionText.split(oldString).length - 1;
+  if (count !== 1) return { body, count };
+  const nextSection = sectionText.replace(oldString, newString);
+  const next = [
+    ...lines.slice(0, span.startIndex),
+    ...nextSection.split(/\r?\n/),
+    ...lines.slice(span.endIndex),
+  ];
+  return { body: next.join(eol), count };
+}
+
 function ambiguousError(
   kind: "heading" | "block reference",
   matchLines: number[],

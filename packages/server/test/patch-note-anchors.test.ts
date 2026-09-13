@@ -170,6 +170,170 @@ describe("GH #927: read_note section read", () => {
   });
 });
 
+describe("GH #928: patch_note operation replace_text", () => {
+  it("replaces a unique exact string within the resolved section", async () => {
+    const raw = ["## A", "the old value stays", "## B", "the old value stays"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old value",
+        new_string: "NEW VALUE",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        const d = r.data as {
+          operation: string;
+          lines_removed: number;
+          bytes_removed: number;
+        };
+        expect(d.operation).toBe("replace_text");
+        expect(d.lines_removed).toBe(1);
+        expect(d.bytes_removed).toBe(Buffer.byteLength("old value"));
+      }
+      // Only the occurrence inside ## A's section changed; ## B's is untouched.
+      expect(v.read("a.md")).toBe(
+        ["## A", "the NEW VALUE stays", "## B", "the old value stays"].join("\n"),
+      );
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("0 matches -> invalid_input 'old_string not found in section'", async () => {
+    const raw = ["## A", "content", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "ghost",
+        new_string: "x",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.message).toBe("old_string not found in section");
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("2+ matches -> invalid_input with the count", async () => {
+    const raw = ["## A", "dup dup dup", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "dup",
+        new_string: "x",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("invalid_input");
+        expect(r.error.details).toMatchObject({ count: 3 });
+      }
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a match outside the anchor's section is out of scope (0 matches)", async () => {
+    const raw = ["## A", "content", "## B", "the target text"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "target",
+        new_string: "x",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.message).toBe("old_string not found in section");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("confirm_replace is ignored: a large removal via replace_text is never gated", async () => {
+    const big = Array.from({ length: 30 }, (_, i) => `line${i}`).join("\n");
+    const raw = `## A\n${big}`;
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: big,
+        new_string: "x",
+      });
+      expect(r.ok).toBe(true);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("prev_hash is still enforced for replace_text", async () => {
+    const raw = ["## A", "old value", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        old_string: "old value",
+        new_string: "new value",
+        prev_hash: "0".repeat(64),
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("concurrent_modification");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("schema: old_string/new_string required for replace_text; content required otherwise", async () => {
+    const v = makeTestVault({ files: { "a.md": "## A\nx" } });
+    try {
+      const missingOldString = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "A",
+        new_string: "y",
+      });
+      expect(missingOldString.ok).toBe(false);
+      if (!missingOldString.ok) expect(missingOldString.error.code).toBe("validation_error");
+
+      const missingContent = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+      });
+      expect(missingContent.ok).toBe(false);
+      if (!missingContent.ok) expect(missingContent.error.code).toBe("validation_error");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("GH #922 shape 2: replace is idempotent on the anchor heading", () => {
   it("drops a duplicate leading heading from replace content (verbatim repro)", async () => {
     const raw = ["## A", "old", "## B", "keep"].join("\n");

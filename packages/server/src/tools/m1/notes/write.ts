@@ -30,7 +30,9 @@ import {
   patchByBlock,
   patchByHeading,
   patchByPreamble,
+  replaceInSection,
   resolveSection,
+  resolveSectionOrThrow,
 } from "./anchors";
 import {
   AppendInput,
@@ -246,7 +248,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     vaultArg: "vault",
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content\'s first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.',
+      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.",
     inputSchema: PatchInput,
     outputSchema: PatchNoteOutput,
     requiredScopes: ["write:notes"],
@@ -272,27 +274,60 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         type: "heading" as const,
         heading: input.target_heading as string,
       };
-      // GH #922 shape 2: `replace` content that repeats the anchor's own heading duplicates it —
-      // drop that line rather than refuse. Only heading anchors have an anchor-line convention to
-      // dedupe against; only checked when resolution is unambiguous (an ambiguous/missing anchor
-      // is reported below by the real resolve inside patchByHeading, unaffected by this).
-      let content = input.content;
-      if (anchor.type === "heading" && input.operation === "replace") {
-        const check = resolveSection(parsed.body, anchor);
-        if (check.found && check.headingLevel !== undefined)
-          content = dropDuplicateLeadingHeading(content, check.headingLevel, anchor.heading);
-      }
-      let patched: PatchResult | null;
-      if (anchor.type === "heading")
-        patched = patchByHeading(parsed.body, input.operation, anchor.heading, content, eol);
-      else if (anchor.type === "block")
-        patched = patchByBlock(parsed.body, input.operation, anchor.block_id, content, eol);
-      else patched = patchByPreamble(parsed.body, input.operation, content, eol);
-      if (patched === null)
-        throw err.invalidInput(
-          anchor.type === "block" ? "block reference not found" : "target heading not found",
-          { path: rel, anchor },
+      let patched: PatchResult;
+      if (input.operation === "replace_text") {
+        // GH #928: an exact-string substitution scoped to the resolved anchor's section — reuses
+        // the same not-found/ambiguous resolution and messages as read_note. confirm_replace never
+        // applies here: a bounded, uniqueness-checked substitution is not the operation THE-603
+        // guards against.
+        const oldString = input.old_string as string;
+        const newString = input.new_string as string;
+        const resolved = resolveSectionOrThrow(parsed.body, anchor, rel);
+        const { body: nextBody, count } = replaceInSection(
+          parsed.body,
+          resolved,
+          oldString,
+          newString,
+          eol,
         );
+        if (count === 0)
+          throw err.invalidInput("old_string not found in section", { path: rel, anchor });
+        if (count > 1)
+          throw err.invalidInput(
+            `old_string matches ${count} times in the section; must occur exactly once`,
+            { path: rel, anchor, count },
+          );
+        patched = {
+          body: nextBody,
+          removedLines: oldString.split(/\r?\n/).length,
+          removedBytes: Buffer.byteLength(oldString, "utf8"),
+          bodyLineCount: parsed.body.split(/\r?\n/).length,
+        };
+      } else {
+        // GH #922 shape 2: `replace` content that repeats the anchor's own heading duplicates it
+        // — drop that line rather than refuse. Only heading anchors have an anchor-line
+        // convention to dedupe against; only checked when resolution is unambiguous (an
+        // ambiguous/missing anchor is reported below by the real resolve inside patchByHeading,
+        // unaffected by this).
+        let content = input.content as string;
+        if (anchor.type === "heading" && input.operation === "replace") {
+          const check = resolveSection(parsed.body, anchor);
+          if (check.found && check.headingLevel !== undefined)
+            content = dropDuplicateLeadingHeading(content, check.headingLevel, anchor.heading);
+        }
+        let result: PatchResult | null;
+        if (anchor.type === "heading")
+          result = patchByHeading(parsed.body, input.operation, anchor.heading, content, eol);
+        else if (anchor.type === "block")
+          result = patchByBlock(parsed.body, input.operation, anchor.block_id, content, eol);
+        else result = patchByPreamble(parsed.body, input.operation, content, eol);
+        if (result === null)
+          throw err.invalidInput(
+            anchor.type === "block" ? "block reference not found" : "target heading not found",
+            { path: rel, anchor },
+          );
+        patched = result;
+      }
 
       // GH #926 suggested guard: an operation that flips the body from a terminated fence state
       // (an even count of fence-delimiter lines) to an unterminated one has almost certainly cut
