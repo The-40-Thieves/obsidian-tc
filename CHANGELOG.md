@@ -29,6 +29,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   advertised schema. `input_schema`/`inputSchema` sites now convert through a new
   `toInputJson` (`io: "input"`, its own memo); `output_schema`/`outputSchema` sites are unchanged.
 
+- **A comment-only frontmatter block was dropped by every note write (THE-1040, GH #932 review
+  origin).** A block containing only YAML comments (e.g. `---\n# note\n---`) parses to an empty
+  mapping, indistinguishable from a genuinely blank block once parsed — `serializeNote` read that
+  empty mapping and silently dropped the block on `patch_note`, `update_frontmatter`, and
+  `add_tag`/`remove_tag` writes. It now reads the raw source text instead: an empty mapping backed
+  by a non-blank raw block is emitted verbatim between the delimiters, while a genuinely
+  whitespace-only block (`---\n\n---`) still drops as before. Frontmatter delimiters also now
+  follow the note's own line ending (CRLF stays CRLF) for every case, closing the
+  LF-delimiter-on-CRLF-notes residue noted on THE-1038.
+
 ## [1.29.0] - 2026-09-13
 
 ### Added

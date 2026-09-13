@@ -332,7 +332,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-805 | _internal planning reference — see repo history_ | — | 1 |
 | THE-806 | The eval harness's `--gated-rerank` flag now builds the SAME reranker and hardness gate production would (#812, THE-806 step 2). | CHANGELOG.md (1.22.0) | 5 |
 | THE-822 | `plane.enabled: false` now also stops the per-index-write contradiction path (#788, THE-822). | CHANGELOG.md (1.22.0) | 3 |
-| THE-823 | The three facade triad schemas (`find_capability`, `describe_capability`, `call_capability`) now reject an unrecognized envelope key instead of silently dropping it (#784, #789, THE-823). | CHANGELOG.md (1.22.0) | 9 |
+| THE-823 | The three facade triad schemas (`find_capability`, `describe_capability`, `call_capability`) now reject an unrecognized envelope key instead of silently dropping it (#784, #789, THE-823). | CHANGELOG.md (1.22.0) | 7 |
 | THE-824 | The 16 conditionally-gated tools now advertise their confirmation gate (#790, THE-824). | CHANGELOG.md (1.22.0) | 18 |
 | THE-825 | `plane.enabled` now defaults to `false` (was `true`) — ambient sleep-time consolidation is opt-in (#797, THE-825, GH #786). | CHANGELOG.md (1.22.0) | 9 |
 | THE-826 | `obsidian-tc elicit` — a way to satisfy the confirmation gate (#796, THE-826). | CHANGELOG.md (1.22.0) | 5 |
@@ -353,7 +353,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-906 | The boot ready line, `doctor`, the capability profile and `server_health` could all report `native=on` / "native acceleration module loaded" while actually running the pure-JS fallback (THE-906, #858). | CHANGELOG.md (1.23.2) | 4 |
 | THE-922 | A TLS trust failure was reported as "reload the plugin inside Obsidian" — the bridge transport discarded `e.cause`, collapsing every fetch failure into one indistinguishable state (THE-922, #861). | CHANGELOG.md (1.23.3) | 4 |
 | THE-923 | The fetch cause was preserved only at `doFetch`, so a TLS-untrusted companion still misdirected every other transport (THE-923, #865). | CHANGELOG.md (1.23.4) | 7 |
-| THE-924 | Four introspection tools leaked cross-vault identifiers to a vault-bound HTTP caller (THE-924, #864). | CHANGELOG.md (1.23.4) | 6 |
+| THE-924 | Four introspection tools leaked cross-vault identifiers to a vault-bound HTTP caller (THE-924, #864). | CHANGELOG.md (1.23.4) | 3 |
 | THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 5 |
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
@@ -368,9 +368,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 2 |
 | THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |
 | THE-1039 | The maintenance sweep now runs FTS5's own `'merge'` on `notes_fts`/`chunk_fts`, instead of relying on `PRAGMA optimize` (which explicitly excludes virtual tables) to do it (THE-1039, GH #929). | CHANGELOG.md (1.29.0) | 19 |
-| THE-1041 | `describe_capability` and `tools/list` advertised input schemas converted in zod's default `io:"output"` mode, diverging from what the server actually validates on 98 of 163 registered capabilities (GH #934, THE-1041). | CHANGELOG.md (Unreleased) | 1 |
-| THE-1042 | Validation errors now say the fix, not just the field (THE-1042, GH #935). | CHANGELOG.md (Unreleased) | 5 |
+| THE-1040 | A comment-only frontmatter block was dropped by every note write (THE-1040, GH #932 review origin). | CHANGELOG.md (Unreleased) | 1 |
 
-356 distinct ticket(s) across 499 source file(s) under
-`packages/*/src`; 256 resolved to a public summary, 100
+355 distinct ticket(s) across 498 source file(s) under
+`packages/*/src`; 255 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

@@ -86,7 +86,7 @@ function emitFrontmatter(next: Frontmatter, original?: string | null): string {
       const prev = doc.toJS();
       if (isMap(map) && prev && typeof prev === "object" && !Array.isArray(prev)) {
         const prevObj = prev as Frontmatter;
-        if (isDeepStrictEqual(prevObj, next)) return original.replace(/\n+$/, "");
+        if (isDeepStrictEqual(prevObj, next)) return original.replace(/[\r\n]+$/, "");
         const entries: string[] = [];
         const seen = new Set<string>();
         for (const item of map.items) {
@@ -112,6 +112,16 @@ function emitFrontmatter(next: Frontmatter, original?: string | null): string {
   return YAML.stringify(next, { lineWidth: 0 }).replace(/\n+$/, "");
 }
 
+/** Delimiter line ending: follows the source note (CRLF when the raw frontmatter block
+ *  or the body carries \r\n) so a CRLF note keeps CRLF delimiters; LF for a note with
+ *  no source (a newly-built note has nothing to follow). The raw block alone is not
+ *  always enough — a single-line block (e.g. one comment, one key) has no INTERNAL
+ *  line break for the FRONTMATTER regex to keep (it strips the boundary line breaks
+ *  next to the delimiters), so body is the fallback signal for that shape of note. */
+function delimiterEol(original: string | null | undefined, body: string): string {
+  return original?.includes("\r\n") || body.includes("\r\n") ? "\r\n" : "\n";
+}
+
 /** Re-emit a note from frontmatter + body. Pass originalFrontmatter to preserve
  *  untouched keys exactly. */
 export function serializeNote(
@@ -119,6 +129,21 @@ export function serializeNote(
   body: string,
   originalFrontmatter?: string | null,
 ): string {
-  if (!frontmatter || Object.keys(frontmatter).length === 0) return body;
-  return `---\n${emitFrontmatter(frontmatter, originalFrontmatter)}\n---\n${body}`;
+  // `null` is a caller's explicit "drop the block" (update_frontmatter/remove_tag pass it
+  // deliberately once the last real key is gone) — distinct from `{}`, an object that
+  // genuinely has zero keys, e.g. parseNote's result for a comment-only block. Only `{}`
+  // falls through to the THE-1040 preserve-verbatim check below.
+  if (!frontmatter) return body;
+  const eol = delimiterEol(originalFrontmatter, body);
+  if (Object.keys(frontmatter).length === 0) {
+    // THE-1040: a block containing only YAML comments parses to an empty mapping,
+    // same as a genuinely blank one ("---\n\n---") — only the raw source text tells
+    // them apart. Preserve it verbatim; a whitespace-only block still drops (ruling c).
+    if (originalFrontmatter && originalFrontmatter.trim().length > 0) {
+      const block = originalFrontmatter.replace(/[\r\n]+$/, "");
+      return `---${eol}${block}${eol}---${eol}${body}`;
+    }
+    return body;
+  }
+  return `---${eol}${emitFrontmatter(frontmatter, originalFrontmatter)}${eol}---${eol}${body}`;
 }

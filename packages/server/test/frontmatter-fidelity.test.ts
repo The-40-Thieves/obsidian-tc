@@ -54,3 +54,45 @@ describe("frontmatter scalar fidelity (audit: no coercion of untouched keys)", (
     expect(serializeNote({ a: 1, b: "x" }, "body")).toBe("---\na: 1\nb: x\n---\nbody");
   });
 });
+
+// THE-1040 (GH #932 review origin): a frontmatter block containing only YAML comments parses to
+// an empty mapping ({}), indistinguishable from a genuinely blank block once parsed — only the
+// RAW source text tells them apart, so the fix reads originalFrontmatter rather than the parsed
+// object.
+describe("frontmatter comment-only block survival (THE-1040)", () => {
+  it("round-trips a comment-only block byte-identical on LF", () => {
+    const raw = "---\n# preserve me\n---\n## A\nold\n";
+    const p = parseNote(raw);
+    expect(p.frontmatter).toEqual({});
+    expect(serializeNote(p.frontmatter, p.body, p.rawFrontmatter)).toBe(raw);
+  });
+
+  it("round-trips a comment-only block byte-identical on CRLF", () => {
+    const raw = "---\r\n# preserve me\r\n---\r\n## A\r\nold\r\n";
+    const p = parseNote(raw);
+    expect(p.frontmatter).toEqual({});
+    expect(serializeNote(p.frontmatter, p.body, p.rawFrontmatter)).toBe(raw);
+  });
+
+  it("still drops a genuinely whitespace-only block", () => {
+    const raw = "---\n\n---\nbody\n";
+    const p = parseNote(raw);
+    expect(p.frontmatter).toEqual({});
+    expect(serializeNote(p.frontmatter, p.body, p.rawFrontmatter)).toBe("body\n");
+  });
+
+  it("keeps CRLF delimiters when a CRLF note's real keys are re-emitted", () => {
+    const raw = "---\r\ntitle: Test\r\n---\r\nbody\r\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), title: "Changed" };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter);
+    expect(out).toBe("---\r\ntitle: Changed\r\n---\r\nbody\r\n");
+  });
+
+  it("keeps LF delimiters for an untouched non-empty LF note (no regression)", () => {
+    const raw = "---\nzip: 01234\nv: 1.0\n---\nold\n";
+    const p = parseNote(raw);
+    const out = serializeNote(p.frontmatter, "new body\n", p.rawFrontmatter);
+    expect(out).toBe("---\nzip: 01234\nv: 1.0\n---\nnew body\n");
+  });
+});
