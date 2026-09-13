@@ -1,9 +1,9 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectionPragmas } from "./pragmas";
+import { connectionPragmas, openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
-import type { Database as Db, RunResult, Statement } from "./types";
+import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 // THE-663 follow-up: bun:sqlite uses APPLE'S SYSTEM SQLite on macOS, and Apple builds it without
 // extension support — `This build of sqlite3 does not support dynamic extension loading`, measured
@@ -53,7 +53,11 @@ function useEmbeddedSqlite(BunDatabase: { setCustomSQLite?: (p: string) => void 
  * bun: specifier is only evaluated when Bun actually calls openBunSqlite, so the
  * same bundle also loads under Node (which then uses the better-sqlite3 adapter).
  */
-export async function openBunSqlite(path: string, busyTimeoutMs?: number): Promise<Db> {
+export async function openBunSqlite(
+  path: string,
+  busyTimeoutMs?: number,
+  opts: OpenOptions = {},
+): Promise<Db> {
   // THE-687: an unconditional ignore, NOT `expect-error`, and the distinction is load-bearing.
   // This file is compiled by TWO projects with different `types`: the main one pins ["node"], where
   // bun:sqlite does not resolve and the suppression is REQUIRED; tsconfig.bun-smoke.json adds
@@ -67,13 +71,61 @@ export async function openBunSqlite(path: string, busyTimeoutMs?: number): Promi
   const { Database: BunDatabase } = await import("bun:sqlite");
   // Must precede the constructor below — setCustomSQLite is a no-op once a Database exists.
   useEmbeddedSqlite(BunDatabase);
-  const db = new BunDatabase(path, { create: true });
-  // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the
-  // ORDER cannot drift between them — busy_timeout must precede anything that can contend
-  // (THE-745). See db/pragmas.ts. busyTimeoutMs is forwarded rather than called bare (THE-935) so
-  // config's db.busyTimeoutMs reaches this connection instead of silently falling back to the
-  // default.
-  for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
+  // THE-1039 fix round 2 (C1) reverted from the native `{ readonly: true }` open (fix round 1's F2)
+  // after CI reproduced a macOS-only failure: `build-test (macos-latest)` failed with "unable to
+  // open database file" opening a WAL-mode fixture read-only, while Linux x64/arm64 and Windows
+  // passed the identical test unchanged. bun:sqlite uses APPLE'S SYSTEM SQLite on macOS (see
+  // useEmbeddedSqlite's own comment above) — a different build than the one bundled for every
+  // other platform — and that build's WAL reader apparently cannot open (or attach to) the `-shm`
+  // index file under `SQLITE_OPEN_READONLY` the way Linux/Windows's bundled SQLite can.
+  //
+  // Fix round 3 (C2) — round 2's unconditional `{ readwrite: true }` was ITSELF found unsafe: a
+  // writable file descriptor cannot stop SQLite performing its own checkpoint-on-close if this
+  // connection is the one that closes a DANGLING, un-checkpointed WAL (left by a writer that
+  // crashed or was killed before it could checkpoint) — a PHYSICAL mutation of the main file's
+  // bytes and deletion of `-wal`, regardless of which pragmas this code chooses to issue.
+  //
+  // READONLY-FIRST WITH FALLBACK: try the native `{ readonly: true }` open FIRST (safe everywhere
+  // except C1's specific macOS/WAL case) and fall back to `{ readwrite: true }` ONLY when that
+  // throws. `readonlyMode` records which path was taken, exposed on the returned handle so a test
+  // can assert on it directly. `{ readwrite: true }` (no `create`) still refuses to open a MISSING
+  // file rather than silently creating one (verified directly: throws the same "unable to open
+  // database file" bun:sqlite always throws for a missing readwrite-no-create target) — every
+  // caller of `openDatabase(..., { readonly: true })` already guards on `existsSync` first, so this
+  // is belt-and-braces, not the primary guard. `immutable=1` (a `file:` URI parameter) was
+  // considered and REJECTED: it disables SQLite's own change-detection entirely, which is unsafe
+  // against a database a live server may still be writing to — exactly the case `compact
+  // --dry-run` and doctor's `db.reclaimable-space` are meant to run against safely.
+  let db: InstanceType<typeof BunDatabase>;
+  let readonlyMode: "native" | "fallback" | undefined;
+  // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the ORDER
+  // cannot drift between them — busy_timeout must precede anything that can contend (THE-745). See
+  // db/pragmas.ts. busyTimeoutMs is forwarded rather than called bare (THE-935) so config's
+  // db.busyTimeoutMs reaches this connection. readonly gets the writer-pragma-free subset, applied
+  // INSIDE the open attempt — see `openReadonlyWithFallback` for why that placement is load-bearing.
+  if (opts.readonly) {
+    const open = openReadonlyWithFallback(
+      path,
+      () => new BunDatabase(path, { readonly: true }),
+      () => new BunDatabase(path, { readwrite: true }), // no `create`: still refuses a missing file
+      {
+        configure: (d) => {
+          for (const p of readonlyConnectionPragmas(busyTimeoutMs)) d.exec(`PRAGMA ${p}`);
+        },
+        probe: (d) => {
+          d.prepare("PRAGMA schema_version").get();
+        },
+        close: (d) => {
+          d.close();
+        },
+      },
+    );
+    db = open.db;
+    readonlyMode = open.readonlyMode;
+  } else {
+    db = new BunDatabase(path, { create: true });
+    for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
+  }
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     // THE-687: bun:sqlite types its bind parameters as SQLQueryBindings, while the Statement port
@@ -109,5 +161,6 @@ export async function openBunSqlite(path: string, busyTimeoutMs?: number): Promi
     close: (): void => {
       db.close();
     },
+    ...(readonlyMode !== undefined ? { readonlyMode } : {}),
   };
 }

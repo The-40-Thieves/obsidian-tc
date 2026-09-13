@@ -6,6 +6,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`obsidian-tc compact` and a `doctor` reclaimable-space row (THE-1039, GH #930).** No CLI verb
+  ever reclaimed database space, and no doctor check ever surfaced that it was needed. `compact`
+  runs FTS5 `'optimize'` on every present `notes_fts`/`chunk_fts` table then `VACUUM`
+  (`--into <dir>` copies via `VACUUM INTO` instead, verified, leaving the live file untouched and
+  printing the exact `mv`), with `--dry-run` reporting sizes without changing anything. `doctor`'s
+  new default (non-`--probe`) `db.reclaimable-space` row reports cache.db's size, freelist bytes
+  reclaimable by `VACUUM`, and each FTS table's row count, warning with the `obsidian-tc compact`
+  remedy once freelist bytes exceed 10% of the file. Both read the database through a read-only
+  connection and say so in one line (and in `--json`'s `readonlyMode`) on a platform where that open
+  is unavailable, since only the read-only path guarantees an inspection leaves the file's bytes
+  untouched.
+
 ### Fixed
 
 - **`call_capability` never redeemed an `elicit_token` nested in its inner `args` (#925, THE-1037).**
@@ -67,6 +81,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   detected EOL remain open on THE-1038; a comment-only frontmatter block (`---\n# comment\n---`)
   being dropped by `vault/frontmatter.ts`'s serializer on any body-only patch is a pre-existing
   defect outside this ticket's anchor-resolution scope, tracked separately as THE-1040.
+
+- **The maintenance sweep now runs FTS5's own `'merge'` on `notes_fts`/`chunk_fts`, instead of
+  relying on `PRAGMA optimize` (which explicitly excludes virtual tables) to do it (THE-1039,
+  GH #929).** `notes_fts` settled at roughly 3x its merged size in production because nothing ever
+  ran FTS5's own merge/optimize special command. `runMaintenanceSweep` now runs a bounded
+  `INSERT INTO <t>(<t>, rank) VALUES('merge', 16)` per `*_fts` table that exists (guarded on
+  `sqlite_master`, not the per-connection `hasFts` flag, so `OBSIDIAN_TC_DISABLE_FTS=1` or a store
+  without the tables is a no-op), reporting which tables it touched via the new `fts_merged`
+  sweep-result field. See `obsidian-tc compact` for the explicit, full-`'optimize'` operator path.
 
 - **The 2026-09-08..10 advisories cleared across all three bun workspaces (THE-1036).** Root:
   `hono` 4.13.0 -> 4.13.5 (three moderate advisories, incomplete-fix follow-up to CVE-2026-39408),

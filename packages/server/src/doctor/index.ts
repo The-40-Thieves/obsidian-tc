@@ -17,6 +17,10 @@ export type { DerivedColumnState, DerivedTableState, KbHealthProbe } from "./che
 // doctor/*.ts submodule in this file.
 export type { ConflictCopiesView } from "./conflict-copies";
 export { conflictCopiesCheck, resolveInstallRoot } from "./conflict-copies";
+// THE-1039 (GH #930): db.reclaimable-space's view type, same barrel reasoning as capture-location
+// above — the CLI builds it without importing through checks.ts.
+export type { DbSpaceState, DbSpaceView, FtsDataRowCount } from "./db-space";
+export { dbSpaceCheck } from "./db-space";
 // entrypoints.liveness — the verb-side companion to derived.liveness. Same probe-injection
 // contract, so the CLI builds its probe without importing through the checks module.
 export type {

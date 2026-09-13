@@ -29,7 +29,7 @@ const NUL = String.fromCharCode(0);
 // the SAME file, so ACL matching must be case-insensitive there or a case-variant path slips past a
 // whitelist/deny (THE-272). Detected once from the platform; overridable for tests. See
 // docs/design/acl-folder-rules.md.
-const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
+export const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
 
 // Upper bound on a single glob. Every path check compiles its globs, so an unbounded pattern is
 // wasted work on the hot path at best; the limit also keeps a malformed or generated config from

@@ -19,6 +19,32 @@ Usage:
                                           reported as observed rather than as configured. Off by
                                           default: every other check is offline, and a "module"
                                           provider is never probed at all.
+  obsidian-tc compact [path] [--dry-run] [--into <dir>] [--json <file>]
+                                          Reclaim disk from cache.db and experiential.db (THE-1039):
+                                          FTS5 'optimize' on every notes_fts/chunk_fts table
+                                          present (a full merge — heavier than the maintenance
+                                          sweep's bounded 'merge', which runs automatically and
+                                          never needs this command run for that alone), then a
+                                          VACUUM, then PRAGMA integrity_check plus the FTS
+                                          integrity-check insert. VACUUM is IN PLACE by default —
+                                          never a file swap, since renaming over a database another
+                                          process holds open would strand that process on the old
+                                          inode — and needs roughly as much free disk as the
+                                          database's own current size (it writes a full replacement
+                                          before the original is freed; budget ~2x headroom
+                                          overall). On SQLITE_BUSY (another connection holds the
+                                          database open) it refuses to VACUUM and exits non-zero
+                                          rather than blocking indefinitely.
+                                          --into <dir> copies via VACUUM INTO <dir>/cache.db (and
+                                          /experiential.db) instead of vacuuming in place, verifies
+                                          the copy the same way, leaves the live file untouched,
+                                          and prints the exact \`mv\` to install it — this command
+                                          never moves a file itself. Before copying \`~/.obsidian-tc\`
+                                          by hand (e.g. a pre-upgrade snapshot), run \`compact\`
+                                          first: every retained copy is smaller for it.
+                                          --dry-run reports current file size, freelist bytes
+                                          reclaimable by VACUUM, and each FTS table's row count,
+                                          and changes nothing.
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
   obsidian-tc index [path] [--vault id] [--folder rel/path]
                                           Chunk and embed the vault into the search index (THE-697).

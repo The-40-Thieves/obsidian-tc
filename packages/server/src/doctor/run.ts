@@ -36,6 +36,7 @@ import {
 // THE-939: install.conflict-copies lives in its own module, same reasoning as capture-location
 // above — its own resolution step (finding the install root) that no other check needs.
 import { type ConflictCopiesView, conflictCopiesCheck } from "./conflict-copies";
+import { type DbSpaceView, dbSpaceCheck } from "./db-space";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
@@ -105,6 +106,11 @@ export interface DoctorConfigView {
    *  present when supplied — no `--probe` gate, same reasoning as captureLocation above: the walk
    *  is bounded and read-only, cheap enough to run on every default doctor pass. */
   conflictCopies?: ConflictCopiesView;
+  /** THE-1039 (GH #930): cache.db's freelist-bytes-reclaimable-by-VACUUM + present FTS tables'
+   *  `<t>_data` row counts. Always present when supplied — no `--probe` gate: a file `stat`, two
+   *  PRAGMAs and a `COUNT(*)` on each present shadow table, cheap and read-only like
+   *  captureLocation/conflictCopies above. */
+  dbSpace?: DbSpaceView;
 }
 
 export interface AssembleOptions {
@@ -187,6 +193,9 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // untracked, so no repo risk, but indistinguishable from real source to any tool that walks the
   // tree. Same optional-view reasoning as captureLocation above.
   if (config.conflictCopies) checks.push(conflictCopiesCheck(config.conflictCopies));
+  // THE-1039 (GH #930): cache.db reclaimable-space delta. Same optional-view reasoning as
+  // captureLocation/conflictCopies above.
+  if (config.dbSpace) checks.push(dbSpaceCheck(config.dbSpace));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

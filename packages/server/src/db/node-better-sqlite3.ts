@@ -1,5 +1,5 @@
-import { connectionPragmas } from "./pragmas";
-import type { Database as Db, RunResult, Statement } from "./types";
+import { connectionPragmas, openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
+import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 /**
  * Node runtime adapter over better-sqlite3 (synchronous, production-grade, no
@@ -19,16 +19,60 @@ import type { Database as Db, RunResult, Statement } from "./types";
  * loads better-sqlite3 (it uses bun:sqlite instead). Every caller reaches this
  * through the async openDatabase(), so the sync -> async change is transparent.
  */
-export async function openBetterSqlite3(path: string, busyTimeoutMs?: number): Promise<Db> {
+export async function openBetterSqlite3(
+  path: string,
+  busyTimeoutMs?: number,
+  opts: OpenOptions = {},
+): Promise<Db> {
   const { default: BetterSqlite3 } = await import("better-sqlite3");
-  const db = new BetterSqlite3(path);
-  // Server-tuned per-connection baseline (THE-273), shared with the other adapters so the ORDER
-  // cannot drift between them — busy_timeout must precede anything that can contend (THE-745).
-  // See db/pragmas.ts. better-sqlite3 caches statements internally, so prepareCached here mainly
-  // bounds wrapper allocation (the real win is on bun:sqlite). busyTimeoutMs is forwarded rather
-  // than called bare (THE-935) so config's db.busyTimeoutMs reaches this connection instead of
-  // silently falling back to the default.
-  for (const p of connectionPragmas(busyTimeoutMs)) db.pragma(p);
+  // THE-1039 fix round 2 (C1) — see bun-sqlite.ts's matching comment for the full macOS incident
+  // this reverted (fix round 1's F2 used the native `readonly` option, which CI's macOS leg failed
+  // to open a WAL-mode fixture with, while Linux/Windows passed unchanged) — applied to every
+  // adapter for consistency, not because better-sqlite3 (its own bundled SQLite, not Apple's
+  // system one) was shown to have the same failure.
+  //
+  // Fix round 3 (C2) — round 2's unconditional `{ fileMustExist: true }` (no `readonly`) was
+  // ITSELF found unsafe: a writable file descriptor cannot stop SQLite performing its own
+  // checkpoint-on-close if this connection closes a DANGLING, un-checkpointed WAL — a PHYSICAL
+  // mutation of the main file regardless of which pragmas this code issues.
+  //
+  // READONLY-FIRST WITH FALLBACK: try `{ readonly: true }` first — per better-sqlite3's own source
+  // (src/objects/database.cpp): `readonly ? SQLITE_OPEN_READONLY : must_exist ?
+  // SQLITE_OPEN_READWRITE : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)` — and fall back to
+  // `{ fileMustExist: true }` ONLY when that throws. `readonlyMode` records which path was taken.
+  // The fallback still refuses to CREATE a missing file and never issues a write statement
+  // (readonlyConnectionPragmas below); what it cannot do is prevent SQLite's checkpoint-on-close —
+  // see pragmas.ts's `readonlyConnectionPragmas` and types.ts's `OpenOptions` for the narrowed
+  // guarantee this implies.
+  let db: InstanceType<typeof BetterSqlite3>;
+  let readonlyMode: "native" | "fallback" | undefined;
+  // Same per-connection baseline as the other adapters (THE-273), shared so the ORDER cannot drift —
+  // busy_timeout must precede anything that can contend (THE-745). See db/pragmas.ts; better-sqlite3
+  // takes pragma bodies bare, and busyTimeoutMs is forwarded rather than called bare (THE-935). The readonly subset is applied INSIDE the open attempt — see
+  // `openReadonlyWithFallback` for why that placement is load-bearing.
+  if (opts.readonly) {
+    const open = openReadonlyWithFallback(
+      path,
+      () => new BetterSqlite3(path, { readonly: true }),
+      () => new BetterSqlite3(path, { fileMustExist: true }), // never creates a missing file
+      {
+        configure: (d) => {
+          for (const p of readonlyConnectionPragmas(busyTimeoutMs)) d.pragma(p);
+        },
+        probe: (d) => {
+          d.prepare("PRAGMA schema_version").get();
+        },
+        close: (d) => {
+          d.close();
+        },
+      },
+    );
+    db = open.db;
+    readonlyMode = open.readonlyMode;
+  } else {
+    db = new BetterSqlite3(path);
+    for (const p of connectionPragmas(busyTimeoutMs)) db.pragma(p);
+  }
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {
@@ -56,5 +100,6 @@ export async function openBetterSqlite3(path: string, busyTimeoutMs?: number): P
     close: (): void => {
       db.close();
     },
+    ...(readonlyMode !== undefined ? { readonlyMode } : {}),
   };
 }

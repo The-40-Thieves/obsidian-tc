@@ -61,7 +61,12 @@ describe("openNodeSqlite threads busyTimeoutMs (THE-935)", () => {
 describe("openBunSqlite threads busyTimeoutMs (THE-935, inventory)", () => {
   it("forwards its busyTimeoutMs parameter into connectionPragmas(), never calls it bare", () => {
     const src = readFileSync(join(__dirname, "..", "src", "db", "bun-sqlite.ts"), "utf8");
-    expect(src).toContain("openBunSqlite(path: string, busyTimeoutMs?: number)");
+    // THE-1039 fix round 1 (F2) reformatted the signature onto multiple lines (it grew a third
+    // `opts: OpenOptions` parameter) — matched piecewise so this survives reformatting rather than
+    // pinning exact whitespace.
+    expect(src).toContain("export async function openBunSqlite(");
+    expect(src).toContain("path: string,");
+    expect(src).toContain("busyTimeoutMs?: number,");
     expect(src).toContain("connectionPragmas(busyTimeoutMs)");
     expect(src).not.toMatch(/connectionPragmas\(\)/);
   });

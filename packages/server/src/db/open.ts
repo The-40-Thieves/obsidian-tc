@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import type { Database } from "./types";
+import type { Database, OpenOptions } from "./types";
 
 function isBun(): boolean {
   return typeof (globalThis as { Bun?: unknown }).Bun !== "undefined";
@@ -14,22 +14,30 @@ function isBun(): boolean {
  *
  * @param busyTimeoutMs THE-935: config's `db.busyTimeoutMs`, forwarded to whichever adapter opens
  *   the connection. Omitted falls back to DEFAULT_BUSY_TIMEOUT_MS (pragmas.ts).
+ * @param opts THE-1039 fix round 1 (F2): `{ readonly: true }` opens `SQLITE_OPEN_READONLY` and
+ *   skips every write-capable pragma (`journal_mode` chief among them) — for a caller that only
+ *   ever means to INSPECT a database (`compact --dry-run`, `--into`'s live-side read, doctor's
+ *   `probeDbSpace`), never to change its bytes or its journal mode as a side effect of looking.
  */
-export async function openDatabase(path: string, busyTimeoutMs?: number): Promise<Database> {
+export async function openDatabase(
+  path: string,
+  busyTimeoutMs?: number,
+  opts: OpenOptions = {},
+): Promise<Database> {
   if (isBun()) {
     const { openBunSqlite } = await import("./bun-sqlite");
-    return openBunSqlite(path, busyTimeoutMs);
+    return openBunSqlite(path, busyTimeoutMs, opts);
   }
   // Node: prefer better-sqlite3 (native, fastest). Fall back to the built-in node:sqlite ONLY when
   // better-sqlite3 cannot be resolved — e.g. the self-contained .mcpb bundle, which ships no
   // node_modules. A genuine DB error is not swallowed; only a resolution/binding failure falls back.
   try {
     const { openBetterSqlite3 } = await import("./node-better-sqlite3");
-    return await openBetterSqlite3(path, busyTimeoutMs);
+    return await openBetterSqlite3(path, busyTimeoutMs, opts);
   } catch (err) {
     if (!isBetterSqlite3Unavailable(err)) throw err;
     const { openNodeSqlite } = await import("./node-node-sqlite");
-    return openNodeSqlite(path, busyTimeoutMs);
+    return openNodeSqlite(path, busyTimeoutMs, opts);
   }
 }
 

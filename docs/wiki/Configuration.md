@@ -144,6 +144,10 @@ Asymmetric (RS256 / ES256 / EdDSA) via a JWKS — inline `jwks` or a `jwksFile` 
 | `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` | Force the pure-JS native fallback |
 | `OBSIDIAN_TC_DISABLE_FTS=1` | Disable the FTS5 index; lexical search uses the exhaustive fallback scanner (diagnostic) |
 | `OBSIDIAN_TC_PROFILE=1` | Emit startup/dispatch profiling timings to stderr (diagnostic) |
+| `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` | **Test-only** — force the inspection-connection open (`compact --dry-run`/`--into`, `doctor`) onto its writable-descriptor fallback. Weakens the bytes-unchanged guarantee; never set it in production |
+| `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW` | **Test-only** — make the NATIVE readonly open attempt fail inside the adapter (`1` at the first statement, `construct` at construction), so the fallback path runs on a platform whose native open succeeds |
+| `OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` | **Test-only** — fail `compact` (in-place path) right after FTS5 `'optimize'` has committed its merge, so the report's partial `ftsOptimized` list is testable |
+| `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE` | **Test-only** — interfere with `compact --into` after its `VACUUM INTO`: `1` throws, `busy` throws a `SQLITE_BUSY`, `delete:<table>` drops one row from the copy (a real row-count mismatch), `count-error:<table>` makes that table's count FAIL on the copy. Exists so the retained-copy and failed-verification paths are testable on every SQLite build |
 
 ## Inference gateway (generative tier)
 

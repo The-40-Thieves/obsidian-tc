@@ -3,6 +3,8 @@ import { registerMaintenanceSweep, runMaintenanceSweep } from "../src/db/mainten
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { Scheduler } from "../src/scheduler/scheduler";
+import { ensureChunkFts, upsertChunkFtsRow } from "../src/search/chunk_fts";
+import { ensureNotesFts } from "../src/search/fts";
 import { openMemoryDb } from "./helpers";
 
 function freshDb(): Database {
@@ -59,6 +61,10 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       // THE-891 item 1: same skip reasoning as the two experiential arms above — no `edb`, so the
       // redaction arm never runs. Its own coverage is in maintenance-experiential.test.ts.
       episode_content_redacted: 0,
+      // THE-1039 (GH #929): freshDb() never runtime-provisions notes_fts/chunk_fts (that is
+      // ensureNotesFts/ensureChunkFts, not a migration), so the sweep's existence check finds
+      // neither table. Own coverage below.
+      fts_merged: [],
     });
     expect(db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys").get()).toMatchObject({
       n: 2,
@@ -219,5 +225,90 @@ describe("THE-571 jobs retention sweep", () => {
       });
     }).not.toThrow();
     expect(counts?.jobs).toBe(0);
+  });
+});
+
+// THE-1039 (GH #929): nothing ever ran FTS5's own 'merge'/'optimize' special command — PRAGMA
+// optimize excludes virtual tables — so notes_fts settled at ~3x its merged size in production.
+// The sweep now runs a bounded `INSERT INTO notes_fts(notes_fts) VALUES('merge', 16)` per FTS
+// table that exists.
+describe("THE-1039 FTS5 merge in the sweep", () => {
+  const now = 10_000_000_000;
+  const sweep = (db: Database) =>
+    runMaintenanceSweep(db, {
+      now: () => now,
+      eventLogDays: 30,
+      jobsCompleteDays: 7,
+      jobsFailedDays: 30,
+    });
+  const ftsDataRows = (db: Database): number =>
+    (db.prepare("SELECT COUNT(*) AS n FROM notes_fts_data").get() as { n: number }).n;
+
+  it("merges notes_fts written across many separate transactions, strictly shrinking notes_fts_data", () => {
+    const db = freshDb();
+    expect(ensureNotesFts(db)).toBe(true);
+    // Each INSERT is its own transaction (no explicit BEGIN/COMMIT wrapping them), which is what
+    // leaves multiple unmerged b-tree segments for 'merge' to have real work to do — a single
+    // bulk-loaded transaction would already write one segment and prove nothing.
+    const ins = db.prepare(
+      "INSERT INTO notes_fts (vault_id, path, title, content) VALUES ('v1', ?, ?, ?)",
+    );
+    for (let i = 0; i < 60; i++) {
+      ins.run(`note-${i}.md`, `Note ${i}`, `content for note number ${i} repeated content`);
+    }
+    const before = ftsDataRows(db);
+    const counts = sweep(db);
+    const after = ftsDataRows(db);
+    expect(counts.fts_merged).toEqual(["notes_fts"]);
+    expect(after).toBeLessThan(before);
+  });
+
+  // T4 (fix round 1, cross-vendor review test-gap finding): the notes_fts test above is a
+  // CONTENTFUL table (`content=''` is absent — it stores vault_id/path/title/content directly).
+  // chunk_fts is CONTENTLESS (`content=''`, `contentless_delete=1` — see chunk_fts.ts's own
+  // header for why), a materially different shadow-table shape, and nothing exercised it.
+  it("merges chunk_fts (a CONTENTLESS FTS5 table) written across many separate transactions, strictly shrinking chunk_fts_data", () => {
+    const db = freshDb();
+    expect(ensureChunkFts(db)).toBe(true);
+    const chunkFtsDataRows = (): number =>
+      (db.prepare("SELECT COUNT(*) AS n FROM chunk_fts_data").get() as { n: number }).n;
+    // Each upsert is its own transaction, same reasoning as the notes_fts test above. Written
+    // directly against chunk_fts's own rowid-keyed write path (upsertChunkFtsRow) rather than via
+    // `chunks` + indexing, since the sweep's merge only cares that the FTS table itself exists and
+    // has multiple unmerged segments — not that it agrees with `chunks` (ensureChunkFts's own
+    // count-divergence reconcile is a SEPARATE concern, already covered elsewhere).
+    for (let i = 0; i < 60; i++) {
+      upsertChunkFtsRow(db, i + 1, `content for chunk number ${i} repeated searchable content`);
+    }
+    const before = chunkFtsDataRows();
+    const counts = sweep(db);
+    const after = chunkFtsDataRows();
+    expect(counts.fts_merged).toEqual(["chunk_fts"]);
+    expect(after).toBeLessThan(before);
+  });
+
+  it("merges BOTH notes_fts and chunk_fts in one sweep when both are present", () => {
+    const db = freshDb();
+    expect(ensureNotesFts(db)).toBe(true);
+    expect(ensureChunkFts(db)).toBe(true);
+    const insNotes = db.prepare(
+      "INSERT INTO notes_fts (vault_id, path, title, content) VALUES ('v1', ?, ?, ?)",
+    );
+    for (let i = 0; i < 20; i++) insNotes.run(`n${i}.md`, `N ${i}`, `note content ${i}`);
+    for (let i = 0; i < 20; i++) upsertChunkFtsRow(db, i + 1, `chunk content ${i}`);
+
+    const counts = sweep(db);
+    expect(counts.fts_merged.slice().sort()).toEqual(["chunk_fts", "notes_fts"]);
+  });
+
+  it("is a no-op (fts_merged: []) on a store with no FTS tables, and never throws", () => {
+    const db = freshDb();
+    // freshDb() never calls ensureNotesFts/ensureChunkFts, so neither table exists — the same
+    // shape as OBSIDIAN_TC_DISABLE_FTS=1.
+    let counts: ReturnType<typeof runMaintenanceSweep> | undefined;
+    expect(() => {
+      counts = sweep(db);
+    }).not.toThrow();
+    expect(counts?.fts_merged).toEqual([]);
   });
 });
