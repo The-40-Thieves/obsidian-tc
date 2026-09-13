@@ -42,7 +42,10 @@ export function connectionPragmas(busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_M
 }
 
 /**
- * THE-1039 fix round 1 (F2) — the pragma set for a connection opened `readonly: true`.
+ * THE-1039 (F2, revised in fix round 2/C1) — the pragma set for `opts.readonly` connections.
+ * `readonly` no longer means a native OS-level `SQLITE_OPEN_READONLY` open (that broke on macOS —
+ * see bun-sqlite.ts's comment); the guarantee this function provides is now the WHOLE story: a
+ * connection that issues no pragma capable of writing.
  *
  * `journal_mode = WAL` is the one pragma above that is NOT purely connection-local: on a database
  * still in the (default) DELETE journal mode, setting it requires an exclusive write lock and

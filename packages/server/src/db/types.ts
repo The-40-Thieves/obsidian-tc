@@ -26,11 +26,17 @@ export interface Database {
 }
 
 /**
- * THE-1039 fix round 1 (F2) — every `openDatabase`/adapter-open call site's third parameter.
- * `readonly: true` opens the native handle with `SQLITE_OPEN_READONLY` (no `-wal`/`-shm` sidecar
- * creation, no journal-mode write) and applies `pragmas.ts`'s `readonlyConnectionPragmas` instead
- * of the writer set — see that function's own comment for why `journal_mode = WAL` specifically
- * cannot run against a connection an "inspect it" caller opened.
+ * THE-1039 — every `openDatabase`/adapter-open call site's third parameter. `readonly: true`
+ * applies `pragmas.ts`'s `readonlyConnectionPragmas` instead of the writer set (never a pragma
+ * capable of writing — chiefly `journal_mode`) and refuses to CREATE a missing file where the
+ * adapter supports that distinctly from opening read-only.
+ *
+ * Fix round 2 (C1): does NOT use each adapter's native `SQLITE_OPEN_READONLY` open mode anymore.
+ * Fix round 1 did, and CI's `build-test (macos-latest)` failed opening a WAL-mode fixture that way
+ * — "unable to open database file" — while Linux x64/arm64 and Windows passed unchanged; see
+ * bun-sqlite.ts's comment for the full incident. Every adapter now opens a normal READWRITE file
+ * descriptor under `readonly: true` and simply never issues a write statement — see each adapter's
+ * own comment for why that is the actual guarantee, not the OS-level open flag.
  */
 export interface OpenOptions {
   readonly?: boolean;

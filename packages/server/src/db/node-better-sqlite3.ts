@@ -25,12 +25,20 @@ export async function openBetterSqlite3(
   opts: OpenOptions = {},
 ): Promise<Db> {
   const { default: BetterSqlite3 } = await import("better-sqlite3");
-  // THE-1039 fix round 1 (F2): `readonly: true` maps straight to better-sqlite3's own `readonly`
-  // option — `SQLITE_OPEN_READONLY` at the native layer, which "prevents -wal/-shm sidecar
-  // creation" per better-sqlite3's own source (src/objects/database.cpp). `fileMustExist` is NOT
-  // set: every caller here already checks existsSync before opening, so the native ENOENT is an
-  // acceptable (if redundant) failure mode rather than a behavior this adapter needs to special-case.
-  const db = opts.readonly ? new BetterSqlite3(path, { readonly: true }) : new BetterSqlite3(path);
+  // THE-1039 fix round 2 (C1) — see bun-sqlite.ts's matching comment for the full macOS incident
+  // this reverts (fix round 1's F2 used the native `readonly` option, which CI's macOS leg failed
+  // to open a WAL-mode fixture with, while Linux/Windows passed unchanged). `opts.readonly` now
+  // maps to `{ fileMustExist: true }` WITHOUT `readonly` — per better-sqlite3's own source
+  // (src/objects/database.cpp): `readonly ? SQLITE_OPEN_READONLY : must_exist ?
+  // SQLITE_OPEN_READWRITE : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)` — so this opens a normal
+  // READWRITE file descriptor (sidesteps whatever macOS-specific SQLITE_OPEN_READONLY + WAL/`-shm`
+  // restriction bit bun:sqlite) while still refusing to CREATE a missing file. Never issuing a
+  // write statement (readonlyConnectionPragmas below, no INSERT/UPDATE/PRAGMA-that-sets-a-value)
+  // is what actually keeps this "read-only" in the sense that matters — the file descriptor's own
+  // OS-level permission was always redundant defense, not the primary guarantee.
+  const db = opts.readonly
+    ? new BetterSqlite3(path, { fileMustExist: true })
+    : new BetterSqlite3(path);
   // Server-tuned per-connection baseline (THE-273), shared with the other adapters so the ORDER
   // cannot drift between them — busy_timeout must precede anything that can contend (THE-745).
   // See db/pragmas.ts. better-sqlite3 caches statements internally, so prepareCached here mainly

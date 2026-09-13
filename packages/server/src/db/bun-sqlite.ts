@@ -71,11 +71,32 @@ export async function openBunSqlite(
   const { Database: BunDatabase } = await import("bun:sqlite");
   // Must precede the constructor below — setCustomSQLite is a no-op once a Database exists.
   useEmbeddedSqlite(BunDatabase);
-  // THE-1039 fix round 1 (F2): `readonly: true` maps to bun:sqlite's own `readonly` option
-  // (SQLITE_OPEN_READONLY) — `create` is dropped in that branch since a readonly open cannot
-  // create a missing file, and should not silently succeed at "creating" nothing.
+  // THE-1039 fix round 2 (C1) — reverted from the native `{ readonly: true }` open (fix round 1's
+  // F2) after CI reproduced a macOS-only failure: `build-test (macos-latest)` failed with
+  // "unable to open database file" opening a WAL-mode fixture read-only, while Linux x64/arm64
+  // and Windows passed the identical test unchanged. bun:sqlite uses APPLE'S SYSTEM SQLite on
+  // macOS (see useEmbeddedSqlite's own comment above) — a different build than the one bundled
+  // for every other platform — and that build's WAL reader apparently cannot open (or attach to)
+  // the `-shm` index file under `SQLITE_OPEN_READONLY` the way Linux/Windows's bundled SQLite can;
+  // reproduced locally that a NORMAL (writable-fd) connection against the same WAL fixture, even
+  // with a deliberately stale/lingering `-shm` (forced via `fileControl(SQLITE_FCNTL_PERSIST_WAL,
+  // 1)`, matching bun's own docs on why that fileControl is "needed on macOS"), reads correctly on
+  // Linux with no such restriction, since the OS-level read/write permission on the FILE
+  // DESCRIPTOR — not our own intent to only ever read — is what governs whether the `-shm` mapping
+  // can be created.
+  //
+  // Fix: `opts.readonly` now means "open a normal read-write file descriptor, but apply only
+  // `readonlyConnectionPragmas` and issue no write statement" (db/pragmas.ts's own comment) —
+  // never the native `readonly` flag. `{ readwrite: true }` (no `create`) still refuses to open a
+  // MISSING file rather than silently creating one (verified directly: throws the same "unable to
+  // open database file" bun:sqlite always throws for a missing readwrite-no-create target) — every
+  // caller of `openDatabase(..., { readonly: true })` already guards on `existsSync` first, so this
+  // is belt-and-braces, not the primary guard. `immutable=1` (a `file:` URI parameter) was
+  // considered and REJECTED: it disables SQLite's own change-detection entirely, which is unsafe
+  // against a database a live server may still be writing to — exactly the case `compact
+  // --dry-run` and doctor's `db.reclaimable-space` are meant to run against safely.
   const db = opts.readonly
-    ? new BunDatabase(path, { readonly: true })
+    ? new BunDatabase(path, { readwrite: true })
     : new BunDatabase(path, { create: true });
   // Server-tuned per-connection baseline (THE-273), shared with the two Node adapters so the
   // ORDER cannot drift between them — busy_timeout must precede anything that can contend

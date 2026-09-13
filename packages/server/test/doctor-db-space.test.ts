@@ -212,4 +212,47 @@ describe("probeDbSpace — a real cache.db", () => {
       rmSync(cacheDir, { recursive: true, force: true });
     }
   });
+
+  // THE-1039 fix round 2 (C1) — the DELETE-mode test above never reproduced the macOS CI failure
+  // (a bare node:sqlite fixture with no WAL has no `-shm` complexity at all). Every REAL cache.db
+  // is WAL-mode (every writer here applies `journal_mode = WAL` — db/pragmas.ts's
+  // `connectionPragmas`), so this fixture is built via this repo's own `openDatabase` (not bare
+  // node:sqlite) specifically to be WAL-mode, matching what `probeDbSpace` actually reads in
+  // production. `build-test (macos-latest)` failed opening a WAL fixture like this one with
+  // `{ readonly: true }` ("unable to open database file") while Linux/Windows passed unchanged —
+  // fixed by opening a normal read-write file descriptor and never issuing a write statement (see
+  // bun-sqlite.ts's comment for the full incident); this test pins that fix.
+  it("reads a WAL-mode fixture successfully and still mutates neither its bytes nor journal mode", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-wal-"));
+    try {
+      const dbPath = join(cacheDir, "cache.db");
+      const db = await openDatabase(dbPath); // openDatabase's own pragmas set journal_mode = WAL
+      provisionCacheDb(db, { version: "test" });
+      db.prepare(
+        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      ).run("v1", "k1", "t", "h", 1, 2, "{}", 2, 9_999_999_999_999);
+      db.close?.();
+
+      const { DatabaseSync } = await import("node:sqlite");
+      const journalMode = (): string => {
+        const reader = new DatabaseSync(dbPath);
+        try {
+          return (reader.prepare("PRAGMA journal_mode").get() as { journal_mode: string })
+            .journal_mode;
+        } finally {
+          reader.close();
+        }
+      };
+      const hashBefore = sha256(dbPath);
+      expect(journalMode()).toBe("wal");
+
+      const view = await probeDbSpace(cacheDir, 5000);
+      expect(view.status).toBe("ok");
+
+      expect(sha256(dbPath)).toBe(hashBefore);
+      expect(journalMode()).toBe("wal");
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
 });
