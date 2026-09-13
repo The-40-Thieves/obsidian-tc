@@ -256,8 +256,9 @@ function lineIndexAt(lines: SourceLine[], offset: number): number {
  * whitespace or a comment (which belongs to the key) after its value on the last. A key that
  * shares a line with siblings — a root flow mapping `{a: 1, b: 2}` — owns nothing, so that whole
  * line is re-emitted from the changed mapping instead of spliced by line. Keys whose line ranges
- * touch form one group, the unit the emitter keeps, rebuilds or drops. Null = a non-scalar key,
- * for which the caller falls back to a plain stringify.
+ * touch form one group, the unit the emitter keeps, rebuilds or drops — `items` is a parsed
+ * document's own mapping order, so groups come out in ascending line order. Null = a non-scalar
+ * key, for which the caller falls back to a plain stringify.
  */
 function keyGroups(
   text: string,

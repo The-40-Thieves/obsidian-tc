@@ -207,7 +207,8 @@ describe("THE-1040 fix round 2: O1 (line-based key removal) and X1-X3", () => {
 // the preserve path instead of the remove path — and reusing O1's line-boundary machinery
 // exposed a real bug in it (a multi-line node's own range often already ends at the START of
 // the next line, so searching forward for "the next \n" walked into that next line's own
-// terminator and swallowed an unrelated neighbor — see lineBounds' own comment).
+// terminator and swallowed an unrelated neighbor — the line-list model THE-1043 replaced that
+// machinery with keeps the same guard, so these stay as regression tests).
 describe("THE-1040 fix round 3: S1 (unchanged key's inline comment survives a sibling's change)", () => {
   it("S1: an unchanged key's inline trailing comment survives when a sibling key changes (LF)", () => {
     const raw = "---\na: 1\nb: 2 # keep this comment\n---\nbody\n";
@@ -233,9 +234,9 @@ describe("THE-1040 fix round 3: S1 (unchanged key's inline comment survives a si
     expect(out).toBe("---\na: 9\ntags: # keep\n  - x\n  - y\n---\nbody\n");
   });
 
-  // Regression guard for the bug S1's own fix uncovered in lineBounds: an unchanged
-  // multi-line list's own AST range already ends at the START of the next key's line, so
-  // this proves that boundary is no longer walked into and the following key survives too.
+  // Regression guard for the bug S1's own fix uncovered: an unchanged multi-line list's own
+  // AST range already ends at the START of the next key's line, so this proves that boundary is
+  // not walked into and the following key survives too.
   it("S1: removing a neighbor key next to an unchanged multi-line list leaves both intact (CRLF)", () => {
     const raw = "---\r\nlist:\r\n  - x\r\n  - y\r\ngone: 1\r\ntail: ok\r\n---\r\nbody\r\n";
     const p = parseNote(raw);
@@ -247,8 +248,8 @@ describe("THE-1040 fix round 3: S1 (unchanged key's inline comment survives a si
 });
 
 // Round-3 re-review addition: an unchanged block scalar (literal `|`, folded `>`, keep-chomp
-// `|+`) must stay intact — lineBounds must not walk past its own trailing "\n" into the NEXT
-// key's line — when a SIBLING key changes and only that sibling's own entry is re-emitted.
+// `|+`) must stay intact — its line span must not reach past its own trailing "\n" into the
+// NEXT key's line — when a SIBLING key changes and only that sibling's own entry is re-emitted.
 describe("THE-1040 fix round 3 review: an unchanged block scalar survives a sibling's change", () => {
   it("literal `|` block scalar is untouched when a sibling key changes", () => {
     const raw = "---\ntext: |\n  a\nnext: 1\n---\nbody\n";

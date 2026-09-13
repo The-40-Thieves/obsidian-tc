@@ -63,7 +63,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping
   losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions
-  of THE-1040, #937).** THE-1040's line-based rewrite assumed every key owns whole lines. A root
+  of THE-1040, #937; #940).** THE-1040's line-based rewrite assumed every key owns whole lines. A root
   flow mapping (`---\n{a: 1, b: 2}\n---`) breaks that: removing `a` reported success and wrote the
   file back unchanged, and setting `a: 9` emitted `a: 9` ABOVE the untouched `{a: 1, b: 2}` line —
   invalid YAML the next `read_note` refused. Removing a block's LAST key joined its neighbours onto
