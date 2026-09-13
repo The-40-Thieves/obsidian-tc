@@ -373,7 +373,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1042 | Validation errors now say the fix, not just the field (THE-1042, #939, GH #935). | CHANGELOG.md (1.30.0) | 5 |
 | THE-1043 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937; #940). | CHANGELOG.md (1.30.0) | 1 |
 | THE-1044 | Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned string's trailing newlines (THE-1044, #941). | CHANGELOG.md (1.30.0) | 1 |
-| THE-1045 | A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole block was re-emitted by a plain stringify, losing every anchor, comment and byte of source formatting, and nothing said so (THE-1045). | CHANGELOG.md (Unreleased) | 2 |
+| THE-1045 | A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole block was re-emitted by a plain stringify, losing every anchor, comment and byte of source formatting, and nothing said so (THE-1045, #943). | CHANGELOG.md (1.30.1) | 2 |
 
 360 distinct ticket(s) across 499 source file(s) under
 `packages/*/src`; 260 resolved to a public summary, 100
