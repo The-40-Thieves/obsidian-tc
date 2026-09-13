@@ -122,7 +122,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Colliding keys include an ALIAS used as a mapping key (`*key : third` beside `1:` and `'1':`):
   materializing it makes it a literal duplicate, so the pairs the reader cannot see are dropped
   along with it rather than persisting a block that fails the next read with "Map keys must be
-  unique".
+  unique". An alias used as a mapping key is materialized whether or not it collides with a literal
+  one: a key whose ONLY pair was `*k : third` was invisible to the key scan, so a remove silently
+  no-opped (or, after an earlier set, resurrected the old aliased value) and a set appended a second
+  pair below the one shadowing it. The `? *k` key form does not survive an edit — correctness over
+  byte fidelity, as everywhere else in this fix.
 
 ## [1.29.0] - 2026-09-13
 

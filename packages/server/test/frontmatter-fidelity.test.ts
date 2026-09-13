@@ -857,6 +857,41 @@ describe("THE-1044 R: a keep-chomp value ending the block survives a neighbour's
     expect(read(setKey(raw, "fresh", 9))).toEqual({ key: "fresh", fresh: 9, b: 1 });
   });
 
+  // P3: a key whose ONLY pair is an alias key is invisible to a scan over the key nodes' string
+  // form — `*k` reads as "*k", never as "fresh" — so a remove silently no-ops and a set appends a
+  // second pair below the shadowing one. Every alias key resolving to a scalar is materialized
+  // into that scalar before any key is addressed; `? *k` byte forms are given up for it.
+  const ALIAS_KEY_ONLY = "---\nkey: &k fresh\n*k : third\nb: 1\n---\n";
+
+  it("P3: removing a key owned only by an alias KEY drops the pair", () => {
+    expect(read(ALIAS_KEY_ONLY)).toEqual({ key: "fresh", fresh: "third", b: 1 });
+    const out = removeKeys(ALIAS_KEY_ONLY, "fresh");
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ key: "fresh", b: 1 });
+  });
+
+  it("P3: removing a key drops its alias KEY pair as well as its literal one", () => {
+    const raw = "---\nkey: &k fresh\n? *k\n: third\nfresh: 9\n---\n";
+    expect(read(raw)).toEqual({ key: "fresh", fresh: 9 });
+    const out = removeKeys(raw, "fresh");
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ key: "fresh" });
+  });
+
+  it("P3: setting a key owned only by an alias KEY leaves exactly one pair", () => {
+    const out = setKey(ALIAS_KEY_ONLY, "fresh", 9);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ key: "fresh", fresh: 9, b: 1 });
+    expect(out.match(/^fresh:/gm)?.length).toBe(1);
+    expect(out).not.toContain("*k");
+  });
+
+  it("P3: setting an UNRELATED key leaves the alias-key pair readable", () => {
+    const out = setKey(ALIAS_KEY_ONLY, "b", 2);
+    expect(() => read(out)).not.toThrow();
+    expect(read(out)).toEqual({ key: "fresh", fresh: "third", b: 2 });
+  });
+
   it("C2: a CLIP assignment keeps the blank separator line", () => {
     const raw = "---\ntext: |\n  hello\n\nright: 2\n---\n";
     const out = setKey(raw, "text", "changed\n");

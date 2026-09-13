@@ -1,6 +1,5 @@
 // YAML frontmatter parse/serialize. Body bytes are preserved verbatim. Frontmatter
 // key order is preserved; existing keys keep their position, new keys append.
-//
 // Fidelity: serializeNote, given the ORIGINAL frontmatter text (parseNote().rawFrontmatter),
 // rewrites the block as a LINE LIST — every source line no changed or removed key owns is emitted
 // byte-for-byte, so YAML scalar quirks (leading-zero strings like zip: 01234, trailing-zero
@@ -12,7 +11,7 @@
 // leading-zero integers; a block carrying an ALIAS is the one exception (emitViaDocument).
 import { isDeepStrictEqual } from "node:util";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import YAML, { isMap, isNode, isScalar, YAMLParseError } from "yaml";
+import YAML, { isAlias, isMap, isNode, isScalar, YAMLParseError } from "yaml";
 
 // THE-1040 C1: the opening delimiter's own line break gets its own capture group so parseNote
 // can hand it straight to a caller — the ONLY reliable EOL signal for a block whose content
@@ -120,6 +119,7 @@ function emitViaDocument(
   eol: string,
 ): string | null {
   if (!hasAlias(doc)) return null;
+  materializeAliasKeys(doc);
   const changed = (k: string) => !(k in prevObj) || !isDeepStrictEqual(prevObj[k], next[k]);
   const doomed = Object.keys(prevObj).filter((k) => !(k in next) || changed(k));
   materializeAliases(doc, doomed);
@@ -187,6 +187,20 @@ function dropOrphanAnchor(doc: ReturnType<typeof YAML.parseDocument>, key: strin
   });
 }
 
+/** THE-1044: an alias used as a mapping KEY becomes the scalar it resolves to before any key node
+ *  is matched — an Alias stringifies as `*k`, so docKeys never sees the pair and a remove no-ops.
+ *  The `? *k` byte form is the cost. A COLLECTION-valued alias key stays: `*k` is the reader's too. */
+function materializeAliasKeys(doc: ReturnType<typeof YAML.parseDocument>): void {
+  const map = doc.contents;
+  if (!isMap(map)) return;
+  for (const pair of map.items) {
+    const key = pair.key;
+    if (!isAlias(key)) continue;
+    const src = key.resolve(doc);
+    if (isScalar(src)) pair.key = doc.createNode(src.toJS(doc));
+  }
+}
+
 /** Replace every alias to an anchor defined inside `keys` — the values about to be replaced or
  *  dropped — with a copy of what it resolves to TODAY, comments carried over: the aliasing key
  *  keeps the value the caller's mapping gives it. An anchor no doomed key covers is left alone. */
@@ -226,10 +240,8 @@ function normalizeSlice(text: string, eol: string): string {
   return lines.join(eol).replace(/\r+$/, "");
 }
 
-/** Build the frontmatter YAML body. With original (the verbatim source), the block is rewritten
- *  as a LINE LIST: every line no changed/removed key owns is emitted verbatim (comments, blank
- *  lines, unchanged keys with their inline comments), a changed key replaces its own lines, a
- *  removed key's lines are dropped. Without an original, plain-stringify the object. */
+/** Build the frontmatter YAML body: the LINE LIST rewrite this file opens with when `original`
+ *  (the verbatim source) is given, a plain stringify of the caller's mapping when it is not. */
 function emitFrontmatter(
   next: Frontmatter,
   original: string | null | undefined,
