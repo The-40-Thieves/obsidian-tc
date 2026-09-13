@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,308 tracked code files · 227,706 lines.
+**Scale:** 1,308 tracked code files · 227,767 lines.
 
-TypeScript 207,742 · JavaScript 14,542 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
+TypeScript 207,803 · JavaScript 14,542 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -93,7 +93,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `cli/` | 40 | 5,423 | arg parsing + subcommands |
 | `runtime/` | 19 | 4,291 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 15 | 2,678 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `vault/` | 17 | 2,393 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `vault/` | 17 | 2,401 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 15 | 1,988 | provisioning, migrate runner, experiential store |
 | `migrations/` | 53 | 1,940 | hand-registered SQL. **Two chains** — see below |
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
@@ -157,9 +157,9 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 611 | `packages/server/src/search/graph_search.ts` |
 | 599 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 599 | `packages/server/src/tools/m3/base-tools.ts` |
+| 575 | `packages/server/src/vault/frontmatter.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 569 | `packages/server/src/runtime/plane-wiring.ts` |
-| 567 | `packages/server/src/vault/frontmatter.ts` |
 | 557 | `packages/server/src/search/indexing/index-vault.ts` |
 | 535 | `packages/server/src/tools/m7/knowledge/retrieval-runtime.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |

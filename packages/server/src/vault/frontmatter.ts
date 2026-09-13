@@ -170,8 +170,7 @@ function docKey(doc: ReturnType<typeof YAML.parseDocument>, key: string): unknow
 }
 
 /** THE-1044: `doc.set` mutates a Scalar in place, so a scalar-to-scalar change kept the old node's
- *  `&anchor` while a collection-to-scalar change dropped it. An anchor on a CHANGED value goes once
- *  nothing aliases it; one on an untouched key is left as written. */
+ *  `&anchor`. An anchor on a CHANGED value goes once nothing aliases it; an untouched one stays. */
 function dropOrphanAnchor(doc: ReturnType<typeof YAML.parseDocument>, key: string): void {
   const node = doc.get(docKey(doc, key), true);
   if (!isNode(node)) return;
@@ -201,9 +200,8 @@ function materializeAliasKeys(doc: ReturnType<typeof YAML.parseDocument>): strin
   return made;
 }
 
-/** THE-1044: a materialized alias key can collide with a pair the caller never touched (`*key`
- *  beside `1:`), and nothing else collapses a group no edit names. The pair the reader resolves
- *  survives; a dropped pair's anchor goes into its aliases first, so `b: *key` keeps its value. */
+/** THE-1044: a materialized alias key can collide with a pair no edit names (`*key` beside `1:`),
+ *  which nothing else collapses. The reader's pair survives; a dropped one's anchor goes first. */
 function collapseAliasKeyGroups(doc: ReturnType<typeof YAML.parseDocument>, keys: string[]): void {
   for (const key of keys) {
     const shadowed = docPairs(doc, key).slice(0, -1);
@@ -249,9 +247,8 @@ function replaceAliases(doc: ReturnType<typeof YAML.parseDocument>, anchors: Set
   });
 }
 
-/** THE-1040 X1: normalize a SOURCE slice's line breaks to the block's own EOL, dropping a trailing
- *  empty line (or a stray "\r" a node range can leave short of its terminator on CRLF) so
- *  re-joining with a sibling never doubles one. Never used on emitted text — see blockText. */
+/** THE-1040 X1: normalize a SOURCE slice to the block's EOL, dropping a trailing empty line (or a
+ *  stray "\r" a CRLF node range leaves) so re-joining never doubles one. SOURCE slices only. */
 function normalizeSlice(text: string, eol: string): string {
   const lines = text.split(/\r?\n/);
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
@@ -267,6 +264,10 @@ function emitFrontmatter(
   options?: SerializeNoteOptions,
 ): string {
   if (original && original.length > 0) {
+    // THE-1045: every exit from here that is not a `return` lands in the plain stringify below —
+    // exact values, no anchors or source bytes. Reported once, whether a rewrite threw or the
+    // block could not be line-listed at all.
+    let reason = "frontmatter block could not be line-listed";
     try {
       const doc = YAML.parseDocument(original);
       const map = doc.contents;
@@ -318,9 +319,9 @@ function emitFrontmatter(
         }
       }
     } catch (e) {
-      // THE-1045: the rewrite threw — the plain stringify below keeps values, not anchors or bytes.
-      options?.onFallback?.({ path: options?.path, error: errorMessage(e) });
+      reason = errorMessage(e);
     }
+    options?.onFallback?.({ path: options?.path, error: reason });
   }
   return closeBlock(blockText(YAML.stringify(next, { lineWidth: 0 }), eol), next, eol);
 }
@@ -352,9 +353,8 @@ function emitGroup(
   return lines.slice(group.firstLine, group.lastLine + 1).map((l) => text.slice(l.start, l.end));
 }
 
-/** Fallback delimiter EOL for a caller with no captured `frontmatterEol` (a brand-new note),
- *  inferred from whatever CRLF signal the raw block or body carries. `serializeNote` prefers the
- *  authoritative `options.frontmatterEol` whenever given. */
+/** Delimiter EOL for a caller with no captured `frontmatterEol` (a brand-new note), inferred from
+ *  whatever CRLF signal the block or body carries. `options.frontmatterEol` wins whenever given. */
 function delimiterEol(original: string | null | undefined, body: string): string {
   return original?.includes("\r\n") || body.includes("\r\n") ? "\r\n" : "\n";
 }
@@ -515,7 +515,16 @@ function survivingComments(original: string | null | undefined, eol: string): st
   if (!isMap(map)) return keep(original);
   const lines = sourceLines(original);
   const groups = keyGroups(original, lines, map);
-  if (!groups) return keep(original);
+  // THE-1045 round 2: a key the line list cannot address (an alias key, a flow-collection key) used
+  // to bring the block back WHOLE, so emptying such a mapping was a silent no-op. Its pairs are all
+  // doomed here, and only a full-line comment is still content.
+  if (!groups)
+    return keep(
+      lines
+        .map((l) => original.slice(l.start, l.end))
+        .filter((t) => t.trimStart().startsWith("#"))
+        .join(eol),
+    );
   const owned = new Set<number>();
   for (const g of groups) for (let i = g.firstLine; i <= g.lastLine; i++) owned.add(i);
   return keep(
@@ -541,9 +550,8 @@ export interface SerializeNoteOptions {
   onFallback?: (info: { path?: string; error: string }) => void;
 }
 
-/** Re-emit a note from frontmatter + body. Pass originalFrontmatter to preserve
- *  untouched keys exactly, and options.frontmatterEol (parseNote's own field) so the
- *  delimiters keep the note's actual line ending rather than an inferred one. */
+/** Re-emit a note from frontmatter + body. Pass originalFrontmatter to preserve untouched keys
+ *  exactly, and options.frontmatterEol (parseNote's own field) for the delimiters' line ending. */
 export function serializeNote(
   frontmatter: Frontmatter | null,
   body: string,

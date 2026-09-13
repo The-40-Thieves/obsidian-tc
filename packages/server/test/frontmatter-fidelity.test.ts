@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { parseNote, serializeNote } from "../src/vault/frontmatter";
 
 function rt(raw: string, mutate: (fm: Record<string, unknown>) => void, newBody?: string): string {
@@ -929,15 +929,33 @@ describe("THE-1044 R: a keep-chomp value ending the block survives a neighbour's
 });
 
 describe("THE-1045: anchor collection walks a collision group by pair identity", () => {
+  const fellBack: { path?: string; error: string }[] = [];
   function setKey(raw: string, key: string, value: unknown) {
     const p = parseNote(raw);
     const fm = { ...(p.frontmatter ?? {}), [key]: value };
     return serializeNote(fm, p.body, p.rawFrontmatter, {
       frontmatterEol: p.frontmatterEol,
       frontmatterAtEof: p.frontmatterAtEof,
+      path: "notes/q.md",
+      onFallback: (info) => fellBack.push(info),
+    });
+  }
+  function removeKeys(raw: string, ...keys: string[]) {
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}) };
+    for (const k of keys) delete fm[k];
+    const hasKeys = Object.keys(fm).length > 0;
+    return serializeNote(hasKeys ? fm : null, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+      frontmatterAtEof: p.frontmatterAtEof,
+      path: "notes/q.md",
+      onFallback: (info) => fellBack.push(info),
     });
   }
   const read = (out: string) => parseNote(out).frontmatter;
+  beforeEach(() => {
+    fellBack.length = 0;
+  });
 
   // `*key` materializes into a second `1:` pair, which the collision-group collapse then drops —
   // but that pair's VALUE carries `&v`. Anchor collection went through doc.get, whose findPair
@@ -953,6 +971,7 @@ describe("THE-1045: anchor collection walks a collision group by pair identity",
     expect(read(out)).toEqual({ "1": "second", b: 2, c: "third" });
     // The document path keeps the source's own key quoting; the fallback re-quotes from scratch.
     expect(out).toBe("---\n'1': second\nb: 2\nc: third\n---\n");
+    expect(fellBack).toEqual([]);
   });
 
   it("Q2: an anchor on the SURVIVING pair's value keeps its aliases", () => {
@@ -964,6 +983,7 @@ describe("THE-1045: anchor collection walks a collision group by pair identity",
     expect(read(out)).toEqual({ "1": "second", b: 2, c: "third", d: "second" });
     expect(out).toContain("&s");
     expect(out).toContain("*s");
+    expect(fellBack).toEqual([]);
   });
 
   it("Q3: an anchor no dropped pair defines is left alone", () => {
@@ -987,6 +1007,39 @@ describe("THE-1045: anchor collection walks a collision group by pair identity",
     expect(calls).toHaveLength(1);
     expect(calls[0]?.path).toBe("notes/broken.md");
     expect(calls[0]?.error).toContain("Unresolved alias");
+  });
+
+  it("Q6: emptying a mapping the line list cannot address drops the block", () => {
+    const raw = "---\n1: &key 1\n*key : third\n---\nbody\n";
+    expect(read(raw)).toEqual({ "1": "third" });
+    expect(removeKeys(raw, "1")).toBe("body\n");
+  });
+
+  it("Q6: a full-line comment survives that emptying as a comment-only block", () => {
+    const raw = "---\n# keep\n1: &key 1\n*key : third\n---\nbody\n";
+    const out = removeKeys(raw, "1");
+    expect(out).toBe("---\n# keep\n---\nbody\n");
+    expect(read(out)).toEqual({});
+  });
+
+  it("Q6: the same emptying on CRLF", () => {
+    const raw = "---\r\n# keep\r\n1: &key 1\r\n*key : third\r\n---\r\nbody\r\n";
+    const out = removeKeys(raw, "1");
+    expect(out).toBe("---\r\n# keep\r\n---\r\nbody\r\n");
+    expect(read(out)).toEqual({});
+    expect(removeKeys("---\r\n1: &key 1\r\n*key : third\r\n---\r\nbody\r\n", "1")).toBe("body\r\n");
+  });
+
+  it("Q7: a block that cannot be line-listed reports the fallback without throwing", () => {
+    // A flow-collection KEY: the library accepts it, the reader flattens it to the string
+    // `"[ a, b ]"`, and keyGroups refuses it — so the block is plain-stringified with no exception.
+    const raw = "---\n? [a, b]\n: 1\nz: 2\n---\nbody\n";
+    expect(read(raw)).toEqual({ "[ a, b ]": 1, z: 2 });
+    const out = setKey(raw, "z", 9);
+    expect(read(out)).toEqual({ "[ a, b ]": 1, z: 9 });
+    expect(fellBack).toHaveLength(1);
+    expect(fellBack[0]?.path).toBe("notes/q.md");
+    expect(fellBack[0]?.error).toBe("frontmatter block could not be line-listed");
   });
 
   it("Q5: a block the emitter DOES rewrite reports nothing", () => {

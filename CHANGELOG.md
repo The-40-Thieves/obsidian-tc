@@ -18,8 +18,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   own pairs by node identity, and only the pairs a collapse actually drops contribute anchors, so an
   anchor on the pair that survives keeps its aliases. The plain-stringify fallback itself is
   unchanged but no longer silent: `serializeNote` accepts an optional `path` and `onFallback`, and
-  every note-writing tool wires it to a stderr sink naming the note and the emitter's own message.
-  Origin: the THE-1044 review.
+  every note-writing tool wires it to a stderr sink naming the note and the emitter's own message —
+  including the path that never threw at all, where a block with a key the line list cannot address
+  is re-stringified in silence. Emptying such a block's mapping was itself a silent no-op: a removal
+  that left nothing behind returned the original block whole, so `1: &key 1` / `*key : third` still
+  read back `{"1": "third"}` after every key was deleted. The block's full-line comments now survive
+  as a comment-only block and its delimiters are dropped when they do not. Origin: the THE-1044
+  review.
 
 ## [1.30.0] - 2026-09-13
 
