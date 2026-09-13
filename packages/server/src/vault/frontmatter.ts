@@ -1,15 +1,16 @@
 // YAML frontmatter parse/serialize. Body bytes are verbatim; key order is preserved, existing keys
-// keep their position, new keys append. Fidelity: serializeNote, given the ORIGINAL frontmatter
-// text (parseNote().rawFrontmatter), rewrites the block as a LINE LIST — every source line no
-// changed or removed key owns is emitted byte-for-byte, so YAML scalar quirks (leading zeros like
-// zip: 01234, trailing zeros like 1.10, hex/octal/sci), comments and blank lines all survive. Only
-// added/changed keys are re-serialized; a removed key's lines are dropped, leaving exactly one line
-// break between its neighbours. An unchanged mapping keeps the block verbatim; with no original it
-// plain-stringifies (new notes). SOURCE slicing, not doc.toString, is what guarantees that: the
-// Document API canonicalizes leading zeros; an ALIAS block is the one exception (emitViaDocument).
+// keep their position, new keys append. Fidelity: serializeNote, given the ORIGINAL block text
+// (parseNote().rawFrontmatter), rewrites it as a LINE LIST — every source line no changed or
+// removed key owns is emitted byte-for-byte, so scalar quirks (zip: 01234, 1.10, hex/octal/sci),
+// comments and blank lines survive. Only added/changed keys are re-serialized; a removed key's
+// lines are dropped, leaving one line break between its neighbours. An unchanged mapping keeps the
+// block verbatim; with no original it plain-stringifies. SOURCE slicing, not doc.toString, is what
+// guarantees that: the Document API canonicalizes leading zeros; an ALIAS block is the one
+// exception (emitViaDocument).
 import { isDeepStrictEqual } from "node:util";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import YAML, { isAlias, isMap, isNode, isScalar, YAMLParseError } from "yaml";
+import YAML, { isAlias, isMap, isNode, isScalar, type Pair, YAMLParseError } from "yaml";
+import { errorMessage } from "../util/errors";
 
 // THE-1040 C1: the opening delimiter's own line break gets its own capture group so parseNote
 // can hand it straight to a caller — the ONLY reliable EOL signal for a block whose content
@@ -37,9 +38,8 @@ export interface ParsedNote {
 }
 
 /** Split a note into its frontmatter object (if any) and verbatim body. `path` is optional and
- *  purely diagnostic — parseNote stays a pure parsing primitive over `raw` (some callers round-trip
- *  an in-memory buffer with no file behind it, e.g. parseEntityNote's graph-integrity check).
- *  THE-823: every call site that reads a note off disk passes one. */
+ *  purely diagnostic — some callers round-trip an in-memory buffer with no file behind it (e.g.
+ *  parseEntityNote). THE-823: every call site that reads a note off disk passes one. */
 export function parseNote(raw: string, path?: string): ParsedNote {
   const m = FRONTMATTER.exec(raw);
   if (!m)
@@ -57,9 +57,8 @@ export function parseNote(raw: string, path?: string): ParsedNote {
     fm =
       parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Frontmatter) : {};
   } catch (e) {
-    // THE-823: the parser's own message carries the line/column it already computed (its first
-    // line always ends "at line N, column M:"), and the note PATH goes with it — a bare `catch`
-    // left a large-vault boot reconcile with no way to name the offending file.
+    // THE-823: the parser's message already carries the line/column (its first line always ends
+    // "at line N, column M:"); the note PATH goes with it, so a boot reconcile can name the file.
     const detail = e instanceof YAMLParseError ? e.message.split("\n")[0] : undefined;
     const where = path ? ` in "${path}"` : "";
     throw err.invalidInput(
@@ -91,10 +90,9 @@ function emitEntry(key: string, value: unknown, eol: string): string {
   return blockText(YAML.stringify({ [key]: value }, { lineWidth: 0 }), eol);
 }
 
-/** THE-1044: the separator between the block's last line and the closing "---" is one block EOL,
- *  never taken from a value. A block scalar's trailing newlines are LINES, and parseNote's capture
- *  stops one break short of that delimiter, so a block ending in a keep-chomp (`|+`) scalar reads
- *  one newline light. Decided by ROUND TRIP, so a merely-blank line never gains a twin. */
+/** THE-1044: the separator before the closing "---" is one block EOL, never from a value. A block
+ *  scalar's trailing newlines are LINES and parseNote's capture stops one break short of the
+ *  delimiter, so a keep-chomp (`|+`) block reads one light. By ROUND TRIP: no twin blank line. */
 function closeBlock(text: string, next: Frontmatter, eol: string): string {
   if (!text.endsWith(eol)) return text;
   try {
@@ -107,8 +105,7 @@ function closeBlock(text: string, next: Frontmatter, eol: string): string {
 
 /** THE-1044: a block carrying any alias is edited as a DOCUMENT, not as a line list — the library
  *  keeps `&anchor`/`*alias` and node comments across set/delete, where re-emitting one key alone
- *  leaves a sibling's `*x` on an anchor that is gone and the note stops parsing. The cost is byte
- *  fidelity for the WHOLE block; correctness first. Null = no alias, use the line list. */
+ *  leaves a sibling's `*x` dangling. Byte fidelity is the cost. Null = no alias, use the lines. */
 function emitViaDocument(
   doc: ReturnType<typeof YAML.parseDocument>,
   prevObj: Frontmatter,
@@ -119,7 +116,7 @@ function emitViaDocument(
   collapseAliasKeyGroups(doc, materializeAliasKeys(doc));
   const changed = (k: string) => !(k in prevObj) || !isDeepStrictEqual(prevObj[k], next[k]);
   const doomed = Object.keys(prevObj).filter((k) => !(k in next) || changed(k));
-  materializeAliases(doc, doomed);
+  replaceAliases(doc, anchorsIn(doomed.flatMap((k) => docPairs(doc, k))));
   for (const k of Object.keys(prevObj))
     if (!(k in next)) for (const node of docKeys(doc, k)) doc.delete(node);
   for (const k of Object.keys(next)) {
@@ -148,20 +145,21 @@ function hasAlias(doc: ReturnType<typeof YAML.parseDocument>, anchor?: string): 
   return found;
 }
 
-/** THE-1044: the document's OWN key nodes for a caller key, matched on their string form — a
- *  mapping keyed `1:`/`true:` arrives as the JS string, which get/set/delete compare against the
- *  node's `value`, so the pair was missed. There can be SEVERAL (`1:`, `'1':` and a materialized
- *  alias key are distinct YAML keys on one JS key); the reader sees the LAST, so a set follows it
- *  and a remove drops them all, or a shadowed duplicate resurfaces. */
-function docKeys(doc: ReturnType<typeof YAML.parseDocument>, key: string): unknown[] {
+/** THE-1044: the document's OWN pairs for a caller key, matched on the key's string form — a
+ *  mapping keyed `1:`/`true:` arrives as the JS string, which get/set/delete match on the node's
+ *  `value`. Several can match (`1:`, `'1':`, an alias key); the reader sees the LAST. */
+function docPairs(
+  doc: ReturnType<typeof YAML.parseDocument>,
+  key: string,
+): Pair<unknown, unknown>[] {
   const map = doc.contents;
   if (!isMap(map)) return [];
-  const found: unknown[] = [];
-  for (const pair of map.items) {
-    const k = (pair as { key?: unknown }).key;
-    if (String(isScalar(k) ? k.value : k) === key) found.push(k);
-  }
-  return found;
+  return map.items.filter((p) => String(isScalar(p.key) ? p.key.value : p.key) === key);
+}
+
+/** Their key NODES: a set follows the last, a remove drops all, or a shadowed one resurfaces. */
+function docKeys(doc: ReturnType<typeof YAML.parseDocument>, key: string): unknown[] {
+  return docPairs(doc, key).map((p) => p.key);
 }
 
 /** The pair the reader resolves `key` to — the last match, or the key itself when the document has
@@ -172,8 +170,7 @@ function docKey(doc: ReturnType<typeof YAML.parseDocument>, key: string): unknow
 }
 
 /** THE-1044: `doc.set` mutates a Scalar in place, so a scalar-to-scalar change kept the old node's
- *  `&anchor` while a collection-to-scalar change dropped it. An anchor on a CHANGED value goes once
- *  nothing aliases it; one on an untouched key is left as written. */
+ *  `&anchor`. An anchor on a CHANGED value goes once nothing aliases it; an untouched one stays. */
 function dropOrphanAnchor(doc: ReturnType<typeof YAML.parseDocument>, key: string): void {
   const node = doc.get(docKey(doc, key), true);
   if (!isNode(node)) return;
@@ -203,33 +200,38 @@ function materializeAliasKeys(doc: ReturnType<typeof YAML.parseDocument>): strin
   return made;
 }
 
-/** THE-1044: a materialized alias key can collide with a pair the caller never touched (`*key`
- *  beside `1:`), and nothing else collapses a group no edit names. The pair the reader resolves
- *  survives; a dropped pair's anchor goes into its aliases first, so `b: *key` keeps its value. */
+/** THE-1044: a materialized alias key can collide with a pair no edit names (`*key` beside `1:`),
+ *  which nothing else collapses. The reader's pair survives; a dropped one's anchor goes first. */
 function collapseAliasKeyGroups(doc: ReturnType<typeof YAML.parseDocument>, keys: string[]): void {
   for (const key of keys) {
-    const shadowed = docKeys(doc, key).slice(0, -1);
+    const shadowed = docPairs(doc, key).slice(0, -1);
     if (shadowed.length === 0) continue;
-    materializeAliases(doc, [key]);
-    for (const node of shadowed) doc.delete(node);
+    replaceAliases(doc, anchorsIn(shadowed));
+    for (const pair of shadowed) doc.delete(pair.key);
   }
 }
 
-/** Replace every alias to an anchor defined inside `keys` — the values about to be replaced or
- *  dropped — with a copy of what it resolves to TODAY, comments carried over: the aliasing key
- *  keeps the value the caller's mapping gives it. An anchor no doomed key covers is left alone. */
-function materializeAliases(doc: ReturnType<typeof YAML.parseDocument>, keys: string[]): void {
+/** The anchors defined under `pairs` — values about to be replaced or dropped. THE-1045: pairs
+ *  reach here by NODE IDENTITY, never doc.get, whose findPair falls back to key-VALUE equality and
+ *  hands back the FIRST pair of a collision group, leaving a later one's anchor uncollected. */
+function anchorsIn(pairs: Pair<unknown, unknown>[]): Set<string> {
   const anchors = new Set<string>();
-  for (const key of keys)
-    for (const k of docKeys(doc, key)) {
-      const node = doc.get(k, true);
-      if (!isNode(node)) continue;
-      YAML.visit(node, {
-        Node(_k, n) {
-          if (n.anchor) anchors.add(n.anchor);
-        },
-      });
-    }
+  for (const pair of pairs) {
+    const node = pair.value;
+    if (!isNode(node)) continue;
+    YAML.visit(node, {
+      Node(_k, n) {
+        if (n.anchor) anchors.add(n.anchor);
+      },
+    });
+  }
+  return anchors;
+}
+
+/** Replace every alias to one of `anchors` with a copy of what it resolves to TODAY, comments
+ *  carried over: the aliasing key keeps the value the caller's mapping gives it. An anchor no
+ *  doomed pair defines is left alone, aliases and all. */
+function replaceAliases(doc: ReturnType<typeof YAML.parseDocument>, anchors: Set<string>): void {
   if (anchors.size === 0) return;
   YAML.visit(doc, {
     Alias(_k, node) {
@@ -245,9 +247,8 @@ function materializeAliases(doc: ReturnType<typeof YAML.parseDocument>, keys: st
   });
 }
 
-/** THE-1040 X1: normalize a SOURCE slice's line breaks to the block's own EOL, dropping a trailing
- *  empty line (or a stray "\r" a node range can leave short of its terminator on CRLF) so
- *  re-joining with a sibling never doubles one. Never used on emitted text — see blockText. */
+/** THE-1040 X1: normalize a SOURCE slice to the block's EOL, dropping a trailing empty line (or a
+ *  stray "\r" a CRLF node range leaves) so re-joining never doubles one. SOURCE slices only. */
 function normalizeSlice(text: string, eol: string): string {
   const lines = text.split(/\r?\n/);
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
@@ -260,8 +261,13 @@ function emitFrontmatter(
   next: Frontmatter,
   original: string | null | undefined,
   eol: string,
+  options?: SerializeNoteOptions,
 ): string {
   if (original && original.length > 0) {
+    // THE-1045: every exit from here that is not a `return` lands in the plain stringify below —
+    // exact values, no anchors or source bytes. Reported once, whether a rewrite threw or the
+    // block could not be line-listed at all.
+    let reason = "frontmatter block could not be line-listed";
     try {
       const doc = YAML.parseDocument(original);
       const map = doc.contents;
@@ -312,16 +318,19 @@ function emitFrontmatter(
           if (out.length > 0) return closeBlock(out.join(eol), next, eol);
         }
       }
-    } catch {}
+    } catch (e) {
+      reason = errorMessage(e);
+    }
+    options?.onFallback?.({ path: options?.path, error: reason });
   }
   return closeBlock(blockText(YAML.stringify(next, { lineWidth: 0 }), eol), next, eol);
 }
 
 /** The lines of one group. A group that OWNS its lines keeps them verbatim while its key is
- *  unchanged (inline comment and all), re-emits the key in their place when it changed, and drops
- *  them when it was removed. A group that owns nothing — a root flow mapping, braces and all — is
- *  rebuilt key by key, comments re-emitted as full lines around it, so a changed flow root comes
- *  back in BLOCK style. An unchanged key splices from its node range only when it HAS one. */
+ *  unchanged (inline comment and all), re-emits the key in their place when it changed, drops them
+ *  when it was removed. One that owns nothing — a root flow mapping, braces and all — is rebuilt
+ *  key by key with its comments as full lines, in BLOCK style; an unchanged key splices only when
+ *  it HAS a node range. */
 function emitGroup(
   group: LineGroup,
   text: string,
@@ -344,9 +353,8 @@ function emitGroup(
   return lines.slice(group.firstLine, group.lastLine + 1).map((l) => text.slice(l.start, l.end));
 }
 
-/** Fallback delimiter EOL for a caller with no captured `frontmatterEol` (a brand-new note),
- *  inferred from whatever CRLF signal the raw block or body carries. `serializeNote` prefers the
- *  authoritative `options.frontmatterEol` whenever given. */
+/** Delimiter EOL for a caller with no captured `frontmatterEol` (a brand-new note), inferred from
+ *  whatever CRLF signal the block or body carries. `options.frontmatterEol` wins whenever given. */
 function delimiterEol(original: string | null | undefined, body: string): string {
   return original?.includes("\r\n") || body.includes("\r\n") ? "\r\n" : "\n";
 }
@@ -417,9 +425,8 @@ function lineSpanOf(lines: SourceLine[], start: number, end: number): [number, n
  *  means block style — nothing but whitespace before the key on its first line, nothing but
  *  whitespace or a comment (which belongs to the key) after its value on the last. Keys whose line
  *  ranges touch form one group, the unit the emitter keeps, rebuilds or drops, in `map.items`
- *  order. Null = a non-scalar key: the caller falls back to a plain stringify. A FLOW root is the
- *  exception — no key owns a line and the braces belong to none, so the collection is ONE group,
- *  rebuilt with the comments on and inside the braces as `before`/`after`. */
+ *  order. Null = a non-scalar key: the caller plain-stringifies. A FLOW root is the exception — no
+ *  key owns a line and the braces none, so it is ONE group, their comments `before`/`after`. */
 function keyGroups(
   text: string,
   lines: SourceLine[],
@@ -493,9 +500,8 @@ function commentLines(chunk: string): string[] {
 }
 
 /** THE-1040 F1/C2/C4/O1: what (if anything) of a raw block survives once the caller's mapping is
- *  empty. Comments are content, never discarded just because every real key is gone — but an
- *  INLINE comment belongs to its key, so only a full-line comment or a blank line survives. A block
- *  with no real mapping comes back byte-for-byte; null drops the delimiters. */
+ *  empty. Comments are content, never discarded because every real key is gone — but an INLINE one
+ *  belongs to its key, so only full-line comments and blank lines survive; null drops the block. */
 function survivingComments(original: string | null | undefined, eol: string): string | null {
   if (!original) return null;
   const keep = (text: string): string | null => (text.trim().length > 0 ? text : null);
@@ -509,7 +515,16 @@ function survivingComments(original: string | null | undefined, eol: string): st
   if (!isMap(map)) return keep(original);
   const lines = sourceLines(original);
   const groups = keyGroups(original, lines, map);
-  if (!groups) return keep(original);
+  // THE-1045 round 2: a key the line list cannot address (an alias key, a flow-collection key) used
+  // to bring the block back WHOLE, so emptying such a mapping was a silent no-op. Its pairs are all
+  // doomed here, and only a full-line comment is still content.
+  if (!groups)
+    return keep(
+      lines
+        .map((l) => original.slice(l.start, l.end))
+        .filter((t) => t.trimStart().startsWith("#"))
+        .join(eol),
+    );
   const owned = new Set<number>();
   for (const g of groups) for (let i = g.firstLine; i <= g.lastLine; i++) owned.add(i);
   return keep(
@@ -528,11 +543,15 @@ export interface SerializeNoteOptions {
   /** THE-1043: parseNote's captured `frontmatterAtEof`. Keeps a closing "---" that ended the
    *  file at EOF instead of gaining a trailing line break on every round-trip write. */
   frontmatterAtEof?: boolean;
+  /** The note's path, purely diagnostic — what names the file in an `onFallback` report. */
+  path?: string;
+  /** THE-1045: called when the source block could not be rewritten and the caller's mapping was
+   *  plain-stringified instead. Best-effort: wire it to util/errors' frontmatterFallbackSink. */
+  onFallback?: (info: { path?: string; error: string }) => void;
 }
 
-/** Re-emit a note from frontmatter + body. Pass originalFrontmatter to preserve
- *  untouched keys exactly, and options.frontmatterEol (parseNote's own field) so the
- *  delimiters keep the note's actual line ending rather than an inferred one. */
+/** Re-emit a note from frontmatter + body. Pass originalFrontmatter to preserve untouched keys
+ *  exactly, and options.frontmatterEol (parseNote's own field) for the delimiters' line ending. */
 export function serializeNote(
   frontmatter: Frontmatter | null,
   body: string,
@@ -551,5 +570,6 @@ export function serializeNote(
     if (kept !== null) return `---${eol}${kept}${eol}${close}${body}`;
     return body;
   }
-  return `---${eol}${emitFrontmatter(frontmatter, originalFrontmatter, eol)}${eol}${close}${body}`;
+  const fm = emitFrontmatter(frontmatter, originalFrontmatter, eol, options);
+  return `---${eol}${fm}${eol}${close}${body}`;
 }

@@ -20,3 +20,10 @@ export function stderrOnError(tag: string): (e: unknown) => void {
 export function schedulerPersistErrorSink(f: { op: string; job?: string; error: unknown }): void {
   process.stderr.write(`[scheduler-persist] ${f.op} ${f.job ?? ""}: ${errorMessage(f.error)}\n`);
 }
+
+/** THE-1045: serializeNote's `onFallback` — one stderr line naming the note whose frontmatter block
+ *  could not be rewritten from its source. Same record-carrying shape as the sink above; stderr,
+ *  never stdout, which the stdio MCP transport owns. */
+export function frontmatterFallbackSink(f: { path?: string; error: string }): void {
+  process.stderr.write(`[frontmatter-fallback] ${f.path ?? "<unknown>"}: ${f.error}\n`);
+}

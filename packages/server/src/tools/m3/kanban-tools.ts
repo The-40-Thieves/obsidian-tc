@@ -6,6 +6,7 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
@@ -234,6 +235,8 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
           frontmatterAtEof: parsed.frontmatterAtEof,
+          path: rel,
+          onFallback: frontmatterFallbackSink,
         });
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);
@@ -306,6 +309,8 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
           frontmatterAtEof: parsed.frontmatterAtEof,
+          path: rel,
+          onFallback: frontmatterFallbackSink,
         });
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);

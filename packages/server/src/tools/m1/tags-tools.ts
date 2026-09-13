@@ -7,6 +7,7 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
@@ -259,6 +260,8 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const content = serializeNote(fm, body, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
           frontmatterAtEof: parsed.frontmatterAtEof,
+          path: rel,
+          onFallback: frontmatterFallbackSink,
         });
         writeNoteAtomic(abs, content, false);
         deps.reindex?.(v.id, rel, content);
@@ -334,6 +337,8 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const content = serializeNote(nextFm, body, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
           frontmatterAtEof: parsed.frontmatterAtEof,
+          path: rel,
+          onFallback: frontmatterFallbackSink,
         });
         // Skip the rewrite (and content-hash churn) when nothing was removed (F1).
         if (removed > 0) {
