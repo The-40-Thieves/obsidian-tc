@@ -96,3 +96,49 @@ describe("frontmatter comment-only block survival (THE-1040)", () => {
     expect(out).toBe("---\nzip: 01234\nv: 1.0\n---\nnew body\n");
   });
 });
+
+// Fix round 1: C1 (delimiter EOL is captured at parse time, not inferred from content), C2 (a
+// comment-only block is emitted byte-for-byte, trim() only decides keep-vs-drop), C3 (untouched
+// keys re-joined with the block's own EOL, not a hardcoded "\n").
+describe("THE-1040 fix round 1: C1-C3", () => {
+  it("parseNote captures the opening delimiter's own EOL, independent of content", () => {
+    expect(parseNote("---\ntitle: Test\n---\nbody\n").frontmatterEol).toBe("\n");
+    expect(parseNote("---\r\ntitle: Test\r\n---\r\nbody\r\n").frontmatterEol).toBe("\r\n");
+    // single-line block, no CRLF anywhere else in the note to infer from
+    expect(parseNote("---\r\ntitle: Test\r\n---\r\nold").frontmatterEol).toBe("\r\n");
+    expect(parseNote("no frontmatter here").frontmatterEol).toBeNull();
+  });
+
+  it("C1: options.frontmatterEol wins over a CRLF body when the block itself was LF", () => {
+    const raw = "---\ntitle: Test\nzip: 01234\n---\n## A\r\nold\r\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), zip: 99999 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out.startsWith("---\ntitle: Test\nzip: 99999\n---\n")).toBe(true);
+  });
+
+  it("C1: options.frontmatterEol recovers CRLF for a single-line block with no other \\r\\n signal", () => {
+    const raw = "---\r\ntitle: Test\r\n---\r\nold";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), title: "Changed" };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\r\ntitle: Changed\r\n---\r\nold");
+  });
+
+  it("C2: a comment-only block with interior blank lines round-trips byte-identical", () => {
+    const raw = "---\n# preserve me\n\n\n---\nbody\n";
+    const p = parseNote(raw);
+    const out = serializeNote(p.frontmatter, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+    });
+    expect(out).toBe(raw);
+  });
+
+  it("C3: a CRLF block's untouched keys stay joined by CRLF when a sibling key changes", () => {
+    const raw = "---\r\na: 1\r\nb: 2\r\nc: 3\r\n---\r\nbody\r\n";
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), b: 22 };
+    const out = serializeNote(fm, p.body, p.rawFrontmatter, { frontmatterEol: p.frontmatterEol });
+    expect(out).toBe("---\r\na: 1\r\nb: 22\r\nc: 3\r\n---\r\nbody\r\n");
+  });
+});

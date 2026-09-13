@@ -129,3 +129,78 @@ describe("THE-1040: comment-only frontmatter block survives every write", () => 
     }
   });
 });
+
+// THE-1040 F1: update_frontmatter/remove_tag pass an explicit `null` frontmatter once the
+// last real key is gone — that must not silently discard a comment the block still carries.
+describe("THE-1040 F1: a surviving comment is kept when the last real key is removed", () => {
+  it("update_frontmatter remove keeps the comment", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\n# keep me\nonly: 1\n---\nbody\n" } });
+    try {
+      const r = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "remove",
+        key: "only",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\n# keep me\n---\nbody\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("remove_tag keeps the comment once the only tag is gone", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\n# keep me\ntags: [x]\n---\nbody\n" } });
+    try {
+      const r = await v.call("remove_tag", { vault: "test", path: "a.md", tag: "x" });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\n# keep me\n---\nbody\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+// THE-1040 C1: the delimiter EOL comes from the OPENING "---"'s own line break, captured
+// at parse time — not inferred from the YAML content or the body, which can each carry a
+// different (or no) line-break signal of their own.
+describe("THE-1040 C1: delimiter EOL follows the note's own opening delimiter", () => {
+  it("an LF frontmatter block keeps LF delimiters even when the body is CRLF", async () => {
+    const raw = "---\ntitle: Test\nzip: 01234\n---\n## A\r\nold\r\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "heading", heading: "A" },
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out.startsWith("---\ntitle: Test\nzip: 01234\n---\n")).toBe(true);
+      expect(out).not.toContain("---\r\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a single-line CRLF frontmatter block keeps CRLF delimiters (no body/YAML \\r\\n to fall back on)", async () => {
+    const raw = "---\r\ntitle: Test\r\n---\r\nold";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "frontmatter" },
+        old_string: "old",
+        new_string: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\r\ntitle: Test\r\n---\r\nnew");
+    } finally {
+      v.cleanup();
+    }
+  });
+});

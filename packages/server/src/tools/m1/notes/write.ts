@@ -404,7 +404,9 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           },
         );
 
-      const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter);
+      const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter, {
+        frontmatterEol: parsed.frontmatterEol,
+      });
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a
       // destructive replace (GH #928: replace_text is the same shape — it discards content too)
