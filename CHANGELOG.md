@@ -6,11 +6,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.30.1] - 2026-09-13
+
 ### Fixed
 
 - **A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole
   block was re-emitted by a plain stringify, losing every anchor, comment and byte of source
-  formatting, and nothing said so (THE-1045).** Anchor collection reached a pair's value through
+  formatting, and nothing said so (THE-1045, #943).** Anchor collection reached a pair's value through
   `doc.get`, whose `findPair` falls back to key-VALUE equality and hands back the FIRST pair of a
   collision group, so an anchor under a later pair was never collected; the group collapse then
   dropped that pair, its alias dangled, `Document.toString()` threw `Unresolved alias`, and the
