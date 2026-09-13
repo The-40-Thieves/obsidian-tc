@@ -250,5 +250,104 @@ describe("THE-1042 (GH #935): validation errors name the fix", () => {
       "field_2",
       "field_3",
     ]);
+    // THE-1042 fix round 1 (R1): pins the MULTI-issue order deliberately. This renders each issue
+    // in the array's own order (field_0..field_3, then unrecognized_keys LAST) — the OPPOSITE of
+    // the batched `z.prettifyError` call this replaced, which sorted by path length and put the
+    // top-level (`path: []`) unrecognized_keys issue FIRST. The rendered SET is unchanged; only
+    // the order is, and only because this is now per-issue rather than batched. A later change to
+    // either the per-issue rendering or zod's own issue-generation order should move this
+    // assertion on purpose, not by accident.
+    const at = (needle: string) => {
+      const i = text.indexOf(needle);
+      expect(i, `expected to find ${JSON.stringify(needle)} in:\n${text}`).toBeGreaterThan(-1);
+      return i;
+    };
+    const iField0 = at("field_0");
+    const iField1 = at("field_1");
+    const iField2 = at("field_2");
+    const iField3 = at("field_3");
+    const iUnrecognized = at("Unrecognized key");
+    const iAccepted = at("accepted: field_0, field_1, field_2, field_3");
+    expect(iField0).toBeLessThan(iField1);
+    expect(iField1).toBeLessThan(iField2);
+    expect(iField2).toBeLessThan(iField3);
+    expect(iField3).toBeLessThan(iUnrecognized);
+    expect(iUnrecognized).toBeLessThan(iAccepted);
+  });
+
+  // THE-1042 fix round 1 (U1): a discriminated union's accepted keys must resolve to the branch the
+  // submitted `type` selects, not the union of every branch's fields — the bug that produced a
+  // self-referential "did you mean X for X" when the rejected key happened to be a DIFFERENT
+  // branch's own field name (read_note's `anchor`: `heading` is `{type:"heading"}`'s own field,
+  // and the frontmatter anchor rejects it).
+  describe("THE-1042 fix round 1 (U1): discriminated union — read_note's anchor", () => {
+    it('a frontmatter anchor rejecting "heading": accepted is type ONLY, no self-referential did-you-mean', async () => {
+      const { client, cleanup } = await connect();
+      cleanups.push(cleanup);
+      const res = await callCapability(client, "read_note", {
+        vault: "auny",
+        path: "a.md",
+        anchor: { type: "frontmatter", heading: "H" },
+      });
+      expect(res.isError).toBe(true);
+      const text = textOf(res);
+      expect(text).toContain("accepted: type");
+      expect(text).not.toContain('"heading" for "heading"');
+      expect(text).not.toMatch(/did you mean/);
+      const details = detailsOf(res);
+      expect(details.accepted_keys?.anchor).toEqual(["type"]);
+      expect(details.key_hints?.anchor).toBeUndefined();
+    });
+
+    it('a block anchor rejecting "bogus": accepted is type + block_id, the block branch\'s own fields', async () => {
+      const { client, cleanup } = await connect();
+      cleanups.push(cleanup);
+      const res = await callCapability(client, "read_note", {
+        vault: "auny",
+        path: "a.md",
+        anchor: { type: "block", block_id: "abc123", bogus: 1 },
+      });
+      expect(res.isError).toBe(true);
+      const details = detailsOf(res);
+      expect(details.accepted_keys?.anchor).toEqual(["block_id", "type"]);
+    });
+
+    it("a bad discriminator value: the discriminator's allowed literal values, not member field names", async () => {
+      const { client, cleanup } = await connect();
+      cleanups.push(cleanup);
+      const res = await callCapability(client, "read_note", {
+        vault: "auny",
+        path: "a.md",
+        anchor: { type: "bogus" },
+      });
+      expect(res.isError).toBe(true);
+      const text = textOf(res);
+      expect(text).toContain("accepted:");
+      expect(text).toContain("heading");
+      expect(text).toContain("block");
+      expect(text).toContain("frontmatter");
+      // Never the member field names (block_id/heading-as-a-field) — there IS no matched member.
+      expect(text).not.toContain("block_id");
+      const details = detailsOf(res);
+      expect(details.accepted_keys?.["anchor.type"]?.sort()).toEqual([
+        "block",
+        "frontmatter",
+        "heading",
+      ]);
+    });
+  });
+
+  // THE-1042 fix round 1 (R2): list_vaults itself requires read:vault (registry-tools.ts) — a
+  // caller without it must not learn every configured vault id through a validation error instead.
+  it("an unbound caller without read:vault gets NO vault hint at all", async () => {
+    const { client, cleanup } = await connect({ grantedScopes: new Set(["read:notes"]) });
+    cleanups.push(cleanup);
+    const res = await callCapability(client, "read_note", { vault: "zzz-unknown", path: "a.md" });
+    expect(res.isError).toBe(true);
+    const text = textOf(res);
+    expect(text).not.toMatch(/visible vaults|did you mean/);
+    const details = detailsOf(res);
+    expect(details.visible_vaults).toBeUndefined();
+    expect(details.did_you_mean).toBeUndefined();
   });
 });

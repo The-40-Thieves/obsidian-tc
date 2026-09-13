@@ -316,10 +316,15 @@ export interface RegistryOptions {
   vaultKindResolver?: (vaultId: string) => VaultKind | undefined;
   /** THE-1042 (GH #935): vault ids visible to a caller, for a bad-vault error's `did_you_mean` /
    *  `visible_vaults` hint (registry/input-binding.ts's vaultFailureHint, called once from
-   *  dispatch.ts's catch). MUST mirror `list_vaults`'s own visibility gate (THE-924) exactly — only
-   *  `ctx.vaultId` for a `vaultBound` caller, every configured id otherwise — so the hint can never
-   *  show a bound caller a vault it isn't bound to. Wired from the VaultRegistry in cli.ts; absent
-   *  (unit tests that omit it) means no hint is added, the plain error unchanged. */
+   *  dispatch.ts's catch). This resolver alone only decides WHICH ids to return once the hint has
+   *  already been authorized to show any at all — vaultFailureHint applies TWO gates before ever
+   *  calling it, and both MUST mirror `list_vaults`'s own gates exactly (THE-1042 fix round 1, R2):
+   *  the THE-924 visibility gate (only `ctx.vaultId` for a `vaultBound` caller, every configured id
+   *  otherwise, which is what this function itself computes) AND `list_vaults`'s own `read:vault`
+   *  scope requirement (checked separately in vaultFailureHint, since a caller `list_vaults` would
+   *  refuse must not learn every configured id through a validation error instead). Wired from the
+   *  VaultRegistry in cli.ts; absent (unit tests that omit it) means no hint is added, the plain
+   *  error unchanged. */
   visibleVaultIds?: (ctx: CallerContext) => string[];
   /** THE-288 internal-error sink. When a handler throws a non-typed exception (a server bug),
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +

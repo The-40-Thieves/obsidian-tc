@@ -28,18 +28,20 @@ function renderVaultHint(details: Record<string, unknown> | undefined): string |
 }
 
 /** THE-1042 (GH #935): the one extra line `renderIssues` may append after a single issue's own
- *  prettified line(s) — `accepted: a, b, c` (+ a did-you-mean/alias suggestion) for
- *  `unrecognized_keys`, or the vault hint above for the one issue naming the failed vault argument
- *  (`details.vault_hint_path`, set by vaultFailureHint). Reads only structured `details` fields
+ *  prettified line(s) — `accepted: a, b, c` (+ a did-you-mean/alias suggestion), or the vault hint
+ *  above for the one issue naming the failed vault argument (`details.vault_hint_path`, set by
+ *  vaultFailureHint). Looked up by the issue's OWN PATH, not its code — `details.accepted_keys` is
+ *  keyed by path (input-binding.ts's `unrecognizedKeyHints`) so this one lookup covers both an
+ *  `unrecognized_keys` issue and a bad-discriminator `invalid_union` issue (fix round 1, U1)
+ *  without needing to know which. Reads only structured `details` fields
  *  parseInput/vaultFailureHint already computed. */
 function issueHint(
   issue: z.core.$ZodIssue,
   details: Record<string, unknown> | undefined,
 ): string | undefined {
-  if (issue.code === "unrecognized_keys") {
-    const pathKey = issue.path.map(String).join(".");
-    const accepted = (details?.accepted_keys as Record<string, string[]> | undefined)?.[pathKey];
-    if (!accepted) return undefined;
+  const pathKey = issue.path.map(String).join(".");
+  const accepted = (details?.accepted_keys as Record<string, string[]> | undefined)?.[pathKey];
+  if (accepted) {
     const hints = (details?.key_hints as Record<string, Record<string, string>> | undefined)?.[
       pathKey
     ];
@@ -62,8 +64,12 @@ function issueHint(
 /** Render a capped slice of Zod issues into a human-readable, field-naming string, each issue
  *  rendered on its own (not batched through one `z.prettifyError` call, as before THE-1042) so a
  *  fix hint (issueHint above) can be spliced onto the issue it belongs to — at most one extra line
- *  per issue, THE-823's cap unchanged. `z.prettifyError` renders a lone issue identically to how it
- *  renders that same issue inside a batch, so this changes no existing text besides the splice. */
+ *  per issue, THE-823's cap unchanged. A single issue's OWN text is byte-identical either way, but
+ *  the MULTI-issue ORDER is not (fix round 1, R1, corrects an earlier false claim here):
+ *  `z.prettifyError` sorts a batch by path length (a top-level `unrecognized_keys`, `path: []`,
+ *  used to render FIRST), while this renders in the array's own order — the order `def.inputSchema`
+ *  raised the issues in. The rendered SET is unchanged, only the order; pinned by test so a later
+ *  change to either is deliberate (validation-error-hints.test.ts, the 5-issue-cap case). */
 function renderIssues(
   issues: readonly z.core.$ZodIssue[],
   details?: Record<string, unknown>,
