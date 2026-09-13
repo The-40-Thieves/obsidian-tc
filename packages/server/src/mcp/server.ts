@@ -39,6 +39,7 @@ import {
   isAdvertisedDestructive,
   isDomainTool,
   isFacadeTool,
+  toInputJson,
   toJson,
   triadTools,
 } from "./facade";
@@ -282,11 +283,10 @@ function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> 
   };
 }
 
-// THE-463: a tool's advertised MCP projection (name/title/description/schemas/annotations/icons) is
-// immutable after registration, so flat-mode tools/list rebuilt an identical object per request per
-// tool. Memoize by def identity — the same frozen Tool instance is reused across every request and
-// every per-request server (the defs live on the persistent registry, so this survives the
-// per-request server churn in transports/http.ts). toJson is already memoized per schema.
+// THE-463: a tool's MCP projection (name/title/description/schemas/annotations/icons) is immutable
+// after registration; flat-mode tools/list rebuilt an identical object per request. Memoized by def
+// identity — the frozen Tool instance survives per-request server churn (transports/http.ts) since
+// defs live on the persistent registry. toJson/toInputJson are already memoized per schema.
 const mcpToolMemo = new WeakMap<ToolDefinition, Tool>();
 
 /** @internal exported for the THE-463 memoization test. */
@@ -297,7 +297,7 @@ export function toMcpTool(def: ToolDefinition): Tool {
     name: def.name,
     title: titleize(def.name),
     description: def.description,
-    inputSchema: toJson(def.inputSchema),
+    inputSchema: toInputJson(def.inputSchema),
     ...(def.outputSchema
       ? { outputSchema: toJson(def.outputSchema) as unknown as Tool["outputSchema"] }
       : {}),

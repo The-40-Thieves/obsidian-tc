@@ -27,14 +27,27 @@ export const JSON_SCHEMA_OPTS = {
   reused: "inline",
   unrepresentable: "any",
 } as const;
-// THE-294: z.toJSONSchema is a pure function of a static schema; memoize by identity — every schema
-// here is a stable module const or a registered tool's inputSchema — so each converts at most once.
+// THE-294 / THE-1041 (GH #934): each JSON-Schema conversion is memoized by schema identity, one
+// WeakMap per io mode — toJson is io:"output", toInputJson is io:"input".
 const jsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
 export function toJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = jsonSchemaMemo.get(schema);
   if (cached === undefined) {
     cached = z.toJSONSchema(schema, JSON_SCHEMA_OPTS) as unknown as Tool["inputSchema"];
     jsonSchemaMemo.set(schema, cached);
+  }
+  return cached;
+}
+
+const inputJsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
+export function toInputJson(schema: z.ZodType): Tool["inputSchema"] {
+  let cached = inputJsonSchemaMemo.get(schema);
+  if (cached === undefined) {
+    cached = z.toJSONSchema(schema, {
+      ...JSON_SCHEMA_OPTS,
+      io: "input",
+    }) as unknown as Tool["inputSchema"];
+    inputJsonSchemaMemo.set(schema, cached);
   }
   return cached;
 }
@@ -144,7 +157,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
         (hasResources
           ? " To enumerate the whole caller-visible catalog grouped by domain instead of searching it, read the obsidian-tc://catalog resource."
           : ""),
-      inputSchema: toJson(FIND_CAPABILITY_SCHEMA),
+      inputSchema: toInputJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
@@ -152,7 +165,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       title: "Describe capability",
       description:
         "Return the full input schema, required scopes, and safety hints (read-only / destructive) for a single capability by name.",
-      inputSchema: toJson(DESCRIBE_CAPABILITY_SCHEMA),
+      inputSchema: toInputJson(DESCRIBE_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
@@ -160,7 +173,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       title: "Call capability",
       description:
         "Invoke a capability by name with its arguments. Routes into the same authorization, ACL, HITL, idempotency, and rate-limit pipeline as a direct tool call, so every safety gate applies and the target's own schema validates the arguments.",
-      inputSchema: toJson(CALL_CAPABILITY_SCHEMA),
+      inputSchema: toInputJson(CALL_CAPABILITY_SCHEMA),
       // Advisory only; the real read-only/destructive verdict is the TARGET tool's, enforced in dispatch.
       annotations: { openWorldHint: false },
     },
@@ -247,7 +260,7 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     name: def.name,
     title: titleize(def.name),
     description: def.description,
-    input_schema: toJson(def.inputSchema),
+    input_schema: toInputJson(def.inputSchema),
     ...(def.outputSchema ? { output_schema: toJson(def.outputSchema) } : {}),
     required_scopes: def.requiredScopes,
     annotations: { read_only: !mutating, destructive: isAdvertisedDestructive(def) },
@@ -377,7 +390,7 @@ export function domainTools(tools: ToolDefinition[]): Tool[] {
       name: dom,
       title: spec?.title ?? titleize(dom),
       description: `${spec?.blurb ?? "Miscellaneous capabilities."} Call with "action" naming one capability and "args" its arguments.\nActions:\n${lines}`,
-      inputSchema: toJson(
+      inputSchema: toInputJson(
         z.object({
           action: z.enum(actions as [string, ...string[]]),
           args: z.record(z.string(), z.unknown()).default({}),

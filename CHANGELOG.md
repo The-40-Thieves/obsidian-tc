@@ -6,6 +6,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **`describe_capability` and `tools/list` advertised input schemas converted in zod's default
+  `io:"output"` mode, diverging from what the server actually validates on 98 of 163 registered
+  capabilities (GH #934, THE-1041).** Every `.default()`/`.prefault()` field (e.g. `write_note`'s
+  `options`) read as `required`, and every plain (non-`.strict()`) object read with
+  `additionalProperties: false` even though the server strips unknown keys there and accepts the
+  call — over-blocking and under-blocking a client that validated or generated calls from the
+  advertised schema. `input_schema`/`inputSchema` sites now convert through a new
+  `toInputJson` (`io: "input"`, its own memo); `output_schema`/`outputSchema` sites are unchanged.
+
 ## [1.29.0] - 2026-09-13
 
 ### Added

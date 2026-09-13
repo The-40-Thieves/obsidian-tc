@@ -368,7 +368,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 2 |
 | THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |
 | THE-1039 | The maintenance sweep now runs FTS5's own `'merge'` on `notes_fts`/`chunk_fts`, instead of relying on `PRAGMA optimize` (which explicitly excludes virtual tables) to do it (THE-1039, GH #929). | CHANGELOG.md (1.29.0) | 19 |
+| THE-1041 | `describe_capability` and `tools/list` advertised input schemas converted in zod's default `io:"output"` mode, diverging from what the server actually validates on 98 of 163 registered capabilities (GH #934, THE-1041). | CHANGELOG.md (Unreleased) | 1 |
 
-354 distinct ticket(s) across 498 source file(s) under
-`packages/*/src`; 254 resolved to a public summary, 100
+355 distinct ticket(s) across 498 source file(s) under
+`packages/*/src`; 255 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.
