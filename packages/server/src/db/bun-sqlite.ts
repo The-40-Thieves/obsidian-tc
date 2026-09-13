@@ -1,12 +1,7 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  connectionPragmas,
-  forceReadonlyOpenFallback,
-  readonlyConnectionPragmas,
-  readonlyOpenFallbackable,
-} from "./pragmas";
+import { connectionPragmas, openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
@@ -104,25 +99,16 @@ export async function openBunSqlite(
   let db: InstanceType<typeof BunDatabase>;
   let readonlyMode: "native" | "fallback" | undefined;
   if (opts.readonly) {
-    // Fix round 4 (H1): the fallback fires ONLY for the failure class it was introduced for — see
-    // `readonlyOpenFallbackable`. Anything else (a missing file, a permissions error, a pending
-    // hot-journal rollback) propagates, because this writable-fd connection still issues no write
-    // statement and no write-capable pragma (readonlyConnectionPragmas below) yet CANNOT prevent
-    // SQLite's own checkpoint-on-close from firing against a dangling WAL.
-    let opened: InstanceType<typeof BunDatabase> | undefined;
-    if (!forceReadonlyOpenFallback()) {
-      try {
-        opened = new BunDatabase(path, { readonly: true });
-        readonlyMode = "native";
-      } catch (e) {
-        if (!readonlyOpenFallbackable(path, e)) throw e;
-      }
-    }
-    if (opened === undefined) {
-      opened = new BunDatabase(path, { readwrite: true });
-      readonlyMode = "fallback";
-    }
-    db = opened;
+    // Fix round 4 (H1), round 5: the fallback fires only for the one failure class it exists for,
+    // and the decision plus both failure shapes are diagnosable from the thrown error — see
+    // `openReadonlyWithFallback`. `{ readwrite: true }` (no `create`) still refuses a MISSING file.
+    const open = openReadonlyWithFallback(
+      path,
+      () => new BunDatabase(path, { readonly: true }),
+      () => new BunDatabase(path, { readwrite: true }),
+    );
+    db = open.db;
+    readonlyMode = open.readonlyMode;
   } else {
     db = new BunDatabase(path, { create: true });
   }

@@ -1,9 +1,4 @@
-import {
-  connectionPragmas,
-  forceReadonlyOpenFallback,
-  readonlyConnectionPragmas,
-  readonlyOpenFallbackable,
-} from "./pragmas";
+import { connectionPragmas, openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 /**
@@ -52,21 +47,15 @@ export async function openBetterSqlite3(
   let db: InstanceType<typeof BetterSqlite3>;
   let readonlyMode: "native" | "fallback" | undefined;
   if (opts.readonly) {
-    // Fix round 4 (H1): narrowed to one failure class — see `readonlyOpenFallbackable`.
-    let opened: InstanceType<typeof BetterSqlite3> | undefined;
-    if (!forceReadonlyOpenFallback()) {
-      try {
-        opened = new BetterSqlite3(path, { readonly: true });
-        readonlyMode = "native";
-      } catch (e) {
-        if (!readonlyOpenFallbackable(path, e)) throw e;
-      }
-    }
-    if (opened === undefined) {
-      opened = new BetterSqlite3(path, { fileMustExist: true });
-      readonlyMode = "fallback";
-    }
-    db = opened;
+    // Fix round 4 (H1), round 5: one shared, diagnosable implementation of the strategy — see
+    // `openReadonlyWithFallback`. `fileMustExist` keeps the fallback from creating a missing file.
+    const open = openReadonlyWithFallback(
+      path,
+      () => new BetterSqlite3(path, { readonly: true }),
+      () => new BetterSqlite3(path, { fileMustExist: true }),
+    );
+    db = open.db;
+    readonlyMode = open.readonlyMode;
   } else {
     db = new BetterSqlite3(path);
   }

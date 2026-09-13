@@ -1,9 +1,4 @@
-import {
-  connectionPragmas,
-  forceReadonlyOpenFallback,
-  readonlyConnectionPragmas,
-  readonlyOpenFallbackable,
-} from "./pragmas";
+import { connectionPragmas, openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 // Minimal shape of the built-in node:sqlite surface we use (typed locally so this compiles
@@ -60,24 +55,16 @@ export async function openNodeSqlite(
   let db: NsDatabase;
   let readonlyMode: "native" | "fallback" | undefined;
   if (opts.readonly) {
-    // Fix round 4 (H1): narrowed to one failure class — see `readonlyOpenFallbackable`. This
-    // adapter is the one where the unnarrowed catch was a FILE-CREATING bug rather than merely a
-    // wrong open mode: with no "writable, must exist" option, its fallback is a plain open, which
-    // creates a missing database instead of reporting it.
-    let opened: NsDatabase | undefined;
-    if (!forceReadonlyOpenFallback()) {
-      try {
-        opened = new DatabaseSync(path, { readOnly: true });
-        readonlyMode = "native";
-      } catch (e) {
-        if (!readonlyOpenFallbackable(path, e)) throw e;
-      }
-    }
-    if (opened === undefined) {
-      opened = new DatabaseSync(path);
-      readonlyMode = "fallback";
-    }
-    db = opened;
+    // Fix round 4 (H1), round 5 — see `openReadonlyWithFallback`. This adapter is the one where an
+    // unnarrowed fallback was a FILE-CREATING bug rather than merely a wrong open mode: with no
+    // "writable, must exist" option its fallback is a plain open, which creates a missing database.
+    const open = openReadonlyWithFallback(
+      path,
+      () => new DatabaseSync(path, { readOnly: true }),
+      () => new DatabaseSync(path),
+    );
+    db = open.db;
+    readonlyMode = open.readonlyMode;
   } else {
     db = new DatabaseSync(path);
   }

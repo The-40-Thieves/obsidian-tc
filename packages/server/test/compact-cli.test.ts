@@ -445,19 +445,25 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       expect(report.find((x) => x.db === "cache.db")?.readonlyMode).toBe("fallback");
     }, 30_000);
 
-    it("says nothing and reports readonlyMode native on the ordinary path", async () => {
+    // Fix round 5: this asserts the mode is REPORTED and that the notice tracks it — NOT that this
+    // platform takes the native path. Round 4 pinned `"native"` here, which pins the SQLite build
+    // rather than this code: `build-test (macos-latest)`'s bun:sqlite fails the native readonly open
+    // (that is the whole reason a fallback exists), so "native" is false there and the honest value
+    // is "fallback". The fallback wording itself is pinned deterministically by the test above.
+    it("reports which open mode the ordinary path used, and prints the notice only for fallback", async () => {
       const { cacheDir, configPath } = setupConfig();
       await seedInflatedCacheDb(cacheDir);
       const jsonPath = join(cacheDir, "report.json");
       const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath]);
 
       expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
-      expect(r.stdout).not.toMatch(/was not read-only/);
       const report = JSON.parse(readFileSync(jsonPath, "utf8")) as Array<{
         db: string;
         readonlyMode?: string;
       }>;
-      expect(report.find((x) => x.db === "cache.db")?.readonlyMode).toBe("native");
+      const mode = report.find((x) => x.db === "cache.db")?.readonlyMode;
+      expect(["native", "fallback"]).toContain(mode);
+      expect(/was not read-only/.test(r.stdout)).toBe(mode === "fallback");
     }, 30_000);
   });
 

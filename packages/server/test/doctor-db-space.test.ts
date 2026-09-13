@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { probeDbSpace } from "../src/cli/commands/doctor-probes";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { openDatabase } from "../src/db/open";
-import { readonlyOpenFallbackable } from "../src/db/pragmas";
+import { readonlyFallbackRefusal, readonlyOpenFallbackable } from "../src/db/pragmas";
 import { provisionCacheDb } from "../src/db/provision";
 import { type DbSpaceView, dbSpaceCheck } from "../src/doctor/db-space";
 import { ensureNotesFts } from "../src/search/fts";
@@ -367,7 +367,12 @@ describe("probeDbSpace — a real cache.db", () => {
     }
   });
 
-  it("H2: an ordinary (native) probe says nothing about the open mode", async () => {
+  // Fix round 5: asserts the open mode is REPORTED and that the notice tracks it, not that this
+  // platform takes the native path. Which path an ordinary probe gets is a property of the SQLite
+  // build (`build-test (macos-latest)`'s bun:sqlite fails the native readonly open where Linux's
+  // succeeds), so pinning "native" here pins the platform, not this code. The fallback WORDING is
+  // pinned deterministically by the forced-fallback test above.
+  it("H2: an ordinary probe reports its open mode, and the notice tracks it", async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-row-native-"));
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"));
@@ -376,9 +381,11 @@ describe("probeDbSpace — a real cache.db", () => {
 
       const view = await probeDbSpace(cacheDir, 5000);
       if (view.status !== "ok") throw new Error("unreachable");
-      expect(view.state.readonlyMode).toBe("native");
+      expect(["native", "fallback"]).toContain(view.state.readonlyMode);
       const check = await dbSpaceCheck(view).run(ctx);
-      expect(check.summary).not.toContain("was not read-only");
+      expect(check.summary.includes("was not read-only")).toBe(
+        view.state.readonlyMode === "fallback",
+      );
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }
@@ -464,6 +471,114 @@ describe("readonly open fallback narrowing (H1)", () => {
         false,
       );
     } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
+  // Fix round 5 — round 4's narrowing refused the fallback on macOS and broke `build-test
+  // (macos-latest)` with `cache.db: unable to open database file`, which this sandbox (Linux, where
+  // the native readonly open succeeds and the predicate is never consulted) cannot reproduce. These
+  // feed the predicate the error SHAPES a failing macOS open can take, against a real readable file,
+  // so the CANTOPEN class is covered by three independent signals rather than one text match.
+  describe("the CANTOPEN class, by every signal a binding may report it with", () => {
+    const withDb = async (fn: (dbPath: string) => void): Promise<void> => {
+      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-shapes-"));
+      try {
+        const dbPath = join(cacheDir, "cache.db");
+        const db = await openDatabase(dbPath);
+        provisionCacheDb(db, { version: "test" });
+        db.close?.();
+        fn(dbPath);
+      } finally {
+        rmSync(cacheDir, { recursive: true, force: true });
+      }
+    };
+
+    it("message only, no code and no errno (the shape macOS reported)", async () => {
+      await withDb((dbPath) => {
+        const macos = new Error("unable to open database file");
+        expect((macos as { code?: unknown }).code).toBeUndefined();
+        expect((macos as { errno?: unknown }).errno).toBeUndefined();
+        expect(readonlyOpenFallbackable(dbPath, macos)).toBe(true);
+      });
+    });
+
+    it("code + errno, message unrelated (a bun:sqlite-shaped CANTOPEN)", async () => {
+      await withDb((dbPath) => {
+        const coded = Object.assign(new Error("failed to open database"), {
+          code: "SQLITE_CANTOPEN",
+          errno: 14,
+        });
+        expect(readonlyOpenFallbackable(dbPath, coded)).toBe(true);
+      });
+    });
+
+    it("errno 14 alone, no code and an unrelated message", async () => {
+      await withDb((dbPath) => {
+        const numeric = Object.assign(new Error("sqlite3_open_v2 failed"), { errno: 14 });
+        expect(readonlyOpenFallbackable(dbPath, numeric)).toBe(true);
+      });
+    });
+
+    it("a busy error is NOT the CANTOPEN class", async () => {
+      await withDb((dbPath) => {
+        expect(readonlyOpenFallbackable(dbPath, new Error("database is locked"))).toBe(false);
+        expect(readonlyFallbackRefusal(dbPath, new Error("database is locked"))).toMatch(
+          /not the SQLITE_CANTOPEN class/,
+        );
+      });
+    });
+
+    // Round 4 required W_OK here and so refused the fallback for a readable-not-writable file.
+    // Dropped: the fallback open itself fails loudly on such a file (the honest outcome), and the
+    // requirement was one of the two candidate causes of the macOS refusal.
+    it.skipIf(process.platform === "win32")(
+      "a readable but NOT writable file is still fallbackable",
+      async () => {
+        await withDb((dbPath) => {
+          chmodSync(dbPath, 0o444);
+          try {
+            expect(
+              readonlyOpenFallbackable(dbPath, new Error("unable to open database file")),
+            ).toBe(true);
+          } finally {
+            chmodSync(dbPath, 0o644);
+          }
+        });
+      },
+    );
+
+    it("a missing file is refused even for a CANTOPEN-shaped error", async () => {
+      await withDb((dbPath) => {
+        const missing = `${dbPath}.nope`;
+        const cantopen = Object.assign(new Error("unable to open database file"), {
+          code: "SQLITE_CANTOPEN",
+          errno: 14,
+        });
+        expect(readonlyOpenFallbackable(missing, cantopen)).toBe(false);
+        expect(readonlyFallbackRefusal(missing, cantopen)).toMatch(/ENOENT/);
+      });
+    });
+  });
+
+  // Fix round 5 (#2) — the round-4 macOS failure printed only "unable to open database file", which
+  // cannot distinguish "the predicate refused" from "the fallback open failed too". Every propagating
+  // readonly-open failure now carries which one happened, plus the error facts behind the decision.
+  it("a refused fallback names the refusal reason in the thrown error", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-diagnostic-"));
+    const dbPath = join(cacheDir, "cache.db");
+    try {
+      const db = await openDatabase(dbPath);
+      provisionCacheDb(db, { version: "test" });
+      db.close?.();
+      chmodSync(dbPath, 0o000);
+
+      await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(
+        /fallback refused because/,
+      );
+      await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(/not readable/);
+    } finally {
+      chmodSync(dbPath, 0o644);
       rmSync(cacheDir, { recursive: true, force: true });
     }
   });

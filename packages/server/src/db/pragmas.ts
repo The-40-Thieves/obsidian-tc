@@ -1,4 +1,4 @@
-import { accessSync, constants } from "node:fs";
+import { closeSync, existsSync, openSync, statSync } from "node:fs";
 
 /**
  * The per-connection baseline every adapter applies (THE-273), as pragma BODIES without the
@@ -54,30 +54,124 @@ export function forcedCompactIntoFailure(): Error | undefined {
 }
 
 /**
- * THE-1039 fix round 4 (H1) — the ONE native-readonly-open failure class an adapter may fall back
- * from. Fix round 3's catch was unconditional, which silently routed three unrelated failures onto
- * the writable descriptor: a MISSING file (node:sqlite's fallback is a plain open, so it CREATES
- * the database), a PERMISSIONS error (the writable open needs strictly more access than the one
- * that just failed), and SQLite refusing a readonly open because HOT-JOURNAL recovery is pending —
- * the worst of the three, since the writable open then PERFORMS that rollback, a mutation class
- * none of the readonly guarantees here ever claimed to cover.
+ * THE-1039 fix round 4 (H1), widened and made diagnosable in fix round 5 — the ONE
+ * native-readonly-open failure class an adapter may fall back from, or the reason it may not.
  *
- * C1's macOS/WAL failure — the only reason the fallback exists — is `SQLITE_CANTOPEN`, surfaced as
- * "unable to open database file" by all three bindings (it is the exact text `build-test
- * (macos-latest)` reported). The hot-journal refusal is `SQLITE_READONLY_ROLLBACK` ("attempt to
- * write a readonly database"), which this predicate therefore excludes by construction. The
- * access check comes first because a missing or unreadable file raises the same CANTOPEN text, and
- * `W_OK` (not merely `R_OK`) is what the fallback descriptor itself would require.
+ * Round 3's catch was unconditional, which silently routed three unrelated failures onto the
+ * writable descriptor: a MISSING file (node:sqlite's fallback is a plain open, so it CREATES the
+ * database), an UNREADABLE one, and SQLite refusing a readonly open because HOT-JOURNAL recovery is
+ * pending — the worst of the three, since the writable open then PERFORMS that rollback
+ * (`SQLITE_READONLY_ROLLBACK`, "attempt to write a readonly database"), a mutation class none of the
+ * readonly guarantees here ever claimed to cover.
+ *
+ * C1's macOS failure — the only reason the fallback exists — is the `SQLITE_CANTOPEN` class, now
+ * detected by THREE independent signals, since round 4's narrower code/text match refused the
+ * fallback on macOS and broke `build-test (macos-latest)`: a `code` containing `SQLITE_CANTOPEN`, a
+ * numeric `errno` of 14 (what some bindings report instead of a string), or the message "unable to
+ * open database file". The message is matched RAW — this runs in the adapter's own catch, before any
+ * caller prefixes it (`compact`/`probeDbSpace` add `<db>: ` only when printing or reporting).
+ *
+ * Round 5 also drops the write-access requirement and tests readability by OPENING the file rather
+ * than via `accessSync`/`fs.constants`: the fallback descriptor does want write access, but a
+ * readable-not-writable file should fail LOUDLY in the fallback open, not be refused here — and the
+ * round-4 refusal could not be attributed to either check without naming which clause fired.
+ *
+ * @returns the reason the fallback is refused, or `undefined` when it may proceed.
  */
-export function readonlyOpenFallbackable(path: string, e: unknown): boolean {
+export function readonlyFallbackRefusal(path: string, e: unknown): string | undefined {
+  let fd: number | undefined;
   try {
-    accessSync(path, constants.R_OK | constants.W_OK);
-  } catch {
-    return false;
+    if (!statSync(path).isFile()) return "the path is not a regular file";
+    fd = openSync(path, "r"); // the same access the readonly open itself needs
+  } catch (err) {
+    const code = (err as { code?: unknown } | null | undefined)?.code;
+    return `the file is not readable (${String(code ?? (err as Error)?.message)})`;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
-  const code = (e as { code?: unknown } | null | undefined)?.code;
-  if (typeof code === "string" && code.includes("SQLITE_CANTOPEN")) return true;
-  return /unable to open database file/i.test(e instanceof Error ? e.message : String(e));
+  const facts = e as { code?: unknown; errno?: unknown } | null | undefined;
+  if (typeof facts?.code === "string" && facts.code.includes("SQLITE_CANTOPEN")) return undefined;
+  if (facts?.errno === SQLITE_CANTOPEN) return undefined;
+  if (/unable to open database file/i.test(e instanceof Error ? e.message : String(e))) {
+    return undefined;
+  }
+  return `the error is not the SQLITE_CANTOPEN class (${errorFacts(e)})`;
+}
+
+/** The boolean form, for call sites and tests that only need the verdict. */
+export function readonlyOpenFallbackable(path: string, e: unknown): boolean {
+  return readonlyFallbackRefusal(path, e) === undefined;
+}
+
+/** SQLite's primary result code for "unable to open database file". */
+const SQLITE_CANTOPEN = 14;
+
+/** The observable facts of an open failure, for a diagnostic a CI log can be read against. */
+function errorFacts(e: unknown): string {
+  const o = e as { code?: unknown; errno?: unknown } | null | undefined;
+  return `code=${String(o?.code ?? "none")} errno=${String(o?.errno ?? "none")} msg=${
+    e instanceof Error ? e.message : String(e)
+  }`;
+}
+
+/** `-wal`/`-shm` existence, snapshotted before any open attempt, to answer the one question a
+ *  failing fallback otherwise cannot: did the FAILED readonly attempt create a sidecar and poison
+ *  the open after it? Recorded, never deleted — unlinking a `-shm` another process may hold mapped
+ *  is its own corruption risk, and this path exists to INSPECT. */
+function sidecarState(path: string): string {
+  return `-wal=${existsSync(`${path}-wal`)} -shm=${existsSync(`${path}-shm`)}`;
+}
+
+/** Annotate and return the error to throw: the original message (plus `code`/`errno`/stack, so
+ *  `busyReason` and open.ts's better-sqlite3-unavailable sniff still see what they expect) with the
+ *  diagnosis appended. The detail deliberately never names an adapter or says "cannot find module"
+ *  — open.ts routes on exactly those words. */
+function annotated(e: unknown, detail: string): unknown {
+  if (e instanceof Error) {
+    e.message = `${e.message} [${detail}]`;
+    return e;
+  }
+  return new Error(`${String(e)} [${detail}]`);
+}
+
+/**
+ * THE-1039 fix round 5 — the readonly-first-with-fallback open, ONCE, for all three adapters (each
+ * passes its own two constructors); round 4 hand-rolled it three times. The two failure shapes are
+ * distinguishable in the thrown message: "fallback refused because <reason>" versus "fallback open
+ * also failed (<facts>)", the latter carrying the sidecar state before the first attempt and after.
+ */
+export function openReadonlyWithFallback<T>(
+  path: string,
+  nativeOpen: () => T,
+  fallbackOpen: () => T,
+): { db: T; readonlyMode: "native" | "fallback" } {
+  const sidecarsBefore = sidecarState(path);
+  let nativeFailure: unknown;
+  if (!forceReadonlyOpenFallback()) {
+    try {
+      return { db: nativeOpen(), readonlyMode: "native" };
+    } catch (e) {
+      const refusal = readonlyFallbackRefusal(path, e);
+      if (refusal !== undefined) {
+        throw annotated(
+          e,
+          `readonly open failed (${errorFacts(e)}); fallback refused because ${refusal}`,
+        );
+      }
+      nativeFailure = e;
+    }
+  }
+  try {
+    return { db: fallbackOpen(), readonlyMode: "fallback" };
+  } catch (e) {
+    const first =
+      nativeFailure === undefined ? "not attempted (forced)" : errorFacts(nativeFailure);
+    throw annotated(
+      e,
+      `readonly open failed (${first}); fallback open also failed (${errorFacts(e)}); ` +
+        `sidecars before the first attempt: ${sidecarsBefore}; now: ${sidecarState(path)}`,
+    );
+  }
 }
 
 /**
