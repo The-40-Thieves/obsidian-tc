@@ -14,10 +14,12 @@
 // a pre-existing drift from an earlier reordering, not something this move introduced, fixed as a
 // side effect of relocating each block with its function instead of copying whatever text was
 // textually adjacent.
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
 import { openDatabase } from "../../db/open";
 import type {
+  DbSpaceState,
   DerivedColumnState,
   DerivedTableState,
   EntryPointsProbe,
@@ -411,4 +413,43 @@ export async function probeEntryPoints(
     }
   }
   return out;
+}
+
+/**
+ * THE-1039 (GH #930) — `db.reclaimable-space`'s data: cache.db's file size, `freelist_count *
+ * page_size` (bytes a VACUUM would reclaim), and each present FTS table's `<t>_data` shadow-table
+ * row count. Unlike every other probe in this file, doctor.ts calls this UNCONDITIONALLY — no
+ * `--probe` gate — because it is read-only and cheap (a `stat`, two PRAGMAs, one `COUNT(*)` per
+ * present FTS table's shadow table; no FTS write, no gateway call). Never throws: a missing or
+ * unopenable cache.db degrades to `undefined` (rendered as "no store yet"), same contract as every
+ * other probe here.
+ */
+export async function probeDbSpace(
+  cacheDir: string,
+  busyTimeoutMs: number,
+): Promise<DbSpaceState | undefined> {
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return undefined;
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path, busyTimeoutMs);
+    const opened = db;
+    const pageSize = (opened.prepare("PRAGMA page_size").get() as { page_size: number }).page_size;
+    const freelistCount = (
+      opened.prepare("PRAGMA freelist_count").get() as { freelist_count: number }
+    ).freelist_count;
+    const ftsData = FTS_TABLE_NAMES.filter((t) => tableExists(opened, t)).map((t) => ({
+      table: t,
+      dataRows: (opened.prepare(`SELECT COUNT(*) AS n FROM "${t}_data"`).get() as { n: number }).n,
+    }));
+    return { fileBytes: statSync(path).size, freelistBytes: freelistCount * pageSize, ftsData };
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      db?.close?.();
+    } catch {
+      /* see probeNotesFts */
+    }
+  }
 }

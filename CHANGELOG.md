@@ -6,6 +6,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`obsidian-tc compact` and a `doctor` reclaimable-space row (THE-1039, GH #930).** No CLI verb
+  ever reclaimed database space, and no doctor check ever surfaced that it was needed. `compact`
+  runs FTS5 `'optimize'` on every present `notes_fts`/`chunk_fts` table then `VACUUM`
+  (`--into <dir>` copies via `VACUUM INTO` instead, verified, leaving the live file untouched and
+  printing the exact `mv`), with `--dry-run` reporting sizes without changing anything. `doctor`'s
+  new default (non-`--probe`) `db.reclaimable-space` row reports cache.db's size, freelist bytes
+  reclaimable by `VACUUM`, and each FTS table's row count, warning with the `obsidian-tc compact`
+  remedy once freelist bytes exceed 10% of the file.
+
 ### Fixed
 
 - **`call_capability` never redeemed an `elicit_token` nested in its inner `args` (#925, THE-1037).**

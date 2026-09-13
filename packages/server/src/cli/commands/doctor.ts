@@ -24,6 +24,7 @@ import type { NotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 import {
+  probeDbSpace,
   probeDerivedColumns,
   probeDerivedTables,
   probeEntryPoints,
@@ -237,6 +238,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         busyTimeoutMs,
       )
     : undefined;
+  // THE-1039 (GH #930): cache.db reclaimable-space, ALWAYS (no --probe gate) — see
+  // probeDbSpace's own comment for why this one is cheap enough to run by default.
+  const dbSpace = await probeDbSpace(config.cacheDir, busyTimeoutMs);
 
   const report = await assembleDoctorReport({
     config: {
@@ -314,6 +318,8 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       // run — undefined on a compiled binary with no source tree on this machine, in which case
       // the check reports not-applicable rather than a false "no conflict copies found".
       conflictCopies: { installRoot: resolveInstallRoot() },
+      // THE-1039 (GH #930): always present, no --probe gate — see probeDbSpace's own comment.
+      dbSpace: { ...(dbSpace !== undefined ? { state: dbSpace } : {}) },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,
