@@ -24,7 +24,7 @@ import { captureSnapshot } from "../../../vault/snapshots";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import type { PatchResult } from "./anchors";
-import { patchByBlock, patchByHeading, patchByPreamble } from "./anchors";
+import { hasUnterminatedFence, patchByBlock, patchByHeading, patchByPreamble } from "./anchors";
 import {
   AppendInput,
   AppendNoteOutput,
@@ -276,6 +276,16 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           anchor.type === "block" ? "block reference not found" : "target heading not found",
           { path: rel, anchor },
         );
+
+      // GH #926 suggested guard: an operation that flips the body from a terminated fence state
+      // (an even count of fence-delimiter lines) to an unterminated one has almost certainly cut
+      // through a code block. Compared before/after so a note that ALREADY has an unclosed fence
+      // is not refused on every subsequent, unrelated patch.
+      if (!hasUnterminatedFence(parsed.body) && hasUnterminatedFence(patched.body))
+        throw err.invalidInput("patch would leave an unterminated code fence", {
+          path: rel,
+          anchor,
+        });
 
       // THE-603: a replace on a heading anchor is the only shape that can consume the ENTIRE
       // body with no terminator to bound it (a lone H1 has no same-or-higher heading below it —

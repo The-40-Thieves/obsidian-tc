@@ -38,6 +38,52 @@ export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** GH #926: a line whose trimmed form starts with ``` or ~~~ opens a fence; it closes only on a
+ *  line starting with the SAME fence character, so a ``` nested inside a ~~~ block is content,
+ *  not a close. Returns, per line, whether a heading test on that line must be ignored — true for
+ *  the delimiter lines themselves (never real headings) and every line strictly between them. */
+function fenceMask(lines: string[]): boolean[] {
+  const mask = new Array<boolean>(lines.length).fill(false);
+  let fenceChar: "`" | "~" | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const wasFenced = fenceChar !== null;
+    const t = (lines[i] ?? "").trim();
+    if (fenceChar === null) {
+      if (t.startsWith("```")) fenceChar = "`";
+      else if (t.startsWith("~~~")) fenceChar = "~";
+    } else if (t.startsWith(fenceChar === "`" ? "```" : "~~~")) {
+      fenceChar = null;
+    }
+    mask[i] = wasFenced || fenceChar !== null;
+  }
+  return mask;
+}
+
+/** GH #926 (suggested guard): true when `body` ends with an odd number of fence-delimiter lines —
+ *  i.e. a fence opened but never closed. write.ts compares this before/after a patch rather than
+ *  refusing outright, so a note that already had an unclosed fence is not refused on every
+ *  subsequent, unrelated patch. */
+export function hasUnterminatedFence(body: string): boolean {
+  let fenceChar: "`" | "~" | null = null;
+  let toggles = 0;
+  for (const raw of body.split(/\r?\n/)) {
+    const t = raw.trim();
+    if (fenceChar === null) {
+      if (t.startsWith("```")) {
+        fenceChar = "`";
+        toggles++;
+      } else if (t.startsWith("~~~")) {
+        fenceChar = "~";
+        toggles++;
+      }
+    } else if (t.startsWith(fenceChar === "`" ? "```" : "~~~")) {
+      fenceChar = null;
+      toggles++;
+    }
+  }
+  return toggles % 2 === 1;
+}
+
 export interface SectionSpan {
   /** 0-based inclusive line index where the section starts: the heading line, the block
    *  paragraph's first line, or 0 for the preamble. */
@@ -51,13 +97,18 @@ export interface SectionSpan {
 
 export type SectionResolution = ({ found: true } & SectionSpan) | { found: false };
 
-/** Resolve `anchor` against `body`'s first match. Pure: never throws, never touches disk. */
+/** Resolve `anchor` against `body`'s first match. Pure: never throws, never touches disk. Heading
+ *  matching is skipped while fenced (GH #926) in every scan below: the anchor scan, the
+ *  section-end scan, the preamble's end-of-region scan, and the block anchor's paragraph-start
+ *  walk. */
 export function resolveSection(body: string, anchor: ResolvedAnchor): SectionResolution {
   const lines = body.split(/\r?\n/);
+  const mask = fenceMask(lines);
 
   if (anchor.type === "frontmatter") {
     let end = lines.length;
     for (let i = 0; i < lines.length; i++) {
+      if (mask[i]) continue;
       if (HEADING.test(lines[i] ?? "")) {
         end = i;
         break;
@@ -71,6 +122,7 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     let hi = -1;
     let level = 0;
     for (let i = 0; i < lines.length; i++) {
+      if (mask[i]) continue;
       const m = HEADING.exec(lines[i] ?? "");
       if (m && (m[2] ?? "").trim().toLowerCase() === want) {
         hi = i;
@@ -81,6 +133,7 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     if (hi < 0) return { found: false };
     let end = lines.length;
     for (let j = hi + 1; j < lines.length; j++) {
+      if (mask[j]) continue;
       const m = HEADING.exec(lines[j] ?? "");
       if (m && (m[1] ?? "").length <= level) {
         end = j;
@@ -103,7 +156,8 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
   let start = bi;
   while (start > 0) {
     const prev = lines[start - 1] ?? "";
-    if (prev.trim() === "" || HEADING.test(prev)) break;
+    if (prev.trim() === "") break;
+    if (!mask[start - 1] && HEADING.test(prev)) break;
     start--;
   }
   return { found: true, startIndex: start, endIndex: bi + 1 };
