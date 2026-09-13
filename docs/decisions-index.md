@@ -372,7 +372,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1041 | `describe_capability` and `tools/list` advertised input schemas converted in zod's default `io:"output"` mode, diverging from what the server actually validates on 98 of 163 registered capabilities (GH #934, THE-1041). | CHANGELOG.md (Unreleased) | 1 |
 | THE-1042 | Validation errors now say the fix, not just the field (THE-1042, GH #935). | CHANGELOG.md (Unreleased) | 5 |
 | THE-1043 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937; #940). | CHANGELOG.md (Unreleased) | 1 |
+| THE-1044 | Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned string's trailing newlines (THE-1044). | CHANGELOG.md (Unreleased) | 1 |
 
-358 distinct ticket(s) across 499 source file(s) under
-`packages/*/src`; 258 resolved to a public summary, 100
+359 distinct ticket(s) across 499 source file(s) under
+`packages/*/src`; 259 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

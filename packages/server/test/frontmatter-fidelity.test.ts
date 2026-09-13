@@ -476,21 +476,6 @@ describe("THE-1043: the emitter works on the original block's lines", () => {
     expect(setKey("---\na: 1\n---\n", "a", 9)).toBe("---\na: 9\n---\n");
   });
 
-  // Two gaps Codex found alongside THE-1043 that are PRE-EXISTING at 3e55e254 — neither is a
-  // line-list problem (both are about what a re-serialized VALUE loses), and both are filed
-  // separately. Named here so the inputs are not lost.
-  it.todo(
-    "anchors/aliases (pre-existing, separately ticketed): re-emitting an anchored key leaves its " +
-      'alias dangling — input: "---\\na: &x [1, 2]\\nb: *x\\n---\\n", set or remove "a" -> "b: *x" ' +
-      "no longer resolves and the note stops parsing",
-  );
-
-  it.todo(
-    "keep-chomp round-trip (pre-existing, separately ticketed): ASSIGNING a string with trailing " +
-      'newlines emits `|+` without them — input: "---\\ntext: 1\\n---\\n", set text to ' +
-      '"hello\\n\\n\\n" -> "text: |+\\n  hello\\n"',
-  );
-
   // Promoted from THE-1040's X4 `it.todo`: the line-list model makes it pass. A `|+`
   // (keep-chomp) block scalar's trailing blank lines sit outside the yaml library's own value
   // range, but they are still LINES no other key owns, so removing a neighbour leaves them be.
@@ -498,5 +483,119 @@ describe("THE-1043: the emitter works on the original block's lines", () => {
     expect(removeKeys("---\ntext: |+\n  hello\n\n\ngone: 1\n---\n", "gone")).toBe(
       "---\ntext: |+\n  hello\n\n\n---\n",
     );
+  });
+});
+
+// THE-1044, promoted from the two `it.todo`s THE-1043 left behind (Codex pass origin). Both are
+// about what a re-serialized VALUE loses, not about the line list: re-emitting an anchored key
+// left a sibling's `*alias` pointing at an anchor that no longer existed, and an ASSIGNED string's
+// trailing newlines — the value of a `|+` scalar, not a separator — were trimmed off. Every
+// assertion below re-parses the output and checks the VALUE, so a byte expectation copied from a
+// wrong output cannot pass on its own.
+describe("THE-1044: aliases stay valid and an assigned scalar is never trimmed", () => {
+  function setKey(raw: string, key: string, value: unknown) {
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}), [key]: value };
+    return serializeNote(fm, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+      frontmatterAtEof: p.frontmatterAtEof,
+    });
+  }
+  function removeKeys(raw: string, ...keys: string[]) {
+    const p = parseNote(raw);
+    const fm = { ...(p.frontmatter ?? {}) };
+    for (const k of keys) delete fm[k];
+    return serializeNote(fm, p.body, p.rawFrontmatter, {
+      frontmatterEol: p.frontmatterEol,
+      frontmatterAtEof: p.frontmatterAtEof,
+    });
+  }
+  const read = (out: string) => parseNote(out).frontmatter;
+
+  const ALIASED = "---\na: &x [1, 2]\nb: *x\n---\nbody\n";
+
+  it("A1 (promoted): changing an anchored key leaves no dangling alias", () => {
+    const out = setKey(ALIASED, "a", 9);
+    expect(out).not.toContain("*x");
+    expect(out).toBe("---\na: 9\nb:\n  - 1\n  - 2\n---\nbody\n");
+    expect(read(out)).toEqual({ a: 9, b: [1, 2] });
+  });
+
+  it("A1 (promoted): removing an anchored key materializes the alias as a copy", () => {
+    const out = removeKeys(ALIASED, "a");
+    expect(out).toBe("---\nb:\n  - 1\n  - 2\n---\nbody\n");
+    expect(read(out)).toEqual({ b: [1, 2] });
+  });
+
+  it("A2: an alias to an anchor nested inside a changed value is materialized too", () => {
+    const out = setKey("---\na:\n  - &x 1\n  - 2\nb: *x\n---\n", "a", [7]);
+    expect(read(out)).toEqual({ a: [7], b: 1 });
+    expect(out).not.toContain("*x");
+  });
+
+  it("A3: an alias whose anchor is untouched survives a change to another key", () => {
+    const out = setKey("---\na: &x [1, 2]\nb: *x\nc: 3\n---\n", "c", 9);
+    expect(out).toBe("---\na: &x [ 1, 2 ]\nb: *x\nc: 9\n---\n");
+    expect(read(out)).toEqual({ a: [1, 2], b: [1, 2], c: 9 });
+  });
+
+  it("A4: comments survive an alias block edited in document mode", () => {
+    const out = setKey("---\n# lead\na: &x [1, 2]\nb: *x # why\n# tail\nc: 3\n---\n", "a", 9);
+    expect(out).toContain("# lead");
+    expect(out).toContain("# why");
+    expect(out).toContain("# tail");
+    expect(read(out)).toEqual({ a: 9, b: [1, 2], c: 3 });
+  });
+
+  it("A5: an alias block on CRLF comes back on CRLF", () => {
+    const out = setKey("---\r\na: &x [1, 2]\r\nb: *x\r\n---\r\n", "a", 9);
+    expect(out).toBe("---\r\na: 9\r\nb:\r\n  - 1\r\n  - 2\r\n---\r\n");
+    expect(read(out)).toEqual({ a: 9, b: [1, 2] });
+  });
+
+  it("K1 (promoted): an assigned keep-chomp string keeps all three trailing newlines", () => {
+    const out = setKey("---\ntext: 1\n---\n", "text", "hello\n\n\n");
+    expect(read(out)).toEqual({ text: "hello\n\n\n" });
+    expect(out).toBe("---\ntext: |+\n  hello\n\n\n\n---\n");
+  });
+
+  it("K2: two trailing newlines round-trip", () => {
+    const out = setKey("---\ntext: 1\n---\n", "text", "hello\n\n");
+    expect(read(out)).toEqual({ text: "hello\n\n" });
+  });
+
+  it("K3: one trailing newline round-trips as a clip scalar", () => {
+    const out = setKey("---\ntext: 1\n---\n", "text", "hello\n");
+    expect(out).toBe("---\ntext: |\n  hello\n---\n");
+    expect(read(out)).toEqual({ text: "hello\n" });
+  });
+
+  it("K4: a keep-chomp value followed by a sibling key round-trips", () => {
+    const out = setKey("---\na: 1\nb: 2\n---\n", "a", "hello\n\n\n");
+    expect(out).toBe("---\na: |+\n  hello\n\n\nb: 2\n---\n");
+    expect(read(out)).toEqual({ a: "hello\n\n\n", b: 2 });
+  });
+
+  it("K5: a keep-chomp value round-trips on a CRLF block", () => {
+    const out = setKey("---\r\na: 1\r\nb: 2\r\n---\r\n", "a", "hello\n\n\n");
+    expect(out).toBe("---\r\na: |+\r\n  hello\r\n\r\n\r\nb: 2\r\n---\r\n");
+    expect(read(out)).toEqual({ a: "hello\n\n\n", b: 2 });
+  });
+
+  it("K6: a strip-chomp value (no trailing newline) round-trips", () => {
+    const out = setKey("---\ntext: 1\n---\n", "text", "hello\nworld");
+    expect(out).toBe("---\ntext: |-\n  hello\n  world\n---\n");
+    expect(read(out)).toEqual({ text: "hello\nworld" });
+  });
+
+  it("K7: a clip value (one trailing newline, several lines) round-trips", () => {
+    const out = setKey("---\ntext: 1\n---\n", "text", "hello\nworld\n");
+    expect(out).toBe("---\ntext: |\n  hello\n  world\n---\n");
+    expect(read(out)).toEqual({ text: "hello\nworld\n" });
+  });
+
+  it("K8: a brand-new note (no original block) keeps a keep-chomp value too", () => {
+    const out = serializeNote({ text: "hello\n\n\n" }, "body\n");
+    expect(read(out)).toEqual({ text: "hello\n\n\n" });
   });
 });

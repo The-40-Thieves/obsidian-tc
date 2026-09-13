@@ -84,6 +84,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   round-trip call sites) for the EOF delimiter. THE-1040's known `|+`
   keep-chomp gap is closed by the same model and its `it.todo` is promoted to a real test.
 
+- **Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned
+  string's trailing newlines (THE-1044).** Two pre-existing defects in how a CHANGED key's value is
+  re-emitted — both found by the review pass on THE-1043, both of which reported success while
+  writing a note that came back wrong. On `---\na: &x [1, 2]\nb: *x\n---`, setting or removing `a` re-emitted that key
+  alone and left `b: *x` pointing at an anchor that no longer existed — the next `read_note` refused
+  the file outright. A block carrying any alias is now edited as a DOCUMENT rather than as a line
+  list: the yaml library keeps `&anchor`/`*alias` and node comments across `set`/`delete`, and every
+  alias to an anchor inside a value about to be replaced or dropped is first materialized as a copy
+  of what it resolves to, so nothing dangles and every key reads back exactly what the caller asked
+  for. The cost is byte fidelity for that block only — an alias-bearing block's untouched scalars
+  are re-stringified (`zip: 01234` comes back quoted, a flow collection is respaced); a block with
+  no alias keeps the verbatim line list unchanged. Separately, assigning a string with trailing
+  newlines (`set text = "hello\n\n\n"`) emitted `text: |+` and then trimmed the blank lines that
+  ARE the value, so the key read back as `"hello\n"`: only the stringifier's own single terminating
+  line break is dropped now, and a block ending in a keep-chomp scalar gets back the one line break
+  the closing `---` consumes. `|-` (strip), `|` (clip) and `|+` (keep) assignments all round-trip
+  byte-for-byte on LF and CRLF.
+
 ## [1.29.0] - 2026-09-13
 
 ### Added
