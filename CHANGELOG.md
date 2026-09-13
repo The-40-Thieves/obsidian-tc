@@ -84,6 +84,54 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   round-trip call sites) for the EOF delimiter. THE-1040's known `|+`
   keep-chomp gap is closed by the same model and its `it.todo` is promoted to a real test.
 
+- **Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned
+  string's trailing newlines (THE-1044).** Two pre-existing defects in how a CHANGED key's value is
+  re-emitted — both found by the review pass on THE-1043, both of which reported success while
+  writing a note that came back wrong. On `---\na: &x [1, 2]\nb: *x\n---`, setting or removing `a` re-emitted that key
+  alone and left `b: *x` pointing at an anchor that no longer existed — the next `read_note` refused
+  the file outright. A block carrying any alias is now edited as a DOCUMENT rather than as a line
+  list: the yaml library keeps `&anchor`/`*alias` and node comments across `set`/`delete`, and every
+  alias to an anchor inside a value about to be replaced or dropped is first materialized as a copy
+  of what it resolves to, so nothing dangles and every key reads back exactly what the caller asked
+  for. The cost is byte fidelity for that block only — an alias-bearing block's untouched scalars
+  are re-stringified (`zip: 01234` comes back quoted, a flow collection is respaced); a block with
+  no alias keeps the verbatim line list unchanged. Separately, assigning a string with trailing
+  newlines (`set text = "hello\n\n\n"`) emitted `text: |+` and then trimmed the blank lines that
+  ARE the value, so the key read back as `"hello\n"`. The rule is now uniform across both paths: a
+  block scalar's trailing newlines are LINES, and the separator between the block's last line and
+  the closing `---` is exactly one block EOL, never taken from a value. Only the stringifier's own
+  single terminating break is dropped, and a block that ENDS in a keep-chomp scalar — whether the
+  key was just assigned or was spliced back verbatim after a *following* key was removed or changed
+  — gets back the one break the delimiter consumes. That removal case was the same defect one step
+  further out: `---\ntext: |+\n  hello\n\n\nright: 2\n---` lost a newline off `text` the moment
+  `right` went, with the block's bytes looking untouched. `|-` (strip), `|` (clip) and `|+` (keep)
+  round-trip byte-for-byte on LF and CRLF, with the keep-chomp key first, middle or last. Two
+  further document-mode defects go with it: a NON-STRING top-level key (`1:`, `true:`) in an
+  alias-bearing block is now addressed by its own key node's string form, where before a removal was
+  silently skipped (reporting success over a byte-identical file) and a set appended a duplicate
+  string-keyed line beside it; and an `&anchor` left on a CHANGED value that nothing aliases any
+  more is dropped, so a scalar-to-scalar change no longer keeps an orphan (`a: &x 1` → `a: 99`,
+  not `a: &x 99`) where a collection-to-scalar change already dropped it. An anchor on a key the
+  caller did not touch is left exactly as written, orphaned or not. Keys that collide in the JS
+  object a caller sees but not in the YAML (`1:` alongside `'1':`) resolve the way the reader does —
+  a set updates the LAST matching pair, a remove drops every one of them so a shadowed duplicate
+  cannot resurface. Finally, assigning a keep-chomp value to a key whose original scalar was clip or
+  strip (`|`/`|-`) used to let the source's blank separator line become part of the new value
+  (`text: |` + `set text = "changed\n\n"` read back `"changed\n\n\n"`); blank lines immediately
+  after an emitted keep-chomp scalar are now dropped, since they can no longer separate anything.
+  Colliding keys include an ALIAS used as a mapping key (`*key : third` beside `1:` and `'1':`):
+  materializing it makes it a literal duplicate, so the pairs the reader cannot see are dropped
+  along with it rather than persisting a block that fails the next read with "Map keys must be
+  unique". An alias used as a mapping key is materialized whether or not it collides with a literal
+  one: a key whose ONLY pair was `*k : third` was invisible to the key scan, so a remove silently
+  no-opped (or, after an earlier set, resurrected the old aliased value) and a set appended a second
+  pair below the one shadowing it. The `? *k` key form does not survive an edit — correctness over
+  byte fidelity, as everywhere else in this fix. Materializing one can also land it in a collision
+  group the caller never touched (`*key` resolving to `1` beside an existing `1:`), which nothing
+  else would collapse; that group is now reduced to the pair the reader resolves whoever asked for
+  the write, and any alias whose anchor sat under a dropped pair is materialized with the value it
+  had first (an untouched `b: *key` keeps reading `1`).
+
 ## [1.29.0] - 2026-09-13
 
 ### Added
