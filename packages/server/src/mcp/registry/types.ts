@@ -314,6 +314,13 @@ export interface RegistryOptions {
    *  docs/system vault stay allowed; this closes only the write/integrity direction. Absent (unit
    *  tests that omit it, or a registry built with no VaultRegistry) means no gating — a no-op. */
   vaultKindResolver?: (vaultId: string) => VaultKind | undefined;
+  /** THE-1042 (GH #935): vault ids visible to a caller, for a bad-vault error's `did_you_mean` /
+   *  `visible_vaults` hint (registry/input-binding.ts's vaultFailureHint, called once from
+   *  dispatch.ts's catch). MUST mirror `list_vaults`'s own visibility gate (THE-924) exactly — only
+   *  `ctx.vaultId` for a `vaultBound` caller, every configured id otherwise — so the hint can never
+   *  show a bound caller a vault it isn't bound to. Wired from the VaultRegistry in cli.ts; absent
+   *  (unit tests that omit it) means no hint is added, the plain error unchanged. */
+  visibleVaultIds?: (ctx: CallerContext) => string[];
   /** THE-288 internal-error sink. When a handler throws a non-typed exception (a server bug),
    *  the client response is redacted to `{code:"internal"}`; this sink receives the real error +
    *  stack for operator diagnosis. Never wired to stdout (the MCP channel); best-effort. */
