@@ -5,6 +5,83 @@
 import { describe, expect, it } from "vitest";
 import { makeTestVault } from "./m1-helpers";
 
+describe("GH #922 shape 2: replace is idempotent on the anchor heading", () => {
+  it("drops a duplicate leading heading from replace content (verbatim repro)", async () => {
+    const raw = ["## A", "old", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "## A\nnew",
+      });
+      expect(r.ok).toBe(true);
+      const out = v.read("a.md");
+      expect(out).toBe("## A\nnew\n## B\nkeep");
+      expect((out.match(/^## A$/gm) ?? []).length).toBe(1);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("keeps content that does not repeat the anchor heading unchanged", async () => {
+    const raw = ["## A", "old", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "just new content",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\njust new content\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("does not drop a heading of a DIFFERENT level or text", async () => {
+    const raw = ["## A", "old", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "A",
+        content: "### A\nnew",
+      });
+      expect(r.ok).toBe(true);
+      // level mismatch (### vs ##) — the heading in content is content, not a duplicate.
+      expect(v.read("a.md")).toBe("## A\n### A\nnew\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("does not apply the drop for append/prepend, only replace", async () => {
+    const raw = ["## A", "old", "## B", "keep"].join("\n");
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "A",
+        content: "## A\nnew",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## A\nold\n## A\nnew\n## B\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("GH #926: fence-aware heading scan", () => {
   it("ends a section at the real next heading, not one hidden inside a fenced code block", async () => {
     // Adapted from the issue's repro: a fenced sample block containing `## Platform Links` must

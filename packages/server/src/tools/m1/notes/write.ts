@@ -24,7 +24,14 @@ import { captureSnapshot } from "../../../vault/snapshots";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import type { PatchResult } from "./anchors";
-import { hasUnterminatedFence, patchByBlock, patchByHeading, patchByPreamble } from "./anchors";
+import {
+  dropDuplicateLeadingHeading,
+  hasUnterminatedFence,
+  patchByBlock,
+  patchByHeading,
+  patchByPreamble,
+  resolveSection,
+} from "./anchors";
 import {
   AppendInput,
   AppendNoteOutput,
@@ -239,7 +246,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     vaultArg: "vault",
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.',
+      'Insert or replace content (append/prepend/replace) relative to an anchor: a heading section, a block reference (anchor:{type:"block",block_id}), or the note preamble above the first heading (anchor:{type:"frontmatter"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content\'s first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.',
     inputSchema: PatchInput,
     outputSchema: PatchNoteOutput,
     requiredScopes: ["write:notes"],
@@ -265,12 +272,22 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         type: "heading" as const,
         heading: input.target_heading as string,
       };
+      // GH #922 shape 2: `replace` content that repeats the anchor's own heading duplicates it —
+      // drop that line rather than refuse. Only heading anchors have an anchor-line convention to
+      // dedupe against; only checked when resolution is unambiguous (an ambiguous/missing anchor
+      // is reported below by the real resolve inside patchByHeading, unaffected by this).
+      let content = input.content;
+      if (anchor.type === "heading" && input.operation === "replace") {
+        const check = resolveSection(parsed.body, anchor);
+        if (check.found && check.headingLevel !== undefined)
+          content = dropDuplicateLeadingHeading(content, check.headingLevel, anchor.heading);
+      }
       let patched: PatchResult | null;
       if (anchor.type === "heading")
-        patched = patchByHeading(parsed.body, input.operation, anchor.heading, input.content, eol);
+        patched = patchByHeading(parsed.body, input.operation, anchor.heading, content, eol);
       else if (anchor.type === "block")
-        patched = patchByBlock(parsed.body, input.operation, anchor.block_id, input.content, eol);
-      else patched = patchByPreamble(parsed.body, input.operation, input.content, eol);
+        patched = patchByBlock(parsed.body, input.operation, anchor.block_id, content, eol);
+      else patched = patchByPreamble(parsed.body, input.operation, content, eol);
       if (patched === null)
         throw err.invalidInput(
           anchor.type === "block" ? "block reference not found" : "target heading not found",

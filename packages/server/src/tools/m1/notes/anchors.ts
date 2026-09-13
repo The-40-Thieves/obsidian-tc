@@ -263,6 +263,25 @@ export function patchByBlock(
   return splice(lines, op, r.startIndex, r.startIndex, r.endIndex, content, eol);
 }
 
+/** GH #922 shape 2: `replace` content that repeats the section's own anchor heading duplicates
+ *  it. Ruling: DROP the content's first non-blank line when it is an ATX heading whose level and
+ *  trimmed text (case-insensitive) match the anchor's, rather than refusing. */
+export function dropDuplicateLeadingHeading(
+  content: string,
+  level: number,
+  heading: string,
+): string {
+  const lines = content.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length && (lines[i] ?? "").trim() === "") i++;
+  if (i >= lines.length) return content;
+  const m = HEADING.exec(lines[i] ?? "");
+  if (!m) return content;
+  if ((m[1] ?? "").length !== level) return content;
+  if ((m[2] ?? "").trim().toLowerCase() !== heading.trim().toLowerCase()) return content;
+  return [...lines.slice(0, i), ...lines.slice(i + 1)].join("\n");
+}
+
 /** THE-198: insert/replace content in the body preamble — the region above the
  *  first heading (the frontmatter-adjacent top of the note). Always resolvable. */
 export function patchByPreamble(
