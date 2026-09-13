@@ -134,6 +134,25 @@ describe("bulk_set_property", () => {
     expect(v.read("b.md")).toContain("status: published");
   });
 
+  // THE-1043: bulk_set_property is the second round-trip serializeNote caller — the line-list
+  // emitter keeps a note's standalone comments when it rewrites one key.
+  it("keeps a note's standalone comments and blank lines", async () => {
+    v = makeM6Vault({
+      files: { "a.md": "---\n# lead\nstatus: draft\n\n# keep\nb: 2\n---\nA" },
+      register,
+    });
+    const out = data<{ succeeded: number }>(
+      await v.callConfirmed("bulk_set_property", {
+        vault: "test",
+        paths: ["a.md"],
+        key: "status",
+        value: "published",
+      }),
+    );
+    expect(out.succeeded).toBe(1);
+    expect(v.read("a.md")).toBe("---\n# lead\nstatus: published\n\n# keep\nb: 2\n---\nA");
+  });
+
   it("reports note_not_found for a missing path (best-effort)", async () => {
     v = makeM6Vault({ files: { "a.md": "A" }, register });
     const out = data<{ failed: number; results: { ok: boolean; error?: { code: string } }[] }>(

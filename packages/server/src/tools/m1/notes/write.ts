@@ -406,6 +406,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
 
       const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter, {
         frontmatterEol: parsed.frontmatterEol,
+        frontmatterAtEof: parsed.frontmatterAtEof,
       });
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a

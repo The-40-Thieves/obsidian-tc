@@ -250,3 +250,53 @@ describe("THE-1040 S1: an unchanged key's inline comment survives a sibling's ch
     }
   });
 });
+
+// THE-1043: same class as S1, on the lines a key does NOT own. emitFrontmatter used to rebuild
+// the block from the key entries alone, so every standalone comment and blank line in it was
+// discarded the moment any key changed; the line-list emitter keeps them by construction.
+describe("THE-1043: standalone comments and blank lines survive a key change", () => {
+  it("update_frontmatter set keeps the comments and blank lines around both keys", async () => {
+    const raw = "---\n# lead\na: 1\n\n# keep\nb: 2\n# tail\n---\nbody\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "set",
+        key: "a",
+        value: 9,
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\n# lead\na: 9\n\n# keep\nb: 2\n# tail\n---\nbody\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("add_tag on a comment-only block keeps the comments", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\n# preserve me\n---\nbody\n" } });
+    try {
+      const r = await v.call("add_tag", {
+        vault: "test",
+        path: "a.md",
+        tag: "x",
+        location: "frontmatter",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\n# preserve me\ntags:\n  - x\n---\nbody\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("remove_tag emptying a CRLF block leaves the surviving comment intact", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\r\n# lead\r\ntags: [x]\r\n---\r\n" } });
+    try {
+      const r = await v.call("remove_tag", { vault: "test", path: "a.md", tag: "x" });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("---\r\n# lead\r\n---\r\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+});

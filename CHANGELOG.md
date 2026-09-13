@@ -61,6 +61,29 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   LINES are preserved verbatim; a trailing space/tab after the closing `---` delimiter itself is
   normalized away on re-emit, same as before this fix.
 
+- **The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping
+  losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions
+  of THE-1040, #937; #940).** THE-1040's line-based rewrite assumed every key owns whole lines. A root
+  flow mapping (`---\n{a: 1, b: 2}\n---`) breaks that: removing `a` reported success and wrote the
+  file back unchanged, and setting `a: 9` emitted `a: 9` ABOVE the untouched `{a: 1, b: 2}` line —
+  invalid YAML the next `read_note` refused. Removing a block's LAST key joined its neighbours onto
+  one line when the key's value was multi-line (`# lead` + `# tail` became `# lead# tail`) and left
+  a stray `\r` behind on CRLF (`# lead\r\r\n`). Two gaps of the same class were older than
+  THE-1040: a standalone comment or blank line vanished whenever any key CHANGED (`update_frontmatter`,
+  `bulk_set_property`, and `add_tag` on a comment-only block), and a closing `---` that ended the
+  file gained a trailing newline on every write, a no-op `merge` included. A key now owns its lines
+  only when its node both starts and ends one; a ROOT FLOW MAPPING owns no lines at all and is
+  re-emitted whole — braces included, single- or multi-line — from the changed mapping, so a
+  changed one comes back in BLOCK style (its flow style is not round-tripped; an untouched one is
+  returned verbatim). The comments a rebuilt flow root would otherwise swallow — on the opening
+  brace, between entries, after the closing one — are kept as full-line comments around it: their
+  content survives, their same-line placement does not, since appending one to an emitted line
+  glues it into a multi-line value. Every line no changed or removed key owns is emitted verbatim, and a removed
+  key's lines are spliced out leaving exactly one line break — the block's own EOL — between the
+  neighbours. `parseNote` gained `frontmatterAtEof` (threaded to `serializeNote` by all seven
+  round-trip call sites) for the EOF delimiter. THE-1040's known `|+`
+  keep-chomp gap is closed by the same model and its `it.todo` is promoted to a real test.
+
 ## [1.29.0] - 2026-09-13
 
 ### Added
