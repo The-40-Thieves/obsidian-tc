@@ -29,6 +29,38 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   advertised schema. `input_schema`/`inputSchema` sites now convert through a new
   `toInputJson` (`io: "input"`, its own memo); `output_schema`/`outputSchema` sites are unchanged.
 
+- **A comment-only frontmatter block was dropped by every note write, and a comment could be lost
+  even when a real key survived it (THE-1040, GH #932 review origin).** A block containing only
+  YAML comments (e.g. `---\n# note\n---`) parses to an empty mapping, indistinguishable from a
+  genuinely blank block once parsed — `serializeNote` read that empty mapping and silently
+  dropped the block on `patch_note`, `update_frontmatter`, and `add_tag`/`remove_tag` writes; the
+  same two tools also dropped a comment that survived removing the *last real key* around it
+  (e.g. `---\n# keep me\ntags: [x]\n---` lost `# keep me` the moment `tags` was removed), even
+  though nothing asked for the comment to go — comments are content and a no-op (an empty
+  `merge`) must never change bytes either. `serializeNote` now reads the raw source text instead
+  of the parsed mapping: a block with no real keys is emitted verbatim (interior blank lines
+  included — only the keep/drop *decision* uses a trimmed check, never what gets written), a block
+  whose keys are now all gone keeps whatever standalone comment lines remain after stripping the
+  removed keys' own spans, and a genuinely whitespace-only block (`---\n\n---`) still drops as
+  before. Frontmatter delimiters follow the note's own OPENING `---`'s line ending — captured at
+  parse time (`parseNote`'s new `frontmatterEol`) rather than inferred from the YAML content or
+  body, which can each carry a different (or no) line-break signal of their own — for every
+  round-trip caller (`patch_note`, `update_frontmatter`, `add_tag`/`remove_tag`,
+  `bulk_set_property`, the two Kanban card tools), closing the LF-delimiter-on-CRLF-notes residue
+  noted on THE-1038; a CRLF block's untouched keys also stay joined by CRLF instead of a hardcoded
+  LF when a sibling key changes, and a CRLF multi-line value (a list, a block scalar) spliced back
+  unchanged no longer picks up a doubled `\r`. A removed key's surviving lines are now identified
+  by the full SOURCE LINE(S) it occupies, not its YAML node's byte range, so an *inline* trailing
+  comment (`tags: [x] # note`) is correctly treated as belonging to the key and goes with it —
+  only a full-line comment, or a blank line, can survive a removal — and a multi-line value (a
+  list, a block scalar) is stripped in full rather than leaving orphaned fragment lines behind. A
+  genuine no-op (e.g. `merge` with empty properties) changes no bytes, trailing blank lines
+  included. An UNCHANGED key's own inline trailing comment (`b: 2 # keep this comment`) now
+  survives too, splicing that key back by its full source line rather than just its YAML node's
+  byte range, so it is not silently dropped whenever a *sibling* key changes. The block's own
+  LINES are preserved verbatim; a trailing space/tab after the closing `---` delimiter itself is
+  normalized away on re-emit, same as before this fix.
+
 ## [1.29.0] - 2026-09-13
 
 ### Added

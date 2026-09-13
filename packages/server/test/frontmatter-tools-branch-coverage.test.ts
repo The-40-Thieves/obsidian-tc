@@ -414,7 +414,7 @@ describe("update_frontmatter: folder guard, create_if_missing, and required-fiel
     }
   });
 
-  it("removing the only remaining key drops the frontmatter block entirely (hasKeys=false)", async () => {
+  it("removing the only remaining key drops the frontmatter block entirely when no comments remain (hasKeys=false)", async () => {
     const v = makeTestVault({ files: { "a.md": "---\nonly: 1\n---\nbody\n" } });
     try {
       const r = await v.call("update_frontmatter", {
@@ -427,6 +427,44 @@ describe("update_frontmatter: folder guard, create_if_missing, and required-fiel
       if (r.ok) expect((r.data as { frontmatter: unknown }).frontmatter).toBeNull();
       // serializeNote(null, ...) must not emit an empty "---\n---\n" block.
       expect(v.read("a.md")).toBe("body\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  // THE-1040 F1: comments are content — removing the last real key must not take a
+  // surviving standalone comment down with it.
+  it("removing the only remaining key keeps the block when a comment survives (hasKeys=false)", async () => {
+    const v = makeTestVault({ files: { "a.md": "---\n# keep me\nonly: 1\n---\nbody\n" } });
+    try {
+      const r = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "remove",
+        key: "only",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { frontmatter: unknown }).frontmatter).toBeNull();
+      expect(v.read("a.md")).toBe("---\n# keep me\n---\nbody\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  // THE-1040 C4: `merge` with empty properties on a comment-only note is a no-op — F1's
+  // "comments are content" rule must hold for it too, not just `remove`.
+  it("merge with empty properties on a comment-only note changes nothing (no-op)", async () => {
+    const raw = "---\n# preserve me\n---\nbody\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("update_frontmatter", {
+        vault: "test",
+        path: "a.md",
+        operation: "merge",
+        properties: {},
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe(raw);
     } finally {
       v.cleanup();
     }

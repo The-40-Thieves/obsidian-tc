@@ -231,7 +231,9 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const card = `- [${input.checked ? "x" : " "}] ${input.text}`;
         const at = insertLine(col);
         const nextBody = [...lines.slice(0, at), card, ...lines.slice(at)].join(eol);
-        const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter);
+        const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter, {
+          frontmatterEol: parsed.frontmatterEol,
+        });
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);
         return {
@@ -300,7 +302,9 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         if (!to) throw err.invalidInput("to_column not found", { column: input.to_column });
         const at = insertLine(to);
         const nextBody = [...removed.slice(0, at), cardLine, ...removed.slice(at)].join(eol);
-        const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter);
+        const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter, {
+          frontmatterEol: parsed.frontmatterEol,
+        });
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);
         return {

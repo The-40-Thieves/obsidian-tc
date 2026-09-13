@@ -321,7 +321,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             // Store an explicitly-supplied null as null; only a truly-absent value
             // defaults to null (F5).
             fm[input.key] = "value" in input ? input.value : null;
-            const body = serializeNote(fm, parsed.body, parsed.rawFrontmatter);
+            const body = serializeNote(fm, parsed.body, parsed.rawFrontmatter, {
+              frontmatterEol: parsed.frontmatterEol,
+            });
             writeNoteAtomic(abs, body, false);
             deps.reindex?.(v.id, rel, body);
             return { prev_value: prev ?? null };
