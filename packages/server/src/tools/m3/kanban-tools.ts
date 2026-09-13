@@ -233,6 +233,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const nextBody = [...lines.slice(0, at), card, ...lines.slice(at)].join(eol);
         const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
+          frontmatterAtEof: parsed.frontmatterAtEof,
         });
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);
@@ -304,6 +305,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const nextBody = [...removed.slice(0, at), cardLine, ...removed.slice(at)].join(eol);
         const next = serializeNote(parsed.frontmatter, nextBody, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
+          frontmatterAtEof: parsed.frontmatterAtEof,
         });
         writeNoteAtomic(abs, next, false);
         deps.reindex?.(v.id, rel, next);

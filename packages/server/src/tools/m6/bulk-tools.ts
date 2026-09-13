@@ -323,6 +323,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             fm[input.key] = "value" in input ? input.value : null;
             const body = serializeNote(fm, parsed.body, parsed.rawFrontmatter, {
               frontmatterEol: parsed.frontmatterEol,
+              frontmatterAtEof: parsed.frontmatterAtEof,
             });
             writeNoteAtomic(abs, body, false);
             deps.reindex?.(v.id, rel, body);
