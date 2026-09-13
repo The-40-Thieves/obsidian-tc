@@ -11,7 +11,7 @@ import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Scheduler } from "../scheduler/scheduler";
 import { closeStaleImplicitSessions } from "../workspace/sessions";
-import { tableExists } from "./introspect";
+import { FTS_TABLE_NAMES, tableExists } from "./introspect";
 import type { Database } from "./types";
 
 export interface SweepCounts {
@@ -305,7 +305,7 @@ export function runMaintenanceSweep(
   const ftsMerged: string[] = [];
   try {
     db.exec("PRAGMA optimize");
-    for (const t of ["notes_fts", "chunk_fts"]) {
+    for (const t of FTS_TABLE_NAMES) {
       if (tableExists(db, t)) {
         db.exec(`INSERT INTO ${t}(${t}, rank) VALUES('merge', 16)`);
         ftsMerged.push(t);

@@ -944,3 +944,65 @@ describe("THE-934 — parseCliArgs consolidate", () => {
     });
   });
 });
+
+describe("THE-1039 (GH #930) — parseCliArgs compact", () => {
+  it("bare compact carries no flags", () => {
+    expect(parseCliArgs(["compact"])).toStrictEqual({ kind: "compact" });
+  });
+
+  it("--dry-run is captured", () => {
+    expect(parseCliArgs(["compact", "--dry-run"])).toStrictEqual({
+      kind: "compact",
+      dryRun: true,
+    });
+  });
+
+  it("--into <dir> is captured", () => {
+    expect(parseCliArgs(["compact", "--into", "/tmp/compact-out"])).toStrictEqual({
+      kind: "compact",
+      into: "/tmp/compact-out",
+    });
+  });
+
+  it("--json <file> is captured", () => {
+    expect(parseCliArgs(["compact", "--json", "/tmp/report.json"])).toStrictEqual({
+      kind: "compact",
+      json: "/tmp/report.json",
+    });
+  });
+
+  it("a positional becomes the config path, same as every other command", () => {
+    expect(parseCliArgs(["compact", "/etc/otc.json"])).toStrictEqual({
+      kind: "compact",
+      input: "/etc/otc.json",
+    });
+  });
+
+  it("--config is honoured the same as a positional config path, alongside every other flag", () => {
+    expect(
+      parseCliArgs([
+        "compact",
+        "--dry-run",
+        "--into",
+        "/tmp/out",
+        "--json",
+        "/tmp/report.json",
+        "--config",
+        "/etc/otc.json",
+      ]),
+    ).toStrictEqual({
+      kind: "compact",
+      input: "/etc/otc.json",
+      dryRun: true,
+      into: "/tmp/out",
+      json: "/tmp/report.json",
+    });
+  });
+
+  it("--into with no value is a usage error, same as every other value-taking flag", () => {
+    expect(parseCliArgs(["compact", "--into"])).toStrictEqual({
+      kind: "error",
+      message: "--into requires a value",
+    });
+  });
+});

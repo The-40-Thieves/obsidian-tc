@@ -17,6 +17,7 @@ import { parseCliArgs } from "./cli/args";
 import { run_activation_recompute } from "./cli/commands/activation-recompute";
 import { run_citation_infer } from "./cli/commands/citation-infer";
 import { run_cluster } from "./cli/commands/cluster";
+import { run_compact } from "./cli/commands/compact";
 import { run_config_explain } from "./cli/commands/config-explain";
 import { run_config_show } from "./cli/commands/config-show";
 import { run_consolidate } from "./cli/commands/consolidate";
@@ -66,7 +67,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // nothing at all. `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
 // free. `forget`, `elicit` (THE-826), `context-export`/`context-import` (THE-636) and
 // `import-highlights` (THE-650) and `import-ambient` (THE-175) are the commands that write
-// `audit_events` directly rather than through `runDispatch` — `forget` for true vault-destructive
+// `audit_events` directly rather than through `runDispatch`. `compact` (THE-1039) is unaudited for
+// a different reason again: it VACUUMs and FTS5-`'optimize'`s cache.db/experiential.db, which
+// rewrites pages and rebuilds an index but touches no application ROW — there is no "what changed"
+// an audit trail could usefully record beyond the before/after byte counts it already prints (and
+// writes to `--json`), and it verifies its own result (PRAGMA integrity_check + the FTS
+// integrity-check insert) rather than asking an audit reader to notice a corruption after the
+// fact. `forget` for true vault-destructive
 // writes (cli/commands/forget.ts, `auditForgetEvent`), `elicit` because minting a HITL
 // confirmation token is itself the security-relevant event worth a record, independent of whether
 // the token is ever redeemed (cli/commands/elicit-mint.ts, `mintElicitAudited`),
@@ -103,6 +110,8 @@ async function main(): Promise<void> {
       return run_doctor(cmd);
     case "cluster":
       return run_cluster(cmd);
+    case "compact":
+      return run_compact(cmd);
     case "activation-recompute":
       return run_activation_recompute(cmd);
     case "densify-llm":

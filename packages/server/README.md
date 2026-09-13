@@ -29,6 +29,7 @@ config + caches (no server needed):
 | `config show / validate` | Print the effective config (secrets redacted) / validate it |
 | `plugin install --vault <p>` | Copy the companion plugin into a vault |
 | `cluster [--k N]` | Recompute chunk clusters for diversified retrieval |
+| `compact [--dry-run] [--into <dir>] [--json <f>]` | Reclaim disk from cache.db/experiential.db: FTS5 `'optimize'` + VACUUM (in place by default; `--into <dir>` copies via `VACUUM INTO` and prints the `mv`), verified with `PRAGMA integrity_check` |
 | `activation-recompute` | Fold the retrieval log into ACT-R activation scores |
 | `citation-infer --transcript <f>` | Stamp `cited_in_response` + `citation_state` on retrieval events from a session transcript. `--allow-uncertain` lets the judge abstain — **dark by default**: it changes the judge prompt and moves abstentions out of the citation count |
 | `contribution-report` | Per-note output-contribution report (top contributors + dead-retrieved) |

@@ -1,4 +1,5 @@
 import { CliError } from "./cli-error";
+import { type CompactCommand, parseCompact } from "./parse-compact";
 import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
@@ -114,17 +115,14 @@ export type CliCommand =
   // in capture_queue (source: "import") for commit_capture review. Parser: ./parse-import-highlights.ts.
   | ImportHighlightsCommand
   | ImportAmbientCommand // THE-175: same shape, ambient screen observations. ./parse-import-ambient.ts.
-  // THE-934: evaluate or run one ambient consolidation pass without arming the recurring schedule.
-  // Parser: ./parse-consolidate.ts.
-  | ConsolidateCommand
+  | ConsolidateCommand // THE-934: one ambient consolidation pass, unscheduled. ./parse-consolidate.ts.
+  | CompactCommand // THE-1039 (GH #930): compaction. Parser: ./parse-compact.ts.
   | { kind: "error"; message: string };
 
-// Re-exported so every existing `import { CliError } from "../args"` keeps working unchanged —
-// see cli-error.ts's header for why the class itself lives there now.
+// Re-exported so `import { CliError } from "../args"` keeps working — see cli-error.ts's header.
 export { CliError } from "./cli-error";
-// THE-636: USAGE moved to ./usage.ts (kept args.ts under biome's noExcessiveLinesPerFile floor —
-// see that file's header). Re-exported here so every existing `import { USAGE } from "../args"`
-// across cli/commands/* keeps working unchanged.
+// THE-636: USAGE moved to ./usage.ts (biome's line floor); re-exported so every existing
+// `import { USAGE } from "../args"` across cli/commands/* keeps working unchanged.
 export { USAGE } from "./usage";
 
 function positional(args: string[]): string | undefined {
@@ -654,6 +652,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(ttlHours !== undefined ? { ttlHours } : {}),
       };
     }
+    if (first === "compact") return parseCompact(rest); // THE-1039 (GH #930)
     // THE-645 item 3: re-issue a recorded session's captured arguments.
     if (first === "rerun") {
       const scan = [...rest];
