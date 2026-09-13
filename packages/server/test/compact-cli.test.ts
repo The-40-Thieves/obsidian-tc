@@ -16,12 +16,14 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { CASE_INSENSITIVE_FS } from "../src/acl";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { ensureNotesFts } from "../src/search/fts";
@@ -773,6 +775,84 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         expect(sha256(dbPath)).toBe(hashBefore);
         // Refused BEFORE the copy: no half-made destination left behind either.
         expect(existsSync(join(destDir, "cache.db"))).toBe(false);
+      },
+      TEST_BUDGET_MS,
+    );
+
+    // Re-review of J1, bypass (1): the guard compared `resolve()` STRINGS, so a symlinked cacheDir
+    // (or a --json path reaching the same file by another link) named the same inode and slipped
+    // through. Both sides are `realpathSync`-resolved now. Skipped on win32, where creating a
+    // symlink needs a privilege a CI runner may not have.
+    it.skipIf(process.platform === "win32")(
+      "a symlinked cacheDir does not let --json reach the database by its real path",
+      async () => {
+        const realDir = mkdtempSync(join(tmpdir(), "obtc-compact-real-"));
+        const linkParent = mkdtempSync(join(tmpdir(), "obtc-compact-link-"));
+        const confDir = mkdtempSync(join(tmpdir(), "obtc-compact-symconf-"));
+        dirs.push(realDir, linkParent, confDir);
+        const linkDir = join(linkParent, "cache-link");
+        symlinkSync(realDir, linkDir, "dir");
+        await seedInflatedCacheDb(realDir);
+        const configPath = join(confDir, "config.json");
+        // The config points at the SYMLINK; --json points at the REAL path. One file either way.
+        writeFileSync(
+          configPath,
+          JSON.stringify({ cacheDir: linkDir, vaults: [{ id: "main", path: confDir }] }),
+        );
+        const realDbPath = join(realDir, "cache.db");
+        const hashBefore = sha256(realDbPath);
+
+        const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", realDbPath]);
+
+        expect(r.code).toBe(1);
+        expect(r.stderr).toMatch(/--json .*would overwrite/);
+        expect(sha256(realDbPath)).toBe(hashBefore);
+      },
+      TEST_BUDGET_MS,
+    );
+
+    // Bypass (2): the comparison lower-cased on win32 only, while this repo already treats darwin as
+    // case-insensitive (acl.ts's CASE_INSENSITIVE_FS, THE-272) — so `CACHE.DB` aliased `cache.db` on
+    // macOS and was written anyway. Two tests, because the CORRECT answer differs by filesystem.
+    it.skipIf(!CASE_INSENSITIVE_FS)(
+      "refuses a case-variant path on a case-insensitive filesystem",
+      async () => {
+        const { cacheDir, configPath } = setupConfig();
+        await seedInflatedCacheDb(cacheDir);
+        const dbPath = join(cacheDir, "cache.db");
+        const hashBefore = sha256(dbPath);
+
+        const r = runCli([
+          "compact",
+          "--config",
+          configPath,
+          "--dry-run",
+          "--json",
+          join(cacheDir, "CACHE.DB"),
+        ]);
+
+        expect(r.code).toBe(1);
+        expect(r.stderr).toMatch(/--json .*would overwrite/);
+        expect(sha256(dbPath)).toBe(hashBefore);
+      },
+      TEST_BUDGET_MS,
+    );
+
+    it.skipIf(CASE_INSENSITIVE_FS)(
+      "allows a case-variant path where the filesystem makes it a different file",
+      async () => {
+        const { cacheDir, configPath } = setupConfig();
+        await seedInflatedCacheDb(cacheDir);
+        const dbPath = join(cacheDir, "cache.db");
+        const hashBefore = sha256(dbPath);
+        const jsonPath = join(cacheDir, "CACHE.DB");
+
+        const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath]);
+
+        expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
+        expect(sha256(dbPath)).toBe(hashBefore);
+        // It really is a separate file here, and it really is the JSON report.
+        expect(JSON.parse(readFileSync(jsonPath, "utf8"))).toHaveLength(1);
       },
       TEST_BUDGET_MS,
     );
