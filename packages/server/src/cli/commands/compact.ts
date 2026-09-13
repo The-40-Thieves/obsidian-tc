@@ -9,9 +9,9 @@
 // command reclaims. `--into <dir>` is the copy path: it leaves the live file untouched and prints
 // the exact `mv` for the operator to run once nothing else has the database open — this command
 // never moves a file itself.
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
+import { dbFootprintBytes, FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
 import { openDatabase } from "../../db/open";
 import { busyReason } from "../../db/txn";
 import type { Database } from "../../db/types";
@@ -20,25 +20,45 @@ import { type Cmd, resolveOrUsageExit } from "../shared";
 const COMPACTABLE_DBS = ["cache.db", "experiential.db"] as const;
 type CompactableDb = (typeof COMPACTABLE_DBS)[number];
 
+/** THE-1039 fix round 1 (A1, A4) — an EXPECTED, reportable failure for one database, as opposed
+ *  to a bug. Caught per-database in `run_compact`'s loop and turned into a report row rather than
+ *  aborting the whole command (see that function's comment for the incident this closes). Any
+ *  error NOT an instance of this class is a bug and still propagates to crash the process. */
+export class CompactError extends Error {}
+
 /** Thrown when a VACUUM (in place or INTO) hits SQLITE_BUSY — another connection holds the
- *  database open past `db.busyTimeoutMs`. Caught at the top of `run_compact`, never left to print
- *  a raw stack trace: an operator needs "something else has this open", not a SQLite error code. */
-export class CompactBusyError extends Error {
+ *  database open past `db.busyTimeoutMs`. An operator needs "something else has this open", not a
+ *  raw SQLite error code. */
+export class CompactBusyError extends CompactError {
   constructor(readonly dbName: CompactableDb) {
     super(`${dbName} is busy — another connection holds it open`);
   }
 }
 
-/** One database's compaction (or dry-run inspection) result. Fields are optional along the
- *  dry-run/real and in-place/--into axes rather than two separate types, so `run_compact` prints
- *  and `--json`-serializes both shapes through one path. */
+/** THE-1039 fix round 1 (A4) — `--into <dir>` already containing this database's file name.
+ *  Previously a bare `Error`, caught only by cli.ts's generic `fatal:` handler; now routed through
+ *  the same plain-language, per-database reporting path as every other expected failure here. */
+export class CompactDestinationExistsError extends CompactError {
+  constructor(readonly destPath: string) {
+    super(`${destPath} already exists — VACUUM INTO refuses to overwrite it`);
+  }
+}
+
+/** One database's compaction (or dry-run inspection) result — dry-run/real and in-place/--into
+ *  are all one type so `run_compact` prints and `--json`-serializes every shape through one path.
+ *  Byte counts are the database's FOOTPRINT (main file + `-wal`, A2's `dbFootprintBytes` — same
+ *  function doctor's `db.reclaimable-space` uses), except `freelistBytes`. */
 export interface DbCompactReport {
   db: CompactableDb;
   path: string;
   dryRun: boolean;
+  /** A1/A4: set when this database's operation failed outright (busy, or an `--into` collision).
+   *  Every other field is a best-effort pre-failure snapshot; `integrityOk` is `false`, which
+   *  drives the exit code the same way a verification failure does. */
+  error?: string;
   beforeBytes: number;
   /** Equals `beforeBytes` under `--dry-run` (nothing changed) and, under `--into`, is the live
-   *  file's size (still unchanged) — the copy's size is `into.copyBytes`. */
+   *  file's footprint (still unchanged) — the copy's size is `into.copyBytes`. */
   afterBytes: number;
   reclaimedBytes: number;
   /** Tables `'optimize'` ran against. Empty under `--dry-run`, which never writes. */
@@ -50,7 +70,15 @@ export interface DbCompactReport {
   /** `--dry-run` only: each present FTS table's `<t>_data` row count. */
   ftsDataRows?: Record<string, number>;
   /** `--into` only. */
-  into?: { path: string; copyBytes: number; mv: string; rowCountMismatches: string[] };
+  into?: {
+    path: string;
+    copyBytes: number;
+    mv: string;
+    rowCountMismatches: string[];
+    /** A5: when the `VACUUM INTO` snapshot was taken (ISO 8601) — the copy reflects the live
+     *  database as of exactly this instant, whenever it is later installed. */
+    snapshotAt: string;
+  };
 }
 
 /** Single-quote a path for SQL — VACUUM INTO takes a string literal, not a bind parameter. Same
@@ -139,8 +167,11 @@ async function dryRunOneDatabase(
   path: string,
   busyTimeoutMs: number,
 ): Promise<DbCompactReport> {
-  const beforeBytes = statSync(path).size;
-  const db = await openDatabase(path, busyTimeoutMs);
+  const beforeBytes = dbFootprintBytes(path);
+  // THE-1039 fix round 1 (F2): `--dry-run` only ever READS — opened `readonly: true` so it cannot
+  // trip `journal_mode = WAL` (or any other write pragma) as a side effect of inspecting a
+  // still-DELETE-mode database. See db/pragmas.ts's `readonlyConnectionPragmas`.
+  const db = await openDatabase(path, busyTimeoutMs, { readonly: true });
   try {
     const pageSize = (db.prepare("PRAGMA page_size").get() as { page_size: number }).page_size;
     const freelistCount = (db.prepare("PRAGMA freelist_count").get() as { freelist_count: number })
@@ -204,38 +235,50 @@ function verifyIntegrity(db: Database): { ok: boolean; issues: string[] } {
   return { ok: issues.length === 0, issues };
 }
 
+/** THE-1039 fix round 1 (F3) — `VACUUM`'s freed pages can sit entirely in the WAL until
+ *  checkpointed: measured directly, a 1.2 MB `-wal` file held everything a VACUUM had just freed
+ *  while the main file stayed at its PRE-VACUUM size, so `statSync` immediately after `VACUUM`
+ *  (and before the connection closed) reported zero bytes reclaimed on a WAL database. `TRUNCATE`
+ *  checkpoints every WAL frame into the main file AND truncates the `-wal` file itself back to
+ *  empty, so a footprint measurement taken right after this call is accurate without needing to
+ *  close (and reopen) the connection first. */
+function checkpointTruncate(db: Database): void {
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+}
+
 async function compactOneDatabase(
   name: CompactableDb,
   path: string,
   busyTimeoutMs: number,
   intoDir: string | undefined,
 ): Promise<DbCompactReport> {
-  const beforeBytes = statSync(path).size;
-  const db = await openDatabase(path, busyTimeoutMs);
+  const beforeBytes = dbFootprintBytes(path);
+  // F2: under `--into`, `db` only ever runs `VACUUM INTO` — a read of the source per
+  // sqlite.org/lang_vacuum.html ("the original database file is unchanged"), confirmed directly
+  // against node:sqlite/better-sqlite3 — plus the read-only row-count comparison after, so
+  // `readonly: true` never applies `journal_mode = WAL` to a database still in DELETE mode. The
+  // in-place path needs a WRITABLE connection (it runs VACUUM itself), so only `--into` gets it.
+  const db = await openDatabase(path, busyTimeoutMs, { readonly: intoDir !== undefined });
   try {
     if (intoDir !== undefined) {
-      // NEVER writes to `db` (the live connection) — `VACUUM INTO` is a consistent read-side
-      // snapshot, not a write to its source. Step (a)'s FTS `'optimize'` runs against the COPY
-      // instead, once it exists, followed by a second VACUUM (of the copy, not the live file) to
-      // reclaim the space that optimize's rewrite frees — the copy is not "live", so nothing stops
-      // a second pass on it. This is what keeps the live file byte-for-byte untouched under
-      // `--into`, which the whole point of the flag is to guarantee.
+      // `db` is NEVER written to here — 'optimize' and the reclaiming VACUUM both run against the
+      // COPY once it exists, which is what keeps the live file byte-for-byte untouched.
       mkdirSync(intoDir, { recursive: true });
       const destPath = join(intoDir, name);
-      if (existsSync(destPath)) {
-        throw new Error(
-          `compact --into: ${destPath} already exists — VACUUM INTO refuses to overwrite it`,
-        );
-      }
+      if (existsSync(destPath)) throw new CompactDestinationExistsError(destPath);
+
       let copyDb: Database | undefined;
       let ftsOptimized: string[];
       let integrity: { ok: boolean; issues: string[] };
       let rowCountMismatches: string[];
+      let snapshotAt: string;
       try {
         db.exec(`VACUUM INTO ${quoteSqlString(destPath)}`);
+        snapshotAt = new Date().toISOString(); // THE-1039 fix round 1 (A5)
         copyDb = await openDatabase(destPath, busyTimeoutMs);
         ftsOptimized = optimizeFtsTables(copyDb);
         copyDb.exec("VACUUM");
+        checkpointTruncate(copyDb);
         integrity = verifyIntegrity(copyDb);
         rowCountMismatches = verifyRowCounts(db, copyDb);
       } catch (e) {
@@ -244,8 +287,10 @@ async function compactOneDatabase(
       } finally {
         copyDb?.close?.();
       }
+      // F1: `into` is populated either way (the copy stays on disk regardless), but printReport
+      // only recommends installing it when `ok` — never after a failed verification.
       const ok = integrity.ok && rowCountMismatches.length === 0;
-      const copyBytes = statSync(destPath).size;
+      const copyBytes = dbFootprintBytes(destPath);
       return {
         db: name,
         path,
@@ -264,6 +309,7 @@ async function compactOneDatabase(
           copyBytes,
           mv: `mv ${quoteShString(destPath)} ${quoteShString(path)}`,
           rowCountMismatches,
+          snapshotAt,
         },
       };
     }
@@ -272,12 +318,13 @@ async function compactOneDatabase(
     try {
       ftsOptimized = optimizeFtsTables(db);
       db.exec("VACUUM");
+      checkpointTruncate(db); // THE-1039 fix round 1 (F3) — see that function's own comment
     } catch (e) {
       if (busyReason(e)) throw new CompactBusyError(name);
       throw e;
     }
     const integrity = verifyIntegrity(db);
-    const afterBytes = statSync(path).size;
+    const afterBytes = dbFootprintBytes(path);
     return {
       db: name,
       path,
@@ -295,9 +342,13 @@ async function compactOneDatabase(
 }
 
 function printReport(r: DbCompactReport): void {
+  if (r.error !== undefined) {
+    process.stderr.write(`${r.db}: ${r.error}\n`);
+    return;
+  }
   if (r.dryRun) {
     process.stdout.write(
-      `${r.db}: ${r.beforeBytes} bytes on disk, ${r.freelistBytes ?? 0} bytes reclaimable by VACUUM (freelist)\n`,
+      `${r.db}: ${r.beforeBytes} bytes on disk (main + -wal), ${r.freelistBytes ?? 0} bytes reclaimable by VACUUM (freelist)\n`,
     );
     for (const [t, n] of Object.entries(r.ftsDataRows ?? {})) {
       process.stdout.write(`  ${t}_data: ${n} rows\n`);
@@ -307,35 +358,76 @@ function printReport(r: DbCompactReport): void {
   const tail = r.ftsOptimized.length > 0 ? `, optimized ${r.ftsOptimized.join(", ")}` : "";
   if (r.into) {
     process.stdout.write(
-      `${r.db}: live ${r.beforeBytes} bytes, copy ${r.into.copyBytes} bytes (${r.reclaimedBytes} reclaimable)${tail}\n`,
+      `${r.db}: live ${r.beforeBytes} bytes, copy ${r.into.copyBytes} bytes (${r.reclaimedBytes} reclaimable, main + -wal)${tail}\n`,
     );
-    process.stdout.write(`  verified copy at ${r.into.path}\n`);
-    process.stdout.write(`  to install it: ${r.into.mv}\n`);
-  } else {
-    process.stdout.write(
-      `${r.db}: ${r.beforeBytes} -> ${r.afterBytes} bytes (${r.reclaimedBytes} reclaimed)${tail}\n`,
-    );
+    if (r.integrityOk) {
+      // THE-1039 fix round 1 (F1): only reached when verification passed.
+      process.stdout.write(`  verified copy at ${r.into.path}\n`);
+      process.stdout.write(`  to install it: ${r.into.mv}\n`);
+      // THE-1039 fix round 1 (A5): the copy is a point-in-time snapshot, not a live mirror.
+      process.stdout.write(
+        `  snapshot taken ${r.into.snapshotAt} — reflects ${r.db} as of that instant only. If ` +
+          `anything (the server included) wrote to ${r.db} after that moment, those writes are ` +
+          "NOT in this copy. STOP the server (and anything else that writes to it) before " +
+          "installing this copy with the mv above; if it was still running while this ran, " +
+          "run `compact --into` again after stopping it.\n",
+      );
+    } else {
+      // THE-1039 fix round 1 (F1): the copy FAILED verification — left in place for inspection,
+      // and explicitly NOT recommended for installation.
+      process.stdout.write(
+        `  copy FAILED verification — left at ${r.into.path} for inspection; DO NOT install it\n`,
+      );
+      for (const issue of r.integrityIssues) process.stderr.write(`  ! ${issue}\n`);
+    }
+    return;
   }
+  process.stdout.write(
+    `${r.db}: ${r.beforeBytes} -> ${r.afterBytes} bytes (${r.reclaimedBytes} reclaimed, main + -wal)${tail}\n`,
+  );
   if (!r.integrityOk) {
     for (const issue of r.integrityIssues) process.stderr.write(`  ! ${issue}\n`);
   }
 }
 
+/** A1/A4: the failure report row for a `CompactError` on `name`, so the loop below can record it
+ *  and move on rather than aborting before an already-succeeded database's report is written. */
+function errorReport(
+  name: CompactableDb,
+  path: string,
+  dryRun: boolean,
+  e: CompactError,
+): DbCompactReport {
+  return {
+    db: name,
+    path,
+    dryRun,
+    error: e.message,
+    beforeBytes: existsSync(path) ? dbFootprintBytes(path) : 0,
+    afterBytes: existsSync(path) ? dbFootprintBytes(path) : 0,
+    reclaimedBytes: 0,
+    ftsOptimized: [],
+    integrityOk: false,
+    integrityIssues: [e.message],
+  };
+}
+
 /**
  * `obsidian-tc compact` — see the file header for the ruling on in-place VACUUM vs `--into`.
+ * Runs cache.db then experiential.db, in order, skipping either that does not exist.
  *
- * Runs cache.db then experiential.db, in order, skipping either that does not exist (a fresh
- * install, or a deployment with the experiential tier never opened). A SQLITE_BUSY on either
- * VACUUM aborts the whole command with a plain-language message and exit 1, rather than leaving
- * the operator to decode a raw SQLite error; a failed integrity/row-count verification also exits
- * non-zero, but does not abort the loop — the OTHER database still gets compacted and reported.
+ * A1 incident this closes: a `SQLITE_BUSY` on the SECOND database used to `process.exit(1)` from
+ * inside the loop before the report/`--json` for an already-succeeded FIRST database ever ran, so
+ * that success was reported nowhere. Every outcome (success or a `CompactError`) is now collected
+ * into `reports` first; the report/`--json` are always emitted, and the exit code goes non-zero if
+ * ANY database failed or failed verification, decided once at the end. A non-`CompactError` is a
+ * bug and is not caught here — it propagates to cli.ts's generic `fatal:` handler.
  */
 export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   const busyTimeoutMs = cfg.db.busyTimeoutMs;
   const dryRun = cmd.dryRun === true;
   const reports: DbCompactReport[] = [];
-  let sawIssue = false;
 
   for (const name of COMPACTABLE_DBS) {
     const path = join(cfg.cacheDir, name);
@@ -345,14 +437,10 @@ export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
         ? await dryRunOneDatabase(name, path, busyTimeoutMs)
         : await compactOneDatabase(name, path, busyTimeoutMs, cmd.into);
       reports.push(report);
-      if (!report.integrityOk) sawIssue = true;
     } catch (e) {
-      if (e instanceof CompactBusyError) {
-        process.stderr.write(
-          `compact: ${e.message} — refusing to VACUUM while contended. Retry once nothing else ` +
-            `has it open, or run with --dry-run to inspect without writing.\n`,
-        );
-        process.exit(1);
+      if (e instanceof CompactError) {
+        reports.push(errorReport(name, path, dryRun, e));
+        continue;
       }
       throw e;
     }
@@ -364,7 +452,7 @@ export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
   }
 
   for (const r of reports) printReport(r);
-  if (!dryRun && cmd.into === undefined) {
+  if (!dryRun && cmd.into === undefined && reports.some((r) => r.error === undefined)) {
     process.stdout.write(
       "note: VACUUM needs roughly as much free disk space as the database's own current size " +
         "(it writes a full replacement before the original is freed) — about 2x headroom overall.\n",
@@ -376,5 +464,5 @@ export async function run_compact(cmd: Cmd<"compact">): Promise<void> {
     process.stdout.write(`wrote ${cmd.json}\n`);
   }
 
-  if (sawIssue) process.exit(1);
+  if (reports.some((r) => !r.integrityOk)) process.exit(1);
 }
