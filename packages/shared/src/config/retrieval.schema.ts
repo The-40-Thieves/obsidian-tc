@@ -2,8 +2,9 @@
 // these same symbol names). Leaf schema — imports Zod only, no shared scalars needed here.
 //
 // Import direction is non-negotiable: this file must never import config.schema.ts,
-// server.schema.ts, or any other schema module. There are no refine/superRefine blocks in this
-// span to place — all four schemas below are plain z.object() definitions.
+// server.schema.ts, or any other schema module. THE-1078 added the first superRefine in this
+// file, on citationInfer.judge — a same-object cross-field check (provider/model/threshold), not
+// a cross-domain read, so it stays here rather than moving to config.schema.ts's own superRefine.
 import { z } from "zod";
 
 /** THE-397: retrieval-fusion knobs (the first config-exposed retrieval section). */
@@ -634,6 +635,104 @@ export const ExperientialConfigSchema = z.object({
         .default(6)
         .describe(
           "Hours between scheduled passes when enabled. Defaults to 6: the pass costs gateway judge calls, and a retrieval's citation status is not time-sensitive once stamped.",
+        ),
+      /** THE-1078: opt-in judge PROVIDER for the stage-2 citation verdict, alongside the existing
+       *  gateway chat judge (roles.judge). Absent -> exactly today's behaviour: the gateway's
+       *  `judge` role when configured, or stage-1-only mode when it is not.
+       *
+       *  `typesafe` (EXPERIMENTAL) is a separate, opt-in judge PROVIDER over TypeSafe Jev's Noul
+       *  question type (see gateway/typesafe.ts and experiential/citation-judge.ts) — a different
+       *  service from the gateway's own `judge` role, selected here rather than by pointing the
+       *  gateway role at a different model, because TypeSafe's request/response shape is not the
+       *  chat-completions shape roles.judge speaks. `model` must be a PINNED, versioned id: Noul
+       *  thresholds are tuned per model version, so a floating `-latest`/`-preview` alias could
+       *  silently move the decision boundary underneath a threshold picked for a specific version.
+       *  `threshold` has deliberately no default — a boundary tuned for one deployment's tolerance
+       *  for false positives is not a safe default for another's, and TypeSafe's own customer
+       *  agreement bars publishing the benchmark numbers that would justify picking one here. */
+      judge: z
+        .object({
+          provider: z
+            .enum(["gateway", "typesafe"])
+            .default("gateway")
+            .describe(
+              'Which service answers the citation stage-2 verdict. "gateway" (default) reuses the existing gateway `judge` role, unchanged. "typesafe" (EXPERIMENTAL) calls TypeSafe Jev\'s Noul question instead of the gateway — a separate, opt-in judge provider for citation inference only.',
+            ),
+          model: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              'Required when provider is "typesafe": a PINNED, versioned TypeSafe model id (e.g. "jev-1.13.0"). Rejected at config-load if it ends in "-latest" or "-preview" — Noul thresholds are tuned per model version, and a floating alias would silently change the decision boundary under a fixed threshold.',
+            ),
+          threshold: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe(
+              "Required when provider is \"typesafe\": the Noul score (0..1) at or above which a chunk is judged cited. No default — TypeSafe thresholds are tuned per model version and per deployment's tolerance for false positives, and TypeSafe's customer agreement bars publishing the benchmark numbers that would justify picking one here.",
+            ),
+          apiKey: z
+            .string()
+            .optional()
+            .describe(
+              "TypeSafe API key. Secret — never logged or returned by a tool. An inline apiKey wins over apiKeyEnv.",
+            ),
+          apiKeyEnv: z
+            .string()
+            .min(1)
+            .default("TYPESAFE_API_KEY")
+            .describe(
+              "Environment variable holding the TypeSafe API key, consulted when apiKey is not set inline.",
+            ),
+          baseUrl: z
+            .string()
+            .url()
+            .default("https://api.typesafe.ai")
+            .describe("TypeSafe API base URL."),
+          timeoutMs: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe(
+              "Per-attempt request timeout in ms for the TypeSafe client. Defaults to the client's own 60s.",
+            ),
+        })
+        .superRefine((c, ctx) => {
+          if (
+            c.model !== undefined &&
+            (c.model.endsWith("-latest") || c.model.endsWith("-preview"))
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["model"],
+              message: `judge.model "${c.model}" ends in "-latest"/"-preview" — pin a versioned model id instead (e.g. "jev-1.13.0"); Noul thresholds are tuned per model version, so a floating alias can silently move the decision boundary underneath a fixed threshold.`,
+            });
+          }
+          if (c.provider === "typesafe") {
+            if (!c.model) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["model"],
+                message:
+                  'judge.model is required when judge.provider is "typesafe" — pin a versioned model id (e.g. "jev-1.13.0").',
+              });
+            }
+            if (c.threshold === undefined) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["threshold"],
+                message:
+                  'judge.threshold is required when judge.provider is "typesafe" (0..1) — no default exists; Noul thresholds are tuned per model version and per deployment.',
+              });
+            }
+          }
+        })
+        .optional()
+        .describe(
+          "THE-1078: opt-in judge provider for the citation-inference stage-2 verdict. Absent -> today's behaviour unchanged (the gateway `judge` role when configured, or stage-1-only mode).",
         ),
     })
     .prefault({})

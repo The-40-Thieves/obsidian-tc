@@ -14,6 +14,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { runCitationIndexPasses } from "../experiential/citation-index";
+import { buildCitationJudge, type CitationJudgeConfig } from "../experiential/citation-judge";
 import { deriveClosedWindows } from "../experiential/derive-verdict";
 import { registerEpisodeEvaluation } from "../experiential/episode-evaluation-schedule";
 import { expireOverdueGoals } from "../experiential/goals";
@@ -130,8 +131,15 @@ export interface JobHandlersDeps {
   /** config.vaults */
   vaults: VaultConfigInput[];
   /** config.experiential.citationInfer — absent or without a transcriptIndex means the handler is
-   *  NOT registered. See the registration below for why a path is the real gate. */
-  citationInfer?: { enabled: boolean; transcriptIndex?: string | undefined } | undefined;
+   *  NOT registered. See the registration below for why a path is the real gate. `judge` (THE-1078)
+   *  selects the stage-2 judge PROVIDER — absent/"gateway" reuses `roles.judge` below unchanged. */
+  citationInfer?:
+    | {
+        enabled: boolean;
+        transcriptIndex?: string | undefined;
+        judge?: CitationJudgeConfig | undefined;
+      }
+    | undefined;
   /** Query-side embedder for the citation pass's stage-1 cosine leg. */
   embed?: ((texts: string[]) => Promise<number[][]>) | undefined;
   /** Authored cache store — the citation pass reads chunk content and stored vectors from it. */
@@ -269,13 +277,21 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     const roles = guardGatewayRoles(deps.roles, excludeFilter);
     const cacheDb = deps.cacheDb;
     const embed = deps.embed;
+    // THE-1078: built ONCE per wireJobHandlers call (not per run), same lifetime as `roles` above.
+    // `provider: "gateway"` (or the block absent) reproduces the inline lambda this replaced,
+    // byte-for-byte; `provider: "typesafe"` throws HERE, at wiring time, on a misconfigured block
+    // (missing model/threshold/key) rather than at the first scheduled run.
+    const citationJudge = buildCitationJudge(deps.citationInfer?.judge, {
+      gatewayJudge: (r) => roles.judge(r).then((x) => ({ text: x.text, model: x.model })),
+      excludeFilter,
+    });
     const citationJob = wrapPlaneJob(
       "citation",
       async () => ({
         ok: true,
         detail: await runCitationIndexPasses(citationIndexPath, deps.experientialDb, cacheDb, {
           embed,
-          judge: (r) => roles.judge(r).then((x) => ({ text: x.text, model: x.model })),
+          citationJudge: citationJudge ?? undefined,
           excludeFilter,
         }),
       }),

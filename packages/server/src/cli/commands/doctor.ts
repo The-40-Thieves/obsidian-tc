@@ -10,13 +10,16 @@ import { resolveCapabilityProfile } from "../../capability";
 import { openDatabase } from "../../db/open";
 import {
   assembleDoctorReport,
+  type CitationJudgeProbeResult,
   type DenseProbeResult,
   renderText,
   resolveInstallRoot,
 } from "../../doctor";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { createEmbeddingProvider } from "../../embeddings";
+import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
+import { createTypesafeClient, typesafeNoul } from "../../gateway/typesafe";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
 import { buildRerankerDoctorProbes, embeddingsDeprecation } from "../../providers/registry";
 import type { ProviderDescriptor } from "../../providers/types";
@@ -81,6 +84,52 @@ async function probeDenseProvider(
     return { ok: true, ms };
   } catch (e) {
     return { ok: false, reason: (e as Error)?.message ?? String(e) };
+  }
+}
+
+/**
+ * THE-1078 — the opt-in TypeSafe Jev reachability probe behind `doctor --probe`, only when
+ * `experiential.citationInfer.judge.provider` is "typesafe". A ONE-TOKEN state and a single Noul
+ * question, so a healthy probe costs about as little as the endpoint allows — this is a liveness
+ * check, not a rehearsal of a real citation judgement. Never throws: every failure (missing key,
+ * network, HTTP, malformed shape) becomes a reason string, and the key itself is never included in
+ * it (TypesafeError's message never carries it — see gateway/typesafe.ts).
+ */
+async function probeTypesafeCitationJudge(judge: {
+  model: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  baseUrl?: string;
+  timeoutMs?: number;
+}): Promise<CitationJudgeProbeResult> {
+  const key = resolveApiKey("typesafe", judge.apiKey, judge.apiKeyEnv ?? "TYPESAFE_API_KEY");
+  if (!key) {
+    return {
+      ok: false,
+      reason: `no API key found (set ${judge.apiKeyEnv ?? "TYPESAFE_API_KEY"} or judge.apiKey)`,
+    };
+  }
+  const client = createTypesafeClient({
+    baseUrl: judge.baseUrl,
+    apiKey: key,
+    timeoutMs: judge.timeoutMs,
+  });
+  const started = Date.now();
+  try {
+    await typesafeNoul(client, {
+      state: { probe: "ok" },
+      instructions: 'Does the state contain the word "ok"?',
+      criteria: { true: 'The state\'s "probe" field is exactly "ok".', false: "It is not." },
+      model: judge.model,
+    });
+    return { ok: true, latencyMs: Date.now() - started };
+  } catch (e) {
+    const status = (e as { status?: number })?.status;
+    return {
+      ok: false,
+      ...(status !== undefined ? { status } : {}),
+      reason: (e as Error)?.message ?? String(e),
+    };
   }
 }
 
@@ -320,6 +369,33 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       conflictCopies: { installRoot: resolveInstallRoot() },
       // THE-1039 (GH #930): always present, no --probe gate — see probeDbSpace's own comment.
       dbSpace,
+      // THE-1078: provider always present; the live reachability probe only under --probe AND
+      // provider === "typesafe" — same contract as retrieval.probe above.
+      citationJudge: {
+        provider: config.experiential.citationInfer.judge?.provider ?? "gateway",
+        ...(config.experiential.citationInfer.judge?.model !== undefined
+          ? { model: config.experiential.citationInfer.judge.model }
+          : {}),
+        ...(cmd.probe && config.experiential.citationInfer.judge?.provider === "typesafe"
+          ? {
+              probe: () => {
+                const judge = config.experiential.citationInfer.judge;
+                if (!judge?.model) {
+                  return Promise.resolve({ ok: false, reason: "no model configured" });
+                }
+                // Rebuilt rather than passed through: narrowing `judge.model` above narrows that
+                // PROPERTY ACCESS, not `judge`'s own (still-optional-model) type.
+                return probeTypesafeCitationJudge({
+                  model: judge.model,
+                  apiKey: judge.apiKey,
+                  apiKeyEnv: judge.apiKeyEnv,
+                  baseUrl: judge.baseUrl,
+                  timeoutMs: judge.timeoutMs,
+                });
+              },
+            }
+          : {}),
+      },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,

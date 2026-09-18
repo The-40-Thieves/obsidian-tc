@@ -6,6 +6,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside
+  the existing gateway chat judge (THE-1078).** Citation inference's stage-2 judge was always the
+  gateway's `judge` chat-completions role; there was no way to point it at a different judge
+  service without repointing the gateway itself, and no way to compare the two. Set
+  `experiential.citationInfer.judge.provider` to `"typesafe"` (default remains `"gateway"`,
+  reproducing today's behaviour exactly) to have the stage-2 verdict come from TypeSafe's Noul
+  question instead — a single yes/no-with-confidence question over the (source, response) pair,
+  with `judge.model` a pinned version (a floating `-latest`/`-preview` alias is rejected at config
+  load, since Noul thresholds are tuned per model version) and `judge.threshold` the score at or
+  above which a chunk is judged cited (no default — thresholds are tuned per deployment, and
+  TypeSafe's customer agreement bars publishing the benchmark numbers that would justify picking
+  one here). The stage-2 loop now calls one seam (`experiential/citation-judge.ts`) regardless of
+  which provider answers it, so `parseFailures`/`judgeErrors`/the kill switch behave identically
+  either way. `doctor --probe` gained a matching `experiential.citation-judge` check (a one-token
+  reachability probe, never the key) for the new provider. Existing deployments are unaffected: the
+  `judge` block is optional, and its absence is byte-identical to every citation-inference run
+  before this change.
+
 ## [1.30.1] - 2026-09-13
 
 ### Fixed

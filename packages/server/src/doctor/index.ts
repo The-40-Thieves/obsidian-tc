@@ -12,6 +12,11 @@
 export type { CaptureLocationView } from "./capture-location";
 export { captureLocationCheck } from "./capture-location";
 export type { DerivedColumnState, DerivedTableState, KbHealthProbe } from "./checks";
+// THE-1078: experiential.citation-judge's view type, same barrel reasoning as capture-location
+// above — the CLI builds its probe (a live TypeSafe reachability check) without importing through
+// checks.ts.
+export type { CitationJudgeProbeResult, CitationJudgeView } from "./citation-judge";
+export { citationJudgeCheck } from "./citation-judge";
 // THE-939: install.conflict-copies' view type and its own install-root resolver, so the CLI can
 // build both without importing through checks.ts — same barrel reasoning as every other
 // doctor/*.ts submodule in this file.

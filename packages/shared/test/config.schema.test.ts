@@ -261,6 +261,111 @@ describe("ExperientialConfigSchema.derivedVerdictHold (THE-726)", () => {
   });
 });
 
+// THE-1078: the opt-in TypeSafe Jev judge PROVIDER for citation-inference's stage-2 verdict.
+describe("ExperientialConfigSchema.citationInfer.judge (THE-1078)", () => {
+  it("is absent on a minimal config — today's behaviour, unchanged", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.experiential.citationInfer.judge).toBeUndefined();
+  });
+
+  it('defaults provider to "gateway" and apiKeyEnv to TYPESAFE_API_KEY when the block is present', () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { citationInfer: { judge: {} } },
+    });
+    expect(c.experiential.citationInfer.judge).toMatchObject({
+      provider: "gateway",
+      apiKeyEnv: "TYPESAFE_API_KEY",
+      baseUrl: "https://api.typesafe.ai",
+    });
+  });
+
+  it('accepts a fully-specified "typesafe" block and round-trips every field', () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: {
+        citationInfer: {
+          judge: {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKeyEnv: "MY_TS_KEY",
+            baseUrl: "https://ts.example.com",
+            timeoutMs: 30_000,
+          },
+        },
+      },
+    });
+    expect(c.experiential.citationInfer.judge).toMatchObject({
+      provider: "typesafe",
+      model: "jev-1.13.0",
+      threshold: 0.9,
+      apiKeyEnv: "MY_TS_KEY",
+      baseUrl: "https://ts.example.com",
+      timeoutMs: 30_000,
+    });
+  });
+
+  it('rejects provider "typesafe" with no model', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { provider: "typesafe", threshold: 0.9 } } },
+      }),
+    ).toThrow(/model/i);
+  });
+
+  it('rejects provider "typesafe" with no threshold', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: { judge: { provider: "typesafe", model: "jev-1.13.0" } },
+        },
+      }),
+    ).toThrow(/threshold/i);
+  });
+
+  it("rejects a threshold outside 0..1", () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "jev-1.13.0", threshold: 1.5 },
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a model ending in "-latest"', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { model: "jev-latest" } } },
+      }),
+    ).toThrow(/pin a versioned model id/);
+  });
+
+  it('rejects a model ending in "-preview"', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { model: "jev-1.13.0-preview" } } },
+      }),
+    ).toThrow(/pin a versioned model id/);
+  });
+
+  it("accepts a pinned, versioned model id on the default gateway provider", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { citationInfer: { judge: { model: "jev-1.13.0" } } },
+    });
+    expect(c.experiential.citationInfer.judge?.model).toBe("jev-1.13.0");
+  });
+});
+
 // THE-591: closes the same "built and dark" gap THE-535 (above) documents for
 // experiential.activationRerank — retrieval.gatedRerank and indexing.streamingWalk existed as
 // fully-implemented, fully-tested code paths with NO config key at all, reachable only from the

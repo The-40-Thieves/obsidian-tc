@@ -18,6 +18,7 @@ export type CitationPassOptions = Pick<
   InferCitationsOptions,
   | "embed"
   | "judge"
+  | "citationJudge"
   | "maxJudged"
   | "judgeConcurrency"
   | "minJudgedForKill"
@@ -84,7 +85,7 @@ export async function runCitationIndexPasses(
     const now = Date.now();
     const runId = openCitationRun(edb, {
       scope: "index",
-      judgePresent: opts.judge != null,
+      judgePresent: opts.citationJudge != null || opts.judge != null,
       startedAt: now,
     });
     closeCitationRun(edb, runId, {

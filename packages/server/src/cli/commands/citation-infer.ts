@@ -5,6 +5,7 @@ import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
 import { type InferCitationsOptions, inferCitations } from "../../experiential/citation";
 import { runCitationIndexPasses } from "../../experiential/citation-index";
+import { buildCitationJudge } from "../../experiential/citation-judge";
 import { createGatewayClient, type GatewayClient } from "../../gateway";
 import { compileEgressFilter } from "../../plane/egress-filter";
 import { USAGE } from "../args";
@@ -56,10 +57,22 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
   // one-letter typo in a conditional spread typechecks clean and silently discards the option.
   // Hoisting them into a shared object would have thrown that away; annotating the object with
   // Pick<> puts the check back, at the point the object is built rather than where it is spread.
+  // THE-1078: build the seam ONCE, from the same egressFilter every other port on this CLI call
+  // uses. `provider: "gateway"` (or the block absent) reproduces exactly today's `judge` value
+  // below; `provider: "typesafe"` throws here — at construction, before any pass runs — rather
+  // than silently falling back to the gateway judge on a misconfigured block.
+  const citationJudge =
+    buildCitationJudge(cfg.experiential.citationInfer.judge, {
+      gatewayJudge: gwc
+        ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model }))
+        : null,
+      allowUncertain: cmd.allowUncertain === true,
+      excludeFilter: egressFilter,
+    }) ?? undefined;
   const common: Pick<
     InferCitationsOptions,
     | "embed"
-    | "judge"
+    | "citationJudge"
     | "maxJudged"
     | "judgeConcurrency"
     | "minJudgedForKill"
@@ -68,7 +81,7 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
     | "excludeFilter"
   > = {
     embed: (texts) => provider.embed(texts, { input: "query" }),
-    judge: gwc ? (r) => gwc.judge(r).then((x) => ({ text: x.text, model: x.model })) : null,
+    citationJudge,
     ...(cmd.maxJudged !== undefined ? { maxJudged: cmd.maxJudged } : {}),
     judgeConcurrency: cmd.judgeConcurrency,
     minJudgedForKill: cmd.minJudgedForKill,

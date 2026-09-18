@@ -13,12 +13,23 @@
 // survivor rows NULL for a clean rerun. Stage-1 negatives are always safe to stamp cited=0.
 // Correlation is by session_id or a retrieved_at window (THE-228's capture bus).
 import type { Database } from "../db/types";
-import { type EgressFilter, EgressViolationError, isExcludedPath } from "../plane/egress-filter";
+import { type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
-import { prompt } from "../plane/gateway";
 import { cosineBatch, cosineSimilarity, rougeLLcs } from "../search/native";
 import { runWithConcurrency } from "../util/concurrency";
+// THE-1078: the stage-2 judge moved behind one seam with two adapters (gateway chat, and the
+// opt-in TypeSafe Jev Noul judge) — see citation-judge.ts's own header. `JudgeVerdict` and
+// `parseCitationVerdict` re-exported here, unchanged, for any caller still importing them from this path.
+import {
+  type CitationJudge,
+  chatCitationJudge,
+  type JudgeVerdict,
+  parseCitationVerdict,
+} from "./citation-judge";
 import { closeCitationRun, openCitationRun } from "./citation-runs";
+
+export type { CitationJudge, JudgeVerdict };
+export { parseCitationVerdict };
 
 const MAX_CHUNK_TOKENS = 512;
 const MAX_TRANSCRIPT_TOKENS = 6000;
@@ -165,54 +176,6 @@ function transcriptBlocks(transcript: string): string[] {
     .map((b) => b.slice(0, 800));
 }
 
-const JUDGE_SYSTEM =
-  "You judge citation. Given a SOURCE chunk and a RESPONSE, decide whether the RESPONSE uses " +
-  "information from the SOURCE (paraphrase counts; shared topic alone does not). Respond with " +
-  'ONLY strict JSON: {"cited": true|false, "score": <number 0..1>}. No prose, no fences.';
-
-/** The widened contract, used ONLY when `allowUncertain` is set. Kept as a separate string rather
- *  than a conditional fragment so the default prompt is byte-identical to what has always shipped:
- *  a judge prompt is model-visible input, and changing it changes model output on every call. */
-const JUDGE_SYSTEM_UNCERTAIN =
-  "You judge citation. Given a SOURCE chunk and a RESPONSE, decide whether the RESPONSE uses " +
-  "information from the SOURCE (paraphrase counts; shared topic alone does not). Respond with " +
-  'ONLY strict JSON: {"cited": true|false|"uncertain", "score": <number 0..1>}. Answer ' +
-  '"uncertain" when the evidence genuinely does not settle it — abstention is better than a ' +
-  "confident guess. No prose, no fences.";
-
-/** `true`/`false` are the judge's verdict; `"uncertain"` is its abstention, and only reachable
- *  when the caller opted in (see `allowUncertain`). */
-type JudgeVerdict = { cited: boolean | "uncertain"; score: number };
-
-/**
- * `allowUncertain` gates the WIDER vocabulary on the parse side too, deliberately.
- *
- * A rejected parse is not free: it increments `parseFailures`, and >5% of judged rows aborts the
- * entire stamping pass (the kill switch). So the prompt and the parser have to move together — a
- * widened prompt against this parser's old `typeof v.cited !== "boolean"` check would turn every
- * abstention into a parse failure and could abort a whole run. Gating both on one flag makes that
- * pairing impossible to get half-right.
- *
- * With the flag OFF the behaviour is byte-identical to before: an `"uncertain"` reply is still a
- * parse failure, exactly as it is today.
- */
-function parseVerdict(text: string, allowUncertain: boolean): JudgeVerdict | null {
-  const stripped = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "");
-  try {
-    const v = JSON.parse(stripped) as { cited?: unknown; score?: unknown };
-    const score = typeof v.score === "number" && Number.isFinite(v.score) ? v.score : 0;
-    const clamped = Math.max(0, Math.min(1, score));
-    if (typeof v.cited === "boolean") return { cited: v.cited, score: clamped };
-    if (allowUncertain && v.cited === "uncertain") return { cited: "uncertain", score: clamped };
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 export interface InferCitationsOptions {
   /** Experiential store (chunk_retrievals lives here). */
   edb: Database;
@@ -225,8 +188,15 @@ export interface InferCitationsOptions {
   windowMs?: [number, number];
   /** Query-side embedder for transcript blocks; absent -> ROUGE-only stage 1. */
   embed?: (texts: string[]) => Promise<number[][]>;
-  /** Gateway judge role; absent/null -> stage-1-only mode (survivors stamp cited=1). */
+  /** Gateway judge role; absent/null -> stage-1-only mode (survivors stamp cited=1). Ignored when
+   *  `citationJudge` is also supplied (see that option). */
   judge?: GatewayRoles["judge"] | null;
+  /** THE-1078 — the seam both call sites now build via `buildCitationJudge` (citation-judge.ts),
+   *  covering EITHER the gateway chat judge or the opt-in TypeSafe Jev judge. Takes precedence
+   *  over `judge`/`judgeSystem`/`allowUncertain` when supplied; absent -> those three build the
+   *  chat adapter internally (or stage-1-only mode, when `judge` is also absent/null), preserving
+   *  every existing caller's behaviour unchanged. */
+  citationJudge?: CitationJudge;
   /**
    * Let the judge abstain. DARK BY DEFAULT, and that is the point.
    *
@@ -267,7 +237,7 @@ export interface InferCitationsOptions {
   /** THE-621 item 3 — override the judge system prompt. A prompt that cannot be overridden cannot
    *  be A/B tested, which is the reason this is a knob rather than a module constant.
    *
-   *  NOTE it does not imply `allowUncertain`: the two are independent, and `parseVerdict` still
+   *  NOTE it does not imply `allowUncertain`: the two are independent, and `parseCitationVerdict` still
    *  accepts an `uncertain` verdict only when `allowUncertain` is set. A custom prompt that invites
    *  abstention without it will read every abstention as a PARSE FAILURE. */
   judgeSystem?: string;
@@ -329,6 +299,18 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     killSwitch: opts.thresholds?.killSwitch ?? 0.05,
   };
   const log = opts.log ?? (() => {});
+  // THE-1078: build the seam ONCE, up front — both `judgePresent` below and the stage-2 loop read
+  // it. `opts.citationJudge` takes precedence; otherwise build the chat adapter internally from
+  // `opts.judge` (or stage-1-only mode, when that is also absent/null) — byte-identical to every
+  // existing caller's behaviour before this seam existed.
+  const citationJudge: CitationJudge | null =
+    opts.citationJudge ??
+    (opts.judge
+      ? chatCitationJudge(opts.judge, {
+          judgeSystem: opts.judgeSystem,
+          allowUncertain: opts.allowUncertain,
+        })
+      : null);
 
   let scopeClause: string;
   const scopeParams: unknown[] = [];
@@ -349,7 +331,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     scope: opts.sessionId !== undefined ? "session" : "window",
     sessionId: opts.sessionId,
     window: opts.windowMs,
-    judgePresent: opts.judge != null,
+    judgePresent: citationJudge != null,
     startedAt: Date.now(),
   });
 
@@ -470,48 +452,39 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
   let judged = 0;
   let parseFailures = 0;
   let judgeErrors = 0;
-  if (opts.judge && passers.length > 0) {
-    const judge = opts.judge;
+  if (citationJudge && passers.length > 0) {
+    const judgeFn = citationJudge;
     const toJudge = passers.slice(0, opts.maxJudged ?? MAX_JUDGED);
-    const judgeSystem =
-      opts.judgeSystem ?? (opts.allowUncertain ? JUDGE_SYSTEM_UNCERTAIN : JUDGE_SYSTEM);
     // THE-621 item 1: judge under a BOUNDED fan-out instead of one call at a time.
     //
-    // The callback must NEVER reject. `runWithConcurrency` awaits `fn` inside each worker and
-    // gathers the workers with `Promise.all`, so a single thrown judge call would reject the whole
-    // pool and discard every other verdict in flight. The serial loop it replaces isolated failures
-    // per chunk, and that property is preserved here by returning `null` for a failure rather than
-    // by throwing — `allSettled` semantics, expressed as a total function.
+    // The callback must NEVER reject (except EgressViolationError — see the seam's own contract).
+    // `runWithConcurrency` awaits `fn` inside each worker and gathers the workers with
+    // `Promise.all`, so a single thrown judge call would reject the whole pool and discard every
+    // other verdict in flight. The serial loop it replaces isolated failures per chunk, and that
+    // property is preserved here by returning a `transport`/`unparseable` outcome for a failure
+    // rather than by throwing — `allSettled` semantics, expressed as a total function.
+    //
+    // THE-1078: the request-building and try/catch that used to live here moved into the seam's
+    // adapters (citation-judge.ts) — this loop now only calls `judgeFn` and folds its
+    // discriminated outcome, identically for either provider.
     const settled = await runWithConcurrency(
       toJudge,
       Math.max(1, opts.judgeConcurrency ?? DEFAULT_JUDGE_CONCURRENCY),
       async (a) => {
-        const req = {
-          ...prompt(
-            judgeSystem,
-            `SOURCE:\n${a.content.slice(0, 1500)}\n\nRESPONSE:\n${opts.transcript.slice(0, 4000)}`,
-          ),
-          responseFormat: { type: "json_object" },
-          // THE-934: the egress guard's defence-in-depth check — the candidate's path, already
-          // filtered above.
-          sourcePaths: [a.path],
-        };
         // THE-717 follow-up: a judge that never ANSWERED and a judge that answered UNPARSEABLY
         // are different faults with opposite remedies — an endpoint/credential vs a prompt/model.
         // Collapsing both to `null` is what made a three-day HTTP 404 outage read as "the model
-        // cannot produce JSON" in citation_runs. Discriminated here, at the only place that can
-        // still tell them apart; everything downstream is counting.
-        try {
-          const res = await judge(req);
-          const v = parseVerdict(res.text, opts.allowUncertain === true);
-          return v === null ? { kind: "unparseable" as const } : { kind: "ok" as const, v };
-        } catch (e) {
-          // THE-934 fix round 3 (B): a guard firing here means the candidate filter above
-          // (citation.ts's own chokepoint) is broken -- a security defect, not an ordinary
-          // transport outage.
-          if (e instanceof EgressViolationError) throw e;
-          return { kind: "transport" as const };
-        }
+        // cannot produce JSON" in citation_runs. Discriminated by the seam itself now; everything
+        // downstream here is counting.
+        const outcome = await judgeFn({
+          source: a.content,
+          response: opts.transcript,
+          // THE-934: the egress guard's defence-in-depth check — the candidate's path, already
+          // filtered above.
+          sourcePaths: [a.path],
+        });
+        if (outcome.kind === "ok") return { kind: "ok" as const, v: outcome.verdict };
+        return { kind: outcome.kind };
       },
     );
     // Fold in INPUT order, not completion order. `runWithConcurrency` writes each result to its
@@ -581,7 +554,7 @@ export async function inferCitations(opts: InferCitationsOptions): Promise<Infer
     stampRow(0, a.cosine ?? a.rouge, "rejected", a.chunkId, ...scopeParams);
   }
   for (const a of passers) {
-    if (opts.judge) {
+    if (citationJudge) {
       if (aborted) continue; // leave NULL for a clean rerun — state stays NULL too
       const v = verdicts.get(a.chunkId);
       if (!v) continue; // this chunk's judgement failed to parse — rerun later

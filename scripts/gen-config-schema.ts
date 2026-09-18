@@ -256,7 +256,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // vault, THE-467), and it states that stdio MCP spawns one server process per client, so the
   // concurrent client count is what busy_timeout has to absorb. No existing key, type, default or
   // constraint moved.
-  "2d7f28a468898f1ab089e98897a76d8cf11e466c66fc0ee5b27d4a7277b2313d";
+  // THE-1078: rebaselined deliberately. Adds ONE new optional block,
+  // `experiential.citationInfer.judge` (provider enum gateway|typesafe default "gateway", plus
+  // model/threshold/apiKey/apiKeyEnv/baseUrl/timeoutMs for the opt-in TypeSafe Jev judge provider)
+  // — see retrieval.schema.ts's own comment on the block for the full description text and the
+  // cross-field validation (model/threshold required, and a `-latest`/`-preview` model suffix
+  // rejected, when provider is "typesafe"). Absent block reproduces exactly today's behaviour: the
+  // gateway's `judge` role, or stage-1-only mode. No existing key, type, default or constraint
+  // moved.
+  "bb1bc0c8d8465929581a7e67a283c53fdf4f364864d46504286c965b083e4198";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
