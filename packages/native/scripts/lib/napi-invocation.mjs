@@ -13,6 +13,34 @@
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 
+// napi build's own long/short forms (`napi build --help`, @napi-rs/cli 3.7.2): "--watch,-w  watch
+// the crate changes and build continuously with `cargo-watch`". Nothing in this repo drives it
+// through `bun run build`/`build:debug` (checked: no `--watch`/`-w` reference to napi build in
+// package.json, .github, docs, or the justfile) -- and this wrapper's staging + promote-once model
+// is fundamentally incompatible with a long-running watch process: build.mjs waits synchronously
+// for `napi build` to exit before promoting, so under `--watch` it would promote nothing until the
+// watcher is killed, and interrupting it exits before any copy ever runs. Reject rather than
+// silently misbehave; see buildNapiBuildInvocation below and README.md's "Windows: locked .node"
+// section for the pointer to running `napi build --watch` directly instead.
+const WATCH_FLAGS = new Set(["--watch", "-w"]);
+
+export const WATCH_NOT_SUPPORTED_MESSAGE =
+  "native build: --watch is not supported through this wrapper -- it stages a build and " +
+  "promotes it ONCE, after napi build exits, so a long-running watcher never gets promoted and " +
+  "interrupting it skips the copy entirely. Run `napi build --watch` (or " +
+  "`./node_modules/.bin/napi build --watch`) directly from packages/native instead.";
+
+export class WatchNotSupportedError extends Error {
+  constructor() {
+    super(WATCH_NOT_SUPPORTED_MESSAGE);
+  }
+}
+
+/** True when `extraArgs` (the argv this wrapper forwards to `napi build`) requests watch mode. */
+export function hasWatchFlag(extraArgs) {
+  return extraArgs.some((arg) => WATCH_FLAGS.has(arg));
+}
+
 /** Resolves the on-disk path to @napi-rs/cli's `napi` CLI script via its own package.json `bin`
  * field. `requireFn` defaults to a `createRequire` bound to this module, and is injectable so
  * tests can exercise the argv builder below without needing the real package on disk. */
@@ -33,6 +61,9 @@ export function resolveNapiCliBin(requireFn = createRequire(import.meta.url)) {
  * (or an injectable stand-in in a test).
  */
 export function buildNapiBuildInvocation({ nativeDir, targetDir, stageDir, extraArgs, requireFn }) {
+  if (hasWatchFlag(extraArgs)) {
+    throw new WatchNotSupportedError();
+  }
   const napiCliBin = resolveNapiCliBin(requireFn);
   const args = [
     napiCliBin,

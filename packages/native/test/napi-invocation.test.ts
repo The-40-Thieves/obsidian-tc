@@ -1,7 +1,13 @@
 // Unit tests for scripts/lib/napi-invocation.mjs (THE-1080, #948). Pure argv/options builder --
 // no spawning, no `napi build`, no cargo, no compiler.
 import { describe, expect, it } from "vitest";
-import { buildNapiBuildInvocation, resolveNapiCliBin } from "../scripts/lib/napi-invocation.mjs";
+import {
+  buildNapiBuildInvocation,
+  hasWatchFlag,
+  resolveNapiCliBin,
+  WATCH_NOT_SUPPORTED_MESSAGE,
+  WatchNotSupportedError,
+} from "../scripts/lib/napi-invocation.mjs";
 
 function fakeRequireFor(binField: string | Record<string, string>) {
   const pkgPath = "/fake/node_modules/@napi-rs/cli/package.json";
@@ -95,5 +101,45 @@ describe("buildNapiBuildInvocation", () => {
       requireFn,
     });
     expect(args.slice(-3)).toEqual(["--target", "aarch64-unknown-linux-gnu", "-x"]);
+  });
+
+  it("rejects --watch instead of building an invocation that would never promote", () => {
+    expect(() =>
+      buildNapiBuildInvocation({
+        nativeDir: "/repo/packages/native",
+        targetDir: "/repo/packages/native/target",
+        stageDir: "/repo/packages/native/target/napi-stage",
+        extraArgs: ["--watch"],
+        requireFn,
+      }),
+    ).toThrow(WatchNotSupportedError);
+  });
+
+  it("rejects the short -w form too", () => {
+    expect(() =>
+      buildNapiBuildInvocation({
+        nativeDir: "/repo/packages/native",
+        targetDir: "/repo/packages/native/target",
+        stageDir: "/repo/packages/native/target/napi-stage",
+        extraArgs: ["-w"],
+        requireFn,
+      }),
+    ).toThrow(WATCH_NOT_SUPPORTED_MESSAGE);
+  });
+});
+
+describe("hasWatchFlag", () => {
+  it("is true for --watch or -w anywhere in the forwarded args", () => {
+    expect(hasWatchFlag(["--watch"])).toBe(true);
+    expect(hasWatchFlag(["-w"])).toBe(true);
+    expect(hasWatchFlag(["--target", "x86_64-unknown-linux-gnu", "--watch"])).toBe(true);
+  });
+
+  it("is false for ordinary build args, including ones that merely contain 'watch'", () => {
+    expect(hasWatchFlag([])).toBe(false);
+    expect(hasWatchFlag(["--target", "x86_64-unknown-linux-gnu"])).toBe(false);
+    expect(hasWatchFlag(["-x"])).toBe(false);
+    // Not a prefix/substring match -- only the exact flag forms count.
+    expect(hasWatchFlag(["--watchdog"])).toBe(false);
   });
 });
