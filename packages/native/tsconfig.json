@@ -2,7 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node"],
+    // allowJs (checkJs left off): the test imports scripts/lib/artifact-copy.mjs, a plain-JS
+    // module with no .d.ts -- without this, TS7016 (implicit any) is an ERROR under `strict`.
+    "allowJs": true
   },
-  "include": ["fallback.ts", "index.d.ts"]
+  // "test" is included so `bun run typecheck` actually covers artifact-copy.test.ts (matches
+  // packages/plugin/tsconfig.json's rationale: vitest transpiles without type-checking, so a
+  // broken type in a test-only file would otherwise surface as nothing at all).
+  "include": ["fallback.ts", "index.d.ts", "test"]
 }

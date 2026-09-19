@@ -60,6 +60,14 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile --ignore-scripts
+      # THE-1080: build.mjs's own decision/orchestration logic (artifact-copy, napi-invocation,
+      # stage-dir, runBuild) has a vitest suite that needs no cargo or compiler -- run it once, on
+      # Linux only, rather than on every OS in this matrix.
+      - name: test build.mjs (vitest)
+        if: matrix.host == 'ubuntu-latest'
+        working-directory: packages/native
+        run: bun run test:build-script
+        shell: bash
       # PR builds debug (fast compile); push to main builds release for the prebuild.
       - name: build
         working-directory: packages/native

@@ -6,6 +6,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **`packages/native`'s `napi build` could fail on Windows with a bare "Internal Error: Failed to
+  copy artifact" whenever an MCP client (e.g. Claude Code, via `dist/cli.js`) still had the
+  compiled `.node` loaded — even when the freshly built bytes were identical to what was already on
+  disk and no native source had changed (THE-1080, #948).** `build`/`build:debug` now run through
+  `packages/native/scripts/build.mjs`, which builds into a private staging directory
+  (`--output-dir`) and performs the copy into place itself: identical bytes are skipped entirely,
+  and a genuine lock (`EBUSY`/`EPERM`/`ETXTBSY`/`EACCES`) fails with the actual errno, the
+  destination path, and — on `win32` — a hint to stop the process holding the addon open. Generated
+  output (`target/napi-generated.js`/`.d.ts`, the platform `.node` file) lands exactly where it did
+  before; no change for anyone not hitting the Windows lock.
+
 ## [1.31.0] - 2026-09-19
 
 ### Added
