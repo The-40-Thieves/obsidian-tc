@@ -50,6 +50,20 @@
 //      behind if killed mid-`tsc`, which a later run would then treat as complete and authoritative.
 //      Builds into a private temp dir first, then `renameSync`s the completed result into place in
 //      one atomic step — `dist` is therefore always either absent or complete, never partial.
+//
+// Round 4 review fixes (two concurrency bugs the above still left open):
+//   1. atomic publication had no CONCURRENT-WINNER handling: two vitest processes can both see
+//      `dist/index.js` absent, both build to their own temp dir, and the second `renameSync` then
+//      throws EEXIST/ENOTEMPTY even though a perfectly good `dist` now exists (the first process's).
+//      Caught narrowly: only those two codes, and only after confirming the winner's
+//      `dist/index.js` is actually there — any other error (or a still-missing dist) still
+//      propagates. The loser's own temp output is then just discarded.
+//   2. `reclaimStrandedSharedDistBackups` deleted EVERY leftover backup/temp-build dir unconditionally
+//      — including one a CONCURRENTLY RUNNING vitest process is still building into. Each name
+//      carries the owning pid (`<prefix><pid>`); a directory is reclaimed only when that pid is
+//      confirmed DEAD (`process.kill(pid, 0)` throws ESRCH) or the directory is simply too old
+//      (mtime > 1h — covers a reused pid or an unparseable name) to plausibly be a live build. The
+//      actual reclaim action (rename back only when `dist` is absent, else discard) is unchanged.
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -59,6 +73,7 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -83,16 +98,61 @@ let stage: string;
 let configPath: string;
 let fakeCliJs: string;
 
+/** A leftover backup/temp-build dir is safe to reclaim only once its owning process is confirmed
+ *  gone, or the directory is simply too old to plausibly still be someone's live build (covers a
+ *  reused pid, or a name this host could not parse a pid out of at all). Pure and injectable —
+ *  no filesystem or process access — so every branch is directly unit-testable below with a fake
+ *  `isAlive`/`nowMs`/`mtimeMs`, without needing a real second process or a real stale directory. */
+const STALE_BUILD_DIR_AGE_MS = 60 * 60 * 1000; // 1 hour
+function isStaleBuildDir(opts: { isAlive: boolean; mtimeMs: number; nowMs: number }): boolean {
+  if (!opts.isAlive) return true;
+  return opts.nowMs - opts.mtimeMs > STALE_BUILD_DIR_AGE_MS;
+}
+
+/** Extracts the trailing `<pid>` this test always names its own directories with
+ *  (`<prefix><pid>`); undefined for anything that doesn't parse as one (a name this test did not
+ *  create in the expected shape — treated as "liveness unknown", never as "confirmed dead", by
+ *  the caller below). */
+function pidFromName(name: string, prefix: string): number | undefined {
+  const pid = Number(name.slice(prefix.length));
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+/** `process.kill(pid, 0)` sends no signal — it only tests whether this process COULD signal `pid`.
+ *  ESRCH means no such process exists (dead); any other error (most commonly EPERM: it exists but
+ *  is owned by someone else) means it is very much alive. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** Round 4 review fix 2: an unparseable name means liveness cannot be determined from the pid
+ *  alone — treated as "alive" (the cautious default) so only the AGE half of `isStaleBuildDir`
+ *  can still reclaim it, rather than a naming quirk silently deleting someone's live build. */
+function isReclaimable(dirPath: string, name: string, prefix: string, nowMs: number): boolean {
+  const pid = pidFromName(name, prefix);
+  const isAlive = pid === undefined ? true : isProcessAlive(pid);
+  return isStaleBuildDir({ isAlive, mtimeMs: statSync(dirPath).mtimeMs, nowMs });
+}
+
 /** Self-heals a tree damaged by an earlier version of this test that renamed the real dist aside
  *  and could be killed before restoring it (see the file header). Any leftover backup found on
  *  start either IS the developer's real dist (nothing has replaced it since) — rename it back — or
  *  a real dist already exists (a since-completed run rebuilt one) — the backup is then a stale
- *  orphan, safe to delete. Logs which it did, and which name, since silently picking between
+ *  orphan, safe to delete. A backup/temp-build dir whose owning process is still alive (round 4
+ *  review fix 2) is left alone entirely — it belongs to a CONCURRENTLY RUNNING vitest process, not
+ *  a killed one. Logs which action it took and on which name, since silently picking between
  *  "restore" and "discard" on someone else's build artifact is worth a paper trail. */
 function reclaimStrandedSharedDistBackups(): void {
+  const nowMs = Date.now();
   for (const name of readdirSync(SHARED_DIR)) {
     if (!name.startsWith(SHARED_DIST_BACKUP_PREFIX)) continue;
     const backup = join(SHARED_DIR, name);
+    if (!isReclaimable(backup, name, SHARED_DIST_BACKUP_PREFIX, nowMs)) continue;
     if (existsSync(SHARED_DIST)) {
       console.log(
         `[doctor-cli-bundle-reranker-resolution] discarding stale backup ${name} (a real dist already exists)`,
@@ -106,23 +166,40 @@ function reclaimStrandedSharedDistBackups(): void {
     }
   }
   // Same reasoning, for a temp-build dir (round 3 fix 3) orphaned by an earlier kill mid-`tsc`:
-  // never authoritative (never renamed INTO `dist`), so always safe to discard outright.
+  // never authoritative (never renamed INTO `dist`), so always safe to discard once confirmed dead.
   for (const name of readdirSync(SHARED_DIR)) {
-    if (name.startsWith(SHARED_DIST_TEMP_PREFIX)) {
-      rmSync(join(SHARED_DIR, name), { recursive: true, force: true });
+    if (!name.startsWith(SHARED_DIST_TEMP_PREFIX)) continue;
+    const tempDir = join(SHARED_DIR, name);
+    if (isReclaimable(tempDir, name, SHARED_DIST_TEMP_PREFIX, nowMs)) {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   }
 }
 
 /** Builds packages/shared/dist ATOMICALLY: `tsc` writes into a private temp directory first, then
  *  a single `renameSync` publishes it as `dist` — so a kill mid-build leaves `dist` absent (the
- *  orphaned temp dir is swept by `reclaimStrandedSharedDistBackups` above), never a partial,
- *  silently-treated-as-complete `dist`. */
+ *  orphaned temp dir is swept by `reclaimStrandedSharedDistBackups` above, once confirmed dead),
+ *  never a partial, silently-treated-as-complete `dist`.
+ *
+ *  Round 4 review fix 1: two processes can both see `dist/index.js` absent and both reach this
+ *  rename — only ONE wins; the other's `renameSync` throws EEXIST (already a directory there) or
+ *  ENOTEMPTY (Linux's spelling of the same race). That is not a real failure: the winner's `dist`
+ *  is exactly as valid as this process's own would have been (same source, same compiler), so this
+ *  verifies it actually landed, discards its own now-redundant temp output, and returns normally.
+ *  Any OTHER error — or the rename failing with one of those codes yet `dist/index.js` still
+ *  missing — still propagates; that is a real failure, not a lost race. */
 function buildSharedDistAtomically(): void {
   const tempOut = join(SHARED_DIR, `${SHARED_DIST_TEMP_PREFIX}${process.pid}`);
   rmSync(tempOut, { recursive: true, force: true });
   execFileSync(SHARED_TSC, ["--outDir", tempOut], { cwd: SHARED_DIR, stdio: "pipe" });
-  renameSync(tempOut, SHARED_DIST);
+  try {
+    renameSync(tempOut, SHARED_DIST);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code !== "EEXIST" && code !== "ENOTEMPTY") throw e;
+    if (!existsSync(join(SHARED_DIST, "index.js"))) throw e;
+    rmSync(tempOut, { recursive: true, force: true });
+  }
 }
 
 /** A minimal stand-in for the REAL @the-40-thieves/obsidian-tc-reranker-local package (round 3 fix
@@ -279,3 +356,25 @@ describe.skipIf(!bunAvailable)(
     });
   },
 );
+
+// THE-1079 round 4 review fix 2: `isStaleBuildDir` decides whether a leftover backup/temp-build
+// dir is safe to reclaim WITHOUT ever touching the filesystem or a real process — every branch
+// exercised here with a fake `isAlive`/clock, no real second process and no real stale directory
+// needed.
+describe("isStaleBuildDir (THE-1079 round 4 review fix 2)", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it("never reclaims a directory whose owning process is confirmed alive and recent", () => {
+    expect(isStaleBuildDir({ isAlive: true, mtimeMs: 1000, nowMs: 1000 })).toBe(false);
+  });
+
+  it("reclaims immediately once the owning process is confirmed dead, regardless of age", () => {
+    expect(isStaleBuildDir({ isAlive: false, mtimeMs: 1000, nowMs: 1000 })).toBe(true);
+    expect(isStaleBuildDir({ isAlive: false, mtimeMs: 1000, nowMs: 1000 + 999 * HOUR })).toBe(true);
+  });
+
+  it("an 'alive' directory (unparseable name, or a live pid) is still reclaimed once old enough", () => {
+    expect(isStaleBuildDir({ isAlive: true, mtimeMs: 0, nowMs: HOUR })).toBe(false); // exactly 1h: not yet
+    expect(isStaleBuildDir({ isAlive: true, mtimeMs: 0, nowMs: HOUR + 1 })).toBe(true); // just over
+  });
+});
