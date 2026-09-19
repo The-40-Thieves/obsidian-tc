@@ -291,14 +291,16 @@ describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", ()
   it("auto-select resolved: says so instead of contradicting reranker.buildable with RRF-only", async () => {
     const r = await retrievalHeadsCheck(view({ autoSelectLocalRerankerResolved: true })).run(ctx);
     expect(r.status).toBe("ok");
-    expect(r.details?.reranker).toContain('auto-select resolved "local"');
+    expect(r.details?.reranker).toContain("auto-select resolved the local reranker module");
+    // Scoped to the MODULE, not inference — weights stay lazy until the first real rerank().
+    expect(r.details?.reranker).toContain("inference not exercised");
     expect(r.details?.reranker).not.toContain("RRF-only");
   });
 
   it("auto-select did not resolve: stays RRF-only, but names the auto-select outcome explicitly", async () => {
     const r = await retrievalHeadsCheck(view({ autoSelectLocalRerankerResolved: false })).run(ctx);
     expect(r.details?.reranker).toContain("RRF-only");
-    expect(r.details?.reranker).toContain('auto-select did not resolve "local"');
+    expect(r.details?.reranker).toContain("auto-select did not resolve the local reranker module");
   });
 });
 

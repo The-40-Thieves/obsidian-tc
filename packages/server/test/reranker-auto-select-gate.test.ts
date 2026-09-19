@@ -131,12 +131,21 @@ describe("doctor and boot share the SAME auto-select rule (source-scan pin)", ()
   // autoSelectLocalRerankerApplies directly (pinned above at src/providers/registry.ts), it calls
   // buildRerankerDoctorProbes, which is what calls the shared rule. Without this link, the
   // registry.ts pin alone would not prove doctor.ts is actually WIRED to it.
-  it("src/cli/commands/doctor.ts imports AND calls buildRerankerDoctorProbes (the wrapper that calls the shared rule)", () => {
+  //
+  // THE-1079: the call site is no longer `...buildRerankerDoctorProbes({...})` spread directly
+  // into the `rerankerBuildable` view literal — GH #949 needed the SAME auto-select outcome in
+  // `retrieval.heads` too, so the call is hoisted into a `rerankerDoctorProbes` local (computed
+  // once, before both views are built) and THAT is what gets spread. The intent this gate exists
+  // to guard — doctor's probe list must actually include the reranker probes — still holds; it now
+  // takes two assertions (call + spread) instead of one literal string to prove it.
+  it("src/cli/commands/doctor.ts imports, calls, AND spreads buildRerankerDoctorProbes's result into the probe list", () => {
     const src = readSrc("src/cli/commands/doctor.ts");
     expect(src).toMatch(
       /import\s*\{[^}]*buildRerankerDoctorProbes[^}]*\}\s*from\s*"\.\.\/\.\.\/providers\/registry";/,
     );
-    expect(src).toContain("...buildRerankerDoctorProbes({");
+    expect(src).toContain("buildRerankerDoctorProbes({");
+    expect(src).toMatch(/const\s+rerankerDoctorProbes\s*=\s*buildRerankerDoctorProbes\(/);
+    expect(src).toContain("...rerankerDoctorProbes,");
   });
 });
 

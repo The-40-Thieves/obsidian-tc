@@ -148,11 +148,14 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
         // THE-1079 (GH #949): reranker.buildable ran the auto-select probe for this SAME run and it
         // resolved — reporting "RRF-only" here, one check over, would flatly contradict it. Distinct
         // wording from the `rerankerConfigured` branch above: nothing was DECLARED, a fallback WON.
-        details.reranker = `auto-select resolved "local" — reranking is active (see reranker.buildable)`;
-        notes.push('no reranker configured; auto-select resolved "local"');
+        // "resolved" is deliberately scoped to the adapter MODULE, not inference: the model runtime
+        // and weights stay lazy until the first real rerank() call (registry.ts), so claiming
+        // "reranking is active" here would overstate what this check actually observed.
+        details.reranker = `auto-select resolved the local reranker module — inference not exercised (weights load on first rerank); see reranker.buildable`;
+        notes.push("no reranker configured; auto-select resolved the local reranker module");
       } else if (view.autoSelectLocalRerankerResolved === false) {
-        details.reranker = `RRF-only — no reranker configured; auto-select did not resolve "local" (see reranker.buildable)`;
-        notes.push('no reranker configured; auto-select did not resolve "local"');
+        details.reranker = `RRF-only — no reranker configured; auto-select did not resolve the local reranker module (see reranker.buildable)`;
+        notes.push("no reranker configured; auto-select did not resolve the local reranker module");
       } else {
         // This branch's wording changed too, not just the rerankerConfigured-present one above: the
         // old text ("reranking depends on the inference gateway (env-configured)") predated
