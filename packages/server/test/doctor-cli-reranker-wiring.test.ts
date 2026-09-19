@@ -39,3 +39,33 @@ describe("doctor CLI wiring: rerankerConfigured passthrough", () => {
     ).toContain(SITE.expr);
   });
 });
+
+// THE-1079 (GH #949): the same "delete one wired line, nothing fails" risk as above — retrieval.
+// heads and reranker.buildable must share the SAME auto-select outcome, computed once, or a future
+// edit can silently re-split them back into two live probes that disagree.
+const AUTO_SELECT_SITES = {
+  file: "src/cli/commands/doctor.ts",
+  retrievalAnchor: "retrieval: {",
+  retrievalExpr: "autoSelectLocalRerankerResolved: autoSelectLocalRerankerOutcome?.ok,",
+  rerankerBuildableAnchor: "rerankerBuildable: {",
+  rerankerBuildableExpr:
+    "probeAutoSelectLocalReranker: () => Promise.resolve(autoSelectLocalRerankerOutcome)",
+};
+
+describe("doctor CLI wiring: shared auto-select outcome (THE-1079)", () => {
+  it("retrieval.heads reads the SAME resolved outcome reranker.buildable overrides itself with", () => {
+    expect(AUTO_SELECT_SITES.retrievalExpr.length).toBeGreaterThan(0);
+    expect(AUTO_SELECT_SITES.rerankerBuildableExpr.length).toBeGreaterThan(0);
+    const src = readSrc(AUTO_SELECT_SITES.file);
+
+    const retrievalAt = src.indexOf(AUTO_SELECT_SITES.retrievalAnchor);
+    expect(retrievalAt).toBeGreaterThanOrEqual(0);
+    expect(src.slice(retrievalAt, retrievalAt + 2000)).toContain(AUTO_SELECT_SITES.retrievalExpr);
+
+    const rerankerBuildableAt = src.indexOf(AUTO_SELECT_SITES.rerankerBuildableAnchor);
+    expect(rerankerBuildableAt).toBeGreaterThanOrEqual(0);
+    expect(src.slice(rerankerBuildableAt, rerankerBuildableAt + 1500)).toContain(
+      AUTO_SELECT_SITES.rerankerBuildableExpr,
+    );
+  });
+});

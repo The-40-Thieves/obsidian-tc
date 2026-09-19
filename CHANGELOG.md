@@ -46,6 +46,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   test runs, so a fixture never gets a symlinked-ancestor path to begin with, and a new macOS CI
   leg (`ci-native.yml`) builds the addon and runs the server suite against it, closing the gap
   that let this ship unnoticed: no CI leg had ever built native on macOS and run the suite there.
+- **The local reranker's source-checkout resolution never actually worked from the BUILT server
+  bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949).**
+  `resolveLocalRerankerModule`'s route (iii) counted three `..` up from
+  `packages/server/src/providers/registry.ts` to reach `packages/`, which only ever landed
+  correctly when running from source — `packages/server/dist/cli.js` sits one directory level
+  shallower, so the same fixed walk overshot to the repo root and probed a path that could never
+  exist, no matter how many times an operator ran "bun run build" in packages/reranker-local as
+  doctor advised. Replaced with a bounded (max 6 levels) upward walk that stops at the first
+  directory containing `packages/reranker-local/package.json` — the monorepo root's own anchor —
+  and resolves correctly from source OR a relocated built bundle alike, recording every candidate
+  directory tried so a failing "attempts" line names them. `doctor`'s `retrieval.heads` check also
+  stopped contradicting `reranker.buildable` in the same run: when auto-select had already resolved
+  "local", `retrieval.heads` still reported "RRF-only — no reranker configured" because the two
+  checks each drew their own conclusion from config alone. `retrieval.heads` now reads the SAME
+  auto-select outcome `reranker.buildable` resolves (computed once, threaded through, never probed
+  twice), so a resolved auto-select reads as resolved in both checks.
 
 ## [1.31.0] - 2026-09-19
 

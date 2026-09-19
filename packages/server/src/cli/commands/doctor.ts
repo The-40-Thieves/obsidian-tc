@@ -287,6 +287,20 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   // probeDbSpace's own comment for why this one is cheap enough to run by default.
   const dbSpace = await probeDbSpace(config.cacheDir, busyTimeoutMs);
 
+  // THE-1079 (GH #949): resolved ONCE, up front — retrieval.heads and rerankerBuildable below both
+  // read this SAME outcome, so the two checks cannot disagree.
+  const rerankerDoctorProbes = buildRerankerDoctorProbes({
+    rerankerCfg: config.reranker as ProviderDescriptor | undefined,
+    embeddings: config.embeddings,
+    gatewayBaseUrl: config.gateway?.baseUrl,
+    gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+    configDir,
+    securityProfile: config.securityProfile,
+  });
+  const autoSelectLocalRerankerOutcome = rerankerDoctorProbes.probeAutoSelectLocalReranker
+    ? await rerankerDoctorProbes.probeAutoSelectLocalReranker()
+    : undefined;
+
   const report = await assembleDoctorReport({
     config: {
       auth: {
@@ -313,6 +327,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         // exempts spreads from excess-property checking, so a misspelled key in a spread is
         // silently dropped and the field just never arrives.
         denseDeprecated: embeddingsDeprecation(config.embeddings.provider),
+        autoSelectLocalRerankerResolved: autoSelectLocalRerankerOutcome?.ok,
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
         // THE-688 fix 2: attached ONLY under --probe, so the default run stays offline.
@@ -428,14 +443,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ...(process.env.OBSIDIAN_TC_GATEWAY_URL !== undefined
           ? { gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL }
           : {}),
-        ...buildRerankerDoctorProbes({
-          rerankerCfg: config.reranker as ProviderDescriptor | undefined,
-          embeddings: config.embeddings,
-          gatewayBaseUrl: config.gateway?.baseUrl,
-          gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
-          configDir,
-          securityProfile: config.securityProfile,
-        }),
+        ...rerankerDoctorProbes,
+        ...(autoSelectLocalRerankerOutcome !== undefined
+          ? { probeAutoSelectLocalReranker: () => Promise.resolve(autoSelectLocalRerankerOutcome) }
+          : {}),
       },
     },
     profile,

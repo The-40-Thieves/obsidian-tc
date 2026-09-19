@@ -1,5 +1,5 @@
 // The single resolution point for both provider slots. Adding a model is adding a row to a map.
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
@@ -316,23 +316,97 @@ const RERANKERS: Record<string, RerankerEntry> = {
  *  of every `bun install` at the repo root). */
 const LOCAL_RERANKER_PACKAGE = "@the-40-thieves/obsidian-tc-reranker-local";
 
-/** THE-705 round 2 (adversarial review, confirmed finding 1): the bare specifier above cannot
- *  resolve from packages/server under ANY setup this repo actually supports today — the package is
- *  not a root workspace member (deliberately, see its README), is not on any node_modules path
- *  packages/server searches, and is not yet published to npm. Route (iii) below is what makes a
- *  SOURCE CHECKOUT of this monorepo actually work: `packages/server/src/providers/registry.ts` ->
- *  up three (`providers` -> `src` -> `server`) lands at `packages/`, then into the sibling
- *  package's build output. Computed once, not per-call, since `import.meta.url` is a module-eval
- *  constant. */
-const SOURCE_CHECKOUT_LOCAL_RERANKER_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "..",
-  "reranker-local",
-  "dist",
-  "index.js",
-);
+/** THE-705 round 2 (adversarial review, confirmed finding 1) / THE-1079 (GH #947, round 2 fix): the
+ *  bare specifier above cannot resolve from packages/server under ANY setup this repo actually
+ *  supports today — the package is not a root workspace member (deliberately, see its README), is
+ *  not on any node_modules path packages/server searches, and is not yet published to npm. Route
+ *  (iii) below is what makes a SOURCE CHECKOUT of this monorepo actually work.
+ *
+ *  A fixed `../../../` walk only ever landed correctly from `src/providers/` (three levels up is
+ *  `packages/`) — the BUNDLED `packages/server/dist/cli.js` sits one level shallower, so the same
+ *  three-`..` walk overshot to the repo root and probed a path that can never exist, for every
+ *  stdio install (THE-1079). Walking upward from wherever THIS module actually runs and stopping at
+ *  the first directory that contains `packages/reranker-local/package.json` — the monorepo root's
+ *  own anchor — resolves correctly from EITHER location without needing to know which one is
+ *  running. Bounded at 6 levels so a resolution bug can never become an unbounded filesystem walk;
+ *  falls back to the old 3-level guess if the anchor is never found, so a failure still names a
+ *  plausible path rather than an empty one.
+ *
+ *  Cross-vendor review hardening, both guarding against an INSTALLED (not developed-in) server
+ *  adopting an unrelated tree it happens to sit under:
+ *   - `existsSync` alone only proves SOME `package.json` sits there — a coincidentally named
+ *     `packages/reranker-local` sibling in an unrelated monorepo would match on file presence
+ *     alone. `isRerankerLocalAnchor` also reads and checks its `name` field.
+ *   - An npm-installed server's own files live under a `node_modules` segment; walking upward from
+ *     THERE could still find a real monorepo root above the install (an unrelated project this
+ *     package happens to be vendored into) and wrongly adopt ITS reranker-local. Discovery is
+ *     disabled entirely — no walk at all — whenever the executing module's own path contains
+ *     `node_modules`; `skippedReason` records why, so doctor's attempts list explains it. */
+function isRerankerLocalAnchor(packageJsonPath: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: unknown };
+    return pkg.name === LOCAL_RERANKER_PACKAGE;
+  } catch {
+    return false; // malformed/unreadable JSON is not a match — keep walking, never throw
+  }
+}
+
+/** True when any path SEGMENT is exactly `node_modules` — not a bare substring match, so a
+ *  directory merely named e.g. `my-node_modules-tools` does not false-positive. */
+function isUnderNodeModules(path: string): boolean {
+  return path.split(/[/\\]/).includes("node_modules");
+}
+
+export interface SourceCheckoutResolution {
+  path: string;
+  /** Set only when discovery was skipped outright (never walked the filesystem at all); absent
+   *  otherwise, whether or not an anchor was actually found. */
+  skippedReason?: string;
+  /** Every candidate directory the walk tried, in innermost-to-outermost order (the walk starts at
+   *  `startDir` and moves UP toward the filesystem root) — empty when `skippedReason` is set, since
+   *  no walk happened. */
+  candidates: string[];
+}
+
+/** Exported (not a private module-eval side effect) so tests can drive it with a synthetic
+ *  `startDir` — a decoy anchor, or a fake install path under `node_modules` — without needing to
+ *  fake `import.meta.url` itself. Production's own module-eval call below supplies no argument. */
+export function resolveSourceCheckoutLocalRerankerPath(
+  startDir: string = dirname(fileURLToPath(import.meta.url)),
+): SourceCheckoutResolution {
+  if (isUnderNodeModules(startDir)) {
+    return {
+      path: join(startDir, "..", "..", "..", "reranker-local", "dist", "index.js"),
+      skippedReason: "skipped: running from node_modules",
+      candidates: [],
+    };
+  }
+  const MAX_LEVELS = 6;
+  const candidates: string[] = [];
+  let dir = startDir;
+  for (let i = 0; i < MAX_LEVELS; i++) {
+    candidates.push(dir);
+    const anchor = join(dir, "packages", "reranker-local", "package.json");
+    if (existsSync(anchor) && isRerankerLocalAnchor(anchor)) {
+      return { path: join(dir, "packages", "reranker-local", "dist", "index.js"), candidates };
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root — stop rather than loop forever
+    dir = parent;
+  }
+  // Anchor never found within MAX_LEVELS: fall back to the OLD three-level guess so a failure
+  // still names a plausible path — existsSync below will correctly report it missing either way.
+  return {
+    path: join(startDir, "..", "..", "..", "reranker-local", "dist", "index.js"),
+    candidates,
+  };
+}
+
+const {
+  path: SOURCE_CHECKOUT_LOCAL_RERANKER_PATH,
+  skippedReason: SOURCE_CHECKOUT_SKIPPED_REASON,
+  candidates: SOURCE_CHECKOUT_WALK_CANDIDATES,
+} = resolveSourceCheckoutLocalRerankerPath();
 
 /** The shape `LOCAL_RERANKER_PACKAGE`'s default export surface must have. Declared here rather than
  *  imported — importing the package's real types would require it to resolve at typecheck time,
@@ -429,7 +503,11 @@ export async function resolveLocalRerankerModule(
     record("bare-specifier", LOCAL_RERANKER_PACKAGE, e);
   }
 
-  if (existsSync(SOURCE_CHECKOUT_LOCAL_RERANKER_PATH)) {
+  if (SOURCE_CHECKOUT_SKIPPED_REASON) {
+    // Cross-vendor review hardening: an installed server's own path is under `node_modules` —
+    // never walk upward from there (see resolveSourceCheckoutLocalRerankerPath's own comment).
+    record("source-checkout", SOURCE_CHECKOUT_LOCAL_RERANKER_PATH, SOURCE_CHECKOUT_SKIPPED_REASON);
+  } else if (existsSync(SOURCE_CHECKOUT_LOCAL_RERANKER_PATH)) {
     try {
       const mod = (await importModule(
         pathToFileURL(SOURCE_CHECKOUT_LOCAL_RERANKER_PATH).href,
@@ -444,10 +522,13 @@ export async function resolveLocalRerankerModule(
       record("source-checkout", SOURCE_CHECKOUT_LOCAL_RERANKER_PATH, e);
     }
   } else {
+    // THE-1079 (GH #947): name every directory the upward walk actually tried, not just the final
+    // guess — the walk found (or failed to find) the monorepo root once, at module-eval time, so
+    // this is a fixed list, cheap to include on every failing report.
     record(
       "source-checkout",
       SOURCE_CHECKOUT_LOCAL_RERANKER_PATH,
-      'not built — run "bun run build" in packages/reranker-local',
+      `not built — run "bun run build" in packages/reranker-local (searched for the monorepo root from: ${SOURCE_CHECKOUT_WALK_CANDIDATES.join(", ")})`,
     );
   }
 

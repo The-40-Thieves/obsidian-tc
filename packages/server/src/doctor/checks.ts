@@ -502,7 +502,7 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
             : `reranker: "local" is configured but is unreachable on this platform — ${platform.note}`,
           details: { provider: "local", attempts: probe.attempts, ...platformDetails(view) },
           remediation: platform.supported
-            ? 'Either: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/obsidian-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local so the automatic relative-path fallback finds it. See that package\'s README for the model-weights download step (bun run fetch-model) — no longer required up front (THE-944 fetches on first use), but still available offline.'
+            ? 'Either: (1) set reranker.localModulePath to an absolute path to the built package (its dist/index.js); (2) once published, run "bun add @the-40-thieves/obsidian-tc-reranker-local"; or (3) in a source checkout of this monorepo, run "bun run build" inside packages/reranker-local — the automatic upward walk finds it from the monorepo root regardless of whether this is running from source or a bundled dist/cli.js. See that package\'s README for the model-weights download step (bun run fetch-model) — no longer required up front (THE-944 fetches on first use), but still available offline.'
             : 'No remediation available on this platform: onnxruntime-node ships no native prebuild here. Remove reranker.provider: "local" (or move this deployment to a supported platform — linux x64/arm64 glibc, darwin arm64, or win32 x64/arm64).',
         };
       }
