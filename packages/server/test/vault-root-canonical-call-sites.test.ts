@@ -25,16 +25,24 @@
 // naive positive match).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+// `new URL(...).pathname` is NOT a filesystem path on Windows — it keeps a leading slash before
+// the drive letter (`/D:/a/...`), which `path.win32.join`/`resolve` then treats as root-relative
+// to the CURRENT drive rather than as the literal drive path, doubling it
+// (`D:\D:\a\obsidian-tc\...`) the moment it is joined with anything — exactly the
+// `ENOENT: scandir 'D:\D:\...'` this test failed with on windows-latest. `fileURLToPath` is the
+// one correct conversion on every platform.
+const SRC_ROOT = fileURLToPath(new URL("../src/", import.meta.url));
+
 function stripped(relPath: string): string {
-  const raw = readFileSync(new URL(`../src/${relPath}`, import.meta.url), "utf8");
+  const raw = readFileSync(join(SRC_ROOT, relPath), "utf8");
   return raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
 /** Every `.ts` file under `packages/server/src`, relative to `src/` (forward-slashed). */
 function everySourceFile(): string[] {
-  const srcRoot = new URL("../src/", import.meta.url).pathname;
   const out: string[] = [];
   const walk = (dir: string, prefix: string): void => {
     for (const name of readdirSync(dir)) {
@@ -44,7 +52,7 @@ function everySourceFile(): string[] {
       else if (name.endsWith(".ts")) out.push(rel);
     }
   };
-  walk(srcRoot, "");
+  walk(SRC_ROOT, "");
   return out;
 }
 

@@ -258,7 +258,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-653 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 2 |
 | THE-654 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 1 |
 | THE-655 | The episode amendment chain is exposed, and `graphSearch` reports coverage (THE-655, THE-631). | CHANGELOG.md (1.14.0) | 1 |
-| THE-657 | The vault watcher is enabled on Windows (#715, THE-657). | CHANGELOG.md (1.20.0) | 3 |
+| THE-657 | The vault watcher is enabled on Windows (#715, THE-657). | CHANGELOG.md (1.20.0) | 4 |
 | THE-658 | `obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658, #539). | CHANGELOG.md (1.13.0) | 8 |
 | THE-659 | Enabling `observability.prometheus` no longer kills the MCP HTTP server under Bun (THE-659, #535). | CHANGELOG.md (1.12.1) | 3 |
 | THE-661 | `bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown (THE-661, THE-606, THE-625, THE-614). | CHANGELOG.md (1.14.0) | 1 |

@@ -11,7 +11,7 @@
 //    resources (governance, then stores) in reverse order, and never touches indexResources' own
 //    cleanup because indexResources itself never finished constructing.
 
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,7 +26,7 @@ import {
   wireRuntimeCore,
 } from "../src/runtime/server-runtime";
 import { type Stores, wireStores } from "../src/runtime/stores";
-import { VaultRegistry } from "../src/vault/registry";
+import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
 import { DEFAULT_TRACE_FOLDER, resolveTraceDirs } from "../src/workspace/sessions";
 import { rmTemp } from "./tmp";
 
@@ -500,7 +500,13 @@ describe("buildServerRuntime — a symlinked vault root still boots (THE-1081 re
       const registry = new VaultRegistry([{ id: "main", path: linkVault }]);
       const canonicalVaults = [{ id: "main", root: registry.resolve("main").root }];
       const [dir] = resolveTraceDirs(canonicalVaults, DEFAULT_TRACE_FOLDER);
-      expect(dir?.dir).toBe(join(realpathSync(realVault), DEFAULT_TRACE_FOLDER));
+      // Compared against the SAME canonicalization production uses, not a different realpath
+      // flavour: on GitHub's windows-latest runner, os.tmpdir() is an 8.3 SHORT path
+      // (C:\Users\RUNNER~1\...), plain fs.realpathSync expands it to the long form
+      // (C:\Users\runneradmin\...), and fs.realpathSync.native (what canonicalizeVaultRoot uses)
+      // returns the SHORT form there — the two disagree, so comparing against realpathSync's
+      // output failed on Windows only while the code under test was correct.
+      expect(dir?.dir).toBe(join(canonicalizeVaultRoot(realVault), DEFAULT_TRACE_FOLDER));
       expect(dir?.dir.startsWith(linkVault)).toBe(false);
     },
   );

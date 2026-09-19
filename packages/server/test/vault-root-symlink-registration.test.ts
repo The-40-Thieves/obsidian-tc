@@ -25,20 +25,13 @@
 //   3. The same read/write succeeds through the JS fallback (OBSIDIAN_TC_FORCE_JS_FALLBACK=1).
 //   4. A symlink INSIDE the vault escaping the root is still refused by both backends — this
 //      ticket does not relax `open_parent`'s per-component rule or paths.ts's containment check.
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveVaultPath, walkVault, walkVaultStream } from "../src/vault/paths";
-import { VaultRegistry } from "../src/vault/registry";
+import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
 import { rmTemp } from "./tmp";
 
 const requireCjs = createRequire(import.meta.url);
@@ -72,13 +65,21 @@ describe("THE-1081 / #946 — vault root canonicalization at registration", () =
 
   it("constructor: stores the realpath, not the symlinked-ancestor lexical path", () => {
     const registry = new VaultRegistry([{ id: "v", path: linkedRootDir }]);
-    expect(registry.resolve("v").root).toBe(realpathSync(realRootDir));
+    // Compared against the SAME canonicalization production uses (canonicalizeVaultRoot,
+    // realpathSync.native), never plain realpathSync: on GitHub's windows-latest runner the two
+    // flavours return DIFFERENT spellings of the same directory (8.3 short vs. long form) for
+    // os.tmpdir()-rooted paths, which made this fail on Windows only while the code was correct.
+    expect(registry.resolve("v").root).toBe(canonicalizeVaultRoot(realRootDir));
+    // Still pinned against the lexical (unresolved) symlinked path, so a regression that stopped
+    // canonicalizing entirely would still be caught.
+    expect(registry.resolve("v").root).not.toBe(linkedRootDir);
   });
 
   it("register(): the add_vault runtime path also canonicalizes", () => {
     const registry = new VaultRegistry([{ id: "seed", path: realRootDir }]);
     const v = registry.register({ id: "added", path: linkedRootDir });
-    expect(v.root).toBe(realpathSync(realRootDir));
+    expect(v.root).toBe(canonicalizeVaultRoot(realRootDir));
+    expect(v.root).not.toBe(linkedRootDir);
   });
 
   it.skipIf(!isRealNative)(

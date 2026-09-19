@@ -11,8 +11,8 @@
 //   1. `--out` has NO DEFAULT — an operator must name a destination.
 //   2. the resolved `--out` path is refused if it falls inside ANY configured vault's root, so
 //      the bundle can never land somewhere `read_note`/the indexer/Obsidian Sync would reach it.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../../package.json";
 import type { AuditEvent } from "../../audit";
@@ -29,27 +29,53 @@ import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared"
 /** True when `outPath` resolves inside `vaultRoot`. Lexical containment via `path.relative` — the
  *  same guard vault/paths.ts's resolveVaultPathChecked uses for the opposite direction (rejecting
  *  a REQUEST path that escapes the vault); here it rejects a DESTINATION path that lands inside
- *  one. No symlink-realpath layer ON `outPath`: the destination doesn't need to exist yet (a
- *  fresh export target usually doesn't), so there is nothing on disk to canonicalize through
- *  there. `vaultRoot` is the caller's business: THE-1081 review round (Medium 1) found that a raw
- *  config path reached through a symlinked ancestor (e.g. macOS $TMPDIR) does not lexically
- *  contain a `--out` spelled via the CANONICAL root — the same root `list_vaults`/the runtime's
- *  VaultRegistry report — so the caller below checks both spellings of the root. */
+ *  one. Both arguments are assumed ALREADY in a comparable spelling by the time they reach here —
+ *  see isInsideConfiguredVaultRoot, which is the one that canonicalizes. */
 function isInsideVaultRoot(outPath: string, vaultRoot: string): boolean {
   const rel = relative(resolve(vaultRoot), resolve(outPath));
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-/** THE-1081 review round (Medium 1): checks `outPath` against BOTH spellings of a configured
- *  vault's root — the raw config path, and its realpath-canonicalized form — so a `--out` spelled
- *  via whichever one the operator got from `list_vaults`/the runtime is still caught. Exported
- *  standalone (not inlined into the loop below) so the symlinked-ancestor bypass this closes has
- *  a direct unit test that does not need a whole CLI invocation. */
+/** Realpath `p` when it exists; otherwise realpath its nearest existing ancestor and rejoin the
+ *  not-yet-created tail — mirrors vault/paths.ts's own (private) `realpathDeepest`, needed here
+ *  for the same reason: a fresh `--out` target usually doesn't exist yet, but its existing parent
+ *  directory can still disagree in spelling with a vault root reached a different way. Uses
+ *  `.native`, matching canonicalizeVaultRoot's convention (THE-657): on Windows it also expands
+ *  an 8.3 short name, which plain `realpathSync` does not, so this and canonicalizeVaultRoot never
+ *  disagree about what "canonical" means for the same underlying directory. Falls back to the
+ *  lexical form if NOTHING on the path resolves (e.g. a bogus drive) — same fail-open-to-lexical
+ *  posture `resolve()` already had here, not a new one. */
+function canonicalizeExistingPrefix(p: string): string {
+  const tail: string[] = [];
+  let dir = resolve(p);
+  for (let depth = 0; depth < 4096; depth++) {
+    try {
+      const real = realpathSync.native(dir);
+      return tail.length === 0 ? real : join(real, ...tail);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      tail.unshift(basename(dir));
+      dir = parent;
+    }
+  }
+  return resolve(p);
+}
+
+/** THE-1081 review round(s): checks `outPath` against BOTH spellings of a configured vault's
+ *  root — the raw config path, and its realpath-canonicalized form — so a `--out` spelled via
+ *  whichever one the operator got from `list_vaults`/the runtime is still caught (Medium 1: a raw
+ *  config path reached through a symlinked ancestor, e.g. macOS $TMPDIR, does not lexically
+ *  contain a canonically-spelled `--out`). Round 2 CI found the reverse gap on Windows: `outPath`
+ *  itself can also disagree in spelling with either root form (an 8.3 short vs. long path), so
+ *  BOTH the destination and the root are compared canonical-to-canonical as well as
+ *  lexical-to-lexical — every combination, since which side is already canonical isn't known
+ *  ahead of time. Exported standalone (not inlined into the loop below) so this has a direct unit
+ *  test that does not need a whole CLI invocation. */
 export function isInsideConfiguredVaultRoot(outPath: string, configuredVaultPath: string): boolean {
-  return (
-    isInsideVaultRoot(outPath, configuredVaultPath) ||
-    isInsideVaultRoot(outPath, canonicalizeVaultRoot(configuredVaultPath))
-  );
+  const outCandidates = [outPath, canonicalizeExistingPrefix(outPath)];
+  const rootCandidates = [configuredVaultPath, canonicalizeVaultRoot(configuredVaultPath)];
+  return outCandidates.some((o) => rootCandidates.some((r) => isInsideVaultRoot(o, r)));
 }
 
 function auditContextExportEvent(
