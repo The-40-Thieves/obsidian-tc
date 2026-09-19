@@ -29,6 +29,14 @@ export interface RetrievalHeadsView {
    *  a healthy install read as faulty. That is precisely the misdirection THE-688 removed from the
    *  line above; re-adding it one field over would undo the lesson rather than apply it. */
   denseDeprecated?: string;
+  /** THE-1079 (GH #949): the OUTCOME of `reranker.buildable`'s own auto-select probe for THIS same
+   *  doctor run, handed in as a plain fact rather than invoked from here — this check must not gain
+   *  a second live resolution of its own (that would risk disagreeing with reranker.buildable on
+   *  the very question it's reporting). Undefined when auto-select would not even be attempted (a
+   *  declared reranker, model-tier, or a gateway URL already wins), in which case the "no reranker
+   *  configured" branch below reads exactly as it always has. The real caller
+   *  (cli/commands/doctor.ts) resolves the SAME probe once and threads its `.ok` here. */
+  autoSelectLocalRerankerResolved?: boolean;
   /** THE-688 fix 2: OPT-IN liveness probe, supplied only under `doctor --probe`. Absent by default,
    *  which keeps this check offline by construction — diagnosing must never acquire a side effect
    *  just because someone ran it. When present, the check reports what it OBSERVED instead of what
@@ -136,12 +144,23 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
         notes.push(`reranker configured (${view.rerankerConfigured}) — a declared block wins`);
       } else if (view.multiVector) {
         details.reranker = `model-tier / ColBERT rerank capable (${view.denseProvider}); or the inference gateway /rerank passthrough when configured`;
+      } else if (view.autoSelectLocalRerankerResolved === true) {
+        // THE-1079 (GH #949): reranker.buildable ran the auto-select probe for this SAME run and it
+        // resolved — reporting "RRF-only" here, one check over, would flatly contradict it. Distinct
+        // wording from the `rerankerConfigured` branch above: nothing was DECLARED, a fallback WON.
+        details.reranker = `auto-select resolved "local" — reranking is active (see reranker.buildable)`;
+        notes.push('no reranker configured; auto-select resolved "local"');
+      } else if (view.autoSelectLocalRerankerResolved === false) {
+        details.reranker = `RRF-only — no reranker configured; auto-select did not resolve "local" (see reranker.buildable)`;
+        notes.push('no reranker configured; auto-select did not resolve "local"');
       } else {
         // This branch's wording changed too, not just the rerankerConfigured-present one above: the
         // old text ("reranking depends on the inference gateway (env-configured)") predated
         // config.reranker and wrongly implied env-configured gateway passthrough was the ONLY path
         // to reranking. Since Task 5, a `reranker` config block is a second, equally valid path —
-        // so even the true "nothing is configured" case can no longer claim gateway-only.
+        // so even the true "nothing is configured" case can no longer claim gateway-only. Reached
+        // only when auto-select would not even be attempted (model-tier or a gateway already wins),
+        // so there is no auto-select outcome to name here.
         details.reranker = `RRF-only — no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`;
         notes.push(
           `no reranker configured, and multi-vector capability could not be determined from the '${view.denseProvider}' provider name`,

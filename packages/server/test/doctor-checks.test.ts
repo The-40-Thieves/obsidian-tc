@@ -283,6 +283,23 @@ describe("#16 retrievalHeadsCheck (dense/sparse/ColBERT/reranker readiness)", ()
     expect(r.details?.colbert).not.toMatch(/\bready\b/);
     expect(r.details?.reranker).toContain("rerank capable");
   });
+
+  // THE-1079 (GH #949): reranker.buildable can resolve the auto-selected "local" reranker in the
+  // SAME doctor run that retrievalHeadsCheck still called RRF-only — these two cases pin that the
+  // view's autoSelectLocalRerankerResolved field (threaded in by cli/commands/doctor.ts from the
+  // exact same probe outcome) is what breaks the contradiction, not a second live resolution here.
+  it("auto-select resolved: says so instead of contradicting reranker.buildable with RRF-only", async () => {
+    const r = await retrievalHeadsCheck(view({ autoSelectLocalRerankerResolved: true })).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.details?.reranker).toContain('auto-select resolved "local"');
+    expect(r.details?.reranker).not.toContain("RRF-only");
+  });
+
+  it("auto-select did not resolve: stays RRF-only, but names the auto-select outcome explicitly", async () => {
+    const r = await retrievalHeadsCheck(view({ autoSelectLocalRerankerResolved: false })).run(ctx);
+    expect(r.details?.reranker).toContain("RRF-only");
+    expect(r.details?.reranker).toContain('auto-select did not resolve "local"');
+  });
 });
 
 // Final-review blocker 2: embeddings.provider/reranker.provider are open strings resolved against

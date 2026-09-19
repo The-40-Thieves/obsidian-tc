@@ -316,23 +316,46 @@ const RERANKERS: Record<string, RerankerEntry> = {
  *  of every `bun install` at the repo root). */
 const LOCAL_RERANKER_PACKAGE = "@the-40-thieves/obsidian-tc-reranker-local";
 
-/** THE-705 round 2 (adversarial review, confirmed finding 1): the bare specifier above cannot
- *  resolve from packages/server under ANY setup this repo actually supports today — the package is
- *  not a root workspace member (deliberately, see its README), is not on any node_modules path
- *  packages/server searches, and is not yet published to npm. Route (iii) below is what makes a
- *  SOURCE CHECKOUT of this monorepo actually work: `packages/server/src/providers/registry.ts` ->
- *  up three (`providers` -> `src` -> `server`) lands at `packages/`, then into the sibling
- *  package's build output. Computed once, not per-call, since `import.meta.url` is a module-eval
- *  constant. */
-const SOURCE_CHECKOUT_LOCAL_RERANKER_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "..",
-  "reranker-local",
-  "dist",
-  "index.js",
-);
+/** THE-1079 (GH #947): every candidate directory the walk below actually tried, in outermost-to-
+ *  innermost order — kept so a failed resolution can name them in its "attempts" record instead of
+ *  a single (possibly wrong) guess. */
+const SOURCE_CHECKOUT_WALK_CANDIDATES: string[] = [];
+
+/** THE-705 round 2 (adversarial review, confirmed finding 1) / THE-1079 (GH #947, round 2 fix): the
+ *  bare specifier above cannot resolve from packages/server under ANY setup this repo actually
+ *  supports today — the package is not a root workspace member (deliberately, see its README), is
+ *  not on any node_modules path packages/server searches, and is not yet published to npm. Route
+ *  (iii) below is what makes a SOURCE CHECKOUT of this monorepo actually work.
+ *
+ *  A fixed `../../../` walk only ever landed correctly from `src/providers/` (three levels up is
+ *  `packages/`) — the BUNDLED `packages/server/dist/cli.js` sits one level shallower, so the same
+ *  three-`..` walk overshot to the repo root and probed a path that can never exist, for every
+ *  stdio install (THE-1079). Walking upward from wherever THIS module actually runs and stopping at
+ *  the first directory that contains `packages/reranker-local/package.json` — the monorepo root's
+ *  own anchor — resolves correctly from EITHER location without needing to know which one is
+ *  running. Bounded at 6 levels so a resolution bug can never become an unbounded filesystem walk;
+ *  falls back to the old 3-level guess if the anchor is never found, so a failure still names a
+ *  plausible path rather than an empty one. Computed once, not per-call, since `import.meta.url` is
+ *  a module-eval constant. */
+function resolveSourceCheckoutLocalRerankerPath(): string {
+  const MAX_LEVELS = 6;
+  const start = dirname(fileURLToPath(import.meta.url));
+  let dir = start;
+  for (let i = 0; i < MAX_LEVELS; i++) {
+    SOURCE_CHECKOUT_WALK_CANDIDATES.push(dir);
+    if (existsSync(join(dir, "packages", "reranker-local", "package.json"))) {
+      return join(dir, "packages", "reranker-local", "dist", "index.js");
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root — stop rather than loop forever
+    dir = parent;
+  }
+  // Anchor never found within MAX_LEVELS: fall back to the OLD three-level guess so a failure
+  // still names a plausible path — existsSync below will correctly report it missing either way.
+  return join(start, "..", "..", "..", "reranker-local", "dist", "index.js");
+}
+
+const SOURCE_CHECKOUT_LOCAL_RERANKER_PATH = resolveSourceCheckoutLocalRerankerPath();
 
 /** The shape `LOCAL_RERANKER_PACKAGE`'s default export surface must have. Declared here rather than
  *  imported — importing the package's real types would require it to resolve at typecheck time,
@@ -444,10 +467,13 @@ export async function resolveLocalRerankerModule(
       record("source-checkout", SOURCE_CHECKOUT_LOCAL_RERANKER_PATH, e);
     }
   } else {
+    // THE-1079 (GH #947): name every directory the upward walk actually tried, not just the final
+    // guess — the walk found (or failed to find) the monorepo root once, at module-eval time, so
+    // this is a fixed list, cheap to include on every failing report.
     record(
       "source-checkout",
       SOURCE_CHECKOUT_LOCAL_RERANKER_PATH,
-      'not built — run "bun run build" in packages/reranker-local',
+      `not built — run "bun run build" in packages/reranker-local (searched for the monorepo root from: ${SOURCE_CHECKOUT_WALK_CANDIDATES.join(", ")})`,
     );
   }
 

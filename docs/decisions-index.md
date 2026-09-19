@@ -258,7 +258,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-653 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 2 |
 | THE-654 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 1 |
 | THE-655 | The episode amendment chain is exposed, and `graphSearch` reports coverage (THE-655, THE-631). | CHANGELOG.md (1.14.0) | 1 |
-| THE-657 | The vault watcher is enabled on Windows (#715, THE-657). | CHANGELOG.md (1.20.0) | 4 |
+| THE-657 | The vault watcher is enabled on Windows (#715, THE-657). | CHANGELOG.md (1.20.0) | 2 |
 | THE-658 | `obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658, #539). | CHANGELOG.md (1.13.0) | 8 |
 | THE-659 | Enabling `observability.prometheus` no longer kills the MCP HTTP server under Bun (THE-659, #535). | CHANGELOG.md (1.12.1) | 3 |
 | THE-661 | `bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown (THE-661, THE-606, THE-625, THE-614). | CHANGELOG.md (1.14.0) | 1 |
@@ -365,7 +365,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
 | THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 | THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (#909, THE-963). | CHANGELOG.md (1.28.0) | 3 |
-| THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 3 |
+| THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 2 |
 | THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |
 | THE-1039 | The maintenance sweep now runs FTS5's own `'merge'` on `notes_fts`/`chunk_fts`, instead of relying on `PRAGMA optimize` (which explicitly excludes virtual tables) to do it (THE-1039, GH #929). | CHANGELOG.md (1.29.0) | 19 |
 | THE-1040 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937; #940). | CHANGELOG.md (1.30.0) | 1 |
@@ -375,9 +375,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1044 | Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned string's trailing newlines (THE-1044, #941). | CHANGELOG.md (1.30.0) | 1 |
 | THE-1045 | A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole block was re-emitted by a plain stringify, losing every anchor, comment and byte of source formatting, and nothing said so (THE-1045, #943). | CHANGELOG.md (1.30.1) | 2 |
 | THE-1078 | TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside the existing gateway chat judge (THE-1078, #950). | CHANGELOG.md (1.31.0) | 10 |
-| THE-1081 | A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` -> `/private/var`) made the native addon refuse every read/write in that vault, while the JS fallback accepted it (THE-1081, #946). | CHANGELOG.md (Unreleased) | 11 |
-| THE-1082 | A client with no MCP elicitation support (Claude Code over stdio among them) had no way to clear an `elicit_required` gate at all (THE-1082, #945). | CHANGELOG.md (Unreleased) | 5 |
+| THE-1079 | The local reranker's source-checkout resolution never actually worked from the BUILT server bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949). | CHANGELOG.md (Unreleased) | 4 |
 
-363 distinct ticket(s) across 503 source file(s) under
-`packages/*/src`; 263 resolved to a public summary, 100
+362 distinct ticket(s) across 502 source file(s) under
+`packages/*/src`; 262 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

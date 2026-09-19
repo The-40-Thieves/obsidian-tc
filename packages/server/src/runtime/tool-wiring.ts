@@ -201,7 +201,9 @@ export async function wireGatewaySeams(
   /** THE-944 review round 1 (F3): test-only override for the auto-select "local" reranker's
    *  resolution ladder (forwarded verbatim as `buildLocalReranker`'s own `resolveModule` param).
    *  Production callers never pass this — it defaults to the REAL ladder
-   *  (`resolveLocalRerankerModule`), which genuinely checks `packages/reranker-local/dist` on disk.
+   *  (`resolveLocalRerankerModule`), which genuinely checks `packages/reranker-local/dist` on disk
+   *  — via an upward walk from wherever this module is actually running, so the check lands
+   *  correctly from dev src AND a bundled dist/cli.js alike (THE-1079).
    *  That real check is exactly what made `reranker-slot-wiring.test.ts`'s absent-block precedence
    *  tests order-dependent on a SIBLING test file's build artifact once auto-select shipped
    *  (reranker-auto-select.test.ts and reranker-local-resolution.test.ts each build then delete
