@@ -47,7 +47,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { ArtifactCopyError, copyArtifactIfChanged } from "./lib/artifact-copy.mjs";
 import {
   buildNapiBuildInvocation,
@@ -56,73 +56,117 @@ import {
 } from "./lib/napi-invocation.mjs";
 import { createStageDir, sweepStaleStageDirs } from "./lib/stage-dir.mjs";
 
-const fsImpl = { existsSync, readFileSync, copyFileSync, renameSync, unlinkSync };
-
-const nativeDir = dirname(dirname(fileURLToPath(import.meta.url)));
-const targetDir = join(nativeDir, "target");
-
-mkdirSync(targetDir, { recursive: true });
-sweepStaleStageDirs({ targetDir });
-
-const extraArgs = process.argv.slice(2);
-
-// Rejected BEFORE a stage dir is even allocated -- hasWatchFlag is pure, so there is nothing to
-// clean up on this path. buildNapiBuildInvocation below re-checks the same flag and throws the
-// same WATCH_NOT_SUPPORTED_MESSAGE (see lib/napi-invocation.mjs), so this is a fast-path, not the
-// only enforcement of the rejection.
-if (hasWatchFlag(extraArgs)) {
-  console.error(WATCH_NOT_SUPPORTED_MESSAGE);
-  process.exit(1);
-}
-
-const stageDir = createStageDir(targetDir);
-
-// process.exit() ends the process immediately -- it does not unwind a `finally` the way a thrown
-// error would -- so every early exit below routes through this helper to clean up the stage dir
-// first, rather than relying on try/finally around process.exit() calls.
-function exitAfterCleanup(code) {
+/**
+ * Runs `napi build` (via buildNapiBuildInvocation) into `stageDir` and promotes its artifacts into
+ * `nativeDir`. ALWAYS removes `stageDir` before returning or throwing -- on a napi build failure,
+ * a spawn failure, an artifact-count mismatch, a typed ArtifactCopyError, or any OTHER unexpected
+ * throw (buildNapiBuildInvocation resolving no `bin.napi`, a non-lock error such as ENOSPC out of
+ * copyArtifactIfChanged, readdirSync itself throwing). The single `finally` below is what
+ * guarantees that -- everything that can fail after `stageDir` exists happens inside this
+ * function's `try`, and nothing here ever calls `process.exit` (which would skip a pending
+ * `finally`); it returns the process exit code instead, and the caller exits once, after this
+ * function -- and its cleanup -- has already run.
+ *
+ * `spawnFn`/`fsImpl`/`log`/`errorLog` are injectable so tests can exercise every branch (including
+ * the unexpected-throw one) without a real `napi build`, cargo, or a compiler.
+ */
+export function runBuild({
+  nativeDir,
+  targetDir,
+  stageDir,
+  extraArgs,
+  spawnFn = spawnSync,
+  fsImpl,
+  log = console.log,
+  errorLog = console.error,
+}) {
   try {
-    rmSync(stageDir, { recursive: true, force: true });
-  } catch {
-    // best effort; a leftover here is swept by sweepStaleStageDirs on a future run
-  }
-  process.exit(code);
-}
+    const invocation = buildNapiBuildInvocation({ nativeDir, targetDir, stageDir, extraArgs });
 
-const invocation = buildNapiBuildInvocation({ nativeDir, targetDir, stageDir, extraArgs });
-
-const build = spawnSync(invocation.command, invocation.args, invocation.options);
-if (build.status !== 0) {
-  exitAfterCleanup(build.status ?? 1);
-}
-
-const artifacts = readdirSync(stageDir).filter((f) => f.endsWith(".node"));
-if (artifacts.length === 0) {
-  console.error(`native build: napi build produced no .node file in ${stageDir}`);
-  exitAfterCleanup(1);
-}
-
-for (const name of artifacts) {
-  const destPath = join(nativeDir, name);
-  try {
-    const result = copyArtifactIfChanged({
-      srcPath: join(stageDir, name),
-      destPath,
-      platform: process.platform,
-      fsImpl,
-    });
-    console.log(
-      result.action === "skipped"
-        ? `native build: ${name} unchanged, copy skipped`
-        : `native build: updated ${name}`,
-    );
-  } catch (err) {
-    if (err instanceof ArtifactCopyError) {
-      console.error(err.message);
-      exitAfterCleanup(1);
+    const build = spawnFn(invocation.command, invocation.args, invocation.options);
+    // spawnSync sets `error` (status stays null) when the child process never started at all --
+    // e.g. the resolved @napi-rs/cli entry point doesn't exist. Report the real cause rather than
+    // exiting silently on a null status.
+    if (build.error) {
+      errorLog(`native build: failed to start napi build: ${build.error.message}`);
+      return 1;
     }
-    throw err;
+    if (build.status !== 0) {
+      return build.status ?? 1;
+    }
+
+    const artifacts = fsImpl.readdirSync(stageDir).filter((f) => f.endsWith(".node"));
+    if (artifacts.length === 0) {
+      errorLog(`native build: napi build produced no .node file in ${stageDir}`);
+      return 1;
+    }
+
+    for (const name of artifacts) {
+      const destPath = join(nativeDir, name);
+      try {
+        const result = copyArtifactIfChanged({
+          srcPath: join(stageDir, name),
+          destPath,
+          platform: process.platform,
+          fsImpl,
+        });
+        log(
+          result.action === "skipped"
+            ? `native build: ${name} unchanged, copy skipped`
+            : `native build: updated ${name}`,
+        );
+      } catch (err) {
+        if (err instanceof ArtifactCopyError) {
+          errorLog(err.message);
+          return 1;
+        }
+        throw err;
+      }
+    }
+    return 0;
+  } finally {
+    try {
+      fsImpl.rmSync(stageDir, { recursive: true, force: true });
+    } catch {
+      // best effort; a leftover here is swept by sweepStaleStageDirs on a future run
+    }
   }
 }
 
-rmSync(stageDir, { recursive: true, force: true });
+// Only run the script body when executed directly (`bun scripts/build.mjs`), not when a test
+// imports this module for `runBuild`. The portable check: does this module's own URL match the
+// URL of the file Node/Bun was actually launched with.
+const isMain =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  const fsImpl = {
+    existsSync,
+    readFileSync,
+    copyFileSync,
+    renameSync,
+    unlinkSync,
+    readdirSync,
+    rmSync,
+  };
+
+  const nativeDir = dirname(dirname(fileURLToPath(import.meta.url)));
+  const targetDir = join(nativeDir, "target");
+
+  mkdirSync(targetDir, { recursive: true });
+  sweepStaleStageDirs({ targetDir });
+
+  const extraArgs = process.argv.slice(2);
+
+  // Rejected BEFORE a stage dir is even allocated -- hasWatchFlag is pure, so there is nothing to
+  // clean up on this path. buildNapiBuildInvocation (inside runBuild) re-checks the same flag and
+  // throws the same WATCH_NOT_SUPPORTED_MESSAGE (see lib/napi-invocation.mjs), so this is a
+  // fast-path, not the only enforcement of the rejection.
+  if (hasWatchFlag(extraArgs)) {
+    console.error(WATCH_NOT_SUPPORTED_MESSAGE);
+    process.exit(1);
+  }
+
+  const stageDir = createStageDir(targetDir);
+  process.exit(runBuild({ nativeDir, targetDir, stageDir, extraArgs, fsImpl }));
+}
