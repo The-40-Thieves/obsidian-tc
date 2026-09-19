@@ -6,10 +6,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-09-19
+
 ### Added
 
 - **TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside
-  the existing gateway chat judge (THE-1078).** Citation inference's stage-2 judge was always the
+  the existing gateway chat judge (THE-1078, #950).** Citation inference's stage-2 judge was always the
   gateway's `judge` chat-completions role; there was no way to point it at a different judge
   service without repointing the gateway itself, and no way to compare the two. Set
   `experiential.citationInfer.judge.provider` to `"typesafe"` (default remains `"gateway"`,
