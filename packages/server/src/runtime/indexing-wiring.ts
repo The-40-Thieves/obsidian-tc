@@ -195,7 +195,9 @@ export interface IndexCoordinatorDeps {
   chunkContext: boolean;
   /** config.indexing */
   indexing: { writeConcurrency: number; writeConcurrencyPerVault: number; queueMax: number };
-  /** config.vaults, narrowed to what registerVaultWatch needs. */
+  /** The CANONICAL vault roots (vaultRegistry.list(), not raw config.vaults — see
+   *  server-runtime.ts's call site, THE-1081 review round), narrowed to what registerVaultWatch
+   *  needs. */
   vaults: readonly { id: string; path: string }[];
   /** config.watch */
   watch: { enabled: boolean; debounceMs: number };

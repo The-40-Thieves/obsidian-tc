@@ -23,21 +23,36 @@ import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsi
  * Falls back to the lexically-resolved path when realpath fails (the root doesn't exist yet, or
  * is transiently unavailable) — resolveVaultPathChecked already fails closed with
  * `vault_not_found` for that case at request time, and this must not turn a missing/racy vault
- * root into a startup crash.
+ * root into a startup crash. Reviewer round (Medium 2): that fallback means a vault registered
+ * before its directory existed is only ever known by its LEXICAL path, and a local user who later
+ * plants a symlink at that exact path would have it silently dereferenced by the JS backend's own
+ * realpath containment check. `resolveVaultPathChecked` (paths.ts) closes that by refusing a root
+ * whose final component is a symlink at resolution time — see its own comment for why that check
+ * needs no `rootCanonical` state threaded into it to only fire on the un-canonicalized case.
+ * `ResolvedVault.rootCanonical` (below) still records which case a vault is in, for callers (e.g.
+ * `doctor`) that want to warn about it before it ever gets used.
  */
-function canonicalizeVaultRoot(path: string): string {
+function canonicalizeVaultRootWithStatus(path: string): { root: string; canonical: boolean } {
   const lexical = resolve(path);
   try {
-    return realpathSync.native(lexical);
+    return { root: realpathSync.native(lexical), canonical: true };
   } catch {
-    return lexical;
+    return { root: lexical, canonical: false };
   }
+}
+
+export function canonicalizeVaultRoot(path: string): string {
+  return canonicalizeVaultRootWithStatus(path).root;
 }
 
 export interface ResolvedVault {
   id: string;
   name: string;
   root: string; // absolute filesystem path
+  /** THE-1081 review round (Medium 2): true when `root` was realpath-canonicalized at
+   *  registration; false when the configured path could not be resolved then (missing /
+   *  transiently unavailable) and `root` is only its lexical form. */
+  rootCanonical: boolean;
   /** P1.5: code-enforced isolation kind. The read:docs tools accept only `docs`. */
   kind: VaultKind;
   restApiUrl?: string;
@@ -51,10 +66,12 @@ export class VaultRegistry {
   constructor(vaults: VaultConfigInput[], defaultId?: string) {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
     for (const v of vaults) {
+      const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,
-        root: canonicalizeVaultRoot(v.path),
+        root,
+        rootCanonical: canonical,
         kind: v.kind ?? "private",
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
@@ -85,10 +102,12 @@ export class VaultRegistry {
   }): ResolvedVault {
     if (this.byId.has(v.id))
       throw err.invalidInput(`vault already registered: ${v.id}`, { vault: v.id });
+    const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
     const resolved: ResolvedVault = {
       id: v.id,
       name: v.name ?? v.id,
-      root: canonicalizeVaultRoot(v.path),
+      root,
+      rootCanonical: canonical,
       // P1.5: a runtime-added vault (add_vault) is `private` unless explicitly stated.
       kind: v.kind ?? "private",
       restApiUrl: v.restApiUrl,

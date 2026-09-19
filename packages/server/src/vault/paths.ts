@@ -3,7 +3,7 @@
 // caller-supplied vault-relative path into an absolute filesystem path, with a
 // traversal/containment guard. Nothing else should join paths against the root.
 import { createHash } from "node:crypto";
-import { type Dirent, readdirSync, realpathSync, statSync } from "node:fs";
+import { type Dirent, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { recordPathUse } from "./acl-audit";
@@ -87,6 +87,23 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   const rel = relative(root, abs);
   if (rel.startsWith("..") || isAbsolute(rel))
     throw err.pathInvalid("path escapes the vault root", { path: relPath });
+  // THE-1081 review round (Medium 2): a root VaultRegistry could not canonicalize at
+  // registration (missing at boot) is stored as its lexical config path. If a directory later
+  // appears there, this must not silently trust it when the FINAL component is itself a symlink
+  // — a local user planting a symlink at that exact path after boot would otherwise let the JS
+  // fallback's realpath below dereference straight through it (native still refuses it; only the
+  // JS side had this gap). Unconditional, not gated on `rootCanonical`: a root VaultRegistry DID
+  // canonicalize at registration is realpath's own return value, which by construction never has
+  // a symlink in its final component, so this never trips for an already-canonical vault and
+  // needs no extra state to tell the two cases apart.
+  let rootLstat: ReturnType<typeof lstatSync> | null;
+  try {
+    rootLstat = lstatSync(root);
+  } catch {
+    rootLstat = null;
+  }
+  if (rootLstat?.isSymbolicLink())
+    throw err.vaultNotFound("vault root resolved to a symlink", { path: relPath });
   // The real-path containment guarantee hinges on canonicalizing the root. If the
   // vault root can't be resolved (deleted / transiently unavailable), fail closed
   // instead of falling back to the raw root, which would silently degrade this

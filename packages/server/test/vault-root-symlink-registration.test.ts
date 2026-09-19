@@ -25,7 +25,14 @@
 //   3. The same read/write succeeds through the JS fallback (OBSIDIAN_TC_FORCE_JS_FALLBACK=1).
 //   4. A symlink INSIDE the vault escaping the root is still refused by both backends — this
 //      ticket does not relax `open_parent`'s per-component rule or paths.ts's containment check.
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -123,4 +130,81 @@ describe("THE-1081 / #946 — vault root canonicalization at registration", () =
     symlinkSync(outsideTarget, escapeLink);
     expect(() => resolveVaultPath(root, "escape2/note.md")).toThrow(/escapes the vault root/);
   });
+});
+
+// THE-1081 review round (Medium 2) — a root VaultRegistry could not canonicalize at registration
+// (missing at boot) is stored by its LEXICAL config path, and `rootCanonical: false` records that.
+// A local user who later plants a SYMLINK at that exact path must not have it silently
+// dereferenced by the JS fallback's own realpath containment check — that would let
+// `resolveVaultPathChecked` walk straight through an attacker-controlled symlink the native addon
+// would refuse. A directory that later appears as a plain real dir is fine on both backends: only
+// a symlink at the root itself is the attack.
+describe("THE-1081 / #946 review round — missing-at-boot root, resolved later", () => {
+  let base: string;
+
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), "obtc-late-root-"));
+  });
+  afterEach(() => {
+    rmTemp(base);
+  });
+
+  it("registers with rootCanonical:false and the lexical path when the directory does not exist yet", () => {
+    const missing = join(base, "not-yet-created");
+    const registry = new VaultRegistry([{ id: "v", path: missing }]);
+    const v = registry.resolve("v");
+    expect(v.rootCanonical).toBe(false);
+    expect(v.root).toBe(missing);
+  });
+
+  it("JS fallback: works once the missing root is created as a REAL directory", () => {
+    const missing = join(base, "not-yet-created-real");
+    const registry = new VaultRegistry([{ id: "v", path: missing }]);
+    const root = registry.resolve("v").root;
+    mkdirSync(root);
+    const abs = resolveVaultPath(root, "note.md");
+    writeFileSync(abs, "hello", "utf8");
+    expect(readFileSync(abs, "utf8")).toBe("hello");
+  });
+
+  it("JS fallback: REFUSED once the missing root is created as a SYMLINK (the plant)", () => {
+    const missing = join(base, "not-yet-created-link");
+    const registry = new VaultRegistry([{ id: "v", path: missing }]);
+    const root = registry.resolve("v").root;
+    const elsewhere = join(base, "attacker-controlled");
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, root); // the plant: a symlink now sits exactly at the registered root
+    expect(() => resolveVaultPath(root, "note.md")).toThrow(/vault root resolved to a symlink/);
+  });
+
+  it.skipIf(!isRealNative)(
+    "native binding: works once the missing root is created as a REAL directory",
+    () => {
+      const missing = join(base, "not-yet-created-real-native");
+      const registry = new VaultRegistry([{ id: "v", path: missing }]);
+      const root = registry.resolve("v").root;
+      mkdirSync(root);
+      const abs = resolveVaultPath(root, "note.md");
+      nativeModule.safeWriteNoteAtomic?.(abs, Buffer.from("hello", "utf8"));
+      expect(nativeModule.safeReadNote?.(abs)?.toString("utf8")).toBe("hello");
+    },
+  );
+
+  it.skipIf(!isRealNative)(
+    "native binding: already refused once the missing root is created as a SYMLINK (native behaviour unchanged)",
+    () => {
+      const missing = join(base, "not-yet-created-link-native");
+      const registry = new VaultRegistry([{ id: "v", path: missing }]);
+      const root = registry.resolve("v").root;
+      const elsewhere = join(base, "attacker-controlled-native");
+      mkdirSync(elsewhere);
+      symlinkSync(elsewhere, root);
+      // Native never needed this fix: open_parent refuses ANY symlink component regardless of
+      // when it appeared. resolveVaultPath itself now also refuses first (paths.ts, JS side), so
+      // this exercises the native primitive directly to confirm it was never the gap.
+      expect(() =>
+        nativeModule.safeWriteNoteAtomic?.(join(root, "note.md"), Buffer.from("x")),
+      ).toThrow(/refusing symlinked or missing path component/);
+    },
+  );
 });

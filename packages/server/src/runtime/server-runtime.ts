@@ -434,7 +434,12 @@ export async function buildServerRuntime(
         chunkContext: config.embeddings.chunkContext,
         chunkTokens: config.indexing.chunkTokens, // THE-424
         indexing: config.indexing,
-        vaults: config.vaults,
+        // THE-1081 review round (Medium 1): the CANONICAL root (vaultRegistry.list(), realpath'd
+        // at registration — see vault/registry.ts), not raw `config.vaults`. registerVaultWatch
+        // (vault/watcher.ts) stores this string verbatim and re-opens it on every flush; a raw
+        // config path reached through a symlinked ancestor (e.g. macOS $TMPDIR) made the native
+        // addon refuse that open and deindex the note the watcher had just seen written.
+        vaults: vaultRegistry.list().map((v) => ({ id: v.id, path: v.root })),
         watch: config.watch,
         sqlHooksFor,
         indexHealth,

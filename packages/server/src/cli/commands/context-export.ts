@@ -22,17 +22,34 @@ import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
 import { exportContextBundle } from "../../experiential/context-bundle";
 import { argsHash } from "../../hash";
+import { canonicalizeVaultRoot } from "../../vault/registry";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
 /** True when `outPath` resolves inside `vaultRoot`. Lexical containment via `path.relative` — the
  *  same guard vault/paths.ts's resolveVaultPathChecked uses for the opposite direction (rejecting
  *  a REQUEST path that escapes the vault); here it rejects a DESTINATION path that lands inside
- *  one. No symlink-realpath layer: the destination doesn't need to exist yet (a fresh export
- *  target usually doesn't), so there is nothing on disk to canonicalize through. */
+ *  one. No symlink-realpath layer ON `outPath`: the destination doesn't need to exist yet (a
+ *  fresh export target usually doesn't), so there is nothing on disk to canonicalize through
+ *  there. `vaultRoot` is the caller's business: THE-1081 review round (Medium 1) found that a raw
+ *  config path reached through a symlinked ancestor (e.g. macOS $TMPDIR) does not lexically
+ *  contain a `--out` spelled via the CANONICAL root — the same root `list_vaults`/the runtime's
+ *  VaultRegistry report — so the caller below checks both spellings of the root. */
 function isInsideVaultRoot(outPath: string, vaultRoot: string): boolean {
   const rel = relative(resolve(vaultRoot), resolve(outPath));
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** THE-1081 review round (Medium 1): checks `outPath` against BOTH spellings of a configured
+ *  vault's root — the raw config path, and its realpath-canonicalized form — so a `--out` spelled
+ *  via whichever one the operator got from `list_vaults`/the runtime is still caught. Exported
+ *  standalone (not inlined into the loop below) so the symlinked-ancestor bypass this closes has
+ *  a direct unit test that does not need a whole CLI invocation. */
+export function isInsideConfiguredVaultRoot(outPath: string, configuredVaultPath: string): boolean {
+  return (
+    isInsideVaultRoot(outPath, configuredVaultPath) ||
+    isInsideVaultRoot(outPath, canonicalizeVaultRoot(configuredVaultPath))
+  );
 }
 
 function auditContextExportEvent(
@@ -77,7 +94,7 @@ export async function run_context_export(cmd: Cmd<"context-export">): Promise<vo
   }
   const outPath = resolve(cmd.out);
   for (const v of cfg.vaults) {
-    if (isInsideVaultRoot(outPath, v.path)) {
+    if (isInsideConfiguredVaultRoot(outPath, v.path)) {
       process.stderr.write(
         `context-export: refusing to write inside vault "${v.id}" (${v.path}) — the bundle would be ` +
           `indexed and synced like vault content. Pass --out pointing outside every configured vault.\n`,

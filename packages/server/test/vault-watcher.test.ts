@@ -14,9 +14,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { VaultRegistry } from "../src/vault/registry";
 import {
   normalizeWatchPath,
   registerVaultWatch,
@@ -25,6 +27,12 @@ import {
   startVaultWatch,
 } from "../src/vault/watcher";
 import { rmTemp } from "./tmp";
+
+// The package's OWN `nativeLoaded` flag (see native-contract.test.ts for why this, and not
+// `search/native.ts`'s loader, is the correct gate).
+const isRealNative =
+  (createRequire(import.meta.url)("../../native/index.js") as { nativeLoaded?: boolean })
+    .nativeLoaded === true;
 
 /**
  * Wait for the watcher to actually be armed before writing.
@@ -615,4 +623,94 @@ describe("startVaultWatch — event delivery", () => {
     await new Promise((res) => setTimeout(res, debounceMs + 400)); // past when the flush would have fired
     expect(r.upserts).toEqual([]);
   }, 12_000);
+});
+
+// THE-1081 review round (Medium 1): registerVaultWatch's flush path (resolveWatchedPath -> readNote)
+// re-opens `t.root` verbatim on every change — it does not re-canonicalize, by design, so the
+// CALLER is responsible for passing a root the native addon can walk. server-runtime.ts used to
+// pass raw `config.vaults` (see git blame on this file's own header comment before this round);
+// with the native addon present and a vault root reached through a symlinked ancestor (macOS
+// $TMPDIR), every flush's `readNote` hit `open_parent`'s O_NOFOLLOW refusal and the watcher
+// DEINDEXED the note an external save had just written, rather than upserting it. Fixed by
+// threading `vaultRegistry.list()`'s CANONICAL root into `registerVaultWatch` instead of the raw
+// config path — these two tests pin the mechanism directly at the `startVaultWatch` primitive,
+// which is where the actual refusal happens.
+describe("THE-1081 / #946 review round — flush through a symlinked-ancestor root", () => {
+  it.skipIf(!symlinkOk)(
+    "upserts, not refuses, when given the CANONICAL root (the fixed wiring)",
+    async () => {
+      const base = mkdtempSync(join(tmpdir(), "tc-watch-symlink-"));
+      try {
+        const real = join(base, "real-root");
+        const link = join(base, "link-root");
+        mkdirSync(real);
+        symlinkSync(real, link);
+        // Exactly what server-runtime.ts's fixed call site does: VaultRegistry canonicalizes at
+        // registration, and THAT root — not the raw config path — is what registerVaultWatch
+        // (and here, startVaultWatch directly) is given.
+        const registry = new VaultRegistry([{ id: "v1", path: link }]);
+        const root = registry.resolve("v1").root;
+        const r = recorder();
+        const stop = startVaultWatch({
+          targets: [{ vaultId: "v1", root }],
+          debounceMs: 50,
+          onUpsert: r.onUpsert,
+          onDelete: r.onDelete,
+        });
+        try {
+          await arm();
+          writeFileSync(join(root, "note.md"), "hello", "utf8");
+          await vi.waitFor(
+            () => expect(uniqueUpserts(r.upserts)).toEqual([["v1", "note.md", "hello"]]),
+            { timeout: 5000, interval: 20 },
+          );
+          expect(r.deletes).toEqual([]);
+        } finally {
+          stop();
+        }
+      } finally {
+        rmTemp(base);
+      }
+    },
+    8000,
+  );
+
+  // Native-only: the JS fallback's own realpath containment check already tolerates a symlinked
+  // ancestor (that was never the bug — see registry.ts), so this specific refusal is observable
+  // only with the real compiled addon. Pins the mechanism the fix above closes: given the RAW
+  // (uncanonicalized) config path a caller could still mistakenly thread through, the native
+  // addon refuses the read and the watcher deindexes instead of upserting.
+  it.skipIf(!symlinkOk || !isRealNative)(
+    "refuses (deindexes) a raw symlinked-ancestor root — the exact bug this ticket fixes",
+    async () => {
+      const base = mkdtempSync(join(tmpdir(), "tc-watch-symlink-raw-"));
+      try {
+        const real = join(base, "real-root");
+        const link = join(base, "link-root");
+        mkdirSync(real);
+        symlinkSync(real, link);
+        const r = recorder();
+        const stop = startVaultWatch({
+          targets: [{ vaultId: "v1", root: link }], // raw, uncanonicalized — the bug's shape
+          debounceMs: 50,
+          onUpsert: r.onUpsert,
+          onDelete: r.onDelete,
+        });
+        try {
+          await arm();
+          writeFileSync(join(real, "note.md"), "hello", "utf8");
+          await vi.waitFor(() => expect(r.deletes).toEqual([["v1", "note.md"]]), {
+            timeout: 5000,
+            interval: 20,
+          });
+          expect(r.upserts).toEqual([]);
+        } finally {
+          stop();
+        }
+      } finally {
+        rmTemp(base);
+      }
+    },
+    8000,
+  );
 });
