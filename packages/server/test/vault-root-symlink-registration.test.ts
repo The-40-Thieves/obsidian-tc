@@ -37,7 +37,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveVaultPath } from "../src/vault/paths";
+import { resolveVaultPath, walkVault, walkVaultStream } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
 import { rmTemp } from "./tmp";
 
@@ -207,4 +207,49 @@ describe("THE-1081 / #946 review round — missing-at-boot root, resolved later"
       ).toThrow(/refusing symlinked or missing path component/);
     },
   );
+
+  // THE-1081 review round 2 (Residual) — walkVault/walkVaultStream with no `sub` read `root`
+  // directly via readdirSync, bypassing resolveVaultPathChecked entirely. Before
+  // assertRootNotPlantedSymlink was added to their own entry points, a planted-symlink root (this
+  // same missing-at-boot -> symlink scenario) let list_notes enumerate the target directory's
+  // names/sizes/mtimes even though content reads on those names were already refused.
+  it("list-shaped (walkVault, no sub): REFUSED once the missing root is created as a SYMLINK", () => {
+    const missing = join(base, "not-yet-created-list-link");
+    const registry = new VaultRegistry([{ id: "v", path: missing }]);
+    const root = registry.resolve("v").root;
+    const elsewhere = join(base, "attacker-controlled-list");
+    mkdirSync(elsewhere);
+    writeFileSync(join(elsewhere, "leaked-name.md"), "secret", "utf8");
+    symlinkSync(elsewhere, root);
+    expect(() => walkVault(root)).toThrow(/vault root resolved to a symlink/);
+  });
+
+  it("list-shaped (walkVaultStream, no sub): REFUSED once the missing root is created as a SYMLINK", async () => {
+    const missing = join(base, "not-yet-created-liststream-link");
+    const registry = new VaultRegistry([{ id: "v", path: missing }]);
+    const root = registry.resolve("v").root;
+    const elsewhere = join(base, "attacker-controlled-liststream");
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, root);
+    async function drain(): Promise<void> {
+      for await (const _e of walkVaultStream(root)) {
+        // draining is enough to trigger the entry-point guard
+      }
+    }
+    await expect(drain()).rejects.toThrow(/vault root resolved to a symlink/);
+  });
+
+  it("list-shaped (walkVault, no sub): lists fine when the root itself is a symlink AT CONFIG TIME (canonical)", () => {
+    const realRoot = join(base, "list-real-root");
+    const linkRoot = join(base, "list-link-root");
+    mkdirSync(realRoot);
+    writeFileSync(join(realRoot, "note.md"), "hello", "utf8");
+    symlinkSync(realRoot, linkRoot);
+    // Registered through the symlink, same as any config path reached through a symlinked ancestor
+    // or a symlinked root — VaultRegistry canonicalizes immediately, so `root` below is already
+    // the dereferenced real path, never itself a symlink.
+    const registry = new VaultRegistry([{ id: "v", path: linkRoot }]);
+    const root = registry.resolve("v").root;
+    expect(walkVault(root).map((e) => e.relPath)).toEqual(["note.md"]);
+  });
 });

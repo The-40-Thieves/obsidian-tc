@@ -43,7 +43,7 @@ const baseDeps = (db: Database, morgiana: MorgianaEmitter) => ({
     retrievalsRetentionDays: 365,
   },
   retention: { eventLogDays: 30, tracesDays: 30 },
-  vaults: [] as { id: string; path: string }[],
+  vaults: [] as { id: string; root: string }[],
   defaultTraceFolder: ".obsidian-tc/traces",
   morgiana,
   eventVaultId: "v1",

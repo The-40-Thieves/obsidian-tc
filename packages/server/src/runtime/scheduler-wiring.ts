@@ -6,7 +6,7 @@
 // registrations at exactly the point the original inline code did rather than grouping "all plane
 // jobs" together for tidiness. Not started here — scheduler.start() is a `ServerRuntime.start()`
 // activation step (server-runtime.ts), not construction.
-import type { ServerConfig, VaultConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import type { AdvisoryBus } from "../mcp/advisories";
@@ -31,8 +31,14 @@ import {
 export interface SchedulerWiringDeps {
   config: ServerConfig;
   db: Database;
-  /** config.vaults — trace dirs are per-vault (maintenance sweep). */
-  vaults: VaultConfig[];
+  /** The CANONICAL vault roots (server-runtime.ts's call site maps each vault's `root` through
+   *  vaultRegistry.resolve(v.id).root, THE-1081 review round 2), not raw config.vaults — trace
+   *  dirs are per-vault (maintenance sweep) and this flows straight into
+   *  resolveVaultPathChecked, which now refuses a raw config path whose root is itself a
+   *  symlink. Narrowed to what configureMaintenance needs (id/root/workspace), field named
+   *  `root` rather than `path` so this cannot silently go back to `VaultConfig[]` — see
+   *  workspace/sessions.ts's resolveTraceDirs for why that distinction is load-bearing. */
+  vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
   /** run_serve's first vault id — the process-wide sweep event is attributed to it. */
   eventVaultId: string;
   experientialOpen: boolean;
