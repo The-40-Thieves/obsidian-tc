@@ -1,7 +1,38 @@
 // Multi-vault registry/resolver. Maps a tool's `vault` argument to a configured
 // vault root. Built once from config.vaults and closed over by tool factories.
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
+
+/**
+ * Canonicalize a configured vault root through realpath, once, at registration (THE-1081 / #946).
+ * `packages/native/src/lib.rs`'s `open_parent` walks every path component with O_NOFOLLOW from
+ * `/`, so a root reached through a symlinked ANCESTOR (macOS `$TMPDIR` resolves under `/var` ->
+ * `/private/var`) makes the native addon refuse every read/write in that vault even though the
+ * root itself is legitimate. Resolving here means both the native addon and the JS fallback open
+ * the vault by the same real path — this does not relax anything INSIDE the vault: a symlink
+ * there is still refused by open_parent (native) and by resolveVaultPathChecked's own realpath
+ * containment check (paths.ts, JS side).
+ *
+ * `.native` (not plain `realpathSync`) matches this repo's existing realpath idiom
+ * (vault/watcher.ts, THE-657) and is applied unconditionally on every platform rather than
+ * branched on win32: a platform-conditional fix would leave the one platform that needs it
+ * uncovered by the other CI legs, and `.native` is also what expands a Windows 8.3 short name,
+ * which the plain JS realpath does not.
+ *
+ * Falls back to the lexically-resolved path when realpath fails (the root doesn't exist yet, or
+ * is transiently unavailable) — resolveVaultPathChecked already fails closed with
+ * `vault_not_found` for that case at request time, and this must not turn a missing/racy vault
+ * root into a startup crash.
+ */
+function canonicalizeVaultRoot(path: string): string {
+  const lexical = resolve(path);
+  try {
+    return realpathSync.native(lexical);
+  } catch {
+    return lexical;
+  }
+}
 
 export interface ResolvedVault {
   id: string;
@@ -23,7 +54,7 @@ export class VaultRegistry {
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,
-        root: resolve(v.path),
+        root: canonicalizeVaultRoot(v.path),
         kind: v.kind ?? "private",
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
@@ -57,7 +88,7 @@ export class VaultRegistry {
     const resolved: ResolvedVault = {
       id: v.id,
       name: v.name ?? v.id,
-      root: resolve(v.path),
+      root: canonicalizeVaultRoot(v.path),
       // P1.5: a runtime-added vault (add_vault) is `private` unless explicitly stated.
       kind: v.kind ?? "private",
       restApiUrl: v.restApiUrl,

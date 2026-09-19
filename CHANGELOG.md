@@ -31,6 +31,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   them. This exposes nothing new: `args_hash` was already in `structuredContent`, and minting a
   token still requires the local `obsidian-tc elicit` CLI and filesystem access to the server's own
   config/cache directory — the same trust boundary `elicit-mint.ts` documents.
+- **A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` ->
+  `/private/var`) made the native addon refuse every read/write in that vault, while the JS
+  fallback accepted it (THE-1081, #946).** `packages/native/src/lib.rs`'s `open_parent` walks
+  every path component with O_NOFOLLOW from `/`, so it refused the symlinked ancestor along with
+  everything inside it — on a stock Mac with the addon built, 641 of 4,882 server tests failed
+  this way, because 104 fixture files build their vault root under
+  `mkdtempSync(join(tmpdir(), ...))`. `VaultRegistry` now canonicalizes a configured root through
+  realpath once, at registration, so both backends open the vault by the same real path — the
+  rule is: an **ancestor** of the vault root may be a symlink, but **nothing inside the vault**
+  may be, and that second half is unchanged (`open_parent`'s per-component rule, and the JS
+  fallback's own realpath-containment check, still refuse a symlink anywhere below the root).
+  Vitest's server suite additionally resolves `TMPDIR`/`TMP`/`TEMP` through realpath before any
+  test runs, so a fixture never gets a symlinked-ancestor path to begin with, and a new macOS CI
+  leg (`ci-native.yml`) builds the addon and runs the server suite against it, closing the gap
+  that let this ship unnoticed: no CI leg had ever built native on macOS and run the suite there.
 
 ## [1.31.0] - 2026-09-19
 
