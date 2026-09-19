@@ -6,12 +6,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.1] - 2026-09-19
+
 ### Fixed
 
 - **`packages/native`'s `napi build` could fail on Windows with a bare "Internal Error: Failed to
   copy artifact" whenever an MCP client (e.g. Claude Code, via `dist/cli.js`) still had the
   compiled `.node` loaded — even when the freshly built bytes were identical to what was already on
-  disk and no native source had changed (THE-1080, #948).** `build`/`build:debug` now run through
+  disk and no native source had changed (THE-1080, #948, #954).** `build`/`build:debug` now run through
   `packages/native/scripts/build.mjs`, which builds into a private staging directory
   (`--output-dir`) and performs the copy into place itself: identical bytes are skipped entirely,
   and a genuine lock (`EBUSY`/`EPERM`/`ETXTBSY`/`EACCES`) fails with the actual errno, the
@@ -19,7 +21,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   output (`target/napi-generated.js`/`.d.ts`, the platform `.node` file) lands exactly where it did
   before; no change for anyone not hitting the Windows lock.
 - **A client with no MCP elicitation support (Claude Code over stdio among them) had no way to
-  clear an `elicit_required` gate at all (THE-1082, #945).** `formatErrorDetail`'s text channel
+  clear an `elicit_required` gate at all (THE-1082, #945, #953).** `formatErrorDetail`'s text channel
   (THE-823: real clients drop `structuredContent` on an isError result) rendered `elicit_required`
   the same as any other error — the bare sentence, nothing actionable — even though the modern
   SEP-2260 `inputRequired` round trip is only offered when the client is on the 2026 era, a codec
@@ -33,7 +35,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   config/cache directory — the same trust boundary `elicit-mint.ts` documents.
 - **A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` ->
   `/private/var`) made the native addon refuse every read/write in that vault, while the JS
-  fallback accepted it (THE-1081, #946).** `packages/native/src/lib.rs`'s `open_parent` walks
+  fallback accepted it (THE-1081, #946, #955).** `packages/native/src/lib.rs`'s `open_parent` walks
   every path component with O_NOFOLLOW from `/`, so it refused the symlinked ancestor along with
   everything inside it — on a stock Mac with the addon built, 641 of 4,882 server tests failed
   this way, because 104 fixture files build their vault root under
@@ -47,7 +49,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   leg (`ci-native.yml`) builds the addon and runs the server suite against it, closing the gap
   that let this ship unnoticed: no CI leg had ever built native on macOS and run the suite there.
 - **The local reranker's source-checkout resolution never actually worked from the BUILT server
-  bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949).**
+  bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949, #956).**
   `resolveLocalRerankerModule`'s route (iii) counted three `..` up from
   `packages/server/src/providers/registry.ts` to reach `packages/`, which only ever landed
   correctly when running from source — `packages/server/dist/cli.js` sits one directory level
