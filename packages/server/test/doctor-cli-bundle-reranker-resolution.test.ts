@@ -114,8 +114,10 @@ function isStaleBuildDir(opts: { isAlive: boolean; mtimeMs: number; nowMs: numbe
  *  create in the expected shape — treated as "liveness unknown", never as "confirmed dead", by
  *  the caller below). */
 function pidFromName(name: string, prefix: string): number | undefined {
-  const pid = Number(name.slice(prefix.length));
-  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+  // Strict decimal only (round 5 review): `Number()` would accept "1e3", "0x10" or "+42" and
+  // turn an unexpected name into a "confirmed" pid; anything but plain digits is "unknown".
+  const raw = name.slice(prefix.length);
+  return /^[1-9]\d*$/.test(raw) ? Number(raw) : undefined;
 }
 
 /** `process.kill(pid, 0)` sends no signal — it only tests whether this process COULD signal `pid`.
@@ -136,7 +138,16 @@ function isProcessAlive(pid: number): boolean {
 function isReclaimable(dirPath: string, name: string, prefix: string, nowMs: number): boolean {
   const pid = pidFromName(name, prefix);
   const isAlive = pid === undefined ? true : isProcessAlive(pid);
-  return isStaleBuildDir({ isAlive, mtimeMs: statSync(dirPath).mtimeMs, nowMs });
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(dirPath).mtimeMs;
+  } catch (e) {
+    // Round 5 review: between readdir and stat, a CONCURRENT builder may have published or
+    // discarded this very directory; a vanished entry is "nothing to reclaim", not a failure.
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw e;
+  }
+  return isStaleBuildDir({ isAlive, mtimeMs, nowMs });
 }
 
 /** Self-heals a tree damaged by an earlier version of this test that renamed the real dist aside
