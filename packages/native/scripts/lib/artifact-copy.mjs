@@ -29,42 +29,72 @@ function sha256(fsImpl, path) {
   return createHash("sha256").update(fsImpl.readFileSync(path)).digest("hex");
 }
 
+/** Hashes the destination, or null if it can't be read (e.g. exclusively locked on Windows) -- a
+ * read failure there is treated as "differs", not as an error, so the copy/rename path below runs
+ * and surfaces the real, typed lock error instead of a raw readFileSync throw with no destination
+ * path or errno context attached. */
+function readDestHashOrNull(fsImpl, path) {
+  try {
+    return sha256(fsImpl, path);
+  } catch {
+    return null;
+  }
+}
+
+function lockHint(platform) {
+  return platform === "win32"
+    ? "a running process has the addon loaded (an MCP client such as Claude Code running " +
+        "dist/cli.js); stop it and re-run"
+    : "another process may hold the file open";
+}
+
 /**
  * Copies `srcPath` over `destPath`, skipping the write when the two files already have identical
  * contents. `fsImpl` supplies {existsSync, readFileSync, copyFileSync, renameSync, unlinkSync} --
  * injectable so tests can simulate a locked destination without a real lock. `platform` is
- * `process.platform`, injected so the Windows-specific hint can be exercised from any host.
+ * `process.platform`, injected so the platform-specific hint can be exercised from any host.
  *
  * Returns `{ action: "skipped" | "copied", destPath }`. Throws ArtifactCopyError (with `.code` and
  * `.destPath`) when the copy/rename fails with one of LOCK_CODES; any other error propagates as-is.
  */
 export function copyArtifactIfChanged({ srcPath, destPath, platform, fsImpl }) {
-  if (fsImpl.existsSync(destPath) && sha256(fsImpl, srcPath) === sha256(fsImpl, destPath)) {
-    return { action: "skipped", destPath };
+  if (fsImpl.existsSync(destPath)) {
+    const destHash = readDestHashOrNull(fsImpl, destPath);
+    if (destHash !== null && destHash === sha256(fsImpl, srcPath)) {
+      return { action: "skipped", destPath };
+    }
   }
 
-  const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
+  // Ends in ".node" (matching the repo's `*.node` gitignore pattern) so a temp file left behind by
+  // a crash between copyFileSync and renameSync -- or by the exit-handler cleanup below losing the
+  // race -- can never end up tracked by git.
+  const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}.node`;
+  const cleanupTmp = () => {
+    try {
+      fsImpl.unlinkSync(tmpPath);
+    } catch {
+      // best-effort: either already gone (renamed away, or never created) or truly stuck, in
+      // which case there is nothing more this process can do about it.
+    }
+  };
+  // Best-effort net for a hard crash between copyFileSync and renameSync; removed again below once
+  // this call has resolved one way or the other, so it never leaks across repeated invocations of
+  // this function within one process (e.g. one per staged artifact in build.mjs's loop).
+  process.on("exit", cleanupTmp);
   try {
     fsImpl.copyFileSync(srcPath, tmpPath);
     fsImpl.renameSync(tmpPath, destPath);
   } catch (err) {
-    try {
-      fsImpl.unlinkSync(tmpPath);
-    } catch {
-      // best-effort cleanup only; the real failure is reported below
-    }
+    cleanupTmp();
     if (LOCK_CODES.has(err.code)) {
-      const winHint =
-        platform === "win32"
-          ? " a running process has the addon loaded (an MCP client such as Claude Code running " +
-            "dist/cli.js); stop it and re-run"
-          : "";
       throw new ArtifactCopyError(
-        `native build: failed to update ${destPath} (errno ${err.code});${winHint}`,
+        `native build: failed to update ${destPath} (errno ${err.code}); ${lockHint(platform)}`,
         { code: err.code, destPath },
       );
     }
     throw err;
+  } finally {
+    process.removeListener("exit", cleanupTmp);
   }
   return { action: "copied", destPath };
 }

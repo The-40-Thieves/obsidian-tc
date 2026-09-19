@@ -87,6 +87,9 @@ describe("copyArtifactIfChanged", () => {
     expect(err.message).toContain("EBUSY");
     expect(err.message).toContain(destPath);
     expect(err.message).not.toContain("dist/cli.js");
+    // No dangling "(errno EBUSY);" with nothing after it -- a generic hint follows on every
+    // platform, not just win32.
+    expect(err.message).toContain("(errno EBUSY); another process may hold the file open");
   });
 
   it("adds the MCP-client hint only when platform is win32", () => {
@@ -137,5 +140,59 @@ describe("copyArtifactIfChanged", () => {
     expect(() => copyArtifactIfChanged({ srcPath, destPath, platform: "linux", fsImpl })).toThrow(
       "disk full",
     );
+  });
+
+  it("treats an unreadable destination (locked file) as differing, not as a crash", () => {
+    // A destination the OS won't let us read (Windows: exclusively locked by another process)
+    // must not surface a raw readFileSync error -- it should fall through to the copy/rename
+    // path, where the LOCK_CODES branch produces the typed, actionable message instead.
+    const srcPath = join(dir, "src.node");
+    const destPath = join(dir, "dest.node");
+    writeFileSync(srcPath, "new-bytes");
+    writeFileSync(destPath, "old-bytes");
+
+    const lockErr = Object.assign(new Error("busy"), { code: "EBUSY" });
+    const fsImpl = {
+      existsSync: realFs.existsSync,
+      readFileSync: (path: string) => {
+        if (path === destPath) {
+          throw lockErr;
+        }
+        // copyArtifactIfChanged only ever calls readFileSync(path) (no encoding option) for the
+        // hash compare, so the single-argument Buffer overload is all this fake needs to cover.
+        return realFs.readFileSync(path);
+      },
+      copyFileSync: realFs.copyFileSync,
+      unlinkSync: realFs.unlinkSync,
+      renameSync: () => {
+        // Realistic Windows pairing: a file that can't be read for the hash compare can't be
+        // overwritten either.
+        throw lockErr;
+      },
+    };
+
+    let caught: unknown;
+    try {
+      copyArtifactIfChanged({ srcPath, destPath, platform: "win32", fsImpl });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ArtifactCopyError);
+    expect((caught as InstanceType<typeof ArtifactCopyError>).code).toBe("EBUSY");
+    expect((caught as Error).message).toContain(destPath);
+  });
+
+  it("still detects identical bytes when the destination IS readable", () => {
+    // Companion to the case above: confirm the read-failure carve-out doesn't turn every existing
+    // destination into a forced copy -- only an actually unreadable one.
+    const srcPath = join(dir, "src.node");
+    const destPath = join(dir, "dest.node");
+    writeFileSync(srcPath, "same-bytes");
+    writeFileSync(destPath, "same-bytes");
+
+    const result = copyArtifactIfChanged({ srcPath, destPath, platform: "linux", fsImpl: realFs });
+
+    expect(result).toEqual({ action: "skipped", destPath });
   });
 });

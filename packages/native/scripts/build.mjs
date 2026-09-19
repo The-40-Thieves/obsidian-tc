@@ -9,18 +9,20 @@
 // step against a loaded file: build into a private staging directory via `--output-dir` ("Path to
 // where all the built files would be put. Default to the crate folder" -- `napi build --help`,
 // @napi-rs/cli 3.7.2), then copy from staging into place ourselves, skipping the write entirely
-// when the bytes already match and failing with a named errno + path (plus a Windows-specific
-// hint) when a lock blocks the real copy.
+// when the bytes already match and failing with a named errno + path (plus a platform-specific
+// hint) when a lock blocks the real copy. See lib/artifact-copy.mjs for that decision.
 //
-// `--js`/`--dts` are resolved with `path.join(outputDir, ...)` internally (measured: passing an
-// absolute path there produces a mangled, doubled-up path, not the absolute path itself) -- so
-// they're computed here as paths RELATIVE TO stageDir that walk back out to targetDir. That keeps
-// the generated js/dts landing at the exact same packages/native/target/ location as before this
-// wrapper existed, regardless of where `--output-dir` points the `.node` file.
+// The `napi build` process itself is spawned via lib/napi-invocation.mjs's argv builder --
+// `process.execPath` on @napi-rs/cli's own JS entry point, `shell: false` on every platform. Never
+// spawn it with `shell: true`: an args array through a shell is space-joined without quoting
+// (Node's own child_process docs; DEP0190), so a stageDir path containing a space -- Windows
+// `C:\Users\Jane Doe\...`, a OneDrive sync folder -- would silently split into multiple shell
+// tokens and break `--output-dir`, on exactly the machines this fix targets. See that module's
+// header for the full rationale.
 //
 // All argv this script receives is forwarded to `napi build` verbatim (after the fixed flags
-// below) -- ci-native.yml and publish.yml both do `bun run build -- --target <triple> [-x]`, and
-// that passthrough must keep working unchanged.
+// added by buildNapiBuildInvocation) -- ci-native.yml and publish.yml both do `bun run build --
+// --target <triple> [-x]`, and that passthrough must keep working unchanged.
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -32,9 +34,10 @@ import {
   rmSync,
   unlinkSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ArtifactCopyError, copyArtifactIfChanged } from "./lib/artifact-copy.mjs";
+import { buildNapiBuildInvocation } from "./lib/napi-invocation.mjs";
 
 const fsImpl = { existsSync, readFileSync, copyFileSync, renameSync, unlinkSync };
 
@@ -46,30 +49,14 @@ mkdirSync(targetDir, { recursive: true });
 rmSync(stageDir, { recursive: true, force: true });
 mkdirSync(stageDir, { recursive: true });
 
-const napiBin = join(
+const invocation = buildNapiBuildInvocation({
   nativeDir,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "napi.cmd" : "napi",
-);
-
-const args = [
-  "build",
-  "--platform",
-  "--js",
-  relative(stageDir, join(targetDir, "napi-generated.js")),
-  "--dts",
-  relative(stageDir, join(targetDir, "napi-generated.d.ts")),
-  "--output-dir",
+  targetDir,
   stageDir,
-  ...process.argv.slice(2),
-];
-
-const build = spawnSync(existsSync(napiBin) ? napiBin : "napi", args, {
-  cwd: nativeDir,
-  stdio: "inherit",
-  shell: process.platform === "win32",
+  extraArgs: process.argv.slice(2),
 });
+
+const build = spawnSync(invocation.command, invocation.args, invocation.options);
 if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
