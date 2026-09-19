@@ -85,27 +85,69 @@ function renderIssues(
   return omitted > 0 ? `${rendered}\n…and ${omitted} more` : rendered;
 }
 
-/** THE-1082 (GH #945): the text-channel rendering of an `elicit_required` error's token path.
- *  `mcp/server.ts`'s modern SEP-2260 `inputRequired` round trip (`isModern && opts.elicitCodec &&
- *  canElicit`) never reaches this — it intercepts `elicit_required` before `errorToResult` runs.
- *  Every OTHER caller (any 2025-era client, or a modern one with no elicitation capability — e.g.
- *  Claude Code over stdio) falls through to `errorToResult`, and per THE-823 that caller drops
- *  `structuredContent` on an isError result, so `args_hash` (already there — #931/THE-1037 made
- *  `call_capability` accept a redeemed token) is otherwise stranded where nothing reads it. This
- *  renders the actual `obsidian-tc elicit` invocation (cli/commands/elicit-mint.ts, flags per
- *  cli/usage.ts) rather than describing it, so a caller with no MCP elicitation support can still
- *  clear the gate. `tool`/`vault` are omitted (not placeholder text) when absent from `details` —
- *  today that's dispatch.ts's OWN `elicit_required` throw for an always-gated (`destructive:true`)
- *  tool, which carries only `args_hash`; hitl.ts's conditional-HITL throw carries all three. */
+/** A bare token safe to interpolate into a shell command with no quoting at all. Deliberately
+ *  narrow (alnum + a few path/id-shaped punctuation marks) — anything else, including a space,
+ *  gets single-quoted below rather than risk missing a metacharacter. */
+const SAFE_BARE_ARG = /^[A-Za-z0-9_.:@/-]+$/;
+
+/** THE-1082 fix round 2 (Codex cross-vendor review): shell-quote a value before it goes into the
+ *  rendered command line. Neither `tool` nor `vault` is guaranteed shell-safe text: `ctx.vaultId`
+ *  (`CallerContext`, `mcp/registry/types.ts`) is a plain `string`, sourced from the vault's
+ *  CONFIGURED `id` (`VaultConfigSchema.id`, `packages/shared/src/config/vault.schema.ts` —
+ *  `z.string().min(1)`, no character restriction) — NOT the stricter `VaultId` regex primitive
+ *  (`^[a-z0-9_-]+$`, `schemas/primitives.ts`) that constrains a TOOL's own `vault` ARGUMENT. A
+ *  configured id can legally contain a space, a quote, or a `$(...)` substring. `tool` is an
+ *  internal registered-tool name today, never caller-controlled, but is quoted for the same
+ *  reason and because nothing here can prove that stays true at every call site forever. Bare only
+ *  when the whole value is already shell-safe (`SAFE_BARE_ARG`); otherwise single-quoted, with any
+ *  embedded `'` closed-escaped-reopened (`'\''`) — the one escape a single-quoted POSIX/zsh/bash
+ *  string needs, since nothing else is special inside one. */
+function shellQuote(value: string): string {
+  return SAFE_BARE_ARG.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/** THE-1082 (GH #945; fix round 2 per cross-vendor review): the text-channel rendering of an
+ *  `elicit_required` error's token path. `mcp/server.ts`'s modern SEP-2260 `inputRequired` round
+ *  trip (`isModern && opts.elicitCodec && canElicit`) never reaches this — it intercepts
+ *  `elicit_required` before `errorToResult` runs. Every OTHER caller (any 2025-era client, or a
+ *  modern one with no elicitation capability — e.g. Claude Code over stdio) falls through to
+ *  `errorToResult`, and per THE-823 that caller drops `structuredContent` on an isError result, so
+ *  `args_hash` (already there — #931/THE-1037 made `call_capability` accept a redeemed token) is
+ *  otherwise stranded where nothing reads it. This renders the actual `obsidian-tc elicit`
+ *  invocation (cli/commands/elicit-mint.ts, flags per cli/usage.ts) rather than describing it, so
+ *  a caller with no MCP elicitation support can still clear the gate.
+ *
+ *  `--tool` is a HARD requirement of the CLI (`cli/args.ts`'s elicit parser throws a `CliError`
+ *  without it) — both throw sites (hitl.ts, dispatch.ts) now always supply it, but if a THIRD one
+ *  ever doesn't, this renders an explanation instead of an invocation that cannot succeed: a
+ *  half-usable copy-pasted command that then fails on `--tool` is worse than an honest "can't".
+ *  `--vault` is NOT a hard CLI requirement — `cli/args.ts` parses it as optional; `elicit-mint.ts`'s
+ *  `planElicitMint` only demands it when more than one vault is configured — so it is rendered
+ *  when present and simply omitted otherwise, same as before.
+ *
+ *  No `--config` flag is rendered at all: `<path to your config>` is not a value, and a client
+ *  cannot fill in a real path here, so a literal `--config <path to your config>` is not just
+ *  unquoted, it is not a rendered command at all — `<...>` is shell redirection syntax to a real
+ *  shell. `resolveServeConfigWithProvenance` (cli/resolve-config.ts) falls back to
+ *  `OBSIDIAN_TC_CONFIG` when no path is given, so the second line states that real fallback
+ *  instead of a fabricated "default location". */
 function renderElicitInstruction(details: Record<string, unknown> | undefined): string | undefined {
   const hash = details?.args_hash;
   if (typeof hash !== "string") return undefined;
   const tool = details?.tool;
+  if (typeof tool !== "string") {
+    return (
+      "cannot render a confirm command: this error did not carry a tool name, and " +
+      "`obsidian-tc elicit` requires --tool. Confirm from a client with MCP elicitation support " +
+      `instead, or mint manually once you know the tool name, using args_hash ${shellQuote(hash)}.`
+    );
+  }
   const vault = details?.vault;
-  const toolFlag = typeof tool === "string" ? ` --tool ${tool}` : "";
-  const vaultFlag = typeof vault === "string" ? ` --vault ${vault}` : "";
+  const vaultFlag = typeof vault === "string" ? ` --vault ${shellQuote(vault)}` : "";
   return (
-    `confirm with: obsidian-tc elicit --config <path to your config> --hash ${hash}${toolFlag}${vaultFlag}\n` +
+    `confirm with: obsidian-tc elicit --hash ${shellQuote(hash)} --tool ${shellQuote(tool)}${vaultFlag}\n` +
+    "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
+    "positional argument)\n" +
     "then retry the same call with elicit_token: <token>"
   );
 }

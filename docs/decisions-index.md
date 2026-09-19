@@ -375,7 +375,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1044 | Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned string's trailing newlines (THE-1044, #941). | CHANGELOG.md (1.30.0) | 1 |
 | THE-1045 | A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole block was re-emitted by a plain stringify, losing every anchor, comment and byte of source formatting, and nothing said so (THE-1045, #943). | CHANGELOG.md (1.30.1) | 2 |
 | THE-1078 | TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside the existing gateway chat judge (THE-1078, #950). | CHANGELOG.md (1.31.0) | 10 |
-| THE-1082 | A client with no MCP elicitation support (Claude Code over stdio among them) had no way to clear an `elicit_required` gate at all (THE-1082, #945). | CHANGELOG.md (Unreleased) | 2 |
+| THE-1082 | A client with no MCP elicitation support (Claude Code over stdio among them) had no way to clear an `elicit_required` gate at all (THE-1082, #945). | CHANGELOG.md (Unreleased) | 3 |
 
 362 distinct ticket(s) across 502 source file(s) under
 `packages/*/src`; 262 resolved to a public summary, 100
