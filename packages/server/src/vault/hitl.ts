@@ -35,8 +35,19 @@ export function requireConfirmation(
       ctx.now ?? Date.now,
     );
   if (!ok)
+    // THE-1082 (GH #945; fix round 2, cross-vendor review): `tool`/`vault` ride along so
+    // error-rendering.ts's text channel can render the exact `obsidian-tc elicit` command a
+    // client with no elicitation support (e.g. Claude Code over stdio) needs to clear this gate —
+    // both are already known here (`toolName` param, `ctx.vaultId`) and add nothing an attacker
+    // couldn't already see: the caller supplied both to make this very call. `args_hash`'s inputs
+    // (toolName, input) are unchanged. `args_hash`/`tool`/`vault` are spread AFTER `proposed` —
+    // deliberately last — so a per-call `proposed` object (every caller of this function passes a
+    // literal object it wrote itself, but nothing here can prove one never grows a `tool`/`vault`
+    // key by accident) can never override the values this function itself computed.
     throw err.elicitRequired("human confirmation required", {
-      args_hash: hash,
       ...(proposed ?? {}),
+      args_hash: hash,
+      tool: toolName,
+      vault: ctx.vaultId,
     });
 }

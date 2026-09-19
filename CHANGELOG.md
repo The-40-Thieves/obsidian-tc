@@ -18,6 +18,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   destination path, and — on `win32` — a hint to stop the process holding the addon open. Generated
   output (`target/napi-generated.js`/`.d.ts`, the platform `.node` file) lands exactly where it did
   before; no change for anyone not hitting the Windows lock.
+- **A client with no MCP elicitation support (Claude Code over stdio among them) had no way to
+  clear an `elicit_required` gate at all (THE-1082, #945).** `formatErrorDetail`'s text channel
+  (THE-823: real clients drop `structuredContent` on an isError result) rendered `elicit_required`
+  the same as any other error — the bare sentence, nothing actionable — even though the modern
+  SEP-2260 `inputRequired` round trip is only offered when the client is on the 2026 era, a codec
+  is wired, AND the client advertised form elicitation (`mcp/server.ts`); every other caller fell
+  through to that bare text with no route to the 2025-era token path #931 (THE-1037) had already
+  made `call_capability` accept. The text now renders the actual `obsidian-tc elicit` invocation
+  (`--hash`/`--tool`/`--vault`, per `cli/commands/elicit-mint.ts` and `cli/usage.ts`) and the
+  `elicit_token` retry instruction, omitting `--tool`/`--vault` when the throw site did not supply
+  them. This exposes nothing new: `args_hash` was already in `structuredContent`, and minting a
+  token still requires the local `obsidian-tc elicit` CLI and filesystem access to the server's own
+  config/cache directory — the same trust boundary `elicit-mint.ts` documents.
 
 ## [1.31.0] - 2026-09-19
 

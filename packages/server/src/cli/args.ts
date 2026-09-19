@@ -1,4 +1,5 @@
 import { CliError } from "./cli-error";
+import { flagValue, positional } from "./flag-value";
 import { type CompactCommand, parseCompact } from "./parse-compact";
 import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
@@ -125,21 +126,8 @@ export { CliError } from "./cli-error";
 // `import { USAGE } from "../args"` across cli/commands/* keeps working unchanged.
 export { USAGE } from "./usage";
 
-function positional(args: string[]): string | undefined {
-  return args.find((a) => !a.startsWith("-"));
-}
-
-// A value-taking flag (e.g. `--config <path>`). Absent flag -> undefined (the caller falls
-// back to a positional / env). Present but with no following token, or a token that is itself
-// another flag, is a usage error: throw a CliError that parseCliArgs converts to an `error`
-// command, so it can never silently fall through to a positional or to the env fallback.
-function flagValue(args: string[], name: string): string | undefined {
-  const i = args.indexOf(name);
-  if (i < 0) return undefined;
-  const v = args[i + 1];
-  if (v === undefined || v.startsWith("-")) throw new CliError(`${name} requires a value`);
-  return v;
-}
+// `positional`/`flagValue` moved to ./flag-value.ts (THE-1082 fix round 3, biome's line floor) —
+// see that file for the `--flag=value` support this file's usage relies on unchanged.
 
 /** Parse argv already sliced past the node binary + script path into a command. */
 export function parseCliArgs(argv: string[]): CliCommand {

@@ -85,12 +85,96 @@ function renderIssues(
   return omitted > 0 ? `${rendered}\n…and ${omitted} more` : rendered;
 }
 
+/** A bare token safe to interpolate into a shell command with no quoting at all. Deliberately
+ *  narrow (alnum + a few path/id-shaped punctuation marks) — anything else, including a space,
+ *  gets single-quoted below rather than risk missing a metacharacter. */
+const SAFE_BARE_ARG = /^[A-Za-z0-9_.:@/-]+$/;
+
+/** THE-1082 fix round 2 (Codex cross-vendor review): shell-quote a value before it goes into the
+ *  rendered command line. Neither `tool` nor `vault` is guaranteed shell-safe text: `ctx.vaultId`
+ *  (`CallerContext`, `mcp/registry/types.ts`) is a plain `string`, sourced from the vault's
+ *  CONFIGURED `id` (`VaultConfigSchema.id`, `packages/shared/src/config/vault.schema.ts` —
+ *  `z.string().min(1)`, no character restriction) — NOT the stricter `VaultId` regex primitive
+ *  (`^[a-z0-9_-]+$`, `schemas/primitives.ts`) that constrains a TOOL's own `vault` ARGUMENT. A
+ *  configured id can legally contain a space, a quote, or a `$(...)` substring. `tool` is an
+ *  internal registered-tool name today, never caller-controlled, but is quoted for the same
+ *  reason and because nothing here can prove that stays true at every call site forever. Bare only
+ *  when the whole value is already shell-safe (`SAFE_BARE_ARG`); otherwise single-quoted, with any
+ *  embedded `'` closed-escaped-reopened (`'\''`) — the one escape a single-quoted POSIX/zsh/bash
+ *  string needs, since nothing else is special inside one. */
+function shellQuote(value: string): string {
+  return SAFE_BARE_ARG.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/** THE-1082 fix round 3 (second cross-vendor review round): render one `--flag value` pair,
+ *  choosing the `--flag=value` form whenever `value` starts with `-`. A configured vault id MAY
+ *  start with `-` (`VaultConfigSchema.id` allows it, and `SAFE_BARE_ARG` above happily treats `-`
+ *  as bare-safe), so e.g. a vault named `-prod` rendered as `--vault -prod` passes a real shell
+ *  through untouched — shell quoting cannot help here, since the shell already stripped it before
+ *  `obsidian-tc` ever sees argv — but `cli/args.ts`'s `flagValue` then reads the NEXT token
+ *  (`-prod`) as itself another flag and refuses with "requires a value". The `=` form sidesteps
+ *  that: `flagValue` now recognises `--flag=value` as one token, so `-prod` never has to look like
+ *  a free-standing argv element. Used unconditionally for every rendered flag (not just `--vault`)
+ *  since nothing here can promise `tool`/`args_hash` will never start with `-` either. */
+function renderFlag(flag: string, value: string): string {
+  const quoted = shellQuote(value);
+  return value.startsWith("-") ? `${flag}=${quoted}` : `${flag} ${quoted}`;
+}
+
+/** THE-1082 (GH #945; fix round 2 per cross-vendor review): the text-channel rendering of an
+ *  `elicit_required` error's token path. `mcp/server.ts`'s modern SEP-2260 `inputRequired` round
+ *  trip (`isModern && opts.elicitCodec && canElicit`) never reaches this — it intercepts
+ *  `elicit_required` before `errorToResult` runs. Every OTHER caller (any 2025-era client, or a
+ *  modern one with no elicitation capability — e.g. Claude Code over stdio) falls through to
+ *  `errorToResult`, and per THE-823 that caller drops `structuredContent` on an isError result, so
+ *  `args_hash` (already there — #931/THE-1037 made `call_capability` accept a redeemed token) is
+ *  otherwise stranded where nothing reads it. This renders the actual `obsidian-tc elicit`
+ *  invocation (cli/commands/elicit-mint.ts, flags per cli/usage.ts) rather than describing it, so
+ *  a caller with no MCP elicitation support can still clear the gate.
+ *
+ *  `--tool` is a HARD requirement of the CLI (`cli/args.ts`'s elicit parser throws a `CliError`
+ *  without it) — both throw sites (hitl.ts, dispatch.ts) now always supply it, but if a THIRD one
+ *  ever doesn't, this renders an explanation instead of an invocation that cannot succeed: a
+ *  half-usable copy-pasted command that then fails on `--tool` is worse than an honest "can't".
+ *  `--vault` is NOT a hard CLI requirement — `cli/args.ts` parses it as optional; `elicit-mint.ts`'s
+ *  `planElicitMint` only demands it when more than one vault is configured — so it is rendered
+ *  when present and simply omitted otherwise, same as before.
+ *
+ *  No `--config` flag is rendered at all: `<path to your config>` is not a value, and a client
+ *  cannot fill in a real path here, so a literal `--config <path to your config>` is not just
+ *  unquoted, it is not a rendered command at all — `<...>` is shell redirection syntax to a real
+ *  shell. `resolveServeConfigWithProvenance` (cli/resolve-config.ts) falls back to
+ *  `OBSIDIAN_TC_CONFIG` when no path is given, so the second line states that real fallback
+ *  instead of a fabricated "default location". */
+function renderElicitInstruction(details: Record<string, unknown> | undefined): string | undefined {
+  const hash = details?.args_hash;
+  if (typeof hash !== "string") return undefined;
+  const tool = details?.tool;
+  if (typeof tool !== "string") {
+    return (
+      "cannot render a confirm command: this error did not carry a tool name, and " +
+      "`obsidian-tc elicit` requires --tool. Confirm from a client with MCP elicitation support " +
+      `instead, or mint manually once you know the tool name, using args_hash ${shellQuote(hash)}.`
+    );
+  }
+  const vault = details?.vault;
+  const vaultFlag = typeof vault === "string" ? ` ${renderFlag("--vault", vault)}` : "";
+  return (
+    `confirm with: obsidian-tc elicit ${renderFlag("--hash", hash)} ${renderFlag("--tool", tool)}${vaultFlag}\n` +
+    "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
+    "positional argument)\n" +
+    "then retry the same call with elicit_token: <token>"
+  );
+}
+
 /** The offending-field detail to append after an error's headline sentence, or undefined when
  *  `details` carries nothing this can render (e.g. no `issues` array). THE-1042 (GH #935):
  *  `vault_not_found` carries no `issues` (it's thrown directly, not from a Zod parse) — the same
  *  visible_vaults/did_you_mean fields rendered inline for a validation issue above render here as
- *  the error's entire detail line. */
+ *  the error's entire detail line. THE-1082 (GH #945): `elicit_required` gets its own instruction
+ *  block (above) instead — it has neither `issues` nor a vault hint to fall through to. */
 export function formatErrorDetail(error: ErrorJSON): string | undefined {
+  if (error.code === "elicit_required") return renderElicitInstruction(error.details);
   const issues = error.details?.issues;
   return Array.isArray(issues) && issues.length > 0
     ? renderIssues(issues as z.core.$ZodIssue[], error.details)

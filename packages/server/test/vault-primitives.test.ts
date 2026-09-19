@@ -381,4 +381,32 @@ describe("hitl: conditional confirmation", () => {
       requireConfirmation(ctx({ elicitToken: token }), "write_note", input, true),
     ).toThrow();
   });
+
+  // THE-1082 fix round 2: `proposed` must never be able to spoof the fields error-rendering.ts
+  // trusts to build a confirm command — a caller-controlled `proposed` object claiming to be a
+  // DIFFERENT tool/vault than the one actually gated would render a command for the wrong thing.
+  it("a proposed object carrying tool/vault/args_hash does not override the real ones", () => {
+    const db = freshDb();
+    const ctx: CallerContext = {
+      caller: "t",
+      authenticated: true,
+      grantedScopes: new Set(["*"]),
+      vaultId: "v1",
+      db,
+    };
+    const input = { path: "a.md", mode: "overwrite" };
+    try {
+      requireConfirmation(ctx, "write_note", input, true, {
+        tool: "spoofed_tool",
+        vault: "spoofed_vault",
+        args_hash: "spoofed_hash",
+      });
+      throw new Error("should have thrown");
+    } catch (e) {
+      const details = (e as { details?: Record<string, unknown> }).details ?? {};
+      expect(details.tool).toBe("write_note");
+      expect(details.vault).toBe("v1");
+      expect(details.args_hash).toBe(argsHash("write_note", input));
+    }
+  });
 });

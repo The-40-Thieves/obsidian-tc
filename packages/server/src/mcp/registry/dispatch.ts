@@ -361,8 +361,16 @@ export async function runDispatch(
             releaseFailedGate = "hitl";
           }
         }
+        // THE-1082 (GH #945; fix round 2, cross-vendor review): `tool`/`vault` ride along —
+        // `name`/`ctx.vaultId` are already in scope here — so error-rendering.ts's text channel
+        // can render a COMPLETE `obsidian-tc elicit` invocation for this throw site too. Before
+        // this it carried only `args_hash`, which left `--tool` (a hard CLI requirement,
+        // cli/args.ts) unrenderable for every always-gated (`destructive: true`) tool — the main
+        // class the issue was filed about (11+ sites).
         throw new ObsidianTcError("elicit_required", "human confirmation required", {
           args_hash: hash,
+          tool: name,
+          vault: ctx.vaultId,
         });
       }
       deps.observability.relay(ctx.vaultId, "tc.elicit.consumed", {
