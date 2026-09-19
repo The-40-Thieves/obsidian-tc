@@ -12,6 +12,13 @@
 export type { CaptureLocationView } from "./capture-location";
 export { captureLocationCheck } from "./capture-location";
 export type { DerivedColumnState, DerivedTableState, KbHealthProbe } from "./checks";
+// THE-1078: experiential.citation-judge's PROBE RESULT type only — cli/commands/doctor.ts's
+// `probeTypesafeCitationJudge` returns this and imports it through this barrel (`from
+// "../../doctor"`). `CitationJudgeView`/`citationJudgeCheck` are deliberately NOT re-exported
+// here: nothing imports them through this barrel — run.ts imports both directly from
+// "./citation-judge" (as does the check's own test), so re-exporting them here would be a dead
+// path with no caller.
+export type { CitationJudgeProbeResult } from "./citation-judge";
 // THE-939: install.conflict-copies' view type and its own install-root resolver, so the CLI can
 // build both without importing through checks.ts — same barrel reasoning as every other
 // doctor/*.ts submodule in this file.

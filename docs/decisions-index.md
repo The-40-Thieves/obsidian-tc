@@ -224,7 +224,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-611 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 8 |
 | THE-612 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 5 |
 | THE-613 | A judge that did not ANSWER is no longer counted as one that answered unparseably (#732, #734, THE-717, THE-613). | CHANGELOG.md (1.20.0) | 6 |
-| THE-615 | Gateway retry with backoff, and a liveness probe (THE-615, THE-617, #566). | CHANGELOG.md (1.14.0) | 1 |
+| THE-615 | Gateway retry with backoff, and a liveness probe (THE-615, THE-617, #566). | CHANGELOG.md (1.14.0) | 2 |
 | THE-616 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 9 |
 | THE-617 | Gateway retry with backoff, and a liveness probe (THE-615, THE-617, #566). | CHANGELOG.md (1.14.0) | 4 |
 | THE-618 | The ACL predicates no longer recompile a glob per rule per path (THE-618, #638). | CHANGELOG.md (1.14.0) | 4 |
@@ -298,7 +298,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-714 | Migration Manifest | docs/design/migration-manifest.md | 6 |
 | THE-715 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 4 |
 | THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 5 |
-| THE-717 | A judge that did not ANSWER is no longer counted as one that answered unparseably (#732, #734, THE-717, THE-613). | CHANGELOG.md (1.20.0) | 25 |
+| THE-717 | A judge that did not ANSWER is no longer counted as one that answered unparseably (#732, #734, THE-717, THE-613). | CHANGELOG.md (1.20.0) | 26 |
 | THE-718 | `record_retrieval_feedback` says when to call it (#678, THE-718). | CHANGELOG.md (1.17.0) | 16 |
 | THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 7 |
 | THE-720 | CLI Doctor | docs/design/cli-doctor.md | 10 |
@@ -357,7 +357,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 5 |
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
-| THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 60 |
+| THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 61 |
 | THE-935 | `db.busyTimeoutMs` reachable from config (#902, THE-935; issue #878). | CHANGELOG.md (1.27.0) | 13 |
 | THE-936 | `call_capability` now echoes the envelope keys it received on validation failure (#901, THE-936; issue #876). | CHANGELOG.md (1.27.0) | 1 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
@@ -374,7 +374,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1043 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937; #940). | CHANGELOG.md (1.30.0) | 1 |
 | THE-1044 | Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned string's trailing newlines (THE-1044, #941). | CHANGELOG.md (1.30.0) | 1 |
 | THE-1045 | A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole block was re-emitted by a plain stringify, losing every anchor, comment and byte of source formatting, and nothing said so (THE-1045, #943). | CHANGELOG.md (1.30.1) | 2 |
+| THE-1078 | TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside the existing gateway chat judge (THE-1078). | CHANGELOG.md (Unreleased) | 10 |
 
-360 distinct ticket(s) across 499 source file(s) under
-`packages/*/src`; 260 resolved to a public summary, 100
+361 distinct ticket(s) across 502 source file(s) under
+`packages/*/src`; 261 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

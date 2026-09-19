@@ -10,13 +10,16 @@ import { resolveCapabilityProfile } from "../../capability";
 import { openDatabase } from "../../db/open";
 import {
   assembleDoctorReport,
+  type CitationJudgeProbeResult,
   type DenseProbeResult,
   renderText,
   resolveInstallRoot,
 } from "../../doctor";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { createEmbeddingProvider } from "../../embeddings";
+import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
+import { createTypesafeClient } from "../../gateway/typesafe";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
 import { buildRerankerDoctorProbes, embeddingsDeprecation } from "../../providers/registry";
 import type { ProviderDescriptor } from "../../providers/types";
@@ -81,6 +84,48 @@ async function probeDenseProvider(
     return { ok: true, ms };
   } catch (e) {
     return { ok: false, reason: (e as Error)?.message ?? String(e) };
+  }
+}
+
+/** THE-1078 — TypeSafe Jev reachability probe behind `doctor --probe` (provider "typesafe" only):
+ *  a one-token state and one Noul, a liveness check rather than a real judgement. Never throws;
+ *  every failure becomes a `reason` that never carries the key (see gateway/typesafe.ts). Exported
+ *  for its own unit test, since this is the one place the key is resolved and handed to a client. */
+export async function probeTypesafeCitationJudge(judge: {
+  model: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  baseUrl?: string;
+  timeoutMs?: number;
+}): Promise<CitationJudgeProbeResult> {
+  const key = resolveApiKey("typesafe", judge.apiKey, judge.apiKeyEnv ?? "TYPESAFE_API_KEY");
+  if (!key) {
+    return {
+      ok: false,
+      reason: `no API key found (set ${judge.apiKeyEnv ?? "TYPESAFE_API_KEY"} or judge.apiKey)`,
+    };
+  }
+  const client = createTypesafeClient({
+    baseUrl: judge.baseUrl,
+    apiKey: key,
+    timeoutMs: judge.timeoutMs,
+  });
+  const started = Date.now();
+  try {
+    await client.noul({
+      state: { probe: "ok" },
+      instructions: 'Does the state contain the word "ok"?',
+      criteria: { true: 'The state\'s "probe" field is exactly "ok".', false: "It is not." },
+      model: judge.model,
+    });
+    return { ok: true, latencyMs: Date.now() - started };
+  } catch (e) {
+    const status = (e as { status?: number })?.status;
+    return {
+      ok: false,
+      ...(status !== undefined ? { status } : {}),
+      reason: (e as Error)?.message ?? String(e),
+    };
   }
 }
 
@@ -320,6 +365,32 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       conflictCopies: { installRoot: resolveInstallRoot() },
       // THE-1039 (GH #930): always present, no --probe gate — see probeDbSpace's own comment.
       dbSpace,
+      // THE-1078: provider always present; the live reachability probe only under --probe AND
+      // provider === "typesafe" — same contract as retrieval.probe above.
+      citationJudge: {
+        provider: config.experiential.citationInfer.judge?.provider ?? "gateway",
+        ...(config.experiential.citationInfer.judge?.model !== undefined
+          ? { model: config.experiential.citationInfer.judge.model }
+          : {}),
+        ...(cmd.probe && config.experiential.citationInfer.judge?.provider === "typesafe"
+          ? {
+              probe: () => {
+                const judge = config.experiential.citationInfer.judge;
+                if (!judge?.model) {
+                  return Promise.resolve({ ok: false, reason: "no model configured" });
+                }
+                // Rebuilt, not passed through: the narrowing above is on the property, not on `judge`.
+                return probeTypesafeCitationJudge({
+                  model: judge.model,
+                  apiKey: judge.apiKey,
+                  apiKeyEnv: judge.apiKeyEnv,
+                  baseUrl: judge.baseUrl,
+                  timeoutMs: judge.timeoutMs,
+                });
+              },
+            }
+          : {}),
+      },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,

@@ -261,6 +261,199 @@ describe("ExperientialConfigSchema.derivedVerdictHold (THE-726)", () => {
   });
 });
 
+// THE-1078: the opt-in TypeSafe Jev judge PROVIDER for citation-inference's stage-2 verdict.
+describe("ExperientialConfigSchema.citationInfer.judge (THE-1078)", () => {
+  it("is absent on a minimal config — today's behaviour, unchanged", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.experiential.citationInfer.judge).toBeUndefined();
+  });
+
+  it('defaults provider to "gateway" and apiKeyEnv to TYPESAFE_API_KEY when the block is present', () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { citationInfer: { judge: {} } },
+    });
+    expect(c.experiential.citationInfer.judge).toMatchObject({
+      provider: "gateway",
+      apiKeyEnv: "TYPESAFE_API_KEY",
+      baseUrl: "https://api.typesafe.ai",
+    });
+  });
+
+  it('accepts a fully-specified "typesafe" block and round-trips every field', () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: {
+        citationInfer: {
+          judge: {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKeyEnv: "MY_TS_KEY",
+            baseUrl: "https://ts.example.com",
+            timeoutMs: 30_000,
+          },
+        },
+      },
+    });
+    expect(c.experiential.citationInfer.judge).toMatchObject({
+      provider: "typesafe",
+      model: "jev-1.13.0",
+      threshold: 0.9,
+      apiKeyEnv: "MY_TS_KEY",
+      baseUrl: "https://ts.example.com",
+      timeoutMs: 30_000,
+    });
+  });
+
+  // baseUrl carries the bearer key and vault-derived text on every request — a plain http://
+  // endpoint sends both in cleartext. https:// is required unless the host is loopback, mirroring
+  // the carve-out server.schema.ts's own F2 interlock draws for the HTTP transport bind.
+  it("rejects an http:// baseUrl on a non-loopback host", () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: { judge: { baseUrl: "http://ts.example.com" } },
+        },
+      }),
+    ).toThrow(/https/i);
+  });
+
+  it("accepts an http:// baseUrl on loopback hosts (localhost, 127.0.0.1, [::1]) for local test/dev", () => {
+    for (const host of ["http://localhost:4001", "http://127.0.0.1:4001", "http://[::1]:4001"]) {
+      const c = ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { baseUrl: host } } },
+      });
+      expect(c.experiential.citationInfer.judge?.baseUrl).toBe(host);
+    }
+  });
+
+  it("accepts an https:// baseUrl on any host", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { citationInfer: { judge: { baseUrl: "https://ts.example.com" } } },
+    });
+    expect(c.experiential.citationInfer.judge?.baseUrl).toBe("https://ts.example.com");
+  });
+
+  it('rejects provider "typesafe" with no model', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { provider: "typesafe", threshold: 0.9 } } },
+      }),
+    ).toThrow(/model/i);
+  });
+
+  it('rejects provider "typesafe" with no threshold', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: { judge: { provider: "typesafe", model: "jev-1.13.0" } },
+        },
+      }),
+    ).toThrow(/threshold/i);
+  });
+
+  it("rejects a threshold outside 0..1", () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "jev-1.13.0", threshold: 1.5 },
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  // The format check is a POSITIVE predicate (must end in a dotted numeric version), not a
+  // blacklist of known alias spellings — a blacklist of "-latest"/"-preview" alone let an equally
+  // floating "jev" or "totally-unversioned" straight through. Scoped to provider "typesafe" only:
+  // the gateway's own `judge` role may name any model string it likes.
+  it('rejects a model ending in "-latest" (provider "typesafe")', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "jev-latest", threshold: 0.9 },
+          },
+        },
+      }),
+    ).toThrow(/pinned, versioned id/);
+  });
+
+  it('rejects a model ending in "-preview" (provider "typesafe")', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "jev-1.13.0-preview", threshold: 0.9 },
+          },
+        },
+      }),
+    ).toThrow(/pinned, versioned id/);
+  });
+
+  it('rejects an entirely unversioned model, "jev" (provider "typesafe")', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: { judge: { provider: "typesafe", model: "jev", threshold: 0.9 } },
+        },
+      }),
+    ).toThrow(/pinned, versioned id/);
+  });
+
+  it('rejects "totally-unversioned" (provider "typesafe")', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "totally-unversioned", threshold: 0.9 },
+          },
+        },
+      }),
+    ).toThrow(/pinned, versioned id/);
+  });
+
+  it('accepts "jev-1.13.0" (provider "typesafe")', () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: {
+        citationInfer: { judge: { provider: "typesafe", model: "jev-1.13.0", threshold: 0.9 } },
+      },
+    });
+    expect(c.experiential.citationInfer.judge?.model).toBe("jev-1.13.0");
+  });
+
+  it('accepts a two-part version, "jev-1.13" (provider "typesafe")', () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: {
+        citationInfer: { judge: { provider: "typesafe", model: "jev-1.13", threshold: 0.9 } },
+      },
+    });
+    expect(c.experiential.citationInfer.judge?.model).toBe("jev-1.13");
+  });
+
+  it("does NOT format-check the model on the default gateway provider — that block is the gateway's own contract", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { citationInfer: { judge: { model: "jev-latest" } } },
+    });
+    expect(c.experiential.citationInfer.judge?.model).toBe("jev-latest");
+  });
+});
+
 // THE-591: closes the same "built and dark" gap THE-535 (above) documents for
 // experiential.activationRerank — retrieval.gatedRerank and indexing.streamingWalk existed as
 // fully-implemented, fully-tested code paths with NO config key at all, reachable only from the

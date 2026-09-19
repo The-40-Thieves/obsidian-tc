@@ -1,10 +1,40 @@
 // WP1.3: extracted from ../config.schema.ts (which stays a compatibility facade re-exporting
-// these same symbol names). Leaf schema — imports Zod only, no shared scalars needed here.
+// these same symbol names). Leaf schema — was Zod-only until THE-1078; see below.
 //
 // Import direction is non-negotiable: this file must never import config.schema.ts,
-// server.schema.ts, or any other schema module. There are no refine/superRefine blocks in this
-// span to place — all four schemas below are plain z.object() definitions.
+// server.schema.ts, or any other schema module. THE-1078 added the first superRefine in this
+// file, on citationInfer.judge — a same-object cross-field check (provider/model/threshold), not
+// a cross-domain read, so it stays here rather than moving to config.schema.ts's own superRefine.
+// It also added the first non-Zod import, `isLoopbackHost` from `../net-host` — a dependency-free
+// leaf util (same category as Zod itself, not a schema module), reused rather than reimplemented
+// for citationInfer.judge.baseUrl's https-unless-loopback check.
 import { z } from "zod";
+import { isLoopbackHost } from "../net-host";
+
+/**
+ * Minimal, dependency-free parse of a URL string's scheme + host, for the baseUrl check below.
+ * This package is deliberately isomorphic and carries no Node/DOM type dependency (no `@types/
+ * node`, no `lib: "dom"`) — the global `URL` class exists at RUNTIME on every platform this ships
+ * to, but is untyped here, so a narrow regex is used instead of `new URL(...)`. `.url()` on the
+ * field below already validated the string is well-formed; this only answers two questions about
+ * it: which scheme, and what host (port and userinfo stripped, IPv6 brackets kept — the same shape
+ * `isLoopbackHost` expects).
+ */
+function parseSchemeAndHost(u: string): { scheme: string; host: string } | null {
+  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/([^/?#]*)/.exec(u);
+  if (!m) return null;
+  let host = m[2] ?? "";
+  const at = host.lastIndexOf("@");
+  if (at !== -1) host = host.slice(at + 1); // drop userinfo (user:pass@)
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]");
+    if (end !== -1) host = host.slice(0, end + 1); // "[::1]:443" -> "[::1]"
+  } else {
+    const colon = host.indexOf(":");
+    if (colon !== -1) host = host.slice(0, colon); // "example.com:443" -> "example.com"
+  }
+  return { scheme: (m[1] ?? "").toLowerCase(), host };
+}
 
 /** THE-397: retrieval-fusion knobs (the first config-exposed retrieval section). */
 export const RetrievalConfigSchema = z.object({
@@ -634,6 +664,125 @@ export const ExperientialConfigSchema = z.object({
         .default(6)
         .describe(
           "Hours between scheduled passes when enabled. Defaults to 6: the pass costs gateway judge calls, and a retrieval's citation status is not time-sensitive once stamped.",
+        ),
+      /** THE-1078: opt-in judge PROVIDER for the stage-2 citation verdict, alongside the existing
+       *  gateway chat judge (roles.judge). Absent -> exactly today's behaviour: the gateway's
+       *  `judge` role when configured, or stage-1-only mode when it is not.
+       *
+       *  `typesafe` (EXPERIMENTAL) is a separate, opt-in judge PROVIDER over TypeSafe Jev's Noul
+       *  question type (see gateway/typesafe.ts and experiential/citation-judge.ts) — a different
+       *  service from the gateway's own `judge` role, selected here rather than by pointing the
+       *  gateway role at a different model, because TypeSafe's request/response shape is not the
+       *  chat-completions shape roles.judge speaks. `model` must be a PINNED, versioned id: Noul
+       *  thresholds are tuned per model version, so a floating `-latest`/`-preview` alias could
+       *  silently move the decision boundary underneath a threshold picked for a specific version.
+       *  `threshold` has deliberately no default — a boundary tuned for one deployment's tolerance
+       *  for false positives is not a safe default for another's, and TypeSafe's own customer
+       *  agreement bars publishing the benchmark numbers that would justify picking one here. */
+      judge: z
+        .object({
+          provider: z
+            .enum(["gateway", "typesafe"])
+            .default("gateway")
+            .describe(
+              'Which service answers the citation stage-2 verdict. "gateway" (default) reuses the existing gateway `judge` role, unchanged. "typesafe" (EXPERIMENTAL) calls TypeSafe Jev\'s Noul question instead of the gateway — a separate, opt-in judge provider for citation inference only.',
+            ),
+          model: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              'Required when provider is "typesafe": a PINNED, versioned TypeSafe model id (e.g. "jev-1.13.0"). Rejected at config-load if it ends in "-latest" or "-preview" — Noul thresholds are tuned per model version, and a floating alias would silently change the decision boundary under a fixed threshold.',
+            ),
+          threshold: z
+            .number()
+            .min(0)
+            .max(1)
+            .optional()
+            .describe(
+              "Required when provider is \"typesafe\": the Noul score (0..1) at or above which a chunk is judged cited. No default — TypeSafe thresholds are tuned per model version and per deployment's tolerance for false positives, and TypeSafe's customer agreement bars publishing the benchmark numbers that would justify picking one here.",
+            ),
+          apiKey: z
+            .string()
+            .optional()
+            .describe(
+              "TypeSafe API key. Secret — never logged or returned by a tool. An inline apiKey wins over apiKeyEnv.",
+            ),
+          apiKeyEnv: z
+            .string()
+            .min(1)
+            .default("TYPESAFE_API_KEY")
+            .describe(
+              "Environment variable holding the TypeSafe API key, consulted when apiKey is not set inline.",
+            ),
+          baseUrl: z
+            .string()
+            .url()
+            // This URL carries the bearer key (Authorization header) and vault-derived
+            // source/response text in every request body — a plain `http://` endpoint would send
+            // both in cleartext. Loopback stays allowed unencrypted for a local test/dev double,
+            // the same carve-out `isLoopbackHost` already draws for the HTTP transport bind.
+            .refine(
+              (u) => {
+                const parsed = parseSchemeAndHost(u);
+                if (!parsed) return false; // unreachable — .url() above already rejected this
+                return parsed.scheme === "https" || isLoopbackHost(parsed.host);
+              },
+              {
+                message:
+                  "judge.baseUrl must use https:// — this URL carries the bearer key and vault-derived source/response text — unless the host is loopback (localhost/127.0.0.1/[::1]) for a local test or dev endpoint.",
+              },
+            )
+            .default("https://api.typesafe.ai")
+            .describe(
+              "TypeSafe API base URL. Must be https:// unless the host is loopback (a local test/dev endpoint) — this URL carries the bearer key and vault-derived text.",
+            ),
+          timeoutMs: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe(
+              "Per-attempt request timeout in ms for the TypeSafe client. Defaults to the client's own 60s.",
+            ),
+        })
+        .superRefine((c, ctx) => {
+          // Scoped to provider "typesafe" ONLY: the gateway's own `judge` role is free to name
+          // any model string it likes (that is the gateway's contract, not this block's), so this
+          // predicate must not reject a `model` set here while `provider` stays "gateway".
+          if (c.provider === "typesafe") {
+            if (!c.model) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["model"],
+                message:
+                  'judge.model is required when judge.provider is "typesafe" — pin a versioned model id (e.g. "jev-1.13.0").',
+              });
+              // POSITIVE predicate, not a blacklist: a bare `endsWith("-latest"/"-preview")`
+              // check let an equally floating "jev" or "totally-unversioned" straight through.
+              // Require a dotted numeric version suffix instead ("-1.13.0" or "-1.13") — that
+              // rejects "jev", "jev-latest" and "jev-preview" alike, and any other unversioned or
+              // alias-versioned spelling, without needing to name every alias TypeSafe might ship.
+            } else if (!/-\d+\.\d+(?:\.\d+)?$/.test(c.model)) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["model"],
+                message: `judge.model "${c.model}" is not a pinned, versioned id — it must end in a dotted numeric version such as "-1.13.0" or "-1.13" (e.g. "jev-1.13.0"); a floating alias like "-latest"/"-preview" (or no version at all) can silently move the decision boundary underneath a fixed threshold.`,
+              });
+            }
+            if (c.threshold === undefined) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["threshold"],
+                message:
+                  'judge.threshold is required when judge.provider is "typesafe" (0..1) — no default exists; Noul thresholds are tuned per model version and per deployment.',
+              });
+            }
+          }
+        })
+        .optional()
+        .describe(
+          "THE-1078: opt-in judge provider for the citation-inference stage-2 verdict. Absent -> today's behaviour unchanged (the gateway `judge` role when configured, or stage-1-only mode).",
         ),
     })
     .prefault({})

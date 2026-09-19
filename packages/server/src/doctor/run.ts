@@ -33,6 +33,9 @@ import {
   runtimeCheck,
   snapshotsCheck,
 } from "./checks";
+// THE-1078: experiential.citation-judge lives in its own module, same reasoning as
+// capture-location above — a probe (live TypeSafe reachability) no other check needs.
+import { type CitationJudgeView, citationJudgeCheck } from "./citation-judge";
 // THE-939: install.conflict-copies lives in its own module, same reasoning as capture-location
 // above — its own resolution step (finding the install root) that no other check needs.
 import { type ConflictCopiesView, conflictCopiesCheck } from "./conflict-copies";
@@ -111,6 +114,10 @@ export interface DoctorConfigView {
    *  PRAGMAs and a `COUNT(*)` on each present shadow table, cheap and read-only like
    *  captureLocation/conflictCopies above. */
   dbSpace?: DbSpaceView;
+  /** THE-1078: which citation-inference stage-2 judge PROVIDER is configured, plus an optional
+   *  live TypeSafe reachability probe under `--probe`. Optional, same reasoning as
+   *  retrieval/snapshots above. */
+  citationJudge?: CitationJudgeView;
 }
 
 export interface AssembleOptions {
@@ -196,6 +203,9 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1039 (GH #930): cache.db reclaimable-space delta. Same optional-view reasoning as
   // captureLocation/conflictCopies above.
   if (config.dbSpace) checks.push(dbSpaceCheck(config.dbSpace));
+  // THE-1078: is the configured citation-judge PROVIDER (gateway, or the opt-in TypeSafe Jev)
+  // actually reachable? Same optional-view reasoning as retrieval/snapshots above.
+  if (config.citationJudge) checks.push(citationJudgeCheck(config.citationJudge));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

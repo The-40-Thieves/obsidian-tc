@@ -14,6 +14,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { runCitationIndexPasses } from "../experiential/citation-index";
+import { buildCitationJudge, type CitationJudgeConfig } from "../experiential/citation-judge";
 import { deriveClosedWindows } from "../experiential/derive-verdict";
 import { registerEpisodeEvaluation } from "../experiential/episode-evaluation-schedule";
 import { expireOverdueGoals } from "../experiential/goals";
@@ -130,8 +131,15 @@ export interface JobHandlersDeps {
   /** config.vaults */
   vaults: VaultConfigInput[];
   /** config.experiential.citationInfer — absent or without a transcriptIndex means the handler is
-   *  NOT registered. See the registration below for why a path is the real gate. */
-  citationInfer?: { enabled: boolean; transcriptIndex?: string | undefined } | undefined;
+   *  NOT registered. See the registration below for why a path is the real gate. `judge` (THE-1078)
+   *  selects the stage-2 judge PROVIDER — absent/"gateway" reuses `roles.judge` below unchanged. */
+  citationInfer?:
+    | {
+        enabled: boolean;
+        transcriptIndex?: string | undefined;
+        judge?: CitationJudgeConfig | undefined;
+      }
+    | undefined;
   /** Query-side embedder for the citation pass's stage-1 cosine leg. */
   embed?: ((texts: string[]) => Promise<number[][]>) | undefined;
   /** Authored cache store — the citation pass reads chunk content and stored vectors from it. */
@@ -248,34 +256,61 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
   //   enabled           — opt-in, per the config block
   //   transcriptIndex   — THE REAL GATE. No producer means no input; a handler with no possible
   //                       input is worse than an absent one, reporting success with zero work.
-  //   roles (gateway)   — NOT merely "matching the contradiction job". Without a judge the pass
-  //                       runs stage-1-only and stamps every survivor cited_in_response = 1 with
-  //                       state `candidate`, which COUNTS toward note_quality's 0.6-weighted
+  //   a judge can be built — NOT merely "matching the contradiction job". Without a judge the
+  //                       pass runs stage-1-only and stamps every survivor cited_in_response = 1
+  //                       with state `candidate`, which COUNTS toward note_quality's 0.6-weighted
   //                       citation rate — an unattended stage-1-only schedule would inflate 60% of
   //                       every score with rows no judge ever read. A human can still choose that
   //                       mode at the CLI, deliberately.
+  //
+  //                       THE-1078: this used to be spelled `deps.roles` (a gateway) directly,
+  //                       which made a `provider: "typesafe"` deployment with no gateway
+  //                       configured build a perfectly valid judge and then never register the
+  //                       scheduled job — silently, with the one-shot CLI under no such
+  //                       restriction. The real invariant was always "a judge can be built", and a
+  //                       gateway is only ONE way to satisfy it: `roles` is required when the
+  //                       resolved provider is "gateway" (the default), and not at all when it is
+  //                       "typesafe" (buildCitationJudge builds its own TypeSafe client,
+  //                       independent of `deps.roles`).
   // History (THE-717, #708/#709/#707) and the 105-of-105-NULL measurement:
   // docs/design/runtime-job-wiring.md.
   const citationIndexPath = deps.citationInfer?.transcriptIndex;
+  // THE-1078: resolved once, matching buildCitationJudge's own default, so the registration gate
+  // below and the factory can never disagree about which provider is in play.
+  const citationProvider = deps.citationInfer?.judge?.provider ?? "gateway";
   if (
     deps.experientialOpen &&
     deps.citationInfer?.enabled === true &&
     citationIndexPath !== undefined &&
-    deps.roles &&
     deps.cacheDb &&
-    deps.embed
+    deps.embed &&
+    (citationProvider !== "gateway" || deps.roles)
   ) {
-    // THE-934: same guard treatment as contradiction/synthesis above.
-    const roles = guardGatewayRoles(deps.roles, excludeFilter);
     const cacheDb = deps.cacheDb;
     const embed = deps.embed;
+    // THE-934: same guard treatment as contradiction/synthesis above — only meaningful when a
+    // gateway is actually configured; a "typesafe"-only deployment (no `deps.roles`) has none to
+    // guard, and buildCitationJudge below never consults `gatewayJudge` for that provider anyway.
+    const guardedRoles = deps.roles ? guardGatewayRoles(deps.roles, excludeFilter) : null;
+    // THE-1078: built ONCE per wireJobHandlers call (not per run), before the job is registered —
+    // this is the FAIL-FAST point for a misconfigured typesafe block (buildCitationJudge throws
+    // at construction on a missing model/threshold/key, never a silent fallback to the gateway
+    // judge). `provider: "gateway"` (or the block absent) reproduces the inline lambda this
+    // replaced, byte-for-byte — and is guaranteed a non-null `guardedRoles` here, since the gate
+    // above already required `deps.roles` for that provider.
+    const citationJudge = buildCitationJudge(deps.citationInfer?.judge, {
+      gatewayJudge: guardedRoles
+        ? (r) => guardedRoles.judge(r).then((x) => ({ text: x.text, model: x.model }))
+        : null,
+      excludeFilter,
+    });
     const citationJob = wrapPlaneJob(
       "citation",
       async () => ({
         ok: true,
         detail: await runCitationIndexPasses(citationIndexPath, deps.experientialDb, cacheDb, {
           embed,
-          judge: (r) => roles.judge(r).then((x) => ({ text: x.text, model: x.model })),
+          citationJudge: citationJudge ?? undefined,
           excludeFilter,
         }),
       }),

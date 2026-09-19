@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 458,
-    "dependencies": 2098,
-    "subsystemPairs": 130,
-    "crossSubsystemImports": 957
+    "modules": 461,
+    "dependencies": 2111,
+    "subsystemPairs": 131,
+    "crossSubsystemImports": 965
   },
   "subsystems": {
     "auth": 4,
@@ -15,11 +15,11 @@
     "cli": 40,
     "config": 14,
     "db": 15,
-    "doctor": 15,
+    "doctor": 16,
     "embeddings": 6,
-    "experiential": 27,
+    "experiential": 28,
     "formats": 6,
-    "gateway": 2,
+    "gateway": 3,
     "graph": 1,
     "mcp": 20,
     "memory": 2,
@@ -88,6 +88,11 @@
       "weight": 19
     },
     {
+      "from": "cli",
+      "to": "experiential",
+      "weight": 16
+    },
+    {
       "from": "search",
       "to": "vault",
       "weight": 16
@@ -98,14 +103,9 @@
       "weight": 16
     },
     {
-      "from": "cli",
-      "to": "experiential",
-      "weight": 15
-    },
-    {
       "from": "runtime",
       "to": "experiential",
-      "weight": 14
+      "weight": 15
     },
     {
       "from": "runtime",
@@ -203,6 +203,16 @@
       "weight": 7
     },
     {
+      "from": "cli",
+      "to": "embeddings",
+      "weight": 6
+    },
+    {
+      "from": "cli",
+      "to": "gateway",
+      "weight": 6
+    },
+    {
       "from": "runtime",
       "to": "util",
       "weight": 6
@@ -219,22 +229,17 @@
     },
     {
       "from": "cli",
-      "to": "embeddings",
-      "weight": 5
-    },
-    {
-      "from": "cli",
-      "to": "gateway",
-      "weight": 5
-    },
-    {
-      "from": "cli",
       "to": "doctor",
       "weight": 5
     },
     {
       "from": "embeddings",
       "to": "search",
+      "weight": 5
+    },
+    {
+      "from": "experiential",
+      "to": "plane",
       "weight": 5
     },
     {
@@ -315,11 +320,6 @@
     {
       "from": "cli",
       "to": "workspace",
-      "weight": 3
-    },
-    {
-      "from": "experiential",
-      "to": "plane",
       "weight": 3
     },
     {
@@ -415,6 +415,11 @@
     {
       "from": "experiential",
       "to": "scheduler",
+      "weight": 2
+    },
+    {
+      "from": "experiential",
+      "to": "embeddings",
       "weight": 2
     },
     {
@@ -539,7 +544,7 @@
     },
     {
       "from": "experiential",
-      "to": "embeddings",
+      "to": "gateway",
       "weight": 1
     },
     {
