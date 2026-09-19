@@ -35,8 +35,15 @@ export function requireConfirmation(
       ctx.now ?? Date.now,
     );
   if (!ok)
+    // THE-1082 (GH #945): `tool`/`vault` ride along so error-rendering.ts's text channel can
+    // render the exact `obsidian-tc elicit` command a client with no elicitation support (e.g.
+    // Claude Code over stdio) needs to clear this gate — both are already known here (`toolName`
+    // param, `ctx.vaultId`) and add nothing an attacker couldn't already see: the caller supplied
+    // both to make this very call. `args_hash`'s inputs (toolName, input) are unchanged.
     throw err.elicitRequired("human confirmation required", {
       args_hash: hash,
+      tool: toolName,
+      vault: ctx.vaultId,
       ...(proposed ?? {}),
     });
 }

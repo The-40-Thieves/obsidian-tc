@@ -85,12 +85,39 @@ function renderIssues(
   return omitted > 0 ? `${rendered}\n…and ${omitted} more` : rendered;
 }
 
+/** THE-1082 (GH #945): the text-channel rendering of an `elicit_required` error's token path.
+ *  `mcp/server.ts`'s modern SEP-2260 `inputRequired` round trip (`isModern && opts.elicitCodec &&
+ *  canElicit`) never reaches this — it intercepts `elicit_required` before `errorToResult` runs.
+ *  Every OTHER caller (any 2025-era client, or a modern one with no elicitation capability — e.g.
+ *  Claude Code over stdio) falls through to `errorToResult`, and per THE-823 that caller drops
+ *  `structuredContent` on an isError result, so `args_hash` (already there — #931/THE-1037 made
+ *  `call_capability` accept a redeemed token) is otherwise stranded where nothing reads it. This
+ *  renders the actual `obsidian-tc elicit` invocation (cli/commands/elicit-mint.ts, flags per
+ *  cli/usage.ts) rather than describing it, so a caller with no MCP elicitation support can still
+ *  clear the gate. `tool`/`vault` are omitted (not placeholder text) when absent from `details` —
+ *  today that's dispatch.ts's OWN `elicit_required` throw for an always-gated (`destructive:true`)
+ *  tool, which carries only `args_hash`; hitl.ts's conditional-HITL throw carries all three. */
+function renderElicitInstruction(details: Record<string, unknown> | undefined): string | undefined {
+  const hash = details?.args_hash;
+  if (typeof hash !== "string") return undefined;
+  const tool = details?.tool;
+  const vault = details?.vault;
+  const toolFlag = typeof tool === "string" ? ` --tool ${tool}` : "";
+  const vaultFlag = typeof vault === "string" ? ` --vault ${vault}` : "";
+  return (
+    `confirm with: obsidian-tc elicit --config <path to your config> --hash ${hash}${toolFlag}${vaultFlag}\n` +
+    "then retry the same call with elicit_token: <token>"
+  );
+}
+
 /** The offending-field detail to append after an error's headline sentence, or undefined when
  *  `details` carries nothing this can render (e.g. no `issues` array). THE-1042 (GH #935):
  *  `vault_not_found` carries no `issues` (it's thrown directly, not from a Zod parse) — the same
  *  visible_vaults/did_you_mean fields rendered inline for a validation issue above render here as
- *  the error's entire detail line. */
+ *  the error's entire detail line. THE-1082 (GH #945): `elicit_required` gets its own instruction
+ *  block (above) instead — it has neither `issues` nor a vault hint to fall through to. */
 export function formatErrorDetail(error: ErrorJSON): string | undefined {
+  if (error.code === "elicit_required") return renderElicitInstruction(error.details);
   const issues = error.details?.issues;
   return Array.isArray(issues) && issues.length > 0
     ? renderIssues(issues as z.core.$ZodIssue[], error.details)
