@@ -76,6 +76,110 @@ describe("typesafe client — contract fixture", () => {
   });
 });
 
+// A malformed 2xx means the judge ANSWERED — just unusably. Every case here must throw a
+// TypesafeError with `kind: "shape"`, never `undefined`/an out-of-range number threaded through
+// as a score, and never conflated with a transport failure (see citation-judge.test.ts for the
+// adapter-level `{kind: "unparseable"}` mapping this feeds).
+describe("typesafe client — shape validation (kind: 'shape')", () => {
+  function clientFor(body: unknown) {
+    const fetchFn = (async () => jsonResponse(body)) as unknown as typeof fetch;
+    return createTypesafeClient({ baseUrl: "http://ts", apiKey: "k", fetchFn });
+  }
+  const call = (client: ReturnType<typeof clientFor>) =>
+    client.noul({ state: {}, model: "m", instructions: "?", criteria: { true: "y", false: "n" } });
+
+  it("rejects noul > 1 (e.g. 7) — never silently accepted as a score", async () => {
+    const client = clientFor({ model: "m", answers: { q: { type: "noul", noul: 7 } } });
+    const p = call(client);
+    await expect(p).rejects.toBeInstanceOf(TypesafeError);
+    await expect(p).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("rejects noul < 0 (e.g. -0.1)", async () => {
+    const client = clientFor({ model: "m", answers: { q: { type: "noul", noul: -0.1 } } });
+    const p = call(client);
+    await expect(p).rejects.toBeInstanceOf(TypesafeError);
+    await expect(p).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("rejects TWO answers — never resolved by 'take the first key'", async () => {
+    const client = clientFor({
+      model: "m",
+      answers: {
+        q1: { type: "noul", noul: 0.9 },
+        q2: { type: "noul", noul: 0.1 },
+      },
+    });
+    const p = call(client);
+    await expect(p).rejects.toBeInstanceOf(TypesafeError);
+    await expect(p).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("rejects ZERO answers (an empty answers object, distinct from an absent one)", async () => {
+    const client = clientFor({ model: "m", answers: {} });
+    const p = call(client);
+    await expect(p).rejects.toBeInstanceOf(TypesafeError);
+    await expect(p).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it('rejects the wrong answer "type"', async () => {
+    const client = clientFor({ model: "m", answers: { q: { type: "boolean", noul: 0.5 } } });
+    const p = call(client);
+    await expect(p).rejects.toBeInstanceOf(TypesafeError);
+    await expect(p).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("the missing-noul and absent-answers cases (above) are also kind: 'shape'", async () => {
+    const missingNoul = clientFor({ model: "m", answers: { q: { type: "noul" } } });
+    await expect(call(missingNoul)).rejects.toMatchObject({ kind: "shape" });
+    const noAnswers = clientFor({ model: "m" });
+    await expect(call(noAnswers)).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("an HTTP failure is kind: 'http', a network throw is kind: 'network', a timeout is kind: 'timeout'", async () => {
+    const http401 = createTypesafeClient({
+      baseUrl: "http://ts",
+      apiKey: "k",
+      maxAttempts: 1,
+      fetchFn: (async () => jsonResponse({}, 401)) as unknown as typeof fetch,
+    });
+    const httpErr = await call(http401).catch((e) => e);
+    expect(httpErr).toBeInstanceOf(TypesafeError);
+    expect(httpErr.kind).toBe("http");
+
+    const netClient = createTypesafeClient({
+      baseUrl: "http://ts",
+      apiKey: "k",
+      maxAttempts: 1,
+      fetchFn: (async () => {
+        throw new Error("ECONNRESET");
+      }) as unknown as typeof fetch,
+    });
+    const netErr = await call(netClient).catch((e) => e);
+    expect(netErr).toBeInstanceOf(TypesafeError);
+    expect(netErr.kind).toBe("network");
+
+    const timeoutClient = createTypesafeClient({
+      baseUrl: "http://ts",
+      apiKey: "k",
+      maxAttempts: 1,
+      timeoutMs: 5,
+      fetchFn: (async (_url: any, init: any) => {
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => {
+            const e = new Error("aborted");
+            e.name = "AbortError";
+            reject(e);
+          });
+        });
+      }) as unknown as typeof fetch,
+    });
+    const timeoutErr = await call(timeoutClient).catch((e) => e);
+    expect(timeoutErr).toBeInstanceOf(TypesafeError);
+    expect(timeoutErr.kind).toBe("timeout");
+  });
+});
+
 describe("typesafe client — wire shape", () => {
   it("POSTs {baseUrl}/v1/systemone with Bearer auth and exactly one noul question", async () => {
     let seenUrl = "";
@@ -165,6 +269,92 @@ describe("typesafe client — retry", () => {
     expect(r.noul).toBe(0.7);
     expect(calls).toBe(2);
     expect(delays).toEqual([10]);
+  });
+
+  it("retries honoring Retry-After as an HTTP-date", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const retryAt = new Date(Date.now() + 5000).toUTCString();
+    const fetchFn = (async () => {
+      calls += 1;
+      if (calls === 1) return jsonResponse({}, 429, { "retry-after": retryAt });
+      return jsonResponse({ model: "m", answers: { q: { type: "noul", noul: 0.2 } } });
+    }) as unknown as typeof fetch;
+    const client = createTypesafeClient({
+      baseUrl: "http://ts",
+      fetchFn,
+      maxAttempts: 2,
+      sleepFn: async (ms) => {
+        delays.push(ms);
+      },
+    });
+    const r = await client.noul({
+      state: {},
+      model: "m",
+      instructions: "i",
+      criteria: { true: "t", false: "f" },
+    });
+    expect(r.noul).toBe(0.2);
+    expect(calls).toBe(2);
+    expect(delays).toHaveLength(1);
+    // An HTTP-date resolves to the second, and there is real clock skew between constructing the
+    // header above and the client evaluating it — assert a window around 5000ms, not an exact ms.
+    expect(delays[0]).toBeGreaterThan(3000);
+    expect(delays[0]).toBeLessThanOrEqual(5000);
+  });
+
+  it("caps a Retry-After larger than 60s at the 60s ceiling", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const fetchFn = (async () => {
+      calls += 1;
+      // 120 seconds — well past the 60s cap.
+      if (calls === 1) return jsonResponse({}, 429, { "retry-after": "120" });
+      return jsonResponse({ model: "m", answers: { q: { type: "noul", noul: 0.2 } } });
+    }) as unknown as typeof fetch;
+    const client = createTypesafeClient({
+      baseUrl: "http://ts",
+      fetchFn,
+      maxAttempts: 2,
+      sleepFn: async (ms) => {
+        delays.push(ms);
+      },
+    });
+    await client.noul({
+      state: {},
+      model: "m",
+      instructions: "i",
+      criteria: { true: "t", false: "f" },
+    });
+    expect(delays).toEqual([60_000]);
+  });
+
+  it("prefers retry-after-ms over Retry-After when both are present", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const fetchFn = (async () => {
+      calls += 1;
+      if (calls === 1) {
+        return jsonResponse({}, 429, { "retry-after-ms": "25", "retry-after": "120" });
+      }
+      return jsonResponse({ model: "m", answers: { q: { type: "noul", noul: 0.2 } } });
+    }) as unknown as typeof fetch;
+    const client = createTypesafeClient({
+      baseUrl: "http://ts",
+      fetchFn,
+      maxAttempts: 2,
+      sleepFn: async (ms) => {
+        delays.push(ms);
+      },
+    });
+    await client.noul({
+      state: {},
+      model: "m",
+      instructions: "i",
+      criteria: { true: "t", false: "f" },
+    });
+    // 25ms (retry-after-ms), never the 120s Retry-After also present on the same response.
+    expect(delays).toEqual([25]);
   });
 
   it("retries a 529, and a generic 5xx, up to maxAttempts", async () => {

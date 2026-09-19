@@ -152,6 +152,63 @@ describe("typesafeCitationJudge — threshold mapping", () => {
   });
 });
 
+// A 2xx TypeSafe body that does not carry a well-formed single Noul answer means the judge
+// ANSWERED, unusably — the same fault class as the chat adapter's unparseable JSON reply, and it
+// must be classified `{kind: "unparseable"}` here (folded into `parseFailures` upstream in
+// citation.ts), never `{kind: "transport"}` (which citation.ts folds into `judgeErrors`).
+// Conflating the two was the exact defect THE-717 fixed for the chat judge; this pins the same
+// distinction for TypeSafe. "No persistence": citation.ts's stage-2 loop only stamps a chunk_id
+// from `verdicts.get(...)`, and an `unparseable` outcome never populates that map — so a
+// malformed response results in no citation row being written, verified at the seam here.
+describe("typesafeCitationJudge — a malformed 2xx is unparseable, not transport", () => {
+  function adapterFor(body: unknown) {
+    const fetchFn = (async () => jsonResponse(body)) as unknown as typeof fetch;
+    const client = createTypesafeClient({ baseUrl: "http://ts", apiKey: "k", fetchFn });
+    return typesafeCitationJudge(client, {
+      model: "m",
+      threshold: 0.5,
+      filter: compileEgressFilter([]),
+    });
+  }
+  const outcomeOf = (adapter: ReturnType<typeof adapterFor>) =>
+    adapter({ source: "s", response: "r", sourcePaths: [] });
+
+  it("noul 7 (out of [0, 1]) -> unparseable, never persisted as cited=true", async () => {
+    await expect(
+      outcomeOf(adapterFor({ model: "m", answers: { q: { type: "noul", noul: 7 } } })),
+    ).resolves.toEqual({ kind: "unparseable" });
+  });
+
+  it("noul -0.1 (out of [0, 1]) -> unparseable", async () => {
+    await expect(
+      outcomeOf(adapterFor({ model: "m", answers: { q: { type: "noul", noul: -0.1 } } })),
+    ).resolves.toEqual({ kind: "unparseable" });
+  });
+
+  it("two answers -> unparseable (never 'take the first key')", async () => {
+    await expect(
+      outcomeOf(
+        adapterFor({
+          model: "m",
+          answers: { q1: { type: "noul", noul: 0.9 }, q2: { type: "noul", noul: 0.1 } },
+        }),
+      ),
+    ).resolves.toEqual({ kind: "unparseable" });
+  });
+
+  it("zero answers -> unparseable", async () => {
+    await expect(outcomeOf(adapterFor({ model: "m", answers: {} }))).resolves.toEqual({
+      kind: "unparseable",
+    });
+  });
+
+  it('wrong answer "type" -> unparseable', async () => {
+    await expect(
+      outcomeOf(adapterFor({ model: "m", answers: { q: { type: "boolean", noul: 0.5 } } })),
+    ).resolves.toEqual({ kind: "unparseable" });
+  });
+});
+
 // THE-934: egress refusal must happen BEFORE any request is built — this test FAILS if the
 // `assertSourcePathsAllowed` call in typesafeCitationJudge is removed, because the fetch mock
 // would then be invoked and `fetchCalled` would flip true.

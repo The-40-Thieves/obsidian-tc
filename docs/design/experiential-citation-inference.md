@@ -95,6 +95,15 @@ gateway judge — when `provider: "typesafe"` is configured without a resolvable
 or API key. A quietly-ignored typesafe block that ran the gateway judge instead would look
 identical to a correctly-configured one in every log line that matters.
 
+`runtime/plane-wiring.ts`'s scheduled citation job registers on the same "a judge can be built"
+invariant, not on "a gateway is configured": a first draft of this ticket left the job's FOUR-
+condition gate requiring `deps.roles` (a gateway) unconditionally, which meant a `provider:
+"typesafe"` deployment with no gateway configured built a perfectly valid judge and then silently
+never got the scheduled job registered — inconsistent with the one-shot `citation-infer` CLI,
+which has no such restriction. The gate now requires `deps.roles` only when the resolved provider
+is `"gateway"` (the default); a `"typesafe"` provider needs no gateway at all, since
+`buildCitationJudge` builds its own TypeSafe client independent of it.
+
 ## `MAX_JUDGED`'s counterpart, and why it no longer has one
 
 `maxJudged` (THE-617 item 3, default 25, override via `--max-judged`) used to be documented as the

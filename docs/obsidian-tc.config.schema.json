@@ -1177,7 +1177,7 @@
                 },
                 "baseUrl": {
                   "default": "https://api.typesafe.ai",
-                  "description": "TypeSafe API base URL.",
+                  "description": "TypeSafe API base URL. Must be https:// unless the host is loopback (a local test/dev endpoint) — this URL carries the bearer key and vault-derived text.",
                   "type": "string",
                   "format": "uri"
                 },

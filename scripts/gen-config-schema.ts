@@ -264,7 +264,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // rejected, when provider is "typesafe"). Absent block reproduces exactly today's behaviour: the
   // gateway's `judge` role, or stage-1-only mode. No existing key, type, default or constraint
   // moved.
-  "bb1bc0c8d8465929581a7e67a283c53fdf4f364864d46504286c965b083e4198";
+  // THE-1078 review round 2: rebaselined again for two cross-vendor-review fixes, both scoped
+  // entirely to describe() text and validation logic already introduced above (no new key, no
+  // retyped key): (1) judge.model's format check became a POSITIVE predicate (a dotted numeric
+  // version suffix) instead of a `-latest`/`-preview` blacklist, and was narrowed to fire only
+  // when provider is "typesafe" — a `model` set alongside the default "gateway" provider is no
+  // longer format-checked at all, matching that block's "the gateway's own contract" describe()
+  // text; (2) judge.baseUrl now refuses a plain http:// endpoint unless the host is loopback
+  // (localhost/127.0.0.1/[::1]) — the URL carries the bearer key and vault-derived text.
+  "2297799969167fc1c0445ecda3292f2fa0118d56b7429c18f9cc09344d8d0954";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

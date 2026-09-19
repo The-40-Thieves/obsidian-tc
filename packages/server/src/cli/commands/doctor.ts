@@ -19,7 +19,7 @@ import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { createEmbeddingProvider } from "../../embeddings";
 import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
-import { createTypesafeClient, typesafeNoul } from "../../gateway/typesafe";
+import { createTypesafeClient } from "../../gateway/typesafe";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
 import { buildRerankerDoctorProbes, embeddingsDeprecation } from "../../providers/registry";
 import type { ProviderDescriptor } from "../../providers/types";
@@ -94,8 +94,13 @@ async function probeDenseProvider(
  * check, not a rehearsal of a real citation judgement. Never throws: every failure (missing key,
  * network, HTTP, malformed shape) becomes a reason string, and the key itself is never included in
  * it (TypesafeError's message never carries it — see gateway/typesafe.ts).
+ *
+ * Exported for a direct unit test (test/doctor-probe-typesafe-citation-judge.test.ts) — every
+ * other probe in this file is exercised only indirectly through `run_doctor`'s wiring, but this
+ * one is the one place the key actually gets resolved and handed to a client, so it gets its own
+ * test rather than relying on the wiring test to notice a leak.
  */
-async function probeTypesafeCitationJudge(judge: {
+export async function probeTypesafeCitationJudge(judge: {
   model: string;
   apiKey?: string;
   apiKeyEnv?: string;
@@ -116,7 +121,7 @@ async function probeTypesafeCitationJudge(judge: {
   });
   const started = Date.now();
   try {
-    await typesafeNoul(client, {
+    await client.noul({
       state: { probe: "ok" },
       instructions: 'Does the state contain the word "ok"?',
       criteria: { true: 'The state\'s "probe" field is exactly "ok".', false: "It is not." },

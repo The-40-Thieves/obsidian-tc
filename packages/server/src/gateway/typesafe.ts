@@ -49,20 +49,38 @@ export interface TypesafeNoulResult {
 }
 
 /**
- * Thrown for a transport failure (non-2xx after retries exhausted, network error, timeout, or a
- * response whose shape doesn't carry what was asked for). Carries `status` and `requestId` when
- * TypeSafe's own JSON body provided them, so a caller can log a specific failure without ever
- * touching the key.
+ * Which kind of failure this is — load-bearing for `experiential/citation-judge.ts`'s adapter,
+ * which must classify a failure as `unparseable` (the judge ANSWERED, unusably) vs `transport`
+ * (it never answered), the same distinction citation.ts has always drawn for the chat judge:
+ *   - "shape"   — a 2xx response that does not carry a well-formed single Noul answer (malformed
+ *                 JSON, zero or more than one `answers` entry, wrong `type`, or `noul` outside
+ *                 [0, 1]). The judge DID answer; the answer just cannot be trusted. -> unparseable
+ *   - "http"    — a non-2xx status, after any retries. -> transport
+ *   - "network" — a fetch-level throw (DNS, connection reset, etc). -> transport
+ *   - "timeout" — this client's own per-attempt AbortController fired. -> transport
+ */
+export type TypesafeErrorKind = "shape" | "http" | "network" | "timeout";
+
+/**
+ * Thrown for any TypeSafe request failure. Carries `status` and `requestId` when TypeSafe's own
+ * JSON body provided them, and `kind` (see `TypesafeErrorKind`) so a caller can classify the
+ * failure without string-matching the message. The key is never included in this error's message
+ * under any `kind`.
  */
 export class TypesafeError extends Error {
   readonly status?: number;
   readonly requestId?: string;
+  readonly kind: TypesafeErrorKind;
 
-  constructor(message: string, opts: { status?: number; requestId?: string } = {}) {
+  constructor(
+    message: string,
+    opts: { status?: number; requestId?: string; kind?: TypesafeErrorKind } = {},
+  ) {
     super(message);
     this.name = "TypesafeError";
     this.status = opts.status;
     this.requestId = opts.requestId;
+    this.kind = opts.kind ?? "http";
     Object.setPrototypeOf(this, TypesafeError.prototype);
   }
 }
@@ -126,18 +144,20 @@ interface TypesafeAnswer {
   noul?: number;
 }
 
-/** A Noul call asks exactly ONE question, so the answer to unwrap is whichever single key
- *  `answers` carries back — not necessarily the literal `QUESTION_ID` this client sent, since
- *  TypeSafe echoes the id the CALLER's question named (a captured contract fixture from a
- *  differently-named question, e.g. "uses_source", still parses correctly). `undefined` when
- *  `answers` is absent or empty — the caller turns that into a typed error, never `undefined`
- *  silently threaded through as a score. */
+/** A Noul call asks exactly ONE question, so a well-formed response carries EXACTLY one entry in
+ *  `answers` — not necessarily under the literal `QUESTION_ID` this client sent, since TypeSafe
+ *  echoes back the id the CALLER's question named (a captured contract fixture from a
+ *  differently-named question, e.g. "uses_source", still parses correctly). Returns `undefined`
+ *  for zero OR more than one entry — a multi-answer body is never resolved by "take the first
+ *  key", because that would silently accept a shape this client never asked for. The caller turns
+ *  `undefined` into a typed (`kind: "shape"`) error, never `undefined` threaded through as a
+ *  score. */
 function soleAnswer(
   answers: Record<string, TypesafeAnswer> | undefined,
 ): TypesafeAnswer | undefined {
   if (!answers) return undefined;
-  for (const key of Object.keys(answers)) return answers[key];
-  return undefined;
+  const keys = Object.keys(answers);
+  return keys.length === 1 ? answers[keys[0] as string] : undefined;
 }
 
 interface TypesafeResponseBody {
@@ -200,8 +220,10 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
         // Network-level throw or our own per-attempt timeout — both transient.
         lastError =
           (e as Error).name === "AbortError"
-            ? new TypesafeError("typesafe: request timed out")
-            : new TypesafeError(`typesafe: request failed (${(e as Error).message ?? e})`);
+            ? new TypesafeError("typesafe: request timed out", { kind: "timeout" })
+            : new TypesafeError(`typesafe: request failed (${(e as Error).message ?? e})`, {
+                kind: "network",
+              });
       } finally {
         clearTimeout(timer);
       }
@@ -212,19 +234,25 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
           try {
             body = (await res.json()) as TypesafeResponseBody;
           } catch {
-            throw new TypesafeError("typesafe: response was not valid JSON");
+            throw new TypesafeError("typesafe: response was not valid JSON", { kind: "shape" });
           }
           const answer = soleAnswer(body.answers);
           if (
             answer?.type !== "noul" ||
             typeof answer.noul !== "number" ||
-            !Number.isFinite(answer.noul)
+            !Number.isFinite(answer.noul) ||
+            answer.noul < 0 ||
+            answer.noul > 1
           ) {
-            // THE SHAPE-CHANGE CONTRACT: a missing/malformed answers.<id>.noul is a typed error,
-            // never `undefined` silently threaded through as a score.
+            // THE SHAPE-CHANGE CONTRACT: a missing/malformed answers.<id>.noul, a multi-answer
+            // body, or a noul outside [0, 1] is a typed (`kind: "shape"`) error, never `undefined`
+            // or an out-of-range number silently threaded through as a score. A 2xx body this
+            // malformed means the judge ANSWERED, just unusably — `kind: "shape"` is what lets
+            // the citation-judge adapter fold it into `parseFailures`, not `judgeErrors`.
             throw new TypesafeError(
-              "typesafe: response is missing a well-formed answers.<id>.noul (Noul question)",
-              { requestId: body.request_id },
+              "typesafe: response is missing a well-formed answers.<id>.noul (Noul question) — " +
+                'expected exactly one answer, type "noul", noul in [0, 1]',
+              { requestId: body.request_id, kind: "shape" },
             );
           }
           return {
@@ -258,6 +286,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
         lastError = new TypesafeError(`typesafe: HTTP ${res.status}`, {
           status: res.status,
           requestId,
+          kind: "http",
         });
         // 401/422 are OUR request being wrong (auth, malformed body) — retrying repeats the
         // mistake. 429/529/other 5xx are transient. DELIBERATE DEVIATION from THE-615's "a bare
@@ -291,21 +320,4 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
   }
 
   return { noul };
-}
-
-/**
- * Convenience wrapper matching this ticket's requested shape: one Noul question in, `{noul,
- * model, usage}` out. `createTypesafeClient(...).noul(...)` already returns exactly this shape —
- * this function exists so a caller need not know the client interface to ask one question.
- */
-export async function typesafeNoul(
-  client: TypesafeClient,
-  input: {
-    state: Record<string, unknown>;
-    instructions: string;
-    criteria: TypesafeCriteria;
-    model: string;
-  },
-): Promise<TypesafeNoulResult> {
-  return client.noul(input);
 }

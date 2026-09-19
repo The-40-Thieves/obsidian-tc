@@ -306,6 +306,38 @@ describe("ExperientialConfigSchema.citationInfer.judge (THE-1078)", () => {
     });
   });
 
+  // baseUrl carries the bearer key and vault-derived text on every request — a plain http://
+  // endpoint sends both in cleartext. https:// is required unless the host is loopback, mirroring
+  // the carve-out server.schema.ts's own F2 interlock draws for the HTTP transport bind.
+  it("rejects an http:// baseUrl on a non-loopback host", () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: { judge: { baseUrl: "http://ts.example.com" } },
+        },
+      }),
+    ).toThrow(/https/i);
+  });
+
+  it("accepts an http:// baseUrl on loopback hosts (localhost, 127.0.0.1, [::1]) for local test/dev", () => {
+    for (const host of ["http://localhost:4001", "http://127.0.0.1:4001", "http://[::1]:4001"]) {
+      const c = ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { baseUrl: host } } },
+      });
+      expect(c.experiential.citationInfer.judge?.baseUrl).toBe(host);
+    }
+  });
+
+  it("accepts an https:// baseUrl on any host", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { citationInfer: { judge: { baseUrl: "https://ts.example.com" } } },
+    });
+    expect(c.experiential.citationInfer.judge?.baseUrl).toBe("https://ts.example.com");
+  });
+
   it('rejects provider "typesafe" with no model', () => {
     expect(() =>
       ServerConfigSchema.parse({
@@ -339,30 +371,86 @@ describe("ExperientialConfigSchema.citationInfer.judge (THE-1078)", () => {
     ).toThrow();
   });
 
-  it('rejects a model ending in "-latest"', () => {
+  // The format check is a POSITIVE predicate (must end in a dotted numeric version), not a
+  // blacklist of known alias spellings — a blacklist of "-latest"/"-preview" alone let an equally
+  // floating "jev" or "totally-unversioned" straight through. Scoped to provider "typesafe" only:
+  // the gateway's own `judge` role may name any model string it likes.
+  it('rejects a model ending in "-latest" (provider "typesafe")', () => {
     expect(() =>
       ServerConfigSchema.parse({
         ...base,
-        experiential: { citationInfer: { judge: { model: "jev-latest" } } },
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "jev-latest", threshold: 0.9 },
+          },
+        },
       }),
-    ).toThrow(/pin a versioned model id/);
+    ).toThrow(/pinned, versioned id/);
   });
 
-  it('rejects a model ending in "-preview"', () => {
+  it('rejects a model ending in "-preview" (provider "typesafe")', () => {
     expect(() =>
       ServerConfigSchema.parse({
         ...base,
-        experiential: { citationInfer: { judge: { model: "jev-1.13.0-preview" } } },
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "jev-1.13.0-preview", threshold: 0.9 },
+          },
+        },
       }),
-    ).toThrow(/pin a versioned model id/);
+    ).toThrow(/pinned, versioned id/);
   });
 
-  it("accepts a pinned, versioned model id on the default gateway provider", () => {
+  it('rejects an entirely unversioned model, "jev" (provider "typesafe")', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: { judge: { provider: "typesafe", model: "jev", threshold: 0.9 } },
+        },
+      }),
+    ).toThrow(/pinned, versioned id/);
+  });
+
+  it('rejects "totally-unversioned" (provider "typesafe")', () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: {
+            judge: { provider: "typesafe", model: "totally-unversioned", threshold: 0.9 },
+          },
+        },
+      }),
+    ).toThrow(/pinned, versioned id/);
+  });
+
+  it('accepts "jev-1.13.0" (provider "typesafe")', () => {
     const c = ServerConfigSchema.parse({
       ...base,
-      experiential: { citationInfer: { judge: { model: "jev-1.13.0" } } },
+      experiential: {
+        citationInfer: { judge: { provider: "typesafe", model: "jev-1.13.0", threshold: 0.9 } },
+      },
     });
     expect(c.experiential.citationInfer.judge?.model).toBe("jev-1.13.0");
+  });
+
+  it('accepts a two-part version, "jev-1.13" (provider "typesafe")', () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: {
+        citationInfer: { judge: { provider: "typesafe", model: "jev-1.13", threshold: 0.9 } },
+      },
+    });
+    expect(c.experiential.citationInfer.judge?.model).toBe("jev-1.13");
+  });
+
+  it("does NOT format-check the model on the default gateway provider — that block is the gateway's own contract", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { citationInfer: { judge: { model: "jev-latest" } } },
+    });
+    expect(c.experiential.citationInfer.judge?.model).toBe("jev-latest");
   });
 });
 

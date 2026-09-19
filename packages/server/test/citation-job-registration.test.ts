@@ -88,6 +88,41 @@ describe("THE-717: the citation job registers only when it could actually run", 
     expect(handlersWith({ ...READY, embed: undefined }).has("citation")).toBe(false);
   });
 
+  // THE-1078: the gate used to hard-require `deps.roles` (a gateway) unconditionally, so a
+  // `provider: "typesafe"` deployment with no gateway configured built a perfectly valid judge
+  // and then never got the scheduled job registered — silently, and inconsistently with the
+  // one-shot CLI path, which has no such restriction. The real invariant is "a judge can be
+  // built", and a gateway is only ONE way to satisfy it.
+  it('registers with provider "typesafe" and NO gateway (roles: null) — the fixed gap', () => {
+    expect(
+      handlersWith({
+        ...READY,
+        roles: null,
+        citationInfer: {
+          enabled: true,
+          transcriptIndex: "/tmp/idx.jsonl",
+          judge: { provider: "typesafe", model: "jev-1.13.0", threshold: 0.9, apiKey: "k" },
+        },
+      }).has("citation"),
+    ).toBe(true);
+  });
+
+  it('still does NOT register with an EXPLICIT provider "gateway" and no roles', () => {
+    // Same invariant, spelled explicitly rather than relying on the default: a declared
+    // `provider: "gateway"` is not itself a judge — it still needs `deps.roles`.
+    expect(
+      handlersWith({
+        ...READY,
+        roles: null,
+        citationInfer: {
+          enabled: true,
+          transcriptIndex: "/tmp/idx.jsonl",
+          judge: { provider: "gateway" },
+        },
+      }).has("citation"),
+    ).toBe(false);
+  });
+
   it("leaves the OTHER handlers' registration untouched", () => {
     // A regression guard: the citation branch sits beside note-quality and the gateway jobs, and
     // it must not change when they register.

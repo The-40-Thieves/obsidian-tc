@@ -13,7 +13,7 @@
 // expects them at the old path.
 
 import { resolveApiKey } from "../embeddings/provider";
-import { createTypesafeClient, type TypesafeClient, typesafeNoul } from "../gateway/typesafe";
+import { createTypesafeClient, type TypesafeClient, TypesafeError } from "../gateway/typesafe";
 import {
   assertSourcePathsAllowed,
   type EgressFilter,
@@ -146,7 +146,7 @@ export function typesafeCitationJudge(
     // Checked BEFORE any request is built — a test asserts fetch is never called on refusal.
     assertSourcePathsAllowed(opts.filter, "judge", sourcePaths);
     try {
-      const r = await typesafeNoul(client, {
+      const r = await client.noul({
         state: { source: source.slice(0, 1500), response: response.slice(0, 4000) },
         instructions:
           "Does the `response` use information from the `source`? Using information means the " +
@@ -162,6 +162,12 @@ export function typesafeCitationJudge(
       return { kind: "ok", verdict: { cited: r.noul >= opts.threshold, score: r.noul } };
     } catch (e) {
       if (e instanceof EgressViolationError) throw e;
+      // A `TypesafeError` with `kind: "shape"` means the judge ANSWERED — a 2xx with a malformed
+      // or out-of-range Noul — which is the same fault class the chat adapter's own unparseable
+      // JSON reply is, and must be counted the same way (`parseFailures`, not `judgeErrors`).
+      // Every other kind ("http", "network", "timeout") — and any non-TypesafeError throw — never
+      // got an answer at all, and stays `transport`.
+      if (e instanceof TypesafeError && e.kind === "shape") return { kind: "unparseable" };
       return { kind: "transport" };
     }
   };

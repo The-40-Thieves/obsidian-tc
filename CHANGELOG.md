@@ -24,7 +24,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   either way. `doctor --probe` gained a matching `experiential.citation-judge` check (a one-token
   reachability probe, never the key) for the new provider. Existing deployments are unaffected: the
   `judge` block is optional, and its absence is byte-identical to every citation-inference run
-  before this change.
+  before this change. The scheduled citation job's registration gate requires a gateway
+  (`deps.roles`) only when the resolved provider is `"gateway"` — a `"typesafe"` deployment with no
+  gateway configured now registers the scheduled pass, matching the unrestricted one-shot
+  `citation-infer` CLI path.
 
 ## [1.30.1] - 2026-09-13
 
