@@ -87,19 +87,10 @@ async function probeDenseProvider(
   }
 }
 
-/**
- * THE-1078 — the opt-in TypeSafe Jev reachability probe behind `doctor --probe`, only when
- * `experiential.citationInfer.judge.provider` is "typesafe". A ONE-TOKEN state and a single Noul
- * question, so a healthy probe costs about as little as the endpoint allows — this is a liveness
- * check, not a rehearsal of a real citation judgement. Never throws: every failure (missing key,
- * network, HTTP, malformed shape) becomes a reason string, and the key itself is never included in
- * it (TypesafeError's message never carries it — see gateway/typesafe.ts).
- *
- * Exported for a direct unit test (test/doctor-probe-typesafe-citation-judge.test.ts) — every
- * other probe in this file is exercised only indirectly through `run_doctor`'s wiring, but this
- * one is the one place the key actually gets resolved and handed to a client, so it gets its own
- * test rather than relying on the wiring test to notice a leak.
- */
+/** THE-1078 — TypeSafe Jev reachability probe behind `doctor --probe` (provider "typesafe" only):
+ *  a one-token state and one Noul, a liveness check rather than a real judgement. Never throws;
+ *  every failure becomes a `reason` that never carries the key (see gateway/typesafe.ts). Exported
+ *  for its own unit test, since this is the one place the key is resolved and handed to a client. */
 export async function probeTypesafeCitationJudge(judge: {
   model: string;
   apiKey?: string;
@@ -388,8 +379,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
                 if (!judge?.model) {
                   return Promise.resolve({ ok: false, reason: "no model configured" });
                 }
-                // Rebuilt rather than passed through: narrowing `judge.model` above narrows that
-                // PROPERTY ACCESS, not `judge`'s own (still-optional-model) type.
+                // Rebuilt, not passed through: the narrowing above is on the property, not on `judge`.
                 return probeTypesafeCitationJudge({
                   model: judge.model,
                   apiKey: judge.apiKey,
