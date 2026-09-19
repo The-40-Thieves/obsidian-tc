@@ -18,6 +18,8 @@
       "version": "1.31.0",
       "devDependencies": {
         "@napi-rs/cli": "^3.7.2",
+        "@types/node": "^24.0.0",
+        "vitest": "^4.1.10",
       },
     },
     "packages/plugin": {

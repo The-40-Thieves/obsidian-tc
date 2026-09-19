@@ -28,14 +28,17 @@
     ]
   },
   "scripts": {
-    "build": "napi build --platform --release --js ./target/napi-generated.js --dts ./target/napi-generated.d.ts",
-    "build:debug": "napi build --platform --js ./target/napi-generated.js --dts ./target/napi-generated.d.ts",
+    "build": "bun scripts/build.mjs --release",
+    "build:debug": "bun scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "cargo test",
+    "test:build-script": "vitest run",
     "version": "napi version"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.2"
+    "@napi-rs/cli": "^3.7.2",
+    "@types/node": "^24.0.0",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=24"
