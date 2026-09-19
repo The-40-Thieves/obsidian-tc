@@ -106,6 +106,21 @@ function shellQuote(value: string): string {
   return SAFE_BARE_ARG.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+/** THE-1082 fix round 3 (second cross-vendor review round): render one `--flag value` pair,
+ *  choosing the `--flag=value` form whenever `value` starts with `-`. A configured vault id MAY
+ *  start with `-` (`VaultConfigSchema.id` allows it, and `SAFE_BARE_ARG` above happily treats `-`
+ *  as bare-safe), so e.g. a vault named `-prod` rendered as `--vault -prod` passes a real shell
+ *  through untouched — shell quoting cannot help here, since the shell already stripped it before
+ *  `obsidian-tc` ever sees argv — but `cli/args.ts`'s `flagValue` then reads the NEXT token
+ *  (`-prod`) as itself another flag and refuses with "requires a value". The `=` form sidesteps
+ *  that: `flagValue` now recognises `--flag=value` as one token, so `-prod` never has to look like
+ *  a free-standing argv element. Used unconditionally for every rendered flag (not just `--vault`)
+ *  since nothing here can promise `tool`/`args_hash` will never start with `-` either. */
+function renderFlag(flag: string, value: string): string {
+  const quoted = shellQuote(value);
+  return value.startsWith("-") ? `${flag}=${quoted}` : `${flag} ${quoted}`;
+}
+
 /** THE-1082 (GH #945; fix round 2 per cross-vendor review): the text-channel rendering of an
  *  `elicit_required` error's token path. `mcp/server.ts`'s modern SEP-2260 `inputRequired` round
  *  trip (`isModern && opts.elicitCodec && canElicit`) never reaches this — it intercepts
@@ -143,9 +158,9 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
     );
   }
   const vault = details?.vault;
-  const vaultFlag = typeof vault === "string" ? ` --vault ${shellQuote(vault)}` : "";
+  const vaultFlag = typeof vault === "string" ? ` ${renderFlag("--vault", vault)}` : "";
   return (
-    `confirm with: obsidian-tc elicit --hash ${shellQuote(hash)} --tool ${shellQuote(tool)}${vaultFlag}\n` +
+    `confirm with: obsidian-tc elicit ${renderFlag("--hash", hash)} ${renderFlag("--tool", tool)}${vaultFlag}\n` +
     "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
     "positional argument)\n" +
     "then retry the same call with elicit_token: <token>"

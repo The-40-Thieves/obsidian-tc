@@ -345,6 +345,42 @@ describe("parseCliArgs — elicit (THE-826)", () => {
     expect(cmd).not.toHaveProperty("vault");
     expect(cmd).not.toHaveProperty("caller");
   });
+
+  // THE-1082 fix round 3 (GH #945, second cross-vendor review): `--flag=value` — a configured
+  // vault id may start with `-` (VaultConfigSchema.id has no character restriction), and the
+  // space form (`--vault -prod`) can never accept that: `flagValue` deliberately refuses a
+  // following token that starts with `-` (it would otherwise swallow the NEXT flag as this one's
+  // value), and there is no way to escape that at the shell level — argv is already split by the
+  // time this parser sees it. error-rendering.ts's `renderFlag` emits the `=` form specifically
+  // for this case.
+  describe("--flag=value form (THE-1082 fix round 3)", () => {
+    it("parses identically to the space form for a normal id", () => {
+      const eqForm = parse(["--hash=h1", "--tool=delete_note", "--vault=main"]);
+      const spaceForm = parse(["--hash", "h1", "--tool", "delete_note", "--vault", "main"]);
+      expect(eqForm).toStrictEqual(spaceForm);
+    });
+
+    it("a hyphen-leading vault id (-prod) parses ONLY in the = form", () => {
+      const cmd = parse(["--hash", "h1", "--tool", "delete_note", "--vault=-prod"]);
+      expect(cmd).toMatchObject({ kind: "elicit-mint", vault: "-prod" });
+      // The space form is a hard usage error, not a silent misparse — `-prod` reads as its OWN
+      // flag, so `--vault` is left with no value at all.
+      const spaceForm = parse(["--hash", "h1", "--tool", "delete_note", "--vault", "-prod"]);
+      expect(spaceForm.kind).toBe("error");
+      expect(spaceForm).toMatchObject({ message: "--vault requires a value" });
+    });
+
+    it("a hyphen-leading vault id with a space (-x y) also parses only in the = form", () => {
+      const cmd = parse(["--hash", "h1", "--tool", "delete_note", "--vault=-x y"]);
+      expect(cmd).toMatchObject({ kind: "elicit-mint", vault: "-x y" });
+    });
+
+    it("does not break --hash/--tool's own USAGE checks: = form with an empty value still counts as present", () => {
+      // Documenting existing flagValue semantics (same as --scopes "" above): an explicit `=`
+      // with nothing after it is a present-but-empty value, not an absent flag.
+      expect(parse(["--hash=", "--tool=t"])).toMatchObject({ hash: "" });
+    });
+  });
 });
 
 describe("parseCliArgs — reflect no longer takes --max-judged (THE-747)", () => {

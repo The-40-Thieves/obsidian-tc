@@ -151,6 +151,30 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
       expect(detail).toContain("--vault v1");
       expect(detail).not.toContain("'v1'");
     });
+
+    // Fix round 3 (second cross-vendor review): a vault id STARTING WITH `-` is the case shell
+    // quoting alone cannot fix — `cli/args.ts`'s `flagValue` rejects a space-form value that
+    // starts with `-` regardless of what the shell handed it, so this MUST use `--flag=value`.
+    it("a hyphen-leading vault id (-prod) uses --vault=-prod, not --vault -prod", () => {
+      const detail = formatErrorDetail({
+        code: "elicit_required",
+        message: "human confirmation required",
+        retryable: false,
+        details: { args_hash: "abc123", tool: "write_note", vault: "-prod" },
+      });
+      expect(detail).toContain("--vault=-prod");
+      expect(detail).not.toContain("--vault -prod");
+    });
+
+    it("a hyphen-leading vault id with a space (-x y) uses the = form, single-quoted", () => {
+      const detail = formatErrorDetail({
+        code: "elicit_required",
+        message: "human confirmation required",
+        retryable: false,
+        details: { args_hash: "abc123", tool: "write_note", vault: "-x y" },
+      });
+      expect(detail).toContain("--vault='-x y'");
+    });
   });
 });
 
@@ -408,7 +432,19 @@ describe("paste-ability: the rendered line survives a REAL shell and mints a rea
 
   // Codex cross-vendor review, item A: a vault id with a space, and one with a `$(...)`
   // substring — proving neither can alter the parsed command or run as a real shell expansion.
-  for (const vaultId of ["vault with spaces", "$(printf INJECTED)", "o'brien's vault"]) {
+  // Second review round (fix round 3): `-prod` and `-x y` — a vault id that STARTS WITH `-`
+  // (VaultConfigSchema.id allows it) is the case shell-quoting alone cannot fix: `/bin/sh` passes
+  // `--vault -prod` through untouched, but `cli/args.ts`'s `flagValue` then reads `-prod` as
+  // itself another flag and refuses. `renderFlag`'s `--vault=-prod` form is what makes these two
+  // mintable at all — without it, `assertMintable` below would fail at `planElicitMint`, not at
+  // the shell.
+  for (const vaultId of [
+    "vault with spaces",
+    "$(printf INJECTED)",
+    "o'brien's vault",
+    "-prod",
+    "-x y",
+  ]) {
     it(`survives a shell-unsafe vault id: ${JSON.stringify(vaultId)}`, () => {
       const db = freshDb();
       const ctx: CallerContext = {
