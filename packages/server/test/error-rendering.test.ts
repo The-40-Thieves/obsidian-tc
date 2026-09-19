@@ -350,108 +350,64 @@ describe("errorToResult (mcp/server.ts): both throw sites render a complete CLI 
   });
 });
 
-describe("paste-ability: the rendered line survives a REAL shell and mints a real plan", () => {
-  /** Real POSIX shell tokenization of a rendered command line — proves paste-ability the way a
-   *  hand-rolled parser cannot: `set --` performs the exact word-splitting/quote-removal a user's
-   *  shell does when the line is pasted in, and the `for`/`printf` loop reads the resulting
-   *  positional params back out NUL-delimited (a shell argument cannot itself contain a NUL, so
-   *  it can never be mistaken for the separator). If our quoting under-escapes anything, this is
-   *  what would show it — an argv that doesn't match what was rendered, or a shell that errors. */
-  function shellSplit(argsPortion: string): string[] {
-    const script = `set -- ${argsPortion}\nfor a; do printf '%s\\0' "$a"; done`;
-    const out = execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
-    return out.length === 0 ? [] : out.slice(0, -1).split("\0");
-  }
-
-  const CONFIRM_PREFIX = "confirm with: obsidian-tc ";
-
-  /** Extract the "confirm with:" line from rendered text, real-shell-split its argv (everything
-   *  after the fixed `obsidian-tc` program name), and parse it with the REAL CLI parser. */
-  function paste(text: string): CliCommand {
-    const line = text.split("\n").find((l) => l.startsWith(CONFIRM_PREFIX));
-    if (!line) throw new Error(`no "confirm with:" line in:\n${text}`);
-    const argv = shellSplit(line.slice(CONFIRM_PREFIX.length));
-    return parseCliArgs(argv);
-  }
-
-  function cfgFor(vaultId: string): Pick<ServerConfig, "vaults" | "elicitTtlSeconds"> {
-    return ServerConfigSchema.parse({ vaults: [{ id: vaultId, path: "/vault" }] });
-  }
-
-  function assertMintable(cmd: CliCommand, toolName: string, vaultId: string) {
-    expect(cmd.kind).toBe("elicit-mint");
-    if (cmd.kind !== "elicit-mint") throw new Error("unreachable");
-    expect(cmd.tool).toBe(toolName);
-    expect(cmd.vault).toBe(vaultId);
-    expect(typeof cmd.hash).toBe("string");
-    // The point of this test: run the SAME real parser output through the real mint planner and
-    // prove it actually plans a token — not just that parseCliArgs accepted the shape.
-    const plan = planElicitMint(cfgFor(vaultId), cmd);
-    expect(plan.toolName).toBe(toolName);
-    expect(plan.vaultId).toBe(vaultId);
-    expect(plan.argsHash).toBe(cmd.hash);
-  }
-
-  it("hitl.ts's conditional throw site (a plain vault id)", () => {
-    const db = freshDb();
-    const ctx: CallerContext = {
-      caller: "t",
-      authenticated: true,
-      grantedScopes: new Set(["*"]),
-      vaultId: "v1",
-      db,
-    };
-    try {
-      requireConfirmation(ctx, "write_note", { path: "a.md" }, true);
-      throw new Error("should have thrown");
-    } catch (e) {
-      if (!(e instanceof ObsidianTcError)) throw e;
-      const text = formatErrorDetail(e.toJSON());
-      if (!text) throw new Error("expected rendered text");
-      assertMintable(paste(text), "write_note", "v1");
+// THE-1082 (GH #945): CI's `build-test (windows-latest)` has no `/bin/sh` — these tests execute a
+// real POSIX shell to prove paste-ability, which is inherently a POSIX-only proof (the rendered
+// line is POSIX-quoted by design; a Windows client would need a different quoting scheme
+// entirely, out of scope here). Every OTHER assertion about this rendering — quoting of each
+// unsafe id (the "shell-quoting" describe block above), and both throw sites through
+// errorToResult/dispatch — has no shell dependency and still runs on every platform; only the
+// real-`/bin/sh` hop is POSIX-gated.
+describe.skipIf(process.platform === "win32")(
+  "paste-ability: the rendered line survives a REAL shell and mints a real plan",
+  () => {
+    /** Real POSIX shell tokenization of a rendered command line — proves paste-ability the way a
+     *  hand-rolled parser cannot: `set --` performs the exact word-splitting/quote-removal a user's
+     *  shell does when the line is pasted in, and the `for`/`printf` loop reads the resulting
+     *  positional params back out NUL-delimited (a shell argument cannot itself contain a NUL, so
+     *  it can never be mistaken for the separator). If our quoting under-escapes anything, this is
+     *  what would show it — an argv that doesn't match what was rendered, or a shell that errors. */
+    function shellSplit(argsPortion: string): string[] {
+      const script = `set -- ${argsPortion}\nfor a; do printf '%s\\0' "$a"; done`;
+      const out = execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
+      return out.length === 0 ? [] : out.slice(0, -1).split("\0");
     }
-  });
 
-  it("dispatch.ts's always-gated throw site (a plain vault id)", async () => {
-    const db = freshDb();
-    const reg = new ToolRegistry();
-    reg.register(destructiveTool("purge"));
-    const result = await reg.dispatch("purge", {}, {
-      caller: "t",
-      authenticated: true,
-      grantedScopes: new Set(["*"]),
-      vaultId: "v1",
-      db,
-    } as CallerContext);
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected elicit_required");
-    const text = formatErrorDetail(result.error);
-    if (!text) throw new Error("expected rendered text");
-    assertMintable(paste(text), "purge", "v1");
-  });
+    const CONFIRM_PREFIX = "confirm with: obsidian-tc ";
 
-  // Codex cross-vendor review, item A: a vault id with a space, and one with a `$(...)`
-  // substring — proving neither can alter the parsed command or run as a real shell expansion.
-  // Second review round (fix round 3): `-prod` and `-x y` — a vault id that STARTS WITH `-`
-  // (VaultConfigSchema.id allows it) is the case shell-quoting alone cannot fix: `/bin/sh` passes
-  // `--vault -prod` through untouched, but `cli/args.ts`'s `flagValue` then reads `-prod` as
-  // itself another flag and refuses. `renderFlag`'s `--vault=-prod` form is what makes these two
-  // mintable at all — without it, `assertMintable` below would fail at `planElicitMint`, not at
-  // the shell.
-  for (const vaultId of [
-    "vault with spaces",
-    "$(printf INJECTED)",
-    "o'brien's vault",
-    "-prod",
-    "-x y",
-  ]) {
-    it(`survives a shell-unsafe vault id: ${JSON.stringify(vaultId)}`, () => {
+    /** Extract the "confirm with:" line from rendered text, real-shell-split its argv (everything
+     *  after the fixed `obsidian-tc` program name), and parse it with the REAL CLI parser. */
+    function paste(text: string): CliCommand {
+      const line = text.split("\n").find((l) => l.startsWith(CONFIRM_PREFIX));
+      if (!line) throw new Error(`no "confirm with:" line in:\n${text}`);
+      const argv = shellSplit(line.slice(CONFIRM_PREFIX.length));
+      return parseCliArgs(argv);
+    }
+
+    function cfgFor(vaultId: string): Pick<ServerConfig, "vaults" | "elicitTtlSeconds"> {
+      return ServerConfigSchema.parse({ vaults: [{ id: vaultId, path: "/vault" }] });
+    }
+
+    function assertMintable(cmd: CliCommand, toolName: string, vaultId: string) {
+      expect(cmd.kind).toBe("elicit-mint");
+      if (cmd.kind !== "elicit-mint") throw new Error("unreachable");
+      expect(cmd.tool).toBe(toolName);
+      expect(cmd.vault).toBe(vaultId);
+      expect(typeof cmd.hash).toBe("string");
+      // The point of this test: run the SAME real parser output through the real mint planner and
+      // prove it actually plans a token — not just that parseCliArgs accepted the shape.
+      const plan = planElicitMint(cfgFor(vaultId), cmd);
+      expect(plan.toolName).toBe(toolName);
+      expect(plan.vaultId).toBe(vaultId);
+      expect(plan.argsHash).toBe(cmd.hash);
+    }
+
+    it("hitl.ts's conditional throw site (a plain vault id)", () => {
       const db = freshDb();
       const ctx: CallerContext = {
         caller: "t",
         authenticated: true,
         grantedScopes: new Set(["*"]),
-        vaultId,
+        vaultId: "v1",
         db,
       };
       try {
@@ -461,15 +417,69 @@ describe("paste-ability: the rendered line survives a REAL shell and mints a rea
         if (!(e instanceof ObsidianTcError)) throw e;
         const text = formatErrorDetail(e.toJSON());
         if (!text) throw new Error("expected rendered text");
-        // The real assertion: the vault id survives shell round-tripping BYTE FOR BYTE. If
-        // quoting under-escaped this value, the shell would either split it into extra
-        // arguments, run `$(...)` as a real substitution, or error outright — any of which
-        // would make this not equal the original string.
-        assertMintable(paste(text), "write_note", vaultId);
+        assertMintable(paste(text), "write_note", "v1");
       }
     });
-  }
-});
+
+    it("dispatch.ts's always-gated throw site (a plain vault id)", async () => {
+      const db = freshDb();
+      const reg = new ToolRegistry();
+      reg.register(destructiveTool("purge"));
+      const result = await reg.dispatch("purge", {}, {
+        caller: "t",
+        authenticated: true,
+        grantedScopes: new Set(["*"]),
+        vaultId: "v1",
+        db,
+      } as CallerContext);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected elicit_required");
+      const text = formatErrorDetail(result.error);
+      if (!text) throw new Error("expected rendered text");
+      assertMintable(paste(text), "purge", "v1");
+    });
+
+    // Codex cross-vendor review, item A: a vault id with a space, and one with a `$(...)`
+    // substring — proving neither can alter the parsed command or run as a real shell expansion.
+    // Second review round (fix round 3): `-prod` and `-x y` — a vault id that STARTS WITH `-`
+    // (VaultConfigSchema.id allows it) is the case shell-quoting alone cannot fix: `/bin/sh` passes
+    // `--vault -prod` through untouched, but `cli/args.ts`'s `flagValue` then reads `-prod` as
+    // itself another flag and refuses. `renderFlag`'s `--vault=-prod` form is what makes these two
+    // mintable at all — without it, `assertMintable` below would fail at `planElicitMint`, not at
+    // the shell.
+    for (const vaultId of [
+      "vault with spaces",
+      "$(printf INJECTED)",
+      "o'brien's vault",
+      "-prod",
+      "-x y",
+    ]) {
+      it(`survives a shell-unsafe vault id: ${JSON.stringify(vaultId)}`, () => {
+        const db = freshDb();
+        const ctx: CallerContext = {
+          caller: "t",
+          authenticated: true,
+          grantedScopes: new Set(["*"]),
+          vaultId,
+          db,
+        };
+        try {
+          requireConfirmation(ctx, "write_note", { path: "a.md" }, true);
+          throw new Error("should have thrown");
+        } catch (e) {
+          if (!(e instanceof ObsidianTcError)) throw e;
+          const text = formatErrorDetail(e.toJSON());
+          if (!text) throw new Error("expected rendered text");
+          // The real assertion: the vault id survives shell round-tripping BYTE FOR BYTE. If
+          // quoting under-escaped this value, the shell would either split it into extra
+          // arguments, run `$(...)` as a real substitution, or error outright — any of which
+          // would make this not equal the original string.
+          assertMintable(paste(text), "write_note", vaultId);
+        }
+      });
+    }
+  },
+);
 
 describe("the modern SEP-2260 inputRequired path is unaffected (regression guard)", () => {
   const MODERN = "2026-07-28";
