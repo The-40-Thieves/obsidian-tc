@@ -285,6 +285,13 @@ describe.skipIf(!bunAvailable)(
       // this a genuine test of "wherever this module actually runs", not a repeat of the in-place
       // case route (iii) always happened to pass from source.
       const fakeRoot = join(stage, "fake-root");
+      // Route (ii) must be unable to win here or the test proves nothing about route (iii): Bun's
+      // runtime auto-install ("auto: installs when no node_modules") fetched the PUBLISHED
+      // reranker package from npm on the CI runners (all four build-test legs went red on
+      // `expected 'bare-specifier' to be 'source-checkout'`), while this host could not. An empty
+      // node_modules in the fake root disables auto-install by Bun's own rule, and the child is
+      // also spawned with --no-install below — belt and braces, deterministic on every host.
+      mkdirSync(join(fakeRoot, "node_modules"), { recursive: true });
       const fakeServerDist = join(fakeRoot, "packages", "server", "dist");
       mkdirSync(fakeServerDist, { recursive: true });
       copyFileSync(realCliJs, join(fakeServerDist, "cli.js"));
@@ -335,7 +342,7 @@ describe.skipIf(!bunAvailable)(
       delete childEnv.OBSIDIAN_TC_GATEWAY_URL;
       delete childEnv.OBSIDIAN_TC_GATEWAY_TOKEN;
 
-      const r = spawnSync("bun", [fakeCliJs, "doctor", configPath, "--json"], {
+      const r = spawnSync("bun", ["--no-install", fakeCliJs, "doctor", configPath, "--json"], {
         encoding: "utf8",
         timeout: 60_000,
         env: childEnv,
