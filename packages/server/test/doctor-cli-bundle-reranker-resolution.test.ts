@@ -27,23 +27,32 @@
 // so its dist MUST exist there for packages/server to bundle at all.
 //
 // Round 2 review fix: an earlier version RENAMED a pre-existing packages/shared/dist aside and
-// restored it in afterAll with no try/finally — killed between the rename and afterAll (SIGKILL,
-// OOM, or the 180s hook budget expiring; the isolated reranker-local `bun install` above runs
-// FIRST and can eat most of that budget) and the developer's real dist is stranded under the
-// backup name, with a rerun then building a fresh one and afterAll deleting it, restoring nothing.
-// Fixed by never renaming the real dist at all: if it already exists, USE it as-is (this test only
-// needs shared's `main` entry to resolve for bundling; vitest.config.ts separately aliases shared
-// to source for everything else, so a stale-but-present dist is fine here); if absent, build it in
-// place and LEAVE it — a built dist is the normal state of a checkout, not test debris to clean up.
-// `reclaimStrandedSharedDistBackups` self-heals a tree already damaged by the old version.
-// reranker-local's `package.json` content is never read by the resolver's fallback branch (only
-// `existsSync`), but the real ladder's PRIMARY anchor check now reads `name` (THE-1079 hardening) —
-// see `writeAnchor` below, which writes the real name. Its own isolated `bun install` runs
-// `--ignore-scripts`: this build needs no lifecycle scripts (`build` is plain `tsc`, invoked
-// explicitly afterward), so there is no reason to run any.
+// restored it in afterAll with no try/finally — killed in between and the developer's real dist was
+// stranded under the backup name, with a rerun then building a fresh one and afterAll deleting it,
+// restoring nothing. Fixed by never renaming the real dist at all: reuse it as-is when present, or
+// build it and LEAVE it (a built dist is the normal state of a checkout). `reclaimStrandedShared-
+// DistBackups` self-heals a tree already damaged by that old version.
+//
+// Round 3 review fixes (three more bugs):
+//   1. `spawnSync` below now passes an explicit, SANITIZED `env` — the bare `process.env` this test
+//      used to inherit lets a host-set `OBSIDIAN_TC_GATEWAY_URL` make `autoSelectLocalRerankerConfig
+//      Allows` return false (reranker-preflight.ts: any non-empty gateway URL means "gateway wins"),
+//      silently skipping the very auto-select path this test exists to exercise.
+//   2. no longer installs/builds the REAL reranker-local package at all (an isolated `bun install`
+//      of @huggingface/transformers — ~230MB — just so `tsc` can resolve a specifier the package's
+//      own src/index.ts never imports at top level, since doctor's probe only ever IMPORTS the
+//      module, never calls `createReranker`/`rerank()`). A minimal STUB `dist/index.js` exporting
+//      the same surface is written directly into the fake tree — the real package's actual shape is
+//      already pinned by reranker-local-resolution.test.ts; this file's job is the PATH arithmetic
+//      from a built bundle, not the package's contents. Also dropped `--minify` from the server
+//      bundle build: irrelevant to path resolution, and it was pure added build cost here.
+//   3. building packages/shared in place with no try/finally could leave a PARTIAL `dist/index.js`
+//      behind if killed mid-`tsc`, which a later run would then treat as complete and authoritative.
+//      Builds into a private temp dir first, then `renameSync`s the completed result into place in
+//      one atomic step — `dist` is therefore always either absent or complete, never partial.
 import { execFileSync, spawnSync } from "node:child_process";
 import {
-  cpSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -63,9 +72,10 @@ const SERVER_DIR = join(HERE, "..");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const SHARED_DIR = join(REPO_ROOT, "packages", "shared");
 const SHARED_DIST = join(SHARED_DIR, "dist");
-const RERANKER_LOCAL_SRC = join(REPO_ROOT, "packages", "reranker-local");
+const SHARED_TSC = join(REPO_ROOT, "node_modules", ".bin", "tsc");
 const REAL_RERANKER_LOCAL_NAME = "@the-40-thieves/obsidian-tc-reranker-local";
 const SHARED_DIST_BACKUP_PREFIX = "dist.obtc-bundle-test-backup-";
+const SHARED_DIST_TEMP_PREFIX = ".dist-tmp-obtc-bundle-test-";
 
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 
@@ -77,17 +87,66 @@ let fakeCliJs: string;
  *  and could be killed before restoring it (see the file header). Any leftover backup found on
  *  start either IS the developer's real dist (nothing has replaced it since) — rename it back — or
  *  a real dist already exists (a since-completed run rebuilt one) — the backup is then a stale
- *  orphan, safe to delete. */
+ *  orphan, safe to delete. Logs which it did, and which name, since silently picking between
+ *  "restore" and "discard" on someone else's build artifact is worth a paper trail. */
 function reclaimStrandedSharedDistBackups(): void {
   for (const name of readdirSync(SHARED_DIR)) {
     if (!name.startsWith(SHARED_DIST_BACKUP_PREFIX)) continue;
     const backup = join(SHARED_DIR, name);
     if (existsSync(SHARED_DIST)) {
+      console.log(
+        `[doctor-cli-bundle-reranker-resolution] discarding stale backup ${name} (a real dist already exists)`,
+      );
       rmSync(backup, { recursive: true, force: true });
     } else {
+      console.log(
+        `[doctor-cli-bundle-reranker-resolution] restoring stranded backup ${name} -> dist`,
+      );
       renameSync(backup, SHARED_DIST);
     }
   }
+  // Same reasoning, for a temp-build dir (round 3 fix 3) orphaned by an earlier kill mid-`tsc`:
+  // never authoritative (never renamed INTO `dist`), so always safe to discard outright.
+  for (const name of readdirSync(SHARED_DIR)) {
+    if (name.startsWith(SHARED_DIST_TEMP_PREFIX)) {
+      rmSync(join(SHARED_DIR, name), { recursive: true, force: true });
+    }
+  }
+}
+
+/** Builds packages/shared/dist ATOMICALLY: `tsc` writes into a private temp directory first, then
+ *  a single `renameSync` publishes it as `dist` — so a kill mid-build leaves `dist` absent (the
+ *  orphaned temp dir is swept by `reclaimStrandedSharedDistBackups` above), never a partial,
+ *  silently-treated-as-complete `dist`. */
+function buildSharedDistAtomically(): void {
+  const tempOut = join(SHARED_DIR, `${SHARED_DIST_TEMP_PREFIX}${process.pid}`);
+  rmSync(tempOut, { recursive: true, force: true });
+  execFileSync(SHARED_TSC, ["--outDir", tempOut], { cwd: SHARED_DIR, stdio: "pipe" });
+  renameSync(tempOut, SHARED_DIST);
+}
+
+/** A minimal stand-in for the REAL @the-40-thieves/obsidian-tc-reranker-local package (round 3 fix
+ *  2): doctor's probe (`probeLocalRerankerResolution`) only ever IMPORTS this module to prove
+ *  resolution succeeded — it never calls `createReranker`, so the stub need not do anything real.
+ *  The actual package's shape/behavior is pinned by reranker-local-resolution.test.ts; this file's
+ *  job is proving the PATH ARITHMETIC from a built bundle, which needs no real weights, no
+ *  @huggingface/transformers, and no `tsc` of the real source at all. */
+function writeStubRerankerLocal(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  // THE-1079 hardening: the anchor's `name` field is actually READ and checked, so this must be
+  // the real package name. `type: module` matches the real package.json — required for a plain
+  // `.js` file at this fixed path to be interpreted as ESM by the dynamic `import()`.
+  writeFileSync(
+    join(dir, "package.json"),
+    `${JSON.stringify({ name: REAL_RERANKER_LOCAL_NAME, type: "module" })}\n`,
+  );
+  mkdirSync(join(dir, "dist"), { recursive: true });
+  writeFileSync(
+    join(dir, "dist", "index.js"),
+    "export function createReranker() {\n" +
+      '  throw new Error("stub reranker-local (THE-1079 test) — never actually invoked");\n' +
+      "}\n",
+  );
 }
 
 describe.skipIf(!bunAvailable)(
@@ -98,41 +157,20 @@ describe.skipIf(!bunAvailable)(
       stage = mkdtempSync(join(tmpdir(), "obtc-bundle-reranker-"));
       reclaimStrandedSharedDistBackups();
 
-      // 1) Build reranker-local in an ISOLATED copy of its source, never the shared
-      // packages/reranker-local/dist — see the file header for why. Its tsconfig extends
-      // "../../tsconfig.base.json", so the copy must sit two levels under a copy of that file too.
-      const isolatedReranker = join(stage, "packages", "reranker-local");
-      mkdirSync(isolatedReranker, { recursive: true });
-      cpSync(join(REPO_ROOT, "tsconfig.base.json"), join(stage, "tsconfig.base.json"));
-      for (const f of ["package.json", "tsconfig.json", "bun.lock"]) {
-        cpSync(join(RERANKER_LOCAL_SRC, f), join(isolatedReranker, f));
-      }
-      cpSync(join(RERANKER_LOCAL_SRC, "src"), join(isolatedReranker, "src"), { recursive: true });
-      // --ignore-scripts: this build needs no lifecycle script — "build" is plain `tsc`, run
-      // explicitly below — so there is no reason to execute any package's install hooks.
-      execFileSync("bun", ["install", "--frozen-lockfile", "--ignore-scripts"], {
-        cwd: isolatedReranker,
-        stdio: "pipe",
-      });
-      execFileSync("bun", ["run", "build"], { cwd: isolatedReranker, stdio: "pipe" });
-      const isolatedRerankerDist = join(isolatedReranker, "dist");
-      expect(existsSync(join(isolatedRerankerDist, "index.js"))).toBe(true);
-
-      // 2) packages/shared: bun's bundler resolves it via ITS OWN package.json `main`
+      // 1) packages/shared: bun's bundler resolves it via ITS OWN package.json `main`
       // (./dist/index.js, fixed relative to packages/shared itself) — there is no `--outdir` that
       // redirects a DEPENDENCY's own resolution, so this is the one directory this test cannot
-      // avoid touching. NEVER rename a pre-existing dist aside (see file header) — reuse it as-is
-      // when present; only build (and only then LEAVE it — a built dist is the normal state of a
-      // checkout) when absent.
+      // avoid touching. Reuse an existing dist as-is; build (atomically) only when absent.
       if (!existsSync(join(SHARED_DIST, "index.js"))) {
-        execFileSync("bun", ["run", "build"], { cwd: SHARED_DIR, stdio: "pipe" });
+        buildSharedDistAtomically();
       }
       expect(existsSync(join(SHARED_DIST, "index.js"))).toBe(true);
 
-      // 3) packages/server: build straight into a PRIVATE outdir under `stage`, bypassing
+      // 2) packages/server: build straight into a PRIVATE outdir under `stage`, bypassing
       // `bun run build` (which hardcodes `--outdir ./dist`) so the real packages/server/dist is
       // never touched at all. Only cli.ts — this test never needs the MCP server entry (index.ts)
-      // or copy-assets.mjs's migrations/plugin vendoring (see file header).
+      // or copy-assets.mjs's migrations/plugin vendoring (see file header). No `--minify`: this
+      // test only exercises path resolution, never inspects bundle size or readability.
       const privateServerDist = join(stage, "server-dist");
       execFileSync(
         "bun",
@@ -147,33 +185,22 @@ describe.skipIf(!bunAvailable)(
           "better-sqlite3",
           "--external",
           REAL_RERANKER_LOCAL_NAME,
-          "--minify",
         ],
         { cwd: SERVER_DIR, stdio: "pipe" },
       );
       const realCliJs = join(privateServerDist, "cli.js");
       expect(existsSync(realCliJs)).toBe(true);
 
-      // 4) Assemble the fake monorepo root: packages/server/dist/cli.js three levels under
+      // 3) Assemble the fake monorepo root: packages/server/dist/cli.js three levels under
       // packages/reranker-local/{package.json,dist/index.js} — the exact shape the real bug's
       // fixed-`../../../` walk got wrong from. Relocating the ALREADY-BUILT cli.js is what makes
       // this a genuine test of "wherever this module actually runs", not a repeat of the in-place
       // case route (iii) always happened to pass from source.
       const fakeRoot = join(stage, "fake-root");
       const fakeServerDist = join(fakeRoot, "packages", "server", "dist");
-      const fakeReranker = join(fakeRoot, "packages", "reranker-local");
       mkdirSync(fakeServerDist, { recursive: true });
-      cpSync(realCliJs, join(fakeServerDist, "cli.js"));
-      mkdirSync(fakeReranker, { recursive: true });
-      // THE-1079 hardening: the anchor's `name` field is now actually READ and checked, so this
-      // must be the real package name, not an inert placeholder.
-      writeFileSync(
-        join(fakeReranker, "package.json"),
-        `${JSON.stringify({ name: REAL_RERANKER_LOCAL_NAME })}\n`,
-      );
-      // The WHOLE dist dir, not just index.js — it imports sibling model-fetch.js/model-info.js by
-      // relative specifier.
-      cpSync(isolatedRerankerDist, join(fakeReranker, "dist"), { recursive: true });
+      copyFileSync(realCliJs, join(fakeServerDist, "cli.js"));
+      writeStubRerankerLocal(join(fakeRoot, "packages", "reranker-local"));
       fakeCliJs = join(fakeServerDist, "cli.js");
 
       configPath = join(stage, "config.json");
@@ -210,9 +237,20 @@ describe.skipIf(!bunAvailable)(
     });
 
     it("reranker.buildable resolves the auto-selected local reranker via source-checkout, from the BUILT dist/cli.js", () => {
+      // Round 3 review fix 1: an explicit, SANITIZED env — inheriting the bare host environment let
+      // a set OBSIDIAN_TC_GATEWAY_URL make autoSelectLocalRerankerConfigAllows return false
+      // (reranker-preflight.ts), silently skipping auto-select and failing the assertions below on
+      // any host that happens to have the var set. HOME/TMPDIR are pinned to `stage` so capability
+      // detection (resolveCapabilityProfile) probes a throwaway tree instead of this host's real
+      // Obsidian config.
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: stage, TMPDIR: stage };
+      delete childEnv.OBSIDIAN_TC_GATEWAY_URL;
+      delete childEnv.OBSIDIAN_TC_GATEWAY_TOKEN;
+
       const r = spawnSync("bun", [fakeCliJs, "doctor", configPath, "--json"], {
         encoding: "utf8",
         timeout: 60_000,
+        env: childEnv,
       });
       expect(r.status, `stderr: ${r.stderr}`).toBe(0);
       const report = JSON.parse(r.stdout) as {
