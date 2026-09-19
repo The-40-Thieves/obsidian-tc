@@ -84,7 +84,11 @@ describe("probeTypesafeCitationJudge", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
-        throw new Error("ECONNREFUSED"); // a realistic network error — no key in this message
+        // A realistic Node network error carries its code on `.code`; the client reports ONLY the
+        // error's name and code, never its message (which a fetch wrapper could fill with headers).
+        const e = new Error("connect ECONNREFUSED 1.2.3.4:443") as Error & { code?: string };
+        e.code = "ECONNREFUSED";
+        throw e;
       }),
     );
     const r = await probeTypesafeCitationJudge({ model: "jev-1.13.0", apiKey: SENTINEL });

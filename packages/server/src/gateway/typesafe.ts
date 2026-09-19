@@ -152,17 +152,27 @@ interface TypesafeAnswer {
  *  key", because that would silently accept a shape this client never asked for. The caller turns
  *  `undefined` into a typed (`kind: "shape"`) error, never `undefined` threaded through as a
  *  score. */
-function soleAnswer(
-  answers: Record<string, TypesafeAnswer> | undefined,
-): TypesafeAnswer | undefined {
-  if (!answers) return undefined;
-  const keys = Object.keys(answers);
-  return keys.length === 1 ? answers[keys[0] as string] : undefined;
+function soleAnswer(answers: unknown): TypesafeAnswer | undefined {
+  // `answers` must be a non-null, NON-ARRAY object: `Object.keys([{…}])` is `["0"]`, so a
+  // one-element array would otherwise pass the "exactly one key" check below (review round 2).
+  if (answers === null || typeof answers !== "object" || Array.isArray(answers)) return undefined;
+  const rec = answers as Record<string, TypesafeAnswer>;
+  const keys = Object.keys(rec);
+  const only = keys.length === 1 ? rec[keys[0] as string] : undefined;
+  return only !== null && typeof only === "object" && !Array.isArray(only) ? only : undefined;
+}
+
+/** What a network-level throw may contribute to a TypesafeError message: its `name` and, when
+ *  present, its `code`. Never its `message` — see the catch block that calls this. */
+function describeNetworkError(e: unknown): string {
+  const name = e instanceof Error && e.name ? e.name : "Error";
+  const code = (e as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code.length > 0 ? `${name} ${code}` : name;
 }
 
 interface TypesafeResponseBody {
   model?: string;
-  answers?: Record<string, TypesafeAnswer>;
+  answers?: unknown;
   usage?: { input_tokens?: number; output_tokens?: number };
   request_id?: string;
 }
@@ -218,10 +228,17 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
         });
       } catch (e) {
         // Network-level throw or our own per-attempt timeout — both transient.
+        //
+        // Review round 2 (THE-1078): the underlying error's MESSAGE is deliberately NOT embedded.
+        // A fetch wrapper or instrumentation layer can throw an error whose message carries the
+        // request headers — `Authorization: Bearer <key>` included — and that message would have
+        // flowed into this TypesafeError, into the doctor probe result, and onto the terminal. Only
+        // the error's `name` and, for Node system errors, its `code` (ECONNREFUSED, ENOTFOUND, …)
+        // are carried: that is what an operator needs, and neither can contain the key.
         lastError =
           (e as Error).name === "AbortError"
             ? new TypesafeError("typesafe: request timed out", { kind: "timeout" })
-            : new TypesafeError(`typesafe: request failed (${(e as Error).message ?? e})`, {
+            : new TypesafeError(`typesafe: request failed (${describeNetworkError(e)})`, {
                 kind: "network",
               });
       } finally {
@@ -230,12 +247,23 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
 
       if (res) {
         if (res.ok) {
-          let body: TypesafeResponseBody;
+          let parsed: unknown;
           try {
-            body = (await res.json()) as TypesafeResponseBody;
+            parsed = await res.json();
           } catch {
             throw new TypesafeError("typesafe: response was not valid JSON", { kind: "shape" });
           }
+          // Review round 2 (THE-1078): the CONTAINER shapes are validated too, not just the leaf.
+          // A 2xx whose JSON is `null`, a bare array, or carries `answers` as an array used to
+          // surface as a plain TypeError (`body.answers` on null) — which the adapter could only
+          // classify as `transport`, i.e. "the judge never answered", when the judge answered
+          // unusably. Every malformed 2xx is `kind: "shape"` from here on.
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new TypesafeError("typesafe: response body is not a JSON object", {
+              kind: "shape",
+            });
+          }
+          const body = parsed as TypesafeResponseBody;
           const answer = soleAnswer(body.answers);
           if (
             answer?.type !== "noul" ||

@@ -129,6 +129,30 @@ describe("typesafe client — shape validation (kind: 'shape')", () => {
     await expect(p).rejects.toMatchObject({ kind: "shape" });
   });
 
+  it("rejects a 2xx whose JSON root is null — kind: 'shape', not a stray TypeError (transport)", async () => {
+    const client = clientFor(null);
+    await expect(call(client)).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("rejects a 2xx whose JSON root is an array — kind: 'shape'", async () => {
+    const client = clientFor([{ model: "m", answers: { q: { type: "noul", noul: 0.9 } } }]);
+    await expect(call(client)).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("rejects `answers` given as a one-element ARRAY — Object.keys([x]) is ['0'], not one answer", async () => {
+    const client = clientFor({ model: "m", answers: [{ type: "noul", noul: 0.9 }] });
+    await expect(call(client)).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("rejects a sole answer that is null or not an object — kind: 'shape'", async () => {
+    await expect(call(clientFor({ model: "m", answers: { q: null } }))).rejects.toMatchObject({
+      kind: "shape",
+    });
+    await expect(call(clientFor({ model: "m", answers: { q: 0.9 } }))).rejects.toMatchObject({
+      kind: "shape",
+    });
+  });
+
   it("the missing-noul and absent-answers cases (above) are also kind: 'shape'", async () => {
     const missingNoul = clientFor({ model: "m", answers: { q: { type: "noul" } } });
     await expect(call(missingNoul)).rejects.toMatchObject({ kind: "shape" });
@@ -226,6 +250,30 @@ describe("typesafe client — wire shape", () => {
       criteria: { true: "t", false: "f" },
     });
     expect(seenUrl).toBe("https://api.typesafe.ai/v1/systemone");
+  });
+
+  it("a NETWORK error whose own message carries the request headers never leaks the key", async () => {
+    // A fetch wrapper / instrumentation layer that throws with its headers in the message is the
+    // realistic leak path (review round 2). Only the error's name and code may reach the caller.
+    const fetchFn = (async () => {
+      const e = new Error("request failed: headers={authorization: Bearer super-secret-key-xyz}");
+      (e as Error & { code?: string }).code = "ECONNREFUSED";
+      throw e;
+    }) as unknown as typeof fetch;
+    const client = createTypesafeClient({
+      baseUrl: "http://ts",
+      apiKey: "super-secret-key-xyz",
+      fetchFn,
+      maxAttempts: 1,
+    });
+    const err = await client
+      .noul({ state: {}, model: "m", instructions: "i", criteria: { true: "t", false: "f" } })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(TypesafeError);
+    expect(err.kind).toBe("network");
+    expect(String(err.message)).not.toContain("super-secret-key-xyz");
+    expect(String(err.message)).toContain("ECONNREFUSED");
+    expect(JSON.stringify(err)).not.toContain("super-secret-key-xyz");
   });
 
   it("never logs or leaks the key into a thrown error's message", async () => {
