@@ -13,6 +13,7 @@ import {
 import { wireIndexResources } from "../../runtime/indexing-wiring";
 import { maybeSummarizeVault } from "../../search/indexing/summarize-notes";
 import { normalizeVaultPath } from "../../vault/paths";
+import { canonicalizeVaultRoot } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
 /**
@@ -100,7 +101,10 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         chunkTokens: cfg.indexing.chunkTokens, // THE-424
         densify: cfg.retrieval.densify,
         vaultId: v.id,
-        root: v.path,
+        // THE-1081 review round (Medium 1): canonicalized, matching what `serve`'s boot reconcile
+        // and the runtime's VaultRegistry open — a raw config path reached through a symlinked
+        // ancestor made the native addon refuse every note this walked.
+        root: canonicalizeVaultRoot(v.path),
         ...(sub !== undefined ? { sub } : {}),
         // No ACL narrowing: this is an operator-invoked local command, not a scoped agent request.
         // The MCP tool path applies the caller's folder ACL; there is no caller here to scope to.

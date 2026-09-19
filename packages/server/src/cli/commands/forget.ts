@@ -14,6 +14,7 @@ import {
   verifyForgetLog,
 } from "../../experiential/forget";
 import { argsHash } from "../../hash";
+import { canonicalizeVaultRoot } from "../../vault/registry";
 import { USAGE } from "../args";
 import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
 
@@ -209,7 +210,11 @@ export async function run_forget(cmd: Cmd<"forget">): Promise<void> {
     }
     const rel = (cmd.note as string).replace(/\\/g, "/");
     const vault = cfg.vaults.find((v) => v.id === vaultId);
-    const abs = vault ? join(vault.path, rel) : null;
+    // THE-1081 review round (Medium 1): canonicalized, matching what `serve`'s VaultRegistry
+    // opens — kept consistent with every other reader/writer of this vault rather than a raw
+    // config path that can disagree with them through a symlinked ancestor.
+    const vaultRoot = vault ? canonicalizeVaultRoot(vault.path) : undefined;
+    const abs = vaultRoot ? join(vaultRoot, rel) : null;
     if (abs && existsSync(abs)) {
       process.stderr.write(
         `forget: ${rel} still exists in the vault — delete the note first (delete_note or file manager), then forget propagates the derived state\n`,
@@ -223,7 +228,7 @@ export async function run_forget(cmd: Cmd<"forget">): Promise<void> {
       nowMs: Date.now(),
       ...(cmd.erase ? { erase: true } : {}),
       prewarmDir: cfg.cacheDir,
-      ...(vault ? { vaultRoot: vault.path, memoryFolder: memFolder } : {}),
+      ...(vaultRoot ? { vaultRoot, memoryFolder: memFolder } : {}),
     });
     process.stdout.write(
       `forgot note ${rel} (${cmd.erase ? "erase" : "tombstone"}): ${r.chunk_ids.length} chunk(s), ` +

@@ -1,6 +1,7 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { openConfiguredDatabase } from "../../db/open";
 import { buildServerRuntime } from "../../runtime/server-runtime";
+import { canonicalizeVaultRoot } from "../../vault/registry";
 import { rerunSession, stageSandbox } from "../../workspace/rerun";
 import {
   exitCodeFor,
@@ -55,9 +56,12 @@ function withoutBridgeTransport(v: ServerConfig["vaults"][number]): ServerConfig
   return rest;
 }
 
-/** The configured path for `vaultId`. Exits 2 with the prefetch.ts-style message when the id names
- *  no configured vault — a broken config (the session's own vault_id is not one of `cfg.vaults`),
- *  not an operator typo (see `stageForSandbox` for that case). */
+/** The configured path for `vaultId`, canonicalized (THE-1081 review round, Medium 1) — matching
+ *  what `serve`'s VaultRegistry opens, so a raw config path reached through a symlinked ancestor
+ *  cannot disagree with the ToolRegistry `runRerunInner` builds from the same config. Exits 2 with
+ *  the prefetch.ts-style message when the id names no configured vault — a broken config (the
+ *  session's own vault_id is not one of `cfg.vaults`), not an operator typo (see `stageForSandbox`
+ *  for that case). */
 function configuredVaultPath(cfg: ServerConfig, vaultId: string): string {
   const v = cfg.vaults.find((x) => x.id === vaultId);
   // THE-742: THROW, never process.exit(). This runs inside the command's try/finally, and
@@ -65,7 +69,7 @@ function configuredVaultPath(cfg: ServerConfig, vaultId: string): string {
   // would simply not run. Throwing reaches main()'s catch, which now exits 3 (operational
   // failure), so the distinction from "divergence found" survives too.
   if (!v) throw new RerunUsageError(`rerun: unknown vault ${vaultId}`);
-  return v.path;
+  return canonicalizeVaultRoot(v.path);
 }
 
 /**

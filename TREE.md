@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,325 tracked code files · 231,768 lines.
+**Scale:** 1,329 tracked code files · 232,622 lines.
 
-TypeScript 211,388 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
+TypeScript 212,242 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,18 +89,18 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 91 | 18,861 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,932 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 28 | 7,173 | work-memory tier: activation, retrieval log, forget, citations |
+| `cli/` | 41 | 5,582 | arg parsing + subcommands |
 | `mcp/` | 20 | 5,529 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `cli/` | 41 | 5,526 | arg parsing + subcommands |
-| `runtime/` | 19 | 4,326 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 19 | 4,358 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 16 | 2,779 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `vault/` | 17 | 2,412 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `vault/` | 17 | 2,499 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 15 | 1,988 | provisioning, migrate runner, experiential store |
 | `migrations/` | 53 | 1,940 | hand-registered SQL. **Two chains** — see below |
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `providers/` | 6 | 1,232 |  |
-| `workspace/` | 3 | 970 | session tracking |
+| `workspace/` | 3 | 980 | session tracking |
 | `metrics/` | 4 | 862 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 822 | Obsidian plugin bridge clients |
 | `capture/` | 5 | 768 | the capture queue |
@@ -142,7 +142,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 835 | `packages/server/src/experiential/reflect.ts` |
 | 816 | `packages/server/src/doctor/checks.ts` |
 | 789 | `packages/server/src/mcp/server.ts` |
-| 712 | `packages/server/src/runtime/server-runtime.ts` |
+| 729 | `packages/server/src/runtime/server-runtime.ts` |
 | 690 | `packages/server/src/cli/args.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
@@ -289,7 +289,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**462 modules · 2113 dependencies · 131 distinct subsystem pairs · 965 cross-subsystem imports.**
+**462 modules · 2118 dependencies · 131 distinct subsystem pairs · 969 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -369,6 +369,7 @@ flowchart LR
   tools -->|7| util
   cli -->|6| embeddings
   cli -->|6| gateway
+  cli -->|6| vault
   runtime -->|6| util
   tools -->|6| memory
   transports -->|6| mcp
@@ -388,9 +389,9 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 235 | `tools` | 396 |
+| `vault` | 239 | `tools` | 396 |
 | `db` | 191 | `runtime` | 162 |
-| `search` | 111 | `cli` | 128 |
+| `search` | 111 | `cli` | 132 |
 | `mcp` | 101 | `search` | 93 |
 | `experiential` | 53 | `experiential` | 40 |
 <!-- END GENERATED: tree-fan -->

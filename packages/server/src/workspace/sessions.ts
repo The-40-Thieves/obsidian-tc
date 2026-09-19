@@ -113,7 +113,17 @@ export function resolveTraceAbs(opts: {
  *  It THROWS rather than skipping. A `traceFolder` that escapes the vault already makes every
  *  `start_session` fail at `resolveVaultPath`, so such a config is broken either way — refusing at
  *  boot turns a latent per-call error into an immediate, legible one, and silently skipping the
- *  vault would leave its traces growing forever, which is the bug this ticket exists to fix. */
+ *  vault would leave its traces growing forever, which is the bug this ticket exists to fix.
+ *
+ *  THE-1081 review round 2: the field is named `root`, not `path`, DELIBERATELY — this used to take
+ *  the raw `VaultConfig.path` (renamed here specifically so it cannot silently go back to that).
+ *  `resolveVaultPathChecked` refuses a root whose own final path component is a symlink unless
+ *  that root is the vault registry's canonical form (vault/registry.ts); the raw config path is
+ *  NOT that, and a vault root that is itself a symlink (iCloud/Dropbox/NAS sync target — a
+ *  legitimate, documented setup, see vault/watcher.ts) made this throw `vault_not_found` at boot,
+ *  every time, for `maintenance.enabled: true` (the default). The caller
+ *  (runtime/maintenance-wiring.ts, via runtime/scheduler-wiring.ts, via server-runtime.ts's
+ *  `wireScheduler` call) must pass `vaultRegistry.resolve(v.id).root`. */
 /**
  * THE-737 — the cacheDir trace directory, for the THE-610 sweep.
  *
@@ -127,7 +137,7 @@ export function resolveCacheTraceDir(cacheDir: string): { vaultId: string; dir: 
 }
 
 export function resolveTraceDirs(
-  vaults: readonly { id: string; path: string; workspace?: { traceFolder: string } }[],
+  vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[],
   defaultFolder: string,
 ): Array<{ vaultId: string; dir: string }> {
   return vaults.map((v) => {
@@ -136,7 +146,7 @@ export function resolveTraceDirs(
     // folder makes the write path store under `a/b` while the sweep looks for the literal `a\b`
     // on POSIX — a directory that never exists, so the sweep reports 0 forever while files pile up.
     const rel = folder.replace(/\\/g, "/").replace(/\/+$/, "");
-    return { vaultId: v.id, dir: resolveVaultPathChecked(v.path, rel).abs };
+    return { vaultId: v.id, dir: resolveVaultPathChecked(v.root, rel).abs };
   });
 }
 

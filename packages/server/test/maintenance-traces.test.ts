@@ -124,14 +124,14 @@ describe("resolveTraceDirs containment (THE-610)", () => {
   const root = tmpDir("tc-vault-");
 
   it("resolves a normal folder under the vault", () => {
-    const [d] = resolveTraceDirs([{ id: "v1", path: root }], ".obsidian-tc/traces");
+    const [d] = resolveTraceDirs([{ id: "v1", root }], ".obsidian-tc/traces");
     expect(d?.dir).toBe(join(root, ".obsidian-tc/traces"));
   });
 
   it("REFUSES a traceFolder that escapes the vault", () => {
     expect(() =>
       resolveTraceDirs(
-        [{ id: "v1", path: root, workspace: { traceFolder: "../../../../tmp/evil" } }],
+        [{ id: "v1", root, workspace: { traceFolder: "../../../../tmp/evil" } }],
         ".obsidian-tc/traces",
       ),
     ).toThrow();
@@ -139,7 +139,7 @@ describe("resolveTraceDirs containment (THE-610)", () => {
 
   it("REFUSES an absolute traceFolder", () => {
     expect(() =>
-      resolveTraceDirs([{ id: "v1", path: root, workspace: { traceFolder: "/etc" } }], "x"),
+      resolveTraceDirs([{ id: "v1", root, workspace: { traceFolder: "/etc" } }], "x"),
     ).toThrow();
   });
 
@@ -148,7 +148,7 @@ describe("resolveTraceDirs containment (THE-610)", () => {
     // write path stores under `a/b` while the sweep looks for the literal `a\b` — a directory that
     // never exists, so the sweep reports 0 forever while traces pile up.
     const [d] = resolveTraceDirs(
-      [{ id: "v1", path: root, workspace: { traceFolder: "notes\\traces/" } }],
+      [{ id: "v1", root, workspace: { traceFolder: "notes\\traces/" } }],
       "x",
     );
     expect(d?.dir).toBe(join(root, "notes/traces"));
@@ -158,10 +158,7 @@ describe("resolveTraceDirs containment (THE-610)", () => {
 
   it("write path and sweep path agree end to end", () => {
     const folder = "wk/traces";
-    const [d] = resolveTraceDirs(
-      [{ id: "v1", path: root, workspace: { traceFolder: folder } }],
-      "x",
-    );
+    const [d] = resolveTraceDirs([{ id: "v1", root, workspace: { traceFolder: folder } }], "x");
     const abs = join(root, traceRelPath(folder, "sess_roundtrip"));
     appendTrace(abs, { ts: NOW - 90 * DAY });
     utimesSync(abs, (NOW - 90 * DAY) / 1000, (NOW - 90 * DAY) / 1000);

@@ -3,7 +3,7 @@
 // caller-supplied vault-relative path into an absolute filesystem path, with a
 // traversal/containment guard. Nothing else should join paths against the root.
 import { createHash } from "node:crypto";
-import { type Dirent, readdirSync, realpathSync, statSync } from "node:fs";
+import { type Dirent, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { recordPathUse } from "./acl-audit";
@@ -80,6 +80,35 @@ export interface ResolvedVaultPath {
  * (THE-269). For a non-symlink path aclRel equals the lexical rel, so callers that thread the
  * root into enforcePathAcl see no behavior change except on symlinked paths.
  */
+/**
+ * THE-1081 review round (Medium 2 / Residual): refuse when `root`'s OWN final path component is a
+ * symlink. A root VaultRegistry could not canonicalize at registration (missing at boot) is
+ * stored as its lexical config path; if a directory later appears there, this must not silently
+ * trust it when the FINAL component is itself a symlink — a local user planting a symlink at that
+ * exact path after boot would otherwise let a caller's realpath dereference straight through it
+ * (native's `open_parent` already refuses it; this closes the matching JS-side gap). Shared by
+ * resolveVaultPathChecked (every per-path resolution — content reads/writes) AND walkVault /
+ * walkVaultStream's own entry point (list_notes with no `sub` reads `root` directly via
+ * `readdirSync`, bypassing resolveVaultPathChecked entirely — without this call there too, a
+ * planted-symlink root's directory LISTING, names/sizes/mtimes, was not covered by the same
+ * refusal that already covered content).
+ *
+ * Unconditional, not gated on a `rootCanonical` flag: a root VaultRegistry DID canonicalize at
+ * registration is realpath's own return value, which by construction never has a symlink in its
+ * final component, so this never trips for an already-canonical vault and needs no extra state to
+ * tell the two cases apart.
+ */
+function assertRootNotPlantedSymlink(root: string, relPath: string): void {
+  let rootLstat: ReturnType<typeof lstatSync> | null;
+  try {
+    rootLstat = lstatSync(root);
+  } catch {
+    rootLstat = null;
+  }
+  if (rootLstat?.isSymbolicLink())
+    throw err.vaultNotFound("vault root resolved to a symlink", { path: relPath });
+}
+
 export function resolveVaultPathChecked(vaultRoot: string, relPath: string): ResolvedVaultPath {
   const clean = normalizeVaultPath(relPath);
   const root = resolve(vaultRoot);
@@ -87,6 +116,7 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   const rel = relative(root, abs);
   if (rel.startsWith("..") || isAbsolute(rel))
     throw err.pathInvalid("path escapes the vault root", { path: relPath });
+  assertRootNotPlantedSymlink(root, relPath);
   // The real-path containment guarantee hinges on canonicalizing the root. If the
   // vault root can't be resolved (deleted / transiently unavailable), fail closed
   // instead of falling back to the raw root, which would silently degrade this
@@ -137,6 +167,10 @@ export function walkVault(
   const recursive = opts.recursive ?? true;
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const absRoot = resolve(root);
+  // THE-1081 review round (Residual): with no `sub`, `start` below is `absRoot` itself and
+  // `resolveVaultPath` (which carries this same check) is never called — see
+  // assertRootNotPlantedSymlink's own comment.
+  assertRootNotPlantedSymlink(absRoot, opts.sub ?? "");
   const start = opts.sub ? resolveVaultPath(absRoot, opts.sub) : absRoot;
   const out: WalkEntry[] = [];
 
@@ -193,6 +227,9 @@ export async function* walkVaultStream(
   const recursive = opts.recursive ?? true;
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const absRoot = resolve(root);
+  // THE-1081 review round (Residual): same reasoning as walkVault's own call — see
+  // assertRootNotPlantedSymlink's comment.
+  assertRootNotPlantedSymlink(absRoot, opts.sub ?? "");
   const start = opts.sub ? resolveVaultPath(absRoot, opts.sub) : absRoot;
 
   async function* walk(dir: string, prefix: string): AsyncGenerator<WalkEntry> {

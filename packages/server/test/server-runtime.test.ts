@@ -11,7 +11,7 @@
 //    resources (governance, then stores) in reverse order, and never touches indexResources' own
 //    cleanup because indexResources itself never finished constructing.
 
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,7 +26,20 @@ import {
   wireRuntimeCore,
 } from "../src/runtime/server-runtime";
 import { type Stores, wireStores } from "../src/runtime/stores";
+import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
+import { DEFAULT_TRACE_FOLDER, resolveTraceDirs } from "../src/workspace/sessions";
 import { rmTemp } from "./tmp";
+
+// Symlink creation needs a privilege Windows does not grant by default — probed, not
+// platform-sniffed, matching vault-watcher.test.ts's own `symlinkOk`.
+let symlinkOk = true;
+try {
+  const probe = mkdtempSync(join(tmpdir(), "otc-runtime-sl-probe-"));
+  symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
+  rmTemp(probe);
+} catch {
+  symlinkOk = false;
+}
 
 describe("nativeReadyToken — THE-906 boot ready line's native= token", () => {
   it("is 'on' only when the real binding is active, never merely because a module resolved", () => {
@@ -426,4 +439,75 @@ describe("buildServerRuntime — otel unwind when wireRuntimeCore itself throws"
     // what threw.
     expect(cleanedUp).toEqual(["governance", "otel", "stores"]);
   });
+});
+
+// THE-1081 review round 2 (boot-shaped regression test) — a configured vault path that is ITSELF a
+// symlink (iCloud/Dropbox/NAS sync target: common, and vault/watcher.ts's own comment documents it
+// as legitimate) made `serve` fail to start entirely: wireScheduler -> configureMaintenance ->
+// resolveTraceDirs (workspace/sessions.ts) called resolveVaultPathChecked with the RAW config
+// path, which the Medium-2 fix's root-symlink refusal (vault/paths.ts) then refused — with
+// `maintenance.enabled` defaulting to true, EVERY boot with a symlinked vault root threw
+// `vault_not_found` before this round's fix threaded the canonical root through. Real
+// `buildServerRuntime`, not a mock, so this is exactly the composition root `run_serve` uses.
+describe("buildServerRuntime — a symlinked vault root still boots (THE-1081 review round 2)", () => {
+  const tmpDirs: string[] = [];
+  const tmpDir = (prefix: string): string => {
+    const d = mkdtempSync(join(tmpdir(), prefix));
+    tmpDirs.push(d);
+    return d;
+  };
+
+  afterEach(() => {
+    for (const d of tmpDirs.splice(0)) {
+      try {
+        rmTemp(d);
+      } catch {
+        // Best-effort, matching this file's other buildServerRuntime tests: a still-open sqlite
+        // handle can make Windows refuse the unlink after a real boot + close.
+      }
+    }
+  });
+
+  it.skipIf(!symlinkOk)(
+    "starts (does not throw vault_not_found) and boots the scheduler with maintenance.enabled defaulted true",
+    async () => {
+      const base = tmpDir("otc-runtime-symvault-");
+      const realVault = join(base, "real-vault");
+      const linkVault = join(base, "link-vault");
+      mkdirSync(realVault);
+      symlinkSync(realVault, linkVault);
+
+      const config = configFromVaultPath(linkVault); // the configured path IS the symlink
+      config.cacheDir = tmpDir("otc-runtime-symvault-cache-");
+      expect(config.maintenance.enabled).toBe(true); // the default that made this boot-breaking
+
+      const runtime = await buildServerRuntime(config, join(linkVault, "config.json"));
+      await runtime.close("test cleanup");
+    },
+  );
+
+  it.skipIf(!symlinkOk)(
+    "trace dirs resolve under the CANONICAL (realpath'd) root, not the symlinked config path",
+    () => {
+      const base = tmpDir("otc-runtime-symvault-trace-");
+      const realVault = join(base, "real-vault");
+      const linkVault = join(base, "link-vault");
+      mkdirSync(realVault);
+      symlinkSync(realVault, linkVault);
+
+      // Exactly server-runtime.ts's own construction: VaultRegistry canonicalizes at
+      // registration, and wireScheduler's call site maps each vault's `root` through it.
+      const registry = new VaultRegistry([{ id: "main", path: linkVault }]);
+      const canonicalVaults = [{ id: "main", root: registry.resolve("main").root }];
+      const [dir] = resolveTraceDirs(canonicalVaults, DEFAULT_TRACE_FOLDER);
+      // Compared against the SAME canonicalization production uses, not a different realpath
+      // flavour: on GitHub's windows-latest runner, os.tmpdir() is an 8.3 SHORT path
+      // (C:\Users\RUNNER~1\...), plain fs.realpathSync expands it to the long form
+      // (C:\Users\runneradmin\...), and fs.realpathSync.native (what canonicalizeVaultRoot uses)
+      // returns the SHORT form there — the two disagree, so comparing against realpathSync's
+      // output failed on Windows only while the code under test was correct.
+      expect(dir?.dir).toBe(join(canonicalizeVaultRoot(realVault), DEFAULT_TRACE_FOLDER));
+      expect(dir?.dir.startsWith(linkVault)).toBe(false);
+    },
+  );
 });

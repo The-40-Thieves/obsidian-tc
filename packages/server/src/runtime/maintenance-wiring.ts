@@ -39,8 +39,15 @@ export interface MaintenanceWiringDeps {
   experiential?: { captureRetentionDays: number };
   /** config.sessions — THE-726. Absent, or autoOpen false, leaves the session arm unarmed. */
   sessions?: { autoOpen: boolean; windowSeconds: number };
-  /** config.vaults — trace dirs are per-vault and resolved with containment checking (THE-610). */
-  vaults: readonly { id: string; path: string; workspace?: { traceFolder: string } }[];
+  /** The CANONICAL vault roots (vaultRegistry-resolved `.root`, not raw config.vaults — see
+   *  server-runtime.ts's wireScheduler call site, THE-1081 review round 2), other fields (e.g.
+   *  `workspace`) preserved from config. Trace dirs are per-vault and resolved with containment
+   *  checking (THE-610) via resolveTraceDirs -> resolveVaultPathChecked, which now refuses a root
+   *  whose final path component is a symlink UNLESS it is the registry's own canonical form (see
+   *  vault/paths.ts) — a raw config path here would make `serve` fail to start on the common case
+   *  of a vault root that is itself a symlink (iCloud/Dropbox/NAS sync target). Field named
+   *  `root`, not `path`, to match resolveTraceDirs's own parameter — see its doc comment. */
+  vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
   defaultTraceFolder: string;
   /** THE-610 arm 2: the experiential.db handle, when the membrane is open. Absent -> both
    *  experiential arms skip and report 0, which is correct when there is nothing to sweep. */

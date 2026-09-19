@@ -434,7 +434,12 @@ export async function buildServerRuntime(
         chunkContext: config.embeddings.chunkContext,
         chunkTokens: config.indexing.chunkTokens, // THE-424
         indexing: config.indexing,
-        vaults: config.vaults,
+        // THE-1081 review round (Medium 1): the CANONICAL root (vaultRegistry.list(), realpath'd
+        // at registration — see vault/registry.ts), not raw `config.vaults`. registerVaultWatch
+        // (vault/watcher.ts) stores this string verbatim and re-opens it on every flush; a raw
+        // config path reached through a symlinked ancestor (e.g. macOS $TMPDIR) made the native
+        // addon refuse that open and deindex the note the watcher had just seen written.
+        vaults: vaultRegistry.list().map((v) => ({ id: v.id, path: v.root })),
         watch: config.watch,
         sqlHooksFor,
         indexHealth,
@@ -584,7 +589,19 @@ export async function buildServerRuntime(
     const scheduler = wireScheduler({
       config,
       db,
-      vaults: config.vaults,
+      // THE-1081 review round 2 (Medium 1): the CANONICAL root, under the `root` field
+      // resolveTraceDirs (workspace/sessions.ts) now requires by name — `workspace` preserved,
+      // everything else configureMaintenance/resolveTraceDirs never read is dropped. Before this,
+      // wireScheduler -> configureMaintenance -> resolveTraceDirs called
+      // resolveVaultPathChecked(v.path, rel) with the RAW config path, which made that throw
+      // vault_not_found at boot for the common case of a vault root that is ITSELF a symlink
+      // (iCloud/Dropbox/NAS sync targets — see vault/watcher.ts's own comment on why that is
+      // legitimate), with maintenance.enabled defaulting to true.
+      vaults: config.vaults.map((v) => ({
+        id: v.id,
+        root: vaultRegistry.resolve(v.id).root,
+        ...(v.workspace !== undefined ? { workspace: v.workspace } : {}),
+      })),
       eventVaultId: firstVault.id,
       experientialOpen,
       experientialDb,

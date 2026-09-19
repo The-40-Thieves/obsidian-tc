@@ -10,6 +10,9 @@ export default defineConfig({
   },
   test: {
     include: ["test/**/*.test.ts"],
+    // THE-1081 / #946: resolve TMPDIR through realpath before any test runs (see the file for
+    // why) so `os.tmpdir()` never hands a fixture a symlinked-ancestor path.
+    setupFiles: [resolve(here, "test/tmpdir-realpath-setup.ts")],
     environment: "node",
     // Worker cap OUTSIDE CI. Vitest defaults maxWorkers to available parallelism, i.e. one worker
     // per core — which is right on a dedicated runner and wrong on a shared dev host. This repo is
