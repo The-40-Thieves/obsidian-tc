@@ -66,4 +66,21 @@ describe("resolveSourceCheckoutLocalRerankerPath — anchor + node_modules harde
     expect(result.skippedReason).toBe("skipped: running from node_modules");
     expect(result.candidates).toEqual([]);
   });
+
+  // The guard checks a whole path SEGMENT, not a substring — a directory merely named with
+  // "node_modules" as part of a longer word must not false-positive and skip a legitimate walk.
+  it("does NOT skip for a directory whose NAME merely contains the substring 'node_modules'", () => {
+    dir = mkdtempSync(join(tmpdir(), "obtc-nm-substring-"));
+    writeAnchor(dir, REAL_NAME);
+    for (const decoySegment of ["node_modules_x", "my-node_modules-tools"]) {
+      const start = join(dir, decoySegment, "nested");
+      mkdirSync(start, { recursive: true });
+
+      const result = resolveSourceCheckoutLocalRerankerPath(start);
+      expect(result.skippedReason, decoySegment).toBeUndefined();
+      expect(result.path, decoySegment).toBe(
+        join(dir, "packages", "reranker-local", "dist", "index.js"),
+      );
+    }
+  });
 });

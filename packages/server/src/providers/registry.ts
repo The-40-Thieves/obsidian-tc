@@ -362,8 +362,9 @@ export interface SourceCheckoutResolution {
   /** Set only when discovery was skipped outright (never walked the filesystem at all); absent
    *  otherwise, whether or not an anchor was actually found. */
   skippedReason?: string;
-  /** Every candidate directory the walk tried, in outermost-to-innermost order — empty when
-   *  `skippedReason` is set, since no walk happened. */
+  /** Every candidate directory the walk tried, in innermost-to-outermost order (the walk starts at
+   *  `startDir` and moves UP toward the filesystem root) — empty when `skippedReason` is set, since
+   *  no walk happened. */
   candidates: string[];
 }
 
