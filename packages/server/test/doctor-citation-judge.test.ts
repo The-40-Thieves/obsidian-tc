@@ -44,4 +44,63 @@ describe("experiential.citation-judge check", () => {
     // expected; a raw "Bearer <token>" value is not.
     expect(JSON.stringify(r)).not.toMatch(/Bearer\s+\S/i);
   });
+
+  // THE-1084: allowPlainHttp on a non-loopback http:// baseUrl is a config fact, not a network
+  // one — it warns with or without --probe, and never fails the check outright.
+  describe("allowPlainHttp warning (THE-1084)", () => {
+    it("warns, without --probe, when allowPlainHttp is set and baseUrl is non-loopback http://", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http://litellm:4000/typesafe",
+        allowPlainHttp: true,
+      }).run(ctx);
+      expect(r.status).toBe("warning");
+      expect(r.issues?.join(" ")).toMatch(/plain http.*allowPlainHttp.*litellm/i);
+    });
+
+    it("stays ok when allowPlainHttp is set but baseUrl is loopback", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http://127.0.0.1:8000",
+        allowPlainHttp: true,
+      }).run(ctx);
+      expect(r.status).toBe("ok");
+      expect(r.issues).toBeUndefined();
+    });
+
+    it("stays ok when baseUrl is https, regardless of allowPlainHttp", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "https://api.typesafe.ai",
+        allowPlainHttp: true,
+      }).run(ctx);
+      expect(r.status).toBe("ok");
+      expect(r.issues).toBeUndefined();
+    });
+
+    it("warns under --probe too, even when the probe itself succeeds", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http://litellm:4000/typesafe",
+        allowPlainHttp: true,
+        probe: async () => ({ ok: true, latencyMs: 12, status: 200 }),
+      }).run(ctx);
+      expect(r.status).toBe("warning");
+      expect(r.issues?.join(" ")).toMatch(/plain http/i);
+    });
+
+    it("never fails outright — status is warning, not fail", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http://litellm:4000/typesafe",
+        allowPlainHttp: true,
+      }).run(ctx);
+      expect(r.status).not.toBe("fail");
+    });
+  });
 });

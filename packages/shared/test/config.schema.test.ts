@@ -338,6 +338,61 @@ describe("ExperientialConfigSchema.citationInfer.judge (THE-1078)", () => {
     expect(c.experiential.citationInfer.judge?.baseUrl).toBe("https://ts.example.com");
   });
 
+  // THE-1084: allowPlainHttp widens the https-unless-loopback rule to any http:// host, for a
+  // gateway pass-through reachable only over a host-local docker network or an encrypted overlay
+  // (e.g. the Cave LiteLLM gateway's `http://litellm:4000/typesafe`).
+  describe("allowPlainHttp (THE-1084)", () => {
+    it("defaults to false", () => {
+      const c = ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: {} } },
+      });
+      expect(c.experiential.citationInfer.judge?.allowPlainHttp).toBe(false);
+    });
+
+    it("rejects a non-loopback http:// baseUrl when allowPlainHttp is not set", () => {
+      expect(() =>
+        ServerConfigSchema.parse({
+          ...base,
+          experiential: {
+            citationInfer: { judge: { baseUrl: "http://litellm:4000/typesafe" } },
+          },
+        }),
+      ).toThrow(/https/i);
+    });
+
+    it("accepts a non-loopback http:// baseUrl when allowPlainHttp is true", () => {
+      const c = ServerConfigSchema.parse({
+        ...base,
+        experiential: {
+          citationInfer: {
+            judge: { baseUrl: "http://litellm:4000/typesafe", allowPlainHttp: true },
+          },
+        },
+      });
+      expect(c.experiential.citationInfer.judge?.baseUrl).toBe("http://litellm:4000/typesafe");
+      expect(c.experiential.citationInfer.judge?.allowPlainHttp).toBe(true);
+    });
+
+    it("still accepts a loopback http:// baseUrl without allowPlainHttp", () => {
+      const c = ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { baseUrl: "http://127.0.0.1:8000" } } },
+      });
+      expect(c.experiential.citationInfer.judge?.baseUrl).toBe("http://127.0.0.1:8000");
+      expect(c.experiential.citationInfer.judge?.allowPlainHttp).toBe(false);
+    });
+
+    it("still accepts https:// with allowPlainHttp left at its default", () => {
+      const c = ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { baseUrl: "https://ts.example.com" } } },
+      });
+      expect(c.experiential.citationInfer.judge?.baseUrl).toBe("https://ts.example.com");
+      expect(c.experiential.citationInfer.judge?.allowPlainHttp).toBe(false);
+    });
+  });
+
   it('rejects provider "typesafe" with no model', () => {
     expect(() =>
       ServerConfigSchema.parse({

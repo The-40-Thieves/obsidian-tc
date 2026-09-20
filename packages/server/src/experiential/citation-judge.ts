@@ -12,6 +12,7 @@
 // adapters share one parser; citation.ts re-exports them for any external import that still
 // expects them at the old path.
 
+import { isLoopbackHost } from "@the-40-thieves/obsidian-tc-shared";
 import { resolveApiKey } from "../embeddings/provider";
 import { createTypesafeClient, type TypesafeClient, TypesafeError } from "../gateway/typesafe";
 import {
@@ -185,7 +186,23 @@ export interface CitationJudgeConfig {
   apiKey?: string;
   apiKeyEnv?: string;
   baseUrl?: string;
+  /** THE-1084: opt-in widening of the https-unless-loopback rule on `baseUrl` to any http:// host —
+   *  see retrieval.schema.ts's own doc comment. Duck-typed default `false`, matching the schema's. */
+  allowPlainHttp?: boolean;
   timeoutMs?: number;
+}
+
+// Dependency-free scheme/host split — same shape as retrieval.schema.ts's own parseSchemeAndHost
+// and doctor/citation-judge.ts's copy. Not shared across the three because none of them can import
+// from the others without crossing a layer this repo keeps deliberately separate (config schema,
+// doctor views, and the runtime builder all take duck-typed input on purpose).
+function parseSchemeAndHost(u: string): { scheme: string; host: string } | null {
+  try {
+    const parsed = new URL(u);
+    return { scheme: parsed.protocol.replace(/:$/, ""), host: parsed.hostname };
+  } catch {
+    return null;
+  }
 }
 
 export interface BuildCitationJudgeDeps {
@@ -243,6 +260,18 @@ export function buildCitationJudge(
       'experiential.citationInfer.judge: provider is "typesafe" but no API key was found — set ' +
         `${apiKeyEnv} (or judge.apiKey) — no fallback to the gateway judge is applied`,
     );
+  }
+  // THE-1084: startup warning, not a throw — allowPlainHttp is an explicit operator opt-in, and
+  // the schema refine already rejects a plain-http, non-loopback baseUrl when it is NOT set, so
+  // reaching here with it set means someone deliberately widened the rule. No key is logged.
+  const effectiveBaseUrl = config.baseUrl ?? "https://api.typesafe.ai";
+  if (config.allowPlainHttp) {
+    const parsed = parseSchemeAndHost(effectiveBaseUrl);
+    if (parsed && parsed.scheme !== "https" && !isLoopbackHost(parsed.host)) {
+      console.warn(
+        `judge.baseUrl is plain http (allowPlainHttp): the key and vault text are sent in clear to ${parsed.host}`,
+      );
+    }
   }
   const client = createTypesafeClient({
     baseUrl: config.baseUrl,

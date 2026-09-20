@@ -380,12 +380,18 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       conflictCopies: { installRoot: resolveInstallRoot() },
       // THE-1039 (GH #930): always present, no --probe gate — see probeDbSpace's own comment.
       dbSpace,
-      // THE-1078: provider always present; the live reachability probe only under --probe AND
-      // provider === "typesafe" — same contract as retrieval.probe above.
+      // THE-1078: provider always present; probe only under --probe AND provider === "typesafe".
+      // THE-1084: baseUrl/allowPlainHttp ride the same no-probe path, for the plain-http warning.
       citationJudge: {
         provider: config.experiential.citationInfer.judge?.provider ?? "gateway",
         ...(config.experiential.citationInfer.judge?.model !== undefined
           ? { model: config.experiential.citationInfer.judge.model }
+          : {}),
+        ...(config.experiential.citationInfer.judge?.baseUrl !== undefined
+          ? { baseUrl: config.experiential.citationInfer.judge.baseUrl }
+          : {}),
+        ...(config.experiential.citationInfer.judge?.allowPlainHttp !== undefined
+          ? { allowPlainHttp: config.experiential.citationInfer.judge.allowPlainHttp }
           : {}),
         ...(cmd.probe && config.experiential.citationInfer.judge?.provider === "typesafe"
           ? {

@@ -718,24 +718,18 @@ export const ExperientialConfigSchema = z.object({
           baseUrl: z
             .string()
             .url()
-            // This URL carries the bearer key (Authorization header) and vault-derived
-            // source/response text in every request body — a plain `http://` endpoint would send
-            // both in cleartext. Loopback stays allowed unencrypted for a local test/dev double,
-            // the same carve-out `isLoopbackHost` already draws for the HTTP transport bind.
-            .refine(
-              (u) => {
-                const parsed = parseSchemeAndHost(u);
-                if (!parsed) return false; // unreachable — .url() above already rejected this
-                return parsed.scheme === "https" || isLoopbackHost(parsed.host);
-              },
-              {
-                message:
-                  "judge.baseUrl must use https:// — this URL carries the bearer key and vault-derived source/response text — unless the host is loopback (localhost/127.0.0.1/[::1]) for a local test or dev endpoint.",
-              },
-            )
+            // The https-unless-loopback rule lives in the object-level superRefine below, not
+            // here: it needs to see the sibling `allowPlainHttp` field, which a per-field .refine
+            // on this string cannot reach.
             .default("https://api.typesafe.ai")
             .describe(
-              "TypeSafe API base URL. Must be https:// unless the host is loopback (a local test/dev endpoint) — this URL carries the bearer key and vault-derived text.",
+              "TypeSafe API base URL. Must be https:// unless the host is loopback (a local test/dev endpoint) or allowPlainHttp is set — this URL carries the bearer key and vault-derived text.",
+            ),
+          allowPlainHttp: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Widen the https-unless-loopback rule on judge.baseUrl to allow ANY http:// host, not just loopback. Intended ONLY for a gateway reachable over a host-local docker network or an encrypted overlay (e.g. Tailscale) — such as the Cave LiteLLM gateway's pass-through endpoint (`http://litellm:4000/typesafe` inside the compose network) — never a plain internet path. The bearer key and vault-derived text still travel in clear over whatever link the URL names; this flag only asserts the operator has judged that link safe, it does not make the traffic safe.",
             ),
           timeoutMs: z
             .number()
@@ -747,6 +741,25 @@ export const ExperientialConfigSchema = z.object({
             ),
         })
         .superRefine((c, ctx) => {
+          // This URL carries the bearer key (Authorization header) and vault-derived
+          // source/response text in every request body — a plain `http://` endpoint would send
+          // both in cleartext. Loopback stays allowed unencrypted for a local test/dev double,
+          // the same carve-out `isLoopbackHost` already draws for the HTTP transport bind;
+          // `allowPlainHttp` is a further, explicit opt-in for any other http:// host.
+          const parsed = parseSchemeAndHost(c.baseUrl);
+          if (
+            parsed &&
+            parsed.scheme !== "https" &&
+            !isLoopbackHost(parsed.host) &&
+            !c.allowPlainHttp
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["baseUrl"],
+              message:
+                "judge.baseUrl must use https:// — this URL carries the bearer key and vault-derived source/response text — unless the host is loopback (localhost/127.0.0.1/[::1]) for a local test or dev endpoint, or judge.allowPlainHttp is explicitly set to opt into a trusted plain-http path (e.g. a host-local gateway or an encrypted overlay).",
+            });
+          }
           // Scoped to provider "typesafe" ONLY: the gateway's own `judge` role is free to name
           // any model string it likes (that is the gateway's contract, not this block's), so this
           // predicate must not reject a `model` set here while `provider` stays "gateway".
