@@ -378,4 +378,109 @@ describe("buildCitationJudge — factory", () => {
       }
     });
   });
+
+  // THE-1084 review round 1, finding 2: this builder is duck-typed and reachable from structural
+  // callers (e.g. runtime/plane-wiring.ts) that need not have gone through
+  // ServerConfigSchema.parse's superRefine — so it must enforce the https-unless-loopback-
+  // unless-opted-in invariant itself, not merely skip the warning.
+  describe("enforces the transport invariant even bypassing the schema (THE-1084 review round 1)", () => {
+    it("throws on a non-loopback http:// baseUrl when allowPlainHttp is absent", () => {
+      expect(() =>
+        buildCitationJudge(
+          {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKey: "inline-key",
+            baseUrl: "http://litellm:4000/typesafe",
+          },
+          { excludeFilter: filter },
+        ),
+      ).toThrow(/judge\.baseUrl.*allowPlainHttp/i);
+    });
+
+    it("throws on a non-loopback http:// baseUrl when allowPlainHttp is explicitly false", () => {
+      expect(() =>
+        buildCitationJudge(
+          {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKey: "inline-key",
+            baseUrl: "http://litellm:4000/typesafe",
+            allowPlainHttp: false,
+          },
+          { excludeFilter: filter },
+        ),
+      ).toThrow(/judge\.baseUrl.*allowPlainHttp/i);
+    });
+
+    it('throws naming "experiential.citationInfer.judge" on an unparseable/unsupported-scheme baseUrl', () => {
+      expect(() =>
+        buildCitationJudge(
+          {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKey: "inline-key",
+            baseUrl: "ftp://host",
+          },
+          { excludeFilter: filter },
+        ),
+      ).toThrow(/experiential\.citationInfer\.judge.*baseUrl/i);
+    });
+
+    it("a non-canonical http:host/path baseUrl is treated as remote http, not silently accepted", () => {
+      expect(() =>
+        buildCitationJudge(
+          {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKey: "inline-key",
+            baseUrl: "http:evil.example/path",
+          },
+          { excludeFilter: filter },
+        ),
+      ).toThrow(/allowPlainHttp/i);
+    });
+
+    it("does not throw, and warns exactly once naming the host, when allowPlainHttp opts in", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(() =>
+          buildCitationJudge(
+            {
+              provider: "typesafe",
+              model: "jev-1.13.0",
+              threshold: 0.9,
+              apiKey: "inline-key",
+              baseUrl: "http:evil.example/path",
+              allowPlainHttp: true,
+            },
+            { excludeFilter: filter },
+          ),
+        ).not.toThrow();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0]?.[0]).toContain("evil.example");
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("loopback http:// never throws, flag or not", () => {
+      expect(() =>
+        buildCitationJudge(
+          {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKey: "inline-key",
+            baseUrl: "http://127.0.0.1:8000",
+          },
+          { excludeFilter: filter },
+        ),
+      ).not.toThrow();
+    });
+  });
 });

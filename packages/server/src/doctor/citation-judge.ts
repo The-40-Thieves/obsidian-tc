@@ -2,7 +2,7 @@
 // judge.provider = "typesafe"). Same optional-probe shape as every other store/network-touching
 // check in this directory (see notesFtsIntegrityCheck / experientialEvaluatorCheck): the default
 // run stays offline, and only `doctor --probe` actually reaches the network.
-import { isLoopbackHost } from "@the-40-thieves/obsidian-tc-shared";
+import { classifyJudgeBaseUrl, judgeBaseUrlHost } from "@the-40-thieves/obsidian-tc-shared";
 import type { Check, CheckStatus } from "./types";
 
 export interface CitationJudgeProbeResult {
@@ -30,27 +30,22 @@ export interface CitationJudgeView {
   probe?: () => Promise<CitationJudgeProbeResult>;
 }
 
-// Dependency-free scheme/host split, mirroring retrieval.schema.ts's own parseSchemeAndHost — this
-// module cannot import that one (config schema doesn't export it), and pulling in `node:url` here
-// would be the only non-isomorphic import in an otherwise runtime-agnostic doctor check.
-function parseSchemeAndHost(u: string): { scheme: string; host: string } | null {
-  try {
-    const parsed = new URL(u);
-    return { scheme: parsed.protocol.replace(/:$/, ""), host: parsed.hostname };
-  } catch {
-    return null;
-  }
-}
-
-/** THE-1084: the operator has explicitly opted a typesafe judge into a plain http:// endpoint
- *  (allowPlainHttp set AND baseUrl a non-loopback http:// host) — the bearer key and vault-derived
- *  text then travel in clear over whatever link the URL names. Returns the warning line, or
- *  undefined when the config doesn't match (https, loopback, or the flag unset). */
+/** THE-1084 review round 1: classification now comes from the ONE shared helper
+ *  (`classifyJudgeBaseUrl`/`judgeBaseUrlHost`, `../net-host`) that the schema refine and the
+ *  runtime builder also call — this file used to carry its own `new URL()`-based copy, and a
+ *  hand-rolled `://`-requiring regex copy lived in the schema; the schema's copy silently rejected
+ *  a WHATWG-valid-but-non-canonical URL as unparseable and let it through. One classifier, called
+ *  from three places, cannot disagree with itself.
+ *
+ *  The operator has explicitly opted a typesafe judge into a plain http:// endpoint (allowPlainHttp
+ *  set AND baseUrl a non-loopback http:// host) — the bearer key and vault-derived text then travel
+ *  in clear over whatever link the URL names. Returns the warning line, or undefined when the
+ *  config doesn't match (https, loopback, unparseable/unsupported scheme, or the flag unset). */
 function plainHttpWarning(view: CitationJudgeView): string | undefined {
   if (!view.allowPlainHttp || !view.baseUrl) return undefined;
-  const parsed = parseSchemeAndHost(view.baseUrl);
-  if (!parsed || parsed.scheme === "https" || isLoopbackHost(parsed.host)) return undefined;
-  return `judge.baseUrl is plain http (allowPlainHttp): the key and vault text are sent in clear to ${parsed.host}`;
+  if (classifyJudgeBaseUrl(view.baseUrl) !== "http-remote") return undefined;
+  const host = judgeBaseUrlHost(view.baseUrl);
+  return `judge.baseUrl is plain http (allowPlainHttp): the key and vault text are sent in clear to ${host}`;
 }
 
 /**

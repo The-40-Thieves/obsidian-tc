@@ -102,5 +102,74 @@ describe("experiential.citation-judge check", () => {
       }).run(ctx);
       expect(r.status).not.toBe("fail");
     });
+
+    // THE-1084 review round 1 "Requested checks": a FAILED probe plus the plain-http opt-in must
+    // keep BOTH issues (unreachable + plain-http) and stay "warning", never escalate to "fail".
+    it("a failed probe PLUS the plain-http opt-in: both issues present, status stays warning", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http://litellm:4000/typesafe",
+        allowPlainHttp: true,
+        probe: async () => ({ ok: false, status: 401, reason: "HTTP 401" }),
+      }).run(ctx);
+      expect(r.status).toBe("warning");
+      expect(r.issues?.length).toBeGreaterThanOrEqual(2);
+      const joined = r.issues?.join(" ") ?? "";
+      expect(joined).toMatch(/could not reach it/i);
+      expect(joined).toMatch(/plain http/i);
+    });
+
+    // THE-1084 review round 1 "Requested checks": the warning must expose ONLY the hostname — no
+    // userinfo, port, path, or query — even when the configured URL carries all of them.
+    it("a secret-bearing URL only ever surfaces the hostname in the warning", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http://user:s3cr3t-token@litellm:4000/typesafe?key=alsoSecret#frag",
+        allowPlainHttp: true,
+      }).run(ctx);
+      expect(r.status).toBe("warning");
+      const joined = JSON.stringify(r);
+      expect(joined).toContain("litellm");
+      expect(joined).not.toContain("s3cr3t-token");
+      expect(joined).not.toContain("alsoSecret");
+      expect(joined).not.toContain("user:");
+    });
+
+    // THE-1084 review round 1, finding 1: a non-canonical `http:host/path` form (no literal
+    // "://") must still classify as remote http, not silently pass as unparseable.
+    it('treats a non-canonical "http:host/path" form as remote http, named by its parsed host', async () => {
+      const withoutFlag = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http:evil.example/path",
+        allowPlainHttp: false,
+      }).run(ctx);
+      expect(withoutFlag.status).toBe("ok");
+      expect(withoutFlag.issues).toBeUndefined();
+
+      const withFlag = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "http:evil.example/path",
+        allowPlainHttp: true,
+      }).run(ctx);
+      expect(withFlag.status).toBe("warning");
+      expect(withFlag.issues?.join(" ")).toContain("evil.example");
+    });
+
+    // THE-1084 review round 1, finding 3: ftp:// (and any non-http/https scheme) is never "plain
+    // http" — it doesn't classify as http-remote, so the doctor check has nothing to warn about
+    // here (schema/builder are what reject it outright; see their own tests).
+    it("does not treat ftp:// as plain http, regardless of allowPlainHttp", async () => {
+      const r = await citationJudgeCheck({
+        provider: "typesafe",
+        model: "jev-1.13.0",
+        baseUrl: "ftp://host",
+        allowPlainHttp: true,
+      }).run(ctx);
+      expect(r.issues).toBeUndefined();
+    });
   });
 });

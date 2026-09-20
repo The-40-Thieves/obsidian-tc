@@ -7,34 +7,15 @@
 // a cross-domain read, so it stays here rather than moving to config.schema.ts's own superRefine.
 // It also added the first non-Zod import, `isLoopbackHost` from `../net-host` — a dependency-free
 // leaf util (same category as Zod itself, not a schema module), reused rather than reimplemented
-// for citationInfer.judge.baseUrl's https-unless-loopback check.
+// for citationInfer.judge.baseUrl's https-unless-loopback check. THE-1084 review round 1 replaced
+// this file's own hand-rolled `://`-requiring regex parser with `classifyJudgeBaseUrl` (also
+// `../net-host`) after that regex rejected a WHATWG-valid-but-non-canonical URL
+// ("http:evil.example/path") as unparseable, and the refine below treated "unparseable" as "not
+// remote http" — see classifyJudgeBaseUrl's own doc comment. The doctor warning
+// (doctor/citation-judge.ts) and the runtime builder (experiential/citation-judge.ts) now call the
+// SAME function, so all three can never classify one baseUrl three different ways again.
 import { z } from "zod";
-import { isLoopbackHost } from "../net-host";
-
-/**
- * Minimal, dependency-free parse of a URL string's scheme + host, for the baseUrl check below.
- * This package is deliberately isomorphic and carries no Node/DOM type dependency (no `@types/
- * node`, no `lib: "dom"`) — the global `URL` class exists at RUNTIME on every platform this ships
- * to, but is untyped here, so a narrow regex is used instead of `new URL(...)`. `.url()` on the
- * field below already validated the string is well-formed; this only answers two questions about
- * it: which scheme, and what host (port and userinfo stripped, IPv6 brackets kept — the same shape
- * `isLoopbackHost` expects).
- */
-function parseSchemeAndHost(u: string): { scheme: string; host: string } | null {
-  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/([^/?#]*)/.exec(u);
-  if (!m) return null;
-  let host = m[2] ?? "";
-  const at = host.lastIndexOf("@");
-  if (at !== -1) host = host.slice(at + 1); // drop userinfo (user:pass@)
-  if (host.startsWith("[")) {
-    const end = host.indexOf("]");
-    if (end !== -1) host = host.slice(0, end + 1); // "[::1]:443" -> "[::1]"
-  } else {
-    const colon = host.indexOf(":");
-    if (colon !== -1) host = host.slice(0, colon); // "example.com:443" -> "example.com"
-  }
-  return { scheme: (m[1] ?? "").toLowerCase(), host };
-}
+import { classifyJudgeBaseUrl } from "../net-host";
 
 /** THE-397: retrieval-fusion knobs (the first config-exposed retrieval section). */
 export const RetrievalConfigSchema = z.object({
@@ -745,14 +726,17 @@ export const ExperientialConfigSchema = z.object({
           // source/response text in every request body — a plain `http://` endpoint would send
           // both in cleartext. Loopback stays allowed unencrypted for a local test/dev double,
           // the same carve-out `isLoopbackHost` already draws for the HTTP transport bind;
-          // `allowPlainHttp` is a further, explicit opt-in for any other http:// host.
-          const parsed = parseSchemeAndHost(c.baseUrl);
-          if (
-            parsed &&
-            parsed.scheme !== "https" &&
-            !isLoopbackHost(parsed.host) &&
-            !c.allowPlainHttp
-          ) {
+          // `allowPlainHttp` is a further, explicit opt-in for any other http:// host — and ONLY
+          // http://, never any other non-https scheme (classifyJudgeBaseUrl's own doc comment).
+          const cls = classifyJudgeBaseUrl(c.baseUrl);
+          if (cls === "invalid") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["baseUrl"],
+              message:
+                'judge.baseUrl must be a canonical "scheme://host" URL with scheme https or http — either it could not be parsed that way, or its scheme is neither (e.g. ftp:/file:). allowPlainHttp only ever widens http:// on a non-loopback host, never any other scheme.',
+            });
+          } else if (cls === "http-remote" && !c.allowPlainHttp) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: ["baseUrl"],

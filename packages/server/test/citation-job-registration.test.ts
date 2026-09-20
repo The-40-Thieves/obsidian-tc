@@ -123,6 +123,52 @@ describe("THE-717: the citation job registers only when it could actually run", 
     ).toBe(false);
   });
 
+  // THE-1084 review round 1, finding 2: `wireJobHandlers` builds the judge synchronously (the
+  // FAIL-FAST point, per this file's own header comment) before registering the handler — a
+  // structural caller like this one passes a duck-typed judge config straight through, with no
+  // `ServerConfigSchema.parse` in between, so `buildCitationJudge`'s own enforcement of the
+  // transport invariant is what has to catch this, not the schema.
+  it('throws when a duck-typed provider "typesafe" judge names a non-loopback http:// baseUrl with no allowPlainHttp', () => {
+    expect(() =>
+      handlersWith({
+        ...READY,
+        roles: null,
+        citationInfer: {
+          enabled: true,
+          transcriptIndex: "/tmp/idx.jsonl",
+          judge: {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKey: "k",
+            baseUrl: "http://litellm:4000/typesafe",
+          },
+        },
+      }),
+    ).toThrow(/allowPlainHttp/i);
+  });
+
+  it("registers when the SAME baseUrl carries allowPlainHttp: true", () => {
+    expect(
+      handlersWith({
+        ...READY,
+        roles: null,
+        citationInfer: {
+          enabled: true,
+          transcriptIndex: "/tmp/idx.jsonl",
+          judge: {
+            provider: "typesafe",
+            model: "jev-1.13.0",
+            threshold: 0.9,
+            apiKey: "k",
+            baseUrl: "http://litellm:4000/typesafe",
+            allowPlainHttp: true,
+          },
+        },
+      }).has("citation"),
+    ).toBe(true);
+  });
+
   it("leaves the OTHER handlers' registration untouched", () => {
     // A regression guard: the citation branch sits beside note-quality and the gateway jobs, and
     // it must not change when they register.

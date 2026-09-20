@@ -12,7 +12,7 @@
 // adapters share one parser; citation.ts re-exports them for any external import that still
 // expects them at the old path.
 
-import { isLoopbackHost } from "@the-40-thieves/obsidian-tc-shared";
+import { classifyJudgeBaseUrl, judgeBaseUrlHost } from "@the-40-thieves/obsidian-tc-shared";
 import { resolveApiKey } from "../embeddings/provider";
 import { createTypesafeClient, type TypesafeClient, TypesafeError } from "../gateway/typesafe";
 import {
@@ -192,19 +192,6 @@ export interface CitationJudgeConfig {
   timeoutMs?: number;
 }
 
-// Dependency-free scheme/host split — same shape as retrieval.schema.ts's own parseSchemeAndHost
-// and doctor/citation-judge.ts's copy. Not shared across the three because none of them can import
-// from the others without crossing a layer this repo keeps deliberately separate (config schema,
-// doctor views, and the runtime builder all take duck-typed input on purpose).
-function parseSchemeAndHost(u: string): { scheme: string; host: string } | null {
-  try {
-    const parsed = new URL(u);
-    return { scheme: parsed.protocol.replace(/:$/, ""), host: parsed.hostname };
-  } catch {
-    return null;
-  }
-}
-
 export interface BuildCitationJudgeDeps {
   /** The gateway's judge role, or null when no gateway is configured — same contract
    *  `InferCitationsOptions.judge` has always had. Only consulted for provider "gateway". */
@@ -261,17 +248,38 @@ export function buildCitationJudge(
         `${apiKeyEnv} (or judge.apiKey) — no fallback to the gateway judge is applied`,
     );
   }
-  // THE-1084: startup warning, not a throw — allowPlainHttp is an explicit operator opt-in, and
-  // the schema refine already rejects a plain-http, non-loopback baseUrl when it is NOT set, so
-  // reaching here with it set means someone deliberately widened the rule. No key is logged.
+  // THE-1084 review round 1, finding 2: this builder is duck-typed and reachable from structural
+  // callers (e.g. runtime/plane-wiring.ts) that need not have gone through
+  // ServerConfigSchema.parse's superRefine — so the https-unless-loopback-unless-opted-in
+  // invariant is enforced HERE too, not assumed. `classifyJudgeBaseUrl` is the SAME classifier the
+  // schema refine and the doctor warning call, so this can never disagree with either about what a
+  // given baseUrl is. "invalid" (unparseable, or a scheme other than https/http) and "http-remote"
+  // without the flag both THROW, same tone as the missing-model/threshold/key errors above — a
+  // construction-time config error, never a silent accept. Only the opted-in "http-remote" case
+  // gets a warning, never a throw: allowPlainHttp is an explicit operator opt-in. No key is logged
+  // either way — only `judgeBaseUrlHost`'s parsed hostname.
   const effectiveBaseUrl = config.baseUrl ?? "https://api.typesafe.ai";
-  if (config.allowPlainHttp) {
-    const parsed = parseSchemeAndHost(effectiveBaseUrl);
-    if (parsed && parsed.scheme !== "https" && !isLoopbackHost(parsed.host)) {
-      console.warn(
-        `judge.baseUrl is plain http (allowPlainHttp): the key and vault text are sent in clear to ${parsed.host}`,
+  const cls = classifyJudgeBaseUrl(effectiveBaseUrl);
+  if (cls === "invalid") {
+    throw new Error(
+      'experiential.citationInfer.judge: provider is "typesafe" but judge.baseUrl is not a ' +
+        'canonical "scheme://host" URL with scheme https or http — check it parses that way ' +
+        "(allowPlainHttp only ever widens http:// on a non-loopback host, never any other scheme)",
+    );
+  }
+  if (cls === "http-remote") {
+    if (!config.allowPlainHttp) {
+      throw new Error(
+        'experiential.citationInfer.judge: provider is "typesafe" but judge.baseUrl is a ' +
+          "non-loopback http:// URL and judge.allowPlainHttp is not set — this URL carries the " +
+          "bearer key and vault-derived text; set judge.allowPlainHttp to explicitly opt into a " +
+          "trusted plain-http path (e.g. a host-local gateway or an encrypted overlay), or use " +
+          "https:// / a loopback host instead",
       );
     }
+    console.warn(
+      `judge.baseUrl is plain http (allowPlainHttp): the key and vault text are sent in clear to ${judgeBaseUrlHost(effectiveBaseUrl)}`,
+    );
   }
   const client = createTypesafeClient({
     baseUrl: config.baseUrl,

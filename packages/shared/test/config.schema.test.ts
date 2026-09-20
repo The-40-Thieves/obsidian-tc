@@ -391,6 +391,116 @@ describe("ExperientialConfigSchema.citationInfer.judge (THE-1078)", () => {
       expect(c.experiential.citationInfer.judge?.baseUrl).toBe("https://ts.example.com");
       expect(c.experiential.citationInfer.judge?.allowPlainHttp).toBe(false);
     });
+
+    it("explicit allowPlainHttp: false rejects remote http, same as absent", () => {
+      expect(() =>
+        ServerConfigSchema.parse({
+          ...base,
+          experiential: {
+            citationInfer: {
+              judge: { baseUrl: "http://litellm:4000/typesafe", allowPlainHttp: false },
+            },
+          },
+        }),
+      ).toThrow(/https/i);
+    });
+
+    it("explicit allowPlainHttp: undefined behaves like absent (default false, rejects remote http)", () => {
+      const c = ServerConfigSchema.parse({
+        ...base,
+        experiential: { citationInfer: { judge: { allowPlainHttp: undefined } } },
+      });
+      expect(c.experiential.citationInfer.judge?.allowPlainHttp).toBe(false);
+      expect(() =>
+        ServerConfigSchema.parse({
+          ...base,
+          experiential: {
+            citationInfer: {
+              judge: { baseUrl: "http://litellm:4000/typesafe", allowPlainHttp: undefined },
+            },
+          },
+        }),
+      ).toThrow(/https/i);
+    });
+
+    it("rejects a non-boolean truthy allowPlainHttp value", () => {
+      expect(() =>
+        ServerConfigSchema.parse({
+          ...base,
+          experiential: {
+            citationInfer: { judge: { allowPlainHttp: "true" as unknown as boolean } },
+          },
+        }),
+      ).toThrow();
+    });
+
+    // THE-1084 review round 1, finding 1: Zod's `.url()` accepts WHATWG forms with no literal
+    // "://" (verified: `z.string().url().safeParse("http:evil.example/path")` -> success) — the
+    // OLD superRefine's own `://`-requiring regex then failed to parse it, and "could not parse"
+    // was wrongly treated as "not remote http", letting it through with the flag still false. The
+    // runtime `URL` parser (what classifyJudgeBaseUrl now uses, and what the actual HTTP client
+    // will use) normalizes this to host "evil.example" — verified against Node/Bun directly.
+    describe("non-canonical http: forms (THE-1084 review round 1, finding 1)", () => {
+      it('rejects "http:evil.example/path" without the flag', () => {
+        expect(() =>
+          ServerConfigSchema.parse({
+            ...base,
+            experiential: {
+              citationInfer: { judge: { baseUrl: "http:evil.example/path" } },
+            },
+          }),
+        ).toThrow(/https/i);
+      });
+
+      it('accepts "http:evil.example/path" WITH the flag, classified by host "evil.example"', () => {
+        const c = ServerConfigSchema.parse({
+          ...base,
+          experiential: {
+            citationInfer: {
+              judge: { baseUrl: "http:evil.example/path", allowPlainHttp: true },
+            },
+          },
+        });
+        expect(c.experiential.citationInfer.judge?.baseUrl).toBe("http:evil.example/path");
+      });
+
+      it('rejects "http:/evil.example/path" (single slash) without the flag', () => {
+        expect(() =>
+          ServerConfigSchema.parse({
+            ...base,
+            experiential: {
+              citationInfer: { judge: { baseUrl: "http:/evil.example/path" } },
+            },
+          }),
+        ).toThrow(/https/i);
+      });
+
+      it("rejects a backslash variant without the flag", () => {
+        expect(() =>
+          ServerConfigSchema.parse({
+            ...base,
+            experiential: {
+              citationInfer: { judge: { baseUrl: "http:\\\\evil.example/path" } },
+            },
+          }),
+        ).toThrow(/https/i);
+      });
+    });
+
+    // THE-1084 review round 1, finding 3: the opt-in widens exactly http:// on a non-loopback
+    // host, never "any non-https scheme".
+    it("rejects ftp:// regardless of allowPlainHttp", () => {
+      for (const allowPlainHttp of [false, true]) {
+        expect(() =>
+          ServerConfigSchema.parse({
+            ...base,
+            experiential: {
+              citationInfer: { judge: { baseUrl: "ftp://host", allowPlainHttp } },
+            },
+          }),
+        ).toThrow();
+      }
+    });
   });
 
   it('rejects provider "typesafe" with no model', () => {
