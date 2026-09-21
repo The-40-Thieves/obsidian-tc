@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.2] - 2026-09-21
+
 ### Added
 
 - **`experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator
