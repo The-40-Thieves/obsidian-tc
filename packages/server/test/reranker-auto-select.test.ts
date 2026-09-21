@@ -10,51 +10,62 @@
 // full incident. It no longer deletes that real directory, and only ever builds into it behind a
 // cross-process lock (see ./reranker-local-stage.ts):
 //
-//   - the "local unresolvable" case is proven with an INJECTED resolver that always fails —
-//     `wireGatewaySeams`'s own `resolveLocalReranker` param exists exactly for this (see its doc
-//     comment in tool-wiring.ts: "a test that needs a DETERMINISTIC 'local never resolves' ...
-//     should inject a stub here instead of depending on ambient filesystem state"), never proven by
-//     deleting a real build to force the outcome;
+//   - GH #958 review round 2 (P1, finding 1): the "local unresolvable" case is proven with the REAL,
+//     unmodified `resolveLocalRerankerModule` ladder ("the default resolver") wired through
+//     `wireGatewaySeams`'s own `resolveLocalReranker` injection seam, but with its terminal import
+//     step forced to fail — so it exercises the real ladder's integration code while staying fully
+//     independent of whatever the real `packages/reranker-local/dist` currently holds (built and
+//     left by the "via the real source-checkout route" describe below, possibly concurrently, in a
+//     separate vitest worker process — file-local declaration order cannot coordinate across those);
 //   - most "local resolves" cases are proven against a throwaway copy staged and built under this
 //     file's own mkdtempSync root, injected the same way;
 //   - the "via the real source-checkout route" case is the one INHERENTLY tied to the real, fixed
 //     path (registry.ts's default, un-injected `resolveLocalRerankerModule` — see
-//     reranker-local-resolution.test.ts's header for why it cannot be redirected). Skipping it
-//     whenever the real dist happened to be absent (this ticket's first cut) meant it never ran on
-//     CI at all. It now reuses the real dist read-only when present, or builds it in place and
-//     LEAVES it otherwise (doctor-cli-bundle-reranker-resolution.test.ts's own rule for
-//     packages/shared/dist) — never deleted, either way.
-import { existsSync, mkdtempSync, statSync } from "node:fs";
+//     reranker-local-resolution.test.ts's header for why it cannot be redirected). It reuses the
+//     real dist read-only when present, or builds it in place and LEAVES it otherwise
+//     (doctor-cli-bundle-reranker-resolution.test.ts's own rule for packages/shared/dist) — never
+//     deleted, either way. If the real `dist/` exists but is PARTIAL (present directory, missing
+//     `index.js`), this case is skipped rather than risking `tsc` mixing its output with whatever is
+//     already there.
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { resolveLocalRerankerModule } from "../src/providers/registry";
+import {
+  resolveLocalRerankerModule,
+  resolveSourceCheckoutLocalRerankerPath,
+} from "../src/providers/registry";
 import type { ProviderDescriptor, ResolveContext } from "../src/providers/types";
 import { wireGatewaySeams } from "../src/runtime/tool-wiring";
 import {
   buildStagedRerankerLocal,
+  cleanupTempRoot,
+  type EnsureRealRerankerLocalDistResult,
   ensureRealRerankerLocalDist,
+  snapshotDistTree,
   stageRerankerLocalSource,
+  writeRerankerLocalAnchorOnly,
 } from "./reranker-local-stage";
-import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RERANKER_LOCAL_DIR = join(HERE, "..", "..", "reranker-local");
-const REAL_DIST_ENTRY = join(RERANKER_LOCAL_DIR, "dist", "index.js");
+const REAL_DIST_DIR = join(RERANKER_LOCAL_DIR, "dist");
+const REAL_DIST_ENTRY = join(REAL_DIST_DIR, "index.js");
 
-// Read-only observation, taken before anything below runs (this file never DELETES
-// REAL_DIST_ENTRY, though it may build into it — see "via the real source-checkout route" below) —
-// backs the regression guard in the outer afterAll.
+// Read-only observation, taken before anything below runs (this file never DELETES the real dist,
+// though it may build into it — see "via the real source-checkout route" below) — backs the
+// regression guard in the outer afterAll (GH #958 review round 2, finding 4: a whole-tree snapshot,
+// not just one file's mtime).
 const REAL_DIST_EXISTED_AT_START = existsSync(REAL_DIST_ENTRY);
-const REAL_DIST_MTIME_AT_START = REAL_DIST_EXISTED_AT_START
-  ? statSync(REAL_DIST_ENTRY).mtimeMs
+const REAL_DIST_SNAPSHOT_AT_START = REAL_DIST_EXISTED_AT_START
+  ? snapshotDistTree(REAL_DIST_DIR)
   : undefined;
 
-/** Always fails, deterministically — the injected substitute for "local is unresolvable", per this
- *  file's header. */
-const resolveLocalRerankerAlwaysFails = async () => ({ ok: false as const, attempts: [] });
+// Set only by the "via the real source-checkout route" describe below, and only when IT actually
+// built the real dist — GH #958 review round 2, finding 3.
+let builtRealDistThisRun = false;
 
 const prevGatewayUrl = process.env.OBSIDIAN_TC_GATEWAY_URL;
 afterEach(() => {
@@ -86,22 +97,47 @@ function modelTierEmbeddings() {
 
 describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configured)", () => {
   // GH #958 / THE-1085 regression guard. Two shapes, matching the two ways this file may have left
-  // the real checkout: if it already had a build, that build must be BYTE-IDENTICAL afterward (this
-  // file never deletes or rebuilds an existing one); if it didn't, this file may have built one
-  // itself (see the "via the real source-checkout route" describe below) and LEFT it — that build
-  // must still be there, but there is no prior mtime to compare it against.
+  // the real checkout: if it already had a build, the WHOLE tree must be byte-for-byte unchanged
+  // afterward (this file never deletes or rebuilds an existing one); if it didn't, and this run
+  // built one itself (see the "via the real source-checkout route" describe below), that build must
+  // still be there (no prior snapshot to compare against). If neither — absent at start, and
+  // nothing in this run built it (a filtered run) — there is nothing to assert.
   afterAll(() => {
     if (REAL_DIST_EXISTED_AT_START) {
-      expect(existsSync(REAL_DIST_ENTRY)).toBe(true);
-      expect(statSync(REAL_DIST_ENTRY).mtimeMs).toBe(REAL_DIST_MTIME_AT_START);
-    } else {
+      expect(snapshotDistTree(REAL_DIST_DIR)).toEqual(REAL_DIST_SNAPSHOT_AT_START);
+    } else if (builtRealDistThisRun) {
       expect(existsSync(REAL_DIST_ENTRY)).toBe(true);
     }
   });
 
-  describe("local unresolvable (injected — no real dist involved either way)", () => {
+  describe("local unresolvable — independent of the real checkout", () => {
     it("no model-tier, no gateway, local unresolvable -> reranker stays null (RRF-only), unchanged", async () => {
       delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+
+      // Staged anchor-only tree (no dist) — proves resolveSourceCheckoutLocalRerankerPath's own
+      // walk behaves correctly, independent of the real checkout (GH #958 review round 2, findings
+      // 1 and 5).
+      const anchorRoot = mkdtempSync(join(tmpdir(), "obtc-reranker-auto-select-unbuilt-"));
+      try {
+        const startDir = writeRerankerLocalAnchorOnly(anchorRoot);
+        const sourceCheckout = resolveSourceCheckoutLocalRerankerPath(startDir);
+        expect(sourceCheckout.skippedReason).toBeUndefined();
+        expect(existsSync(sourceCheckout.path)).toBe(false);
+      } finally {
+        cleanupTempRoot(anchorRoot, "reranker-auto-select.test.ts");
+      }
+
+      // The REAL, unmodified resolveLocalRerankerModule ladder ("the default resolver"), with only
+      // its terminal import step forced to fail — genuinely exercises the ladder's integration code
+      // (existsSync checks, route ordering, attempt bookkeeping) while staying deterministic
+      // regardless of whatever the real packages/reranker-local/dist currently holds (built and
+      // left by the "via the real source-checkout route" describe below, possibly concurrently).
+      const alwaysFailImport = async () => {
+        throw new Error("injected (GH #958 negative case): unresolvable");
+      };
+      const resolveDefaultButUnresolvable = (c: ProviderDescriptor, ctx: ResolveContext) =>
+        resolveLocalRerankerModule(c, ctx, alwaysFailImport);
+
       const { reranker } = await wireGatewaySeams(
         ollamaEmbeddings(),
         undefined,
@@ -109,26 +145,33 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
         undefined,
         undefined,
         undefined,
-        resolveLocalRerankerAlwaysFails,
+        resolveDefaultButUnresolvable,
       );
       expect(reranker).toBeNull();
     });
   });
 
   // Reuses the real dist read-only if it's there, else builds it in place (behind a lock) and
-  // leaves it — see file header and ./reranker-local-stage.ts's own comment on why this ONE case
-  // cannot use a staged copy instead.
+  // leaves it, or skips outright if a partial build is already sitting there — see file header and
+  // ./reranker-local-stage.ts's own comment on why this ONE case cannot use a staged copy instead.
   describe("via the real source-checkout route (against the REAL checkout)", () => {
-    beforeAll(async () => {
-      await ensureRealRerankerLocalDist(RERANKER_LOCAL_DIR);
-    }, 180_000);
+    it("no model-tier, no gateway -> auto-selects 'local' via the real source-checkout route", async (ctx) => {
+      const ensured: EnsureRealRerankerLocalDistResult =
+        await ensureRealRerankerLocalDist(RERANKER_LOCAL_DIR);
+      if (ensured.status === "partial") {
+        ctx.skip(
+          `packages/reranker-local/dist exists but index.js is missing (a partial build already ` +
+            `sitting there) — refusing to build into it: ${ensured.distDir}`,
+        );
+        return;
+      }
+      builtRealDistThisRun = ensured.built;
 
-    it("no model-tier, no gateway -> auto-selects 'local' via the real source-checkout route", async () => {
       delete process.env.OBSIDIAN_TC_GATEWAY_URL;
       const { reranker } = await wireGatewaySeams(ollamaEmbeddings());
       expect(reranker).not.toBeNull();
       expect(typeof reranker).toBe("function");
-    });
+    }, 450_000);
   });
 
   describe("once packages/reranker-local is built (a staged, throwaway copy)", () => {
@@ -152,11 +195,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     }, 180_000);
 
     afterAll(() => {
-      try {
-        rmTemp(stageRoot);
-      } catch {
-        // best effort
-      }
+      cleanupTempRoot(stageRoot, "reranker-auto-select.test.ts");
     });
 
     it("no model-tier, no gateway -> auto-selects 'local' (staged package, injected resolver)", async () => {
