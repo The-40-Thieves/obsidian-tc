@@ -28,6 +28,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -132,14 +133,23 @@ function readOwner(lockDir: string): LockOwner | undefined {
     ) {
       return parsed as LockOwner;
     }
-    return undefined; // malformed — treated the same as "missing" by every caller below
+    return undefined; // malformed shape — treated the same as "missing"/"unparsable" below
   } catch {
-    return undefined;
+    return undefined; // missing, or JSON.parse failed on an empty/partial/corrupt file
   }
 }
 
+/** Writes `owner.json` ATOMICALLY (GH #958 review round 3, finding 3): a plain `writeFileSync`
+ *  truncates the existing file before writing the new content, so a heartbeat refresh landing
+ *  mid-write could let a concurrent reader observe an EMPTY or partial file — `readOwner` would
+ *  then report "no owner", and a waiter could misjudge a perfectly live lock as stale. Writing to a
+ *  sibling `.tmp` file and `renameSync`-ing it over the real name means a reader only ever sees the
+ *  OLD complete content or the NEW complete content, never a partial one. */
 function writeOwner(lockDir: string, owner: LockOwner): void {
-  writeFileSync(ownerFilePath(lockDir), JSON.stringify(owner));
+  const finalPath = ownerFilePath(lockDir);
+  const tmpPath = `${finalPath}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(owner));
+  renameSync(tmpPath, finalPath);
 }
 
 /** `process.kill(pid, 0)` sends no signal — it only tests whether this process COULD signal `pid`.
@@ -157,10 +167,14 @@ function isProcessAlive(pid: number): boolean {
 /** A lock is stale — safe to reclaim — only when its owner process is confirmed DEAD, or its
  *  heartbeat has gone quiet for longer than `HEARTBEAT_STALE_MS` (GH #958 review round 2, finding
  *  2: directory `mtime` alone never advances during a live build, so it cannot tell "abandoned"
- *  from "still working" — an explicit, periodically-refreshed heartbeat can). A lock dir that has
- *  no readable `owner.json` yet (a holder that just `mkdirSync`'d it and hasn't written the file in
- *  the same tick) is NOT immediately stale — it falls back to the lock DIRECTORY's own mtime
- *  against the same staleness window, giving a legitimate acquirer time to finish writing it. */
+ *  from "still working" — an explicit, periodically-refreshed heartbeat can). A lock dir with no
+ *  READABLE `owner.json` — missing (a holder that just `mkdirSync`'d it and hasn't written the file
+ *  in the same tick) OR unparsable (round 3, finding 3: even the atomic `writeOwner` above cannot
+ *  rule out every corruption) — is treated as "live, unknown owner" rather than immediately stale:
+ *  it falls back to the lock DIRECTORY's own mtime against the same staleness window (and, since
+ *  `writeOwner`'s `renameSync` touches that directory entry on every heartbeat, this mtime tracks
+ *  the real heartbeat cadence even when the file's CONTENT can't be trusted), giving a legitimate
+ *  acquirer time to finish writing it rather than having a waiter reclaim out from under it. */
 function isLockStale(lockDir: string, nowMs: number): boolean {
   const owner = readOwner(lockDir);
   if (owner) {
@@ -175,14 +189,35 @@ function isLockStale(lockDir: string, nowMs: number): boolean {
   }
 }
 
+/** Reclaims a stale lock dir ATOMICALLY (GH #958 review round 3, finding 1): the naive
+ *  check-then-`rmSync` sequence has a window between "confirmed stale" and "deleted" in which a
+ *  DIFFERENT contender can win a fresh `mkdirSync` on that same path — this reclaimer's later
+ *  `rmSync` would then delete THEIR brand-new lock, not the abandoned one it inspected.
+ *  `renameSync` is atomic on the same filesystem: only one contender's rename can find `lockDir`
+ *  still there to move, so at most one of them ever proceeds to delete it (as its own private,
+ *  now-uniquely-named tombstone), and every other contender's rename fails ENOENT and simply
+ *  retries acquisition from the top. Never `rmSync` a lock dir directly here — only its own
+ *  tombstone, which by construction nothing else can be racing for. */
+function reclaimStaleLock(lockDir: string): void {
+  const tombstone = `${lockDir}.reclaimed-${process.pid}-${Date.now()}`;
+  try {
+    renameSync(lockDir, tombstone);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return; // lost the race — nothing to reclaim
+    throw e;
+  }
+  rmSync(tombstone, { recursive: true, force: true }); // ours alone now — safe to delete outright
+}
+
 /** Cross-PROCESS mutex via an atomic `mkdirSync` (EEXIST when another process holds it) — vitest
  *  can run reranker-local-resolution.test.ts and reranker-auto-select.test.ts in separate worker
  *  processes, and both may reach "real dist missing, build it" at the same moment. Polls every
  *  100ms up to `LOCK_WAIT_BUDGET_MS`. While held, the owner's pid/heartbeat is recorded in
  *  `owner.json` and refreshed every `HEARTBEAT_INTERVAL_MS` for the duration of `fn` — a waiter
- *  only reclaims the lock once that heartbeat has gone stale (see `isLockStale`), and release
- *  (in `finally`) only removes the lock dir if `owner.json` still names OUR pid — a contender that
- *  reclaimed it as stale in the meantime keeps its own lock intact. */
+ *  only reclaims the lock once that heartbeat has gone stale (see `isLockStale`), and ONLY via the
+ *  atomic rename-then-delete above; release (in `finally`) only removes the lock dir if
+ *  `owner.json` still names OUR pid — a contender that reclaimed it as stale in the meantime keeps
+ *  its own lock intact. */
 async function withRealRerankerLocalBuildLock<T>(
   realRerankerLocalDir: string,
   fn: () => Promise<T>,
@@ -196,7 +231,7 @@ async function withRealRerankerLocalBuildLock<T>(
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       if (isLockStale(lockDir, Date.now())) {
-        rmSync(lockDir, { recursive: true, force: true }); // abandoned — reclaim and retry now
+        reclaimStaleLock(lockDir); // abandoned — reclaim atomically and retry now
         continue;
       }
       if (Date.now() > deadline) {
@@ -278,13 +313,63 @@ function runCommandAsync(cmd: string, args: string[], cwd: string): Promise<void
   });
 }
 
+const DIST_BUILD_STAGE_PREFIX = ".obtc-reranker-local-dist-build-";
+
+/** Builds packages/reranker-local's dist ATOMICALLY (GH #958 review round 3, finding 2): `tsc`
+ *  writes many files into `dist/` one at a time, so an UNLOCKED reader elsewhere doing
+ *  `existsSync(distEntry)` could observe `index.js` the moment it lands while `tsc` is still
+ *  writing the rest — a torn read of "ready", not a genuinely complete build. Compiling straight
+ *  into `dist/` in place can never be made safe against that from the reader's side alone.
+ *
+ *  Instead this compiles into a PRIVATE staged directory first (same filesystem — a sibling of
+ *  `dist/` under `realRerankerLocalDir` itself, never `/tmp`, so the final `renameSync` is atomic)
+ *  bypassing `bun run build`'s hardcoded `./dist` via the local `tsc`'s own `--outDir` override,
+ *  then `renameSync`s the FINISHED staged directory onto `dist` in one atomic step. From any other
+ *  process's point of view, `dist/` therefore only ever transitions instantly from "absent" to
+ *  "fully built" — "index.js exists" now genuinely implies a complete dist.
+ *
+ *  If `dist` appears from an uncoordinated builder (this lock is our own convention; nothing stops
+ *  a developer running `bun run build` by hand at the same time) between our check and our rename,
+ *  `renameSync` fails EEXIST/ENOTEMPTY — that other dist is exactly as valid as ours would have
+ *  been, so this discards our own now-redundant staged output and returns normally (same pattern as
+ *  doctor-cli-bundle-reranker-resolution.test.ts's `buildSharedDistAtomically`). Any OTHER error, or
+ *  the rename failing with one of those codes yet the target still missing `index.js`, still
+ *  propagates — that is a genuine failure, not a lost race. */
+async function buildRealDistAtomically(realRerankerLocalDir: string): Promise<void> {
+  await runCommandAsync("bun", ["install", "--frozen-lockfile"], realRerankerLocalDir);
+
+  const distDir = join(realRerankerLocalDir, "dist");
+  const distEntry = join(distDir, "index.js");
+  const stagedOut = join(
+    realRerankerLocalDir,
+    `${DIST_BUILD_STAGE_PREFIX}${process.pid}-${Date.now()}`,
+  );
+  rmSync(stagedOut, { recursive: true, force: true }); // clean slate; astronomically unlikely reuse
+  try {
+    const localTsc = join(realRerankerLocalDir, "node_modules", ".bin", "tsc");
+    await runCommandAsync(localTsc, ["--outDir", stagedOut], realRerankerLocalDir);
+    try {
+      renameSync(stagedOut, distDir);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST" && code !== "ENOTEMPTY") throw e;
+      if (!existsSync(distEntry)) throw e; // genuinely broken, not a race we lost
+      rmSync(stagedOut, { recursive: true, force: true }); // lost the race — theirs is just as valid
+    }
+  } catch (e) {
+    rmSync(stagedOut, { recursive: true, force: true }); // never leave a failed build's debris behind
+    throw e;
+  }
+}
+
 export type EnsureRealRerankerLocalDistResult =
   | { status: "ready"; path: string; built: boolean }
   | { status: "partial"; distDir: string };
 
 /** Reuses the real `packages/reranker-local/dist/index.js` read-only when it already exists;
- *  otherwise builds it there (behind the lock above) and leaves it — never deletes it either way.
- *  If `dist/` exists but `index.js` does not (a partial/killed build already sitting there), never
+ *  otherwise builds it there (behind the lock above, atomically — see `buildRealDistAtomically`)
+ *  and leaves it — never deletes it either way. If `dist/` exists but `index.js` does not (a
+ *  partial/killed build from OUTSIDE this helper's own atomic path already sitting there), never
  *  builds into it — returns `{ status: "partial" }` so the caller can skip its assertion instead of
  *  risking `tsc` mixing its output with whatever is already on disk. */
 export async function ensureRealRerankerLocalDist(
@@ -301,10 +386,9 @@ export async function ensureRealRerankerLocalDist(
     if (existsSync(distEntry)) return { status: "ready" as const, path: distEntry, built: false };
     if (existsSync(distDir)) return { status: "partial" as const, distDir };
 
-    await runCommandAsync("bun", ["install", "--frozen-lockfile"], realRerankerLocalDir);
-    await runCommandAsync("bun", ["run", "build"], realRerankerLocalDir);
+    await buildRealDistAtomically(realRerankerLocalDir);
     if (!existsSync(distEntry)) {
-      throw new Error(`bun run build in ${realRerankerLocalDir} did not produce ${distEntry}`);
+      throw new Error(`build in ${realRerankerLocalDir} did not produce ${distEntry}`);
     }
     return { status: "ready" as const, path: distEntry, built: true };
   });
