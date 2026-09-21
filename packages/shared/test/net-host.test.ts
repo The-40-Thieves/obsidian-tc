@@ -47,6 +47,18 @@ describe("isLoopbackHost", () => {
       expect(isLoopbackHost(h)).toBe(false);
     }
   });
+
+  // THE-1084 review round 2, finding 2: `new URL("http://[::ffff:127.0.0.1]").hostname`
+  // canonicalizes to the COMPRESSED HEX form, not the dotted-quad spelling — a real caller's URL
+  // parser produces this spelling, not the one already covered above.
+  it("accepts the compressed-hex IPv4-mapped IPv6 loopback spelling too", () => {
+    for (const h of ["::ffff:7f00:1", "[::ffff:7f00:1]", "::FFFF:7F00:1"]) {
+      expect(isLoopbackHost(h)).toBe(true);
+    }
+    // A non-loopback IPv4-mapped address in the same hex shape must still be rejected — this is
+    // not "any ::ffff:x:y passes", only the ones that decode to 127.0.0.0/8.
+    expect(isLoopbackHost("::ffff:c0a8:10a")).toBe(false); // 192.168.1.10
+  });
 });
 
 // THE-1084 review round 1: the single classifier the citationInfer.judge.baseUrl schema refine,
@@ -93,6 +105,58 @@ describe("classifyJudgeBaseUrl", () => {
   it("an unparseable string is invalid — fails CLOSED, never open", () => {
     expect(classifyJudgeBaseUrl("not a url at all")).toBe("invalid");
     expect(classifyJudgeBaseUrl("")).toBe("invalid");
+  });
+
+  // THE-1084 review round 2, finding 2: through the classifier, not just isLoopbackHost directly —
+  // this is the actual shape a `judge.baseUrl` of "http://[::ffff:127.0.0.1]" resolves to.
+  it("classifies http://[::ffff:127.0.0.1] as http-loopback, via the parser's own canonicalization", () => {
+    expect(classifyJudgeBaseUrl("http://[::ffff:127.0.0.1]")).toBe("http-loopback");
+  });
+
+  // THE-1084 review round 2, finding 1: no regex fallback remains — when the runtime has no
+  // global `URL` (never true for Bun/Node, but the classifier must still fail closed if it were),
+  // every URL is "invalid", including an otherwise-ordinary https:// one.
+  it('classifies everything as "invalid" when globalThis.URL is not a function', () => {
+    const g = globalThis as { URL?: unknown };
+    const original = g.URL;
+    try {
+      g.URL = undefined;
+      expect(classifyJudgeBaseUrl("https://api.typesafe.ai")).toBe("invalid");
+    } finally {
+      g.URL = original;
+    }
+  });
+
+  // THE-1084 review round 2 "cheap direct assertions" — each stated and asserted deliberately
+  // rather than left implicit in the non-canonical-form tests above.
+  describe("cheap direct assertions (THE-1084 review round 2)", () => {
+    it("an uppercase HTTPS:// scheme still classifies as https", () => {
+      expect(classifyJudgeBaseUrl("HTTPS://EXAMPLE.com")).toBe("https");
+    });
+
+    it("an uppercase HTTP:// scheme on a non-loopback host still classifies as http-remote", () => {
+      expect(classifyJudgeBaseUrl("HTTP://EXAMPLE.com")).toBe("http-remote");
+    });
+
+    it("surrounding whitespace is trimmed by the URL parser itself — still classifies normally", () => {
+      expect(classifyJudgeBaseUrl("  https://example.com  ")).toBe("https");
+    });
+
+    it("a single-slash http:/one-slash form still resolves a host and classifies as http-remote", () => {
+      expect(classifyJudgeBaseUrl("http:/one-slash")).toBe("http-remote");
+    });
+
+    // The WHATWG parser canonicalizes shorthand IPv4 "127.1" to "127.0.0.1" (verified against
+    // Node/Bun) — so this DOES count as loopback, via that canonicalization, not despite it.
+    it('"127.1" canonicalizes to 127.0.0.1 and counts as loopback', () => {
+      expect(classifyJudgeBaseUrl("http://127.1")).toBe("http-loopback");
+    });
+
+    // "0.0.0.0" is never canonicalized to a loopback address, and isLoopbackHost's own F2 contract
+    // deliberately excludes it — this must NOT count as loopback.
+    it('"0.0.0.0" is not loopback — classifies as http-remote', () => {
+      expect(classifyJudgeBaseUrl("http://0.0.0.0")).toBe("http-remote");
+    });
   });
 });
 
