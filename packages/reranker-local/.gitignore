@@ -7,3 +7,14 @@ models/
 node_modules/
 dist/
 *.tsbuildinfo
+
+# packages/server/test/reranker-local-stage.ts's build lock (GH #958 / THE-1085) — always removed
+# in a `finally`; only ever lingers after a killed process, and is itself self-reclaiming (stale
+# after 60s of no heartbeat). Ignored defensively so a crash mid-test never leaves it committable.
+.obtc-reranker-local-build.lock/
+# A stale lock's rename-based tombstone (review round 3, finding 1) — always removed immediately
+# after the rename that creates it; only lingers if the process died in that exact window.
+.obtc-reranker-local-build.lock.reclaimed-*/
+# The private staged output directory `buildRealDistAtomically` renames onto `dist/` (review round
+# 3, finding 2) — always renamed away or removed; only lingers after a killed process.
+.obtc-reranker-local-dist-build-*/
