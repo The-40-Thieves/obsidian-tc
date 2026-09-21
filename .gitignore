@@ -135,3 +135,6 @@ packages/server/perf-node-parity.json
 # by habit until now, which left it one `git add -A` away from publishing the tracker's contents.
 packages/server/open-tickets.json
 open-tickets.json
+
+# Local agent planning artifacts (never publish)
+.superpowers/
