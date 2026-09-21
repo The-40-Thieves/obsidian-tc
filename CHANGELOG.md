@@ -9,7 +9,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Fixed
 
 - **`packages/server`'s reranker-local resolution tests no longer `rm -rf` a developer's real,
-  built `packages/reranker-local/dist` (GH #958, THE-1085, #TBD — PR number pending).**
+  built `packages/reranker-local/dist` (GH #958, THE-1085, #962 — PR number pending).**
   `reranker-local-resolution.test.ts` and `reranker-auto-select.test.ts` unconditionally deleted
   the shared `packages/reranker-local/dist` in their own `beforeAll`/`afterAll`, so simply running
   `bun run test` after following the doctor remedy from #947/THE-1079 (`bun run build` in
