@@ -6,20 +6,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.3] - 2026-09-21
+
 ### Fixed
 
 - **`packages/server`'s reranker-local resolution tests no longer `rm -rf` a developer's real,
-  built `packages/reranker-local/dist` (GH #958, THE-1085, #962 — PR number pending).**
+  built `packages/reranker-local/dist` (GH #958, THE-1085, #962).**
   `reranker-local-resolution.test.ts` and `reranker-auto-select.test.ts` unconditionally deleted
   the shared `packages/reranker-local/dist` in their own `beforeAll`/`afterAll`, so simply running
   `bun run test` after following the doctor remedy from #947/THE-1079 (`bun run build` in
   `packages/reranker-local`) destroyed that build — and, since vitest runs test files in parallel,
   the two files could also race each other on that same directory. Both files now stage and build
-  their own throwaway copy of `packages/reranker-local` under a unique temp root instead (never
-  reading, building into, or deleting the real one), fall back to an explicit `localModulePath`/
-  injected-resolver override wherever the "built" case does not inherently need the real, fixed
-  source-checkout path, and assert in `afterAll` that the real `dist/index.js` (when present) is
-  byte-for-byte and mtime-unchanged.
+  a throwaway copy of `packages/reranker-local` under their own temp root for every case that can
+  use one; the single case tied to the real checkout path reuses the real `dist` read-only when it
+  is present and otherwise builds it once, behind a cross-process heartbeat lock, and leaves it in
+  place. A whole-tree snapshot taken in `beforeAll` is asserted unchanged in `afterAll` whenever the
+  real `dist` pre-existed, and a partial `dist` (directory without `index.js`) is skipped rather
+  than built into.
 
 ## [1.31.2] - 2026-09-21
 
