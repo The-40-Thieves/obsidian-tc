@@ -272,7 +272,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // longer format-checked at all, matching that block's "the gateway's own contract" describe()
   // text; (2) judge.baseUrl now refuses a plain http:// endpoint unless the host is loopback
   // (localhost/127.0.0.1/[::1]) — the URL carries the bearer key and vault-derived text.
-  "2297799969167fc1c0445ecda3292f2fa0118d56b7429c18f9cc09344d8d0954";
+  // THE-1084: rebaselined deliberately. Adds ONE new key,
+  // `experiential.citationInfer.judge.allowPlainHttp` (boolean, default false) — an explicit
+  // operator opt-in that widens the https-unless-loopback rule on judge.baseUrl to any http://
+  // host, for a gateway reachable only over a host-local docker network or an encrypted overlay
+  // (e.g. the Cave LiteLLM gateway's pass-through endpoint). See retrieval.schema.ts's own comment
+  // on the field for the full description text. No existing key, type, default or constraint
+  // moved.
+  "85b2539acecd275aad0026946df5df02dba6ed53a4238558b9c6fb0ebb82b0b6";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

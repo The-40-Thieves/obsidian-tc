@@ -378,7 +378,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1079 | The local reranker's source-checkout resolution never actually worked from the BUILT server bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949, #956). | CHANGELOG.md (1.31.1) | 4 |
 | THE-1081 | A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` -> `/private/var`) made the native addon refuse every read/write in that vault, while the JS fallback accepted it (THE-1081, #946, #955). | CHANGELOG.md (1.31.1) | 11 |
 | THE-1082 | A client with no MCP elicitation support (Claude Code over stdio among them) had no way to clear an `elicit_required` gate at all (THE-1082, #945, #953). | CHANGELOG.md (1.31.1) | 5 |
+| THE-1084 | `experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator explicitly opts in (THE-1084, #959). | CHANGELOG.md (Unreleased) | 5 |
 
-364 distinct ticket(s) across 503 source file(s) under
-`packages/*/src`; 264 resolved to a public summary, 100
+365 distinct ticket(s) across 503 source file(s) under
+`packages/*/src`; 265 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

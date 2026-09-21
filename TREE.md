@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,331 tracked code files · 233,280 lines.
+**Scale:** 1,331 tracked code files · 234,132 lines.
 
-TypeScript 212,900 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
+TypeScript 213,752 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -88,11 +88,11 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 |---|---:|---:|---|
 | `tools/` | 91 | 18,861 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,932 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `experiential/` | 28 | 7,173 | work-memory tier: activation, retrieval log, forget, citations |
-| `cli/` | 41 | 5,593 | arg parsing + subcommands |
+| `experiential/` | 28 | 7,210 | work-memory tier: activation, retrieval log, forget, citations |
+| `cli/` | 41 | 5,599 | arg parsing + subcommands |
 | `mcp/` | 20 | 5,529 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 19 | 4,360 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `doctor/` | 16 | 2,801 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `doctor/` | 16 | 2,837 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 2,499 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 15 | 1,988 | provisioning, migrate runner, experiential store |
 | `migrations/` | 53 | 1,940 | hand-registered SQL. **Two chains** — see below |
@@ -138,7 +138,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 <!-- BEGIN GENERATED: tree-largest-files -->
 | lines | file |
 |---:|---|
-| 890 | `packages/shared/src/config/retrieval.schema.ts` |
+| 887 | `packages/shared/src/config/retrieval.schema.ts` |
 | 835 | `packages/server/src/experiential/reflect.ts` |
 | 816 | `packages/server/src/doctor/checks.ts` |
 | 789 | `packages/server/src/mcp/server.ts` |
@@ -289,7 +289,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**462 modules · 2118 dependencies · 131 distinct subsystem pairs · 969 cross-subsystem imports.**
+**462 modules · 2120 dependencies · 131 distinct subsystem pairs · 969 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it

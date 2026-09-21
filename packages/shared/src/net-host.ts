@@ -19,19 +19,106 @@ function isStrictIpv4(h: string): boolean {
   return m.slice(1).every((octet) => Number(octet) <= 255);
 }
 
+// THE-1084 review round 2, finding 2: `new URL("http://[::ffff:127.0.0.1]").hostname` canonicalizes
+// to the COMPRESSED HEX form "[::ffff:7f00:1]", not the dotted-quad spelling below — so a caller
+// that only recognized "::ffff:<dotted>" missed exactly the address the runtime URL parser (and
+// every real caller building this string through it) actually produces. `rest` is the two
+// colon-separated hex groups after "::ffff:" (each 1-4 hex digits, zero-padding optional); this
+// decodes them back to the four bytes they encode. Returns null for anything that isn't that shape.
+function ipv4MappedHexToDotted(rest: string): string | null {
+  const m = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest);
+  const g1 = m?.[1];
+  const g2 = m?.[2];
+  if (!g1 || !g2) return null;
+  const hi = Number.parseInt(g1, 16);
+  const lo = Number.parseInt(g2, 16);
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+}
+
 /**
  * True only for genuine loopback hosts: "localhost", the IPv4 loopback block
  * 127.0.0.0/8 (octets validated), IPv6 "::1", and IPv4-mapped IPv6 loopback
- * "::ffff:127.x.x.x". "0.0.0.0", "::", and any LAN or public address are
- * intentionally NOT loopback (F2).
+ * "::ffff:127.x.x.x" in EITHER its dotted-quad spelling or the compressed-hex
+ * spelling ("::ffff:7f00:1") a real URL parser canonicalizes it to. "0.0.0.0",
+ * "::", and any LAN or public address are intentionally NOT loopback (F2).
  */
 export function isLoopbackHost(host: string): boolean {
   const h = normalizeHostForBind(host);
   if (h === "localhost" || h === "::1") return true;
   if (isStrictIpv4(h)) return h.startsWith("127.");
   if (h.startsWith("::ffff:")) {
-    const v4 = h.slice("::ffff:".length);
-    return isStrictIpv4(v4) && v4.startsWith("127.");
+    const rest = h.slice("::ffff:".length);
+    const dotted = isStrictIpv4(rest) ? rest : ipv4MappedHexToDotted(rest);
+    return dotted?.startsWith("127.") ?? false;
   }
   return false;
+}
+
+// Minimal ambient shape for the runtime `URL` global's constructor, read off `globalThis` rather
+// than the bare `URL` identifier: this package carries no DOM/Node lib (see the module header),
+// so the real `lib.dom` `URL` type isn't visible to it, and `typeof URL` would fail to compile —
+// there is no declared name `URL` for `typeof` to check. `globalThis` itself is plain ES2020+.
+interface MinimalUrl {
+  protocol: string;
+  hostname: string;
+}
+type MinimalUrlCtor = new (input: string) => MinimalUrl;
+
+// THE-1084 review round 1, finding 1: parses with the RUNTIME `URL` class, which canonicalizes
+// non-canonical-but-valid forms exactly as `new URL()`/`fetch` will before the request actually
+// goes out ("http:evil.example/path" -> scheme "http", host "evil.example" — verified against
+// Node/Bun). A hand-rolled `://`-requiring regex used to be the only parser here and rejected that
+// form as unparseable; the caller then treated "unparseable" as "not remote http" and let it
+// through with allowPlainHttp still false.
+//
+// THE-1084 review round 2, finding 1: an EARLIER version of this function kept that same regex as
+// a fallback for "no global URL" — but the regex is permissive in ways the WHATWG parser is not
+// (it accepted "https://exa mple", "https://%zz", and "http://localhost:99999", all of which
+// `new URL()` rejects), so the fallback could pass a URL the real HTTP client would refuse, or
+// classify one with a host the client will never actually reach. Bun and Node both always have a
+// global `URL`, so there is no real runtime to fall back FOR — removed entirely. When
+// `globalThis.URL` is not a function, this returns `null` (parseJudgeBaseUrl) and the classifier
+// answers "invalid": fail CLOSED, never open, on a classifier a security decision reads.
+function parseJudgeBaseUrl(u: string): { scheme: string; host: string } | null {
+  const UrlCtor = (globalThis as { URL?: MinimalUrlCtor }).URL;
+  if (typeof UrlCtor !== "function") return null;
+  try {
+    const parsed = new UrlCtor(u);
+    return { scheme: parsed.protocol.replace(/:$/, "").toLowerCase(), host: parsed.hostname };
+  } catch {
+    return null;
+  }
+}
+
+/** THE-1084: how `experiential.citationInfer.judge.baseUrl` (and any URL with the same shape of
+ *  requirement) is treated by the https-unless-loopback-unless-opted-in rule, centralized so the
+ *  schema refine, the doctor warning, and the runtime builder's own enforcement can never drift
+ *  from each other or from three separately hand-rolled parsers (THE-1084 review round 1, finding
+ *  1 — that drift is exactly what let a non-canonical URL bypass the schema check).
+ *
+ *  - `"https"` — always fine, any host.
+ *  - `"http-loopback"` — http:// on a genuine loopback host (localhost/127.0.0.1/[::1] etc) — the
+ *    existing local test/dev carve-out, unconditional, no flag needed.
+ *  - `"http-remote"` — http:// on any other host — fine ONLY when the caller has separately
+ *    confirmed `allowPlainHttp === true`; this function does not read that flag.
+ *  - `"invalid"` — the URL could not be parsed, OR its scheme is neither https nor http (ftp:,
+ *    file:, ...). Review round 1 finding 3: the opt-in widens exactly http:// on a non-loopback
+ *    host, never "any non-https scheme" — an unsupported scheme is invalid regardless of
+ *    allowPlainHttp, same as an unparseable one.
+ */
+export function classifyJudgeBaseUrl(
+  u: string,
+): "https" | "http-loopback" | "http-remote" | "invalid" {
+  const parsed = parseJudgeBaseUrl(u);
+  if (!parsed?.host) return "invalid";
+  if (parsed.scheme === "https") return "https";
+  if (parsed.scheme !== "http") return "invalid";
+  return isLoopbackHost(parsed.host) ? "http-loopback" : "http-remote";
+}
+
+/** The host `classifyJudgeBaseUrl` parsed `u` as, for a warning message — never the key, the
+ *  path, the query, or any userinfo, only `URL.hostname`.
+ *  Returns undefined for a URL classify would call "invalid" (nothing safe to name). */
+export function judgeBaseUrlHost(u: string): string | undefined {
+  return parseJudgeBaseUrl(u)?.host;
 }

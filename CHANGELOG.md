@@ -6,6 +6,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator
+  explicitly opts in (THE-1084, #959).** The https-unless-loopback
+  refine on `judge.baseUrl` (THE-1078 review round 2) had no carve-out for a trusted plain-http
+  path such as the Cave LiteLLM gateway's pass-through endpoint
+  (`http://litellm:4000/typesafe` inside a compose network), so pointing the TypeSafe judge at a
+  gateway instead of the vendor directly required either a loopback host or `https://`. The new
+  `judge.allowPlainHttp` boolean (default `false`) widens the rule to any `http://` host — intended
+  only for a gateway reachable over a host-local docker network or an encrypted overlay (e.g.
+  Tailscale), never a plain internet path; the bearer key and vault-derived text still travel in
+  clear over whatever link the URL names, so the flag only records that the operator judged that
+  link safe. `doctor` now warns (never fails) when the opt-in is active on a non-loopback
+  `http://` host, and `buildCitationJudge` logs the same warning once at startup — neither ever
+  logs the key.
+
 ## [1.31.1] - 2026-09-19
 
 ### Fixed
