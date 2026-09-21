@@ -41,13 +41,13 @@ import type { ProviderDescriptor, ResolveContext } from "../src/providers/types"
 import { wireGatewaySeams } from "../src/runtime/tool-wiring";
 import {
   buildStagedRerankerLocal,
-  cleanupTempRoot,
   type EnsureRealRerankerLocalDistResult,
   ensureRealRerankerLocalDist,
   snapshotDistTree,
   stageRerankerLocalSource,
   writeRerankerLocalAnchorOnly,
 } from "./reranker-local-stage";
+import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RERANKER_LOCAL_DIR = join(HERE, "..", "..", "reranker-local");
@@ -124,7 +124,16 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
         expect(sourceCheckout.skippedReason).toBeUndefined();
         expect(existsSync(sourceCheckout.path)).toBe(false);
       } finally {
-        cleanupTempRoot(anchorRoot, "reranker-auto-select.test.ts");
+        // Best-effort (ast-grep no-mkdtemp-without-teardown): a cleanup that throws must never fail
+        // the suite in teardown when every assertion above passed.
+        try {
+          rmTemp(anchorRoot);
+        } catch (e) {
+          console.warn(
+            `[reranker-auto-select.test.ts] failed to clean up temp dir ${anchorRoot}:`,
+            e,
+          );
+        }
       }
 
       // The REAL, unmodified resolveLocalRerankerModule ladder ("the default resolver"), with only
@@ -195,7 +204,11 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     }, 180_000);
 
     afterAll(() => {
-      cleanupTempRoot(stageRoot, "reranker-auto-select.test.ts");
+      try {
+        rmTemp(stageRoot);
+      } catch (e) {
+        console.warn(`[reranker-auto-select.test.ts] failed to clean up temp dir ${stageRoot}:`, e);
+      }
     });
 
     it("no model-tier, no gateway -> auto-selects 'local' (staged package, injected resolver)", async () => {

@@ -50,13 +50,13 @@ import {
 } from "../src/providers/registry";
 import {
   buildStagedRerankerLocal,
-  cleanupTempRoot,
   type EnsureRealRerankerLocalDistResult,
   ensureRealRerankerLocalDist,
   snapshotDistTree,
   stageRerankerLocalSource,
   writeRerankerLocalAnchorOnly,
 } from "./reranker-local-stage";
+import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RERANKER_LOCAL_DIR = join(HERE, "..", "..", "reranker-local");
@@ -140,7 +140,16 @@ describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
       );
       expect(reranker).toBeNull();
     } finally {
-      cleanupTempRoot(anchorRoot, "reranker-local-resolution.test.ts");
+      // Best-effort (ast-grep no-mkdtemp-without-teardown): a cleanup that throws must never fail
+      // the suite in teardown when every assertion above passed.
+      try {
+        rmTemp(anchorRoot);
+      } catch (e) {
+        console.warn(
+          `[reranker-local-resolution.test.ts] failed to clean up temp dir ${anchorRoot}:`,
+          e,
+        );
+      }
     }
   });
 
@@ -184,7 +193,14 @@ describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
     }, 180_000);
 
     afterAll(() => {
-      cleanupTempRoot(stageRoot, "reranker-local-resolution.test.ts");
+      try {
+        rmTemp(stageRoot);
+      } catch (e) {
+        console.warn(
+          `[reranker-local-resolution.test.ts] failed to clean up temp dir ${stageRoot}:`,
+          e,
+        );
+      }
     });
 
     it("resolves via an explicit localModulePath override (route i) — same mechanics as route iii, pointed elsewhere", async () => {

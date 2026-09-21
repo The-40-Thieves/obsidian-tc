@@ -33,7 +33,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { rmTemp } from "./tmp";
 
 /** Copies just what `tsc` needs to build packages/reranker-local — package.json, bun.lock (for
  *  `--frozen-lockfile`), tsconfig.json, and src/ — into `<stageRoot>/packages/reranker-local`,
@@ -342,15 +341,4 @@ export function snapshotDistTree(dir: string): DistFileSnapshot[] | null {
   walk(dir, "");
   out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
   return out;
-}
-
-/** `rmTemp` a throwaway temp root and REPORT (never swallow) a failure — a leaked large temp tree
- *  (a full `bun install` of @huggingface/transformers, ~230MB) should be visible, not silently
- *  eaten by an empty `catch` (GH #958 review round 2). */
-export function cleanupTempRoot(dir: string, label: string): void {
-  try {
-    rmTemp(dir);
-  } catch (e) {
-    console.warn(`[${label}] failed to clean up temp dir ${dir}:`, e);
-  }
 }
