@@ -1,21 +1,50 @@
 // THE-944: auto-select the bundled "local" cross-encoder as the LAST fallback in the ABSENT-block
 // default precedence — model-tier ?? gateway ?? local — gated on no gateway URL being configured
-// (the same condition "gateway yields null" already means). This file owns building
-// packages/reranker-local's dist, same pattern and same isolation reasoning as
+// (the same condition "gateway yields null" already means). This file owns building a REAL,
+// tsc-built copy of packages/reranker-local, same pattern and same isolation reasoning as
 // test/reranker-local-resolution.test.ts: never relying on ambient repo state or cross-test-file
 // ordering for whether the optional package resolves.
-import { execFileSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+//
+// GH #958 / THE-1085: this file used to build (and unconditionally `rm -rf`) the REAL
+// `packages/reranker-local/dist` in place — see reranker-local-resolution.test.ts's header for the
+// full incident. It no longer builds into, reads as authoritative, or deletes that real directory:
+//
+//   - the "local unresolvable" case is now proven with an INJECTED resolver that always fails —
+//     `wireGatewaySeams`'s own `resolveLocalReranker` param exists exactly for this (see its doc
+//     comment in tool-wiring.ts: "a test that needs a DETERMINISTIC 'local never resolves' ...
+//     should inject a stub here instead of depending on ambient filesystem state"), never proven by
+//     deleting a real build to force the outcome;
+//   - the "local resolves" cases are proven against a throwaway copy staged and built under this
+//     file's own mkdtempSync root (./reranker-local-stage.ts), injected the same way;
+//   - one additional, opportunistic case reuses the REAL dist strictly read-only, but ONLY when it
+//     already existed before this file touched anything — never built or deleted by this suite.
+import { existsSync, mkdtempSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { resolveLocalRerankerModule } from "../src/providers/registry";
+import type { ProviderDescriptor, ResolveContext } from "../src/providers/types";
 import { wireGatewaySeams } from "../src/runtime/tool-wiring";
+import { buildStagedRerankerLocal, stageRerankerLocalSource } from "./reranker-local-stage";
+import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RERANKER_LOCAL_DIR = join(HERE, "..", "..", "reranker-local");
-const DIST_DIR = join(RERANKER_LOCAL_DIR, "dist");
-const DIST_ENTRY = join(DIST_DIR, "index.js");
+const REAL_DIST_ENTRY = join(RERANKER_LOCAL_DIR, "dist", "index.js");
+
+// Read-only observation, taken before anything below runs (nothing in this file ever builds into,
+// or deletes, REAL_DIST_ENTRY) — drives which real-path-dependent case can run without touching it,
+// and backs the regression guard in the outer afterAll.
+const REAL_DIST_EXISTED_AT_START = existsSync(REAL_DIST_ENTRY);
+const REAL_DIST_MTIME_AT_START = REAL_DIST_EXISTED_AT_START
+  ? statSync(REAL_DIST_ENTRY).mtimeMs
+  : undefined;
+
+/** Always fails, deterministically — the injected substitute for "local is unresolvable", per this
+ *  file's header. */
+const resolveLocalRerankerAlwaysFails = async () => ({ ok: false as const, attempts: [] });
 
 const prevGatewayUrl = process.env.OBSIDIAN_TC_GATEWAY_URL;
 afterEach(() => {
@@ -46,41 +75,87 @@ function modelTierEmbeddings() {
 }
 
 describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configured)", () => {
-  describe("before packages/reranker-local is built", () => {
-    beforeAll(() => {
-      rmSync(DIST_DIR, { recursive: true, force: true });
-    });
+  // GH #958 / THE-1085 regression guard: proves the real checkout is untouched by this suite,
+  // whichever branches below happened to run.
+  afterAll(() => {
+    expect(existsSync(REAL_DIST_ENTRY)).toBe(REAL_DIST_EXISTED_AT_START);
+    if (REAL_DIST_EXISTED_AT_START) {
+      expect(statSync(REAL_DIST_ENTRY).mtimeMs).toBe(REAL_DIST_MTIME_AT_START);
+    }
+  });
 
+  describe("local unresolvable (injected — no real dist involved either way)", () => {
     it("no model-tier, no gateway, local unresolvable -> reranker stays null (RRF-only), unchanged", async () => {
       delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-      expect(existsSync(DIST_ENTRY)).toBe(false);
-      const { reranker } = await wireGatewaySeams(ollamaEmbeddings());
+      const { reranker } = await wireGatewaySeams(
+        ollamaEmbeddings(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resolveLocalRerankerAlwaysFails,
+      );
       expect(reranker).toBeNull();
     });
   });
 
-  describe("once packages/reranker-local is built", () => {
+  describe("once packages/reranker-local is built (a staged, throwaway copy)", () => {
+    let stageRoot: string;
+    let stagedDistEntry: string;
+    let resolveStagedLocalReranker: (
+      c: ProviderDescriptor,
+      ctx: ResolveContext,
+    ) => ReturnType<typeof resolveLocalRerankerModule>;
+
     beforeAll(() => {
-      execFileSync("bun", ["install", "--frozen-lockfile"], {
-        cwd: RERANKER_LOCAL_DIR,
-        stdio: "pipe",
-      });
-      execFileSync("bun", ["run", "build"], { cwd: RERANKER_LOCAL_DIR, stdio: "pipe" });
-      expect(existsSync(DIST_ENTRY)).toBe(true);
+      // Unique per file: reranker-local-resolution.test.ts stages its OWN copy under its own root,
+      // so the two can run in parallel without racing each other (unlike the real dist they both
+      // used to share).
+      stageRoot = mkdtempSync(join(tmpdir(), "obtc-reranker-auto-select-"));
+      const stagedPkg = stageRerankerLocalSource(RERANKER_LOCAL_DIR, stageRoot);
+      stagedDistEntry = buildStagedRerankerLocal(stagedPkg);
+      expect(existsSync(stagedDistEntry)).toBe(true);
+      resolveStagedLocalReranker = (c, ctx) =>
+        resolveLocalRerankerModule({ ...c, localModulePath: stagedDistEntry }, ctx);
     }, 180_000);
 
     afterAll(() => {
-      // Don't leave a built artifact for other test files (notably reranker-slot-wiring.test.ts's
-      // "wireGatewaySeams ... degrades" test, which asserts the OPPOSITE) to accidentally depend on.
-      rmSync(DIST_DIR, { recursive: true, force: true });
+      try {
+        rmTemp(stageRoot);
+      } catch {
+        // best effort
+      }
     });
 
-    it("no model-tier, no gateway -> auto-selects 'local' via the real source-checkout route", async () => {
+    it("no model-tier, no gateway -> auto-selects 'local' (staged package, injected resolver)", async () => {
       delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-      const { reranker } = await wireGatewaySeams(ollamaEmbeddings());
+      const { reranker } = await wireGatewaySeams(
+        ollamaEmbeddings(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resolveStagedLocalReranker,
+      );
       expect(reranker).not.toBeNull();
       expect(typeof reranker).toBe("function");
     });
+
+    // Only meaningful when the real dist already existed BEFORE this file touched anything (strict
+    // read-only reuse, per file header) — this is the ONE case inherently tied to the real, fixed
+    // path (registry.ts's default `resolveLocalRerankerModule`, un-injected), and this file never
+    // builds one there itself.
+    it.skipIf(!REAL_DIST_EXISTED_AT_START)(
+      "no model-tier, no gateway -> auto-selects 'local' via the real source-checkout route",
+      async () => {
+        delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+        const { reranker } = await wireGatewaySeams(ollamaEmbeddings());
+        expect(reranker).not.toBeNull();
+        expect(typeof reranker).toBe("function");
+      },
+    );
 
     it("a gateway URL configured -> gateway wins; local auto-select never fires", async () => {
       process.env.OBSIDIAN_TC_GATEWAY_URL = "http://gw";
@@ -92,7 +167,15 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
           return new Response(JSON.stringify({ results: [] }), { status: 200 });
         }),
       );
-      const { reranker } = await wireGatewaySeams(ollamaEmbeddings());
+      const { reranker } = await wireGatewaySeams(
+        ollamaEmbeddings(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resolveStagedLocalReranker,
+      );
       expect(reranker).not.toBeNull();
       await reranker?.("q", ["a"], 1, []);
       // Hits the gateway, not local inference (which would never call fetch("http://gw/rerank")).
@@ -109,7 +192,15 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
           return new Response(JSON.stringify({ results: [] }), { status: 200 });
         }),
       );
-      const { reranker } = await wireGatewaySeams(modelTierEmbeddings());
+      const { reranker } = await wireGatewaySeams(
+        modelTierEmbeddings(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resolveStagedLocalReranker,
+      );
       await reranker?.("q", ["a"], 1, []);
       expect(hits).toEqual(["http://model-tier-full/v1/rerank"]);
     });
@@ -132,7 +223,15 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
           return new Response(JSON.stringify({ results: [] }), { status: 200 });
         }),
       );
-      const { reranker } = await wireGatewaySeams(ollamaEmbeddings(), rerankerCfg);
+      const { reranker } = await wireGatewaySeams(
+        ollamaEmbeddings(),
+        rerankerCfg,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resolveStagedLocalReranker,
+      );
       await reranker?.("q", ["a"], 1, []);
       expect(hits).toEqual(["http://declared/v2/rerank"]);
     });
