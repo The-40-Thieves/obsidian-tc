@@ -17,46 +17,58 @@
 //
 // GH #958 / THE-1085: this file used to build (and unconditionally `rm -rf`) the REAL
 // `packages/reranker-local/dist` — a developer's own build, destroyed by simply running `bun run
-// test` after following the doctor remedy from #947/THE-1079. It never builds into, reads as
-// authoritative, or deletes that real directory anymore:
+// test` after following the doctor remedy from #947/THE-1079. It never deletes that real directory
+// anymore, and only ever builds into it behind a cross-process lock (see ./reranker-local-stage.ts):
 //
-//   - the "not built yet" half below can only be proven true without touching anything real, so it
-//     only runs when the real dist ALREADY doesn't exist (never forced by deleting it);
-//   - the "automatic route (iii), no config at all" case is the one assertion that is INHERENTLY
-//     tied to that real, fixed path (registry.ts computes `SOURCE_CHECKOUT_LOCAL_RERANKER_PATH`
-//     once, from ITS OWN real `import.meta.url` — there is no per-call override), so it only runs
-//     when the real dist ALREADY exists, reusing it strictly read-only;
+//   - the "not built yet" case can only be proven without mutating the real checkout when it is
+//     ALREADY unbuilt, so it only runs then — never forced by deleting a real build;
+//   - the "automatic route (iii), no config at all" case is the one assertion INHERENTLY tied to
+//     that real, fixed path (registry.ts computes `SOURCE_CHECKOUT_LOCAL_RERANKER_PATH` once, from
+//     ITS OWN real `import.meta.url` — there is no per-call override). Skipping it whenever the real
+//     dist happened to be absent (this ticket's first cut) meant it never ran on CI at all, since a
+//     fresh checkout never has one prebuilt. It now reuses the real dist read-only when present, or
+//     builds it in place and LEAVES it otherwise (doctor-cli-bundle-reranker-resolution.test.ts's
+//     own rule for packages/shared/dist) — never deleted, either way;
 //   - every other "once built" assertion runs unconditionally, against a throwaway copy staged and
-//     built under this file's own `mkdtempSync` root (see ./reranker-local-stage.ts) — proving the
-//     same route (i) "localModulePath" mechanics without ever touching the real checkout.
+//     built under this file's own `mkdtempSync` root — proving the same route (i) "localModulePath"
+//     mechanics without ever touching the real checkout.
 import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveLocalRerankerModule, resolveReranker } from "../src/providers/registry";
-import { buildStagedRerankerLocal, stageRerankerLocalSource } from "./reranker-local-stage";
+import {
+  buildStagedRerankerLocal,
+  ensureRealRerankerLocalDist,
+  stageRerankerLocalSource,
+} from "./reranker-local-stage";
 import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RERANKER_LOCAL_DIR = join(HERE, "..", "..", "reranker-local");
 const REAL_DIST_ENTRY = join(RERANKER_LOCAL_DIR, "dist", "index.js");
 
-// Read-only observation, taken before anything below runs (nothing in this file ever builds into,
-// or deletes, REAL_DIST_ENTRY) — drives which real-path-dependent case can run without touching it,
-// and backs the regression guard in the outer afterAll.
+// Read-only observation, taken before anything below runs (this file never DELETES
+// REAL_DIST_ENTRY, though it may build into it — see the "route (iii)" describe below) — backs the
+// regression guard in the outer afterAll.
 const REAL_DIST_EXISTED_AT_START = existsSync(REAL_DIST_ENTRY);
 const REAL_DIST_MTIME_AT_START = REAL_DIST_EXISTED_AT_START
   ? statSync(REAL_DIST_ENTRY).mtimeMs
   : undefined;
 
 describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
-  // GH #958 / THE-1085 regression guard: proves the real checkout is untouched by this suite,
-  // whichever branches above happened to run.
+  // GH #958 / THE-1085 regression guard. Two shapes, matching the two ways this file may have left
+  // the real checkout: if it already had a build, that build must be BYTE-IDENTICAL afterward (this
+  // file never deletes or rebuilds an existing one); if it didn't, this file may have built one
+  // itself (see the "route iii" describe below) and LEFT it — that build must still be there, but
+  // there is no prior mtime to compare it against.
   afterAll(() => {
-    expect(existsSync(REAL_DIST_ENTRY)).toBe(REAL_DIST_EXISTED_AT_START);
     if (REAL_DIST_EXISTED_AT_START) {
+      expect(existsSync(REAL_DIST_ENTRY)).toBe(true);
       expect(statSync(REAL_DIST_ENTRY).mtimeMs).toBe(REAL_DIST_MTIME_AT_START);
+    } else {
+      expect(existsSync(REAL_DIST_ENTRY)).toBe(true);
     }
   });
 
@@ -84,6 +96,25 @@ describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
     },
   );
 
+  // Runs AFTER the "not built yet" test above (vitest executes a file's tests in declaration order),
+  // so the two never observe conflicting states of the real checkout within this file. Reuses the
+  // real dist read-only if it's there, else builds it in place (behind a lock) and leaves it — see
+  // file header and ./reranker-local-stage.ts's own comment on why this ONE case cannot use a staged
+  // copy instead.
+  describe("route (iii): automatic source-checkout fallback against the REAL checkout", () => {
+    beforeAll(async () => {
+      await ensureRealRerankerLocalDist(RERANKER_LOCAL_DIR);
+    }, 180_000);
+
+    it("resolves via the automatic source-checkout fallback (route iii) with no config at all", async () => {
+      const resolution = await resolveLocalRerankerModule({ provider: "local" }, {});
+      expect(resolution.ok).toBe(true);
+      const succeeded = resolution.attempts.find((a) => a.ok);
+      expect(succeeded?.route).toBe("source-checkout");
+      expect(typeof resolution.mod?.createReranker).toBe("function");
+    });
+  });
+
   describe("once packages/reranker-local is built (a staged, throwaway copy)", () => {
     let stageRoot: string;
     let stagedDistEntry: string;
@@ -105,20 +136,6 @@ describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
         // best effort
       }
     });
-
-    // Only meaningful when the real dist already existed BEFORE this file touched anything (strict
-    // read-only reuse, per file header) — route (iii) always targets that real, fixed path, and this
-    // file never builds one there itself.
-    it.skipIf(!REAL_DIST_EXISTED_AT_START)(
-      "resolves via the automatic source-checkout fallback (route iii) with no config at all",
-      async () => {
-        const resolution = await resolveLocalRerankerModule({ provider: "local" }, {});
-        expect(resolution.ok).toBe(true);
-        const succeeded = resolution.attempts.find((a) => a.ok);
-        expect(succeeded?.route).toBe("source-checkout");
-        expect(typeof resolution.mod?.createReranker).toBe("function");
-      },
-    );
 
     it("resolves via an explicit localModulePath override (route i) — same mechanics as route iii, pointed elsewhere", async () => {
       const resolution = await resolveLocalRerankerModule(

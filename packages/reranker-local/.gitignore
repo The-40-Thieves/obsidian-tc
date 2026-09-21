@@ -7,3 +7,8 @@ models/
 node_modules/
 dist/
 *.tsbuildinfo
+
+# packages/server/test/reranker-local-stage.ts's build lock (GH #958 / THE-1085) — always removed
+# in a `finally`; only ever lingers after a killed process, and is itself self-reclaiming (stale
+# after 5 minutes). Ignored defensively so a crash mid-test never leaves it committable.
+.obtc-reranker-local-build.lock/
