@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { FolderAcl } from "../src/acl";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
 
@@ -16,13 +17,18 @@ function tool(name: string, description: string, scopes: string[] = []): ToolDef
   } as unknown as ToolDefinition;
 }
 
-async function connect(registry: ToolRegistry, facadeMode?: "triad" | "domain" | "flat") {
+async function connect(
+  registry: ToolRegistry,
+  facadeMode?: "triad" | "domain" | "flat",
+  aclReadOnly = false,
+) {
   const context = (): CallerContext => ({
     caller: "stdio",
     authenticated: true,
     grantedScopes: new Set(["*"]),
     vaultId: "v1",
     db: {} as never,
+    acl: new FolderAcl({ readOnly: aclReadOnly, defaultScopes: [], rules: [] }),
   });
   const server = createMcpServer({
     name: "x",
@@ -195,6 +201,47 @@ describe("THE-1098 (GH #964): describe_capability distinguishes hidden from unre
     const body = textOf(res);
     expect(body).toMatchObject({ code: "not_found" });
     expect(body).not.toHaveProperty("reason");
+    await client.close();
+    await server.close();
+  });
+
+  // PR #965 review (Grok): `explainAgainstConfig` checks requireReadOnly BEFORE allowed, so under
+  // BOTH at once the first-match reason is the disclosable `hidden_require_read_only` even though
+  // the allowlist alone hides the tool too — disclosing it would leak the allowlist's
+  // existence-oracle. Pinned against both halves of the same config: readOnly alone discloses,
+  // readOnly + an allowlist that omits the tool does not.
+  it("requireReadOnly PLUS an allowlist that omits the tool stays not_found, not capability_hidden", async () => {
+    const { client, server } = await connect(
+      regWithVisibility({ ...REQUIRE_READ_ONLY, allowed: ["read_note"] }),
+      "triad",
+    );
+    const res = await client.callTool({
+      name: "describe_capability",
+      arguments: { name: "record_retrieval_feedback" },
+    });
+    expect(res.isError).toBe(true);
+    const body = textOf(res);
+    expect(body).toMatchObject({ code: "not_found" });
+    expect(body).not.toHaveProperty("reason");
+    await client.close();
+    await server.close();
+  });
+
+  it("a tool blocked by the caller's own ACL read-only flag answers capability_hidden / scope_denied_read_only", async () => {
+    const { client, server } = await connect(
+      regWithVisibility({ ...REQUIRE_READ_ONLY, requireReadOnly: false }),
+      "triad",
+      true, // aclReadOnly — the caller's own connection is read-only, not the static config
+    );
+    const res = await client.callTool({
+      name: "describe_capability",
+      arguments: { name: "record_retrieval_feedback" },
+    });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toMatchObject({
+      code: "capability_hidden",
+      reason: "scope_denied_read_only",
+    });
     await client.close();
     await server.close();
   });

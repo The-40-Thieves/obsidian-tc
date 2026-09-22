@@ -520,6 +520,54 @@ describe("THE-1098 (GH #964): buildInstructions reflects the effective config", 
     return r;
   }
 
+  // PR #965 review (Grok): every buildInstructions()-direct test above would stay green if
+  // experientialLogRetrievals came unwired from createMcpServer / startHttp on the way in — this
+  // factory posts real JSON-RPC against a real HTTP transport, reused by every test below that
+  // needs to prove the WIRING, not just the function.
+  function jsonRpcPoster(port: number) {
+    return async (
+      body: unknown,
+      headers: Record<string, string>,
+    ): Promise<{ result?: { instructions?: string } }> => {
+      const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      const line = text.split("\n").find((l) => l.startsWith("data: "));
+      return JSON.parse(line ? line.slice(6) : text);
+    };
+  }
+  const LEGACY = "2025-11-25";
+  const MODERN = "2026-07-28";
+  const initializeBody = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: LEGACY,
+      capabilities: {},
+      clientInfo: { name: "the-1098-test", version: "0" },
+    },
+  };
+  const discoverBody = {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "server/discover",
+    params: {
+      _meta: {
+        "io.modelcontextprotocol/protocolVersion": MODERN,
+        "io.modelcontextprotocol/clientInfo": { name: "the-1098-test", version: "0" },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
+  };
+
   it("omits the clause when requireReadOnly hides record_retrieval_feedback (the reporter's config)", () => {
     const registry = feedbackRegistry({ ...ALLOW_ALL, requireReadOnly: true });
     const text = buildInstructions("x", "0", registry, { grantedScopes: new Set(["*"]) });
@@ -576,59 +624,136 @@ describe("THE-1098 (GH #964): buildInstructions reflects the effective config", 
       port: 0,
       experientialLogRetrievals: true,
     });
-    const LEGACY = "2025-11-25";
-    const MODERN = "2026-07-28";
-    const post = async (
-      body: unknown,
-      headers: Record<string, string>,
-    ): Promise<{ result?: { instructions?: string } }> => {
-      const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json, text/event-stream",
-          ...headers,
-        },
-        body: JSON.stringify(body),
-      });
-      const text = await res.text();
-      const line = text.split("\n").find((l) => l.startsWith("data: "));
-      return JSON.parse(line ? line.slice(6) : text);
-    };
+    const post = jsonRpcPoster(h.port);
     try {
-      const initRes = await post(
-        {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: LEGACY,
-            capabilities: {},
-            clientInfo: { name: "the-1098-test", version: "0" },
-          },
-        },
-        { "mcp-protocol-version": LEGACY },
-      );
+      const initRes = await post(initializeBody, { "mcp-protocol-version": LEGACY });
       expect(initRes.result?.instructions).toBeDefined();
       expect(initRes.result?.instructions).not.toContain("record_retrieval_feedback");
 
-      const discoverRes = await post(
-        {
-          jsonrpc: "2.0",
-          id: 2,
-          method: "server/discover",
-          params: {
-            _meta: {
-              "io.modelcontextprotocol/protocolVersion": MODERN,
-              "io.modelcontextprotocol/clientInfo": { name: "the-1098-test", version: "0" },
-              "io.modelcontextprotocol/clientCapabilities": {},
-            },
-          },
-        },
-        { "mcp-protocol-version": MODERN, "mcp-method": "server/discover" },
-      );
+      const discoverRes = await post(discoverBody, {
+        "mcp-protocol-version": MODERN,
+        "mcp-method": "server/discover",
+      });
       expect(discoverRes.result?.instructions).toBeDefined();
       expect(discoverRes.result?.instructions).not.toContain("record_retrieval_feedback");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("createMcpServer({ experientialLogRetrievals: false }) omits the clause via the real constructor, not just buildInstructions() directly", async () => {
+    // PR #965 review (Grok): closes the gap where a broken McpServerOptions.experientialLogRetrievals
+    // wire-through (mcp/server.ts's two buildInstructions call sites) would go undetected because
+    // every test above calls buildInstructions() itself rather than the constructor around it.
+    const registry = feedbackRegistry();
+    const server = createMcpServer({
+      name: "x",
+      version: "0",
+      registry,
+      context: (): CallerContext => ({
+        caller: "t",
+        authenticated: true,
+        grantedScopes: new Set(["*"]),
+        vaultId: "main",
+        db: {} as never,
+      }),
+      visibility: { grantedScopes: new Set(["*"]) },
+      facadeMode: "triad",
+      experientialLogRetrievals: false,
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const client = new Client({ name: "t", version: "0" });
+    await client.connect(ct);
+    expect(client.getInstructions()).not.toContain("record_retrieval_feedback");
+    await client.close();
+    await server.close();
+  });
+
+  it("the HTTP path derives experientialLogRetrievals from a REAL parsed ServerConfig field, not a hardcoded boolean", async () => {
+    // PR #965 review (Grok): the requireReadOnly test above proves the clause CAN disappear over
+    // HTTP, but always passed `experientialLogRetrievals: true` — it would stay green even if
+    // `config.experiential.logRetrievals` were never threaded into HttpAppOptions at all. This
+    // parses a real ServerConfig with logRetrievals: false and threads exactly that field, with an
+    // otherwise fully-visible registry, so ONLY logRetrievals can be suppressing the clause.
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const registry = feedbackRegistry(); // ALLOW_ALL — nothing hides the tool by visibility
+    const cfg = ServerConfigSchema.parse({
+      vaults: [{ id: "t", path: "/tmp/otc-1098-logretrievals" }],
+      auth: { mode: "none" },
+      experiential: { logRetrievals: false },
+    });
+    expect(cfg.experiential.logRetrievals).toBe(false); // the field this test actually threads
+    const h = await startHttp({
+      name: "obsidian-tc",
+      version: "0.0.0-test",
+      registry,
+      auth: cfg.auth,
+      db,
+      vaultId: "t",
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      host: "127.0.0.1",
+      port: 0,
+      experientialLogRetrievals: cfg.experiential.logRetrievals,
+    });
+    try {
+      const initRes = await jsonRpcPoster(h.port)(initializeBody, {
+        "mcp-protocol-version": LEGACY,
+      });
+      expect(initRes.result?.instructions).toBeDefined();
+      expect(initRes.result?.instructions).not.toContain("record_retrieval_feedback");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("a real read:notes-only JWT against the REAL buildFullRegistry() never names record_retrieval_feedback", async () => {
+    // PR #965 review (Grok): every test above uses a synthetic tool double. The real m8 tool
+    // (packages/server/src/tools/m8/verdict-tools.ts) carries tags: ["experiential"] the doubles
+    // above never set, so this proves the fix against production wiring end to end: the real
+    // registry, real scope-based visibility (no toolVisibility config at all), real JWT auth.
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const registry = buildFullRegistry();
+    const dir = tmpDir("otc-1098-jwt-");
+    const SECRET = "test-only-secret-not-a-real-credential-0123456789";
+    const auth: ServerConfig["auth"] = ServerConfigSchema.parse({
+      vaults: [{ id: "t", path: dir }],
+      auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
+    }).auth;
+    const h = await startHttp({
+      name: "obsidian-tc",
+      version: "0.0.0-test",
+      registry,
+      auth,
+      db,
+      vaultId: "t",
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      host: "127.0.0.1",
+      port: 0,
+      experientialLogRetrievals: true,
+    });
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = await new SignJWT({
+        sub: "t",
+        scopes: ["read:notes"],
+        aud: "http://test",
+        iat: now,
+        exp: now + 600,
+      })
+        .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+        .sign(new TextEncoder().encode(SECRET));
+      const initRes = await jsonRpcPoster(h.port)(initializeBody, {
+        authorization: `Bearer ${jwt}`,
+        "mcp-protocol-version": LEGACY,
+      });
+      expect(initRes.result?.instructions).toBeDefined();
+      expect(initRes.result?.instructions).not.toContain("record_retrieval_feedback");
+      // read:notes DOES grant read_note — a caller with no matching scope at all would pass this
+      // test for the wrong reason (an empty/broken registry, say), so pin a positive control too.
+      expect(initRes.result?.instructions).toContain("read_note");
     } finally {
       await h.close();
     }

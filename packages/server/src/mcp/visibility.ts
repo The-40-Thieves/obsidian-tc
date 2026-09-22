@@ -171,6 +171,35 @@ export function explainVisibility(
   return explainAgainstConfig(target, caller.toolVisibility, caller);
 }
 
+// THE-1098 follow-up (PR #965 review): a DISCLOSABLE reason can still fire ahead of a
+// non-disclosable one, since `explainAgainstConfig` short-circuits on its FIRST match —
+// `requireReadOnly: true` + `allowed: ["read_note"]` on a mutating, unlisted tool trips
+// `hidden_require_read_only` before ever reaching the allowlist check, even though the allowlist
+// alone would have hidden it too. So this re-checks with the read-only knobs neutralized
+// (config.requireReadOnly, caller.readOnly, caller.toolVisibility.requireReadOnly): if the tool is
+// STILL not `listed`, some other rule independently hides it, and disclosure is refused.
+// `explainAgainstConfig`'s own precedence is untouched — `inspect_visibility` keeps the real,
+// first-match reason.
+export function disclosableExplanation(
+  target: VisibilityTarget,
+  config: ToolVisibilityConfig,
+  caller: VisibilityCaller | undefined,
+): VisibilityExplanation | null {
+  const explanation = explainVisibility(target, config, caller);
+  if (!DISCLOSABLE_HIDDEN_REASONS.has(explanation.reason)) return null;
+  const neutralCaller: VisibilityCaller | undefined = caller && {
+    ...caller,
+    readOnly: false,
+    ...(caller.toolVisibility
+      ? { toolVisibility: { ...caller.toolVisibility, requireReadOnly: false } }
+      : {}),
+  };
+  const neutralConfig = { ...config, requireReadOnly: false };
+  const stillHidden =
+    explainVisibility(target, neutralConfig, neutralCaller).visibility !== "listed";
+  return stillHidden ? null : explanation;
+}
+
 // Classify one tool against the static config and (optionally) a caller. Precedence is
 // `disabled > hidden > scope_denied > listed`: an explicit disable wins, then any hide
 // rule, then a caller that cannot dispatch the tool, otherwise it is listed.

@@ -61,7 +61,7 @@ import {
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
-import { DISCLOSABLE_HIDDEN_REASONS, explainVisibility, type VisibilityCaller } from "./visibility";
+import { disclosableExplanation, type VisibilityCaller } from "./visibility";
 
 /**
  * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
@@ -655,27 +655,23 @@ export function createMcpServer(opts: McpServerOptions): Server {
           // an unregistered one. Re-run the SAME verdict `listVisible` used, over the full
           // registered set, so this can never disagree with the enforcer.
           const registered = opts.registry.list().find((d) => d.name === parsed.data.name);
-          if (registered) {
-            const explanation = explainVisibility(
-              registered,
-              opts.registry.visibilityConfig(),
-              visibilityCaller,
-            );
-            if (DISCLOSABLE_HIDDEN_REASONS.has(explanation.reason)) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify({
-                      code: "capability_hidden",
-                      message: `capability hidden by server policy: ${parsed.data.name}`,
-                      reason: explanation.reason,
-                    }),
-                  },
-                ],
-                isError: true,
-              };
-            }
+          const explanation =
+            registered &&
+            disclosableExplanation(registered, opts.registry.visibilityConfig(), visibilityCaller);
+          if (explanation) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    code: "capability_hidden",
+                    message: `capability hidden by server policy: ${parsed.data.name}`,
+                    reason: explanation.reason,
+                  }),
+                },
+              ],
+              isError: true,
+            };
           }
           return {
             content: [
