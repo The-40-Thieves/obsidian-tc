@@ -546,6 +546,9 @@ export async function buildServerRuntime(
       visibility: { grantedScopes: new Set(["*"]), readOnly: acl?.readOnly },
       vaultRegistry,
       facadeMode: config.toolFacade.mode,
+      // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
+      // there are no retrieval rows for feedback to update.
+      experientialLogRetrievals: config.experiential.logRetrievals,
     });
 
     const transports = await wireTransports({

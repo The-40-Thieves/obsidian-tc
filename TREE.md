@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,332 tracked code files · 234,855 lines.
+**Scale:** 1,332 tracked code files · 235,328 lines.
 
-TypeScript 214,475 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
+TypeScript 214,948 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,9 +89,9 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 91 | 18,861 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,932 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 28 | 7,210 | work-memory tier: activation, retrieval log, forget, citations |
+| `mcp/` | 20 | 5,600 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 41 | 5,599 | arg parsing + subcommands |
-| `mcp/` | 20 | 5,529 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `runtime/` | 19 | 4,360 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 19 | 4,366 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 16 | 2,837 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 2,499 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 15 | 1,988 | provisioning, migrate runner, experiential store |
@@ -105,7 +105,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `bridge/` | 8 | 822 | Obsidian plugin bridge clients |
 | `capture/` | 5 | 768 | the capture queue |
 | `embeddings/` | 6 | 764 | providers incl. the deterministic fake used in tests |
-| `transports/` | 3 | 732 | stdio, HTTP and the shared serve loop |
+| `transports/` | 3 | 736 | stdio, HTTP and the shared serve loop |
 | `gateway/` | 3 | 691 | inference-gateway client — the `judge`/`synthesize` roles |
 | `model/` | 7 | 646 | model-service clients |
 | `capability/` | 6 | 610 | `defineTool` and the capability registry |
@@ -141,8 +141,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 887 | `packages/shared/src/config/retrieval.schema.ts` |
 | 835 | `packages/server/src/experiential/reflect.ts` |
 | 816 | `packages/server/src/doctor/checks.ts` |
-| 789 | `packages/server/src/mcp/server.ts` |
-| 729 | `packages/server/src/runtime/server-runtime.ts` |
+| 810 | `packages/server/src/mcp/server.ts` |
+| 732 | `packages/server/src/runtime/server-runtime.ts` |
 | 697 | `packages/server/src/providers/registry.ts` |
 | 690 | `packages/server/src/cli/args.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
@@ -152,8 +152,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 641 | `packages/server/src/cli/commands/compact.ts` |
 | 627 | `packages/server/src/metrics/registry.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
+| 616 | `packages/server/src/transports/http.ts` |
 | 612 | `packages/server/src/experiential/citation.ts` |
-| 612 | `packages/server/src/transports/http.ts` |
 | 611 | `packages/server/src/search/graph_search.ts` |
 | 607 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 604 | `packages/server/src/runtime/plane-wiring.ts` |
@@ -163,8 +163,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 557 | `packages/server/src/search/indexing/index-vault.ts` |
 | 535 | `packages/server/src/tools/m7/knowledge/retrieval-runtime.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
+| 526 | `packages/server/src/mcp/facade.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
-| 521 | `packages/server/src/mcp/facade.ts` |
 | 510 | `packages/server/src/experiential/note-quality.ts` |
 | 509 | `packages/server/src/tools/m6/bulk-tools.ts` |
 | 509 | `packages/server/src/tools/m8/experiential-tools.ts` |

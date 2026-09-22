@@ -87,6 +87,22 @@ export interface VisibilityExplanation {
   missingScopes: readonly string[];
 }
 
+// THE-1098 (GH #964) item 2: which `VisibilityReason`s are safe to disclose to an ORDINARY caller
+// (describe_capability/find_capability) as "this exists but is hidden from you", rather than the
+// existence-oracle-safe `not_found` every other reason keeps. The line is whether the reason is
+// configuration the caller already knows about their OWN connection:
+//   - hidden_require_read_only / scope_denied_read_only: the server's read-only posture (static
+//     `toolVisibility.requireReadOnly`, or the caller's own `acl.readOnly`) is not a secret from a
+//     caller operating under it — GH #964's reporter hit exactly this discovering
+//     record_retrieval_feedback via the server's own instructions.
+// Every other reason (disabled_name/_tag, hidden_name/_tag, hidden_not_allowlisted,
+// scope_denied_missing_scope) is an operator choice to hide a SPECIFIC tool or a deliberately
+// invisible allowlist, and stays `not_found` — see explainVisibility's precedence doc comment.
+export const DISCLOSABLE_HIDDEN_REASONS: ReadonlySet<VisibilityReason> = new Set([
+  "hidden_require_read_only",
+  "scope_denied_read_only",
+]);
+
 // The single-config verdict `explainVisibility` used to BE — factored out so THE-647 item 2 can
 // compose a persona's own toolVisibility on top without duplicating this logic. Never exported:
 // callers always go through `explainVisibility`, which is where the composition rule lives.
@@ -153,6 +169,35 @@ export function explainVisibility(
   if (staticVerdict.visibility !== "listed") return staticVerdict;
   if (caller?.toolVisibility === undefined) return staticVerdict;
   return explainAgainstConfig(target, caller.toolVisibility, caller);
+}
+
+// THE-1098 follow-up (PR #965 review): a DISCLOSABLE reason can still fire ahead of a
+// non-disclosable one, since `explainAgainstConfig` short-circuits on its FIRST match —
+// `requireReadOnly: true` + `allowed: ["read_note"]` on a mutating, unlisted tool trips
+// `hidden_require_read_only` before ever reaching the allowlist check, even though the allowlist
+// alone would have hidden it too. So this re-checks with the read-only knobs neutralized
+// (config.requireReadOnly, caller.readOnly, caller.toolVisibility.requireReadOnly): if the tool is
+// STILL not `listed`, some other rule independently hides it, and disclosure is refused.
+// `explainAgainstConfig`'s own precedence is untouched — `inspect_visibility` keeps the real,
+// first-match reason.
+export function disclosableExplanation(
+  target: VisibilityTarget,
+  config: ToolVisibilityConfig,
+  caller: VisibilityCaller | undefined,
+): VisibilityExplanation | null {
+  const explanation = explainVisibility(target, config, caller);
+  if (!DISCLOSABLE_HIDDEN_REASONS.has(explanation.reason)) return null;
+  const neutralCaller: VisibilityCaller | undefined = caller && {
+    ...caller,
+    readOnly: false,
+    ...(caller.toolVisibility
+      ? { toolVisibility: { ...caller.toolVisibility, requireReadOnly: false } }
+      : {}),
+  };
+  const neutralConfig = { ...config, requireReadOnly: false };
+  const stillHidden =
+    explainVisibility(target, neutralConfig, neutralCaller).visibility !== "listed";
+  return stillHidden ? null : explanation;
 }
 
 // Classify one tool against the static config and (optionally) a caller. Precedence is

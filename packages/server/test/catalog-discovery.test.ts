@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  type ServerConfig,
+  ServerConfigSchema,
+  type ToolVisibilityConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -12,6 +16,7 @@ import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import {
   buildCatalog,
+  buildInstructions,
   MAX_INSTRUCTIONS_CHARS,
   renderCatalogResource,
   renderInstructions,
@@ -20,6 +25,7 @@ import {
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { CATALOG_RESOURCE_URI } from "../src/mcp/resources";
 import { createMcpServer } from "../src/mcp/server";
+import { ALLOW_ALL } from "../src/mcp/visibility";
 import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -491,4 +497,265 @@ describe("THE-937 round 3: createMcpServer construction does not call opts.conte
     });
     expect(calls).toBe(0);
   });
+});
+
+// THE-1098 (GH #964): the record_retrieval_feedback preamble clause used to be unconditional, so
+// it survived when the tool was hidden (`toolVisibility.requireReadOnly`) or when there were no
+// retrieval rows to give feedback on (`experiential.logRetrievals: false`) — an agent following
+// the server's own instructions could not actually call the tool it named. `buildInstructions` is
+// the ONE function both instruction surfaces call (the constructor's static `instructions` for
+// legacy `initialize`, and the per-request `server/discover` handler — see its own doc comment),
+// so fixing it there fixes both by construction; the last test in this block proves that directly
+// against real HTTP rather than trusting the shared call site.
+describe("THE-1098 (GH #964): buildInstructions reflects the effective config", () => {
+  function feedbackRegistry(toolVisibility?: ToolVisibilityConfig): ToolRegistry {
+    const r = new ToolRegistry({ toolVisibility });
+    r.register(tool("read_note", "notes", "Read a note from the vault by path."));
+    // Mirrors the real m8 tool: mutating, gated on write:workspace (THE-718).
+    r.register(
+      tool("record_retrieval_feedback", "knowledge", "Judge whether a retrieval helped.", [
+        "write:workspace",
+      ]),
+    );
+    return r;
+  }
+
+  // PR #965 review (Grok): every buildInstructions()-direct test above would stay green if
+  // experientialLogRetrievals came unwired from createMcpServer / startHttp on the way in — this
+  // factory posts real JSON-RPC against a real HTTP transport, reused by every test below that
+  // needs to prove the WIRING, not just the function.
+  function jsonRpcPoster(port: number) {
+    return async (
+      body: unknown,
+      headers: Record<string, string>,
+    ): Promise<{ result?: { instructions?: string } }> => {
+      const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      const line = text.split("\n").find((l) => l.startsWith("data: "));
+      return JSON.parse(line ? line.slice(6) : text);
+    };
+  }
+  const LEGACY = "2025-11-25";
+  const MODERN = "2026-07-28";
+  const initializeBody = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: LEGACY,
+      capabilities: {},
+      clientInfo: { name: "the-1098-test", version: "0" },
+    },
+  };
+  const discoverBody = {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "server/discover",
+    params: {
+      _meta: {
+        "io.modelcontextprotocol/protocolVersion": MODERN,
+        "io.modelcontextprotocol/clientInfo": { name: "the-1098-test", version: "0" },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
+  };
+
+  it("omits the clause when requireReadOnly hides record_retrieval_feedback (the reporter's config)", () => {
+    const registry = feedbackRegistry({ ...ALLOW_ALL, requireReadOnly: true });
+    const text = buildInstructions("x", "0", registry, { grantedScopes: new Set(["*"]) });
+    expect(text).not.toContain("record_retrieval_feedback");
+  });
+
+  it("omits the clause when experiential.logRetrievals is false, even though the tool is visible", () => {
+    const registry = feedbackRegistry();
+    const text = buildInstructions(
+      "x",
+      "0",
+      registry,
+      { grantedScopes: new Set(["*"]) },
+      true,
+      false, // experientialLogRetrievals
+    );
+    expect(text).not.toContain("record_retrieval_feedback");
+  });
+
+  it("includes the clause under default config (unchanged behavior)", () => {
+    const registry = feedbackRegistry();
+    const text = buildInstructions("x", "0", registry, { grantedScopes: new Set(["*"]) });
+    expect(text).toContain("record_retrieval_feedback");
+  });
+
+  it("omits the clause when the caller cannot see the tool at all (never registered)", () => {
+    const registry = new ToolRegistry();
+    registry.register(tool("read_note", "notes", "Read a note from the vault by path."));
+    const text = buildInstructions("x", "0", registry, { grantedScopes: new Set(["*"]) });
+    expect(text).not.toContain("record_retrieval_feedback");
+  });
+
+  it("both initialize's static instructions AND server/discover's read the SAME fix", async () => {
+    // Real HTTP, mirroring the THE-937 round-2 tests above: proves the reporter's minimal
+    // reproducer (requireReadOnly: true) fixes BOTH instruction surfaces, not just whichever one
+    // a test happens to poke, because both go through the one buildInstructions call this ticket
+    // changed.
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const registry = feedbackRegistry({ ...ALLOW_ALL, requireReadOnly: true });
+    const auth: ServerConfig["auth"] = ServerConfigSchema.parse({
+      vaults: [{ id: "t", path: "/tmp/otc-1098" }],
+      auth: { mode: "none" },
+    }).auth;
+    const h = await startHttp({
+      name: "obsidian-tc",
+      version: "0.0.0-test",
+      registry,
+      auth,
+      db,
+      vaultId: "t",
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      host: "127.0.0.1",
+      port: 0,
+      experientialLogRetrievals: true,
+    });
+    const post = jsonRpcPoster(h.port);
+    try {
+      const initRes = await post(initializeBody, { "mcp-protocol-version": LEGACY });
+      expect(initRes.result?.instructions).toBeDefined();
+      expect(initRes.result?.instructions).not.toContain("record_retrieval_feedback");
+
+      const discoverRes = await post(discoverBody, {
+        "mcp-protocol-version": MODERN,
+        "mcp-method": "server/discover",
+      });
+      expect(discoverRes.result?.instructions).toBeDefined();
+      expect(discoverRes.result?.instructions).not.toContain("record_retrieval_feedback");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("createMcpServer({ experientialLogRetrievals: false }) omits the clause via the real constructor, not just buildInstructions() directly", async () => {
+    // PR #965 review (Grok): closes the gap where a broken McpServerOptions.experientialLogRetrievals
+    // wire-through (mcp/server.ts's two buildInstructions call sites) would go undetected because
+    // every test above calls buildInstructions() itself rather than the constructor around it.
+    const registry = feedbackRegistry();
+    const server = createMcpServer({
+      name: "x",
+      version: "0",
+      registry,
+      context: (): CallerContext => ({
+        caller: "t",
+        authenticated: true,
+        grantedScopes: new Set(["*"]),
+        vaultId: "main",
+        db: {} as never,
+      }),
+      visibility: { grantedScopes: new Set(["*"]) },
+      facadeMode: "triad",
+      experientialLogRetrievals: false,
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const client = new Client({ name: "t", version: "0" });
+    await client.connect(ct);
+    expect(client.getInstructions()).not.toContain("record_retrieval_feedback");
+    await client.close();
+    await server.close();
+  });
+
+  it("the HTTP path derives experientialLogRetrievals from a REAL parsed ServerConfig field, not a hardcoded boolean", async () => {
+    // PR #965 review (Grok): the requireReadOnly test above proves the clause CAN disappear over
+    // HTTP, but always passed `experientialLogRetrievals: true` — it would stay green even if
+    // `config.experiential.logRetrievals` were never threaded into HttpAppOptions at all. This
+    // parses a real ServerConfig with logRetrievals: false and threads exactly that field, with an
+    // otherwise fully-visible registry, so ONLY logRetrievals can be suppressing the clause.
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const registry = feedbackRegistry(); // ALLOW_ALL — nothing hides the tool by visibility
+    const cfg = ServerConfigSchema.parse({
+      vaults: [{ id: "t", path: "/tmp/otc-1098-logretrievals" }],
+      auth: { mode: "none" },
+      experiential: { logRetrievals: false },
+    });
+    expect(cfg.experiential.logRetrievals).toBe(false); // the field this test actually threads
+    const h = await startHttp({
+      name: "obsidian-tc",
+      version: "0.0.0-test",
+      registry,
+      auth: cfg.auth,
+      db,
+      vaultId: "t",
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      host: "127.0.0.1",
+      port: 0,
+      experientialLogRetrievals: cfg.experiential.logRetrievals,
+    });
+    try {
+      const initRes = await jsonRpcPoster(h.port)(initializeBody, {
+        "mcp-protocol-version": LEGACY,
+      });
+      expect(initRes.result?.instructions).toBeDefined();
+      expect(initRes.result?.instructions).not.toContain("record_retrieval_feedback");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
+
+  it("a real read:notes-only JWT against the REAL buildFullRegistry() never names record_retrieval_feedback", async () => {
+    // PR #965 review (Grok): every test above uses a synthetic tool double. The real m8 tool
+    // (packages/server/src/tools/m8/verdict-tools.ts) carries tags: ["experiential"] the doubles
+    // above never set, so this proves the fix against production wiring end to end: the real
+    // registry, real scope-based visibility (no toolVisibility config at all), real JWT auth.
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const registry = buildFullRegistry();
+    const dir = tmpDir("otc-1098-jwt-");
+    const SECRET = "test-only-secret-not-a-real-credential-0123456789";
+    const auth: ServerConfig["auth"] = ServerConfigSchema.parse({
+      vaults: [{ id: "t", path: dir }],
+      auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
+    }).auth;
+    const h = await startHttp({
+      name: "obsidian-tc",
+      version: "0.0.0-test",
+      registry,
+      auth,
+      db,
+      vaultId: "t",
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      host: "127.0.0.1",
+      port: 0,
+      experientialLogRetrievals: true,
+    });
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = await new SignJWT({
+        sub: "t",
+        scopes: ["read:notes"],
+        aud: "http://test",
+        iat: now,
+        exp: now + 600,
+      })
+        .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+        .sign(new TextEncoder().encode(SECRET));
+      const initRes = await jsonRpcPoster(h.port)(initializeBody, {
+        authorization: `Bearer ${jwt}`,
+        "mcp-protocol-version": LEGACY,
+      });
+      expect(initRes.result?.instructions).toBeDefined();
+      expect(initRes.result?.instructions).not.toContain("record_retrieval_feedback");
+      // read:notes DOES grant read_note — a caller with no matching scope at all would pass this
+      // test for the wrong reason (an empty/broken registry, say), so pin a positive control too.
+      expect(initRes.result?.instructions).toContain("read_note");
+    } finally {
+      await h.close();
+    }
+  }, 20_000);
 });
