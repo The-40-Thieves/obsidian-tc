@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EmbeddingsConfigSchema,
   ExperientialConfigSchema,
+  isFeedbackExemptFromReadOnly,
   ObsidianTcError,
   PersonaConfigSchema,
   PersonasConfigSchema,
@@ -258,6 +259,43 @@ describe("ExperientialConfigSchema.derivedVerdictHold (THE-726)", () => {
   it("is settable to true and round-trips through ServerConfigSchema", () => {
     const c = ServerConfigSchema.parse({ ...base, experiential: { derivedVerdictHold: true } });
     expect(c.experiential.derivedVerdictHold).toBe(true);
+  });
+});
+
+// THE-1099 (GH #964 part 2): the read-only kill-switch exemption for record_retrieval_feedback —
+// see mcp/visibility.ts and registry/policy-gates.ts in packages/server for where this setting
+// actually takes effect. Only the SCHEMA default/round-trip and the shared AND predicate are
+// tested here; the exemption's enforcement and visibility behaviour are covered in
+// packages/server/test/visibility.test.ts and inspect-visibility.test.ts.
+describe("ExperientialConfigSchema.allowFeedbackInReadOnly (THE-1099)", () => {
+  it("defaults to false on a minimal config — nothing changes for an existing config", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.experiential.allowFeedbackInReadOnly).toBe(false);
+  });
+
+  it("is settable to true and round-trips through ServerConfigSchema", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      experiential: { allowFeedbackInReadOnly: true },
+    });
+    expect(c.experiential.allowFeedbackInReadOnly).toBe(true);
+  });
+
+  it("isFeedbackExemptFromReadOnly is the AND: both allowFeedbackInReadOnly and logRetrievals must be true", () => {
+    expect(
+      isFeedbackExemptFromReadOnly({ allowFeedbackInReadOnly: true, logRetrievals: true }),
+    ).toBe(true);
+    // The reporter's own second config (GH #964's "setting on with logRetrievals: false") — the
+    // exemption is inert because there is nothing in chunk_retrievals to update.
+    expect(
+      isFeedbackExemptFromReadOnly({ allowFeedbackInReadOnly: true, logRetrievals: false }),
+    ).toBe(false);
+    expect(
+      isFeedbackExemptFromReadOnly({ allowFeedbackInReadOnly: false, logRetrievals: true }),
+    ).toBe(false);
+    expect(
+      isFeedbackExemptFromReadOnly({ allowFeedbackInReadOnly: false, logRetrievals: false }),
+    ).toBe(false);
   });
 });
 

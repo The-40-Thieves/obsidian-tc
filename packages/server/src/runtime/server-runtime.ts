@@ -12,6 +12,7 @@
 import { dirname } from "node:path";
 import type { Tracer } from "@opentelemetry/api";
 import type { ServerConfig, VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
+import { isFeedbackExemptFromReadOnly } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../package.json";
 import type { FolderAcl } from "../acl";
 import { experientialMigrations } from "../cli/shared";
@@ -19,6 +20,7 @@ import type { EmbeddingsConfigLike } from "../embeddings";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import type { RegistryOptions } from "../mcp/registry/types";
 import { createMcpServer } from "../mcp/server";
+import { ALLOW_ALL } from "../mcp/visibility";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import { initOtel, type OtelHandle } from "../otel/tracing";
@@ -316,7 +318,13 @@ export async function buildServerRuntime(
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
-    toolVisibility: config.toolVisibility,
+    // THE-1099: the registry's static toolVisibility, widened with the derived read-only
+    // exemption flag (see mcp/visibility.ts) — defaults through ALLOW_ALL like registry.ts's own
+    // `opts.toolVisibility ?? ALLOW_ALL` so an absent block still gets every required field.
+    toolVisibility: {
+      ...(config.toolVisibility ?? ALLOW_ALL),
+      allowReadOnlyDerivedTelemetry: isFeedbackExemptFromReadOnly(config.experiential),
+    },
     metrics,
     tracer: otel.tracer,
     morgiana,

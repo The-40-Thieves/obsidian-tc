@@ -6,6 +6,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived
+  telemetry under a read-only vault (GH #964 part 2, THE-1099).** A read-only configuration
+  (`acl.readOnly: true` and/or `toolVisibility.requireReadOnly: true`) previously blocked and
+  hid `record_retrieval_feedback` exactly like any other mutating tool, even though its writes
+  land only in `chunk_retrievals` in `experiential.db` — the derived-cognition plane, never
+  authored vault content (SECURITY.md's derived-plane table; THE-563/564). The reporter's
+  workaround was a 62-capability deny list to keep the vault itself read-only while still logging
+  feedback, which is unauditable and drifts as capabilities are added. The new setting (default
+  `false`, so nothing changes for an existing config) exempts `record_retrieval_feedback` — and
+  only it, enumerated by name in `mcp/visibility.ts`'s `READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS`
+  — from the `acl.readOnly` kill switch and `toolVisibility.requireReadOnly` hiding, once
+  `experiential.logRetrievals` is also `true` (otherwise there is nothing in `chunk_retrievals` to
+  update and the exemption is inert). Every other mutating tool, including every other
+  `write:workspace` tool, is unaffected; the `write:workspace` scope requirement on
+  `record_retrieval_feedback` itself is unchanged — this setting relaxes the read-only *policies*,
+  not authorization. `inspect_visibility` reports the exemption with its own reason
+  (`visible_derived_telemetry`).
+
 ### Fixed
 
 - **Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it

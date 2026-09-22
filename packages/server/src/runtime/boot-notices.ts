@@ -6,9 +6,24 @@
 // or WHAT these print changes, only where the code that decides it lives. All three were already
 // independent blocks with no shared state beyond `config`, so folding them into one function is a
 // pure move, not a refactor of behavior.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  isFeedbackExemptFromReadOnly,
+  type ServerConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { emitCaptureFirstRunNotice } from "./capture-first-run-notice";
 import { formatPlaneOptInNotice } from "./plane-opt-in-notice";
+
+/** THE-1099 (GH #964 part 2): whether `record_retrieval_feedback` actually bypasses the
+ *  `acl.readOnly` kill switch right now. Delegates to the shared `isFeedbackExemptFromReadOnly` —
+ *  the same predicate server-runtime.ts's wiring calls to build the registry's
+ *  `toolVisibility.allowReadOnlyDerivedTelemetry` — so the boot line and dispatch enforcement can
+ *  never disagree about whether the exemption is live. Exported so the boot-line format is
+ *  testable without booting a real runtime. */
+export function readOnlyFeedbackExemptionActive(
+  config: Pick<ServerConfig, "experiential">,
+): boolean {
+  return isFeedbackExemptFromReadOnly(config.experiential);
+}
 
 export function emitBootNotices(deps: {
   config: ServerConfig;
@@ -27,8 +42,12 @@ export function emitBootNotices(deps: {
   // THE-526: name the active profile so it is a stated fact, not something inferred from six
   // fields.
   const profile = config.securityProfile ?? "trusted-local";
+  // THE-1099 (GH #964 part 2): the one read-only exemption that exists today — printed
+  // unconditionally, not only when readOnly is true, so an operator reading the boot log never
+  // has to reconstruct the AND (allowFeedbackInReadOnly && logRetrievals) from two separate config
+  // reads to know whether it is live.
   process.stderr.write(
-    `security: profile=${profile} auth=${config.auth.mode} readOnly=${rootAcl.readOnly} strictRead=${rootAcl.strictReadDefault} requireCas=${config.writes.requireCas} http=${config.transports.http.enabled ? "on" : "off"}\n`,
+    `security: profile=${profile} auth=${config.auth.mode} readOnly=${rootAcl.readOnly} strictRead=${rootAcl.strictReadDefault} requireCas=${config.writes.requireCas} http=${config.transports.http.enabled ? "on" : "off"} readOnlyFeedbackExempt=${readOnlyFeedbackExemptionActive(config)}\n`,
   );
   if (
     config.auth.mode === "none" &&

@@ -124,6 +124,7 @@ until THE-470, by which point five entire defaulted blocks had gone missing from
   },
   "experiential": {
     "logRetrievals": true,
+    "allowFeedbackInReadOnly": false,
     "captureEpisodes": true,
     "captureContent": true,
     "captureRetentionDays": 30,
@@ -351,6 +352,7 @@ server never binds a routable address.
 | `retrieval.sparse` | false | Serve-path bge-m3 learned-sparse RRF stream (needs a multi-vector `embedFull` provider). **Dark** — a no-op without one, measured on the golden set before any flip. |
 | `retrieval.colbert` | false | Serve-path bge-m3 ColBERT late-interaction rerank of the fused top-K (needs a multi-vector provider). **Dark** — measured before any flip. |
 | `experiential.logRetrievals` | true | Append serve-path retrieval events to the quarantined `experiential.db` (local-only telemetry feeding activation recompute + flywheel stats; eval runs never log). |
+| `experiential.allowFeedbackInReadOnly` | **false** | Let `record_retrieval_feedback` — and only it — update its derived-telemetry rows in `experiential.db` under `acl.readOnly` / `toolVisibility.requireReadOnly`; inert unless `experiential.logRetrievals` is also true; every authored-vault mutation stays blocked and the `write:workspace` scope requirement is unchanged (THE-1099). |
 | `experiential.captureEpisodes` | true | Capture every dispatch outcome as a work-memory episode (action axis: tool, status, sizes, hashes — no payloads). |
 | `experiential.captureContent` | **false** | Content axis: also persist secret-scanned, size-capped call args. Off by default — opt in deliberately. |
 | `experiential.activationRerank` | false | ACT-R activation rerank pass on serve-path graph search. **Dark** pending its A/B. |

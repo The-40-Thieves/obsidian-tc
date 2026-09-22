@@ -1081,6 +1081,11 @@
           "description": "Append serve-path retrieval events (chunk id, rank, score, query text, surface) to experiential.db. Local-only telemetry feeding activation recompute and usage stats; eval runs never log.",
           "type": "boolean"
         },
+        "allowFeedbackInReadOnly": {
+          "default": false,
+          "description": "Exempt record_retrieval_feedback (only) from acl.readOnly and toolVisibility.requireReadOnly, because its writes are derived telemetry in experiential.db, never authored vault content. Default false. Needs logRetrievals: true as well — otherwise there is nothing for it to update and the exemption is inert. The write:workspace scope requirement is unchanged.",
+          "type": "boolean"
+        },
         "captureEpisodes": {
           "default": true,
           "description": "Record every dispatch outcome as an agent_episodes row — tool, status, duration, sizes, hashes, attribution. No payloads are stored.",

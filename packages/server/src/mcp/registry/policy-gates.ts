@@ -9,6 +9,10 @@ import {
 import { hitlSatisfiedByState } from "../../elicit-request-state";
 import { callerHash, type RateLimiter, type ThrottleDecision } from "../../throttle";
 import { enforcePathAcl } from "../../vault/acl-path";
+import {
+  type EffectiveToolVisibilityConfig,
+  isReadOnlyDerivedTelemetryExempt,
+} from "../visibility";
 import { vaultArgOf } from "./input-binding";
 import type { CallerContext, RegistryOptions, ToolDefinition, VerifyElicit } from "./types";
 
@@ -141,9 +145,22 @@ export function resolveOperationPolicy(
  */
 export const READ_ONLY_DENIAL_MESSAGE = "vault is read-only (acl.readOnly)";
 
-/** A mutating call is refused outright against a read-only ACL (acl.readOnly). */
-export function enforceReadOnlyGate(ctx: Pick<CallerContext, "acl">, mutating: boolean): void {
-  if (mutating && ctx.acl?.readOnly)
+/**
+ * A mutating call is refused outright against a read-only ACL (acl.readOnly) — UNLESS `name` is
+ * on the derived-telemetry exemption (THE-1099, GH #964 part 2): the SAME
+ * `isReadOnlyDerivedTelemetryExempt` predicate the visibility layer (mcp/visibility.ts) uses, so
+ * a tool the caller sees listed can never turn out to be blocked here, or vice versa. Default off
+ * (`toolVisibility.allowReadOnlyDerivedTelemetry` is unset except when server-runtime wiring
+ * derives it from `experiential.allowFeedbackInReadOnly && experiential.logRetrievals`), so every
+ * config predating THE-1099 enforces byte-identically.
+ */
+export function enforceReadOnlyGate(
+  ctx: Pick<CallerContext, "acl">,
+  mutating: boolean,
+  name: string,
+  toolVisibility: Pick<EffectiveToolVisibilityConfig, "allowReadOnlyDerivedTelemetry">,
+): void {
+  if (mutating && ctx.acl?.readOnly && !isReadOnlyDerivedTelemetryExempt(name, toolVisibility))
     throw new ObsidianTcError("forbidden", READ_ONLY_DENIAL_MESSAGE);
 }
 

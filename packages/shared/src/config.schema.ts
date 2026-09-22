@@ -25,7 +25,9 @@ import {
 } from "./config/personas.schema";
 import { type RerankerConfig, RerankerConfigSchema } from "./config/reranker.schema";
 import {
+  type ExperientialConfig,
   ExperientialConfigSchema,
+  isFeedbackExemptFromReadOnly,
   MetadataPriorRuleSchema,
   RankingConfigSchema,
   RetrievalConfigSchema,
@@ -67,6 +69,7 @@ import {
 
 export type {
   BootstrapConfig,
+  ExperientialConfig,
   GatewayConfig,
   IndexingConfig,
   PersonaConfig,
@@ -107,6 +110,7 @@ export {
   GovernorConfigSchema,
   HttpConfigSchema,
   IndexingConfigSchema,
+  isFeedbackExemptFromReadOnly,
   isUnusableEgressExcludePattern,
   MaintenanceConfigSchema,
   MetadataPriorRuleSchema,

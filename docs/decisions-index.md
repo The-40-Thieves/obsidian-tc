@@ -195,7 +195,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-548 | _internal planning reference — see repo history_ | — | 3 |
 | THE-561 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 2 |
 | THE-562 | Experiential Reflection — Evaluator & Preference Extraction | docs/design/experiential-reflection.md | 14 |
-| THE-563 | Graph Search — vault_graph_search tool | docs/design/graph-search.md | 12 |
+| THE-563 | Graph Search — vault_graph_search tool | docs/design/graph-search.md | 14 |
 | THE-564 | Derived-cognition plane isolation — THE-563 / THE-564 (+ audit #9, P1.6 deep-half) | docs/superpowers/specs/2026-07-24-the-563-564-derived-plane-isolation-design.md | 3 |
 | THE-565 | _internal planning reference — see repo history_ | — | 4 |
 | THE-567 | _internal planning reference — see repo history_ | — | 4 |
@@ -380,7 +380,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1082 | A client with no MCP elicitation support (Claude Code over stdio among them) had no way to clear an `elicit_required` gate at all (THE-1082, #945, #953). | CHANGELOG.md (1.31.1) | 5 |
 | THE-1084 | `experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator explicitly opts in (THE-1084, #959). | CHANGELOG.md (1.31.2) | 5 |
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 5 |
+| THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 6 |
 
-366 distinct ticket(s) across 503 source file(s) under
-`packages/*/src`; 266 resolved to a public summary, 100
+367 distinct ticket(s) across 503 source file(s) under
+`packages/*/src`; 267 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.
