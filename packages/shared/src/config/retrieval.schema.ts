@@ -445,6 +445,24 @@ export const ExperientialConfigSchema = z.object({
     .describe(
       "Append serve-path retrieval events (chunk id, rank, score, query text, surface) to experiential.db. Local-only telemetry feeding activation recompute and usage stats; eval runs never log.",
     ),
+  /** THE-1099 (GH #964 part 2): let `record_retrieval_feedback` — and only it, enumerated by name
+   *  in mcp/visibility.ts's READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS — bypass the `acl.readOnly`
+   *  kill switch and `toolVisibility.requireReadOnly` hiding. Its writes land in
+   *  `chunk_retrievals` in experiential.db, the derived-cognition plane (SECURITY.md; THE-563/564),
+   *  never in authored vault content, so a caller that must keep the vault itself read-only can
+   *  still close the retrieval-feedback loop the server's own instructions ask for.
+   *
+   *  Default false: nothing changes for an existing config. Requires `logRetrievals: true` as
+   *  well — with it false there are no `chunk_retrievals` rows for feedback to update, so the
+   *  exemption is inert and the tool stays hidden/blocked exactly as before. `write:workspace`
+   *  stays required for scoped-JWT callers either way; this setting relaxes the read-only
+   *  POLICIES, not authorization. */
+  allowFeedbackInReadOnly: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Exempt record_retrieval_feedback (only) from acl.readOnly and toolVisibility.requireReadOnly, because its writes are derived telemetry in experiential.db, never authored vault content. Default false. Needs logRetrievals: true as well — otherwise there is nothing for it to update and the exemption is inert. The write:workspace scope requirement is unchanged.",
+    ),
   /** THE-228: capture every dispatch outcome as an agent_episodes row (action axis: tool,
    *  status, duration, sizes, hashes, attribution — no payloads). Local-only work-memory in
    *  experiential.db; the sleep-time evaluator stamps retrieval-eligibility. */
@@ -885,3 +903,17 @@ export const ExperientialConfigSchema = z.object({
       "THE-634: scheduled proactive-advisory sweep over goal-anchored candidates (vault-watcher note changes, open contradictions, recent syntheses). Publishes into subscriptions/listen for modern-era (2026-07-28) sessions only; legacy-era sessions — the LiteLLM-fronted production majority — receive no delivery attempt, by design. See docs/MCP-COMPATIBILITY.md.",
     ),
 });
+export type ExperientialConfig = z.infer<typeof ExperientialConfigSchema>;
+
+/** THE-1099 (GH #964 part 2): the ONE place `allowFeedbackInReadOnly && logRetrievals` is
+ *  computed — every consumer (server-runtime.ts's `toolVisibility.allowReadOnlyDerivedTelemetry`
+ *  wiring, boot-notices.ts's boot-line) calls this rather than restating the AND, so the two can
+ *  never read different answers to "is the exemption live right now". `logRetrievals` is required
+ *  because with it false there are no `chunk_retrievals` rows for `record_retrieval_feedback` to
+ *  update — the exemption would be live but inert, which is a confusing thing for a boot line or
+ *  a dispatch decision to imply. */
+export function isFeedbackExemptFromReadOnly(
+  experiential: Pick<ExperientialConfig, "allowFeedbackInReadOnly" | "logRetrievals">,
+): boolean {
+  return experiential.allowFeedbackInReadOnly && experiential.logRetrievals;
+}

@@ -279,7 +279,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // (e.g. the Cave LiteLLM gateway's pass-through endpoint). See retrieval.schema.ts's own comment
   // on the field for the full description text. No existing key, type, default or constraint
   // moved.
-  "85b2539acecd275aad0026946df5df02dba6ed53a4238558b9c6fb0ebb82b0b6";
+  // THE-1099 (GH #964 part 2): rebaselined deliberately. Adds ONE new key,
+  // `experiential.allowFeedbackInReadOnly` (boolean, default false) — exempts
+  // record_retrieval_feedback (only) from the acl.readOnly kill switch and
+  // toolVisibility.requireReadOnly hiding, because its writes are derived telemetry in
+  // experiential.db (chunk_retrievals), never authored vault content. Also needs
+  // experiential.logRetrievals: true; otherwise there is nothing for it to update and the
+  // exemption is inert. See retrieval.schema.ts's ExperientialConfigSchema.allowFeedbackInReadOnly
+  // for the full description text. No existing key, type, default or constraint moved.
+  "e741b32bb1559884bc5e06ef370e0b991cc4da06f468d8d03f4538fd11bbdd2f";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

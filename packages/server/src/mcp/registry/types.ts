@@ -15,6 +15,7 @@ import type { RateLimiter } from "../../throttle";
 import type { AclOp } from "../../vault/acl-path";
 import type { TraceRecord } from "../../workspace/sessions";
 import type { ClientInfo } from "../client-info";
+import type { EffectiveToolVisibilityConfig } from "../visibility";
 
 // WP4.1: this file holds registry.ts's public types and pure declarations — no behaviour, no
 // dispatch logic. registry.ts re-exports the ones that were already public (see its own imports)
@@ -284,8 +285,10 @@ export interface RegistryOptions {
   /** THE-293: window (seconds) after which a crashed in-flight idempotency row may be
    *  reclaimed at dispatch. Default 60. */
   idempotencyReclaimSeconds?: number;
-  /** Static tool-visibility scoping (THE-219). Optional: ALLOW_ALL when absent. */
-  toolVisibility?: ToolVisibilityConfig;
+  /** Static tool-visibility scoping (THE-219). Optional: ALLOW_ALL when absent.
+   *  THE-1099: widened over the shared `ToolVisibilityConfig` with a derived-only
+   *  `allowReadOnlyDerivedTelemetry` flag — see visibility.ts's doc comment. */
+  toolVisibility?: EffectiveToolVisibilityConfig;
   /** Profile sink (perf diagnostics). When set, each successful dispatch reports total vs
    *  handler time; absent by default, so there is no observable overhead. */
   onProfile?: (p: DispatchProfile) => void;

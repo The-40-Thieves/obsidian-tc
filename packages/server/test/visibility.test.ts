@@ -1,10 +1,18 @@
 import { ToolVisibilityConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { ALLOW_ALL, isDisabled, isListed, visibilityOf } from "../src/mcp/visibility";
+import {
+  ALLOW_ALL,
+  isDisabled,
+  isListed,
+  isReadOnlyDerivedTelemetryExempt,
+  READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS,
+  visibilityOf,
+} from "../src/mcp/visibility";
 import { openMemoryDb } from "./helpers";
 
 // Build a full ToolVisibilityConfig from a partial, exercising the schema defaults so the
@@ -312,3 +320,125 @@ describe("registry listVisible per-caller (THE-250)", () => {
     ).toEqual(["rd", "wr"]);
   });
 });
+
+// THE-1099 (GH #964 part 2): record_retrieval_feedback's derived-telemetry exemption from the
+// acl.readOnly kill switch and requireReadOnly hiding. The reporter's premise (SECURITY.md's
+// derived-plane table): this tool's only write target is chunk_retrievals in experiential.db,
+// never authored vault content.
+describe("visibilityOf THE-1099 derived-telemetry exemption", () => {
+  it("the allowlist is EXACTLY [record_retrieval_feedback] — enumerated by name, never by tag", () => {
+    expect(READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS).toEqual(["record_retrieval_feedback"]);
+  });
+
+  it("isReadOnlyDerivedTelemetryExempt requires BOTH the allowlist name AND the config flag", () => {
+    expect(
+      isReadOnlyDerivedTelemetryExempt("record_retrieval_feedback", {
+        allowReadOnlyDerivedTelemetry: true,
+      }),
+    ).toBe(true);
+    expect(
+      isReadOnlyDerivedTelemetryExempt("record_retrieval_feedback", {
+        allowReadOnlyDerivedTelemetry: false,
+      }),
+    ).toBe(false);
+    expect(isReadOnlyDerivedTelemetryExempt("record_retrieval_feedback", {})).toBe(false);
+    // On the allowlist is not enough without the flag; the flag is not enough for a DIFFERENT tool.
+    expect(
+      isReadOnlyDerivedTelemetryExempt("write_note", { allowReadOnlyDerivedTelemetry: true }),
+    ).toBe(false);
+  });
+
+  it("default (flag unset) is byte-identical to pre-THE-1099: requireReadOnly still hides it", () => {
+    const t = target("record_retrieval_feedback", { requiredScopes: ["write:workspace"] });
+    expect(visibilityOf(t, cfg({ requireReadOnly: true }))).toBe("hidden");
+  });
+
+  it("flag on: requireReadOnly no longer hides record_retrieval_feedback, reason is its own", () => {
+    const t = target("record_retrieval_feedback", { requiredScopes: ["write:workspace"] });
+    const c = { ...cfg({ requireReadOnly: true }), allowReadOnlyDerivedTelemetry: true };
+    expect(visibilityOf(t, c)).toBe("listed");
+  });
+
+  it("flag on: every OTHER mutating tool is still hidden by requireReadOnly (name-scoped, not blanket)", () => {
+    const writer = target("write_note", { requiredScopes: ["write:note"] });
+    const c = { ...cfg({ requireReadOnly: true }), allowReadOnlyDerivedTelemetry: true };
+    expect(visibilityOf(writer, c)).toBe("hidden");
+  });
+
+  it("flag on: a read-only caller still sees record_retrieval_feedback as listed (kill-switch axis)", () => {
+    const t = target("record_retrieval_feedback", { requiredScopes: ["write:workspace"] });
+    const caller = { grantedScopes: new Set(["*"]), readOnly: true };
+    const c = { ...ALLOW_ALL, allowReadOnlyDerivedTelemetry: true };
+    expect(visibilityOf(t, c, caller)).toBe("listed");
+  });
+
+  it("flag on: a read-only caller still sees every OTHER mutating tool as scope_denied", () => {
+    const writer = target("write_note", { requiredScopes: ["write:note"] });
+    const caller = { grantedScopes: new Set(["*"]), readOnly: true };
+    const c = { ...ALLOW_ALL, allowReadOnlyDerivedTelemetry: true };
+    expect(visibilityOf(writer, c, caller)).toBe("scope_denied");
+  });
+
+  it("flag on: a read-only caller missing write:workspace is still scope_denied (scope check first)", () => {
+    const t = target("record_retrieval_feedback", { requiredScopes: ["write:workspace"] });
+    const caller = { grantedScopes: new Set(["read:notes"]), readOnly: true };
+    const c = { ...ALLOW_ALL, allowReadOnlyDerivedTelemetry: true };
+    expect(visibilityOf(t, c, caller)).toBe("scope_denied");
+  });
+
+  it("the exemption survives persona-mask composition (a server-level setting, not per-persona)", () => {
+    const t = target("record_retrieval_feedback", { requiredScopes: ["write:workspace"] });
+    const staticCfg = { ...cfg({ requireReadOnly: true }), allowReadOnlyDerivedTelemetry: true };
+    // A persona whose own mask carries no requireReadOnly at all — the common case — still sees
+    // it listed rather than the persona layer re-hiding it via a stale caller.readOnly re-check.
+    const caller = {
+      grantedScopes: new Set(["*"]),
+      toolVisibility: cfg({}),
+    };
+    expect(visibilityOf(t, staticCfg, caller)).toBe("listed");
+  });
+
+  describe("registry + dispatch integration", () => {
+    it("acl.readOnly blocks a mutating tool by default; the exempted name bypasses it when flagged on", async () => {
+      const flaggedReg = new ToolRegistry({
+        toolVisibility: { ...ALLOW_ALL, allowReadOnlyDerivedTelemetry: true },
+      });
+      // Must be genuinely mutating (a mutating required scope) for this test to exercise the kill
+      // switch at all — isMutatingCall gates on requiredScopes, and a non-mutating tool would pass
+      // trivially with or without the fix.
+      registerMutating(flaggedReg, "record_retrieval_feedback", "write:workspace");
+      registerMutating(flaggedReg, "write_note", "write:note");
+
+      const db = freshDb();
+      const readOnlyAcl = new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] });
+      const readOnlyCtx = ctx(db, { grantedScopes: new Set(["*"]), acl: readOnlyAcl });
+
+      const feedback = await flaggedReg.dispatch("record_retrieval_feedback", {}, readOnlyCtx);
+      expect(feedback.ok).toBe(true);
+
+      const write = await flaggedReg.dispatch("write_note", {}, readOnlyCtx);
+      expect(write.ok).toBe(false);
+      if (!write.ok) expect(write.error.code).toBe("forbidden");
+    });
+
+    it("without the flag, record_retrieval_feedback is refused under acl.readOnly exactly like any other mutating tool", async () => {
+      const plainReg = new ToolRegistry();
+      registerMutating(plainReg, "record_retrieval_feedback", "write:workspace");
+      const readOnlyAcl = new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] });
+      const readOnlyCtx = ctx(freshDb(), { acl: readOnlyAcl });
+      const denied = await plainReg.dispatch("record_retrieval_feedback", {}, readOnlyCtx);
+      expect(denied.ok).toBe(false);
+      if (!denied.ok) expect(denied.error.code).toBe("forbidden");
+    });
+  });
+});
+
+function registerMutating(reg: ToolRegistry, name: string, scope: string): void {
+  reg.register({
+    name,
+    description: name,
+    inputSchema: z.object({}),
+    requiredScopes: [scope],
+    handler: () => ({ name }),
+  });
+}

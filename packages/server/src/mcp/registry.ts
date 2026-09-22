@@ -6,7 +6,6 @@ import {
   ObsidianTcError,
   scopeClassOf,
   type ToolResult,
-  type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
@@ -38,7 +37,7 @@ import {
   type ToolIcon,
   type VerifyElicit,
 } from "./registry/types";
-import { ALLOW_ALL, type VisibilityCaller } from "./visibility";
+import { ALLOW_ALL, type EffectiveToolVisibilityConfig, type VisibilityCaller } from "./visibility";
 
 // WP4.3: assertScopesGranted moved to registry/policy-gates.ts, memoizeSerialized/takeSerialized
 // to registry/result-governance.ts — both unchanged, re-exported so every existing importer
@@ -79,7 +78,7 @@ export class ToolRegistry {
   private readonly rateLimiter?: RateLimiter;
   private readonly idempotencyTtlMs: number;
   private readonly idempotencyReclaimMs: number;
-  private readonly toolVisibility: ToolVisibilityConfig;
+  private readonly toolVisibility: EffectiveToolVisibilityConfig;
   private readonly onProfile?: (p: DispatchProfile) => void;
   private readonly onInternalError?: RegistryOptions["onInternalError"];
   private readonly onOutputSchemaDrift?: RegistryOptions["onOutputSchemaDrift"];
@@ -217,7 +216,7 @@ export class ToolRegistry {
    *  read-only so the inspector reads the SAME rules the registry enforces rather than a second
    *  copy parsed from server config — an inspector that can disagree with the enforcer is worse
    *  than no inspector. */
-  visibilityConfig(): ToolVisibilityConfig {
+  visibilityConfig(): EffectiveToolVisibilityConfig {
     return this.toolVisibility;
   }
 

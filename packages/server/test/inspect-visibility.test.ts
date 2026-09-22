@@ -10,6 +10,7 @@
 import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { CallerContext, ToolDefinition } from "../src/mcp/registry";
+import type { EffectiveToolVisibilityConfig } from "../src/mcp/visibility";
 import { buildAdminTools } from "../src/tools/m6/admin-tools";
 import type { M6Deps, ToolSurfaceEntry } from "../src/tools/m6/shared";
 
@@ -50,7 +51,7 @@ function tool(deps: Partial<M6Deps>): ToolDefinition {
 
 async function run(
   input: Record<string, unknown>,
-  config: ToolVisibilityConfig = ALLOW_ALL,
+  config: EffectiveToolVisibilityConfig = ALLOW_ALL,
   surface: readonly ToolSurfaceEntry[] = SURFACE,
 ): Promise<Out> {
   const def = tool({ toolSurface: () => ({ config, tools: surface }) });
@@ -151,5 +152,77 @@ describe("THE-645 item 2 — inspect_visibility", () => {
     // A silent `{ tools: [], summary: all-zero }` would read as a clean bill of health for a
     // deployment whose registry was never passed in — the THE-688 `dense: ready` shape.
     expect(() => def.handler({}, {} as CallerContext)).toThrow(/not wired/);
+  });
+});
+
+// THE-1099 (GH #964 part 2): record_retrieval_feedback's derived-telemetry exemption, viewed
+// through the SAME admin diagnostic an operator would use to check it. A separate fixture surface
+// (not SURFACE above) so this describe block cannot perturb the other tests' exact `summary`
+// counts.
+describe("THE-1099 — inspect_visibility reports the derived-telemetry exemption", () => {
+  const FEEDBACK_SURFACE: readonly ToolSurfaceEntry[] = [
+    {
+      name: "record_retrieval_feedback",
+      domain: "knowledge",
+      tags: ["experiential"],
+      requiredScopes: ["write:workspace"],
+    },
+    { name: "patch_note", domain: "notes", tags: ["safe"], requiredScopes: ["write:notes"] },
+  ];
+
+  it("requireReadOnly hides it exactly like any mutating tool when the exemption flag is off", async () => {
+    const out = await run(
+      { tool: "record_retrieval_feedback" },
+      { ...ALLOW_ALL, requireReadOnly: true },
+      FEEDBACK_SURFACE,
+    );
+    expect(out.tools[0]).toMatchObject({
+      visibility: "hidden",
+      reason: "hidden_require_read_only",
+    });
+  });
+
+  it("requireReadOnly + the flag lists it, with its own reason — and ONLY it", async () => {
+    const config = { ...ALLOW_ALL, requireReadOnly: true, allowReadOnlyDerivedTelemetry: true };
+    const feedback = await run({ tool: "record_retrieval_feedback" }, config, FEEDBACK_SURFACE);
+    expect(feedback.tools[0]).toMatchObject({
+      visibility: "listed",
+      reason: "visible_derived_telemetry",
+    });
+
+    // The exemption is name-scoped: patch_note, an ordinary mutating tool, stays hidden.
+    const other = await run({ tool: "patch_note" }, config, FEEDBACK_SURFACE);
+    expect(other.tools[0]).toMatchObject({
+      visibility: "hidden",
+      reason: "hidden_require_read_only",
+    });
+  });
+
+  it("the flag alone (requireReadOnly off) changes nothing — the exemption only matters under a read-only policy", async () => {
+    const config = { ...ALLOW_ALL, allowReadOnlyDerivedTelemetry: true };
+    const out = await run({ tool: "record_retrieval_feedback" }, config, FEEDBACK_SURFACE);
+    expect(out.tools[0]).toMatchObject({ visibility: "listed", reason: "listed" });
+  });
+
+  it("a hypothetical read-only caller: scope_denied_read_only without the flag, listed with it", async () => {
+    const withoutFlag = await run(
+      { tool: "record_retrieval_feedback", scopes: ["write:workspace"], read_only: true },
+      ALLOW_ALL,
+      FEEDBACK_SURFACE,
+    );
+    expect(withoutFlag.tools[0]).toMatchObject({
+      visibility: "scope_denied",
+      reason: "scope_denied_read_only",
+    });
+
+    const withFlag = await run(
+      { tool: "record_retrieval_feedback", scopes: ["write:workspace"], read_only: true },
+      { ...ALLOW_ALL, allowReadOnlyDerivedTelemetry: true },
+      FEEDBACK_SURFACE,
+    );
+    expect(withFlag.tools[0]).toMatchObject({
+      visibility: "listed",
+      reason: "visible_derived_telemetry",
+    });
   });
 });

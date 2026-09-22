@@ -3,12 +3,11 @@ import {
   ObsidianTcError,
   scopeClassOf,
   type ToolResult,
-  type ToolVisibilityConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { argsHash } from "../../hash";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
-import { isDisabled } from "../visibility";
+import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
 import { callStatusForError, type DispatchObservability } from "./dispatch-observability";
 import {
   claimOrReplay,
@@ -56,7 +55,7 @@ import { VERDICT_TOOL_TAG } from "./types";
  *  registry's lifetime. */
 export interface DispatchDeps {
   toolStore: ToolStore;
-  toolVisibility: ToolVisibilityConfig;
+  toolVisibility: EffectiveToolVisibilityConfig;
   observability: DispatchObservability;
   verifyElicit?: VerifyElicit;
   rateLimiter?: RateLimiter;
@@ -210,7 +209,7 @@ export async function runDispatch(
     applyVaultAcl(ctx, def, inputData, deps.aclResolver);
 
     const mutating = isMutatingCall(policy);
-    enforceReadOnlyGate(ctx, mutating);
+    enforceReadOnlyGate(ctx, mutating, name, deps.toolVisibility);
     enforceVaultKindGate(ctx, def, inputData, mutating, name, deps.vaultKindResolver);
 
     await runPrecheck(def, inputData, ctx);

@@ -46,6 +46,44 @@ export const ALLOW_ALL: ToolVisibilityConfig = {
   requireReadOnly: false,
 };
 
+// THE-1099 (GH #964 part 2): the ONE named allowlist of tools exempt from the acl.readOnly kill
+// switch and from requireReadOnly hiding, because their only write target is the derived-
+// cognition plane (experiential.db), never authored vault content — see SECURITY.md's derived-
+// plane table and THE-563/564. Enumerated by NAME, never by tag: a security-relevant allowlist
+// must not silently widen the next time a tag gets reused for something unrelated. Imported by
+// `enforceReadOnlyGate` (registry/policy-gates.ts, the dispatch-time kill switch) rather than
+// duplicated there, so the visibility layer and the kill switch can never authorize a call the
+// other still blocks.
+export const READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS: readonly string[] = [
+  "record_retrieval_feedback",
+];
+
+/** `ToolVisibilityConfig` widened with ONE derived, non-user-facing flag. There is no
+ *  `toolVisibility.allowReadOnlyDerivedTelemetry` config key an operator sets directly — the knob
+ *  is `experiential.allowFeedbackInReadOnly`, and only takes effect together with
+ *  `experiential.logRetrievals`. Server-runtime wiring computes that AND once
+ *  (server-runtime.ts) and carries the result on this field so the visibility layer here and the
+ *  dispatch kill switch read the identical resolved value, rather than each re-deriving it from
+ *  experiential config — which a pure authorization module (policy-gates.ts) has no business
+ *  importing. */
+export interface EffectiveToolVisibilityConfig extends ToolVisibilityConfig {
+  allowReadOnlyDerivedTelemetry?: boolean;
+}
+
+/** True when `name` may bypass the read-only gates below: on the allowlist above AND the operator
+ *  has turned the exemption on. The single predicate `explainAgainstConfig` below and
+ *  `enforceReadOnlyGate` (registry/policy-gates.ts) both call, so the advertised surface and the
+ *  dispatch-time enforcement can never disagree about which calls are exempt. */
+export function isReadOnlyDerivedTelemetryExempt(
+  name: string,
+  config: Pick<EffectiveToolVisibilityConfig, "allowReadOnlyDerivedTelemetry">,
+): boolean {
+  return (
+    config.allowReadOnlyDerivedTelemetry === true &&
+    READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS.includes(name)
+  );
+}
+
 // The tag that matched, not merely whether one did — `explainVisibility` reports it, and a
 // boolean cannot. `visibilityOf` ignores the value, so the two stay one derivation.
 function matchingTag(tags: readonly string[] | undefined, set: readonly string[]): string | null {
@@ -76,7 +114,12 @@ export type VisibilityReason =
   | "hidden_require_read_only"
   | "hidden_not_allowlisted"
   | "scope_denied_missing_scope"
-  | "scope_denied_read_only";
+  | "scope_denied_read_only"
+  // THE-1099: listed despite requireReadOnly / acl.readOnly — the tool is on
+  // READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS and experiential.allowFeedbackInReadOnly (+
+  // logRetrievals) is on. Its own reason so inspect_visibility can tell "listed because nothing
+  // was restricted" apart from "listed despite a read-only policy that would otherwise hide it".
+  | "visible_derived_telemetry";
 
 export interface VisibilityExplanation {
   visibility: Visibility;
@@ -109,7 +152,13 @@ export const DISCLOSABLE_HIDDEN_REASONS: ReadonlySet<VisibilityReason> = new Set
 function explainAgainstConfig(
   target: VisibilityTarget,
   config: ToolVisibilityConfig,
-  caller?: VisibilityCaller,
+  caller: VisibilityCaller | undefined,
+  // THE-1099: resolved ONCE by explainVisibility from the STATIC (server-wide) config and handed
+  // down unchanged to both the static-layer and the persona-layer call — never re-derived from
+  // `config` here. `experiential.allowFeedbackInReadOnly` is a server-level setting; a persona's
+  // own `toolVisibility` mask carries no such field, and re-deriving per layer would make a
+  // persona overlay silently re-hide an exempted tool the static layer already cleared.
+  readOnlyExempt: boolean,
 ): VisibilityExplanation {
   const base = { matchedTag: null, missingScopes: [] as readonly string[] };
 
@@ -124,8 +173,11 @@ function explainAgainstConfig(
   const hiddenTag = matchingTag(target.tags, config.hiddenTags);
   if (hiddenTag !== null)
     return { ...base, visibility: "hidden", reason: "hidden_tag", matchedTag: hiddenTag };
-  if (config.requireReadOnly && isMutating(target))
+  if (config.requireReadOnly && isMutating(target)) {
+    if (readOnlyExempt)
+      return { ...base, visibility: "listed", reason: "visible_derived_telemetry" };
     return { ...base, visibility: "hidden", reason: "hidden_require_read_only" };
+  }
   if (config.allowed !== undefined && !config.allowed.includes(target.name))
     return { ...base, visibility: "hidden", reason: "hidden_not_allowlisted" };
 
@@ -141,8 +193,11 @@ function explainAgainstConfig(
         reason: "scope_denied_missing_scope",
         missingScopes: missing,
       };
-    if (caller.readOnly === true && isMutating(target))
+    if (caller.readOnly === true && isMutating(target)) {
+      if (readOnlyExempt)
+        return { ...base, visibility: "listed", reason: "visible_derived_telemetry" };
       return { ...base, visibility: "scope_denied", reason: "scope_denied_read_only" };
+    }
   }
 
   return { ...base, visibility: "listed", reason: "listed" };
@@ -162,13 +217,16 @@ function explainAgainstConfig(
  */
 export function explainVisibility(
   target: VisibilityTarget,
-  config: ToolVisibilityConfig = ALLOW_ALL,
+  config: EffectiveToolVisibilityConfig = ALLOW_ALL,
   caller?: VisibilityCaller,
 ): VisibilityExplanation {
-  const staticVerdict = explainAgainstConfig(target, config, caller);
+  // THE-1099: resolved once, from the STATIC config only — see explainAgainstConfig's doc comment
+  // on the `readOnlyExempt` parameter for why this must not be re-derived per layer.
+  const readOnlyExempt = isReadOnlyDerivedTelemetryExempt(target.name, config);
+  const staticVerdict = explainAgainstConfig(target, config, caller, readOnlyExempt);
   if (staticVerdict.visibility !== "listed") return staticVerdict;
   if (caller?.toolVisibility === undefined) return staticVerdict;
-  return explainAgainstConfig(target, caller.toolVisibility, caller);
+  return explainAgainstConfig(target, caller.toolVisibility, caller, readOnlyExempt);
 }
 
 // THE-1098 follow-up (PR #965 review): a DISCLOSABLE reason can still fire ahead of a
@@ -210,7 +268,7 @@ export function disclosableExplanation(
 //     scopes, or is read-only and the tool mutates. Omitting `caller` (full grant) skips it.
 export function visibilityOf(
   target: VisibilityTarget,
-  config: ToolVisibilityConfig = ALLOW_ALL,
+  config: EffectiveToolVisibilityConfig = ALLOW_ALL,
   caller?: VisibilityCaller,
 ): Visibility {
   return explainVisibility(target, config, caller).visibility;
@@ -220,7 +278,7 @@ export function visibilityOf(
 // caller (a full grant) only the static config gates.
 export function isListed(
   target: VisibilityTarget,
-  config?: ToolVisibilityConfig,
+  config?: EffectiveToolVisibilityConfig,
   caller?: VisibilityCaller,
 ): boolean {
   return visibilityOf(target, config, caller) === "listed";
@@ -234,7 +292,7 @@ export function isListed(
 // for them: byte-identical to the caller-independent check this replaces.
 export function isDisabled(
   target: VisibilityTarget,
-  config?: ToolVisibilityConfig,
+  config?: EffectiveToolVisibilityConfig,
   caller?: VisibilityCaller,
 ): boolean {
   return visibilityOf(target, config, caller) === "disabled";
