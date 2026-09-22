@@ -1,16 +1,17 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
 
-function tool(name: string, description: string): ToolDefinition {
+function tool(name: string, description: string, scopes: string[] = []): ToolDefinition {
   return {
     name,
     description,
     inputSchema: z.object({ x: z.string() }).strict(),
-    requiredScopes: [],
+    requiredScopes: scopes,
     handler: (i: { x: string }) => ({ echo: i.x }),
   } as unknown as ToolDefinition;
 }
@@ -44,6 +45,20 @@ function reg(): ToolRegistry {
   r.register(tool("search_vault", "Search the vault for notes matching a query."));
   r.register(tool("read_note", "Read a note from the vault by path."));
   r.register(tool("reload_vault", "Reload and reindex the vault cache."));
+  return r;
+}
+
+// THE-1098 (GH #964): a registry carrying a MUTATING record_retrieval_feedback (mirrors the real
+// m8 tool's write:workspace scope) plus a non-mutating tool, so `requireReadOnly` hides exactly
+// one of the two — the same shape the reporter's minimal reproducer relies on.
+function regWithVisibility(toolVisibility: ToolVisibilityConfig): ToolRegistry {
+  const r = new ToolRegistry({ toolVisibility });
+  r.register(
+    tool("record_retrieval_feedback", "Judge whether a prior retrieval helped.", [
+      "write:workspace",
+    ]),
+  );
+  r.register(tool("read_note", "Read a note from the vault by path."));
   return r;
 }
 
@@ -117,6 +132,69 @@ describe("tool-surface facade (THE-219)", () => {
     });
     const data = textOf(res) as { matches: { name: string }[] };
     expect(data.matches[0]?.name).toBe("read_note");
+    await client.close();
+    await server.close();
+  });
+});
+
+// THE-1098 (GH #964): describe_capability answered a policy-hidden capability identically to one
+// that was never registered ({"code": "not_found", "message": "unknown capability: ..."}), so an
+// agent following the server's own instructions to call record_retrieval_feedback under
+// `toolVisibility.requireReadOnly: true` could not tell "you can't use this here" from "this does
+// not exist". These assert the distinct `capability_hidden` code fires ONLY for a disclosure-safe
+// reason (mcp/visibility.ts's DISCLOSABLE_HIDDEN_REASONS) and every other hidden/unregistered case
+// keeps the original `not_found` — an `allowed`-list hide is deliberately invisible, not disclosed.
+describe("THE-1098 (GH #964): describe_capability distinguishes hidden from unregistered", () => {
+  const REQUIRE_READ_ONLY: ToolVisibilityConfig = {
+    hidden: [],
+    disabled: [],
+    hiddenTags: [],
+    disabledTags: [],
+    requireReadOnly: true,
+  };
+
+  it("a tool hidden by requireReadOnly answers capability_hidden with its reason, not not_found", async () => {
+    const { client, server } = await connect(regWithVisibility(REQUIRE_READ_ONLY), "triad");
+    const res = await client.callTool({
+      name: "describe_capability",
+      arguments: { name: "record_retrieval_feedback" },
+    });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toMatchObject({
+      code: "capability_hidden",
+      reason: "hidden_require_read_only",
+    });
+    await client.close();
+    await server.close();
+  });
+
+  it("a name that was never registered still answers not_found (no reason to disclose)", async () => {
+    const { client, server } = await connect(regWithVisibility(REQUIRE_READ_ONLY), "triad");
+    const res = await client.callTool({
+      name: "describe_capability",
+      arguments: { name: "no_such_capability" },
+    });
+    expect(res.isError).toBe(true);
+    const body = textOf(res);
+    expect(body).toMatchObject({ code: "not_found" });
+    expect(body).not.toHaveProperty("reason");
+    await client.close();
+    await server.close();
+  });
+
+  it("a name hidden by an `allowed` allowlist stays not_found — deliberately invisible", async () => {
+    const { client, server } = await connect(
+      regWithVisibility({ ...REQUIRE_READ_ONLY, requireReadOnly: false, allowed: ["read_note"] }),
+      "triad",
+    );
+    const res = await client.callTool({
+      name: "describe_capability",
+      arguments: { name: "record_retrieval_feedback" },
+    });
+    expect(res.isError).toBe(true);
+    const body = textOf(res);
+    expect(body).toMatchObject({ code: "not_found" });
+    expect(body).not.toHaveProperty("reason");
     await client.close();
     await server.close();
   });

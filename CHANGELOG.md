@@ -6,6 +6,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it
+  (GH #964 part 1, THE-1098).** `buildInstructions`'s feedback clause was unconditional, so it
+  survived under `toolVisibility.requireReadOnly: true` (the tool hidden), `acl.readOnly: true`
+  (blocked at dispatch), and `experiential.logRetrievals: false` (no retrieval rows to give
+  feedback on) — an agent following the server's own instructions could not actually call the tool
+  it named. The clause is now emitted only when `record_retrieval_feedback` is caller-visible AND
+  `experiential.logRetrievals` is true, checked once in `buildInstructions` so both instruction
+  surfaces (legacy `initialize`, `server/discover`) stay in sync by construction.
+  `describe_capability` also no longer answers a policy-hidden capability with the same
+  `unknown capability` `not_found` a never-registered name gets: a tool hidden for a
+  disclosure-safe reason (`hidden_require_read_only` / `scope_denied_read_only` — the caller's own
+  read-only posture, not a secret) now answers `capability_hidden` naming the reason, while a name
+  hidden by an `allowed` allowlist stays `not_found` (deliberately invisible).
+
 ## [1.31.3] - 2026-09-21
 
 ### Fixed

@@ -120,6 +120,9 @@ export interface HttpAppOptions {
    *  Absent (the default) means no persona claim can ever resolve — a token carrying one is
    *  refused. */
   personas?: PersonasConfig;
+  /** THE-1098 (GH #964): `experiential.logRetrievals`, threaded to createMcpServer's same-named
+   *  option — see its doc comment. Absent defaults to `true` (the schema's own default). */
+  experientialLogRetrievals?: boolean;
 }
 
 type AuthOutcome =
@@ -360,6 +363,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         era: mcpCtx.era,
         elicitCodec,
         jobQueue: opts.jobQueue,
+        experientialLogRetrievals: opts.experientialLogRetrievals,
       }),
     { legacy: "stateless" },
   );

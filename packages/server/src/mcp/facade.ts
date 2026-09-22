@@ -503,13 +503,18 @@ export function buildInstructions(
   registry: ToolRegistry,
   caller: VisibilityCaller | undefined,
   hasResources = true,
+  experientialLogRetrievals = true,
 ): string {
   const tools = registry.listVisible(caller);
+  const canRecordFeedback =
+    experientialLogRetrievals && tools.some((t) => t.name === "record_retrieval_feedback");
+  const feedbackClause = canRecordFeedback
+    ? " After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback " +
+      "— retrieval quality is learned from that signal and nothing else supplies it."
+    : "";
   const preamble =
     `${name} ${version} — an MCP server over Obsidian vaults. ` +
-    `Tools are authorized per call (scopes + folder ACL); resources are vault notes. ` +
-    `After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback ` +
-    `— retrieval quality is learned from that signal and nothing else supplies it.`;
+    `Tools are authorized per call (scopes + folder ACL); resources are vault notes.${feedbackClause}`;
   // The pointer only makes sense when resources are wired — see triadTools()'s same gate.
   const catalogPointer = hasResources
     ? " (read obsidian-tc://catalog for the full caller-visible list)"

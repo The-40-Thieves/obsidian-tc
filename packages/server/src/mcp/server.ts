@@ -61,7 +61,7 @@ import {
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
-import type { VisibilityCaller } from "./visibility";
+import { DISCLOSABLE_HIDDEN_REASONS, explainVisibility, type VisibilityCaller } from "./visibility";
 
 /**
  * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
@@ -169,6 +169,9 @@ export interface McpServerOptions {
    * rides `tools/call`, which IS a core method, so it belongs here.
    */
   jobQueue?: JobQueue;
+  /** THE-1098 (GH #964): `experiential.logRetrievals`, forwarded to `buildInstructions`. Absent
+   *  defaults to `true` (the schema's own default), matching pre-THE-1098 behavior. */
+  experientialLogRetrievals?: boolean;
 }
 
 /**
@@ -306,6 +309,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     opts.registry,
     opts.visibility,
     Boolean(opts.vaultRegistry),
+    opts.experientialLogRetrievals,
   );
   const server = new Server(
     { name: opts.name, version: opts.version },
@@ -398,6 +402,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
           opts.registry,
           visibilityCallerOf(dctx),
           Boolean(opts.vaultRegistry),
+          opts.experientialLogRetrievals,
         ),
       },
       CACHE_PRIVATE,
@@ -631,11 +636,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
           return errorToResult(
             err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
           );
-        const visible = opts.registry.listVisible({
-          grantedScopes: ctx.grantedScopes,
-          readOnly: ctx.acl?.readOnly,
-          toolVisibility: ctx.toolVisibility,
-        });
+        const visible = opts.registry.listVisible(visibilityCallerOf(ctx));
         return formatData({
           matches: findCapability(visible, parsed.data.query, parsed.data.limit),
         });
@@ -646,13 +647,36 @@ export function createMcpServer(opts: McpServerOptions): Server {
           return errorToResult(
             err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
           );
-        const visible = opts.registry.listVisible({
-          grantedScopes: ctx.grantedScopes,
-          readOnly: ctx.acl?.readOnly,
-          toolVisibility: ctx.toolVisibility,
-        });
+        const visibilityCaller = visibilityCallerOf(ctx);
+        const visible = opts.registry.listVisible(visibilityCaller);
         const target = visible.find((d) => d.name === parsed.data.name);
-        if (!target)
+        if (!target) {
+          // THE-1098 (GH #964) item 2: a hidden-but-registered tool used to read identically to
+          // an unregistered one. Re-run the SAME verdict `listVisible` used, over the full
+          // registered set, so this can never disagree with the enforcer.
+          const registered = opts.registry.list().find((d) => d.name === parsed.data.name);
+          if (registered) {
+            const explanation = explainVisibility(
+              registered,
+              opts.registry.visibilityConfig(),
+              visibilityCaller,
+            );
+            if (DISCLOSABLE_HIDDEN_REASONS.has(explanation.reason)) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify({
+                      code: "capability_hidden",
+                      message: `capability hidden by server policy: ${parsed.data.name}`,
+                      reason: explanation.reason,
+                    }),
+                  },
+                ],
+                isError: true,
+              };
+            }
+          }
           return {
             content: [
               {
@@ -665,6 +689,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
             ],
             isError: true,
           };
+        }
         return formatData(describeCapability(target));
       }
       return callCapability(

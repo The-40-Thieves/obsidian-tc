@@ -87,6 +87,22 @@ export interface VisibilityExplanation {
   missingScopes: readonly string[];
 }
 
+// THE-1098 (GH #964) item 2: which `VisibilityReason`s are safe to disclose to an ORDINARY caller
+// (describe_capability/find_capability) as "this exists but is hidden from you", rather than the
+// existence-oracle-safe `not_found` every other reason keeps. The line is whether the reason is
+// configuration the caller already knows about their OWN connection:
+//   - hidden_require_read_only / scope_denied_read_only: the server's read-only posture (static
+//     `toolVisibility.requireReadOnly`, or the caller's own `acl.readOnly`) is not a secret from a
+//     caller operating under it — GH #964's reporter hit exactly this discovering
+//     record_retrieval_feedback via the server's own instructions.
+// Every other reason (disabled_name/_tag, hidden_name/_tag, hidden_not_allowlisted,
+// scope_denied_missing_scope) is an operator choice to hide a SPECIFIC tool or a deliberately
+// invisible allowlist, and stays `not_found` — see explainVisibility's precedence doc comment.
+export const DISCLOSABLE_HIDDEN_REASONS: ReadonlySet<VisibilityReason> = new Set([
+  "hidden_require_read_only",
+  "scope_denied_read_only",
+]);
+
 // The single-config verdict `explainVisibility` used to BE — factored out so THE-647 item 2 can
 // compose a persona's own toolVisibility on top without duplicating this logic. Never exported:
 // callers always go through `explainVisibility`, which is where the composition rule lives.
