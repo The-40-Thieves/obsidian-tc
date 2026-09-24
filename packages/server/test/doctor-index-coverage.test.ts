@@ -5,7 +5,7 @@
 // real probe (probeIndexCoverage) measured against the real WRITER (indexVault), not hand-inserted
 // `notes` rows — fix round 1 (MEDIUM, Opus): a hand-inserted-rows fixture cannot catch the probe
 // disagreeing with indexVault about which walked files get a `notes` row at all (a zero-byte note
-// gets none — see search/fts.ts's notesRowExpected, shared by both sides).
+// gets none — see search/fts.ts's notesRowExpectedForSize, shared by both sides).
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -157,7 +157,7 @@ describe("probeIndexCoverage (THE-1073)", () => {
 
   // Fix round 1 (MEDIUM, Opus): index.coverage warned forever on a zero-byte note, because
   // indexVault never writes a `notes` row for `raw === ""` — the probe now shares indexVault's own
-  // notesRowExpected predicate, so this vault reads clean (0 missing) despite an empty note, a
+  // notesRowExpectedForSize predicate, so this vault reads clean (0 missing) despite an empty note, a
   // secret-only note (still gets a row; only its CHUNK is gated) and an egress-excluded note
   // (excluded from embedding, not from indexing) all sitting alongside a normal one. Reviewer
   // repro, adapted: a real indexVault pass with these four files must leave `missing` at 0.
@@ -173,6 +173,14 @@ describe("probeIndexCoverage (THE-1073)", () => {
         join(vaultRoot, "only-secret.md"),
         "AKIAIOSFODNN7EXAMPLE aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
       );
+      // Fix round 2 (LOW): three more edge shapes the size-based predicate must still agree with
+      // indexVault on — frontmatter-only (non-empty raw, empty BODY), a lone byte-order mark
+      // (non-empty in bytes, "looks empty" visually), and a single newline (non-empty in bytes,
+      // "looks empty" when trimmed). All three are non-zero BYTE LENGTH, so all three get a `notes`
+      // row, same as indexVault.
+      writeFileSync(join(vaultRoot, "fm-only.md"), "---\ntitle: X\n---\n");
+      writeFileSync(join(vaultRoot, "bom.md"), "﻿");
+      writeFileSync(join(vaultRoot, "ws.md"), "\n");
 
       const db = await openDatabase(join(cacheDir, "cache.db"), 5_000);
       provisionCacheDb(db);
@@ -195,8 +203,8 @@ describe("probeIndexCoverage (THE-1073)", () => {
       );
       expect(states).toHaveLength(1);
       expect(states[0]?.missing).toBe(0);
-      expect(states[0]?.notesOnDisk).toBe(3); // empty.md excluded from BOTH sides, correctly
-      expect(states[0]?.notesIndexed).toBe(3);
+      expect(states[0]?.notesOnDisk).toBe(6); // empty.md excluded from BOTH sides, correctly
+      expect(states[0]?.notesIndexed).toBe(6);
     } finally {
       rmTemp(vaultRoot);
       rmTemp(cacheDir);

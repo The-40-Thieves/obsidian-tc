@@ -7,9 +7,8 @@
 // See docs/design/search-indexing-and-cache.md.
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
-import type { Database } from "../../db/types";
 import { errorMessage } from "../../util/errors";
-import { isFrontmatterYamlError, parseNote } from "../../vault/frontmatter";
+import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath, walkVault, walkVaultStream } from "../../vault/paths";
@@ -35,7 +34,7 @@ import {
   hasNotesTable,
   type NoteRecord,
   noteRowHash,
-  notesRowExpected,
+  notesRowExpectedForSize,
   upsertNoteRow,
 } from "../fts";
 import { bumpGeneration } from "../generation";
@@ -64,40 +63,6 @@ import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./ty
 // THE-500: default flush thresholds. See docs/design/search-indexing-and-cache.md.
 const DEFAULT_BATCH_MAX_NOTES = 100;
 const DEFAULT_BATCH_MAX_BYTES = 8 * 1024 * 1024;
-
-/**
- * THE-1073 fix round 1 (HIGH, both reviewers): a note skipped this pass for invalid frontmatter
- * has no noteLinks entry (its body was never parsed), and desiredEdges (edges.ts) produces a
- * note's edges — forward AND the reverse row a resolved link ALSO generates, plus any unresolved
- * row — only from that note's OWN entry in noteLinks. An absent entry therefore drops the note's
- * edges from the desired set, and the full-state reconcileVaultEdges below DELETES them even
- * though nothing about the note's links changed. This reconstructs a synthetic ExtractedLink[]
- * from the note's own EXISTING forward-side rows (provenance wikilink_forward / unresolved) so
- * desiredEdges recomputes the identical set for this note. A wikilink_reverse row whose
- * source_path is this path was produced by some OTHER note's own forward link during THAT note's
- * loop iteration (edges.ts's `put`), not this one's — re-adding it here would double it, so it is
- * deliberately excluded by the provenance filter below.
- */
-function existingForwardLinksFor(db: Database, vaultId: string, path: string): ExtractedLink[] {
-  const rows = db
-    .prepare(
-      "SELECT target_path FROM vault_edges WHERE vault_id = ? AND source_path = ? " +
-        "AND edge_type IN ('links_to', 'unresolved') AND provenance IN ('wikilink_forward', 'unresolved')",
-    )
-    .all(vaultId, path) as Array<{ target_path: string }>;
-  return rows.map(
-    (r): ExtractedLink => ({
-      raw: `[[${r.target_path}]]`,
-      kind: "wikilink",
-      target: r.target_path,
-      display: null,
-      heading: null,
-      line: 0,
-      col: 0,
-      inCodeblock: false,
-    }),
-  );
-}
 
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const now = args.now ?? Date.now;
@@ -207,10 +172,6 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // Collect each note's links during the index walk so vault_edges is reconciled in one
   // full-state pass — the undirected links_to graph W-RETRIEVAL walks (THE-233 W-INGEST).
   const noteLinks = new Map<string, ExtractedLink[]>();
-  // THE-1073 fix round 1: paths skipped this pass for invalid frontmatter, seeded into noteLinks
-  // (from their OWN existing vault_edges rows) right before the edge reconcile below — see that
-  // call site's comment for why an absent entry would otherwise delete the note's edges.
-  const frontmatterFailedPaths = new Set<string>();
   // THE-934 fix round 4 (2): vault-relative paths under egress.excludePaths seen by this walk.
   const egressExcludedPaths = new Set<string>();
   // Two-phase batching: PLAN each note (including its embed() network call) with no transaction,
@@ -402,7 +363,15 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       if (!isFrontmatterYamlError(e)) throw e;
       stats.notes_frontmatter_failed += 1;
       stats.frontmatter_failures.push({ path: rel, error: errorMessage(e) });
-      frontmatterFailedPaths.add(rel);
+      // THE-1073 fix round 2 (HIGH, both reviewers): still extract this note's OWN links from its
+      // REAL body — splitFrontmatterBody never parses YAML, so it works even here — instead of
+      // leaving noteLinks empty for this path. reconcileVaultEdges INSERT OR IGNOREs on
+      // (source,target,type), so a stored row's provenance is fixed at first insert and never
+      // updated by a later pass; reconstructing synthetic links from those rows (fix round 1's
+      // approach) could resurrect a link this note no longer has, or miss one it just gained. This
+      // note is still skipped for chunk/note-row writes (return below), but its edges are
+      // recomputed exactly as if the YAML were valid.
+      noteLinks.set(rel, extractLinks(splitFrontmatterBody(raw)));
       return;
     }
     // THE-823: `rel` must be threaded into link extraction here, not left for the caller to infer.
@@ -437,7 +406,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
     stats.chunks_dedup_reused += dedupSkipped; // THE-499: aggregate, not per-chunk stderr
-    if (hasNotes && notesRowExpected(raw)) {
+    if (hasNotes && notesRowExpectedForSize(Buffer.byteLength(raw))) {
       const rec = buildNoteRecord(rel, raw, flagged, stat, now());
       if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
         notesBatch.push(rec);
@@ -533,13 +502,6 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // runs once per indexVault pass, not per-note-write. Skipped gracefully when vault_edges is
   // absent (pre-integration, before W-SCHEMA lands).
   if (tableExists(args.db, "vault_edges")) {
-    // THE-1073 fix round 1: seed a frontmatter-skipped note's noteLinks entry from its own
-    // existing edges — see existingForwardLinksFor's comment.
-    for (const rel of frontmatterFailedPaths) {
-      if (!noteLinks.has(rel)) {
-        noteLinks.set(rel, existingForwardLinksFor(args.db, args.vaultId, rel));
-      }
-    }
     const edgeStats = reconcileVaultEdges(
       args.db,
       args.vaultId,

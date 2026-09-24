@@ -46,14 +46,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   in the new `IndexStats.notes_frontmatter_failed`, listed in full in the new
   `IndexStats.frontmatter_failures`, named in one sampled stderr line per pass, and skipped for
   that note only; every other note in the pass — and the pass's own `flush`/`flushNotes` — proceeds
-  unaffected, and the skipped note stays in `walkedSet` so it is never swept as stale, and its OWN
-  wikilink-layer edges (both directions) are preserved rather than deleted by the full-state edge
-  reconcile. Any other error (I/O, DB) still propagates and rejects the pass exactly as before.
-  `plane-wiring.ts`'s reconcile now maps a vault's completed pass to one `ReconcileResult` per
-  failing path (capped at 10 per vault plus a "...and N more" summary), plus the existing
-  embed-failure summary, so `health.index.detail.reconcile_errors` names every bad note, not just
-  the first, and `applyReconcileOutcome`'s stderr hint tells a frontmatter failure apart from an
-  embeddings-backend one by a producer-set `kind` field, never by matching the message text.
+  unaffected, and the skipped note stays in `walkedSet` so it is never swept as stale. Its links are
+  extracted from the note's body without parsing its frontmatter (the frontmatter/body split is a
+  regex that never depends on the YAML parsing, factored out as `splitFrontmatterBody`), so its
+  edges are recomputed exactly as if the YAML were valid — reconstructing them from previously
+  STORED edge rows instead would have been wrong, since a stored row's provenance is fixed at first
+  insert and never updated by a later pass. Any other error (I/O, DB) still propagates and rejects
+  the pass exactly as before. `plane-wiring.ts`'s reconcile now maps a vault's completed pass to one
+  `ReconcileResult` per failing path, capped at 10 per vault plus a "...and N more" summary entry,
+  plus the existing embed-failure summary, so `health.index.detail.reconcile_errors` names up to 10
+  bad notes per vault and a count of the rest (the full list is always in `index_vault`'s own stats
+  and in `doctor --probe`'s `index.coverage` check). Internally, each `ReconcileResult` carries a
+  `kind` so `applyReconcileOutcome`'s stderr hint can tell a frontmatter failure apart from an
+  embeddings-backend one without matching the message text — `kind` is stripped back out before it
+  reaches `health.reconcileErrors`, so it never reaches server_health's wire payload or its
+  advertised outputSchema.
   `doctor --probe` gained a new `index.coverage` check: per-vault notes-on-disk vs notes-indexed
   counts (sharing indexVault's own "does this file get a notes row" predicate, so a zero-byte note
   is never misreported as missing), WARNing with a path sample when they diverge — or naming the

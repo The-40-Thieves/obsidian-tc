@@ -226,6 +226,63 @@ describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-10
     });
   }
 
+  // Fix round 2 (HIGH, both reviewers): fix round 1's `existingForwardLinksFor` reconstructed a
+  // skipped note's links from its STORED vault_edges provenance — but reconcileVaultEdges INSERT
+  // OR IGNOREs on (source,target,edge_type), so a row's provenance is fixed at first insert and
+  // never updated by a later pass. P1 repro: pass 1 has b link to [[a]] (stored as
+  // (a,b,links_to,wikilink_reverse) + (b,a,links_to,wikilink_forward)); pass 2 a ALSO gains
+  // [[b]], but the (a,b) row's provenance stays the STALE 'wikilink_reverse' (never updated);
+  // pass 3 breaks a's YAML and b drops its own link to a — round 1's fix filtered on
+  // `provenance IN ('wikilink_forward','unresolved')`, so it found NO forward-looking row for a
+  // and reconstructed nothing, even though a's real body still says `[[b]]`. Fix round 2 reads
+  // links from a's REAL body (splitFrontmatterBody, never parses YAML) instead, so this holds
+  // regardless of stored provenance.
+  for (const streaming of [false, true]) {
+    it(`(c-edges-p1, streaming=${streaming}) a skipped note's edges are recomputed from its REAL body, not stale stored provenance`, async () => {
+      const v = makeM2Vault({
+        files: { "a.md": "# A\n\nnothing", "b.md": "# B\n\n[[a]]" },
+      });
+      try {
+        const provider = fakeEmbeddingProvider({ dimensions: 8 });
+        const args = {
+          db: v.db,
+          provider,
+          vaultId: v.id,
+          root: v.root,
+          isReadable: () => true,
+          representation: buildRepresentationManifest(provider, {}),
+          walk: { streaming },
+        };
+        // Pass 1: only b links to a.
+        await indexVault(args);
+        // Pass 2: a ALSO now links to b — a mutual link. The (a,b) row already exists from pass 1
+        // (as a wikilink_reverse row); INSERT OR IGNORE means its provenance is never refreshed.
+        v.write("a.md", "# A\n\nnow [[b]]");
+        await indexVault(args);
+
+        // Pass 3: break a's YAML AND have b drop its own link to a, in the SAME pass. If a's
+        // edges were reconstructed from stale STORED provenance (fix round 1), a would contribute
+        // nothing (no row with provenance IN ('wikilink_forward','unresolved')) and b contributes
+        // nothing either (it just dropped its link) — losing both rows entirely. a.md's real body
+        // still says `[[b]]`, so both the a->b and b->a edges must survive.
+        v.write("a.md", "---\nt: [x\n---\n# A\n\nnow [[b]]");
+        v.write("b.md", "# B\n\nno link now");
+        const stats = await indexVault(args);
+
+        expect(stats.notes_frontmatter_failed).toBe(1);
+        expect(stats.frontmatter_failures[0]?.path).toBe("a.md");
+        const finalRows = edgeRows(v).map((r) => ({
+          source: r.source_path,
+          target: r.target_path,
+        }));
+        expect(finalRows).toContainEqual({ source: "a.md", target: "b.md" });
+        expect(finalRows).toContainEqual({ source: "b.md", target: "a.md" });
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+
   it("(d) same as (a) under the streaming walk (walk.streaming: true)", async () => {
     const v = makeM2Vault({
       files: {

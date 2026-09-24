@@ -37,6 +37,11 @@ export interface ParsedNote {
   frontmatterAtEof: boolean;
 }
 
+export function splitFrontmatterBody(raw: string): string {
+  const m = FRONTMATTER.exec(raw);
+  return m ? raw.slice(m[0].length) : raw;
+}
+
 /** Split a note into its frontmatter object (if any) and verbatim body. `path` is optional and
  *  purely diagnostic — some callers round-trip an in-memory buffer with no file behind it (e.g.
  *  parseEntityNote). THE-823: every call site that reads a note off disk passes one. */
@@ -70,7 +75,7 @@ export function parseNote(raw: string, path?: string): ParsedNote {
   }
   return {
     frontmatter: fm,
-    body: raw.slice(m[0].length),
+    body: splitFrontmatterBody(raw),
     hasFrontmatter: true,
     rawFrontmatter: m[2] ?? "",
     frontmatterEol: m[1] === "\r\n" ? "\r\n" : "\n",

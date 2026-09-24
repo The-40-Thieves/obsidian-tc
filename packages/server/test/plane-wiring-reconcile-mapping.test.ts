@@ -122,6 +122,34 @@ describe("reconcileResultsForVault (THE-1073)", () => {
     expect(results[10]?.kind).toBe("frontmatter");
   });
 
+  // Fix round 2 (LOW 4): the cap and the embed-failure summary are INDEPENDENT — an embed failure
+  // must never be counted toward (or squeezed out by) the frontmatter cap, and the summary's own
+  // "N more" count must be exact for an N other than 1.
+  it("caps at 10 frontmatter entries with an embed failure too: 13 frontmatter + 1 embed -> 10 + summary(N=3) + embed = 12", () => {
+    const failures = Array.from({ length: 13 }, (_, i) => ({
+      path: `n${i}.md`,
+      error: `frontmatter is not valid YAML in "n${i}.md": bad`,
+    }));
+    const s = stats({
+      notes_frontmatter_failed: 13,
+      frontmatter_failures: failures,
+      notes_embed_failed: 7,
+    });
+    const results = reconcileResultsForVault("v1", s);
+    expect(results).toHaveLength(12); // 10 real + 1 summary + 1 embed
+    expect(results.slice(0, 10).map((r) => r.error)).toEqual(
+      failures.slice(0, 10).map((f) => f.error),
+    );
+    expect(results.slice(0, 10).every((r) => r.kind === "frontmatter")).toBe(true);
+    expect(results[10]?.error).toBe(
+      "...and 3 more note(s) with invalid frontmatter (see index_vault stats / doctor --probe)",
+    );
+    expect(results[10]?.kind).toBe("frontmatter");
+    // The embed entry is entry 12 (index 11) — LAST, not counted toward the cap, not squeezed out.
+    expect(results[11]?.error).toContain("7 note(s) skipped: embed provider rejected");
+    expect(results[11]?.kind).toBe("embed");
+  });
+
   it("folded through applyReconcileOutcome: degrades with one error per path, then clears on a clean pass", () => {
     const h = health();
     const written: string[] = [];
@@ -151,6 +179,10 @@ describe("reconcileResultsForVault (THE-1073)", () => {
     // The frontmatter hint, not the embeddings-backend one, for a frontmatter error.
     const frontmatterLine = written.find((w) => w.includes("a.md"));
     expect(frontmatterLine).toContain("fix the note's YAML frontmatter");
+    // Fix round 2 (HIGH, both reviewers): `kind` is used to pick the hint above, but must NEVER
+    // reach `health.reconcileErrors` — that array is what server_health emits, and its advertised
+    // outputSchema is `z.object({ vault, error })` with `additionalProperties: false`.
+    for (const e of h.reconcileErrors) expect(Object.keys(e).sort()).toEqual(["error", "vault"]);
 
     // A LATER, clean pass clears health back to ok — the recovery case reconcile-outcome.test.ts
     // already pins, exercised here through the real mapping function instead of a hand-built

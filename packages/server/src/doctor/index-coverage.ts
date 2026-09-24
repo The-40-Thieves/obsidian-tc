@@ -14,7 +14,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { openDatabase } from "../db/open";
-import { hasNotesTable, notesRowExpected } from "../search/fts";
+import { hasNotesTable, notesRowExpectedForSize } from "../search/fts";
 import { errorMessage } from "../util/errors";
 import { walkVault } from "../vault/paths";
 import type { Check, CheckStatus } from "./types";
@@ -120,8 +120,9 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
  * Owns its own DB open/close (unlike most doctor/*.ts submodules, which leave that to the CLI),
  * same reasoning as probeNoteSummariesScale: cli/commands/doctor.ts sits against biome's 700-line
  * ceiling. Walks each vault root with the SAME `walkVault` + readable filter indexVault itself
- * uses (index-vault.ts), and shares indexVault's OWN `notesRowExpected` predicate for which walked
- * files actually get a `notes` row (a zero-byte note gets none — see that function's own comment),
+ * uses (index-vault.ts), and shares indexVault's OWN `notesRowExpectedForSize` predicate for which
+ * walked files actually get a `notes` row (a zero-byte note gets none — see that function's own
+ * comment),
  * so a note this check calls "missing" is exactly a note the next index_vault pass would try to
  * write a row for and hasn't yet.
  *
@@ -165,11 +166,11 @@ export async function probeIndexCoverage(
     if (!hasNotesTable(opened)) return []; // pre-migration db — nothing to check yet
     return vaults.map(({ id, root, isReadable }): IndexCoverageState => {
       try {
-        // notesRowExpected takes raw CONTENT; a walked entry only carries its byte size, but
-        // "size 0" and "raw === \"\"" agree for every text file this ever sees, so this avoids
-        // reading every candidate file's content just to answer the predicate.
+        // THE-1073 fix round 2 (LOW): the SAME size-based predicate indexVault itself calls (on
+        // Buffer.byteLength(raw)) — no stand-in string needed, the walked entry's own `size` IS
+        // the real byte count this predicate wants.
         const onDisk = walkVault(root, { extensions: [".md"] })
-          .filter((e) => isReadable(e.relPath) && notesRowExpected(e.size > 0 ? "x" : ""))
+          .filter((e) => isReadable(e.relPath) && notesRowExpectedForSize(e.size))
           .map((e) => e.relPath);
         const indexedRows = opened
           .prepare("SELECT path FROM notes WHERE vault_id = ?")
