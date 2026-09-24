@@ -179,6 +179,24 @@ export interface NoteRecord {
 }
 
 /**
+ * THE-1073 fix round 1 (MEDIUM, Opus), round 2 (LOW): index-vault.ts's processNote only writes a
+ * `notes` row for a non-empty note — a zero-byte note is walked and indexed for chunks (none,
+ * since chunkNote("") yields nothing) but never gets a metadata row. doctor's index.coverage check
+ * (index-coverage.ts) shares this SAME predicate rather than re-deriving "empty vs. real" itself,
+ * so an empty note reads as "correctly has no notes row" instead of "missing" forever.
+ *
+ * SIZE-based, not string-based (fix round 2): index-vault.ts's own caller passes
+ * `Buffer.byteLength(raw)` — the REAL byte length of the content it just read, not the walked
+ * `stat.size` (which can be `null` in the default non-streaming path, or stale if the file changed
+ * between the walk's `stat` and this read) — and the doctor probe passes the walked entry's `size`
+ * directly, with no need to fake a stand-in string just to call a raw-shaped predicate. Both
+ * callers now run the exact same real predicate on a real byte count.
+ */
+export function notesRowExpectedForSize(byteLength: number): boolean {
+  return byteLength > 0;
+}
+
+/**
  * Build a note's metadata record from its raw content. `flagged` are the secret-gated chunk
  * contents (already \n-joined body lines) — they are excised from the FTS copy so credentials
  * never enter cache.db via this second copy (critique: derive from RAW, not from chunks, so

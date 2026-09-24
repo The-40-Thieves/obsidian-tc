@@ -98,6 +98,10 @@ export class MetricsRecorder {
   // changed the path after the plan was computed. Sibling of indexWriteFailures above — additive
   // to the same [index] stderr line indexVault already writes.
   private readonly indexStaleSkipped: Counter<string>;
+  // THE-1073: notes skipped because their frontmatter failed to parse as YAML — additive sibling
+  // of indexWriteFailures/indexStaleSkipped above (same "reconcile still completed, but skipped
+  // this note" class).
+  private readonly indexFrontmatterFailed: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
   private readonly outputSchemaDrift: Counter<string>;
@@ -190,6 +194,15 @@ export class MetricsRecorder {
     this.indexStaleSkipped = new Counter({
       name: "obsidian_tc_index_stale_skipped_total",
       help: "Notes an indexVault batch skipped because a concurrent write_note/watcher commit changed the path's chunks after the plan was computed, by vault. Not a failure — the skipped note is re-planned against current content on the next index_vault pass.",
+      labelNames: ["vault"],
+      registers,
+    });
+    // THE-1073: a note whose frontmatter fails to parse as YAML is skipped for this pass rather
+    // than aborting the whole indexVault reconcile for every OTHER note. Self-heals once the
+    // note's YAML is fixed; a persistent non-zero count names a note nobody has fixed yet.
+    this.indexFrontmatterFailed = new Counter({
+      name: "obsidian_tc_index_frontmatter_failures_total",
+      help: "Notes skipped in a pass because their frontmatter failed to parse as YAML, by vault. Not swept as stale (the note was still walked) and retried automatically on the next index_vault pass once the note's YAML is fixed — see doctor's index.coverage check for which paths.",
       labelNames: ["vault"],
       registers,
     });
@@ -535,6 +548,11 @@ export class MetricsRecorder {
    *  raced its apply — see the counter's help text. */
   incIndexStaleSkipped(vault: string, n: number): void {
     if (n > 0) this.indexStaleSkipped.inc({ vault }, n);
+  }
+  /** THE-1073: a note skipped this pass because its frontmatter failed to parse as YAML — see the
+   *  counter's help text. */
+  incIndexFrontmatterFailed(vault: string, n: number): void {
+    if (n > 0) this.indexFrontmatterFailed.inc({ vault }, n);
   }
   /** THE-585 (#7, #8): one vec0 -> brute-force degradation. `reason` is a closed set of two, so the
    *  label stays bounded per the ticket's cardinality constraint. */

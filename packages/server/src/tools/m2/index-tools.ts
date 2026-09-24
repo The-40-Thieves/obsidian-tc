@@ -32,6 +32,8 @@ const IndexVaultOutput = z.object({
   chunks_dedup_unresolved: z.number(),
   embed_batch_rejections: z.number(),
   notes_stale_skipped: z.number(),
+  notes_frontmatter_failed: z.number(),
+  frontmatter_failures: z.array(z.object({ path: z.string(), error: z.string() })),
   model: z.string(),
   dimensions: z.number(),
 });

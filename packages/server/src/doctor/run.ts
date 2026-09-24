@@ -9,6 +9,7 @@ import type {
   DerivedColumnsView,
   DerivedTablesView,
   ExperientialEvaluatorView,
+  IndexCoverageView,
   KbHealthView,
   NoteSummaryScaleView,
   NotesFtsView,
@@ -23,6 +24,7 @@ import {
   derivedColumnsCheck,
   derivedTablesCheck,
   experientialEvaluatorCheck,
+  indexCoverageCheck,
   kbHealthCheck,
   nativeCheck,
   noteSummaryScaleCheck,
@@ -118,6 +120,9 @@ export interface DoctorConfigView {
    *  live TypeSafe reachability probe under `--probe`. Optional, same reasoning as
    *  retrieval/snapshots above. */
   citationJudge?: CitationJudgeView;
+  /** THE-1073: per-vault notes-on-disk vs notes-indexed counts, only under `--probe` (same
+   *  reasoning as every other store-touching view above). */
+  indexCoverage?: IndexCoverageView;
 }
 
 export interface AssembleOptions {
@@ -206,6 +211,9 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1078: is the configured citation-judge PROVIDER (gateway, or the opt-in TypeSafe Jev)
   // actually reachable? Same optional-view reasoning as retrieval/snapshots above.
   if (config.citationJudge) checks.push(citationJudgeCheck(config.citationJudge));
+  // THE-1073: is every note on disk actually reaching the index? Same optional-view reasoning as
+  // retrieval/snapshots above.
+  if (config.indexCoverage) checks.push(indexCoverageCheck(config.indexCoverage));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

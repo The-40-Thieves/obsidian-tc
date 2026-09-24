@@ -91,6 +91,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
     const sub = cmd.folder ? normalizeVaultPath(cmd.folder) : undefined;
     let totalChunks = 0;
     let embedFailed = 0;
+    let frontmatterFailed = 0;
     for (const v of vaults) {
       const stats = await resources.indexVaultRecorded({
         db,
@@ -114,10 +115,11 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
       });
       totalChunks += stats.chunks_upserted;
       embedFailed += stats.notes_embed_failed;
+      frontmatterFailed += stats.notes_frontmatter_failed; // THE-1073
       process.stdout.write(
         `indexed ${v.id}: ${stats.notes_indexed} note(s), ${stats.chunks_upserted} chunk(s) upserted, ` +
           `${stats.chunks_deleted} deleted, ${stats.secrets_skipped} secret-gated, ` +
-          `${stats.notes_embed_failed} embed-failed\n`,
+          `${stats.notes_embed_failed} embed-failed, ${stats.notes_frontmatter_failed} frontmatter-failed\n`,
       );
       // THE-628 (first PR): note-level summary pass, DARK behind retrieval.summaries.enabled
       // (default false). Runs HERE — after the reindex has committed, not inside indexVault — and
@@ -184,8 +186,20 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         `index: ${embedFailed} note(s) failed to embed — indexed but NOT retrievable until a later ` +
           `pass re-embeds them. Check the embeddings provider is reachable (\`doctor --probe\`).\n`,
       );
-      process.exit(1);
     }
+    // THE-1073: a note with invalid YAML frontmatter is likewise a PARTIAL success — every OTHER
+    // note in the vault indexed cleanly, but this one is absent from the index (not merely
+    // unretrievable) until its frontmatter is fixed. Say so on stderr too — fix round 1: this used
+    // to be an `else if`-shaped early exit after the embedFailed branch, so a run with BOTH kinds
+    // of failure printed only the embed line and silently dropped the frontmatter one.
+    if (frontmatterFailed > 0) {
+      process.stderr.write(
+        `index: ${frontmatterFailed} note(s) skipped — invalid YAML frontmatter. Fix the note and ` +
+          `it will be indexed on the next pass (\`doctor --probe\` reports index.coverage).\n`,
+      );
+    }
+    // One exit, once, after both summaries above have had their chance to print.
+    if (embedFailed > 0 || frontmatterFailed > 0) process.exit(1);
   } finally {
     db.close?.();
   }

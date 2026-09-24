@@ -4,11 +4,16 @@
 // per-note walk (processNote) already has `rel` in scope at its parseNote(raw) call — the fix
 // there is the cheapest one available: thread that path through instead of dropping it.
 //
-// This test exercises the REAL chain a reader would hit: indexVault (src/search/indexer.ts) ->
-// the rejected promise's message (errorMessage, mirroring createReconcileRunner in
-// runtime/plane-wiring.ts) -> applyReconcileOutcome's stderr line (runtime/reconcile-outcome.ts).
-// A test that only asserted on parseNote in isolation could pass while the note path was still
-// dropped somewhere between indexVault and the stderr write.
+// THE-1073 changed WHERE that message ends up: a malformed-frontmatter note no longer rejects the
+// whole indexVault pass (see index-vault-frontmatter-skip.test.ts for that contract) — it is
+// skipped, counted in IndexStats.notes_frontmatter_failed, and listed verbatim in
+// frontmatter_failures. THE-823's promise — that the note path AND the YAML line/column survive to
+// the operator-visible stderr line — still holds; it now travels through
+// reconcileResultsForVault (runtime/plane-wiring.ts) instead of a rejected promise's message. This
+// test exercises that REAL chain: indexVault (src/search/indexer.ts) ->
+// IndexStats.frontmatter_failures -> reconcileResultsForVault -> applyReconcileOutcome's stderr
+// line (runtime/reconcile-outcome.ts). A test that only asserted on parseNote in isolation could
+// pass while the note path was still dropped somewhere along that chain.
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,10 +22,10 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import type { EmbeddingProvider } from "../src/embeddings";
+import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
-import { errorMessage } from "../src/util/errors";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
 
@@ -52,41 +57,40 @@ function baseDb(): Database {
 }
 
 describe("boot reconcile names the offending note on malformed frontmatter", () => {
-  it("indexVault's rejection message names the note path AND the YAML line/column", async () => {
+  it("indexVault resolves, skipping the note, and names its path AND the YAML line/column (THE-1073)", async () => {
     const db = baseDb();
     const root = mkdtempSync(join(tmpdir(), "obtc-reconcile-path-"));
     try {
       writeFileSync(join(root, "good.md"), "# Fine\nnothing wrong here\n");
       writeFileSync(join(root, "broken.md"), "---\na: [1, 2\nb: bad\n---\nbody\n");
-      let caught: unknown;
-      try {
-        await indexVault({
-          db,
-          provider: fakeProvider,
-          representation: buildRepresentationManifest(fakeProvider, {}),
-          vaultId: "v1",
-          root,
-          isReadable: () => true,
-          now: () => 1,
-        });
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught).toBeDefined();
-      const message = errorMessage(caught);
+      // THE-1073: this no longer rejects — the malformed note is skipped, and the OTHER note in
+      // the vault still indexes (see index-vault-frontmatter-skip.test.ts for that full contract).
+      const stats = await indexVault({
+        db,
+        provider: fakeProvider,
+        representation: buildRepresentationManifest(fakeProvider, {}),
+        vaultId: "v1",
+        root,
+        isReadable: () => true,
+        now: () => 1,
+      });
+      expect(stats.notes_frontmatter_failed).toBe(1);
+      expect(stats.frontmatter_failures).toHaveLength(1);
+      const message = stats.frontmatter_failures[0]?.error ?? "";
       expect(message).toContain("broken.md");
       expect(message).toMatch(/line 2, column 1/);
 
-      // Fold it through the SAME path a real reconcile pass uses (createReconcileRunner in
-      // runtime/plane-wiring.ts), and assert the stderr line an operator actually sees names the
-      // note — not just that the underlying error object happens to carry it.
+      // Fold it through the SAME mapping a real reconcile pass uses (reconcileResultsForVault +
+      // applyReconcileOutcome, runtime/plane-wiring.ts / runtime/reconcile-outcome.ts), and assert
+      // the stderr line an operator actually sees names the note — not just that IndexStats
+      // happens to carry it.
       const health: ReconcileHealth = {
         reconcile: "pending",
         reconcileAt: null,
         reconcileErrors: [],
       };
       const written: string[] = [];
-      applyReconcileOutcome([{ vault: "v1", error: message }], health, {
+      applyReconcileOutcome(reconcileResultsForVault("v1", stats), health, {
         now: () => 1,
         write: (s) => written.push(s),
       });

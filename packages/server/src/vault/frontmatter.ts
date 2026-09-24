@@ -8,7 +8,7 @@
 // guarantees that: the Document API canonicalizes leading zeros; an ALIAS block is the one
 // exception (emitViaDocument).
 import { isDeepStrictEqual } from "node:util";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import YAML, { isAlias, isMap, isNode, isScalar, type Pair, YAMLParseError } from "yaml";
 import { errorMessage } from "../util/errors";
 
@@ -35,6 +35,11 @@ export interface ParsedNote {
    *  cannot tell that apart from a note that does end in one. Pass it to serializeNote's
    *  `frontmatterAtEof`, or a round-trip write appends a newline the note never had. */
   frontmatterAtEof: boolean;
+}
+
+export function splitFrontmatterBody(raw: string): string {
+  const m = FRONTMATTER.exec(raw);
+  return m ? raw.slice(m[0].length) : raw;
 }
 
 /** Split a note into its frontmatter object (if any) and verbatim body. `path` is optional and
@@ -65,17 +70,25 @@ export function parseNote(raw: string, path?: string): ParsedNote {
       detail
         ? `frontmatter is not valid YAML${where}: ${detail}`
         : `frontmatter is not valid YAML${where}`,
-      path ? { path } : undefined,
+      { ...(path ? { path } : {}), reason: "frontmatter_yaml" },
     );
   }
   return {
     frontmatter: fm,
-    body: raw.slice(m[0].length),
+    body: splitFrontmatterBody(raw),
     hasFrontmatter: true,
     rawFrontmatter: m[2] ?? "",
     frontmatterEol: m[1] === "\r\n" ? "\r\n" : "\n",
     frontmatterAtEof: (m[3] ?? "") === "",
   };
+}
+
+export function isFrontmatterYamlError(e: unknown): e is ObsidianTcError {
+  return (
+    e instanceof ObsidianTcError &&
+    e.code === "invalid_input" &&
+    e.details?.reason === "frontmatter_yaml"
+  );
 }
 
 /** Stringifier output as block lines joined on the block's own eol. THE-1044: only the ONE

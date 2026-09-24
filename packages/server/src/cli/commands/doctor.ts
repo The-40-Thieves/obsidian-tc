@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { makeIndexReadable } from "../../acl";
 import {
   bridgeState,
   buildVaultCapabilities,
@@ -15,6 +16,7 @@ import {
   renderText,
   resolveInstallRoot,
 } from "../../doctor";
+import { probeIndexCoverage } from "../../doctor/index-coverage";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { createEmbeddingProvider } from "../../embeddings";
 import { resolveApiKey } from "../../embeddings/provider";
@@ -23,8 +25,10 @@ import { createTypesafeClient } from "../../gateway/typesafe";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
 import { buildRerankerDoctorProbes, embeddingsDeprecation } from "../../providers/registry";
 import type { ProviderDescriptor } from "../../providers/types";
+import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
+import { canonicalizeVaultRoot } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 import {
   probeDbSpace,
@@ -283,6 +287,21 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         busyTimeoutMs,
       )
     : undefined;
+  const indexCoverage = cmd.probe
+    ? await (async () => {
+        const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
+        const indexReadableFor = makeIndexReadable(acl, aclByVault);
+        return probeIndexCoverage(
+          config.cacheDir,
+          config.vaults.map((v) => ({
+            id: v.id,
+            root: canonicalizeVaultRoot(v.path),
+            isReadable: indexReadableFor(v.id),
+          })),
+          busyTimeoutMs,
+        );
+      })()
+    : undefined;
   // THE-1039 (GH #930): cache.db reclaimable-space, ALWAYS (no --probe gate) — see
   // probeDbSpace's own comment for why this one is cheap enough to run by default.
   const dbSpace = await probeDbSpace(config.cacheDir, busyTimeoutMs);
@@ -418,6 +437,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ...(notesFts.integrity !== undefined
           ? { probe: () => notesFts.integrity as NotesFtsIntegrity }
           : {}),
+      },
+      indexCoverage: {
+        ...(indexCoverage !== undefined ? { probe: () => indexCoverage } : {}),
       },
       // Final-review blocker 2: validate the configured provider names against the registry —
       // an unregistered name parses cleanly now (embeddings.provider/reranker.provider are open

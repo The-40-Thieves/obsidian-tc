@@ -40,7 +40,7 @@ import { contentHash } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
 import type { IndexHealthState } from "./indexing-wiring";
 import { type Observability, wireActivationRecompute } from "./observability";
-import { applyReconcileOutcome } from "./reconcile-outcome";
+import { applyReconcileOutcome, type ReconcileResult } from "./reconcile-outcome";
 import { planeRoles } from "./tool-wiring";
 
 // Content-derived key, deliberately: a completed/dead-lettered job for a given key must not
@@ -361,6 +361,49 @@ export interface ReconcileRunnerDeps {
   jobRunner: ReturnType<typeof makeJobRunner>;
 }
 
+// THE-1073 fix round 1 (LOW): a per-vault ceiling on frontmatter entries reconcileResultsForVault
+// emits, so a templated bulk import of hundreds of bad notes cannot turn one scheduled reconcile
+// into hundreds of stderr lines (applyReconcileOutcome writes one per entry) and a proportionally
+// huge server_health payload. The full list is never lost — IndexStats.frontmatter_failures (and
+// doctor's index.coverage --probe) still carry every path; this only bounds the HEALTH surface.
+const FRONTMATTER_RECONCILE_ERROR_CAP = 10;
+
+/**
+ * THE-1073: turn one vault's completed IndexStats into this pass's ReconcileResult entries for
+ * THAT vault — zero, one, or several. A frontmatter failure gets its OWN entry per path (the
+ * message parseNote already built, threaded verbatim from IndexStats.frontmatter_failures, up to
+ * FRONTMATTER_RECONCILE_ERROR_CAP — see its own comment) so health.index.detail.reconcile_errors
+ * names every bad note, not just the first; the THE-390 embed-failure summary (if any) rides
+ * alongside as one more entry. Each entry carries `kind` so applyReconcileOutcome can pick its
+ * stderr hint WITHOUT matching on message text (fix round 1, LOW). Exported and pure (no I/O) so
+ * it is testable without a real indexVault call — see plane-wiring-reconcile-mapping.test.ts.
+ */
+export function reconcileResultsForVault(vaultId: string, stats: IndexStats): ReconcileResult[] {
+  const failures = stats.frontmatter_failures;
+  const capped = failures.slice(0, FRONTMATTER_RECONCILE_ERROR_CAP);
+  const results: ReconcileResult[] = capped.map((f) => ({
+    vault: vaultId,
+    error: f.error,
+    kind: "frontmatter",
+  }));
+  const overflow = failures.length - FRONTMATTER_RECONCILE_ERROR_CAP;
+  if (overflow > 0) {
+    results.push({
+      vault: vaultId,
+      error: `...and ${overflow} more note(s) with invalid frontmatter (see index_vault stats / doctor --probe)`,
+      kind: "frontmatter",
+    });
+  }
+  if (stats.notes_embed_failed > 0) {
+    results.push({
+      vault: vaultId,
+      error: `${stats.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`,
+      kind: "embed",
+    });
+  }
+  return results;
+}
+
 /**
  * Re-sync the search index with every vault (THE-255): incremental (content-hash skip) and
  * best-effort — an embedding-backend or fs hiccup degrades the index, never startup. THE-458 item
@@ -406,18 +449,16 @@ export function createReconcileRunner(
           .then(
             // THE-390: a completed reconcile that had to SKIP notes still degrades health —
             // precise, non-fatal, retried next reconcile — instead of aborting the whole reindex.
-            (s) => ({
-              vault: v.id,
-              error:
-                s.notes_embed_failed > 0
-                  ? `${s.notes_embed_failed} note(s) skipped: embed provider rejected their chunks (HTTP 400)`
-                  : (null as string | null),
-            }),
-            (e) => ({ vault: v.id, error: errorMessage(e) }),
+            // THE-1073: ONE result per FAILURE now, not one per vault — a frontmatter failure
+            // names its own path (reconcileResultsForVault below), so a vault with several bad
+            // notes surfaces every one of them in health.index.detail.reconcile_errors instead of
+            // the first alone.
+            (s) => reconcileResultsForVault(v.id, s),
+            (e) => [{ vault: v.id, error: errorMessage(e) }],
           ),
       ),
     ).then(async (results) => {
-      applyReconcileOutcome(results, deps.indexHealth, {
+      applyReconcileOutcome(results.flat(), deps.indexHealth, {
         now: Date.now,
         write: (m) => process.stderr.write(m),
       });

@@ -45,6 +45,13 @@ export function recordIngestStats(
     // THE-925: notes an indexVault batch skipped because a concurrent write_note/watcher commit
     // raced its apply — not a failure, so a separate event_type from index_write_failures above.
     ["index_stale_skipped", s.notes_stale_skipped, (v, n) => metrics.incIndexStaleSkipped(v, n)],
+    // THE-1073: notes skipped this pass because their frontmatter failed to parse as YAML —
+    // another additive sibling of index_write_failures/index_stale_skipped above.
+    [
+      "index_frontmatter_failed",
+      s.notes_frontmatter_failed,
+      (v, n) => metrics.incIndexFrontmatterFailed(v, n),
+    ],
   ];
   for (const [eventType, count, inc] of events) {
     if (count <= 0) continue;

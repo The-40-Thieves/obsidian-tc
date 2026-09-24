@@ -803,6 +803,13 @@ export {
   type DerivedColumnsView,
   derivedColumnsCheck,
 } from "./column-liveness";
+// THE-1073: is a note on disk actually reaching the index? Same re-export reasoning as the two
+// modules above.
+export {
+  type IndexCoverageState,
+  type IndexCoverageView,
+  indexCoverageCheck,
+} from "./index-coverage";
 export {
   type KbHealthProbe,
   type KbHealthVault,
