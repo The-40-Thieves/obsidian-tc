@@ -37,6 +37,9 @@ export type {
   ToolCensus,
 } from "./entrypoints";
 export { entryPointsCheck } from "./entrypoints";
+// THE-1073: index.coverage's probe result type, so the CLI can build it without importing through
+// checks.ts — same barrel reasoning as every other doctor/*.ts submodule in this file.
+export type { IndexCoverageState } from "./index-coverage";
 // THE-891 item 5: search.note-summaries-scale's probe result type, same reasoning as the
 // derived-table/column probes above — the CLI builds its probe without importing through checks.ts.
 export type { NoteSummaryScaleState } from "./note-summary-scale";

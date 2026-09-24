@@ -28,6 +28,30 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **`index_vault` no longer aborts a whole vault's reconcile over one note with unparseable YAML
+  frontmatter (THE-1073).** `processNote` (`search/indexing/index-vault.ts`) called `parseNote`
+  twice per note (once directly, once inside `computeNotePlan`), and `parseNote`
+  (`vault/frontmatter.ts`) throws on a YAML failure — that throw escaped `indexVault` entirely, so
+  `runtime/plane-wiring.ts`'s reconcile mapped the WHOLE pass to a single health error and no note
+  in the pass was written. On Cave 2026-09-06..15 one note with invalid YAML held 17 notes out of
+  the index for nine days while `notes_ready: true` and chunk counts still looked healthy, and the
+  next two bad notes behind it in the walk order stayed invisible the entire time. `processNote`
+  now probe-parses each note ONCE, up front: a frontmatter-YAML failure (distinguished from every
+  other error by a `details.reason: "frontmatter_yaml"` signal on the thrown error, matched via the
+  new `isFrontmatterYamlError` predicate — never by message text) is counted in the new
+  `IndexStats.notes_frontmatter_failed`, listed in full in the new
+  `IndexStats.frontmatter_failures`, named in one sampled stderr line per pass, and skipped for
+  that note only; every other note in the pass — and the pass's own `flush`/`flushNotes` — proceeds
+  unaffected, and the skipped note stays in `walkedSet` so it is never swept as stale. Any other
+  error (I/O, DB) still propagates and rejects the pass exactly as before. `plane-wiring.ts`'s
+  reconcile now maps a vault's completed pass to one `ReconcileResult` per failing path (plus the
+  existing embed-failure summary), so `health.index.detail.reconcile_errors` names every bad note,
+  not just the first, and `applyReconcileOutcome`'s stderr hint tells a frontmatter failure apart
+  from an embeddings-backend one. `doctor --probe` gained a new `index.coverage` check: per-vault
+  notes-on-disk vs notes-indexed counts, WARNing with a path sample when they diverge, so an
+  operator can see the gap directly instead of inferring it from stderr they may not have been
+  watching.
+
 - **Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it
   (GH #964 part 1, THE-1098).** `buildInstructions`'s feedback clause was unconditional, so it
   survived under `toolVisibility.requireReadOnly: true` (the tool hidden), `acl.readOnly: true`

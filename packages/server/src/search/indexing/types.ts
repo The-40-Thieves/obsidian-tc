@@ -49,6 +49,8 @@ export interface IndexStats {
    *  Non-zero is rare and expected under concurrent write traffic; the skipped note is re-planned
    *  against current content on the next index_vault pass, never silently lost. */
   notes_stale_skipped: number;
+  notes_frontmatter_failed: number;
+  frontmatter_failures: Array<{ path: string; error: string }>;
   model: string;
   dimensions: number;
 }

@@ -162,11 +162,12 @@ export function computeNotePlan(
    *  forces a re-plan on a status change (see the toEmbed filter below), so a rename into or out
    *  of an excluded folder lands on the next pass even when content_hash is unchanged. */
   isExcluded?: (rel: string) => boolean,
+  precomputedBody?: string,
 ): PlanResult {
   // THE-823: `path` is already this function's own parameter — pass it through so a malformed note
   // reached via computeNotePlan (rather than index-vault.ts's earlier parseNote call) still names
   // itself.
-  const body = parseNote(raw, path).body;
+  const body = precomputedBody ?? parseNote(raw, path).body;
   // Secret-gate (THE-134 fold): a chunk whose content matches a credential shape is dropped
   // before embedding — never embedded, never stored, pruned if it existed. Class names only
   // are logged; the matched value is never logged or thrown.

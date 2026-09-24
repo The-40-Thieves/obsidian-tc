@@ -47,11 +47,17 @@ export function applyReconcileOutcome(
   health.reconcileErrors = reconcileErrors;
 
   for (const { vault, error } of reconcileErrors) {
+    // THE-1073: a frontmatter failure needs a DIFFERENT recovery hint — "check the embeddings
+    // backend" is actively misleading when the note never reached the embed provider at all. Keyed
+    // on the message text parseNote itself builds (frontmatter.ts), the only signal available once
+    // the error has already been flattened to a string here.
+    const hint = error.includes("frontmatter is not valid YAML")
+      ? "fix the note's YAML frontmatter — it is skipped, not lost, and will be indexed on the next reconcile once it parses."
+      : "check the embeddings backend (raise embeddings.timeoutMs / lower embeddings.batchSize or " +
+        "embeddings.maxBatchTokens for a slow or small-context local runner).";
     deps.write(
       `[index] reconcile degraded for vault "${vault}": ${error}. ` +
-        `The search index may be incomplete; check the embeddings backend ` +
-        `(raise embeddings.timeoutMs / lower embeddings.batchSize or embeddings.maxBatchTokens ` +
-        `for a slow or small-context local runner).\n`,
+        `The search index may be incomplete; ${hint}\n`,
     );
   }
   return reconcileErrors;

@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 462,
-    "dependencies": 2124,
-    "subsystemPairs": 131,
-    "crossSubsystemImports": 971
+    "modules": 463,
+    "dependencies": 2135,
+    "subsystemPairs": 132,
+    "crossSubsystemImports": 977
   },
   "subsystems": {
     "auth": 4,
@@ -15,7 +15,7 @@
     "cli": 41,
     "config": 14,
     "db": 15,
-    "doctor": 16,
+    "doctor": 17,
     "embeddings": 6,
     "experiential": 28,
     "formats": 6,
@@ -218,6 +218,11 @@
       "weight": 6
     },
     {
+      "from": "cli",
+      "to": "doctor",
+      "weight": 6
+    },
+    {
       "from": "runtime",
       "to": "util",
       "weight": 6
@@ -231,11 +236,6 @@
       "from": "transports",
       "to": "mcp",
       "weight": 6
-    },
-    {
-      "from": "cli",
-      "to": "doctor",
-      "weight": 5
     },
     {
       "from": "embeddings",
@@ -273,6 +273,16 @@
       "weight": 5
     },
     {
+      "from": "search",
+      "to": "util",
+      "weight": 5
+    },
+    {
+      "from": "cli",
+      "to": "runtime",
+      "weight": 4
+    },
+    {
       "from": "cli",
       "to": "capture",
       "weight": 4
@@ -290,11 +300,6 @@
     {
       "from": "search",
       "to": "gateway",
-      "weight": 4
-    },
-    {
-      "from": "search",
-      "to": "util",
       "weight": 4
     },
     {
@@ -319,12 +324,12 @@
     },
     {
       "from": "cli",
-      "to": "runtime",
+      "to": "workspace",
       "weight": 3
     },
     {
-      "from": "cli",
-      "to": "workspace",
+      "from": "doctor",
+      "to": "search",
       "weight": 3
     },
     {
@@ -404,7 +409,7 @@
     },
     {
       "from": "doctor",
-      "to": "search",
+      "to": "db",
       "weight": 2
     },
     {
@@ -529,7 +534,7 @@
     },
     {
       "from": "doctor",
-      "to": "db",
+      "to": "vault",
       "weight": 1
     },
     {

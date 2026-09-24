@@ -7,7 +7,8 @@
 // See docs/design/search-indexing-and-cache.md.
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
-import { parseNote } from "../../vault/frontmatter";
+import { errorMessage } from "../../util/errors";
+import { isFrontmatterYamlError, parseNote } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath, walkVault, walkVaultStream } from "../../vault/paths";
@@ -162,6 +163,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     chunks_dedup_unresolved: 0,
     embed_batch_rejections: 0,
     notes_stale_skipped: 0,
+    notes_frontmatter_failed: 0,
+    frontmatter_failures: [],
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -343,9 +346,27 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
+    // THE-1073: probe-parse ONCE, here, before anything else touches this note's frontmatter
+    // (buildNoteRecord/noteTags below both call parseNote themselves and would throw on the SAME
+    // note otherwise). A YAML failure quarantines just this note — counted, listed, and named in
+    // one sampled stderr line after the walk completes (below) — rather than escaping processNote
+    // and rejecting the whole indexVault pass for every OTHER note in the batch (THE-1073's
+    // production incident: one bad note held 17 notes out of the index for nine days). The note
+    // stays in walkedSet (added by the caller before processNote runs), so it is never swept as
+    // stale, and neither this flush nor flushNotes is vetoed for the rest of the batch. Any other
+    // error (I/O, DB) is NOT caught here and propagates exactly as before.
+    let parsed: ReturnType<typeof parseNote>;
+    try {
+      parsed = parseNote(raw, rel);
+    } catch (e) {
+      if (!isFrontmatterYamlError(e)) throw e;
+      stats.notes_frontmatter_failed += 1;
+      stats.frontmatter_failures.push({ path: rel, error: errorMessage(e) });
+      return;
+    }
     // THE-823: `rel` must be threaded into link extraction here, not left for the caller to infer.
     // See docs/design/search-indexing-and-cache.md.
-    noteLinks.set(rel, extractLinks(parseNote(raw, rel).body));
+    noteLinks.set(rel, extractLinks(parsed.body));
     // THE-934 fix round 4 (2): every walked note that is currently excluded, whether or not this
     // pass produces a write plan for it. computeNotePlan returns `plan: null` when nothing about a
     // note's chunks changed, which is the STEADY state for an already-excluded note -- so a
@@ -370,6 +391,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       preloadedExisting, // THE-501: plan from the bulk chunk-state load, no per-note query
       args.chunkTokens, // THE-424: indexing.chunkTokens; undefined -> the chunker's 512 default
       args.isEgressExcluded, // THE-934: egress.excludePaths; undefined -> nothing excluded
+      parsed.body, // THE-1073: reuse the probe-parse above; this note already parsed successfully
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
@@ -404,6 +426,19 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
   }
   stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
+  // THE-1073: ONE sampled stderr line for the whole pass, same shape as THE-390's embed-rejection
+  // warning above — every failing path is still in stats.frontmatter_failures (not just the
+  // sample), which is what feeds plane-wiring.ts's per-path health mapping.
+  if (stats.notes_frontmatter_failed > 0) {
+    const sample = stats.frontmatter_failures
+      .slice(0, 3)
+      .map((f) => f.path)
+      .join(", ");
+    process.stderr.write(
+      `[index] vault "${args.vaultId}": ${stats.notes_frontmatter_failed} note(s) skipped: ` +
+        `frontmatter is not valid YAML (${sample}${stats.notes_frontmatter_failed > 3 ? ", ..." : ""})\n`,
+    );
+  }
   flushNotes();
   // THE-934 fix round 4 (2): the note_summaries sweep for EVERY excluded note this pass walked,
   // not only the ones whose exclusion status just changed. A note_summaries row is model-generated
