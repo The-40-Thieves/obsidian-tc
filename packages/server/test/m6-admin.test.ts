@@ -369,6 +369,12 @@ describe("THE-507 get_metrics separates tool calls from non-tool events", () => 
     ins.run(Date.now(), "v1", null, null, null, 2, "ok", null, null, "ingest_dedup_skipped");
     ins.run(Date.now(), "v1", null, null, null, 1, "ok", null, null, "embed_batch_rejections");
     ins.run(Date.now(), "v1", null, null, null, 5, "ok", null, null, "index_write_failures");
+    // THE-1073 fix round 1 (MEDIUM, Opus): index_stale_skipped and index_frontmatter_failed were
+    // already written into event_log by recordIngestStats (metrics/ingest-stats.ts) but absent
+    // from INGEST_EVENT_METRICS above, so get_metrics — the surface that survives a restart —
+    // could not report either even though the in-memory /metrics recorder could.
+    ins.run(Date.now(), "v1", null, null, null, 4, "ok", null, null, "index_stale_skipped");
+    ins.run(Date.now(), "v1", null, null, null, 2, "ok", null, null, "index_frontmatter_failed");
 
     const out = data<{
       metrics: { name: string; value: number; labels: Record<string, string> }[];
@@ -378,6 +384,8 @@ describe("THE-507 get_metrics separates tool calls from non-tool events", () => 
     expect(val("obsidian_tc_ingest_dedup_skipped_total")).toBe(2);
     expect(val("obsidian_tc_embed_batch_rejections_total")).toBe(1);
     expect(val("obsidian_tc_index_write_failures_total")).toBe(5);
+    expect(val("obsidian_tc_index_stale_skipped_total")).toBe(4);
+    expect(val("obsidian_tc_index_frontmatter_failures_total")).toBe(2);
   });
 
   it("sums repeated ingest passes rather than reporting only the latest", async () => {

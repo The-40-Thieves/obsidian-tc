@@ -16,12 +16,17 @@
 export interface ReconcileResult {
   vault: string;
   error: string | null;
+  /** THE-1073 fix round 1 (LOW): which failure class this is, set by the PRODUCER (e.g.
+   *  reconcileResultsForVault, plane-wiring.ts) — never inferred from `error`'s message text below.
+   *  Undefined for a producer that predates this field; applyReconcileOutcome then falls back to
+   *  the pre-existing generic hint, unchanged from before this field existed. */
+  kind?: "frontmatter" | "embed";
 }
 
 export interface ReconcileHealth {
   reconcile: "pending" | "ok" | "degraded";
   reconcileAt: number | null;
-  reconcileErrors: Array<{ vault: string; error: string }>;
+  reconcileErrors: Array<{ vault: string; error: string; kind?: "frontmatter" | "embed" }>;
 }
 
 /**
@@ -34,10 +39,14 @@ export function applyReconcileOutcome(
   results: readonly ReconcileResult[],
   health: ReconcileHealth,
   deps: { now: () => number; write: (s: string) => void },
-): Array<{ vault: string; error: string }> {
+): Array<{ vault: string; error: string; kind?: "frontmatter" | "embed" }> {
   const reconcileErrors = results
     .filter((r) => r.error !== null)
-    .map((r) => ({ vault: r.vault, error: r.error as string }));
+    .map((r) => ({
+      vault: r.vault,
+      error: r.error as string,
+      ...(r.kind !== undefined ? { kind: r.kind } : {}),
+    }));
 
   // Recomputed from THIS pass only — a scheduled reconcile must be able to clear a degradation the
   // previous pass recorded, or a single transient embed failure would pin health to "degraded"
@@ -46,15 +55,19 @@ export function applyReconcileOutcome(
   health.reconcileAt = deps.now();
   health.reconcileErrors = reconcileErrors;
 
-  for (const { vault, error } of reconcileErrors) {
-    // THE-1073: a frontmatter failure needs a DIFFERENT recovery hint — "check the embeddings
-    // backend" is actively misleading when the note never reached the embed provider at all. Keyed
-    // on the message text parseNote itself builds (frontmatter.ts), the only signal available once
-    // the error has already been flattened to a string here.
-    const hint = error.includes("frontmatter is not valid YAML")
-      ? "fix the note's YAML frontmatter — it is skipped, not lost, and will be indexed on the next reconcile once it parses."
-      : "check the embeddings backend (raise embeddings.timeoutMs / lower embeddings.batchSize or " +
-        "embeddings.maxBatchTokens for a slow or small-context local runner).";
+  for (const { vault, error, kind } of reconcileErrors) {
+    // THE-1073 fix round 1 (LOW): a frontmatter failure needs a DIFFERENT recovery hint —
+    // "check the embeddings backend" is actively misleading when the note never reached the embed
+    // provider at all. Keyed on the PRODUCER-set `kind`, never on error's message text (the
+    // original version matched `error.includes("frontmatter is not valid YAML")`, which the
+    // CHANGELOG's own "never match on message text" rule for this ticket forbids). `kind` absent
+    // (a producer that predates this field) falls back to the pre-existing generic hint below,
+    // unchanged from before this field existed.
+    const hint =
+      kind === "frontmatter"
+        ? "fix the note's YAML frontmatter — it is skipped, not lost, and will be indexed on the next reconcile once it parses."
+        : "check the embeddings backend (raise embeddings.timeoutMs / lower embeddings.batchSize or " +
+          "embeddings.maxBatchTokens for a slow or small-context local runner).";
     deps.write(
       `[index] reconcile degraded for vault "${vault}": ${error}. ` +
         `The search index may be incomplete; ${hint}\n`,

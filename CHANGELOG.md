@@ -36,21 +36,37 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   in the pass was written. On Cave 2026-09-06..15 one note with invalid YAML held 17 notes out of
   the index for nine days while `notes_ready: true` and chunk counts still looked healthy, and the
   next two bad notes behind it in the walk order stayed invisible the entire time. `processNote`
-  now probe-parses each note ONCE, up front: a frontmatter-YAML failure (distinguished from every
-  other error by a `details.reason: "frontmatter_yaml"` signal on the thrown error, matched via the
-  new `isFrontmatterYamlError` predicate — never by message text) is counted in the new
-  `IndexStats.notes_frontmatter_failed`, listed in full in the new
+  now probe-parses each note up front in the PLAN path (its own call, then `computeNotePlan` reuses
+  that same result instead of re-parsing); `buildNoteRecord` and the tag-densify pass still parse
+  the same `raw` a second time for their own metadata, deterministically, since a note that reached
+  either of those has already parsed successfully once. A frontmatter-YAML failure — distinguished
+  from every other error by a `details.reason: "frontmatter_yaml"` signal on the thrown error
+  (a visible addition to EVERY frontmatter `invalid_input` error a caller can see, not just this
+  path), matched via the new `isFrontmatterYamlError` predicate, never by message text — is counted
+  in the new `IndexStats.notes_frontmatter_failed`, listed in full in the new
   `IndexStats.frontmatter_failures`, named in one sampled stderr line per pass, and skipped for
   that note only; every other note in the pass — and the pass's own `flush`/`flushNotes` — proceeds
-  unaffected, and the skipped note stays in `walkedSet` so it is never swept as stale. Any other
-  error (I/O, DB) still propagates and rejects the pass exactly as before. `plane-wiring.ts`'s
-  reconcile now maps a vault's completed pass to one `ReconcileResult` per failing path (plus the
-  existing embed-failure summary), so `health.index.detail.reconcile_errors` names every bad note,
-  not just the first, and `applyReconcileOutcome`'s stderr hint tells a frontmatter failure apart
-  from an embeddings-backend one. `doctor --probe` gained a new `index.coverage` check: per-vault
-  notes-on-disk vs notes-indexed counts, WARNing with a path sample when they diverge, so an
-  operator can see the gap directly instead of inferring it from stderr they may not have been
-  watching.
+  unaffected, and the skipped note stays in `walkedSet` so it is never swept as stale, and its OWN
+  wikilink-layer edges (both directions) are preserved rather than deleted by the full-state edge
+  reconcile. Any other error (I/O, DB) still propagates and rejects the pass exactly as before.
+  `plane-wiring.ts`'s reconcile now maps a vault's completed pass to one `ReconcileResult` per
+  failing path (capped at 10 per vault plus a "...and N more" summary), plus the existing
+  embed-failure summary, so `health.index.detail.reconcile_errors` names every bad note, not just
+  the first, and `applyReconcileOutcome`'s stderr hint tells a frontmatter failure apart from an
+  embeddings-backend one by a producer-set `kind` field, never by matching the message text.
+  `doctor --probe` gained a new `index.coverage` check: per-vault notes-on-disk vs notes-indexed
+  counts (sharing indexVault's own "does this file get a notes row" predicate, so a zero-byte note
+  is never misreported as missing), WARNing with a path sample when they diverge — or naming the
+  exception when the probe itself could not run (a symlinked vault root, a locked cache.db) rather
+  than silently reading as a clean "nothing to check" — so an operator can see the gap directly
+  instead of inferring it from stderr they may not have been watching. The MCP `index_vault` tool's
+  output, the `obsidian-tc index` CLI summary line (which now also exits non-zero on a frontmatter
+  skip, alongside its existing embed-failure exit), and ingest telemetry (a new
+  `obsidian_tc_index_frontmatter_failures_total` Prometheus counter, also reachable through
+  `get_metrics`) all mirror the same two new `IndexStats` fields. The single-note index-on-write
+  path (`index-note.ts`, `write_note`/the vault watcher) still throws a frontmatter failure into
+  `indexHealth.writeFailures`/`lastWriteError` with no count and no distinguishing hint — tracked as
+  a follow-up, not fixed here.
 
 - **Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it
   (GH #964 part 1, THE-1098).** `buildInstructions`'s feedback clause was unconditional, so it

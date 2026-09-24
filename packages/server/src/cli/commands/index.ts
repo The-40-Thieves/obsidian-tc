@@ -186,20 +186,20 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         `index: ${embedFailed} note(s) failed to embed — indexed but NOT retrievable until a later ` +
           `pass re-embeds them. Check the embeddings provider is reachable (\`doctor --probe\`).\n`,
       );
-      process.exit(1);
     }
     // THE-1073: a note with invalid YAML frontmatter is likewise a PARTIAL success — every OTHER
     // note in the vault indexed cleanly, but this one is absent from the index (not merely
-    // unretrievable) until its frontmatter is fixed. Exit non-zero for the same reason as
-    // embedFailed above: a scripted reindex must not report clean success over a note it silently
-    // dropped.
+    // unretrievable) until its frontmatter is fixed. Say so on stderr too — fix round 1: this used
+    // to be an `else if`-shaped early exit after the embedFailed branch, so a run with BOTH kinds
+    // of failure printed only the embed line and silently dropped the frontmatter one.
     if (frontmatterFailed > 0) {
       process.stderr.write(
         `index: ${frontmatterFailed} note(s) skipped — invalid YAML frontmatter. Fix the note and ` +
           `it will be indexed on the next pass (\`doctor --probe\` reports index.coverage).\n`,
       );
-      process.exit(1);
     }
+    // One exit, once, after both summaries above have had their chance to print.
+    if (embedFailed > 0 || frontmatterFailed > 0) process.exit(1);
   } finally {
     db.close?.();
   }

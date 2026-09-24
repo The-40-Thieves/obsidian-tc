@@ -6,8 +6,15 @@
 // was written. 17 notes sat unindexed for nine days while notes_ready stayed true. These tests pin
 // the fix: a frontmatter failure is counted, named, and skipped for THIS note only — every other
 // note in the pass still indexes.
-import { describe, expect, it } from "vitest";
+//
+// Fix round 1 (cross-vendor review): a skipped note also lost its OWN wikilink-layer edges (both
+// directions) under the original fix, since desiredEdges only ever emits a note's edges from its
+// noteLinks entry and a skipped note had none — see (c-edges) below.
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeEmbeddingProvider } from "../src/embeddings";
+import { recordIngestStats } from "../src/metrics/ingest-stats";
+import { MetricsRecorder } from "../src/metrics/registry";
+import { readGeneration } from "../src/search/generation";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
@@ -30,24 +37,44 @@ const noteRowExists = (v: ReturnType<typeof makeM2Vault>, path: string): boolean
       .get(v.id, path) as { n: number }
   ).n > 0;
 
-/** A Database whose `.prepare()` throws a plain (non-ObsidianTcError, non-YAML) Error the moment a
- *  caller compiles a statement matching `sqlSubstring` — everything else forwards to `target`
- *  unchanged. Used to prove a DB fault inside processNote still rejects the whole pass, unlike a
- *  frontmatter-YAML failure. */
-function faultyDbOn(target: any, sqlSubstring: string, message: string): any {
-  return new Proxy(target, {
-    get(t, prop, _receiver) {
-      if (prop === "prepare") {
-        return (sql: string) => {
-          if (sql.includes(sqlSubstring)) throw new Error(message);
-          return t.prepare(sql);
-        };
+const edgeRows = (
+  v: ReturnType<typeof makeM2Vault>,
+): Array<{ source_path: string; target_path: string; edge_type: string; provenance: string }> =>
+  v.db
+    .prepare(
+      "SELECT source_path, target_path, edge_type, provenance FROM vault_edges " +
+        "WHERE vault_id = ? AND edge_type IN ('links_to', 'unresolved') ORDER BY source_path, target_path, edge_type",
+    )
+    .all(v.id) as Array<{
+    source_path: string;
+    target_path: string;
+    edge_type: string;
+    provenance: string;
+  }>;
+
+// Fix round 1 (LOW, Opus test gap): test (e) below must fault-inject INSIDE processNote's
+// try/catch — a fault outside it (the original version used a DB proxy on noteRowHash, which runs
+// AFTER the try/catch closes) leaves the narrow isFrontmatterYamlError check unexercised: a
+// mutation that made the catch swallow everything would still pass. `parseNoteThrowFor` makes
+// parseNote ITSELF throw a plain (non-ObsidianTcError) Error for one path, so the throw happens
+// where the real code actually decides whether to swallow or rethrow.
+let parseNoteThrowFor: string | null = null;
+vi.mock("../src/vault/frontmatter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/vault/frontmatter")>();
+  return {
+    ...actual,
+    parseNote: (raw: string, path?: string) => {
+      if (parseNoteThrowFor !== null && path === parseNoteThrowFor) {
+        throw new Error("simulated non-frontmatter parse crash (fault-injected)");
       }
-      const val = Reflect.get(t, prop, t);
-      return typeof val === "function" ? val.bind(t) : val;
+      return actual.parseNote(raw, path);
     },
-  });
-}
+  };
+});
+
+afterEach(() => {
+  parseNoteThrowFor = null;
+});
 
 describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-1073)", () => {
   it("(a) one invalid note among three: resolves, 2 indexed, the bad one counted and named", async () => {
@@ -148,6 +175,57 @@ describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-10
     }
   });
 
+  // Fix round 1 (HIGH, both reviewers): a skipped note is absent from noteLinks (its body was
+  // never parsed), and desiredEdges (search/edges.ts) produces a note's OWN forward/reverse/
+  // unresolved edges only from its noteLinks entry — so the full-state reconcileVaultEdges DELETED
+  // a skipped note's edges even though nothing about its links changed. Reviewer repro: a.md links
+  // [[b]] and [[c]] (4 edges: a->b forward, b->a reverse, a->c forward, c->a reverse); break a.md's
+  // YAML; re-index -> edges 4 -> 0 under both walks, and the generation bumped for a note whose
+  // links never actually changed.
+  for (const streaming of [false, true]) {
+    it(`(c-edges, streaming=${streaming}) a note's edges survive its own frontmatter breaking, and generation does not bump`, async () => {
+      const v = makeM2Vault({
+        files: {
+          "a.md": "---\ntitle: A\n---\n# A\n\nlinks to [[b]] and [[c]].",
+          "b.md": "# B\n\nplain, no links",
+          "c.md": "# C\n\nplain, no links",
+        },
+      });
+      try {
+        const provider = fakeEmbeddingProvider({ dimensions: 8 });
+        const args = {
+          db: v.db,
+          provider,
+          vaultId: v.id,
+          root: v.root,
+          isReadable: () => true,
+          representation: buildRepresentationManifest(provider, {}),
+          walk: { streaming },
+        };
+        await indexVault(args);
+        const before = edgeRows(v);
+        expect(before).toHaveLength(4); // a->b forward+reverse, a->c forward+reverse
+        const generationBefore = readGeneration(v.db, v.id);
+
+        // Break ONLY a.md's frontmatter — its links to b/c are unchanged in the raw text.
+        v.write("a.md", "---\ntitle: [A\n---\n# A\n\nlinks to [[b]] and [[c]].");
+        const stats = await indexVault(args);
+
+        expect(stats.notes_frontmatter_failed).toBe(1);
+        expect(stats.frontmatter_failures[0]?.path).toBe("a.md");
+        expect(edgeRows(v)).toEqual(before);
+        expect(stats.edges_inserted).toBe(0);
+        expect(stats.edges_deleted).toBe(0);
+        // Nothing result-affecting changed this pass (a.md's own chunks/note row are untouched —
+        // processNote returned before reaching them — and its edges are unchanged too), so the
+        // generation bump guard (THE-496) must not fire for an unrelated frontmatter skip.
+        expect(readGeneration(v.db, v.id)).toBe(generationBefore);
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+
   it("(d) same as (a) under the streaming walk (walk.streaming: true)", async () => {
     const v = makeM2Vault({
       files: {
@@ -177,31 +255,59 @@ describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-10
     }
   });
 
-  it("(e) a non-YAML throw from inside processNote (fault-injected DB) still rejects the whole pass", async () => {
+  it("(e) a non-YAML throw INSIDE processNote's try (fault-injected parseNote) still rejects the whole pass", async () => {
     const v = makeM2Vault({
       files: { "alpha.md": "# Alpha\n\nThe quick brown fox jumps over the lazy dog." },
     });
     try {
       const provider = fakeEmbeddingProvider({ dimensions: 8 });
-      // noteRowHash (search/fts.ts) runs this exact query inside processNote, after a SUCCESSFUL
-      // frontmatter parse — a generic DB failure here is a different class of error entirely, and
-      // must propagate exactly as before THE-1073, not be swallowed the way a frontmatter-YAML
-      // failure is.
-      const faultyDb = faultyDbOn(
-        v.db,
-        "SELECT content_hash FROM notes WHERE vault_id = ? AND path = ?",
-        "db unavailable (fault-injected)",
-      );
+      // parseNote itself throws a plain Error for alpha.md — isFrontmatterYamlError must say
+      // false (it is not an ObsidianTcError carrying `details.reason: "frontmatter_yaml"`), so
+      // processNote's `if (!isFrontmatterYamlError(e)) throw e;` rethrows it, and the whole pass
+      // rejects exactly as it did before THE-1073's skip-and-warn existed.
+      parseNoteThrowFor = "alpha.md";
       await expect(
         indexVault({
-          db: faultyDb,
+          db: v.db,
           provider,
           vaultId: v.id,
           root: v.root,
           isReadable: () => true,
           representation: buildRepresentationManifest(provider, {}),
         }),
-      ).rejects.toThrow("db unavailable (fault-injected)");
+      ).rejects.toThrow("simulated non-frontmatter parse crash (fault-injected)");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("(f) a frontmatter skip feeds obsidian_tc_index_frontmatter_failures_total through recordIngestStats", async () => {
+    // Fix round 1 (MEDIUM, Opus): proves the counter is actually FED by a real indexVault pass —
+    // not merely registered (see metrics.test.ts's catalog assertion, which only proves
+    // registration).
+    const v = makeM2Vault({ files: { "bad.md": BAD_FRONTMATTER, "good.md": "# Good\n\nfine" } });
+    try {
+      const provider = fakeEmbeddingProvider({ dimensions: 8 });
+      const stats = await indexVault({
+        db: v.db,
+        provider,
+        vaultId: v.id,
+        root: v.root,
+        isReadable: () => true,
+        representation: buildRepresentationManifest(provider, {}),
+      });
+      expect(stats.notes_frontmatter_failed).toBe(1);
+
+      const metrics = new MetricsRecorder();
+      recordIngestStats(v.db, metrics, v.id, stats);
+      const text = await metrics.metrics();
+      expect(text).toMatch(
+        new RegExp(`obsidian_tc_index_frontmatter_failures_total\\{vault="${v.id}"\\} 1`),
+      );
+      const row = v.db
+        .prepare("SELECT result_size FROM event_log WHERE event_type = 'index_frontmatter_failed'")
+        .get() as { result_size: number } | undefined;
+      expect(row?.result_size).toBe(1);
     } finally {
       v.cleanup();
     }

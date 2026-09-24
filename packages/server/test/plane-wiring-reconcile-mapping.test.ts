@@ -50,7 +50,7 @@ describe("reconcileResultsForVault (THE-1073)", () => {
     expect(reconcileResultsForVault("v1", stats())).toEqual([]);
   });
 
-  it("yields one result per frontmatter failure, verbatim message, in order", () => {
+  it("yields one result per frontmatter failure, verbatim message, in order, tagged kind: frontmatter", () => {
     const s = stats({
       notes_frontmatter_failed: 2,
       frontmatter_failures: [
@@ -59,8 +59,16 @@ describe("reconcileResultsForVault (THE-1073)", () => {
       ],
     });
     expect(reconcileResultsForVault("v1", s)).toEqual([
-      { vault: "v1", error: 'frontmatter is not valid YAML in "a.md": bad indentation' },
-      { vault: "v1", error: 'frontmatter is not valid YAML in "b.md": unexpected token' },
+      {
+        vault: "v1",
+        error: 'frontmatter is not valid YAML in "a.md": bad indentation',
+        kind: "frontmatter",
+      },
+      {
+        vault: "v1",
+        error: 'frontmatter is not valid YAML in "b.md": unexpected token',
+        kind: "frontmatter",
+      },
     ]);
   });
 
@@ -77,8 +85,41 @@ describe("reconcileResultsForVault (THE-1073)", () => {
     expect(results[0]).toEqual({
       vault: "v1",
       error: 'frontmatter is not valid YAML in "a.md": bad indentation',
+      kind: "frontmatter",
     });
     expect(results[1]?.error).toContain("3 note(s) skipped: embed provider rejected");
+    expect(results[1]?.kind).toBe("embed");
+  });
+
+  // THE-1073 fix round 1 (LOW): a per-vault ceiling so a templated bulk import of hundreds of bad
+  // notes cannot turn one reconcile into hundreds of stderr lines / a huge server_health payload.
+  it("caps at 10 frontmatter entries: exactly 10 failures yields 10 entries, no summary", () => {
+    const failures = Array.from({ length: 10 }, (_, i) => ({
+      path: `n${i}.md`,
+      error: `frontmatter is not valid YAML in "n${i}.md": bad`,
+    }));
+    const s = stats({ notes_frontmatter_failed: 10, frontmatter_failures: failures });
+    const results = reconcileResultsForVault("v1", s);
+    expect(results).toHaveLength(10);
+    expect(results.every((r) => r.kind === "frontmatter")).toBe(true);
+    expect(results.some((r) => r.error?.startsWith("...and"))).toBe(false);
+  });
+
+  it("caps at 10 frontmatter entries: 11 failures yields 11 entries, the LAST is the summary", () => {
+    const failures = Array.from({ length: 11 }, (_, i) => ({
+      path: `n${i}.md`,
+      error: `frontmatter is not valid YAML in "n${i}.md": bad`,
+    }));
+    const s = stats({ notes_frontmatter_failed: 11, frontmatter_failures: failures });
+    const results = reconcileResultsForVault("v1", s);
+    expect(results).toHaveLength(11);
+    expect(results.slice(0, 10).map((r) => r.error)).toEqual(
+      failures.slice(0, 10).map((f) => f.error),
+    );
+    expect(results[10]?.error).toBe(
+      "...and 1 more note(s) with invalid frontmatter (see index_vault stats / doctor --probe)",
+    );
+    expect(results[10]?.kind).toBe("frontmatter");
   });
 
   it("folded through applyReconcileOutcome: degrades with one error per path, then clears on a clean pass", () => {

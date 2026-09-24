@@ -40,6 +40,14 @@ const INGEST_EVENT_METRICS: Record<string, string> = {
   ingest_dedup_unresolved: "obsidian_tc_ingest_dedup_unresolved_total",
   embed_batch_rejections: "obsidian_tc_embed_batch_rejections_total",
   index_write_failures: "obsidian_tc_index_write_failures_total",
+  // THE-925: a batched indexVault plan skipped because a concurrent write_note/watcher commit
+  // raced its apply. THE-1073 fix round 1 (MEDIUM, Opus): this and index_frontmatter_failed below
+  // were both already wired into recordIngestStats' event_log rows (metrics/ingest-stats.ts) but
+  // absent HERE, so get_metrics — the surface that survives a restart and the only one the
+  // one-shot CLI has — could not see either, even though the in-memory /metrics recorder could.
+  index_stale_skipped: "obsidian_tc_index_stale_skipped_total",
+  // THE-1073: notes skipped for unparseable YAML frontmatter.
+  index_frontmatter_failed: "obsidian_tc_index_frontmatter_failures_total",
 };
 
 function ingestCounters(db: Database, vault?: string): Metric[] {

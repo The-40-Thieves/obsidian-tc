@@ -28,6 +28,7 @@ import type { ProviderDescriptor } from "../../providers/types";
 import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
+import { canonicalizeVaultRoot } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 import {
   probeDbSpace,
@@ -294,7 +295,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           config.cacheDir,
           config.vaults.map((v) => ({
             id: v.id,
-            root: v.path,
+            root: canonicalizeVaultRoot(v.path),
             isReadable: indexReadableFor(v.id),
           })),
           busyTimeoutMs,

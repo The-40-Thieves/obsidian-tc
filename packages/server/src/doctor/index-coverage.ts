@@ -14,7 +14,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { openDatabase } from "../db/open";
-import { hasNotesTable } from "../search/fts";
+import { hasNotesTable, notesRowExpected } from "../search/fts";
+import { errorMessage } from "../util/errors";
 import { walkVault } from "../vault/paths";
 import type { Check, CheckStatus } from "./types";
 
@@ -26,6 +27,11 @@ export interface IndexCoverageState {
   notesIndexed: number;
   missing: number;
   samplePaths: string[];
+  /** THE-1073 fix round 1 (MEDIUM, Codex): set when THIS vault's own walk or query THREW — a
+   *  symlinked root, a locked table — as opposed to a genuinely empty overall probe result (no
+   *  cache.db yet, no `notes` table). The two must render differently: an error is a real failure
+   *  to answer the question, not "nothing to check yet". */
+  error?: string;
 }
 
 export interface IndexCoverageView {
@@ -42,7 +48,9 @@ export interface IndexCoverageView {
  * A WARNING, never a fail: the server keeps serving whatever IS indexed, and the gap self-heals
  * the moment the missing note's content (or its YAML) is fixed and the next index_vault pass runs.
  * What this check makes visible is the gap existing at all — see the module header for why nothing
- * else in this system could tell an operator that.
+ * else in this system could tell an operator that. A per-vault PROBE FAILURE (`state.error`) warns
+ * too, but with its own message — it means the question could not be answered, not that coverage
+ * is fine.
  */
 export function indexCoverageCheck(view: IndexCoverageView): Check {
   return {
@@ -65,11 +73,16 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
           details: { coverage: "no vault" },
         };
       }
-      const short = states.filter((s) => s.missing > 0);
+      const errored = states.filter((s) => s.error !== undefined);
+      const short = states.filter((s) => s.error === undefined && s.missing > 0);
       const details: Record<string, string | string[]> = {
-        counts: states.map((s) => `${s.vaultId}=${s.notesIndexed}/${s.notesOnDisk}`),
+        counts: states.map((s) =>
+          s.error !== undefined
+            ? `${s.vaultId}=ERROR`
+            : `${s.vaultId}=${s.notesIndexed}/${s.notesOnDisk}`,
+        ),
       };
-      if (short.length === 0) {
+      if (errored.length === 0 && short.length === 0) {
         return {
           status: "ok" as CheckStatus,
           summary: `index coverage: ${states.length} vault(s) checked, every note on disk is indexed`,
@@ -77,16 +90,25 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
         };
       }
       const totalMissing = short.reduce((n, s) => n + s.missing, 0);
+      const summaryParts: string[] = [];
+      if (totalMissing > 0)
+        summaryParts.push(
+          `${totalMissing} note(s) on disk but not indexed across ${short.length} vault(s)`,
+        );
+      if (errored.length > 0) summaryParts.push(`${errored.length} vault(s) failed to probe`);
       return {
         status: "warning" as CheckStatus,
-        summary: `index coverage: ${totalMissing} note(s) on disk but not indexed, across ${short.length}/${states.length} vault(s)`,
+        summary: `index coverage: ${summaryParts.join("; ")}`,
         details,
-        issues: short.map(
-          (s) =>
-            `vault ${s.vaultId}: ${s.missing} note(s) on disk but not indexed (e.g. ${s.samplePaths.join(", ")})`,
-        ),
+        issues: [
+          ...errored.map((s) => `vault ${s.vaultId}: coverage probe failed — ${s.error}`),
+          ...short.map(
+            (s) =>
+              `vault ${s.vaultId}: ${s.missing} note(s) on disk but not indexed (e.g. ${s.samplePaths.join(", ")})`,
+          ),
+        ],
         remediation:
-          "Run index_vault to reconcile. If a note was skipped for invalid YAML frontmatter (THE-1073), fix the note's YAML first — check notes_frontmatter_failed / frontmatter_failures on the last index_vault result, or the reconcile's health.index.detail.reconcile_errors, for which path and why.",
+          "For a missing-note vault: run index_vault to reconcile. If a note was skipped for invalid YAML frontmatter (THE-1073), fix the note's YAML first — check notes_frontmatter_failed / frontmatter_failures on the last index_vault result, or the reconcile's health.index.detail.reconcile_errors. For a failed-probe vault: the vault root or cache.db could not be read — check the exception in `issues` (a symlinked vault root, a locked or corrupt cache.db).",
       };
     },
   };
@@ -97,9 +119,19 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
  *
  * Owns its own DB open/close (unlike most doctor/*.ts submodules, which leave that to the CLI),
  * same reasoning as probeNoteSummariesScale: cli/commands/doctor.ts sits against biome's 700-line
- * ceiling. Walks each vault root with the SAME `walkVault` + readable filter indexVault itself uses
- * (index-vault.ts), so a note this check calls "missing" is exactly a note the next index_vault
- * pass would actually try to index.
+ * ceiling. Walks each vault root with the SAME `walkVault` + readable filter indexVault itself
+ * uses (index-vault.ts), and shares indexVault's OWN `notesRowExpected` predicate for which walked
+ * files actually get a `notes` row (a zero-byte note gets none — see that function's own comment),
+ * so a note this check calls "missing" is exactly a note the next index_vault pass would try to
+ * write a row for and hasn't yet.
+ *
+ * Distinguishes "nothing to check yet" from "could not check": cache.db simply not existing yet
+ * (fresh install) or lacking a `notes` table are legitimate empty results (`[]`, rendered `ok` by
+ * the check above); everything else that throws — the db failing to OPEN, or one vault's own
+ * walk/query failing (e.g. a symlinked root `walkVault` refuses) — is carried as that vault's
+ * `error` instead of being silently swallowed into the SAME `[]` a fresh install gets. Fix round 1
+ * (MEDIUM, Codex): the original cast every failure into `[]`, so a symlinked root read as a clean
+ * "no vault to inspect" `ok` instead of a warning.
  */
 export async function probeIndexCoverage(
   cacheDir: string,
@@ -110,34 +142,61 @@ export async function probeIndexCoverage(
   busyTimeoutMs: number,
 ): Promise<IndexCoverageState[]> {
   const path = join(cacheDir, "cache.db");
-  if (!existsSync(path)) return [];
+  if (!existsSync(path)) return []; // fresh install — nothing to check yet, not a failure
+
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
     db = await openDatabase(path, busyTimeoutMs);
+  } catch (e) {
+    // cache.db EXISTS but could not be opened (locked, corrupt) — a real failure, one entry per
+    // vault so it is not lost.
+    const msg = errorMessage(e);
+    return vaults.map(({ id }) => ({
+      vaultId: id,
+      notesOnDisk: 0,
+      notesIndexed: 0,
+      missing: 0,
+      samplePaths: [],
+      error: msg,
+    }));
+  }
+  try {
     const opened = db;
-    if (!hasNotesTable(opened)) return [];
-    return vaults.map(({ id, root, isReadable }) => {
-      const onDisk = walkVault(root, { extensions: [".md"] })
-        .map((e) => e.relPath)
-        .filter(isReadable);
-      const indexedRows = opened
-        .prepare("SELECT path FROM notes WHERE vault_id = ?")
-        .all(id) as Array<{ path: string }>;
-      const indexedSet = new Set(indexedRows.map((r) => r.path));
-      const missingPaths = onDisk.filter((p) => !indexedSet.has(p));
-      return {
-        vaultId: id,
-        notesOnDisk: onDisk.length,
-        notesIndexed: indexedSet.size,
-        missing: missingPaths.length,
-        samplePaths: missingPaths.slice(0, 5),
-      };
+    if (!hasNotesTable(opened)) return []; // pre-migration db — nothing to check yet
+    return vaults.map(({ id, root, isReadable }): IndexCoverageState => {
+      try {
+        // notesRowExpected takes raw CONTENT; a walked entry only carries its byte size, but
+        // "size 0" and "raw === \"\"" agree for every text file this ever sees, so this avoids
+        // reading every candidate file's content just to answer the predicate.
+        const onDisk = walkVault(root, { extensions: [".md"] })
+          .filter((e) => isReadable(e.relPath) && notesRowExpected(e.size > 0 ? "x" : ""))
+          .map((e) => e.relPath);
+        const indexedRows = opened
+          .prepare("SELECT path FROM notes WHERE vault_id = ?")
+          .all(id) as Array<{ path: string }>;
+        const indexedSet = new Set(indexedRows.map((r) => r.path));
+        const missingPaths = onDisk.filter((p) => !indexedSet.has(p));
+        return {
+          vaultId: id,
+          notesOnDisk: onDisk.length,
+          notesIndexed: indexedSet.size,
+          missing: missingPaths.length,
+          samplePaths: missingPaths.slice(0, 5),
+        };
+      } catch (e) {
+        return {
+          vaultId: id,
+          notesOnDisk: 0,
+          notesIndexed: 0,
+          missing: 0,
+          samplePaths: [],
+          error: errorMessage(e),
+        };
+      }
     });
-  } catch {
-    return [];
   } finally {
     try {
-      db?.close?.();
+      db.close?.();
     } catch {
       /* closing a handle we may never have opened must not fail the run */
     }

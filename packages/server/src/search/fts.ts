@@ -179,6 +179,17 @@ export interface NoteRecord {
 }
 
 /**
+ * THE-1073 fix round 1 (MEDIUM, Opus): index-vault.ts's processNote only writes a `notes` row for
+ * `raw !== ""` — a zero-byte note is walked and indexed for chunks (none, since chunkNote("")
+ * yields nothing) but never gets a metadata row. doctor's index.coverage check (index-coverage.ts)
+ * shares this SAME predicate rather than re-deriving "empty vs. real" itself, so an empty note
+ * reads as "correctly has no notes row" instead of "missing" forever.
+ */
+export function notesRowExpected(raw: string): boolean {
+  return raw !== "";
+}
+
+/**
  * Build a note's metadata record from its raw content. `flagged` are the secret-gated chunk
  * contents (already \n-joined body lines) — they are excised from the FTS copy so credentials
  * never enter cache.db via this second copy (critique: derive from RAW, not from chunks, so
