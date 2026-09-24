@@ -155,6 +155,15 @@ export class ToolRegistry {
     this.observability.relay(vaultId, type, data);
   }
 
+  /** THE-1106: relay a `tc.elicit.in_band` MORGIANA event for a server-initiated (legacy-era)
+   *  elicitation — mcp/server.ts drives that round trip itself (dispatch never sees it, so
+   *  dispatch's own relay calls never fire for it) and has no other way to reach this vault's
+   *  event sink. A narrow public method with a FIXED event type, not a general `relay` exposure,
+   *  so createMcpServer can log exactly this one thing and nothing else through it. */
+  relayInBandElicit(vaultId: string, data: Partial<MorgianaEventData>): void {
+    this.relay(vaultId, "tc.elicit.in_band", data);
+  }
+
   /** See DispatchObservability.relayCompletion (registry/dispatch-observability.ts) — the MORGIANA
    *  completion-event fan-out shared by tool dispatch and dispatchResource's `emit` closure below. */
   private relayCompletion(

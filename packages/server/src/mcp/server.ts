@@ -20,7 +20,6 @@ import type { VaultRegistry } from "../vault/registry";
 import {
   clientRoots,
   clientSupportsSampling,
-  emitLog,
   type RequestLog,
   sampleViaClient,
 } from "./client-features";
@@ -43,6 +42,12 @@ import {
   toJson,
   triadTools,
 } from "./facade";
+import {
+  buildConfirmElicitationParams,
+  clientSupportsFormElicitation,
+  toCallToolResult,
+  tryInBandElicitation,
+} from "./in-band-elicitation";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
@@ -161,6 +166,13 @@ export interface McpServerOptions {
    * the 2025 behaviour: the error, and an `elicit_token` argument to satisfy it.
    */
   elicitCodec?: ElicitCodec;
+  /** THE-1106 (GH #967 parts 1/3): opt IN to server-initiated `elicitation/create` on a LEGACY-era
+   *  connection — `inputRequired` is unreachable there (2026-07-28+ only negotiates via
+   *  `server/discover`, never legacy `initialize`). Absent/false keeps the pre-THE-1106 plain
+   *  `elicit_required` error. Only stdio (runtime/server-runtime.ts) sets this; http.ts never does
+   *  — server-initiated requests are unverified against Streamable HTTP clients. See
+   *  ./in-band-elicitation.ts. */
+  inBandElicitation?: boolean;
   /**
    * THE-583: durable queue backing TASK-AUGMENTED tool calls.
    *
@@ -172,21 +184,6 @@ export interface McpServerOptions {
   /** THE-1098 (GH #964): `experiential.logRetrievals`, forwarded to `buildInstructions`. Absent
    *  defaults to `true` (the schema's own default), matching pre-THE-1098 behavior. */
   experientialLogRetrievals?: boolean;
-}
-
-/**
- * Did the caller advertise form elicitation?
- *
- * The 2026-07-28 revision carries client capabilities in the per-request `_meta` envelope, but the
- * SDK parses and consumes those keys before a handler runs — so this reads the capabilities object
- * the SDK exposes rather than re-parsing the wire. Offering an `inputRequired` naming a capability
- * the client never advertised is a hard -32021 protocol error, so this gate decides whether the
- * round trip is offered at all.
- */
-function clientSupportsFormElicitation(caps: unknown): boolean {
-  if (caps === null || typeof caps !== "object") return false;
-  const elicitation = (caps as Record<string, unknown>).elicitation;
-  return elicitation !== null && typeof elicitation === "object" && "form" in elicitation;
 }
 
 /**
@@ -476,6 +473,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
       isError: true,
     };
   };
+  // THE-583/THE-1106: success/overflow/error formatting, shared with the in-band elicitation
+  // re-dispatch (in-band-elicitation.ts's `toCallToolResult`) so neither can drift from the other.
+
   const dispatchToResult = async (
     name: string,
     args: Record<string, unknown>,
@@ -487,60 +487,58 @@ export function createMcpServer(opts: McpServerOptions): Server {
   ): Promise<CallToolResult> => {
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
+      const argsHash = (result.error as { details?: { args_hash?: string } }).details?.args_hash;
       // THE-583 (SEP-2260/2322): a confirmation requirement is not a failure, it is a round trip.
       // Offered only on the modern era, only when a codec is wired, and only when the CLIENT
       // declared form-elicitation support — the SDK refuses an `inputRequired` naming a capability
       // the client never advertised (-32021). Every other caller gets the plain `elicit_required`
       // error and the 2025 token path. `args_hash` comes from dispatch itself so the minted state
       // is bound to the hash the gate will recompute. See design note for the shape comparison.
-      if (result.error.code === "elicit_required" && isModern && opts.elicitCodec && canElicit) {
-        const argsHash = (result.error as { details?: { args_hash?: string } }).details?.args_hash;
-        if (typeof argsHash === "string") {
-          return inputRequired({
-            requestState: await opts.elicitCodec.mint({
-              tool: name,
-              argsHash,
-              vaultId: ctx.vaultId,
-              caller: ctx.caller,
-            }),
-            inputRequests: {
-              confirm: {
-                method: "elicitation/create",
-                params: {
-                  mode: "form",
-                  message: `Confirm ${name}: this call changes vault content and needs approval.`,
-                  requestedSchema: {
-                    type: "object",
-                    properties: {
-                      approve: { type: "boolean", title: "Approve this change" },
-                    },
-                    required: ["approve"],
-                  },
-                },
-              },
+      if (
+        result.error.code === "elicit_required" &&
+        isModern &&
+        opts.elicitCodec &&
+        canElicit &&
+        typeof argsHash === "string"
+      ) {
+        return inputRequired({
+          requestState: await opts.elicitCodec.mint({
+            tool: name,
+            argsHash,
+            vaultId: ctx.vaultId,
+            caller: ctx.caller,
+          }),
+          inputRequests: {
+            confirm: {
+              method: "elicitation/create",
+              params: buildConfirmElicitationParams(name),
             },
-          }) as unknown as CallToolResult;
-        }
+          },
+        }) as unknown as CallToolResult;
+      }
+      // THE-1106: the legacy-era counterpart (in-band-elicitation.ts) — opt-in only, never on HTTP.
+      const legacyElicit =
+        result.error.code === "elicit_required" &&
+        !isModern &&
+        opts.inBandElicitation &&
+        canElicit &&
+        typeof argsHash === "string";
+      if (legacyElicit) {
+        const path = (result.error as { details?: { path?: unknown } }).details?.path;
+        const inBand = await tryInBandElicitation(
+          { server, registry: opts.registry, formatData, errorToResult },
+          name,
+          args,
+          ctx,
+          argsHash as string,
+          typeof path === "string" ? path : undefined,
+          log,
+        );
+        if (inBand !== undefined) return inBand;
       }
       return errorToResult(result.error);
     }
-    // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
-    // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
-    // shortened result believing it complete — the failure mode the governor exists to bound, moved
-    // one layer up. Fire-and-forget: a log line must never fail the call it describes.
-    const overflow = result.meta.overflow_bytes;
-    if (typeof overflow === "number" && overflow > 0) {
-      void emitLog(log, {
-        level: "warning",
-        logger: "obsidian-tc/governor",
-        data: {
-          tool: name,
-          overflow_bytes: overflow,
-          message: "response truncated by byte ceiling",
-        },
-      });
-    }
-    return formatData(result.data);
+    return toCallToolResult(formatData, errorToResult, result, name, log);
   };
 
   server.setRequestHandler("tools/call", async (req, extra): Promise<CallToolResult> => {

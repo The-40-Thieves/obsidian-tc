@@ -16,13 +16,33 @@ redeem another's approval.
 The elicitation thresholds are **hardcoded floors** — a client cannot configure
 them away. This keeps the confirmation gate present even under a permissive config.
 
+## In-band confirmation on stdio (THE-1106)
+
+On a legacy-era connection (2025-11-25/2025-06-18 — this is every stdio client; a
+2026-07-28 revision is only ever negotiated over Streamable HTTP via `server/discover`,
+never over stdio's `initialize` handshake), a client that advertises elicitation gets the
+confirmation **in band**: the server sends a server-initiated `elicitation/create` request
+(`mode: "form"`) asking the human to approve the call, and on `accept`/`approve: true` the
+server itself mints and redeems a single-use token and completes the call — no shell
+round trip. This is what closes the gate for Claude Code over stdio and similar clients: a
+bare `elicitation: {}` capability declaration (the pre-mode 2025 default) counts as form
+support, not just an explicit `elicitation: { form: {} }`. A decline, a cancel, or
+`approve: false` all render the same `elicit_required` error as before — never a second
+prompt. Every confirmation cleared this way is logged as `tc.elicit.in_band`, distinct
+from `tc.elicit.consumed` (which still fires too, since the mechanism underneath is the
+same single-use token). This is stdio-only: Streamable HTTP never sends a server-initiated
+request (unverified against real HTTP clients; out of scope).
+
 ## When your client can't render the prompt (THE-826)
 
 The mechanism above assumes the client implements the MCP **elicitation** capability
-(`elicitation/create`, SEP-2260/2322). Several real clients — Claude Code among them — do
-not, so a call to one of the 16 conditionally-gated tools (`move_note` across a folder
+(`elicitation/create`, SEP-2260/2322) — most now do, and the in-band path above handles it
+automatically. A client with NO elicitation capability at all still gets nothing to act
+on: a call to one of the 16 conditionally-gated tools (`move_note` across a folder
 boundary, `delete_note`, `restore_note`, `prune_hub_links`, and others) simply fails with
-an `elicit_required` error and no round trip to complete it:
+an `elicit_required` error and no round trip to complete it. The error text itself now
+leads with a directive telling the AGENT to ask the human before running anything (THE-1106
+part 3) — it is not an instruction the agent should act on unilaterally:
 
 ```json
 { "code": "elicit_required", "details": { "args_hash": "…" } }

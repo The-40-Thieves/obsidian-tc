@@ -557,6 +557,9 @@ export async function buildServerRuntime(
       // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
       // there are no retrieval rows for feedback to update.
       experientialLogRetrievals: config.experiential.logRetrievals,
+      // THE-1106: the legacy-era HITL round trip stdio actually needs (`inputRequired` never
+      // negotiates there). See McpServerOptions.inBandElicitation; http.ts does not set this.
+      inBandElicitation: true,
     });
 
     const transports = await wireTransports({

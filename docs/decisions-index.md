@@ -382,7 +382,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1084 | `experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator explicitly opts in (THE-1084, #959). | CHANGELOG.md (1.31.2) | 5 |
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 5 |
 | THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 6 |
+| THE-1106 | `elicit_required`'s text-channel instruction now leads with a directive to the AGENT, and `clientSupportsFormElicitation` now reads a bare `elicitation: {}` as form support (GH #967 part 3, THE-1106). | CHANGELOG.md (Unreleased) | 6 |
 
-368 distinct ticket(s) across 504 source file(s) under
-`packages/*/src`; 268 resolved to a public summary, 100
+369 distinct ticket(s) across 504 source file(s) under
+`packages/*/src`; 269 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

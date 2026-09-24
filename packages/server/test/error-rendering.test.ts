@@ -59,14 +59,21 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
       details: { args_hash: "abc123", tool: "write_note", vault: "v1" },
     });
     expect(detail).toBe(
-      "confirm with: obsidian-tc elicit --hash abc123 --tool write_note --vault v1\n" +
+      "This call needs the user's approval. Ask the user now whether to allow write_note. " +
+        "If they approve, run the command below and retry the same call with elicit_token: " +
+        "<token>. Do not mint the token without their explicit yes.\n" +
+        "confirm with: obsidian-tc elicit --hash abc123 --tool write_note --vault v1\n" +
         "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
-        "positional argument)\n" +
-        "then retry the same call with elicit_token: <token>",
+        "positional argument)",
     );
-    const confirmLine = detail?.split("\n")[0];
+    // THE-1106: the directive paragraph now leads, so the "confirm with:" line is found by its
+    // own prefix, not assumed to be first.
+    const confirmLine = detail?.split("\n").find((l) => l.startsWith("confirm with:"));
+    expect(confirmLine).toBeDefined();
     expect(confirmLine).not.toContain("--config");
     expect(detail).not.toContain("<path to your config>");
+    expect(detail).toContain("Ask the user now");
+    expect(detail).toContain("Do not mint the token without their explicit yes.");
   });
 
   it("hash + tool, no vault: renders without --vault (the CLI treats --vault as optional)", () => {
@@ -77,11 +84,25 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
       details: { args_hash: "abc123", tool: "write_note" },
     });
     expect(detail).toBe(
-      "confirm with: obsidian-tc elicit --hash abc123 --tool write_note\n" +
+      "This call needs the user's approval. Ask the user now whether to allow write_note. " +
+        "If they approve, run the command below and retry the same call with elicit_token: " +
+        "<token>. Do not mint the token without their explicit yes.\n" +
+        "confirm with: obsidian-tc elicit --hash abc123 --tool write_note\n" +
         "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
-        "positional argument)\n" +
-        "then retry the same call with elicit_token: <token>",
+        "positional argument)",
     );
+  });
+
+  it("path present: the directive names the target in backticks; omitted from the confirm line", () => {
+    const detail = formatErrorDetail({
+      code: "elicit_required",
+      message: "human confirmation required",
+      retryable: false,
+      details: { args_hash: "abc123", tool: "write_note", vault: "v1", path: "notes/a.md" },
+    });
+    expect(detail).toContain("Ask the user now whether to allow write_note on `notes/a.md`.");
+    const confirmLine = detail?.split("\n").find((l) => l.startsWith("confirm with:"));
+    expect(confirmLine).not.toContain("notes/a.md");
   });
 
   it("hash only, no tool: a 'cannot render' explanation, never an unusable command", () => {

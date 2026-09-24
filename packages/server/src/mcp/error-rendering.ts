@@ -121,16 +121,25 @@ function renderFlag(flag: string, value: string): string {
   return value.startsWith("-") ? `${flag}=${quoted}` : `${flag} ${quoted}`;
 }
 
-/** THE-1082 (GH #945; fix round 2 per cross-vendor review): the text-channel rendering of an
- *  `elicit_required` error's token path. `mcp/server.ts`'s modern SEP-2260 `inputRequired` round
- *  trip (`isModern && opts.elicitCodec && canElicit`) never reaches this — it intercepts
- *  `elicit_required` before `errorToResult` runs. Every OTHER caller (any 2025-era client, or a
- *  modern one with no elicitation capability — e.g. Claude Code over stdio) falls through to
- *  `errorToResult`, and per THE-823 that caller drops `structuredContent` on an isError result, so
- *  `args_hash` (already there — #931/THE-1037 made `call_capability` accept a redeemed token) is
- *  otherwise stranded where nothing reads it. This renders the actual `obsidian-tc elicit`
- *  invocation (cli/commands/elicit-mint.ts, flags per cli/usage.ts) rather than describing it, so
- *  a caller with no MCP elicitation support can still clear the gate.
+/** THE-1082 (GH #945; fix round 2 per cross-vendor review) + THE-1106 (GH #967 part 3): the
+ *  text-channel rendering of an `elicit_required` error's token path. `mcp/server.ts`'s modern
+ *  SEP-2260 `inputRequired` round trip (`isModern && opts.elicitCodec && canElicit`) and THE-1106's
+ *  legacy server-initiated round trip (`!isModern && opts.inBandElicitation && canElicit`) never
+ *  reach this — both intercept `elicit_required` before `errorToResult` runs. Every OTHER caller
+ *  (a 2025-era client with no elicitation capability, or one whose in-band attempt was
+ *  declined/failed) falls through to `errorToResult`, and per THE-823 that caller drops
+ *  `structuredContent` on an isError result, so `args_hash` (already there — #931/THE-1037 made
+ *  `call_capability` accept a redeemed token) is otherwise stranded where nothing reads it. This
+ *  renders the actual `obsidian-tc elicit` invocation (cli/commands/elicit-mint.ts, flags per
+ *  cli/usage.ts) rather than describing it, so a caller with no MCP elicitation support can still
+ *  clear the gate.
+ *
+ *  THE-1106: the previous version handed an AGENT a bare command line and trusted it to notice a
+ *  human had to run it. Filed report (GH #967 part 3): an agent reading only the command either
+ *  minted the token itself (bypassing the human) or gave up. The text now LEADS with a directive
+ *  sentence naming who decides ("ask the user now") and what the agent must not do ("do not mint
+ *  the token without their explicit yes") — the command that follows is instructions for AFTER that
+ *  yes, not a thing to run on its own judgment.
  *
  *  `--tool` is a HARD requirement of the CLI (`cli/args.ts`'s elicit parser throws a `CliError`
  *  without it) — both throw sites (hitl.ts, dispatch.ts) now always supply it, but if a THIRD one
@@ -144,8 +153,14 @@ function renderFlag(flag: string, value: string): string {
  *  cannot fill in a real path here, so a literal `--config <path to your config>` is not just
  *  unquoted, it is not a rendered command at all — `<...>` is shell redirection syntax to a real
  *  shell. `resolveServeConfigWithProvenance` (cli/resolve-config.ts) falls back to
- *  `OBSIDIAN_TC_CONFIG` when no path is given, so the second line states that real fallback
- *  instead of a fabricated "default location". */
+ *  `OBSIDIAN_TC_CONFIG` when no path is given, so that line states that real fallback instead of a
+ *  fabricated "default location".
+ *
+ *  The `confirm with:` line itself is UNCHANGED byte-for-byte from before THE-1106 — only prefixed
+ *  by the new directive paragraph and no longer followed by the old trailing "then retry..." line
+ *  (its content now lives inside the directive sentence, which already names `elicit_token:
+ *  <token>` — see test/error-rendering.test.ts, which locates this line by its own prefix rather
+ *  than assuming it is first). */
 function renderElicitInstruction(details: Record<string, unknown> | undefined): string | undefined {
   const hash = details?.args_hash;
   if (typeof hash !== "string") return undefined;
@@ -157,13 +172,21 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
       `instead, or mint manually once you know the tool name, using args_hash ${shellQuote(hash)}.`
     );
   }
+  // THE-1106: the target path, rendered in backticks in PROSE (never shell-interpolated there —
+  // it names the call's target for a human reading a sentence, not an argv token); omitted
+  // entirely when the error carried none (e.g. dispatch.ts's always-on `destructive: true` gate,
+  // which has no `proposed` object to source a path from).
+  const path = details?.path;
+  const target = typeof path === "string" ? ` on \`${path}\`` : "";
   const vault = details?.vault;
   const vaultFlag = typeof vault === "string" ? ` ${renderFlag("--vault", vault)}` : "";
   return (
+    `This call needs the user's approval. Ask the user now whether to allow ${tool}${target}. ` +
+    "If they approve, run the command below and retry the same call with elicit_token: <token>. " +
+    "Do not mint the token without their explicit yes.\n" +
     `confirm with: obsidian-tc elicit ${renderFlag("--hash", hash)} ${renderFlag("--tool", tool)}${vaultFlag}\n` +
     "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
-    "positional argument)\n" +
-    "then retry the same call with elicit_token: <token>"
+    "positional argument)"
   );
 }
 
