@@ -228,7 +228,7 @@ describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-10
 
   // Fix round 2 (HIGH, both reviewers): fix round 1's `existingForwardLinksFor` reconstructed a
   // skipped note's links from its STORED vault_edges provenance — but reconcileVaultEdges INSERT
-  // OR IGNOREs on (source,target,edge_type), so a row's provenance is fixed at first insert and
+  // OR IGNORE on (source,target,edge_type), so a row's provenance is fixed at first insert and
   // never updated by a later pass. P1 repro: pass 1 has b link to [[a]] (stored as
   // (a,b,links_to,wikilink_reverse) + (b,a,links_to,wikilink_forward)); pass 2 a ALSO gains
   // [[b]], but the (a,b) row's provenance stays the STALE 'wikilink_reverse' (never updated);

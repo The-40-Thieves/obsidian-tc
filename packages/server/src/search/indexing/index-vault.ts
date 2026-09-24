@@ -365,7 +365,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       stats.frontmatter_failures.push({ path: rel, error: errorMessage(e) });
       // THE-1073 fix round 2 (HIGH, both reviewers): still extract this note's OWN links from its
       // REAL body — splitFrontmatterBody never parses YAML, so it works even here — instead of
-      // leaving noteLinks empty for this path. reconcileVaultEdges INSERT OR IGNOREs on
+      // leaving noteLinks empty for this path. reconcileVaultEdges uses INSERT OR IGNORE on
       // (source,target,type), so a stored row's provenance is fixed at first insert and never
       // updated by a later pass; reconstructing synthetic links from those rows (fix round 1's
       // approach) could resurrect a link this note no longer has, or miss one it just gained. This
