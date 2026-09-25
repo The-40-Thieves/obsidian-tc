@@ -59,6 +59,74 @@ every future re-materialization (another `add_observation`, another `link_entiti
 path of its own — it merges frontmatter through the same `update_frontmatter` tool an MCP client
 would call, and materialize.ts's ordinary round-trip discipline keeps it.
 
+## Facts change: validity intervals
+
+A plain `add_observation` call still just appends — nothing below changes that. Pass an explicit
+`key` (a short slug, `^[a-z0-9][a-z0-9_.-]*$`) when you want the NEW fact to replace a specific
+OLDER one instead of sitting alongside it: the prior observation with that same key is closed (not
+deleted — its text stays on the note, under a new `## Superseded` section) and the new text opens.
+Two calls against a fresh `Priya` entity, one `key: "team"` observation superseding another:
+
+```json
+// add_observation { vault, entity_id, observation: "on the platform team", key: "team" }  (2025-09-13)
+// add_observation { vault, entity_id, observation: "on the memory team",   key: "team" }  (2025-09-25)
+```
+
+produce this note (real output, `## Superseded` dates are day-granularity — the note is a
+human-readable projection, not a full timestamp serialization):
+
+```md
+# Priya
+
+## Observations
+
+- [team] on the memory team
+
+## Superseded
+
+- [team] on the platform team (valid 2025-09-13 → 2025-09-25)
+
+## Related
+
+_No relations._
+```
+
+An observation added with **no** `key` never supersedes anything and is never superseded
+automatically — matching is always by this explicit key, never inferred from text similarity. To
+retire a keyed fact with nothing replacing it, call `add_observation` with `key` + `valid_to` and
+no `observation` at all.
+
+`get_entity` and `query_entity_graph` both take an `as_of` (epoch ms; default now) and return only
+the observations valid at that instant — `valid_from <= as_of` and (`valid_to` unset or `as_of <
+valid_to`). An `as_of` in the PAST excludes any observation added after that instant, even one
+that is still open today. Querying the same entity above at two points in time (real output):
+
+```json
+// get_entity { vault, entity_id, as_of: 1758000000000 }   // 2025-09-16, before the change
+{
+  "observations": [
+    {
+      "text": "on the platform team",
+      "key": "team",
+      "valid_from": 1757800000000,
+      "valid_to": 1758800000000,
+      "superseded_by": "75f318492bfae16f1de56c572f4c7dc476f5c38627062843cfda05bec83f191e"
+    }
+  ]
+}
+
+// get_entity { vault, entity_id, as_of: 1759000000000 }   // now, after the change
+{
+  "observations": [
+    { "text": "on the memory team", "key": "team", "valid_from": 1758800000000, "valid_to": null, "superseded_by": null }
+  ]
+}
+```
+
+`query_entity_graph` filters every node's observations the same way, so a graph traversal answers
+"what did we believe as_of D" identically to a direct `get_entity` call on each node it passes
+through.
+
 ## The ACL/audit pipeline these writes go through
 
 Every one of those writes — `create_entity`, `add_observation`, `link_entities`, and
@@ -206,8 +274,8 @@ in-memory one stands in for "nothing exists yet"); against one that already exis
 
 | source | one entity per… | name / type from | observations from | relations from |
 |---|---|---|---|---|
-| `basic-memory` | note | frontmatter `title` / `type` | `## Observations` bullets (`- [category] text`) | `## Relations` bullets (`- relation_type [[Target]]`); a link inside inline code or a fenced block is ignored (example text, not a real relation) |
-| `claude-code-memory` | fact file (the index file, exactly `MEMORY.md` at `<dir>`'s root, is skipped — on a case-insensitive filesystem, macOS/Windows by default, a root `memory.md` IS that same file and is skipped too, since the OS never let a second one coexist there) | frontmatter `name` / `metadata.type` | the whole body — headings, list markers, and fenced code all flattened — as ONE observation; re-importing an edited fact file **appends** a new observation rather than replacing the old one (`add_observation` has no "supersede" operation) | every `[[link]]` in the body outside code/fences, as a `relates_to` relation <!-- config-path:ignore --> |
+| `basic-memory` | note | frontmatter `title` / `type` | `## Observations` bullets (`- [category] text`) — `category` becomes the observation's `key` (see "Facts change" above) whenever it passes `add_observation`'s key regex, so re-importing a note whose bullet's category is unchanged SUPERSEDES the old text instead of appending a duplicate; a category that doesn't pass the regex is kept as literal text with no key, same as before | `## Relations` bullets (`- relation_type [[Target]]`); a link inside inline code or a fenced block is ignored (example text, not a real relation) |
+| `claude-code-memory` | fact file (the index file, exactly `MEMORY.md` at `<dir>`'s root, is skipped — on a case-insensitive filesystem, macOS/Windows by default, a root `memory.md` IS that same file and is skipped too, since the OS never let a second one coexist there) | frontmatter `name` / `metadata.type` | the whole body — headings, list markers, and fenced code all flattened — as ONE observation; this adapter has no per-fact key convention to map, so every observation is unkeyed and re-importing an edited fact file **appends** a new observation rather than superseding the old one | every `[[link]]` in the body outside code/fences, as a `relates_to` relation <!-- config-path:ignore --> |
 
 Every imported note carries `imported_from`/`source_path`/`imported_at` provenance frontmatter
 (merged on, per the round-trip discipline above), and a re-run of `--apply` on the same directory

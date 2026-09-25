@@ -33,7 +33,37 @@
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { renderEntityNote } from "../memory/materialize";
 import { parseNote } from "../vault/frontmatter";
-import type { ImportAdapterName, ParsedEntity, ParsedRelation, SkippedFile } from "./types";
+import type {
+  ImportAdapterName,
+  ParsedEntity,
+  ParsedObservation,
+  ParsedRelation,
+  SkippedFile,
+} from "./types";
+
+/** Add each observation via add_observation, in order, stopping at the first failure — shared by
+ *  the "create" path's keyed-initial-batch (create_entity has no `key` param, so a keyed
+ *  observation always goes through here, THE-1130) and the "exists"/"resumed" diff-and-append
+ *  path below, which was a near-identical inline loop before this ticket added a second caller. */
+async function addObservations(
+  dispatch: Dispatch,
+  vault: string,
+  entityId: string,
+  observations: readonly ParsedObservation[],
+): Promise<{ added: number; failed: ToolResult | null }> {
+  let added = 0;
+  for (const o of observations) {
+    const r = await dispatch("add_observation", {
+      vault,
+      entity_id: entityId,
+      observation: o.text,
+      ...(o.key ? { key: o.key } : {}),
+    });
+    if (!r.ok) return { added, failed: r };
+    added++;
+  }
+  return { added, failed: null };
+}
 
 export type Dispatch = (name: string, input: Record<string, unknown>) => Promise<ToolResult>;
 
@@ -136,7 +166,11 @@ async function readExistingEntity(
   const d = r.data as {
     entity_id: string;
     vault_path: string | null;
-    observations: string[];
+    // THE-1130: get_entity's observations are now { text, key, valid_from, valid_to,
+    // superseded_by } objects, filtered to as_of (default now) — this diff-and-append dedup only
+    // ever cares about the currently-open TEXT, exactly what it compared against before this
+    // ticket (get_entity with no as_of already excludes anything superseded/retired).
+    observations: { text: string }[];
     relations: { target_name: string; relation_type: string; direction: "out" | "in" }[];
   };
   return {
@@ -144,7 +178,7 @@ async function readExistingEntity(
     entity: {
       entityId: d.entity_id,
       vaultPath: d.vault_path,
-      observations: new Set(d.observations),
+      observations: new Set(d.observations.map((o) => o.text)),
       outRelations: new Set(
         d.relations
           .filter((rel) => rel.direction === "out")
@@ -294,12 +328,20 @@ async function resolveEntity(
       existingOutRelations: new Set(),
     };
   }
+  // THE-1130: create_entity's own `observations` array has no `key` param — a keyed observation
+  // always goes through add_observation (below, after the entity exists) instead. Unkeyed
+  // observations still ride the batch call, keeping the O(1)-re-materialization perf property
+  // (see this file's own header) for every entity that carries no keyed facts at all — the common
+  // case for both adapters today (claude-code-memory never produces a key; basic-memory only does
+  // for a `[category] text` bullet whose category passes the key regex).
+  const unkeyedTexts = e.observations.filter((o) => o.key === null).map((o) => o.text);
+  const keyedObservations = e.observations.filter((o) => o.key !== null);
   const createRes = await dispatch("create_entity", {
     vault,
     type: e.entityType,
     name: e.name,
     materialize: true,
-    ...(e.observations.length > 0 ? { observations: e.observations } : {}),
+    ...(unkeyedTexts.length > 0 ? { observations: unkeyedTexts } : {}),
   });
   if (!createRes.ok && isAlreadyExists(createRes)) {
     // Lost a create-vs-create race — re-resolve as "exists" instead of failing the whole entity.
@@ -321,6 +363,27 @@ async function resolveEntity(
     };
   }
   const created = createRes.data as { entity_id: string; vault_path: string | null };
+  if (keyedObservations.length > 0) {
+    const { added, failed } = await addObservations(
+      dispatch,
+      vault,
+      created.entity_id,
+      keyedObservations,
+    );
+    if (failed) {
+      return {
+        outcome: {
+          ...baseOutcome(e),
+          action: "error",
+          reason:
+            `entity created, but a keyed observation failed after ${added}/${keyedObservations.length}: ` +
+            errMessage(failed),
+        },
+        existingObservations: new Set(),
+        existingOutRelations: new Set(),
+      };
+    }
+  }
   if (created.vault_path) {
     const fm = await setProvenance(
       dispatch,
@@ -357,9 +420,10 @@ async function resolveEntity(
       observationsAlready: 0,
     },
     entityId: created.entity_id,
-    // All of e's observations were already included in create_entity's own call above — the
-    // relation phase / a future re-run's diff must see them as already present, not re-add them.
-    existingObservations: new Set(e.observations),
+    // All of e's observations were already included above (unkeyed via create_entity's own batch
+    // call, keyed via the addObservations loop just above) — the relation phase / a future
+    // re-run's diff must see them as already present, not re-add them.
+    existingObservations: new Set(e.observations.map((o) => o.text)),
     existingOutRelations: new Set(),
   };
 }
@@ -407,27 +471,15 @@ export async function applyImport(
       entityOutcomes.push(outcome);
       continue;
     }
-    // "create" already carries every observation via create_entity's own call (resolveEntity) —
-    // only "exists"/"resumed" have a real diff-and-append to do here.
+    // "create" already carries every observation via create_entity's own call plus, for keyed
+    // ones, resolveEntity's own addObservations loop — only "exists"/"resumed" have a real
+    // diff-and-append to do here.
     if (outcome.action !== "create") {
-      const toAdd = e.observations.filter((o) => !existingObservations.has(o));
+      const toAdd = e.observations.filter((o) => !existingObservations.has(o.text));
       outcome.observationsToAdd = toAdd.length;
       outcome.observationsAlready = e.observations.length - toAdd.length;
       if (opts.applied && entityId) {
-        let failed: ToolResult | null = null;
-        let added = 0;
-        for (const o of toAdd) {
-          const r = await opts.dispatch("add_observation", {
-            vault: opts.vault,
-            entity_id: entityId,
-            observation: o,
-          });
-          if (!r.ok) {
-            failed = r;
-            break;
-          }
-          added++;
-        }
+        const { added, failed } = await addObservations(opts.dispatch, opts.vault, entityId, toAdd);
         if (failed) {
           // Stop work on this entity — do not proceed to its relations, do not let it become a
           // valid relation TARGET this run (an observation write failed mid-batch; its state is

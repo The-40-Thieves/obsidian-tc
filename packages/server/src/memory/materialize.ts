@@ -15,6 +15,7 @@ import { type Frontmatter, parseNote, serializeNote } from "../vault/frontmatter
 import { extractLinks } from "../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../vault/notes-io";
 import { contentHash, resolveVaultPath } from "../vault/paths";
+import { normalizeObservationKey, type ObservationView } from "./entities";
 
 // Frontmatter keys the projection owns (regenerated from SQLite each time). Every
 // other key in an existing note is preserved verbatim so we never clobber Obsidian's.
@@ -24,7 +25,61 @@ import { contentHash, resolveVaultPath } from "../vault/paths";
 const OWNED_FM_KEYS = new Set(["obsidian_tc_id", "entity_type", "status"]);
 
 const OBSERVATIONS_HEADING = "Observations";
+const SUPERSEDED_HEADING = "Superseded";
 const RELATED_HEADING = "Related";
+
+/** YYYY-MM-DD from an epoch-ms instant — day granularity only, matching every other date the
+ *  vault-facing note surfaces (reflect.ts's dated filenames, etc.). The note is a human-readable
+ *  PROJECTION of SQLite, not a full serialization: rendering never claims sub-day precision back. */
+function formatDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** `- [key] text` (open) or `- [key] text (valid YYYY-MM-DD → YYYY-MM-DD)` (closed — validTo set,
+ *  whether by supersession or a stand-alone retirement); the `[key] ` prefix is omitted entirely
+ *  for an unkeyed observation (THE-1130 decision record: "unkeyed bullets stay `- text`"). */
+function formatObservationBullet(o: ObservationView): string {
+  const body = o.key ? `[${o.key}] ${o.text}` : o.text;
+  return o.validTo === null
+    ? body
+    : `${body} (valid ${formatDate(o.validFrom)} → ${formatDate(o.validTo)})`;
+}
+
+/** The inverse of formatObservationBullet, for round-trip verification and reuse by importers
+ *  that share the `[key] text` bullet shape (memory-import/basic-memory.ts's `[category] text`).
+ *  Day-granularity dates only — see formatDate; a closed bullet's validFrom/validTo come back as
+ *  YYYY-MM-DD strings, not epoch ms, because that is all the rendered text ever carried. */
+export interface ParsedObservationBullet {
+  key: string | null;
+  text: string;
+  validFrom: string | null;
+  validTo: string | null;
+}
+
+const CLOSED_SUFFIX_RE = / \(valid (\d{4}-\d{2}-\d{2}) → (\d{4}-\d{2}-\d{2})\)$/;
+const KEY_PREFIX_RE = /^\[([^\]]+)\]\s+(.*)$/s;
+
+export function parseObservationBullet(line: string): ParsedObservationBullet {
+  let rest = line;
+  let validFrom: string | null = null;
+  let validTo: string | null = null;
+  const closed = CLOSED_SUFFIX_RE.exec(rest);
+  if (closed) {
+    validFrom = closed[1] as string;
+    validTo = closed[2] as string;
+    rest = rest.slice(0, closed.index);
+  }
+  const keyed = KEY_PREFIX_RE.exec(rest);
+  if (keyed) {
+    const norm = normalizeObservationKey(keyed[1] as string);
+    // A bracket prefix that doesn't pass the key regex (spaces, punctuation outside
+    // [a-z0-9_.-], etc.) is left as literal text, brackets and all — never coerced into a key
+    // that wasn't actually written as one (THE-1130 decision record: "category -> key when it
+    // passes the regex, else no key").
+    if (norm !== null) return { key: norm, text: keyed[2] as string, validFrom, validTo };
+  }
+  return { key: null, text: rest, validFrom, validTo };
+}
 
 /** Make one path segment filesystem-safe: drop separators, wikilink/heading sigils,
  *  and reserved characters. Never yields an empty segment. */
@@ -54,7 +109,7 @@ export interface RenderEntityInput {
   name: string;
   /** THE-833: 'active' | 'retired' — owned frontmatter, see OWNED_FM_KEYS above. */
   status: string;
-  observations: readonly string[];
+  observations: readonly ObservationView[];
   relations: readonly RelationLink[];
   preserved?: Frontmatter | null;
 }
@@ -65,8 +120,15 @@ function stripOwned(fm: Frontmatter | null | undefined): Frontmatter {
   return out;
 }
 
-/** Render an entity to note text: owned frontmatter first, then any preserved keys,
- *  then a deterministic body (H1 + Observations + Related [[links]]). Pure + stable. */
+/** Render an entity to note text: owned frontmatter first, then any preserved keys, then a
+ *  deterministic body (H1 + Observations + Superseded + Related [[links]]). Pure + stable.
+ *
+ *  THE-1130: `observations` splits on `validTo` — open (validTo === null) renders under
+ *  Observations, closed (supersession OR a stand-alone retirement, both just set validTo) under
+ *  Superseded — never on `key`, since an unkeyed observation can still carry an explicit valid_to.
+ *  Order within each section is the SAME order the caller passed (insertion order); this never
+ *  re-sorts, unlike the Related section below, because observation order is itself meaningful
+ *  (it's the append/history order a reader would expect). */
 export function renderEntityNote(input: RenderEntityInput): string {
   const fm: Frontmatter = {
     obsidian_tc_id: input.id,
@@ -74,10 +136,17 @@ export function renderEntityNote(input: RenderEntityInput): string {
     status: input.status,
     ...stripOwned(input.preserved),
   };
+  const open = input.observations.filter((o) => o.validTo === null);
+  const closed = input.observations.filter((o) => o.validTo !== null);
   const lines: string[] = [`# ${input.name}`, "", `## ${OBSERVATIONS_HEADING}`, ""];
-  if (input.observations.length === 0) lines.push("_No observations._", "");
+  if (open.length === 0) lines.push("_No observations._", "");
   else {
-    for (const o of input.observations) lines.push(`- ${o}`);
+    for (const o of open) lines.push(`- ${formatObservationBullet(o)}`);
+    lines.push("");
+  }
+  if (closed.length > 0) {
+    lines.push(`## ${SUPERSEDED_HEADING}`, "");
+    for (const o of closed) lines.push(`- ${formatObservationBullet(o)}`);
     lines.push("");
   }
   lines.push(`## ${RELATED_HEADING}`, "");
@@ -102,7 +171,7 @@ export interface MaterializeInput {
   name: string;
   /** THE-833: see RenderEntityInput.status. */
   status: string;
-  observations: readonly string[];
+  observations: readonly ObservationView[];
   relations: readonly RelationLink[];
   // THE-567: the memory-note path is server-computed (folder + type + name), so it cannot be
   // declared via a central pathAcl extractor (which only sees raw input). Threading the caller's

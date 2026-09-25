@@ -6,7 +6,7 @@
 // (vault_id, entity_type, name); observations are newline-separated facts; relations
 // are typed directed edges with a (source, target, type) composite PK that makes
 // link_entities naturally idempotent.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Database } from "../db/types";
 
 /** True when an error is a SQLite UNIQUE-constraint violation (cross-driver: better-sqlite3
@@ -58,6 +58,25 @@ export function serializeObservations(obs: readonly string[]): string {
     .join("\n");
 }
 
+/** THE-1130 adversarial-review fix: the ONE boundary a single observation's text is validated at
+ *  — `create_entity`'s `observations` array, `add_observation`'s `observation` field, and the
+ *  memory-import adapters all call this before the text reaches SQLite. Returns the trimmed text,
+ *  or `null` when it is not acceptable as ONE observation: blank after trimming, or containing a
+ *  `\r` or `\n` anywhere. A caller with more than one fact makes more than one call (or passes more
+ *  than one array element) — this is a REJECTION, not a silent split or a silent drop: before this
+ *  fix, `parseObservations`/`serializeObservations` re-splitting the stored blob on every `\n`
+ *  meant a single observation containing an embedded newline silently became TWO parsed lines
+ *  sharing the ONE interval row `add_observation`/`insertEntity` inserted for it (ordinal
+ *  correlation broken at the source), and a whitespace-only observation silently produced an
+ *  interval row for a text line that `serializeObservations` then dropped from the blob entirely
+ *  (a row with nothing to correlate to). Rejecting both up front is what keeps "one text line in
+ *  the blob == one interval row" true unconditionally, rather than true-if-callers-are-well-behaved. */
+export function normalizeObservationText(raw: string): string | null {
+  if (/[\r\n]/.test(raw)) return null;
+  const text = raw.trim();
+  return text.length > 0 ? text : null;
+}
+
 export function getEntityById(db: Database, id: string): EntityRow | undefined {
   return db.prepare(`SELECT ${ENTITY_COLS} FROM memory_entities WHERE id = ?`).get(id) as
     | EntityRow
@@ -99,6 +118,13 @@ export interface InsertEntityInput {
 
 export function insertEntity(db: Database, input: InsertEntityInput): EntityRow {
   const id = genEntityId();
+  // Reuses the SAME boundary function the tool schemas validate against (normalizeObservationText)
+  // rather than a second ad hoc trim/filter — a direct insertEntity() caller that skips the schema
+  // (e.g. a test) gets the identical rule, silently dropping anything the schema would have
+  // rejected outright. The schema is the user-facing contract; this is the internal backstop.
+  const obs = (input.observations ?? [])
+    .map((o) => normalizeObservationText(o))
+    .filter((o): o is string => o !== null);
   db.prepare(
     `INSERT INTO memory_entities
        (id, vault_id, entity_type, name, observations, materialize, vault_path, created_at, updated_at)
@@ -108,13 +134,33 @@ export function insertEntity(db: Database, input: InsertEntityInput): EntityRow 
     input.vaultId,
     input.entityType,
     input.name,
-    serializeObservations(input.observations ?? []),
+    serializeObservations(obs),
     input.materialize === false ? 0 : 1,
     input.vaultPath ?? null,
     input.now,
     input.now,
   );
-  return getEntityById(db, id) as EntityRow;
+  // THE-1130: one OPEN, unkeyed interval row per initial observation, valid_from = the entity's
+  // own created_at — mirrors the migration backfill's choice for pre-existing rows exactly (no
+  // finer-grained timestamp exists for a batch-created observation than the entity's own creation
+  // instant). Ordinal position (insertion order here == the blob's line order) is what later zips
+  // each text line back to its interval row — see observationViews.
+  for (const text of obs)
+    insertObservationInterval(db, {
+      entityId: id,
+      obsHash: obsHash(text),
+      key: null,
+      validFrom: input.now,
+      validTo: null,
+      now: input.now,
+    });
+  const row = getEntityById(db, id) as EntityRow;
+  // THE-1130 adversarial-review fix: ASSERT the lockstep invariant rather than silently trusting
+  // it — observationViews throws on a text/interval-row count mismatch, and calling it here turns
+  // a drift bug into an immediate, loud failure at the write that caused it instead of a confusing
+  // one at some later, unrelated read.
+  observationViews(db, row);
+  return row;
 }
 
 /** Record the materialized .md path (and bump updated_at) after a projection write. */
@@ -358,4 +404,159 @@ export function bfsGraph(db: Database, seedId: string, opts: BfsOptions = {}): G
     frontier = nextPaths;
   }
   return out;
+}
+
+// --- Observation validity intervals (THE-1130) ---
+//
+// memory_entities.observations carries the TEXT; memory_observation_intervals is the STRUCTURE
+// layered on top, one row per observation, recording when it was true and what (if anything)
+// replaced it. The actual invariant (adversarial-review correction — "never rewritten" was false,
+// every append already reserializes the whole column): the column is only ever reserialized from
+// its OWN normalized parse plus one appended line, inside the SAME transaction as the interval
+// insert — never truncated, never has a line's TEXT edited or removed once accepted. Every accepted
+// observation therefore keeps its text forever (a supersession or retirement only ever sets a
+// `valid_to` on the interval row, never touches the blob), but the column bytes themselves ARE
+// rewritten on every write, by design — that rewrite round-trips to a byte-identical result
+// precisely because `normalizeObservationText` (this file) rejects anything that would make
+// `parseObservations`/`serializeObservations` disagree about how many lines a value is. Correlation
+// between a blob line and its interval row is BY ORDINAL POSITION, not by hash — see the migration
+// file's own header for why. Every write path that appends a line to the blob inserts exactly one
+// interval row in the same transaction, in the same order, so
+// `parseObservations(row.observations)[i]` and `listObservationIntervals(db, row.id)[i]` always
+// describe the same observation.
+
+/** `^[a-z0-9][a-z0-9_.-]*$`, max 64 chars, after lowercasing — the caller-supplied key that opts
+ *  an observation INTO supersession tracking (THE-1130 decision record: matching is explicit,
+ *  never inferred from text). */
+export const OBSERVATION_KEY_RE = /^[a-z0-9][a-z0-9_.-]*$/;
+
+/** Lowercase + validate a caller-supplied observation key. Returns null for anything that isn't a
+ *  legal key (empty, over 64 chars, or fails OBSERVATION_KEY_RE once lowercased) — the caller (a
+ *  zod schema, in practice) decides what error that becomes; this function only knows the shape. */
+export function normalizeObservationKey(raw: string): string | null {
+  const key = raw.trim().toLowerCase();
+  if (key.length < 1 || key.length > 64) return null;
+  return OBSERVATION_KEY_RE.test(key) ? key : null;
+}
+
+/** sha256 hex of the trimmed observation text (no `[key] ` rendering prefix). Informational
+ *  provenance only — recorded on `superseded_by` so a closed interval names what replaced it
+ *  without a second copy of the text. Never a lookup key: matching for supersession is by `key`
+ *  alone — add_observation's handler finds the open interval with `observationViews(...).findIndex`
+ *  over the set it already holds for rendering, rather than a second DB round-trip. */
+export function obsHash(text: string): string {
+  return createHash("sha256").update(text.trim()).digest("hex");
+}
+
+export interface ObservationIntervalRow {
+  id: number;
+  entity_id: string;
+  obs_hash: string;
+  key: string | null;
+  valid_from: number;
+  valid_to: number | null;
+  superseded_by: string | null;
+  created_at: number;
+}
+
+const OBSERVATION_INTERVAL_COLS =
+  "id, entity_id, obs_hash, key, valid_from, valid_to, superseded_by, created_at";
+
+/** One observation: its text (from the blob) zipped with its validity interval. What
+ *  get_entity/query_entity_graph/materialize.ts all build their view from. */
+export interface ObservationView {
+  text: string;
+  key: string | null;
+  validFrom: number;
+  validTo: number | null;
+  supersededBy: string | null;
+}
+
+/** Every interval row for an entity, in the SAME order parseObservations reads its text blob
+ *  (insertion order — `id` is an autoincrement rowid, never reassigned). */
+export function listObservationIntervals(db: Database, entityId: string): ObservationIntervalRow[] {
+  return db
+    .prepare(
+      `SELECT ${OBSERVATION_INTERVAL_COLS} FROM memory_observation_intervals WHERE entity_id = ? ORDER BY id`,
+    )
+    .all(entityId) as ObservationIntervalRow[];
+}
+
+/** Zip an entity's text blob with its interval rows by ordinal position (see this section's own
+ *  header). Throws on a length mismatch — every write path keeps the two in lockstep, so a drift
+ *  here means a bug or a hand-edited row, and misattributing one observation's interval to another
+ *  silently is worse than failing loud. */
+export function observationViews(
+  db: Database,
+  entity: Pick<EntityRow, "id" | "observations">,
+): ObservationView[] {
+  const texts = parseObservations(entity.observations);
+  const intervals = listObservationIntervals(db, entity.id);
+  if (texts.length !== intervals.length)
+    throw new Error(
+      `memory_observation_intervals drift for entity ${entity.id}: ` +
+        `${texts.length} observation(s) in the text blob, ${intervals.length} interval row(s)`,
+    );
+  return texts.map((text, i) => {
+    const iv = intervals[i] as ObservationIntervalRow;
+    return {
+      text,
+      key: iv.key,
+      validFrom: iv.valid_from,
+      validTo: iv.valid_to,
+      supersededBy: iv.superseded_by,
+    };
+  });
+}
+
+/** Observations valid at `asOfMs`: `valid_from <= asOfMs AND (valid_to IS NULL OR asOfMs <
+ *  valid_to)` — THE-635's own as_of convention (an as_of in the past excludes anything added
+ *  later; see get_entity/query_entity_graph's tool descriptions for the caller-facing wording). */
+export function observationsAsOf(
+  db: Database,
+  entity: Pick<EntityRow, "id" | "observations">,
+  asOfMs: number,
+): ObservationView[] {
+  return observationViews(db, entity).filter(
+    (o) => o.validFrom <= asOfMs && (o.validTo === null || asOfMs < o.validTo),
+  );
+}
+
+/** Append one interval row. Always called in lockstep with a blob text append (appendObservation,
+ *  or insertEntity's own initial batch) — never on its own — so ordinal correlation holds. */
+export function insertObservationInterval(
+  db: Database,
+  input: {
+    entityId: string;
+    obsHash: string;
+    key: string | null;
+    validFrom: number;
+    validTo: number | null;
+    now: number;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO memory_observation_intervals (entity_id, obs_hash, key, valid_from, valid_to, superseded_by, created_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+  ).run(input.entityId, input.obsHash, input.key, input.validFrom, input.validTo, input.now);
+}
+
+/** Close the OPEN interval for (entityId, key) — either supersession (`supersededByHash` set to
+ *  the new observation's hash) or a stand-alone retirement (`supersededByHash` null: nothing
+ *  replaces it). Returns false when there was no open row for that key — the caller (add_observation)
+ *  turns that into invalid_input for a retirement, since there's nothing to retire. */
+export function closeOpenInterval(
+  db: Database,
+  entityId: string,
+  key: string,
+  validTo: number,
+  supersededByHash: string | null,
+): boolean {
+  const r = db
+    .prepare(
+      `UPDATE memory_observation_intervals SET valid_to = ?, superseded_by = ?
+       WHERE entity_id = ? AND key = ? AND valid_to IS NULL`,
+    )
+    .run(validTo, supersededByHash, entityId, key);
+  return (r.changes as number) > 0;
 }

@@ -39,7 +39,9 @@ describe("memory import — claude-code-memory adapter", () => {
     const reuse = parsed.entities.find((e) => e.name === "reference-example-reuse-before-write");
     expect(reuse?.entityType).toBe("reference");
     expect(reuse?.observations).toHaveLength(1);
-    expect(reuse?.observations[0]).toContain("Invented fixture content");
+    // THE-1130: claude-code-memory has no per-fact key convention, so this is always unkeyed.
+    expect(reuse?.observations[0]?.key).toBeNull();
+    expect(reuse?.observations[0]?.text).toContain("Invented fixture content");
     expect(reuse?.relations).toStrictEqual([
       { relationType: "relates_to", targetName: "feedback-example-fix-root-cause" },
     ]);

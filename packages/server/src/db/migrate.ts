@@ -5,6 +5,14 @@ import type { Database } from "./types";
 export interface Migration {
   version: string;
   sql: string;
+  /** THE-1130: an optional JS step run in the SAME transaction as `sql`, right after it applies,
+   *  before the version is recorded as done. For data that a migration's own SQL cannot compute
+   *  correctly/portably (a real example: SQLite's `trim()` strips only ASCII space by default,
+   *  diverging from the JS `.trim()` every read path actually uses — a tab/CR-bearing fixture
+   *  parsed to a different line count under each). `checksum(m.sql)` is computed from `sql` alone,
+   *  so adding, changing, or removing `postApply` never changes a migration's recorded checksum —
+   *  only its own `.sql` text does. */
+  postApply?: (db: Database) => void;
 }
 export interface MigrateOptions {
   version?: string;
@@ -58,6 +66,7 @@ export function runMigrations(
     db.exec("BEGIN");
     try {
       db.exec(m.sql);
+      m.postApply?.(db);
       insert.run(m.version, now(), appVersion, Math.max(0, now() - start), sum);
       db.exec("COMMIT");
     } catch (e) {
