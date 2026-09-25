@@ -73,9 +73,24 @@ export function extractClientInfo(meta: unknown): ClientInfo | undefined {
   if (meta === null || typeof meta !== "object") return undefined;
   const raw = (meta as Record<string, unknown>)[CLIENT_INFO_META_KEY];
   if (raw === null || typeof raw !== "object") return undefined;
-  const src = raw as Record<string, unknown>;
-  const name = clean(src.name);
+  return clientInfoFromFields(raw as Record<string, unknown>);
+}
+
+/**
+ * The same `name`/`version` bound `extractClientInfo` applies, over a plain `{name, version}`
+ * object rather than a `_meta` bag one key deep. Exported (THE-1123) so a caller reads the SDK's
+ * OWN client-identity cache — `Server.getClientVersion()`, seeded from a legacy `initialize`
+ * handshake's `clientInfo` param on a connection that never sends a per-request envelope at all —
+ * through the exact same length/type bound as a per-request one, rather than trusting that value
+ * unbounded. Untrusted the same way: the SDK types it as `Implementation`, but nothing stops a
+ * hostile client from sending an oversized or malformed `clientInfo` at `initialize` either.
+ */
+export function clientInfoFromFields(
+  fields: { name?: unknown; version?: unknown } | undefined,
+): ClientInfo | undefined {
+  if (fields === undefined) return undefined;
+  const name = clean(fields.name);
   if (name === undefined) return undefined;
-  const version = clean(src.version);
+  const version = clean(fields.version);
   return version === undefined ? { name } : { name, version };
 }

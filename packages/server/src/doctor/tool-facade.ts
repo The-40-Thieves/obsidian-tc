@@ -48,6 +48,22 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
       if (view.configured === "auto") {
         details.autoClients = renderAutoClientsTable(view.autoClients);
       }
+      // THE-1123 review fix (LOW #9): `autoClients` is only ever consulted when `mode` is "auto"
+      // (mcp/server.ts's `resolveFacadeMode` short-circuits before touching it for any other
+      // mode) — a config that sets it under a concrete mode is silently inert, which is exactly
+      // the shape a doctor check exists to surface rather than stay quiet about.
+      const ignoredAutoClients =
+        view.configured !== "auto" &&
+        view.autoClients !== undefined &&
+        Object.keys(view.autoClients).length > 0;
+      if (ignoredAutoClients) {
+        return {
+          status: "warning" as CheckStatus,
+          summary: `toolFacade.autoClients is configured but toolFacade.mode is "${view.configured}", not "auto" — autoClients is silently ignored`,
+          details,
+          remediation: 'Set toolFacade.mode to "auto", or remove toolFacade.autoClients.',
+        };
+      }
       return {
         status: "ok" as CheckStatus,
         summary:

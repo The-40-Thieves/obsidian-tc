@@ -10,15 +10,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **`toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client
   (THE-1123, PR #976).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
-  the three from the connecting client's observed MCP `clientInfo.name`, resolved once per session
-  (cached on the connection for stdio; naturally per-request for HTTP's stateless transport) and
-  logged once at info level (`configured`/`client`/`effective`). `toolFacade.autoClients` maps a
+  the three from the connecting client's observed MCP `clientInfo.name`, cached once a NAME is
+  actually observed (a nameless request gets the `triad` fallback without pinning the connection
+  to it). Precise on stdio (either protocol era — one `Server` instance serves the whole
+  connection) and on Streamable HTTP for a 2026-07-28 client (which resends `clientInfo` on every
+  request); a legacy (2025-11-25) client over HTTP always gets the `triad` fallback, since each
+  HTTP request is served by a stateless, brand-new `Server` instance with no memory of that
+  client's `initialize` — set `toolFacade.mode` explicitly for that case rather than relying on
+  `auto`. The resolution is logged once per distinct (configured mode, sanitized client name,
+  effective mode) tuple per process, at info level, with the client name run through the same
+  sanitization/length-bound the HITL confirmation text uses. `toolFacade.autoClients` maps a
   case-insensitive substring of the client name to a mode, checked before a built-in table
   (`claude-code` -> `domain`, `cursor` -> `triad`, everything else -> `triad`) — **the built-in
   table is provisional**, a starting point pending real per-client tool-selection measurement, not
-  a result; override any entry via config. `server_health` and `doctor` both report
-  `toolFacade: { configured, effective, clientName }` (doctor, being offline, reports the merged
-  resolution table instead of a live `effective`/`clientName`).
+  a result; override any entry via config (doctor WARNs if `autoClients` is set under a non-`auto`
+  mode, where it is silently inert). `server_health` reports `toolFacade: { configured, effective,
+  clientName }` — `effective`/`clientName` are the SAME per-request decision `tools/list` already
+  made on that connection, never a second, independent resolution. `doctor`, being offline with no
+  live connection to observe, reports the configured mode plus the merged resolution table instead
+  of inventing a per-session `effective`/`clientName`.
 - **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
   (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
   cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`

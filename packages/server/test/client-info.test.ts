@@ -11,7 +11,11 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
-import { CLIENT_INFO_META_KEY, extractClientInfo } from "../src/mcp/client-info";
+import {
+  CLIENT_INFO_META_KEY,
+  clientInfoFromFields,
+  extractClientInfo,
+} from "../src/mcp/client-info";
 import { getSession, insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
 
@@ -88,6 +92,26 @@ describe("extractClientInfo — untrusted `_meta` parsing", () => {
     expect(extractClientInfo(meta({ name: "ok", version: long }))).toEqual({ name: "ok" });
     // A value AT the limit is kept — otherwise "drops long values" would pass by dropping everything.
     expect(extractClientInfo(meta({ name: "x".repeat(128) }))?.name).toHaveLength(128);
+  });
+});
+
+// THE-1123: the SAME bound, applied to `Server.getClientVersion()`'s return value (a legacy
+// `initialize`'s `clientInfo`, cached on the `Server` instance) rather than a `_meta` bag.
+describe("clientInfoFromFields — the same bound over getClientVersion()'s shape", () => {
+  it("parses a plain {name, version} object the same way extractClientInfo's inner field-set does", () => {
+    expect(clientInfoFromFields({ name: "claude-code", version: "1.0" })).toEqual({
+      name: "claude-code",
+      version: "1.0",
+    });
+  });
+
+  it("returns undefined for undefined input — the unset getClientVersion() case", () => {
+    expect(clientInfoFromFields(undefined)).toBeUndefined();
+  });
+
+  it("drops an over-long or non-string name instead of storing it", () => {
+    expect(clientInfoFromFields({ name: "x".repeat(129) })).toBeUndefined();
+    expect(clientInfoFromFields({ name: 42 as unknown as string })).toBeUndefined();
   });
 });
 

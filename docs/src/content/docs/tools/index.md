@@ -25,10 +25,30 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
 - **`flat`** — the full underlying surface.
 - **`auto`** — picks one of the three above **per connecting client**, from its
   observed MCP `clientInfo.name`, and caches the choice for the rest of that
-  client's session. `toolFacade.autoClients` maps a case-insensitive substring of
-  the client name to a mode (checked in the config's own key order, before the
-  built-in table below — a match here overrides the same substring there); a
-  client matching nothing gets `triad`. The built-in table is:
+  client's session once a NAME is actually observed (a request that carries no
+  observable name at all gets the `triad` fallback WITHOUT pinning the
+  connection to it — the first later request that does carry a name still
+  resolves for real). `toolFacade.autoClients` maps a case-insensitive
+  substring of the client name to a mode (checked in the config's own key
+  order, before the built-in table below — a match here overrides the same
+  substring there); a client matching nothing gets `triad`. The built-in table
+  is:
+
+  **Where `auto` actually resolves.** Client identity is observed per request
+  from the MCP request envelope (or, for a legacy client, from the
+  `initialize` handshake). On **stdio**, one connection is served by ONE
+  long-lived `Server` instance for its whole life, so `auto` resolves on
+  either protocol era — a legacy client's `initialize`-only identity is still
+  seen. On **Streamable HTTP**, every request is served by a brand-new,
+  stateless `Server` instance with no memory of any earlier request on that
+  same TCP connection: a 2026-07-28 client resolves correctly because it
+  resends `clientInfo` in `_meta` on every request, but a 2025-11-25 (legacy)
+  client over HTTP only ever declares `clientInfo` at `initialize` — a
+  DIFFERENT `Server` instance than the one that later serves `tools/list` — so
+  it always gets the untargeted `triad` fallback. `auto` is therefore precise
+  on stdio (both eras) and on HTTP for 2026-07-28 clients; a legacy client
+  connecting over HTTP should set `toolFacade.mode` explicitly instead of
+  relying on `auto`.
 
   | Client name contains | Mode | Why (provisional) |
   | --- | --- | --- |

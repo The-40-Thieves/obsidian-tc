@@ -126,8 +126,9 @@ keeps agent context lean. Learn this loop before anything else:
 
 Every capability also remains **directly callable by name**. `toolFacade.mode`
 selects what `tools/list` shows: `triad` (default, 3 tools), `domain` (~a dozen
-domain meta-tools like `notes`, `search`, `vault`), or `flat` (the whole surface).
-The facade is boundary-only: no gate is bypassed in any mode.
+domain meta-tools like `notes`, `search`, `vault`), `flat` (the whole surface), or
+`auto` (per connecting client, provisional table). The facade is boundary-only:
+no gate is bypassed in any mode.
 
 > Rule for agents: when you need an operation you have not used before, run
 > `find_capability` then `describe_capability`. Do not invent a tool name.
@@ -347,7 +348,7 @@ The complete option surface (every field, default, env var, and CLI command) is 
 | `acl.readOnly` | false | The kill switch. |
 | `writes.requireCas` | false | Force `prev_hash` on overwrite/append. |
 | `auth.mode` | `none` | `jwt` for anything non-loopback (required by the interlock). |
-| `toolFacade.mode` | `triad` | `flat` if your client prefers the full list. |
+| `toolFacade.mode` | `triad` | `flat` if your client prefers the full list; `auto` to pick per client (provisional). |
 | `transports.http.enabled` | false | Many-client / remote (then set auth). |
 | `experiential.captureContent` | true | Stores (scanned) call args. `securityProfile: "hardened"` turns it off. |
 | `OBSIDIAN_TC_GATEWAY_URL` (env) | unset | Enable the generative tier (`reflect`, `densify-llm`, `plane`). |

@@ -59,11 +59,35 @@ export function toolFacadeHealthView(cfg: {
   return { configured: cfg.mode, autoClients: cfg.autoClients };
 }
 
+/** THE-1123 review fix (LOW #8): bundles two `config`-derived `wireHealthTools` deps — server-
+ *  runtime.ts has no per-field line budget for them individually. Named + imported, called via a
+ *  spread at the call site, rather than an unnamed inline object literal. */
+export function healthToolsWiringFields<V extends readonly { id: string }[]>(cfg: {
+  vaults: V;
+  toolFacade: { mode: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> };
+}): { vaults: V; toolFacade: typeof cfg.toolFacade } {
+  return { vaults: cfg.vaults, toolFacade: cfg.toolFacade };
+}
+
+/** THE-1123 review fix (LOW #8): `config.toolFacade` -> `createMcpServer`'s own two option names
+ *  (`facadeMode`, not `mode`). Same reasoning as `healthToolsWiringFields` above. */
+export function mcpServerFacadeOptions(cfg: {
+  mode: FacadeMode | "auto";
+  autoClients?: Readonly<Record<string, FacadeMode>>;
+}): { facadeMode: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> } {
+  return { facadeMode: cfg.mode, autoClients: cfg.autoClients };
+}
+
 export function resolveAutoFacadeMode(
   clientName: string | undefined,
   configured?: Readonly<Record<string, FacadeMode>>,
 ): FacadeMode {
-  if (!clientName) return FALLBACK_FACADE_MODE;
+  // `clientName` is typed `string | undefined`, but every caller ultimately derives it from
+  // untrusted wire data (a client's own declared `clientInfo.name`) threaded through several
+  // optional-chain hops; a `typeof` guard (not just the type declaration) is what actually stops
+  // a non-string reaching `.toLowerCase()` and throwing out of what is meant to be a pure,
+  // never-fails matcher.
+  if (typeof clientName !== "string" || clientName.length === 0) return FALLBACK_FACADE_MODE;
   const lower = clientName.toLowerCase();
   for (const [substr, mode] of Object.entries(configured ?? {})) {
     if (lower.includes(substr.toLowerCase())) return mode;

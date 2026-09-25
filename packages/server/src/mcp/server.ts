@@ -23,7 +23,7 @@ import {
   type RequestLog,
   sampleViaClient,
 } from "./client-features";
-import { extractClientInfo } from "./client-info";
+import { clientInfoFromFields, extractClientInfo } from "./client-info";
 import {
   clientSupportsFormElicitation,
   elicitStateContextPatch,
@@ -332,11 +332,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
   ): T => (isModern ? { ...result, ...hint } : result);
 
   // THE-1123: see facade-mode-resolver.ts for the design (extracted to stay under biome's cap).
-  const { resolveFacadeMode, requestClientName } = createFacadeModeResolver(
-    server,
-    opts.facadeMode,
-    opts.autoClients,
-  );
+  const { resolveFacadeMode, requestClientName } = createFacadeModeResolver(server, opts);
 
   // THE-583: the verbosity floor for server->client log notifications is FIXED at `info` and
   // deliberately not settable. `logging/setLevel` is unroutable under MODERN (SEP-2575 removed
@@ -521,11 +517,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // `extra.mcpReq.envelope` — so `req.params._meta` never carries this key by the time this
     // handler runs; read the lifted location first. `envelope` uses the same reserved keys, so
     // `extractClientInfo` parses either bag identically. The `_meta` read stays as a fallback.
+    // THE-1123: 3rd fallback `server.getClientVersion()` (legacy `initialize`), same bound as above.
     const clientInfo =
-      extractClientInfo(extra.mcpReq.envelope) ?? extractClientInfo(req.params._meta);
+      extractClientInfo(extra.mcpReq.envelope) ??
+      extractClientInfo(req.params._meta) ??
+      clientInfoFromFields(server.getClientVersion());
     if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
-    // THE-1123: same resolution tools/list uses, reusing `clientInfo` above.
-    const facadeMode = resolveFacadeMode(clientInfo?.name ?? server.getClientVersion()?.name);
+    // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
+    const facadeMode = resolveFacadeMode(clientInfo?.name);
+    ctx = { ...ctx, effectiveFacadeMode: facadeMode };
     // The SDK consumes the SEP-2575 envelope keys before a handler sees `params._meta`, so client
     // capabilities are read from its own accessor rather than re-parsed off the wire.
     const canElicit = clientSupportsFormElicitation(server.getClientCapabilities());

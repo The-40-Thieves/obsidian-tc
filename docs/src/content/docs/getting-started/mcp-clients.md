@@ -28,7 +28,7 @@ its original 1.19.0 capture rather than restamped — it was a real observation 
 re-labelling it with a version it was not taken under would be the kind of quiet drift this page
 exists to avoid.
 
-| Client | stdio | Streamable HTTP | Surface | `outputSchema` | Auth | Recommended facade mode[^auto] |
+| Client | stdio | Streamable HTTP | Surface | `outputSchema` | Auth | auto picks (provisional)[^auto] |
 |---|---|---|---|---|---|---|
 | **Claude Code** | ✅ connects | ✅ connects | 3-tool facade | ✅ honoured | bearer on HTTP; none on stdio | `domain` |
 | Claude Desktop | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` |
@@ -38,11 +38,17 @@ exists to avoid.
 The three unfilled rows need a desktop session driving GUI clients. Nothing about them is known to
 be broken; they simply have not been exercised.
 
-[^auto]: What `toolFacade.mode: "auto"` would pick for this client today, from its
-    built-in `clientInfo.name` table. **Provisional, not measured** — like the rest of this page's
-    unfilled cells, these are a starting point pending real per-client tool-selection data, not a
-    result. See the [tool-surface facade docs](/tools/#tool-surface-facade) for the table and how
-    to override an entry.
+[^auto]: What `toolFacade.mode: "auto"` would pick for this client's NAME today, from the
+    built-in `clientInfo.name` table — NOT a claim that `auto` actually reaches every client in
+    every row above. **Provisional, not measured** — like the rest of this page's unfilled cells,
+    these are a starting point pending real per-client tool-selection data, not a result. `auto`
+    itself only resolves on stdio (either protocol era — the SDK's `Server` instance lives for the
+    whole connection there) and on Streamable HTTP for a 2026-07-28 client (which resends
+    `clientInfo` in `_meta` on every request); a 2025-11-25 client over HTTP gets the untargeted
+    fallback (`triad`) every time, because each HTTP request is served by a brand-new, stateless
+    `Server` instance with no memory of that client's `initialize` — see the
+    [tool-surface facade docs](/tools/#tool-surface-facade) for the full breakdown and the
+    override table.
 
 **Why daily production use does not fill them.** It is reasonable to assume a server in constant use
 must know which clients connect to it — obsidian-tc even captures `client_name` / `client_version`

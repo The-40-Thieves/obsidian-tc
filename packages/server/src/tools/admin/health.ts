@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { FacadeMode } from "../../mcp/facade";
-import { resolveAutoFacadeMode } from "../../mcp/facade-auto";
+import { FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
 import type { ToolDefinition } from "../../mcp/registry";
 
 export interface IndexHealthSnapshot {
@@ -70,15 +70,15 @@ export interface HealthInfo {
   /** THE-1123: the tool-facade mode this CALL got. Present whenever the server was wired with a
    *  `toolFacade` config (every real deployment; absent only for a harness that omits it, like a
    *  bare unit test of this tool). `configured` echoes `toolFacade.mode` as-is (may be "auto");
-   *  `effective` is the CONCRETE mode this call's own connection actually resolved to — for a
-   *  non-"auto" `configured` that is `configured` itself; for "auto" it is resolved fresh from
-   *  THIS call's own observed `clientInfo` (server_health dispatches through the same per-request
-   *  path as every other tool, so it is exactly as "per session" as tools/list is — see
-   *  mcp/server.ts's `resolveFacadeMode`, which this does NOT share a cache with: two concurrent
-   *  callers on the same auto-resolved connection could in principle disagree on `clientName` and
-   *  therefore transiently on `effective`, though in practice both read the same connection's
-   *  observed identity). `clientName` is this call's own `clientInfo.name`, when observed —
-   *  non-identifying (it names client SOFTWARE, e.g. "claude-code", never a person or vault). */
+   *  `effective` is `ctx.effectiveFacadeMode` — the SAME resolution mcp/server.ts's `tools/call`
+   *  handler already made for THIS request (and, for "auto", the SAME cached-per-connection value
+   *  `tools/list` advertised by), never re-derived here. Read the review fix in registry/types.ts's
+   *  `effectiveFacadeMode` doc comment for why a second, independent resolution in this file was a
+   *  bug (THE-1123 review round 1): it read `ctx.clientInfo`, which — unlike `ctx.effectiveFacadeMode`
+   *  — was never backfilled from a legacy `initialize`-only connection's `getClientVersion()`, so a
+   *  connection whose identity only ever appeared at `initialize` reported `triad`/no clientName
+   *  here while `tools/list` had already advertised `domain`. `clientName` mirrors `ctx.clientInfo`
+   *  — non-identifying (it names client SOFTWARE, e.g. "claude-code", never a person or vault). */
   toolFacade?: {
     configured: FacadeMode | "auto";
     effective: FacadeMode;
@@ -301,10 +301,20 @@ export function createHealthTool(opts: {
           ? {
               toolFacade: {
                 configured: opts.toolFacade.configured,
+                // THE-1123 review fix (HIGH): read the ALREADY-resolved decision off `ctx`
+                // (mcp/server.ts's `tools/call` handler sets it from the SAME resolver + cache
+                // `tools/list` uses) rather than re-resolving here from `ctx.clientInfo` — a second,
+                // independent resolution disagreed with what `tools/list` had just advertised on a
+                // legacy stdio connection whose identity only ever came from `initialize`, because
+                // `ctx.clientInfo` back then wasn't backfilled from `getClientVersion()` either.
+                // Absent only for a caller that bypassed that handler entirely (a bare unit test of
+                // this tool's own `handler` against a hand-built ctx); FALLBACK_FACADE_MODE is the
+                // documented default, not a second resolution of anything.
                 effective:
-                  opts.toolFacade.configured === "auto"
-                    ? resolveAutoFacadeMode(ctx.clientInfo?.name, opts.toolFacade.autoClients)
-                    : opts.toolFacade.configured,
+                  ctx.effectiveFacadeMode ??
+                  (opts.toolFacade.configured === "auto"
+                    ? FALLBACK_FACADE_MODE
+                    : opts.toolFacade.configured),
                 ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
               },
             }

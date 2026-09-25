@@ -40,4 +40,25 @@ describe("toolFacade.doctor", () => {
     const r = await run({ configured: "flat" });
     expect(r.status).not.toBe("fail");
   });
+
+  // THE-1123 review fix (LOW #9): `toolFacade.autoClients` is only ever consulted when `mode` is
+  // "auto" (mcp/server.ts's `resolveFacadeMode` short-circuits before touching it otherwise) — a
+  // config that sets `autoClients` under a concrete mode is silently inert, which doctor should
+  // surface rather than stay quiet about.
+  it("WARNS when autoClients is configured but mode is not auto — it is silently ignored", async () => {
+    const r = await run({ configured: "triad", autoClients: { cursor: "flat" } });
+    expect(r.status).toBe("warning");
+    expect(r.summary).toContain("autoClients");
+    expect(r.remediation).toBeTruthy();
+  });
+
+  it("does NOT warn when autoClients is absent under a concrete mode", async () => {
+    const r = await run({ configured: "domain" });
+    expect(r.status).toBe("ok");
+  });
+
+  it("does NOT warn when autoClients is an empty object under a concrete mode", async () => {
+    const r = await run({ configured: "flat", autoClients: {} });
+    expect(r.status).toBe("ok");
+  });
 });

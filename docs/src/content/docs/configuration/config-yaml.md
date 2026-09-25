@@ -393,7 +393,8 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `writes.requireCas` | false | When true, `write_note` (overwrite) and `append_note` to an existing note **require** `prev_hash` and fail closed without it — no stale-hash clobbering. |
 | `snapshots.enabled` | true | Point-in-time snapshots: destructive writes capture prior state (content-addressed) so `restore_note` can roll back. On by default; retention is pruned inline so growth is bounded. |
 | `snapshots.retention` | 10 | Versions kept per note (max 1000). |
-| `toolFacade.mode` | `triad` | What `tools/list` advertises: `triad` (3 meta-tools), `domain` (~a dozen domain meta-tools), `flat` (everything). All tools stay callable by name in every mode. |
+| `toolFacade.mode` | `triad` | What `tools/list` advertises: `triad` (3 meta-tools), `domain` (~a dozen domain meta-tools), `flat` (everything), `auto` (per-client, provisional — see Tool Reference). All tools stay callable by name in every mode. |
+| `toolFacade.autoClients` | *(optional)* | Only used when `mode` is `auto`: substring-of-clientInfo.name -> mode overrides, checked before the built-in table. |
 | `toolVisibility.allowed` | *(optional)* | Name allowlist for `tools/list` (absent = all; `[]` = none). |
 | `toolVisibility.hidden` / `hiddenTags` | `[]` | Drop from `tools/list` but keep callable (lean surface, not a security boundary). |
 | `toolVisibility.disabled` / `disabledTags` | `[]` | Drop from the list **and** reject at dispatch. |
