@@ -9,7 +9,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Added
 
 - **`toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client
-  (THE-1123, PR #TBD).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
+  (THE-1123, PR #976).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
   the three from the connecting client's observed MCP `clientInfo.name`, resolved once per session
   (cached on the connection for stdio; naturally per-request for HTTP's stateless transport) and
   logged once at info level (`configured`/`client`/`effective`). `toolFacade.autoClients` maps a
