@@ -1,14 +1,14 @@
 # @the-40-thieves/obsidian-tc-reranker-local
 
-THE-705 item 1 — an **optional**, fully offline cross-encoder reranker for obsidian-tc's `gatedRerank`
+An **optional**, fully offline cross-encoder reranker for obsidian-tc's `gatedRerank`
 seam. No `OBSIDIAN_TC_GATEWAY_URL`, no `bge-m3-service`, no network at inference time.
 
 Runtime: [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingface/transformers) v4
 (Transformers.js), running the int8 ONNX export of
 [cross-encoder/ms-marco-MiniLM-L6-v2](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2)
 (via [Xenova/ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2), Apache-2.0,
-~23 MB, CPU-only) — see `THE-705-cross-encoder` research brief for the full comparison this model and
-runtime were chosen from.
+~23 MB, CPU-only) — chosen after comparing it against the other local cross-encoder options for
+this size/quality/runtime tradeoff.
 
 ## Why this package is NOT a root workspace member
 
@@ -28,11 +28,11 @@ three resolve. Resolution failure never crashes boot.
 
 ## Publishing status
 
-**THE-944: the release pipeline is prepared, but this package is not yet actually published to npm**
+**The release pipeline is prepared, but this package is not yet actually published to npm**
 — that first publish is a deferred, one-time OWNER action (`.github/workflows/publish.yml`'s
 `publish-reranker-local` job cannot perform it: npm trusted publishing can only be configured for a
 package that already exists in the registry, so the very first release needs one manual
-`npm publish` — see the THE-944 task report for the exact command). None of this blocks USING the
+`npm publish`). None of this blocks USING the
 package today — `packages/server`'s `local` reranker entry resolves it through a three-route ladder
 (below), and two of the three routes work without npm. Until the first publish lands, an
 **npm-installed** obsidian-tc server (as opposed to a source checkout of this monorepo) can only
@@ -45,20 +45,20 @@ reach it via `reranker.localModulePath`.
 cd packages/reranker-local && bun install && bun run build
 
 # 2. (Optional) pre-fetch and checksum-verify the pinned model weights (~23 MB) into ./models/,
-#    gitignored. THE-944: no longer required — the provider fetches and verifies them
+#    gitignored. No longer required — the provider fetches and verifies them
 #    automatically on the FIRST rerank() call if they are not already present. Run this step
 #    anyway for an offline deployment, or in CI, to avoid a network call on first use:
 bun run fetch-model
 
 # 3. Point obsidian-tc at it — see "Resolution ladder" below for which of these you need, or
-#    leave `reranker` unset entirely: THE-944 auto-selects this package when no gateway URL and
+#    leave `reranker` unset entirely: auto-select picks this package when no gateway URL and
 #    no embeddings.modelTier.full are configured (see "Auto-select" below).
 ```
 
 `bun run fetch-model --check` verifies an existing download without touching the network; useful in
 CI to fail fast on a stale or corrupted cache. `--dir <path>` downloads elsewhere.
 
-## Auto-select (THE-944)
+## Auto-select
 
 `reranker.provider: "local"` no longer needs to be set explicitly. When the whole `reranker` block is
 absent, `embeddings.modelTier.full` is not configured, and no gateway URL is configured (neither
@@ -95,7 +95,7 @@ other reranker's "not configured"/"unreachable" case.
   once, on the **first** `rerank()` call, and are cached for the process's lifetime. Configuring
   `reranker.provider: "local"` but never triggering `gatedRerank`'s hardness gate costs nothing extra
   at boot.
-- **Fetched and verified on first use (THE-944), never at import time.** If the pinned files are not
+- **Fetched and verified on first use, never at import time.** If the pinned files are not
   already present (and sha256-verified against `src/model-info.ts`) under
   `<localModelPath>/<model-id>/<revision>/`, the first `rerank()` call downloads them there via
   `src/model-fetch.ts` — a temp-dir download, whole-batch verification, one retry, and an atomic
@@ -118,7 +118,7 @@ other reranker's "not configured"/"unreachable" case.
   ladder" above; it is **not yet** reachable via a plain `bun add` from an npm-installed server,
   since this package is not yet published (see "Publishing status" above). A Rust-native fallback
   (via `packages/native`) is the documented path to compiled-binary parity, out of scope for this
-  ticket (see the THE-705 research brief §1c).
+  package today.
 
 ## Provenance
 
@@ -128,7 +128,7 @@ first-use fetch and `scripts/fetch-model.mjs`). The int8 ONNX file's checksum wa
 against the Hugging Face API's own reported LFS sha256 for that file at the pinned revision; the
 small config/tokenizer files (not LFS-tracked) were downloaded and hashed directly.
 
-THE-944: the on-disk layout is now REVISION-scoped — `<root>/<model-id>/<revision>/...` rather than
+The on-disk layout is REVISION-scoped — `<root>/<model-id>/<revision>/...` rather than
 `<root>/<model-id>/...` — so a future `MODEL_REVISION` bump gets its own directory instead of
 silently reusing (or colliding with) a previous revision's files. This is also the literal path
 handed to `@huggingface/transformers`'s `from_pretrained` as `path_or_repo_id` (not

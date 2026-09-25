@@ -85,7 +85,7 @@ export const ObservabilityConfigSchema = z.object({
         .positive()
         .default(30)
         .describe(
-          "Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (THE-572 writes the trace before the session row, so a failed attempt leaves a file with no row referencing it).",
+          "Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (the trace is written before the session row, so a failed attempt leaves a file with no row referencing it).",
         ),
     })
     .prefault({})
@@ -248,7 +248,7 @@ export const PlaneConfigSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured. Opt-in (THE-825): a deployment with a gateway configured and this key unset gets a boot-time notice explaining how to turn it on.",
+        "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured. Opt-in: a deployment with a gateway configured and this key unset gets a boot-time notice explaining how to turn it on.",
       ),
     intervalMinutes: z
       .number()
@@ -262,7 +262,7 @@ export const PlaneConfigSchema = z
       .positive()
       .default(6)
       .describe(
-        "Attempts a consolidation job's gateway call may make before failing, each with its own fresh timeout. Higher than the interactive default (3) because the models behind the gateway roles may be serverless and scale to zero: a cold start measured at over 180s exceeded 3 attempts x 60s, so every scheduled pass failed with a timeout while the same request against a warm endpoint took 4.8s. Separate from the interactive path on purpose: a multi-minute budget suits a background weekly pass and not a user-facing call. NOTE (THE-709): attempts alone were not sufficient — retries only help a TRANSIENT failure, and a request that deterministically exceeds the per-attempt timeout fails identically on every attempt. See planeGatewayTimeoutMs, which is the knob for that case.",
+        "Attempts a consolidation job's gateway call may make before failing, each with its own fresh timeout. Higher than the interactive default (3) because the models behind the gateway roles may be serverless and scale to zero: a cold start measured at over 180s exceeded 3 attempts x 60s, so every scheduled pass failed with a timeout while the same request against a warm endpoint took 4.8s. Separate from the interactive path on purpose: a multi-minute budget suits a background weekly pass and not a user-facing call. NOTE: attempts alone were not sufficient — retries only help a TRANSIENT failure, and a request that deterministically exceeds the per-attempt timeout fails identically on every attempt. See planeGatewayTimeoutMs, which is the knob for that case.",
       ),
     gatewayTimeoutMs: z
       .number()
@@ -278,7 +278,7 @@ export const PlaneConfigSchema = z
       .positive()
       .default(45535)
       .describe(
-        "Aggregate character cap on a consolidation job's WHOLE gateway request (system prompt + user message). Not a per-item cap: the synthesis job already truncated each chunk to 1000 chars and still built a 169,258-char prompt from 200 of them, which the serving window rejected as ContextWindowExceeded. Sized in characters, not tokens, because no tokenizer is available on this side. The default is conservative on purpose — the model behind a gateway role is swappable at the gateway, and the server does not advertise its max_model_len through the LiteLLM /v1/models passthrough, so this side cannot discover the real ceiling. THE-891 item 7: sized so every vault shape keeps the SAME ~14,554-token output reserve inside a 32768-token window, not just prose-like ones — derived from the worst-case density this job documents (code/CJK, ~2.5 chars/token): (32768 - 14554) x 2.5 = 45535 chars. A prose-dense vault (measured on a real vault at 3.294 chars/token) gets MORE reserve than this, never less. Raise it when the role points at a larger serving window.",
+        "Aggregate character cap on a consolidation job's WHOLE gateway request (system prompt + user message). Not a per-item cap: the synthesis job already truncated each chunk to 1000 chars and still built a 169,258-char prompt from 200 of them, which the serving window rejected as ContextWindowExceeded. Sized in characters, not tokens, because no tokenizer is available on this side. The default is conservative on purpose — the model behind a gateway role is swappable at the gateway, and the server does not advertise its max_model_len through the LiteLLM /v1/models passthrough, so this side cannot discover the real ceiling. Sized so every vault shape keeps the SAME ~14,554-token output reserve inside a 32768-token window, not just prose-like ones — derived from the worst-case density this job documents (code/CJK, ~2.5 chars/token): (32768 - 14554) x 2.5 = 45535 chars. A prose-dense vault (measured on a real vault at 3.294 chars/token) gets MORE reserve than this, never less. Raise it when the role points at a larger serving window.",
       ),
   })
   .prefault({});

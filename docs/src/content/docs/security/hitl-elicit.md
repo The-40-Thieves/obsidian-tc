@@ -27,7 +27,7 @@ call.
 The elicitation thresholds are **hardcoded floors** — a client cannot configure
 them away. This keeps the confirmation gate present even under a permissive config.
 
-## The `inputRequired` round trip, on stdio too (THE-1106)
+## The `inputRequired` round trip, on stdio too
 
 A client that advertises the MCP **elicitation** capability (`elicitation/create`,
 SEP-2260/2322) gets the confirmation as an actual protocol round trip — the server
@@ -59,14 +59,14 @@ A client that declares a bare `elicitation: {}` capability (no `form`/`url` sub-
 is treated as supporting form mode — the 2025 spec's pre-mode default — not as
 declining elicitation; this applies uniformly, on every transport and era.
 
-## When your client can't render the prompt (THE-826)
+## When your client can't render the prompt
 
 A client with NO elicitation capability at all gets nothing to act on: a call to
 one of the 16 conditionally-gated tools (`move_note` across a folder boundary,
 `delete_note`, `restore_note`, `prune_hub_links`, and others) simply fails with
 an `elicit_required` error and no round trip to complete it. The error text itself
-leads with a directive telling the AGENT to ask the human before running anything
-(THE-1106 part 3) — it is not an instruction the agent should act on unilaterally:
+leads with a directive telling the AGENT to ask the human before running anything —
+it is not an instruction the agent should act on unilaterally:
 
 ```json
 { "code": "elicit_required", "details": { "args_hash": "…" } }
@@ -116,7 +116,7 @@ the refusal is counted (`governor_truncations_total`) and emitted as
 pathologically large payloads.
 
 An MCP `resources/read` honors the same configured `governor.maxResponseBytes` ceiling
-(THE-514) — lowering it refuses an oversized resource too, not just an oversized tool
+— lowering it refuses an oversized resource too, not just an oversized tool
 response. A resource's rejection is a plain `invalid_input` error (checked via a cheap
 `stat()` before the file is read, rather than serializing the result first), so it does
 not increment `governor_truncations_total` or emit `tc.governor.overflow` — those stay

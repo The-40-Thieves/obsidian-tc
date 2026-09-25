@@ -112,7 +112,7 @@ With the gateway live: `reflect` synthesis and `mode: "challenge"`,
 preference extraction, and citation-inference stage 2.
 
 **The 4-hour `plane` sleep-time consolidation is the one exception — it is
-opt-in (THE-825), separate from the gateway itself.** A gateway alone is not
+opt-in, separate from the gateway itself.** A gateway alone is not
 consent to unattended, whole-vault LLM calls, so `plane.enabled` also defaults
 to `false` and must be set explicitly:
 

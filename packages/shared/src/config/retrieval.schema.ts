@@ -91,7 +91,7 @@ export const RetrievalConfigSchema = z.object({
         .enum(["cosine", "zMargin"])
         .default("cosine")
         .describe(
-          "Which hardness rule gates the rerank: absolute top-1 cosine, or the model-agnostic z-margin. Default `cosine` preserves the shipped behaviour; `zMargin` is what THE-400 built and has never been the production default.",
+          "Which hardness rule gates the rerank: absolute top-1 cosine, or the model-agnostic z-margin. Default `cosine` preserves the shipped behaviour; `zMargin` is a model-agnostic alternative that has never been the production default.",
         ),
       hardTop1: z
         .number()
@@ -328,7 +328,7 @@ export const RetrievalConfigSchema = z.object({
         .boolean()
         .default(false)
         .describe(
-          "Generate + retrieve note-level summaries (THE-628). Off ships the mechanism dark: zero gateway calls at index time, no summary candidates at retrieval time. Gated on a pre-registered global-query eval, not built here.",
+          "Generate + retrieve note-level summaries. Off ships the mechanism dark: zero gateway calls at index time, no summary candidates at retrieval time. Gated on a pre-registered global-query eval, not built here.",
         ),
       model: z
         .string()
@@ -360,7 +360,7 @@ export const RetrievalConfigSchema = z.object({
             .boolean()
             .default(false)
             .describe(
-              "Generate + retrieve cluster-level (tier-2/RAPTOR) summaries (THE-628, second PR). Off ships the mechanism dark: zero gateway/embed calls at the offline cluster pass, no cluster_summary candidates at retrieval time. Gated on the SAME pre-registered global-query eval as the note-level tier.",
+              "Generate + retrieve cluster-level (tier-2/RAPTOR) summaries. Off ships the mechanism dark: zero gateway/embed calls at the offline cluster pass, no cluster_summary candidates at retrieval time. Gated on the SAME pre-registered global-query eval as the note-level tier.",
             ),
           maxConcurrency: z
             .number()
@@ -580,7 +580,7 @@ export const ExperientialConfigSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on is THE-424 Part B.",
+      "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on has not shipped.",
     ),
   /** THE-644: fold the RETRIEVAL-level citation verdict (`chunk_retrievals.citation_state` /
    *  `cited_in_response`) into the deterministic `preferred.search_mode` counter alongside the

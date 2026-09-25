@@ -43,6 +43,7 @@
     "check:table-readers": "node scripts/check-table-readers.mjs",
     "check:perf-timing-scope": "node scripts/check-perf-timing-scope.mjs",
     "check:plugin-routes": "node scripts/check-plugin-routes.mjs",
+    "check:public-text": "node scripts/check-public-text.mjs",
     "check:version": "node scripts/check-version-coherence.mjs",
     "check:workflow-injection": "node scripts/check-workflow-injection.mjs",
     "config:schema": "bun scripts/gen-config-schema.ts",

@@ -361,7 +361,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       domain: "structured",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset, THE-281); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
+        "Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
       inputSchema: QueryInput,
       outputSchema: QueryBaseOutput,
       requiredScopes: ["read:bases"],

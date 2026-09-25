@@ -176,7 +176,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       name: "get_entity",
       domain: "knowledge",
       description:
-        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set (THE-833).",
+        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -380,7 +380,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       name: "query_entity_graph",
       domain: "knowledge",
       description:
-        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set (THE-833) — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. Domain: knowledge.",
+        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,

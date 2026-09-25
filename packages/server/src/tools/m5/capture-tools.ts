@@ -200,7 +200,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       name: "list_capture_queue",
       domain: "knowledge",
       description:
-        "List captures in the queue (pending by default; committed:true lists committed), newest first. Each item carries the poison-scan verdict assessed at enqueue time (THE-855) — review poison_assessment before calling commit_capture.",
+        "List captures in the queue (pending by default; committed:true lists committed), newest first. Each item carries the poison-scan verdict assessed at enqueue time — review poison_assessment before calling commit_capture.",
       inputSchema: z
         .object({
           vault: VaultId,

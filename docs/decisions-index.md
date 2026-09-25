@@ -151,7 +151,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-463 | _internal planning reference — see repo history_ | — | 3 |
 | THE-465 | Metrics Registry | docs/design/metrics-registry.md | 13 |
 | THE-466 | Server Runtime — Composition Root | docs/design/server-runtime.md | 8 |
-| THE-467 | Metrics Registry | docs/design/metrics-registry.md | 4 |
+| THE-467 | Metrics Registry | docs/design/metrics-registry.md | 3 |
 | THE-486 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 3 |
 | THE-487 | _internal planning reference — see repo history_ | — | 1 |
 | THE-488 | _internal planning reference — see repo history_ | — | 5 |
@@ -170,7 +170,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-510 | Contributor tooling and an MCP client compatibility matrix (THE-624, THE-510, #567). | CHANGELOG.md (1.14.0) | 1 |
 | THE-512 | _internal planning reference — see repo history_ | — | 1 |
 | THE-513 | MCP registry: caller context and tool-definition types | docs/design/mcp-registry-context-types.md | 4 |
-| THE-514 | _internal planning reference — see repo history_ | — | 12 |
+| THE-514 | _internal planning reference — see repo history_ | — | 11 |
 | THE-515 | _internal planning reference — see repo history_ | — | 2 |
 | THE-516 | _internal planning reference — see repo history_ | — | 6 |
 | THE-517 | Wire the durable JobQueue to its workloads — THE-562 #14 (THE-517) | docs/superpowers/specs/2026-07-24-the-562-14-durable-job-queue-wiring-design.md | 6 |
@@ -199,10 +199,10 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-564 | Derived-cognition plane isolation — THE-563 / THE-564 (+ audit #9, P1.6 deep-half) | docs/superpowers/specs/2026-07-24-the-563-564-derived-plane-isolation-design.md | 3 |
 | THE-565 | _internal planning reference — see repo history_ | — | 4 |
 | THE-567 | _internal planning reference — see repo history_ | — | 4 |
-| THE-568 | _internal planning reference — see repo history_ | — | 9 |
+| THE-568 | _internal planning reference — see repo history_ | — | 8 |
 | THE-569 | Reverse vault-kind gate: mutation of a docs/system vault is now refused (THE-569, closing the P1.5 boundary above) | CHANGELOG.md (1.11.0) | 3 |
 | THE-571 | _internal planning reference — see repo history_ | — | 4 |
-| THE-572 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 16 |
+| THE-572 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 15 |
 | THE-573 | MCP Dispatch & Transport | docs/design/mcp-dispatch-and-transport.md | 3 |
 | THE-577 | MCP registry: caller context and tool-definition types | docs/design/mcp-registry-context-types.md | 2 |
 | THE-578 | _internal planning reference — see repo history_ | — | 3 |
@@ -291,7 +291,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-701 | The episode-eligibility judge (THE-701, #661). | CHANGELOG.md (1.15.0) | 7 |
 | THE-705 | A bundled `local` cross-encoder reranker — `gatedRerank` with no gateway and no external service (#806, THE-705). | CHANGELOG.md (1.22.0) | 9 |
 | THE-707 | THE-707 — experiential-tier benchmark applicability assessment (no adapter built). | CHANGELOG.md (1.23.0) | 1 |
-| THE-709 | Consolidation jobs get a per-attempt gateway timeout (THE-709). | CHANGELOG.md (1.16.0) | 3 |
+| THE-709 | Consolidation jobs get a per-attempt gateway timeout (THE-709). | CHANGELOG.md (1.16.0) | 2 |
 | THE-710 | `preference_profile` / `preference_deltas` are namespaced by vault (#675, THE-710). | CHANGELOG.md (1.17.0) | 7 |
 | THE-711 | `chunk_fts` is contentless, keyed on the chunks rowid (#728, THE-711). | CHANGELOG.md (1.20.0) | 8 |
 | THE-713 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 1 |
@@ -321,7 +321,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-742 | Rerun hygiene: WAL staging, audit attribution, policy refusals, exit codes (#730, THE-738, THE-739, THE-740, THE-742). | CHANGELOG.md (1.20.0) | 2 |
 | THE-743 | `ToolAnnotations.idempotentHint` (#733, THE-743). | CHANGELOG.md (1.20.0) | 2 |
 | THE-744 | An invocation that plans zero passes now records that it ran (#733, THE-744). | CHANGELOG.md (1.20.0) | 6 |
-| THE-745 | `busy_timeout` is installed before any pragma that can contend (#723, THE-745). | CHANGELOG.md (1.20.0) | 5 |
+| THE-745 | `busy_timeout` is installed before any pragma that can contend (#723, THE-745). | CHANGELOG.md (1.20.0) | 4 |
 | THE-746 | Per-decision eligibility reasons (#733, THE-746). | CHANGELOG.md (1.20.0) | 5 |
 | THE-747 | `reflect --max-judged` outlived the judge it capped (#724, THE-747). | CHANGELOG.md (1.20.0) | 2 |
 | THE-748 | _internal planning reference — see repo history_ | — | 1 |
@@ -349,7 +349,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-860 | `/makemd/spaces` no longer silently degrades to an empty list (#837, THE-860). | CHANGELOG.md (1.23.0) | 1 |
 | THE-861 | Client identity now reaches `tools/call` handlers (#834, THE-861). | CHANGELOG.md (1.23.0) | 2 |
 | THE-862 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
-| THE-891 | Per-key preference scoping — human vs caller (#846, THE-891 item 6). | CHANGELOG.md (1.23.0) | 34 |
+| THE-891 | Per-key preference scoping — human vs caller (#846, THE-891 item 6). | CHANGELOG.md (1.23.0) | 33 |
 | THE-906 | The boot ready line, `doctor`, the capability profile and `server_health` could all report `native=on` / "native acceleration module loaded" while actually running the pure-JS fallback (THE-906, #858). | CHANGELOG.md (1.23.2) | 4 |
 | THE-922 | A TLS trust failure was reported as "reload the plugin inside Obsidian" — the bridge transport discarded `e.cause`, collapsing every fetch failure into one indistinguishable state (THE-922, #861). | CHANGELOG.md (1.23.3) | 4 |
 | THE-923 | The fetch cause was preserved only at `doFetch`, so a TLS-untrusted companion still misdirected every other transport (THE-923, #865). | CHANGELOG.md (1.23.4) | 7 |
@@ -363,7 +363,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
 | THE-939 | `doctor` warns on sync-service conflict copies in the install directory (#900, THE-939; issue #881). | CHANGELOG.md (1.27.0) | 5 |
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
-| THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
+| THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 9 |
 | THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (#909, THE-963). | CHANGELOG.md (1.28.0) | 3 |
 | THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 3 |
 | THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |

@@ -58,7 +58,7 @@ export const GovernorConfigSchema = z.object({
     .positive()
     .default(1_000_000)
     .describe(
-      "Ceiling on a single tool or resource response in bytes, before it is refused (THE-514: resources/read honors this too, not just tools).",
+      "Ceiling on a single tool or resource response in bytes, before it is refused (resources/read honors this too, not just tools).",
     ),
   // THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
   // Only regex execution in the worker counts — file I/O does not — so a benign pattern on a
@@ -184,7 +184,7 @@ export const SessionsConfigSchema = z
       .boolean()
       .default(true)
       .describe(
-        'Also persist each dispatch\'s raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: "hardened"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface — see THE-737.',
+        'Also persist each dispatch\'s raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: "hardened"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface.',
       ),
     windowSeconds: z
       .number()
