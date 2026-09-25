@@ -34,6 +34,7 @@ import { run_help } from "./cli/commands/help";
 import { run_import_ambient } from "./cli/commands/import-ambient";
 import { run_import_highlights } from "./cli/commands/import-highlights";
 import { run_index } from "./cli/commands/index";
+import { run_memory_import } from "./cli/commands/memory-import";
 import { run_metrics } from "./cli/commands/metrics";
 import { run_note_quality } from "./cli/commands/note-quality";
 import { run_plugin_install } from "./cli/commands/plugin-install";
@@ -70,7 +71,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // event). `consolidate` (THE-934) joins that recompute bucket for the same reason — the syntheses/
 // audit_reports rows it writes are reproduced by the next scheduled pass, and `--dry-run` writes
 // nothing at all. `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
-// free. `forget`, `elicit` (THE-826), `context-export`/`context-import` (THE-636) and
+// free — `memory import` (THE-1124) joins it: every create_entity/add_observation/link_entities/
+// update_frontmatter call goes through the same bound `registry.dispatch`, so it is audited (and
+// ACL-checked) exactly like an MCP client's own call, and `--apply`-less dry runs write nothing at
+// all (cli/commands/memory-import.ts). `forget`, `elicit` (THE-826), `context-export`/`context-import` (THE-636) and
 // `import-highlights` (THE-650) and `import-ambient` (THE-175) are the commands that write
 // `audit_events` directly rather than through `runDispatch`. `compact` (THE-1039) is unaudited for
 // a different reason again: it VACUUMs and FTS5-`'optimize'`s cache.db/experiential.db, which
@@ -137,6 +141,8 @@ async function main(): Promise<void> {
       return run_import_highlights(cmd);
     case "import-ambient":
       return run_import_ambient(cmd);
+    case "memory-import":
+      return run_memory_import(cmd);
     case "consolidate":
       return run_consolidate(cmd);
     case "gaps":

@@ -4,6 +4,7 @@ import { type CompactCommand, parseCompact } from "./parse-compact";
 import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
+import { type MemoryImportCommand, parseMemoryImport } from "./parse-memory-import";
 
 export type CliCommand =
   | { kind: "serve"; input?: string }
@@ -116,6 +117,7 @@ export type CliCommand =
   // in capture_queue (source: "import") for commit_capture review. Parser: ./parse-import-highlights.ts.
   | ImportHighlightsCommand
   | ImportAmbientCommand // THE-175: same shape, ambient screen observations. ./parse-import-ambient.ts.
+  | MemoryImportCommand // THE-1124: `memory import` — basic-memory / claude-code-memory adapters. ./parse-memory-import.ts.
   | ConsolidateCommand // THE-934: one ambient consolidation pass, unscheduled. ./parse-consolidate.ts.
   | CompactCommand // THE-1039 (GH #930): compaction. Parser: ./parse-compact.ts.
   | { kind: "error"; message: string };
@@ -275,6 +277,15 @@ export function parseCliArgs(argv: string[]): CliCommand {
         return { kind: "plugin-install", vaultPath };
       }
       return { kind: "error", message: `unknown plugin subcommand: ${sub ?? "(none)"}` };
+    }
+    // THE-1124: `memory import` — a two-word command like `token mint`/`config show`/`plugin
+    // install` above. Parse branch delegates to ./parse-memory-import.ts (args.ts's top-of-file
+    // import comment explains why: this file sits at biome's noExcessiveLinesPerFile floor).
+    if (first === "memory") {
+      const sub = rest[0];
+      if (sub !== "import")
+        return { kind: "error", message: `unknown memory subcommand: ${sub ?? "(none)"}` };
+      return parseMemoryImport(rest.slice(1));
     }
     if (first === "cluster") {
       // Parse --k first and drop it (+ its value) so the config positional is unambiguous.

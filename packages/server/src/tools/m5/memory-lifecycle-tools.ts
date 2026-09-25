@@ -22,6 +22,7 @@
 // churn.
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { inWriteTransaction } from "../../db/txn";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
   deleteEntity,
@@ -31,7 +32,7 @@ import {
   relationsForEntity,
   updateEntity,
 } from "../../memory/entities";
-import { entityNotePath } from "../../memory/materialize";
+import { assertNoteOwnership, entityNotePath } from "../../memory/materialize";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
@@ -112,6 +113,39 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
           enforcePathAcl(ctx.acl, "write", newPath, v.root, ctx.grantedScopes);
         }
 
+        // Review finding: ownership pre-checks BEFORE any SQLite mutation, so a refusal here is a
+        // pure no-op (nothing to roll back), not a partial rename. `oldPath` covers the
+        // status-only case too (there `newPath === oldPath`): a foreign note planted at the
+        // entity's OWN current path must refuse before the status/name update commits, not leave
+        // the row changed with its note write silently failing afterward. `newPath` (renaming
+        // only) is what the "seed the new path with the old note's bytes" write below used to
+        // skip entirely — it wrote directly, bypassing materializeEntity's ownership check, and
+        // could silently overwrite a foreign note sitting at the destination.
+        const neighborsToRematerialize: { id: string; path: string }[] = [];
+        if (e.materialize === 1) {
+          assertNoteOwnership(v.root, oldPath, e.id);
+          if (renaming) assertNoteOwnership(v.root, newPath, e.id);
+          if (renaming) {
+            // Every OTHER materialized entity with a relation TO this one will have its own note
+            // re-materialized below (so its [[link]] follows the new name) — pre-check ownership
+            // of EACH of those notes too, or a foreign note at any one of them would leave this
+            // entity's own rename committed with no way to know a neighbor's update silently
+            // never happened.
+            const incoming = relationsForEntity(ctx.db, e.id).filter((r) => r.direction === "in");
+            const seen = new Set<string>();
+            for (const r of incoming) {
+              if (seen.has(r.other_id)) continue;
+              seen.add(r.other_id);
+              const src = getEntityById(ctx.db, r.other_id);
+              if (src && src.materialize === 1) {
+                const srcPath = currentNotePath(deps, v.id, src);
+                assertNoteOwnership(v.root, srcPath, src.id);
+                neighborsToRematerialize.push({ id: src.id, path: srcPath });
+              }
+            }
+          }
+        }
+
         // Capture the OLD note's raw bytes BEFORE anything moves, so the rename can carry its
         // preserved (non-owned) frontmatter forward. materializeEntity only preserves frontmatter
         // it finds already sitting AT THE TARGET path — on a rename that path doesn't exist yet,
@@ -124,62 +158,54 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         }
 
         const now = (ctx.now ?? Date.now)();
-        const updated = updateEntity(
-          ctx.db,
-          e.id,
-          {
-            name: renaming ? nextName : undefined,
-            status:
-              input.status !== undefined && input.status !== e.status ? input.status : undefined,
-          },
-          now,
-        );
-        if (!updated) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
-
-        let vaultPath: string | null = e.vault_path;
-        if (updated.materialize === 1) {
-          if (renaming && oldRaw !== null) {
-            // Seed the new path with the old note's bytes so materializeEntity's own
-            // "does a note already exist here" check fires at the NEW path and preserves it.
-            writeNoteAtomic(resolveVaultPath(v.root, newPath), oldRaw, true);
-          }
-          vaultPath = rematerialize(deps, ctx, v, updated, now);
-          if (renaming) {
-            const oldAbs = resolveVaultPath(v.root, oldPath);
-            if (noteExists(oldAbs).exists) hardDelete(oldAbs);
-          }
-        }
-
-        // Keep every OTHER materialized entity's [[link]] to this one pointing at its (possibly
-        // new) name. relationsForEntity's "in" edges are entities with a relation TO this one;
-        // rematerializing each regenerates its Related section from a LIVE join against
-        // memory_entities/memory_relations, which already reflects the renamed row.
-        let neighborsRematerialized = 0;
-        if (renaming) {
-          const incoming = relationsForEntity(ctx.db, updated.id).filter(
-            (r) => r.direction === "in",
+        return inWriteTransaction(ctx.db, "memory_rename", () => {
+          const updated = updateEntity(
+            ctx.db,
+            e.id,
+            {
+              name: renaming ? nextName : undefined,
+              status:
+                input.status !== undefined && input.status !== e.status ? input.status : undefined,
+            },
+            now,
           );
-          const seen = new Set<string>();
-          for (const r of incoming) {
-            if (seen.has(r.other_id)) continue;
-            seen.add(r.other_id);
-            const src = getEntityById(ctx.db, r.other_id);
+          if (!updated) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+
+          let vaultPath: string | null = e.vault_path;
+          if (updated.materialize === 1) {
+            if (renaming && oldRaw !== null) {
+              // Already ownership-checked above — this write can only ever land on a free path or
+              // this entity's own.
+              writeNoteAtomic(resolveVaultPath(v.root, newPath), oldRaw, true);
+            }
+            vaultPath = rematerialize(deps, ctx, v, updated, now);
+            if (renaming) {
+              const oldAbs = resolveVaultPath(v.root, oldPath);
+              if (noteExists(oldAbs).exists) hardDelete(oldAbs);
+            }
+          }
+
+          // Keep every OTHER materialized entity's [[link]] to this one pointing at its (possibly
+          // new) name — the set pre-checked above.
+          let neighborsRematerialized = 0;
+          for (const n of neighborsToRematerialize) {
+            const src = getEntityById(ctx.db, n.id);
             if (src && src.materialize === 1) {
               rematerialize(deps, ctx, v, src, now);
               neighborsRematerialized++;
             }
           }
-        }
 
-        return {
-          entity_id: updated.id,
-          type: updated.entity_type,
-          name: updated.name,
-          status: updated.status,
-          vault_path: vaultPath,
-          updated_at: updated.updated_at,
-          neighbors_rematerialized: neighborsRematerialized,
-        };
+          return {
+            entity_id: updated.id,
+            type: updated.entity_type,
+            name: updated.name,
+            status: updated.status,
+            vault_path: vaultPath,
+            updated_at: updated.updated_at,
+            neighbors_rematerialized: neighborsRematerialized,
+          };
+        });
       },
     }),
 
@@ -209,24 +235,26 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
           throw err.invalidInput("target entity not found", { entity_id: input.target_id });
         // Mirrors link_entities: only the SOURCE's materialized note is affected (its outgoing
         // [[links]]), so only its ACL is pre-checked.
-        if (src.materialize === 1)
-          enforcePathAcl(
-            ctx.acl,
-            "write",
-            currentNotePath(deps, v.id, src),
-            v.root,
-            ctx.grantedScopes,
-          );
-        const { existed } = deleteRelation(ctx.db, src.id, tgt.id, input.relation_type);
+        const srcPath = currentNotePath(deps, v.id, src);
+        if (src.materialize === 1) {
+          enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
+          // Review finding: pre-check BEFORE deleteRelation, not after — the relation used to be
+          // removed first and only discovered the ownership refusal when rematerialize ran,
+          // leaving the edge gone with nothing to restore it.
+          assertNoteOwnership(v.root, srcPath, src.id);
+        }
         const now = (ctx.now ?? Date.now)();
-        const sourceVaultPath = rematerialize(deps, ctx, v, src, now);
-        return {
-          source_id: src.id,
-          target_id: tgt.id,
-          relation_type: input.relation_type,
-          removed: existed,
-          source_vault_path: sourceVaultPath,
-        };
+        return inWriteTransaction(ctx.db, "memory_unlink", () => {
+          const { existed } = deleteRelation(ctx.db, src.id, tgt.id, input.relation_type);
+          const sourceVaultPath = rematerialize(deps, ctx, v, src, now);
+          return {
+            source_id: src.id,
+            target_id: tgt.id,
+            relation_type: input.relation_type,
+            removed: existed,
+            source_vault_path: sourceVaultPath,
+          };
+        });
       },
     }),
 
@@ -280,15 +308,34 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
           ...new Set(relations.filter((r) => r.direction === "in").map((r) => r.other_id)),
         ];
 
-        const { deleted, relationsDeleted } = deleteEntity(ctx.db, e.id);
-        if (!deleted) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
-
-        const now = (ctx.now ?? Date.now)();
+        // Review finding: ownership pre-checks BEFORE any SQLite mutation — the entity's own note
+        // (about to be trashed/permanently deleted below) AND every neighbor's note cascade will
+        // re-materialize once this entity's relations are gone, since deleteEntity + the trash/
+        // hardDelete used to run unconditionally, discovering a foreign note only via rematerialize
+        // AFTER the row and its relations were already gone with nothing left to restore them.
+        if (notePath) assertNoteOwnership(v.root, notePath, e.id);
+        const neighborsToRematerialize: { id: string; path: string }[] = [];
         for (const id of incomingNeighborIds) {
           const src = getEntityById(ctx.db, id);
-          if (src && src.materialize === 1) rematerialize(deps, ctx, v, src, now);
+          if (src && src.materialize === 1) {
+            const srcPath = currentNotePath(deps, v.id, src);
+            assertNoteOwnership(v.root, srcPath, src.id);
+            neighborsToRematerialize.push({ id: src.id, path: srcPath });
+          }
         }
 
+        const now = (ctx.now ?? Date.now)();
+        const { relationsDeleted } = inWriteTransaction(ctx.db, "memory_delete", () => {
+          const { deleted, relationsDeleted: deletedCount } = deleteEntity(ctx.db, e.id);
+          if (!deleted) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+          for (const n of neighborsToRematerialize) {
+            const src = getEntityById(ctx.db, n.id);
+            if (src && src.materialize === 1) rematerialize(deps, ctx, v, src, now);
+          }
+          return { relationsDeleted: deletedCount };
+        });
+
+        // Already ownership-checked above — this can only ever touch this entity's own note.
         let trashedTo: string | null = null;
         if (notePath) {
           const abs = resolveVaultPath(v.root, notePath);

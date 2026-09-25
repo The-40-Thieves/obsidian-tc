@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 469,
-    "dependencies": 2166,
-    "subsystemPairs": 134,
-    "crossSubsystemImports": 985
+    "modules": 478,
+    "dependencies": 2209,
+    "subsystemPairs": 137,
+    "crossSubsystemImports": 1006
   },
   "subsystems": {
     "auth": 4,
     "bridge": 8,
     "capability": 6,
     "capture": 5,
-    "cli": 41,
+    "cli": 43,
     "config": 14,
     "db": 15,
     "doctor": 18,
@@ -23,6 +23,7 @@
     "graph": 1,
     "mcp": 25,
     "memory": 2,
+    "memory-import": 7,
     "metrics": 4,
     "model": 7,
     "morgiana": 1,
@@ -53,14 +54,14 @@
       "weight": 80
     },
     {
-      "from": "search",
+      "from": "cli",
       "to": "db",
       "weight": 52
     },
     {
-      "from": "cli",
+      "from": "search",
       "to": "db",
-      "weight": 50
+      "weight": 52
     },
     {
       "from": "tools",
@@ -85,7 +86,7 @@
     {
       "from": "tools",
       "to": "db",
-      "weight": 19
+      "weight": 20
     },
     {
       "from": "cli",
@@ -143,6 +144,11 @@
       "weight": 9
     },
     {
+      "from": "cli",
+      "to": "vault",
+      "weight": 8
+    },
+    {
       "from": "formats",
       "to": "vault",
       "weight": 8
@@ -178,7 +184,7 @@
       "weight": 8
     },
     {
-      "from": "cli",
+      "from": "memory-import",
       "to": "vault",
       "weight": 7
     },
@@ -199,12 +205,12 @@
     },
     {
       "from": "tools",
-      "to": "bridge",
+      "to": "util",
       "weight": 7
     },
     {
       "from": "tools",
-      "to": "util",
+      "to": "bridge",
       "weight": 7
     },
     {
@@ -236,6 +242,11 @@
       "from": "transports",
       "to": "mcp",
       "weight": 6
+    },
+    {
+      "from": "cli",
+      "to": "runtime",
+      "weight": 5
     },
     {
       "from": "embeddings",
@@ -279,11 +290,6 @@
     },
     {
       "from": "cli",
-      "to": "runtime",
-      "weight": 4
-    },
-    {
-      "from": "cli",
       "to": "capture",
       "weight": 4
     },
@@ -324,6 +330,16 @@
     },
     {
       "from": "cli",
+      "to": "memory-import",
+      "weight": 3
+    },
+    {
+      "from": "cli",
+      "to": "tools",
+      "weight": 3
+    },
+    {
+      "from": "cli",
       "to": "workspace",
       "weight": 3
     },
@@ -340,6 +356,11 @@
     {
       "from": "mcp",
       "to": "metrics",
+      "weight": 3
+    },
+    {
+      "from": "memory-import",
+      "to": "memory",
       "weight": 3
     },
     {
@@ -390,6 +411,11 @@
     {
       "from": "cli",
       "to": "providers",
+      "weight": 2
+    },
+    {
+      "from": "cli",
+      "to": "mcp",
       "weight": 2
     },
     {
@@ -505,16 +531,6 @@
     {
       "from": "cli",
       "to": "metrics",
-      "weight": 1
-    },
-    {
-      "from": "cli",
-      "to": "mcp",
-      "weight": 1
-    },
-    {
-      "from": "cli",
-      "to": "tools",
       "weight": 1
     },
     {

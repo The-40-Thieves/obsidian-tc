@@ -65,13 +65,19 @@ module.exports = {
         "it never gets the pipeline's scope/ACL/audit stages). `prefetch.ts` is exempted below: it " +
         "builds its OWN ToolRegistry and calls registry.dispatch(...) (cli/commands/prefetch.ts), " +
         "so its import of tools/m7 is registration, not a bypass — the one case verified legitimate " +
-        "when this rule was extended. Any OTHER cli/commands/ file this rule newly flags is a real " +
-        "finding, not a candidate for .dependency-cruiser-known-violations.json: that file is a " +
-        "baseline of PRE-EXISTING violations meant only to shrink, and adding a fresh one to it " +
+        "when this rule was extended. THE-1124's `memory-import.ts` is exempted the same way: it " +
+        "builds its own ToolRegistry, registers tools/m1 + tools/m5, and every entity/observation/ " +
+        "relation write goes through registry.dispatch(...) (cli/commands/memory-import.ts) — " +
+        "never a direct tool-module call. Any OTHER cli/commands/ file this rule newly flags is a " +
+        "real finding, not a candidate for .dependency-cruiser-known-violations.json: that file is " +
+        "a baseline of PRE-EXISTING violations meant only to shrink, and adding a fresh one to it " +
         "would silently defeat the rule this comment just explained.",
       from: {
         path: "^packages/server/src/(transports|cli/commands)/",
-        pathNot: ["^packages/server/src/cli/commands/prefetch\\.ts$"],
+        pathNot: [
+          "^packages/server/src/cli/commands/prefetch\\.ts$",
+          "^packages/server/src/cli/commands/memory-import\\.ts$",
+        ],
       },
       to: { path: "^packages/server/src/tools/" },
     },

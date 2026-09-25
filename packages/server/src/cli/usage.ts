@@ -184,6 +184,47 @@ Usage:
                                           app, text), so a re-polled static screen never
                                           re-enqueues. --dry-run reports counts and enqueues
                                           nothing.
+  obsidian-tc memory import --from <basic-memory|claude-code-memory> <dir> [path] --vault <id>
+                             [--apply] [--resume]
+                                          Import external memory notes as entities in the
+                                          memory graph (THE-1124), through the same create_entity
+                                          / add_observation / link_entities / update_frontmatter
+                                          tools an MCP client calls — ACL-checked (the caller's
+                                          folder ACL for --vault, built from [path]/--config the
+                                          same way every other command resolves it — a readOnly
+                                          root or a writePaths allowlist is enforced exactly like
+                                          an MCP client would see) and audited, no direct file
+                                          writes. Prints "vault: … cache: … mode: …" before doing
+                                          anything else. basic-memory: one entity per note
+                                          (frontmatter title/type; \`## Observations\` bullets,
+                                          \`- relation_type [[Target]]\` relations, links inside
+                                          code/fences ignored). claude-code-memory: one entity per
+                                          fact file (frontmatter name/metadata.type; the whole
+                                          body — headings, lists, and code fences flattened —
+                                          becomes ONE observation; \`[[links]]\` outside code
+                                          become "relates_to" relations); the index file (exactly
+                                          MEMORY.md, at <dir>'s root only) is skipped. Refuses
+                                          symlinked files, paths escaping <dir>, and a missing/
+                                          unreadable <dir> (exit non-zero, never a silent empty
+                                          import). Two files whose (type, name) sanitize to the
+                                          same memory-note path are a collision, reported at
+                                          PREVIEW time — the first by source_path wins. Provenance
+                                          (imported_from, source_path, imported_at) is written as
+                                          frontmatter on each imported note; re-running --apply
+                                          appends a new observation rather than replacing one, so
+                                          editing a source file and re-importing does not remove
+                                          the old text. Dry-run by DEFAULT: prints a table of what
+                                          would be created/skipped, opens the cache READ-ONLY if
+                                          it already exists and creates nothing if it does not,
+                                          and writes nothing. --apply writes. Idempotent, keyed on
+                                          source_path: re-running --apply does not duplicate
+                                          entities, observations, or relations, and refuses an
+                                          entity that already exists with unverifiable or
+                                          different provenance (a collision — reported AND exits
+                                          non-zero) rather than adopting it. --resume relaxes that
+                                          refusal, but ONLY for an entity with zero observations
+                                          (the shape a run interrupted right after create_entity
+                                          leaves behind) — never for one with real content.
   obsidian-tc consolidate --once [--dry-run] [path]
                                           Run (or evaluate) one ambient sleep-time consolidation
                                           pass — a single synthesis + audit job — without arming

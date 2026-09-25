@@ -55,8 +55,9 @@ export async function openDatabase(
 export async function openConfiguredDatabase(
   cfg: Pick<ServerConfig, "cacheDir" | "db">,
   filename: string,
+  opts: OpenOptions = {},
 ): Promise<Database> {
-  return openDatabase(join(cfg.cacheDir, filename), cfg.db.busyTimeoutMs);
+  return openDatabase(join(cfg.cacheDir, filename), cfg.db.busyTimeoutMs, opts);
 }
 
 function isBetterSqlite3Unavailable(err: unknown): boolean {

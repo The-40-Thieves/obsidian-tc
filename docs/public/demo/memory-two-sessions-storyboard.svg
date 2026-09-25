@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="'JetBrains Mono','Fira Code',ui-monospace,monospace">
+  <title>obsidian-tc memory you own: session one imports and writes, session two recalls it three ways</title>
+  <desc>
+    Static storyboard standing in for docs/demo/memory-two-sessions.gif until a machine with vhs,
+    asciinema, or agg installed renders docs/demo/memory-two-sessions.tape. Six panels: session one
+    previews a basic-memory import (dry-run), applies it for real, and reads the resulting note off
+    disk; session two — a fresh process, nothing carried over but the vault — recalls the same
+    memory by plain full-text search, by a graph walk, and by a direct entity read. Every command
+    output shown here was captured from a real run of the built server's memory import CLI and its
+    create_entity/get_entity/query_entity_graph/search_text tools against a scratch copy of
+    examples/scratch-vault and the basic-memory test fixture, not invented.
+  </desc>
+  <defs>
+    <style>
+      .bg { fill: #282a36; }
+      .bar { fill: #1e1f29; }
+      .dot { r: 6; }
+      .prompt { fill: #50fa7b; font-size: 14px; }
+      .cmd { fill: #f8f8f2; font-size: 14px; }
+      .out { fill: #6272a4; font-size: 12px; }
+      .hit { fill: #f1fa8c; font-size: 12px; }
+      .ok { fill: #50fa7b; font-size: 13px; font-weight: bold; }
+      .caption { fill: #bd93f9; font-size: 13px; font-weight: bold; letter-spacing: 0.02em; }
+      .panel-title { fill: #f8f8f2; font-size: 13px; }
+      .section { fill: #ff79c6; font-size: 12px; font-weight: bold; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="800" fill="#191a21"/>
+  <text x="24" y="30" class="caption">obsidian-tc — session one writes memory -&gt; session two recalls it (no state but the vault)</text>
+
+  <!-- Panel 1: dry-run -->
+  <g transform="translate(24,50)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">1 · session one — dry-run preview</text>
+    <text x="16" y="52" class="section">SESSION ONE</text>
+    <text x="16" y="72" class="prompt">$ <tspan class="cmd">obsidian-tc memory import --from \</tspan></text>
+    <text x="34" y="90" class="cmd">basic-memory ./notes --vault main</text>
+    <text x="16" y="114" class="out">DRY RUN (nothing was written)</text>
+    <text x="16" y="136" class="hit">create note Coffee Brewing Methods +2 obs</text>
+    <text x="16" y="154" class="hit">create note Tea Brewing Methods    +1 obs</text>
+    <text x="16" y="176" class="out">relates_to Coffee -&gt; Tea: planned</text>
+    <text x="16" y="196" class="out">1 file skipped: malformed frontmatter</text>
+  </g>
+
+  <!-- Panel 2: apply -->
+  <g transform="translate(624,50)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">2 · session one — --apply writes for real</text>
+    <text x="16" y="52" class="prompt">$ <tspan class="cmd">obsidian-tc memory import --from \</tspan></text>
+    <text x="34" y="70" class="cmd">basic-memory ./notes cfg.json --vault main --apply</text>
+    <text x="16" y="92" class="out">mode: apply</text>
+    <text x="16" y="110" class="out">APPLY (writes were made)</text>
+    <text x="16" y="132" class="ok">create note Coffee Brewing Methods +2 obs</text>
+    <text x="16" y="150" class="ok">relates_to Coffee -&gt; Tea: created</text>
+    <text x="16" y="174" class="out">Summary: 3 entity(ies) to create, 0 already</text>
+    <text x="16" y="192" class="out">present, 0 resumed, 0 collision(s), 0 error(s)</text>
+  </g>
+
+  <!-- Panel 3: cat the note -->
+  <g transform="translate(24,290)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">3 · session one — the note, off disk</text>
+    <text x="16" y="52" class="prompt">$ <tspan class="cmd">cat "memory/note/Coffee Brewing Methods.md"</tspan></text>
+    <text x="16" y="76" class="out">---</text>
+    <text x="16" y="94" class="hit">entity_type: note</text>
+    <text x="16" y="112" class="hit">imported_from: basic-memory</text>
+    <text x="16" y="130" class="hit">source_path: notes/coffee-brewing.md</text>
+    <text x="16" y="148" class="out">---</text>
+    <text x="16" y="170" class="hit"># Coffee Brewing Methods</text>
+    <text x="16" y="190" class="hit">- [method] Pour over provides more flavor...</text>
+    <text x="16" y="208" class="hit">- relates_to [[Tea Brewing Methods]]</text>
+  </g>
+
+  <!-- Panel 4: full-text recall -->
+  <g transform="translate(624,290)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">4 · session two — full-text recall</text>
+    <text x="16" y="52" class="section">SESSION TWO (fresh — vault only)</text>
+    <text x="16" y="74" class="prompt">$ <tspan class="cmd">claude -p "search for 'French press'"</tspan></text>
+    <text x="16" y="98" class="out">-&gt; search_text(query: "French press")</text>
+    <text x="16" y="122" class="hit">memory/note/Coffee Brewing Methods.md:13</text>
+    <text x="34" y="140" class="hit">"...more flavor clarity than French press"</text>
+    <text x="16" y="164" class="out">mode_used: "text", total: 1</text>
+  </g>
+
+  <!-- Panel 5: graph recall -->
+  <g transform="translate(24,530)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">5 · session two — graph recall</text>
+    <text x="16" y="56" class="prompt">$ <tspan class="cmd">claude -p "walk the graph one hop from</tspan></text>
+    <text x="34" y="74" class="cmd">Coffee Brewing Methods"</text>
+    <text x="16" y="98" class="out">-&gt; query_entity_graph(seed_entity_id: ent_729..., depth: 2)</text>
+    <text x="16" y="122" class="hit">Tea Brewing Methods  distance: 1</text>
+    <text x="34" y="140" class="hit">via relates_to</text>
+    <text x="16" y="164" class="out">total_returned: 1</text>
+  </g>
+
+  <!-- Panel 6: direct read -->
+  <g transform="translate(624,530)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">6 · session two — direct read</text>
+    <text x="16" y="56" class="prompt">$ <tspan class="cmd">claude -p "read the Coffee Brewing Methods</tspan></text>
+    <text x="34" y="74" class="cmd">memory entity in full"</text>
+    <text x="16" y="98" class="out">-&gt; get_entity(type: "note", name: "Coffee...")</text>
+    <text x="16" y="122" class="hit">observations: 2, relations: 2 (out + in)</text>
+    <text x="16" y="144" class="ok">✓ unchanged since session one wrote it</text>
+  </g>
+
+  <text x="24" y="782" class="out">docs/demo/memory-two-sessions.tape renders the live version of this sequence once vhs/asciinema+agg is available.</text>
+</svg>

@@ -17,6 +17,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (linking to the vault over MCP does not make your notes AGPL; the TC Bridge plugin's license is
   whatever `packages/plugin/package.json` says). Linked from the README's License section and
   added to the docs sidebar.
+
 - **`toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client
   (THE-1123, PR #976).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
   the three from the connecting client's observed MCP `clientInfo.name`, cached once a NAME is
@@ -38,6 +39,42 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   made on that connection, never a second, independent resolution. `doctor`, being offline with no
   live connection to observe, reports the configured mode plus the merged resolution table instead
   of inventing a per-session `effective`/`clientName`.
+
+- **`obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978).** A new
+  CLI subcommand, `memory import --from <basic-memory|claude-code-memory> <dir> [path] --vault <id>
+  [--apply] [--resume]`, brings notes from two other memory formats into the vault's own memory
+  graph — through the exact `create_entity`/`add_observation`/`link_entities`/`update_frontmatter`
+  dispatch an MCP client uses, under that same client's per-vault ACL (built from the resolved
+  config the same way `runtime/tool-wiring.ts`/`cli/commands/rerun.ts` do — a `readOnly` root or a
+  `writePaths` allowlist is enforced, not bypassed), audited, and never a direct file write. Every
+  dispatch result is checked: a failed `add_observation`/`update_frontmatter`/`link_entities` stops
+  work on that entity and is reported as an error, never silent. Prints `vault: … cache: … mode: …`
+  before doing anything; a dry run never creates a `cacheDir` that does not already exist (opens
+  one that does exist read-only). Dry-run by default; a table of what would be created/skipped,
+  with reasons. Idempotent, keyed on a `source_path` provenance frontmatter key rather than name
+  alone, so a re-run never duplicates and a collision (a different or unverifiable `source_path`,
+  or two source files whose `(type, name)` sanitize to the same memory-note path — caught at
+  preview time) is refused rather than silently adopted, and makes the command exit non-zero.
+  `--resume` relaxes that refusal only for an entity with zero observations AND a note body that
+  is byte-identical to a freshly-created entity's empty scaffold (compared against the same
+  `renderEntityNote` the materializer itself uses, never a heuristic) — the shape a run interrupted
+  right after `create_entity` leaves behind; a zero-observation entity whose note gained
+  independently-added human content is still a collision. A dry run against an existing `cacheDir`
+  whose `cache.db` predates the memory schema (migration required) fails clearly and exits non-zero
+  instead of silently reading every lookup as "not found" and reporting every entity as new.
+  Refuses symlinked files, dot-prefixed entries, and paths that escape the import directory (each
+  reported with its true reason, not a generic one), reusing the vault's own path-containment
+  primitive — including on a case-insensitive filesystem (macOS/Windows), where a root `memory.md`
+  and `MEMORY.md` are the same directory entry and whichever the OS reports is unconditionally the
+  index; a missing/unreadable/not-a-directory `<dir>` fails immediately instead of reporting an
+  empty import. New guide page
+  `docs/getting-started/memory-you-own.md` (linked from the docs home): the real on-disk entity/
+  observation/relation shape, the ACL/audit pipeline every memory write goes through, git
+  provenance, recall with and without semantic search, an opt-in `episode_stats` illustration, and
+  a generic session-bootstrap prompt template (read a small index at session start, load only the
+  relevant domain, write back at session close). See the paired `### Fixed` entry below for a
+  data-loss bug in the SHARED memory-materialization primitive this work found and fixed.
+
 - **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
   (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
   cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`
@@ -217,6 +254,39 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   one-line pointer left on the README. `docs/RELEASING.md` gained a *Cadence* section.
 
 ### Security
+
+- **`create_entity`, `link_entities`, `rename_entity`, `unlink_entities`, and `delete_entity` could
+  silently destroy or overwrite the body of a note they did not own, or leave a lifecycle
+  operation's database row half-committed when the filesystem step it depended on was refused
+  (data-loss class; affects v1.0.1 through v1.31.3 — every released version since
+  `materializeEntity` shipped; `git show v1.0.1:packages/server/src/memory/materialize.ts` already
+  has the overwrite).** Materialization always regenerates a note's body from SQLite, keeping only
+  its frontmatter (`materialize.ts`'s round-trip discipline). If a note already sat at the computed
+  `memory/<type>/<name>.md` path — hand-authored, or an orphan left behind by a different entity
+  that once sanitized to the same path — its ENTIRE body was overwritten on the very next write
+  naming that `(type, name)`, keeping only its frontmatter. Five distinct call sites reached this:
+  `create_entity` and `link_entities` inserted their SQL row/relation BEFORE the fallible
+  materialization step; `rename_entity` seeded its destination path with a direct `writeNoteAtomic`
+  call that bypassed the ownership check entirely (so a rename could overwrite a foreign note at
+  the NEW name even once the check existed) and, for a status-only rename, could commit a retired
+  status with the note write refused; `unlink_entities` removed the relation row before discovering
+  the source note's rematerialization would be refused, leaving the edge gone with nothing to
+  restore it; `delete_entity`'s cascade could delete the target entity and its relations before a
+  NEIGHBOR's note (rematerialized to drop its now-stale `[[link]]`) was found to be foreign,
+  leaving the wrong entity deleted. Fixed at the shared primitive: `materializeEntity`
+  (`packages/server/src/memory/materialize.ts`) refuses to write over a note whose `obsidian_tc_id`
+  is missing or belongs to a different entity (`note_exists`) instead of silently claiming it, and
+  a new `assertNoteOwnership` pre-check runs BEFORE any SQLite mutation in the three lifecycle
+  tools (`packages/server/src/tools/m5/memory-lifecycle-tools.ts`) — every note a rename/unlink/
+  delete operation will touch, including cascade neighbors, is verified owned before the
+  transaction (`inWriteTransaction`, new `memory_rename`/`memory_unlink`/`memory_delete` labels)
+  opens, so a refusal is a pure no-op rather than a partial write. `create_entity`/`link_entities`
+  instead roll back the SQL row/relation they had already inserted on this refusal, so neither
+  approach ever leaves an orphan. Found while building `obsidian-tc memory import` (THE-1124)
+  above, but this is a fix to the SHARED primitives every M5 memory-write tool goes through, not a
+  memory-import-specific fix; a cross-vendor adversarial review (`test/m5-memory-ownership.test.ts`)
+  independently confirmed the class and verifies all five call sites and the transaction-rollback
+  behavior.
 
 - **A declined or cancelled `inputRequired` HITL confirmation could still complete the call it was
   declining (present since the 2026-07-28 round trip shipped, THE-583, v1.13.0; found and closed
