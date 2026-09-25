@@ -386,7 +386,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 15 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (Unreleased) | 13 |
 | THE-1125 | Opt-in, anonymous usage telemetry (THE-1125). | CHANGELOG.md (Unreleased) | 29 |
+| THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (Unreleased) | 1 |
 
-372 distinct ticket(s) across 530 source file(s) under
-`packages/*/src`; 273 resolved to a public summary, 99
+373 distinct ticket(s) across 530 source file(s) under
+`packages/*/src`; 274 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.
