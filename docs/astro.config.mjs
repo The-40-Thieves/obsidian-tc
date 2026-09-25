@@ -22,6 +22,7 @@ export default defineConfig({
         { label: 'Observability', items: [{ autogenerate: { directory: 'observability' } }] },
         { label: 'Configuration', items: [{ autogenerate: { directory: 'configuration' } }] },
         { label: 'Contributing', items: [{ autogenerate: { directory: 'contributing' } }] },
+        { label: 'Licensing', link: '/licensing/' },
         { label: 'Roadmap', link: '/roadmap/' },
         { label: 'V2 Preview', items: [{ autogenerate: { directory: 'v2-preview' } }] },
       ],

@@ -181,10 +181,10 @@ Official app: [obsidian.md](https://obsidian.md).
 
 ### License
 
-GNU Affero General Public License v3.0 (AGPL-3.0-only). See [LICENSE](./LICENSE); a
-commercial-exception license may be available — open a
-[discussion](https://github.com/The-40-Thieves/obsidian-tc/discussions). Contributions accepted
-under the [DCO](https://developercertificate.org/); sign-off details in
+AGPL-3.0-only. See [LICENSE](./LICENSE) and the
+[licensing FAQ](https://obsidian-tc.the40thieves.io/licensing/); a commercial exception may
+exist — open a [discussion](https://github.com/The-40-Thieves/obsidian-tc/discussions).
+Contributions under the [DCO](https://developercertificate.org/); sign-off in
 [CONTRIBUTING.md](./CONTRIBUTING.md#license-and-sign-off-dco).
 
 ### Contributing
