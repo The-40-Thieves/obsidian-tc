@@ -17,6 +17,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (linking to the vault over MCP does not make your notes AGPL; the TC Bridge plugin's license is
   whatever `packages/plugin/package.json` says). Linked from the README's License section and
   added to the docs sidebar.
+
 - **`toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client
   (THE-1123, PR #976).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
   the three from the connecting client's observed MCP `clientInfo.name`, cached once a NAME is
@@ -39,7 +40,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   live connection to observe, reports the configured mode plus the merged resolution table instead
   of inventing a per-session `effective`/`clientName`.
 
-- **`obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #PENDING).** A new
+- **`obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978).** A new
   CLI subcommand, `memory import --from <basic-memory|claude-code-memory> <dir> --vault <id>
   [--apply]`, brings notes from two other memory formats into the vault's own memory graph —
   through the exact `create_entity`/`add_observation`/`link_entities`/`update_frontmatter` dispatch
