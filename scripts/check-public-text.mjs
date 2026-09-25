@@ -33,9 +33,15 @@ function listPackageReadmes() {
 }
 
 // git's pathspec `*` DOES cross `/`, which is exactly what is wanted here — every page under the
-// docs-site content collection, at any depth, in one pattern.
+// docs-site content collection, at any depth, in one pattern. Same for the published GitHub wiki
+// (docs/wiki/*.md, republished by ci-wiki.yml on every merge to main) — it is a reader-facing
+// surface, not internal notes, even though it lives under docs/.
 function listDocsSitePages() {
   return run("git", ["ls-files", "-z", "docs/src/content/docs/*"]).split("\0").filter(Boolean);
+}
+
+function listWikiPages() {
+  return run("git", ["ls-files", "-z", "docs/wiki/*.md"]).split("\0").filter(Boolean);
 }
 
 function listScannedFiles() {
@@ -44,6 +50,7 @@ function listScannedFiles() {
     "mcpb/manifest.json",
     "server.json",
     ...listDocsSitePages(),
+    ...listWikiPages(),
     ...listPackageReadmes(),
   ]);
   return [...files].filter((rel) => existsSync(resolve(ROOT, rel))).sort();
@@ -53,9 +60,11 @@ function listScannedFiles() {
 // (release history, not a user-facing guide — this is where provenance belongs instead),
 // EVALUATION.md (methodology doc that narrates its own history), the superpowers planning tree
 // (internal working notes, never the shipped surface), the generated decisions index (it exists
-// ONLY to list ticket references), and the pre-ship G2/MCP-COMPATIBILITY design docs. None of
-// these currently fall inside listScannedFiles() above, so this allowlist is a defensive floor
-// for when the scan set widens, not a carve-out that is load-bearing today.
+// ONLY to list ticket references), and the pre-ship G2/MCP-COMPATIBILITY design docs. Most of
+// these currently fall outside listScannedFiles() above, so for them this allowlist is a
+// defensive floor for when the scan set widens — but `roadmap.md` below IS load-bearing today: it
+// falls inside the scanned `docs/src/content/docs/*` set and the entry actively suppresses real
+// findings, not a hypothetical future one.
 const ALLOWLIST_EXACT = new Set([
   "CHANGELOG.md",
   "docs/EVALUATION.md",
@@ -76,7 +85,11 @@ function isAllowlisted(path) {
   return false;
 }
 
-const TICKET_RE = /\bTHE-\d+\b/g;
+// Case-insensitive so a lower-cased `the-998` cannot evade the gate — but `The-40-Thieves` (the
+// GitHub org, appearing in nearly every link in this repo) case-insensitively matches the SAME
+// shape (THE-<digits>), so the negative lookahead excludes exactly that one org-name pattern and
+// no other. A real ticket id happening to be followed by literal "-Thieves" is not a real risk.
+const TICKET_RE = /\bTHE-\d+\b(?!-Thieves)/gi;
 const LINEAR_URL_RE = /linear\.app/gi;
 
 /**
@@ -101,11 +114,10 @@ export function findPublicTextViolations(fileContents) {
   return violations;
 }
 
-// Floor: a broken pathspec/enumeration must fail loudly, not silently scan nothing. 31 files are
+// Floor: a broken pathspec/enumeration must fail loudly, not silently scan nothing. 47 files are
 // in scope as of this writing (1 README + 26 docs-site pages + mcpb/manifest.json + server.json +
-// 2 top-level package READMEs at the time this gate was added — packages/plugin, packages/
-// reranker-local; more package READMEs only raise this count).
-const MIN_EXPECTED_FILES = 28;
+// 5 top-level package READMEs + 13 wiki pages; more of any of these only raises this count).
+const MIN_EXPECTED_FILES = 42;
 
 function main() {
   const files = listScannedFiles();

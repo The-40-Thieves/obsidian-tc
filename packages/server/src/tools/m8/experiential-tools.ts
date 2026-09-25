@@ -273,7 +273,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_forget",
       domain: "knowledge",
       description:
-        "Tombstone an experiential episode (surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; each successful forget appends a hash-chained forget_log row for forensics. Idempotent: a repeat call, foreign, or unknown episode id is a silent no-op (forgotten:false) that appends NO additional log row. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op, not an error.",
+        "Tombstone an experiential episode — the first-party forget verb for the work-memory tier. A forgotten episode never surfaces in work_search again; each successful forget appends a hash-chained forget_log row for forensics. Idempotent: a repeat call, foreign, or unknown episode id is a silent no-op (forgotten:false) that appends NO additional log row. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op, not an error.",
       inputSchema: z.object({ episode_id: z.string().min(1) }).strict(),
       outputSchema: availableWith({ episode_id: z.string(), forgotten: z.boolean() }),
       requiredScopes: ["write:workspace"],

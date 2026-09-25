@@ -270,7 +270,7 @@ export const RetrievalConfigSchema = z.object({
     })
     .prefault({})
     .describe(
-      "Adaptive per-stream RRF weighting (THE-391): tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
+      "Adaptive per-stream RRF weighting: tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
     ),
   /** THE-497: the in-process query-product cache. Keyed by the vault generation (THE-496) + the
    *  caller's ACL fingerprint + the query text + the full retrieval option set, so a hit is only
@@ -307,7 +307,7 @@ export const RetrievalConfigSchema = z.object({
     })
     .prefault({})
     .describe(
-      "THE-497 in-process query-product cache. Off by default; a hit requires the same caller, query, vault generation and retrieval configuration.",
+      "In-process query-product cache. Off by default; a hit requires the same caller, query, vault generation and retrieval configuration.",
     ),
   /** THE-628 (first PR): note-level (leaf) summary tier for global/thematic queries a chunk-only
    *  index has no answer for ("what are the main themes in my vault"). A summary is generated per
@@ -373,12 +373,12 @@ export const RetrievalConfigSchema = z.object({
         })
         .prefault({})
         .describe(
-          "THE-628 cluster-level (tier-2) summary tier (second PR: mechanism only, dark by default). Independent enable flag from the note-level tier above — see this block's comment.",
+          "Cluster-level (tier-2) summary tier (mechanism only, dark by default). Independent enable flag from the note-level tier above — see this block's comment.",
         ),
     })
     .prefault({})
     .describe(
-      "THE-628 note-level summary tier (first PR: mechanism only, dark by default). See the block comment for the eval gate this is built ahead of.",
+      "Note-level summary tier (mechanism only, dark by default). See the block comment for the eval gate this is built ahead of.",
     ),
 });
 
@@ -797,12 +797,12 @@ export const ExperientialConfigSchema = z.object({
         })
         .optional()
         .describe(
-          "THE-1078: opt-in judge provider for the citation-inference stage-2 verdict. Absent -> today's behaviour unchanged (the gateway `judge` role when configured, or stage-1-only mode).",
+          "Opt-in judge provider for the citation-inference stage-2 verdict. Absent -> today's behaviour unchanged (the gateway `judge` role when configured, or stage-1-only mode).",
         ),
     })
     .prefault({})
     .describe(
-      "THE-717: scheduled citation-inference pass over a transcript index. Needs an out-of-tree producer for transcriptIndex — no MCP surface gives a server the assistant's answer.",
+      "Scheduled citation-inference pass over a transcript index. Needs an out-of-tree producer for transcriptIndex — no MCP surface gives a server the assistant's answer.",
     ),
   /** THE-719: the scheduled coverage-gap sweep. `detectGaps` had exactly one caller — the offline
    *  `obsidian-tc gaps` CLI — so `gap_reports` held 0 rows and the THE-611 read tool had nothing to
@@ -840,7 +840,7 @@ export const ExperientialConfigSchema = z.object({
     })
     .prefault({})
     .describe(
-      "THE-719: scheduled coverage-gap sweep over recently logged queries. Advisory only — nothing auto-tunes retrieval config from its own gap measurements.",
+      "Scheduled coverage-gap sweep over recently logged queries. Advisory only — nothing auto-tunes retrieval config from its own gap measurements.",
     ),
   /** THE-634: the scheduled proactive-advisory sweep — the caller `scoreAgainstGoals` +
    *  `selectAdvisories` (PR #779, `experiential/advisory.ts` + `experiential/advisory-policy.ts`)
@@ -900,7 +900,7 @@ export const ExperientialConfigSchema = z.object({
     })
     .prefault({})
     .describe(
-      "THE-634: scheduled proactive-advisory sweep over goal-anchored candidates (vault-watcher note changes, open contradictions, recent syntheses). Publishes into subscriptions/listen for modern-era (2026-07-28) sessions only; legacy-era sessions — the LiteLLM-fronted production majority — receive no delivery attempt, by design. See docs/MCP-COMPATIBILITY.md.",
+      "Scheduled proactive-advisory sweep over goal-anchored candidates (vault-watcher note changes, open contradictions, recent syntheses). Publishes into subscriptions/listen for modern-era (2026-07-28) sessions only; legacy-era sessions — the LiteLLM-fronted production majority — receive no delivery attempt, by design. See docs/MCP-COMPATIBILITY.md.",
     ),
 });
 export type ExperientialConfig = z.infer<typeof ExperientialConfigSchema>;

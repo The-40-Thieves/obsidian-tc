@@ -14,10 +14,14 @@ but there is also no reason to cut a release for every merged PR. Default to onc
 immediately, out of cadence, when a security fix or a user-facing bug fix has landed on `main` and
 would otherwise sit unreleased until the next scheduled cut.
 
-**Plumbing never triggers a release on its own.** CI scripts, dev tooling, pure refactors, docs
-reorganization, test-only changes — the same `NOT_USER_VISIBLE` category `release.mjs`'s coverage
-gate already tracks (below) — are not, by themselves, a reason to cut a release. They ride along in
-the next batch or security/bug-fix cut; they never justify an out-of-cadence one alone.
+**Plumbing never triggers a release on its own.** A commit typed `docs`/`chore`/`test`/`ci`/
+`refactor`/`style` is exempt from the CHANGELOG coverage gate by its conventional-commit type
+alone — `release.mjs`'s `userVisible` filter only ever considers `feat`/`fix`/`perf`/`build`
+commits, so CI scripts, dev tooling, pure refactors, docs reorganization, and test-only changes
+typed that way need no entry and no listing anywhere. `NOT_USER_VISIBLE` is the separate override
+list for the narrower case: a `feat`/`fix`/`perf`/`build`-typed commit that is really plumbing
+despite its type (a `fix(ci): ...` that only touched a CI script, for instance). Neither exemption
+is, by itself, a reason to cut a release out of cadence.
 
 **The CHANGELOG coverage gate still requires PR numbers in entries.** `release.mjs`'s coverage
 check (*Step 1* below) asserts that every user-visible commit (`feat`/`fix`/`perf`/`build`, minus
@@ -26,7 +30,8 @@ squash-merged commit is cited by its `(#N)` PR number appearing in the CHANGELOG
 brought in by an ordinary merge commit is cited the same way via the PR number `release.mjs`
 recovers from that merge commit, and a rebase-merged commit — which carries no PR number anywhere
 in the commit graph — must instead be cited by **every** `THE-`-ticket id in its own commit
-subject. Weekly cadence does not relax this: it still runs before every staged release, batched or
+subject; one with no ticket id in its subject at all fails the same way, reported as `(no ticket)`.
+Weekly cadence does not relax this: it still runs before every staged release, batched or
 out-of-cadence alike, and still fails the same way on an undocumented user-visible commit.
 
 ## Steps

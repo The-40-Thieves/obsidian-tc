@@ -23,6 +23,21 @@ test("a bare THE-<digits> ticket id is reported with its file and line", () => {
   assert.equal(violations[0].match, "THE-999");
 });
 
+test("a lower-cased ticket id (the-998) is caught — the ticket regex is case-insensitive", () => {
+  const violations = findPublicTextViolations([
+    { path: "README.md", content: "fixed in the-998\n" },
+  ]);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].match, "the-998");
+});
+
+test("the-40-thieves (the GitHub org name) is NOT a false positive under the case-insensitive ticket regex", () => {
+  const violations = findPublicTextViolations([
+    { path: "README.md", content: "https://github.com/The-40-Thieves/obsidian-tc\n" },
+  ]);
+  assert.deepEqual(violations, []);
+});
+
 test("a linear.app URL is reported, case-insensitively", () => {
   const violations = findPublicTextViolations([
     {

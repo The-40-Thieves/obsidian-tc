@@ -106,7 +106,7 @@ export const ServerConfigObject = z.object({
     "Embedding provider and indexing throughput.",
   ),
   reranker: RerankerConfigSchema.optional().describe(
-    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else — THE-944 — the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, exactly as before THE-944.",
+    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, unchanged from before that fallback existed.",
   ),
   // THE-832: connection config for the inference gateway itself (extract/synthesize/judge/rerank).
   // ABSENT preserves today's behaviour exactly: falls through to OBSIDIAN_TC_GATEWAY_URL /
@@ -148,7 +148,7 @@ export const ServerConfigObject = z.object({
   snapshots: SnapshotsConfigSchema.describe("Point-in-time note snapshot policy."),
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),
   egress: EgressConfigSchema.describe(
-    "Paths withheld from the inference gateway and the embedding provider (THE-934) — a different question from auth.acl.readPaths, which governs read visibility.",
+    "Paths withheld from the inference gateway and the embedding provider — a different question from auth.acl.readPaths, which governs read visibility.",
   ),
   sessions: SessionsConfigSchema.describe(
     "Whether the server opens workspace sessions itself, and how long one stays open.",

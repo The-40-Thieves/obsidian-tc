@@ -30,7 +30,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `transports` | object | `stdio` (default on) and `http` (default off, loopback) |
 | `governor` | `{ "maxResponseBytes": 1000000, "regexTimeoutMs": 2000 }` | Response size ceiling + regex worker-time budget (ReDoS guard) |
 | `writes` | `{ "requireCas": false }` | When true, destructive note writes REQUIRE `prev_hash` (compare-and-swap) and fail closed without it |
-| `snapshots` | `{ "enabled": true, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back (THE-648: on by default under `trusted-local`; retention is pruned inline) |
+| `snapshots` | `{ "enabled": true, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back (on by default under `trusted-local`; retention is pruned inline) |
 | `bootstrap` | `{ "domains": [], "deepPaths": [], "maxPaths": 10 }` | Session-bootstrap routing table (signals → context notes; deep-mode phrases) |
 | `throttle` | object | Per-class rate tiers (read 600/100 … admin 5/1) + max concurrent writes/vault (16) |
 | `observability` | object | `otel` / `prometheus` / `morgiana` / `retention` (only `retention.eventLogDays` is enforced — trace files and the morgiana spool are not pruned) |
@@ -38,7 +38,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `toolVisibility` | object (optional) | Hide/disable tools from the advertised surface |
 | `plur` | object (optional) | plur read-proxy endpoint |
 | `maintenance` | `{ "enabled": true, "intervalMinutes": 60 }` | Periodic `cache.db` sweep |
-| `plane` | `{ "enabled": false, "intervalMinutes": 240 }` | Sleep-time consolidation scheduler; **opt-in as of THE-825** — set `plane.enabled: true` to run it; only does work with an inference gateway configured, and a gateway-configured deployment that never sets this key gets a boot-time notice |
+| `plane` | `{ "enabled": false, "intervalMinutes": 240 }` | Sleep-time consolidation scheduler; **opt-in** — set `plane.enabled: true` to run it; only does work with an inference gateway configured, and a gateway-configured deployment that never sets this key gets a boot-time notice |
 | `idempotencyTtlSeconds` / `idempotencyReclaimSeconds` / `elicitTtlSeconds` | `86400` / `60` / `300` | TTLs |
 
 ## The memory-engine knobs

@@ -14,8 +14,8 @@ server for [Obsidian](https://obsidian.md) vaults, for humans and autonomous age
 of raw filesystem access to years of notes, every tool call runs through one pipeline — auth,
 folder ACLs, a read-only kill switch, human-in-the-loop confirmation on destructive operations, and
 an audit log. It also adds fused retrieval (full-text, vector, graph) and a memory tier — episodes,
-activation decay, explicit forgetting — living *inside* your vault under that same ACL. 163 tools
-across 31 domains, via a 3-tool facade. Full pitch: [docs/WHY.md](./docs/WHY.md).
+activation decay, explicit forgetting — living *inside* your vault under that same ACL.
+**163 tools across 31 domains**, via a 3-tool facade. Full pitch: [docs/WHY.md](./docs/WHY.md).
 
 ## 60-second start
 
@@ -43,8 +43,10 @@ Also ships as a Docker image, `.mcpb` bundle, and standalone binaries. Full walk
 
 Honest guidance — this is deliberately a heavier product than most alternatives:
 
-- **Smallest possible footprint.** A single trusted human over one vault is served well by a
-  simpler community server below; this governance pays off with autonomous/multi-agent access.
+- **Smallest possible footprint, read-only access, or no MCP at all.** A single trusted human
+  over one vault, a read-only wrapper, or the Obsidian URI/Local REST API plugin directly may be
+  all you need — see the [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/). This governance mostly
+  pays off with autonomous or multi-agent access.
 - **Semantic/graph search with zero setup.** No Obsidian install is needed — the vault is read
   directly off disk — but semantic/graph retrieval need an embeddings backend (local Ollama by
   default) until an in-process embedder lands; lexical search works immediately.
@@ -52,8 +54,9 @@ Honest guidance — this is deliberately a heavier product than most alternative
   folder ACL — fine only because it's local-only; governance is opt-in. Detail: [SECURITY.md](./SECURITY.md).
 - **AGPL-3.0's network-copyleft terms.** Not permissive; a commercial license may exist — see
   [License](#license).
-- **Single-maintainer project.** Weigh that against your support needs.
-- **Everything inside Obsidian, or vault-independent memory.** See the comparison below.
+- **Single-maintainer project.**
+- **Everything inside Obsidian, or vault-independent memory.** See the
+  [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/) below.
 
 Migrating from another MCP server: [docs/CUTOVER.md](./docs/CUTOVER.md).
 
@@ -61,12 +64,12 @@ Migrating from another MCP server: [docs/CUTOVER.md](./docs/CUTOVER.md).
 
 Most Obsidian MCP projects are vault-access servers, retrieval engines, or memory engines, rarely
 more than one. obsidian-tc is the only one we know of that is all three, with memory living **in
-the vault** under the same ACL as every other write. As of 2026-09-03 — projects move quickly, so
-check the repos rather than trusting this table.
+the vault** under the same ACL as every other write. [Full 9-project table and "where the others
+win"](https://obsidian-tc.the40thieves.io/getting-started/compare/).
 
 | | Tools | Group | What it's for |
 |---|---|---|---|
-| **obsidian-tc** | 163 (facade) | all three | governed access + retrieval + in-vault memory |
+| **obsidian-tc** | 163 (3-tool facade) | all three | governed access + retrieval + in-vault memory |
 | [obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api) | 18 | access | Obsidian's own built-in MCP server; one bearer key, no ACL |
 | [basic-memory](https://github.com/basicmachines-co/basic-memory) | ~35 | memory | entities/relations in a separate, portable markdown KB |
 
@@ -147,7 +150,7 @@ Dispatch-pipeline and package-layout detail: [ARCHITECTURE.md](./ARCHITECTURE.md
 
 ### The interface: 3 tools, ~163 governed capabilities
 
-By default the server advertises just **three meta-tools** instead of a wall of 150:
+By default the server advertises just **three meta-tools** instead of a wall of 163:
 `find_capability`, `describe_capability`, `call_capability` (invoke by name, same pipeline as a
 direct call). `toolFacade.mode` selects `triad` (default), `domain`, or `flat` — boundary-only,
 no gate is ever bypassed.
@@ -168,7 +171,7 @@ A `.mcpb` bundle (`bun run bundle`) also installs into Claude Desktop / other MC
 - [docs/CUTOVER.md](./docs/CUTOVER.md) — migrating from another Obsidian MCP server
 - [docs/EVALUATION.md](./docs/EVALUATION.md) — how retrieval changes are measured
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — dispatch pipeline, package layout
-- Docs site: <https://obsidian-tc.the40thieves.io>
+- Docs site: <https://obsidian-tc.the40thieves.io> (full comparison under Getting Started)
 
 ### Trademark
 

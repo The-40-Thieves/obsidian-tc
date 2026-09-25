@@ -24,7 +24,7 @@ export const PersonaConfigSchema = z.object({
       "The scopes a token carrying this persona is granted — REPLACES whatever scopes the token itself carries, never unioned with them, so a persona claim can only narrow or redirect a grant, never widen it beyond what the operator configured here.",
     ),
   toolVisibility: ToolVisibilityConfigSchema.optional().describe(
-    "Optional per-persona tool-visibility mask, composed with the server's static `toolVisibility` at the same disabled > hidden > scope_denied > listed chokepoint (THE-645 item 2's existence-oracle constraint still holds). Can only narrow what the static config already allows, never restore a tool the static config hid or disabled.",
+    "Optional per-persona tool-visibility mask, composed with the server's static `toolVisibility` at the same disabled > hidden > scope_denied > listed chokepoint (the existence-oracle constraint still holds). Can only narrow what the static config already allows, never restore a tool the static config hid or disabled.",
   ),
 });
 export type PersonaConfig = z.infer<typeof PersonaConfigSchema>;

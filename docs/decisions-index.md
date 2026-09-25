@@ -249,7 +249,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-642 | `work_search` gains an opt-in `semantic` mode (#820, THE-642). | CHANGELOG.md (1.22.0) | 5 |
 | THE-643 | Scheduled `note_quality` recompute (THE-643, THE-625 items 1-3). | CHANGELOG.md (1.14.0) | 14 |
 | THE-644 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 14 |
-| THE-645 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 21 |
+| THE-645 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 20 |
 | THE-646 | `explain_answer` — the retrieval → chunk → citation → episode lineage chain (#705, THE-646 item 2). | CHANGELOG.md (1.20.0) | 6 |
 | THE-647 | Differential `vault_context` and persona scoping (#811, THE-647). | CHANGELOG.md (1.22.0) | 17 |
 | THE-648 | `snapshots.enabled` now defaults to `true` (THE-648, #569). | CHANGELOG.md (1.14.0) | 7 |
@@ -357,13 +357,13 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 6 |
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
-| THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 61 |
+| THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 60 |
 | THE-935 | `db.busyTimeoutMs` reachable from config (#902, THE-935; issue #878). | CHANGELOG.md (1.27.0) | 14 |
 | THE-936 | `call_capability` now echoes the envelope keys it received on validation failure (#901, THE-936; issue #876). | CHANGELOG.md (1.27.0) | 1 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
 | THE-939 | `doctor` warns on sync-service conflict copies in the install directory (#900, THE-939; issue #881). | CHANGELOG.md (1.27.0) | 5 |
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
-| THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 9 |
+| THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 8 |
 | THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (#909, THE-963). | CHANGELOG.md (1.28.0) | 3 |
 | THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 3 |
 | THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |
