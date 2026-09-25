@@ -175,7 +175,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-516 | _internal planning reference — see repo history_ | — | 6 |
 | THE-517 | Wire the durable JobQueue to its workloads — THE-562 #14 (THE-517) | docs/superpowers/specs/2026-07-24-the-562-14-durable-job-queue-wiring-design.md | 6 |
 | THE-518 | _internal planning reference — see repo history_ | — | 5 |
-| THE-520 | _internal planning reference — see repo history_ | — | 5 |
+| THE-520 | THE-1111 — an authorization server for obsidian-tc (design, G1) | docs/superpowers/specs/2026-09-24-the-1111-authorization-server-design.md | 5 |
 | THE-521 | _internal planning reference — see repo history_ | — | 9 |
 | THE-522 | _internal planning reference — see repo history_ | — | 9 |
 | THE-523 | _internal planning reference — see repo history_ | — | 6 |
@@ -385,5 +385,5 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (Unreleased) | 10 |
 
 369 distinct ticket(s) across 506 source file(s) under
-`packages/*/src`; 269 resolved to a public summary, 100
+`packages/*/src`; 270 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.
