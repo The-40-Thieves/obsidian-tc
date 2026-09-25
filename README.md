@@ -10,12 +10,13 @@
 ## What it is
 
 obsidian-tc is a governed, agent-ready [Model Context Protocol](https://modelcontextprotocol.io)
-server for [Obsidian](https://obsidian.md) vaults, for humans and autonomous agents alike. Instead
-of raw filesystem access to years of notes, every tool call runs through one pipeline — auth,
-folder ACLs, a read-only kill switch, human-in-the-loop confirmation on destructive operations, and
-an audit log. It also adds fused retrieval (full-text, vector, graph) and a memory tier — episodes,
-activation decay, explicit forgetting — living *inside* your vault under that same ACL.
-**163 tools across 31 domains**, via a 3-tool facade. Pitch: [docs/WHY.md](./docs/WHY.md).
+server for [Obsidian](https://obsidian.md) vaults, for humans and agents alike. Instead of raw
+filesystem access to years of notes, every tool call runs through one pipeline — auth, folder
+ACLs, a read-only kill switch, HITL confirmation on destructive ops, and an audit log. It also
+adds fused retrieval (full-text, vector, graph) and a memory tier — episodes, decay, forgetting —
+living *inside* your vault under that same ACL.
+**163 tools across 31 domains** (all visible by default; 97 with opt-in `profile: "core"`), via a
+3-tool facade. Pitch: [docs/WHY.md](./docs/WHY.md).
 
 ## 60-second start
 
@@ -56,7 +57,7 @@ Honest guidance — this is a heavier product than most alternatives:
   [License](#license).
 - **Single-maintainer project.**
 - **Everything inside Obsidian, or vault-independent memory.** See the
-  [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/) below.
+  [comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/) above.
 
 Migrating from another MCP server: [docs/CUTOVER.md](./docs/CUTOVER.md).
 

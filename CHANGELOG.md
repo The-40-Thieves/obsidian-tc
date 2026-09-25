@@ -209,6 +209,33 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `node:perf_hooks`, entirely independent of the test runner), so this bump carries zero perf-
   harness risk regardless. `bun run test:scripts` (`node --test`, unaffected by vitest) unchanged:
   370/370.
+- **New `toolFacade.profile` (`"full"` | `"core"`, default `"full"`) — an OPT-IN, smaller curated
+  tool surface; the default does not change (THE-1131, PR #984).** Deployment-level and orthogonal
+  to `toolFacade.mode` (which only picks what a given SESSION is advertised — see the `"auto"`
+  entry above): `profile` picks which tools are VISIBLE/CALLABLE. Registration itself is
+  unaffected either way — every tool is always registered; `inspect_visibility` reports
+  `disabled_by_profile` for one `"core"` hides. `"full"` (the default) leaves every one of the 163
+  tools visible/callable, unchanged from today. `"core"` is opt-in: five graph-analysis tools
+  (`graph_centrality`, `graph_communities`, `suggest_links`, `find_link_cycles`,
+  `prune_hub_links`) are the only ones a usage report (4,787 recorded calls, GitHub issue #877)
+  individually confirms as zero-call; the rest of the cut — the structured-document family
+  (Bases, Canvas, Kanban, periodic notes, bookmarks, attachments, tables) and the plugin-bridge
+  family (Excalidraw, MakeMD, Remotely Save, OCR, git, Templater, QuickAdd, Dataview and siblings,
+  minus `bundle_files`/`bundle_folder` — pure filesystem, and `bundle_folder` has direct usage
+  evidence in a separate issue, #879) — is a structural curation (every member proxies to a live
+  companion plugin), not a usage claim: #877 gives no evidence either way for those families, and a
+  documented history of plugin-bridge integration bugs (companion routes 404ing, a wrong plugin-id
+  mapping — GH #153, #152) means zero calls there cannot be read as zero want. 97 of 163 tools stay
+  visible/callable under `"core"`. Everything the triad facade, the memory tools (M5/M7/M8),
+  catalog discovery, health/admin, or the HITL/elicit flow depends on stays in `"core"` regardless
+  of usage. A `"core"`-hidden tool is never silently missing: `find_capability` discloses a
+  profile-hidden match by name+count, and `describe_capability`/`call_capability`/direct-name
+  dispatch on one all answer `capability_hidden` naming the config key rather than a bare "not
+  found" — the same disclosure shape THE-1098 established for a read-only-hidden tool. `doctor`
+  and server boot both WARN when a `toolVisibility.allowed`/persona allowlist names a tool `core`
+  hides (dead config — the profile wins). `server_health` and `doctor` both report
+  `toolFacade.profile`. No migration note: the default surface is unchanged; `core` is there for an
+  operator who wants a smaller one.
 - **`@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1
   (THE-1133, PR 1).** Read every changeset between the two `@modelcontextprotocol/server` tags
   (`npm view` + the GitHub release body): (1) request-time OAuth scope challenges for

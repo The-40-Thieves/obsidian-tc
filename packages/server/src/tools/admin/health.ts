@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FacadeMode } from "../../mcp/facade";
 import { FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
 import type { ToolDefinition } from "../../mcp/registry";
+import { NON_CORE_TOOL_NAMES } from "../../mcp/tool-profiles";
 
 export interface IndexHealthSnapshot {
   /** Boot reconcile lifecycle: `pending` until it settles, then `ok`, or `degraded` if any vault
@@ -83,6 +84,13 @@ export interface HealthInfo {
     configured: FacadeMode | "auto";
     effective: FacadeMode;
     clientName?: string;
+    /** THE-1131: config.toolFacade.profile — which tools are visible/callable, orthogonal to
+     *  `configured`/`effective` above (those pick what's ADVERTISED per session). Registration
+     *  itself is unaffected by `profile`: every tool is always registered. */
+    profile: "full" | "core";
+    /** THE-1131: NON_CORE_TOOL_NAMES.length — how many registered tools `profile: "core"` hides
+     *  and dispatch-rejects. 0 under "full" (the default; nothing is hidden). */
+    nonCoreToolCount: number;
   };
   /** THE-1125: opt-in telemetry status. Always present when wired (every real deployment; absent
    *  only for a harness/bare unit test of this tool). `endpoint` is REDACTED
@@ -184,6 +192,8 @@ const ToolFacadeHealthOutput = z.object({
   configured: z.enum(["triad", "domain", "flat", "auto"]),
   effective: z.enum(["triad", "domain", "flat"]),
   clientName: z.string().optional(),
+  profile: z.enum(["full", "core"]),
+  nonCoreToolCount: z.number(),
 });
 
 const TelemetryHealthOutput = z.object({
@@ -280,6 +290,8 @@ export function createHealthTool(opts: {
   toolFacade?: {
     configured: FacadeMode | "auto";
     autoClients?: Readonly<Record<string, FacadeMode>>;
+    /** THE-1131: config.toolFacade.profile. */
+    profile: "full" | "core";
   };
   /** THE-1125: read live at call time (like getJobQueueStats above) — never cached, since
    *  lastSendAt/lastError change on the scheduler's own cadence, independent of this call. */
@@ -355,6 +367,8 @@ export function createHealthTool(opts: {
                     ? FALLBACK_FACADE_MODE
                     : opts.toolFacade.configured),
                 ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
+                profile: opts.toolFacade.profile,
+                nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
               },
             }
           : {}),

@@ -6,7 +6,7 @@ export function renderStats(s: StatsDoc): string {
     "| | |",
     "|---|---|",
     `| **Version** | \`${s.version}\` |`,
-    `| **Tools** | ${s.tools} governed capabilities (advertised via the 3-tool facade) |`,
+    `| **Tools** | ${s.tools} governed capabilities (advertised via the 3-tool facade), all visible/callable by default (\`toolFacade.profile: "full"\`); ${s.coreTools} with the opt-in \`profile: "core"\` |`,
     `| **Config keys** | ${s.configKeys} |`,
     `| **Golden set** | ${s.goldenSetSize} queries, statistical ship rule on every ranking change |`,
     `| **Retrieval** | contextual chunk enrichment ${s.enrichmentGain}, defaults on |`,

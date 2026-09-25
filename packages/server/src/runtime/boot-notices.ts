@@ -10,6 +10,7 @@ import {
   isFeedbackExemptFromReadOnly,
   type ServerConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { hiddenNamesInAllowlist } from "../doctor/tool-facade";
 import { redactEndpoint } from "../telemetry/redact-endpoint";
 import { emitCaptureFirstRunNotice } from "./capture-first-run-notice";
 import { formatPlaneOptInNotice } from "./plane-opt-in-notice";
@@ -96,5 +97,30 @@ export function emitBootNotices(deps: {
         "docs/configuration/telemetry.md, `obsidian-tc telemetry preview`, or SECURITY.md. " +
         "Disable with telemetry.enabled: false.\n",
     );
+  }
+
+  // THE-1131 review round 2: an allowlist naming a tool `toolFacade.profile` hides is dead
+  // config — profile wins the precedence race, so the allowlist entry can never restore it. Same
+  // `hiddenNamesInAllowlist` predicate `doctor` uses, so the boot line and the offline check can
+  // never disagree.
+  const staticHidden = hiddenNamesInAllowlist(
+    config.toolVisibility?.allowed,
+    config.toolFacade.profile,
+  );
+  if (staticHidden.length > 0) {
+    process.stderr.write(
+      `toolFacade: toolVisibility.allowed names ${staticHidden.length} tool(s) hidden by toolFacade.profile: ${staticHidden.join(", ")}\n`,
+    );
+  }
+  for (const [personaName, persona] of Object.entries(config.personas ?? {})) {
+    const personaHidden = hiddenNamesInAllowlist(
+      persona.toolVisibility?.allowed,
+      config.toolFacade.profile,
+    );
+    if (personaHidden.length > 0) {
+      process.stderr.write(
+        `toolFacade: personas.${personaName}.toolVisibility.allowed names ${personaHidden.length} tool(s) hidden by toolFacade.profile: ${personaHidden.join(", ")}\n`,
+      );
+    }
   }
 }

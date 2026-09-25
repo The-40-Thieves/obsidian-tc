@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 489,
-    "dependencies": 2260,
-    "subsystemPairs": 145,
-    "crossSubsystemImports": 1026
+    "modules": 491,
+    "dependencies": 2271,
+    "subsystemPairs": 146,
+    "crossSubsystemImports": 1031
   },
   "subsystems": {
     "auth": 4,
@@ -21,7 +21,7 @@
     "formats": 6,
     "gateway": 3,
     "graph": 1,
-    "mcp": 26,
+    "mcp": 28,
     "memory": 2,
     "memory-import": 7,
     "metrics": 4,
@@ -52,7 +52,7 @@
     {
       "from": "tools",
       "to": "mcp",
-      "weight": 80
+      "weight": 81
     },
     {
       "from": "cli",
@@ -95,6 +95,11 @@
       "weight": 16
     },
     {
+      "from": "runtime",
+      "to": "mcp",
+      "weight": 16
+    },
+    {
       "from": "search",
       "to": "vault",
       "weight": 16
@@ -107,11 +112,6 @@
     {
       "from": "runtime",
       "to": "experiential",
-      "weight": 15
-    },
-    {
-      "from": "runtime",
-      "to": "mcp",
       "weight": 15
     },
     {
@@ -186,6 +186,11 @@
     },
     {
       "from": "cli",
+      "to": "doctor",
+      "weight": 7
+    },
+    {
+      "from": "cli",
       "to": "telemetry",
       "weight": 7
     },
@@ -227,11 +232,6 @@
     {
       "from": "cli",
       "to": "gateway",
-      "weight": 6
-    },
-    {
-      "from": "cli",
-      "to": "doctor",
       "weight": 6
     },
     {
@@ -355,6 +355,11 @@
       "weight": 3
     },
     {
+      "from": "doctor",
+      "to": "mcp",
+      "weight": 3
+    },
+    {
       "from": "experiential",
       "to": "search",
       "weight": 3
@@ -452,11 +457,6 @@
     {
       "from": "doctor",
       "to": "db",
-      "weight": 2
-    },
-    {
-      "from": "doctor",
-      "to": "mcp",
       "weight": 2
     },
     {
@@ -682,6 +682,11 @@
     {
       "from": "runtime",
       "to": "otel",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "doctor",
       "weight": 1
     },
     {

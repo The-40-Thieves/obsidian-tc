@@ -20,6 +20,7 @@ import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { toJson } from "../src/mcp/facade";
 import type { CallerContext } from "../src/mcp/registry";
+import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
 import type { IndexStats } from "../src/search/indexer";
@@ -122,7 +123,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       startedAt: 0,
       nativeLoaded: false,
       vecEnabled: false,
-      toolFacade: { configured: "auto", autoClients: { cursor: "flat" } },
+      toolFacade: { configured: "auto", autoClients: { cursor: "flat" }, profile: "core" },
     });
     const out = tool.handler({}, {
       ...ctxBase,
@@ -136,6 +137,8 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       configured: "auto",
       effective: "domain",
       clientName: "claude-code-cli",
+      profile: "core",
+      nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
     });
 
     expect(tool.outputSchema).toBeDefined();
@@ -159,7 +162,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       startedAt: 0,
       nativeLoaded: false,
       vecEnabled: false,
-      toolFacade: { configured: "auto" },
+      toolFacade: { configured: "auto", profile: "core" },
     });
     const out = tool.handler({}, {
       ...ctxBase,
@@ -177,13 +180,18 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       startedAt: 0,
       nativeLoaded: false,
       vecEnabled: false,
-      toolFacade: { configured: "triad" },
+      toolFacade: { configured: "triad", profile: "core" },
     });
     const out = tool.handler({}, {
       ...ctxBase,
       authenticated: false,
     } as CallerContext) as HealthInfo;
-    expect(out.toolFacade).toEqual({ configured: "triad", effective: "triad" });
+    expect(out.toolFacade).toEqual({
+      configured: "triad",
+      effective: "triad",
+      profile: "core",
+      nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+    });
     expect(out.toolFacade).not.toHaveProperty("clientName");
 
     expect(tool.outputSchema).toBeDefined();

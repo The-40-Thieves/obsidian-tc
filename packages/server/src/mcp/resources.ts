@@ -5,8 +5,10 @@ import { readableRel } from "../vault/acl-read-filter";
 import { readNote, statNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
+import { profileHiddenTools } from "./capability-hidden";
 import { buildCatalog, renderCatalogResource } from "./facade";
-import { assertScopesGranted, type CallerContext, type ToolDefinition } from "./registry";
+import { assertScopesGranted, type CallerContext, type ToolRegistry } from "./registry";
+import type { VisibilityCaller } from "./visibility";
 
 /** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links. */
 export const RESOURCE_SCHEME = "obsidian-tc";
@@ -54,12 +56,31 @@ export function catalogResourceEntry(): {
  */
 export function readCatalogResource(
   ctx: CallerContext,
-  tools: ToolDefinition[],
+  registry: ToolRegistry,
+  caller: VisibilityCaller,
   maxResourceBytes: number,
 ): ReadResourceResult {
   assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
-  const entries = renderCatalogResource(buildCatalog(tools));
-  const text = JSON.stringify({ tools: entries });
+  const entries = renderCatalogResource(buildCatalog(registry.listVisible(caller)));
+  // THE-1131: how many registered tools `toolFacade.profile: "core"` hides from `entries` above,
+  // so the catalog says so rather than reading as the complete surface. 0 under "full" (nothing
+  // hidden) omits the field entirely.
+  const hiddenByProfileCount = profileHiddenTools(
+    registry.list(),
+    registry.visibilityConfig(),
+    caller,
+  ).length;
+  const text = JSON.stringify({
+    tools: entries,
+    ...(hiddenByProfileCount > 0
+      ? {
+          hiddenByProfile: {
+            count: hiddenByProfileCount,
+            note: `${hiddenByProfileCount} more tool(s) exist but are hidden by toolFacade.profile: "core"; set toolFacade.profile: "full" to see them, or call describe_capability/call_capability by name.`,
+          },
+        }
+      : {}),
+  });
   if (Buffer.byteLength(text, "utf8") > maxResourceBytes)
     throw err.invalidInput(`resource exceeds ${maxResourceBytes} bytes`, {
       uri: CATALOG_RESOURCE_URI,

@@ -245,6 +245,58 @@ console.log(`\nOK: all ${sources.length} version strings agree at ${distinct[0]}
   console.log(
     `tool-count headline OK (${EXPECTED_TOOL_COUNT} from ${TOOL_COUNT_SOURCE}; ${occurrences} occurrence(s) across ${targets.length} anchors)`,
   );
+
+  // THE-1131 review round 2: the "N tools with the opt-in profile: core" headline has NOTHING
+  // checking it today (a review round's mutation test — deleting a name from tool-profiles.ts's
+  // arrays — confirmed no gate catches it). Same derive-don't-duplicate shape as the total count
+  // above: count every quoted entry inside every `... as const` array literal in tool-profiles.ts
+  // (there are exactly three: M3_STRUCTURED_DOCUMENTS, M4_PLUGIN_BRIDGE, M1_GRAPH_ANALYSIS — the
+  // non-core set) and subtract from EXPECTED_TOOL_COUNT, rather than hand-keeping a second number.
+  const TOOL_PROFILES_SOURCE = "packages/server/src/mcp/tool-profiles.ts";
+  const profilesSrc = readFileSync(resolve(ROOT, TOOL_PROFILES_SOURCE), "utf8");
+  const arrayBlocks = [
+    ...profilesSrc.matchAll(/=\s*(?:Object\.freeze\()?\[([\s\S]*?)\]\s*as const/g),
+  ];
+  if (arrayBlocks.length === 0) {
+    console.error(
+      `\nFAIL: no "... as const" array literal found in ${TOOL_PROFILES_SOURCE} — the core-count gate has no authority to check against, so it must not report OK.`,
+    );
+    process.exit(1);
+  }
+  const nonCoreCount = arrayBlocks.reduce(
+    (sum, [, body]) => sum + (body.match(/"[a-z0-9_]+"/g) ?? []).length,
+    0,
+  );
+  const EXPECTED_CORE_TOOL_COUNT = EXPECTED_TOOL_COUNT - nonCoreCount;
+  const coreTargets = [["docs/wiki/Home.md", /(\d+) with the opt-in `profile: "core"`/]];
+  const coreDrift = [];
+  let coreOccurrences = 0;
+  for (const [file, re] of coreTargets) {
+    const text = readText(file);
+    const global = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
+    let matched = 0;
+    for (const [lineNo, line] of text.split("\n").entries()) {
+      for (const m of line.matchAll(global)) {
+        matched += 1;
+        if (Number(m[1]) !== EXPECTED_CORE_TOOL_COUNT) {
+          coreDrift.push(
+            `${file}:${lineNo + 1}: core-profile headline says ${m[1]}, expected ${EXPECTED_CORE_TOOL_COUNT}`,
+          );
+        }
+      }
+    }
+    if (matched === 0) coreDrift.push(`${file}: no core-profile headline matched ${re}`);
+    coreOccurrences += matched;
+  }
+  if (coreDrift.length) {
+    console.error(
+      `\nFAIL: core-profile tool-count headline drift (THE-1131):\n  ${coreDrift.join("\n  ")}`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    `core-profile tool-count headline OK (${EXPECTED_CORE_TOOL_COUNT} = ${EXPECTED_TOOL_COUNT} - ${nonCoreCount} from ${TOOL_PROFILES_SOURCE}; ${coreOccurrences} occurrence(s))`,
+  );
 }
 
 // Version-prose coherence: the docs that state the shipped version as prose must match the package.

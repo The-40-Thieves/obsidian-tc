@@ -168,7 +168,8 @@ until this generator existed, by which point five entire defaulted blocks had go
     "requireCas": false
   },
   "toolFacade": {
-    "mode": "triad"
+    "mode": "triad",
+    "profile": "full"
   },
   "bootstrap": {
     "deepPaths": [],

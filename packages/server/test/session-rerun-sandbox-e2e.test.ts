@@ -319,6 +319,8 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
         configPath,
         JSON.stringify({
           cacheDir,
+          // THE-1131: `toolFacade.profile` defaults to "full" (unchanged), so `git_stage` needs no
+          // override here — this test is about the SANDBOX's bridge-stripping refusal specifically.
           vaults: [
             {
               id: "main",

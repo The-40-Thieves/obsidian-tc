@@ -314,7 +314,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // alongside the document (fixing a description that used to say telemetry carries no bearer
   // key, which stopped being true once `authTokenEnv` shipped). No key, type, default or
   // constraint moved.
-  "e06095dcc0536f5d766a1fbf3f938d39e6db7fc4d57f43d7bf409e5a51b0077a";
+  // THE-1131 (2026-09-25, review round 2): rebaselined deliberately. Adds ONE new key,
+  // `toolFacade.profile` (enum("full"|"core"), default "full") — deployment-level: which
+  // REGISTERED tools are visible/callable for this process (registration itself is unaffected —
+  // every tool is always registered), orthogonal to `toolFacade.mode` (which picks what a SESSION
+  // is advertised). "full" is the default and does not change today's surface; "core" is an
+  // opt-in, smaller curated set. See config/tools.schema.ts's ToolFacadeConfigSchema for the full
+  // description text. No existing key, type, default or constraint moved.
+  "4a6cffb8cfb723307bcf7c975a3c8b62b0bd2f7e3e6d799f3c3c7aa40773114c";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

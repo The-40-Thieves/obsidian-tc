@@ -137,13 +137,15 @@ describe("renderTools (THE-472)", () => {
 
   it("renders a complete table with a count line", () => {
     expect(md).toContain("3 tools");
-    expect(md).toContain("| Tool | Access | Scopes | Description |");
+    expect(md).toContain("| Tool | Access | Profile | Scopes | Description |");
   });
 
   it("classifies access from scopes + destructive flag", () => {
-    expect(md).toMatch(/`patch_note` \| write \| `write:notes`/);
-    expect(md).toMatch(/`read_note` \| read \| `read:notes`/);
-    expect(md).toMatch(/`reset_vault_cache` \| destructive \|/);
+    // None of these fixture tools are in tool-profiles.ts's NON_CORE_TOOL_NAMES, so each gets
+    // the "core, full" profile cell (visible/callable under both profiles).
+    expect(md).toMatch(/`patch_note` \| write \| core, full \| `write:notes`/);
+    expect(md).toMatch(/`read_note` \| read \| core, full \| `read:notes`/);
+    expect(md).toMatch(/`reset_vault_cache` \| destructive \| core, full \|/);
   });
 
   it("escapes pipes and newlines in descriptions", () => {
@@ -158,7 +160,7 @@ describe("renderTools (THE-472)", () => {
       },
     ]);
     expect(out).toContain("a \\| b c");
-    expect(out).toContain("| `x` | read | — |");
+    expect(out).toContain("| `x` | read | core, full | — |");
   });
 
   it("escapes backslashes before pipes so a bare \\| cannot break the table (CodeQL)", () => {

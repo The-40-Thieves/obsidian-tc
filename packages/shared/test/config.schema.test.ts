@@ -860,6 +860,36 @@ describe("TelemetryConfigSchema (THE-1125)", () => {
   });
 });
 
+describe("ServerConfigSchema — toolFacade.profile (THE-1131)", () => {
+  it('defaults to "full" — the default surface does not change in this ticket', () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.toolFacade.profile).toBe("full");
+  });
+
+  it("accepts an explicit full or core", () => {
+    expect(
+      ServerConfigSchema.parse({ ...base, toolFacade: { profile: "full" } }).toolFacade.profile,
+    ).toBe("full");
+    expect(
+      ServerConfigSchema.parse({ ...base, toolFacade: { profile: "core" } }).toolFacade.profile,
+    ).toBe("core");
+  });
+
+  it("rejects a value outside the enum", () => {
+    const r = ServerConfigSchema.safeParse({ ...base, toolFacade: { profile: "lean" } });
+    expect(r.success).toBe(false);
+  });
+
+  it("is orthogonal to toolFacade.mode — both can be set independently", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      toolFacade: { mode: "auto", profile: "core" },
+    });
+    expect(c.toolFacade.mode).toBe("auto");
+    expect(c.toolFacade.profile).toBe("core");
+  });
+});
+
 describe("ObsidianTcError", () => {
   it("marks throttled retryable and forbidden non-retryable", () => {
     expect(new ObsidianTcError("throttled", "x").retryable).toBe(true);
