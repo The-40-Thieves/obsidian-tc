@@ -280,3 +280,39 @@ test("findDockerfileBunTags catches a floating tag with no patch version", () =>
 test("findDockerfileBunTags returns nothing for a Dockerfile with no oven/bun base", () => {
   assert.deepEqual(findDockerfileBunTags("FROM node:24-slim\n", "Dockerfile"), []);
 });
+
+// THE-1118 fix round: the original regex only matched `FROM oven/bun:<tag>` verbatim, so any of
+// these four legal Dockerfile spellings slipped past the existence floor unnoticed — a second
+// stage written in one of them would drift silently since the floor only needs ONE match to stay
+// quiet. Each test below is one such spelling.
+
+test("findDockerfileBunTags matches lowercase `from` — Dockerfile keywords are case-insensitive", () => {
+  const occ = findDockerfileBunTags("from oven/bun:1-slim AS build\n", "Dockerfile");
+  assert.deepEqual(occ, [{ file: "Dockerfile", line: 1, value: "1-slim" }]);
+});
+
+test("findDockerfileBunTags matches past a BuildKit flag before the image ref", () => {
+  const occ = findDockerfileBunTags(
+    "FROM --platform=$BUILDPLATFORM oven/bun:1-slim AS build\n",
+    "Dockerfile",
+  );
+  assert.deepEqual(occ, [{ file: "Dockerfile", line: 1, value: "1-slim" }]);
+});
+
+test("findDockerfileBunTags matches an explicit docker.io registry prefix", () => {
+  const occ = findDockerfileBunTags("FROM docker.io/oven/bun:1-slim\n", "Dockerfile");
+  assert.deepEqual(occ, [{ file: "Dockerfile", line: 1, value: "1-slim" }]);
+});
+
+test('findDockerfileBunTags resolves a missing tag to the literal "latest" Docker would use', () => {
+  const occ = findDockerfileBunTags("FROM oven/bun AS build\n", "Dockerfile");
+  assert.deepEqual(occ, [{ file: "Dockerfile", line: 1, value: "latest" }]);
+});
+
+test("findDockerfileBunTags on a digest-pinned line: the digest is stripped, only the tag is captured (documented — digests are never compared, no network access to resolve one)", () => {
+  const occ = findDockerfileBunTags(
+    "FROM oven/bun:1.4.2-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd\n",
+    "Dockerfile",
+  );
+  assert.deepEqual(occ, [{ file: "Dockerfile", line: 1, value: "1.4.2-slim" }]);
+});

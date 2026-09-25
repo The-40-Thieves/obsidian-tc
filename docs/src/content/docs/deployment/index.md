@@ -18,7 +18,7 @@ A tagged release (`v*`) produces, via GitHub Actions:
   bytecode + minified).
 - **`.mcpb` bundle** — a one-click MCP Bundle (`manifest.json`, MCPB 0.3).
 - **Companion plugin zip** — for `.obsidian/plugins/`.
-- **Docker image** — `oven/bun:1-slim` (Debian, glibc) on GHCR.
+- **Docker image** — `oven/bun:1.4.2-slim` (Debian, glibc) on GHCR.
 
 The published server bundle is minified with a linked sourcemap.
 

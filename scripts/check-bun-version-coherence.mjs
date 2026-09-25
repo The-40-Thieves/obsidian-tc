@@ -159,19 +159,39 @@ export function bunVersionProblems({
   return problems;
 }
 
+// Matches a `FROM` instruction that ultimately names `oven/bun`, tolerating everything Docker
+// itself tolerates around it (THE-1118 fix round — the original `/^\s*FROM\s+oven\/bun:(\S+)/`
+// missed all of these, so a second stage written in any of them would drift silently past the
+// existence floor below, which only needs ONE match to stay quiet):
+//   - case: Dockerfile instructions are case-insensitive (`from oven/bun:1-slim` is legal).
+//   - BuildKit flags before the image ref (`FROM --platform=$BUILDPLATFORM oven/bun:1-slim`).
+//   - an explicit registry host (`FROM docker.io/oven/bun:1-slim`, `index.docker.io/...`) — Bun's
+//     own published image has no registry prefix, but Docker resolves the bare form to Docker Hub
+//     regardless, so both spellings name the identical image.
+//   - a missing tag (`FROM oven/bun`), which Docker resolves to `latest` — captured as the
+//     literal string "latest" below so the caller's expected-tag comparison flags it as drifted,
+//     the same as any other wrong tag.
+// The tag group stops at `@` so a trailing digest (`oven/bun:1.4.2-slim@sha256:...`) does not get
+// folded into the captured value. The digest itself is never compared — this script has no
+// network access to resolve what a digest points at (see the module header's "deliberately NOT a
+// recompile" philosophy), so a digest-pinned line is checked on its tag component only.
+const DOCKERFILE_FROM_RE =
+  /^\s*FROM\s+(?:--\S+\s+)*(?:(?:index\.)?docker\.io\/)?oven\/bun(?::([^\s@]+))?/i;
+
 /**
- * Extracts every `FROM oven/bun:<tag>` line from the root Dockerfile's text. A multi-stage build
- * has more than one such line (builder + runtime), and each is a separate pin that can drift
- * independently — a bump that only touches the builder stage still leaves the runtime image on
- * the old tag. Pure and filesystem-free, mirroring `findBunVersionOccurrences` above.
+ * Extracts every `FROM oven/bun` line from the root Dockerfile's text (see `DOCKERFILE_FROM_RE`
+ * above for exactly what counts). A multi-stage build has more than one such line (builder +
+ * runtime), and each is a separate pin that can drift independently — a bump that only touches
+ * the builder stage still leaves the runtime image on the old tag. Pure and filesystem-free,
+ * mirroring `findBunVersionOccurrences` above.
  */
 export function findDockerfileBunTags(text, filePath) {
   const occurrences = [];
   text.split("\n").forEach((line, i) => {
     if (/^\s*#/.test(line)) return;
-    const m = line.match(/^\s*FROM\s+oven\/bun:(\S+)/);
+    const m = DOCKERFILE_FROM_RE.exec(line);
     if (!m) return;
-    occurrences.push({ file: filePath, line: i + 1, value: m[1] });
+    occurrences.push({ file: filePath, line: i + 1, value: m[1] ?? "latest" });
   });
   return occurrences;
 }

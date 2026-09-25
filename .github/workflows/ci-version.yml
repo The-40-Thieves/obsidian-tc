@@ -24,7 +24,8 @@ jobs:
       # THE-947: mise.toml's bun pin, package.json's packageManager, setup-repo's default and
       # every literal bun-version: under .github/workflows and .github/actions must all agree —
       # THE-946 bumped the first three to 1.4.0 and left seven direct setup-bun steps on 1.3.14.
-      - name: assert bun-version agrees across mise.toml, package.json and every workflow
+      # THE-1118: also asserts the Dockerfile's own `FROM oven/bun:` tags agree with the pin.
+      - name: assert bun-version agrees across mise.toml, package.json, every workflow, and the Dockerfile
         run: node scripts/check-bun-version-coherence.mjs
 
   # THE-506: single repo-wide typecheck gate. The path-scoped workflows (ci-server, ci-plugin) each

@@ -53,7 +53,7 @@ docker run --rm -v "$HOME/vaults:/vaults" \
   ghcr.io/the-40-thieves/obsidian-tc:1.31.3 /config/config.json
 ```
 
-The image is an `oven/bun:1-slim` build (Debian, glibc): the native prebuilds are
+The image is an `oven/bun:1.4.2-slim` build (Debian, glibc): the native prebuilds are
 gnu, so a glibc base keeps them loadable instead of forcing the pure-JS fallback.
 
 ## One-click bundle (`.mcpb`)

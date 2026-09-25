@@ -194,19 +194,34 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `huggingface-hub` gets a ceiling (THE-1118, #971).** From the 2026-09-24 stack-update review's
   P1 batch: `mise.toml`, `package.json`'s `packageManager`, `.github/actions/setup-repo`'s
   `bun-version` default, every hardcoded `bun-version:` literal across `.github/workflows`, and
-  `packages/server`'s `@types/bun` all move to 1.4.2 together; `bun.lock` regenerated (only the
-  `@types/bun`/`bun-types` entries changed). The `Dockerfile`'s two `FROM oven/bun:1-slim` stages
+  `packages/server`'s `@types/bun` all move to 1.4.2 together; `bun.lock` regenerated (three
+  line-pairs changed: the `devDependencies` declaration plus the `@types/bun` and `bun-types`
+  package entries — nothing else moved). The `Dockerfile`'s two `FROM oven/bun:1-slim` stages
   are now pinned to `1.4.2-slim`, and `check-bun-version-coherence.mjs` gained a
   `findDockerfileBunTags` check so a re-introduced floating tag fails the same gate the workflow
   literals do, instead of silently drifting the shipped image's Bun off every other declared pin.
-  Separately, `services/bge-m3-service/pyproject.toml`'s `huggingface-hub>=1` gets the same `<2`
+  `findDockerfileBunTags`'s matcher is case-insensitive and tolerates BuildKit flags, a
+  `docker.io/` registry prefix, and a missing tag (resolved to Docker's own `latest` default, then
+  flagged as drifted) — the original anchor only matched `FROM oven/bun:<tag>` verbatim, so any
+  of those legal spellings on a second stage would have drifted silently past the gate. Separately,
+  `services/bge-m3-service/pyproject.toml`'s `huggingface-hub>=1` gets the same `<2`
   ceiling `sentence-transformers` already has, guarding against huggingface-hub 2.0.0 (released
   2026-09-24 into what was an unbounded range); the compiled `requirements.txt` already hash-pins
-  1.24.0, so no resolved deployment dependency changes. `services/docs-ingest` gets its first
+  1.24.0, so no resolved deployment dependency changes — and `requirements.in`, the file the lock
+  is actually compiled FROM (not `pyproject.toml`, which no installing CI path reads), gets the
+  matching `<2`/`<6` ceilings too. `scripts/check_requirements_sync.py` now compares each
+  dependency's version SPECIFIER between `pyproject.toml` and `requirements.in`, not just its
+  name — a name-only comparison could not see a ceiling added to one file and not the other, since
+  both files still agreed the package belonged. `services/docs-ingest` gets its first
   `uv.lock` (all three extras — `parse`, `extract`, `test`), and the service's own `.gitignore`
   no longer excludes it — it was silently ignored there, which would have kept it out of git and
   out of `osv-scanner`'s recursive scan; `osv-scanner scan source --recursive .` now reports seven
-  lockfiles scanned (was six) with no new issues.
+  lockfiles scanned (was six) with no new issues. `ci-model-service.yml`'s `test-docs-ingest` job
+  gained a `uv lock --check` step, since nothing else in that job installs from `uv.lock` (it
+  still installs via `pip install -e ".[test]"`) and nothing would otherwise notice it drifting
+  from `pyproject.toml`. Docs updated off the stale `oven/bun:1-slim` tag: `ARCHITECTURE.md`,
+  `docs/src/content/docs/deployment/index.md`, and one line of
+  `docs/src/content/docs/getting-started/install.md`.
 
 ## [1.31.3] - 2026-09-21
 
