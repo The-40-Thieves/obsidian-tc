@@ -27,8 +27,8 @@ npx obsidian-tc /path/to/vault
 ```
 
 Every note tool and lexical search work immediately. Semantic search defaults to a bundled
-embedder (source checkout — see [Embeddings](/configuration/embeddings/)) — see
-[When NOT to use](#when-not-to-use-obsidian-tc) below.
+embedder — see [When NOT to use](#when-not-to-use-obsidian-tc) below for which install methods it
+reaches today.
 
 For multi-vault, auth, or ACLs, use a config file:
 
@@ -48,9 +48,9 @@ Honest guidance — this is a heavier product than most alternatives:
   over one vault, a read-only wrapper, or the Obsidian URI/Local REST API plugin directly may be
   all you need — see the [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/). This mostly
   pays off with autonomous or multi-agent access.
-- **Zero setup — source checkouts only, for now.** The vault is read directly off disk; semantic
-  search defaults to a bundled offline embedder, but npm/Docker need an explicit provider until
-  it's published — see [Embeddings](/configuration/embeddings/).
+- **Zero setup, source checkouts only for now.** The vault is read directly off disk; semantic
+  search defaults to a bundled offline embedder; npm/Docker need an explicit provider until
+  published — see [Embeddings](https://obsidian-tc.the40thieves.io/configuration/embeddings/).
 - **Zero-config trades away auth/ACLs.** `obsidian-tc /path/to/vault` boots with auth off, no
   folder ACL — fine only because it's local-only; governance is opt-in. Detail: [SECURITY.md](./SECURITY.md).
 - **AGPL-3.0's network-copyleft terms.** Not permissive; a commercial license may exist — see
