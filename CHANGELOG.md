@@ -51,6 +51,29 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **`docs/` workspace dependency batch (#979, THE-1119).** `astro` 7.2.8→7.3.5, `@astrojs/check`
+  0.9.9→0.9.10, `@astrojs/starlight` 0.41.3→0.42.4 (all verified current with `npm view`). Read
+  every Starlight changelog entry between 0.41.3 and 0.42.4: none of its 0.42.0 potentially-
+  breaking changes apply — the removed `tagline` config option isn't set in `astro.config.mjs`,
+  and the mobile-menu-toggle markup rewrite (`starlight-menu-button` custom element, `aria-expanded`
+  removed in favor of `.sl-menu-button`/`:popover-open`) touches nothing in `docs/src` (`customCss`
+  is a placeholder file, no component `overrides`). No CSS-variable renames in the whole 0.41.3→
+  0.42.4 range. Starlight 0.42.x's own `peerDependencies` now floor `astro` at `^7.2.10` and
+  `@astrojs/markdown-remark` at `^7.3.0` — both satisfied by this bump; its `@astrojs/mdx`
+  dependency also moved to `^8.0.0` and it added `@astrojs/markdown-satteri` (a new Rust-based
+  Markdown processor with per-platform native binaries), which is why `docs/bun.lock`'s diff is
+  large (99 insertions / 259 deletions) despite only 3 direct package bumps. `astro` 7.2.8→7.3.5
+  and `@astrojs/check` 0.9.9→0.9.10 carry no breaking changes (checked both packages' changelogs).
+  `sharp` and `typescript` (docs' own 6.0.3 floor, THE-604) untouched. `bun run build` (`astro
+  check && astro build`): 0 errors/warnings/hints, **28 pages built — identical to main's 28** (the
+  ticket's expected baseline of 29 was stale; verified by building main itself for comparison, and
+  by diffing the full built-HTML-path list, which is byte-for-byte identical). One new benign
+  build-time console warning appeared (`[WARN] [content] The collection "i18n" does not exist or
+  is empty`) — Starlight's optional UI-translation-override collection, which this site has never
+  populated; doesn't fail the build or `astro check`. `lychee` against the built site (pinned
+  v0.24.2, matching `ci-docs.yml`'s own invocation exactly): 0 errors. `osv-scanner` on a scratch
+  copy: no issues. `docs/` stays outside `bun run map`'s scope (unchanged).
+
 - **Rust toolchain + napi crate batch (#977, THE-1119).** `rust-toolchain.toml`/`Cargo.toml`
   `rust-version` 1.97.1→1.98.1 (a no-op on the compiler — `stable` already resolves to 1.98.1);
   `napi` 3.9.4→3.13.0, `napi-derive` 3.5.7→3.6.9, `napi-build` 2.3.2→2.5.0, `rustix` 1.1.4→1.1.5.
