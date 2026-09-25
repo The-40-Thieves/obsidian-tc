@@ -71,8 +71,9 @@ execution) require the companion plugin, **TC Bridge**, which exposes the vault'
 Local REST API. Install it from Obsidian's Community Plugins browser (search
 "TC Bridge", or go directly to
 [community.obsidian.md/plugins/tc-bridge](https://community.obsidian.md/plugins/tc-bridge))
-and enable it. The release's plugin zip under `.obsidian/plugins/` is the manual
-fallback for hosts that can't reach the community directory. The server runs
-without it either way — those bridge tools simply degrade to `plugin_missing`.
+and enable it. The release's plugin zip, extracted into `.obsidian/plugins/`, is
+the manual fallback for hosts that can't reach the community directory. The
+server runs without it either way — those bridge tools simply degrade to
+`plugin_missing`.
 
 Next: [First Run](/getting-started/first-run/).

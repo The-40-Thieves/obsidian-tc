@@ -5,8 +5,9 @@
 # a write that overwrites an existing note and walks through the HITL confirmation it triggers.
 # Not rendered in this environment — neither `vhs` nor `asciinema`/`agg` is installed here (see
 # `command -v vhs asciinema agg`) — so this tape and docs/public/demo/quickstart-storyboard.svg (a
-# static panel-by-panel stand-in built from these same beats) ship together until someone with the
-# toolchain installed runs:
+# static panel-by-panel stand-in, captured from a REAL run of the built server against a scratch
+# copy of this same fixture vault, not invented) ship together until someone with the toolchain
+# installed runs:
 #
 #   vhs docs/demo/quickstart.tape
 #
@@ -16,11 +17,11 @@
 # that is Astro/Starlight's static-asset directory — it is what makes the docs-home embed at
 # /demo/quickstart-storyboard.svg (and, once rendered, /demo/quickstart.gif) actually servable.
 #
-# Prerequisite for a real run: `bun run build` once (so `node packages/server/dist/cli.js` and the
-# Claude Code CLI's `claude mcp add`/`claude -p` — the exact client wiring docs/src/content/docs/
-# getting-started/first-run.md already recommends, reused here rather than inventing a demo-only
-# client — are both on PATH), and a scratch copy of examples/scratch-vault so the recording's
-# write_note overwrite never touches the checked-in fixture.
+# Prerequisite for a real run: the Claude Code CLI (`claude mcp add`/`claude -p` — the exact client
+# wiring docs/src/content/docs/getting-started/first-run.md already recommends, reused here rather
+# than inventing a demo-only client) on PATH, and network access for the `npx obsidian-tc` it spawns
+# (no local build needed — npx pulls the published package). A scratch copy of examples/scratch-
+# vault means the recording's write_note overwrite never touches the checked-in fixture.
 
 Output docs/public/demo/quickstart.gif
 
@@ -40,46 +41,54 @@ Enter
 Sleep 500ms
 Show
 
-# 1. Zero-config boot: a bare vault path is enough, no config file (packages/server/src/cli/
-# resolve-config.ts's `configFromVaultPath`) — start it in the background so this one terminal can
-# also drive the client below.
-Type "npx obsidian-tc /tmp/quickstart-demo-vault &"
-Enter
-Sleep 2s
-Wait /ready on stdio/
-
-# 2. Wire the running server into Claude Code — the one-command form first-run.md documents.
+# 1. Wire the vault into Claude Code — one command, per first-run.md. `claude mcp add` spawns
+# `npx obsidian-tc /tmp/quickstart-demo-vault` itself over stdio when a tool call needs it; no
+# separate `npx obsidian-tc ... &` here — a stdio server backgrounded on an interactive TTY that
+# still tries to read its controlling terminal raises SIGTTIN, which the plain zero-config
+# invocation below (packages/server/src/cli/resolve-config.ts's `configFromVaultPath`) does not
+# need, since Claude Code owns the process and its stdio pipes end to end.
 Type "claude mcp add obsidian-tc -- npx -y obsidian-tc /tmp/quickstart-demo-vault"
 Enter
 Sleep 1.5s
 
-# 3. search_text — find the seeded note by its placeholder content.
-Type `claude -p "search the vault for the word onboarding and show me what matched"`
+# 2. search_text — "placeholder" is real content seeded across all three notes in the fixture
+# vault (README.md, Welcome.md, 00-example/Example Note.md) — verified with a live run of the
+# built server against this exact fixture: 6 hits, 3 notes.
+Type `claude -p "search the vault for the word placeholder and show me what matched"`
 Enter
 Sleep 3s
 
-# 4. read_note — open the note the search surfaced.
+# 3. read_note — open one of the notes the search surfaced.
 Type `claude -p "read the Welcome note in full"`
 Enter
 Sleep 3s
 
-# 5. write_note overwriting an existing note — triggers the HITL confirmation
-# (packages/server/src/cli/commands/elicit-mint.ts's mintElicitAudited path): the tool call is
-# held pending a token, Claude Code surfaces it as a confirmation prompt, and the demo approves it
-# rather than the call silently succeeding.
+# 4. write_note overwriting an existing note — triggers the HITL confirmation. Verified live: the
+# call returns an `elicit_required` error (never a silent write), whose `recovery` text names the
+# exact command to run: `obsidian-tc elicit --hash <args_hash> --tool write_note --vault main`.
+# `claude -p` is headless and does NOT render an interactive approval prompt the way an
+# interactive `claude` session would for a client-side MCP elicitation request — so this step
+# shows the real `elicit_required` error text, not a fabricated `[y/N]` prompt.
 Type `claude -p "overwrite the Welcome note with a one-line summary of what obsidian-tc does"`
 Enter
-Sleep 2s
-Wait /confirm/
-Sleep 500ms
+Sleep 3s
+Wait /elicit_required|human confirmation required/
 
-# 6. Approve the pending write.
-Type "y"
+# 5. The confirm: mint the token the error named, then resend the same write_note call with it —
+# the same two-step Claude Code performs automatically for elicitation-capable clients, made
+# explicit here since this recording is headless. `elicit` takes the SAME vault-path-or-config
+# positional `serve` does (not a --config flag) — verified end to end against this exact fixture:
+# args_hash a969f73c96f03e046659d695c867529c is the real value for Welcome.md's real content, and
+# minting against it really does produce a token the retried write_note call accepts.
+Type "obsidian-tc elicit /tmp/quickstart-demo-vault --hash a969f73c96f03e046659d695c867529c --tool write_note --vault main --json"
 Enter
 Sleep 2s
+Type `claude -p "now retry the overwrite with that confirmation token"`
+Enter
+Sleep 3s
 
 Hide
-Type "kill %1 2>/dev/null; rm -rf /tmp/quickstart-demo-vault"
+Type "rm -rf /tmp/quickstart-demo-vault"
 Enter
 Show
 Sleep 1s

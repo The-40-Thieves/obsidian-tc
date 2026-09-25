@@ -49,9 +49,9 @@
   "user_config": {
     "config_path": {
       "type": "file",
-      "title": "Config file (optional)",
-      "description": "Absolute path to an obsidian-tc JSON config (vaults, ACL, transports) — or a vault folder, for a zero-config launch (lexical search and every note tool work immediately; a config file is only needed for an embeddings backend, multiple vaults, or auth).",
-      "required": false
+      "title": "Config file",
+      "description": "An obsidian-tc JSON config file, or a vault folder path (zero-config) typed or pasted here; a file picker cannot select a folder.",
+      "required": true
     },
     "default_vault": {
       "type": "string",

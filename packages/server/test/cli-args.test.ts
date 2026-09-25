@@ -1,9 +1,10 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   configFromVaultPath,
+  normalizeConfigPathInput,
   parseCliArgs,
   redactConfig,
   resolveServeConfig,
@@ -165,6 +166,142 @@ describe("resolveServeConfig / configFromVaultPath", () => {
     const cfg = configFromVaultPath(dir);
     expect(cfg.auth.mode).toBe("none");
     expect(cfg.governor.maxResponseBytes).toBeGreaterThan(0);
+  });
+});
+
+// Reviewer finding (PR #972): `@anthropic-ai/mcpb@2.1.2`'s `getMcpConfigForManifest` leaves the
+// LITERAL, unresolved `${user_config.config_path}` placeholder in argv when that optional field
+// is left blank — a real host observed to do this, not a hypothetical. `""` has the same failure
+// shape for a different reason: the old `input ?? env` treated "" as "given" (not nullish) and
+// never fell through to OBSIDIAN_TC_CONFIG at all, silently masking it. Both must resolve exactly
+// like an absent argument, all the way through to the "no vault or config given" error when no
+// env fallback exists either — never a `statSync` on placeholder/empty text.
+//
+// These two constants hold the LITERAL text, not a forgotten template string -- biome's
+// noTemplateCurlyInString would otherwise flag every use site below, so it is suppressed once,
+// here, rather than at each call.
+// biome-ignore lint/suspicious/noTemplateCurlyInString: literal MCPB placeholder text under test.
+const MCPB_CONFIG_PLACEHOLDER = "${user_config.config_path}";
+// biome-ignore lint/suspicious/noTemplateCurlyInString: literal MCPB placeholder text under test.
+const MCPB_VAULT_PLACEHOLDER = "${user_config.default_vault}";
+
+describe("normalizeConfigPathInput (PR #972 — unsubstituted MCPB placeholder / empty config_path)", () => {
+  it("undefined passes through unchanged", () => {
+    expect(normalizeConfigPathInput(undefined)).toBeUndefined();
+  });
+
+  it("a real path passes through unchanged", () => {
+    expect(normalizeConfigPathInput("/some/vault")).toBe("/some/vault");
+  });
+
+  it("an empty string becomes undefined", () => {
+    expect(normalizeConfigPathInput("")).toBeUndefined();
+  });
+
+  it("the literal unresolved config_path placeholder becomes undefined", () => {
+    expect(normalizeConfigPathInput(MCPB_CONFIG_PLACEHOLDER)).toBeUndefined();
+  });
+
+  it("any unresolved user_config.X placeholder becomes undefined, not just config_path's", () => {
+    expect(normalizeConfigPathInput(MCPB_VAULT_PLACEHOLDER)).toBeUndefined();
+  });
+
+  it("a value that merely CONTAINS the placeholder shape is left alone (only a full match is unusable)", () => {
+    // e.g. a real path a user typed that happens to embed literal ${...} text -- must not be
+    // treated as the unsubstituted-placeholder case just because it matches loosely.
+    const containsPlaceholder = `/vaults/${MCPB_CONFIG_PLACEHOLDER}/notes`;
+    expect(normalizeConfigPathInput(containsPlaceholder)).toBe(containsPlaceholder);
+  });
+
+  it("writes one stderr line naming the ignored value, for the placeholder case", () => {
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      normalizeConfigPathInput(MCPB_CONFIG_PLACEHOLDER);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]?.[0]).toContain(MCPB_CONFIG_PLACEHOLDER);
+      expect(spy.mock.calls[0]?.[0]).toContain("OBSIDIAN_TC_CONFIG");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("writes one stderr line for the empty-string case too", () => {
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      normalizeConfigPathInput("");
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("undefined and a real path never touch stderr", () => {
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      normalizeConfigPathInput(undefined);
+      normalizeConfigPathInput("/some/vault");
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/empty input falls through to OBSIDIAN_TC_CONFIG (PR #972)", () => {
+  const ENV_KEY = "OBSIDIAN_TC_CONFIG";
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedEnv = process.env[ENV_KEY];
+  });
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = savedEnv;
+  });
+
+  it("an unresolved config_path placeholder falls through to a valid OBSIDIAN_TC_CONFIG, not a CliError", () => {
+    const dir = tmpDir("otc-placeholder-env-");
+    const file = join(dir, "c.json");
+    writeFileSync(file, JSON.stringify({ vaults: [{ id: "from-env", path: dir }] }));
+    process.env[ENV_KEY] = file;
+    expect(resolveServeConfig(MCPB_CONFIG_PLACEHOLDER).vaults[0]?.id).toBe("from-env");
+  });
+
+  it("an empty string falls through to a valid OBSIDIAN_TC_CONFIG (the exact bug: old `??` masked it)", () => {
+    const dir = tmpDir("otc-empty-env-");
+    const file = join(dir, "c.json");
+    writeFileSync(file, JSON.stringify({ vaults: [{ id: "from-env-2", path: dir }] }));
+    process.env[ENV_KEY] = file;
+    expect(resolveServeConfig("").vaults[0]?.id).toBe("from-env-2");
+  });
+
+  it("a placeholder with no OBSIDIAN_TC_CONFIG fallback throws the ordinary 'no vault or config given' error, never a statSync-on-placeholder error", () => {
+    delete process.env[ENV_KEY];
+    expect(() => resolveServeConfig(MCPB_CONFIG_PLACEHOLDER)).toThrow(/no vault or config given/i);
+  });
+
+  it("an empty string with no OBSIDIAN_TC_CONFIG fallback throws the same friendly error", () => {
+    delete process.env[ENV_KEY];
+    expect(() => resolveServeConfig("")).toThrow(/no vault or config given/i);
+  });
+
+  it("a zero-config vault directory still boots normally through the placeholder-aware path", () => {
+    delete process.env[ENV_KEY];
+    const dir = tmpDir("otc-placeholder-vault-");
+    expect(resolveServeConfig(dir).vaults[0]?.id).toBe("main");
+  });
+
+  it("resolveServeConfigWithProvenance: an empty string is never explicit, same as any zero-config/env path", () => {
+    const dir = tmpDir("otc-empty-prov-");
+    const file = join(dir, "c.json");
+    writeFileSync(
+      file,
+      JSON.stringify({ vaults: [{ id: "v1", path: dir }], plane: { enabled: true } }),
+    );
+    process.env[ENV_KEY] = file;
+    const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance("");
+    expect(config.plane.enabled).toBe(true);
+    expect(planeEnabledExplicit).toBe(true);
   });
 });
 

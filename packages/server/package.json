@@ -2,7 +2,7 @@
   "name": "obsidian-tc",
   "version": "1.31.3",
   "mcpName": "io.github.The-40-Thieves/obsidian-tc",
-  "description": "MCP server for Obsidian — comprehensive tool surface for humans and autonomous agents",
+  "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./dist/index.js",

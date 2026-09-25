@@ -17,7 +17,7 @@ hero:
 ![obsidian-tc quickstart: zero-config boot, search_text, read_note, and a write_note overwrite that requires confirmation](/demo/quickstart-storyboard.svg)
 
 A static storyboard for now — `docs/demo/quickstart.tape` renders the animated version
-(`docs/demo/quickstart.gif`) once `vhs` is on your PATH.
+(`docs/public/demo/quickstart.gif`) once `vhs` is on your PATH.
 
 ## What is obsidian-tc?
 

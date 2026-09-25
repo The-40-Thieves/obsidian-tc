@@ -125,22 +125,46 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Fixed
 
 - **The public "front doors" — Smithery listing, TC Bridge's community-directory scorecard, and the
-  docs — drifted from the shipped product (#972, THE-1120).** Smithery's card required `config_path`
-  even though the server boots zero-config from a vault folder (`mcpb/manifest.json`'s `user_config`
-  now marks it optional and describes the zero-config path), carried a stale "RBAC, SLSA provenance,
-  and native search" description (now the same governed-retrieval/memory/HITL description everywhere
-  it's duplicated: `server.json`, `mcpb/manifest.json`, root `package.json`), and was missing search
-  keywords `mcpb/manifest.json`'s `keywords` now covers (`obsidian-vault`, `semantic-search`,
-  `retrieval`, `memory`, `markdown`). `packages/plugin` itself is already clean against the
-  community-directory scanner (0 errors, 0 warnings across 22 files, verified against the live
-  `eslint-plugin-obsidianmd` ruleset) — THE-964 cleared its six findings back in 1.28.0; the
-  community.obsidian.md "Review: Caution" badge is a stale, un-refreshed review, not a code issue.
-  `docs/src/content/docs/index.md` overstated the companion plugin as "powers tool-call delivery"
+  docs — drifted from the shipped product (#972, THE-1120).** Smithery's card carried a stale "RBAC,
+  SLSA provenance, and native search" description (now the same governed-retrieval/memory/HITL
+  description everywhere it's duplicated: `server.json`, `mcpb/manifest.json`, root `package.json`),
+  and was missing search keywords `mcpb/manifest.json`'s `keywords` now covers (`obsidian-vault`,
+  `semantic-search`, `retrieval`, `memory`, `markdown`). `config_path` stays `required: true` —
+  making it optional was tried and reverted: `@anthropic-ai/mcpb@2.1.2`'s own
+  `getMcpConfigForManifest` leaves the LITERAL, unsubstituted `${user_config.config_path}` text in
+  argv when that field is left blank, which the CLI then can't resolve as a path; its description
+  now says the field takes a config file OR a vault-folder path typed directly in (zero-config still
+  needs a path, it just arrives through this same field — a file picker cannot select a folder). As
+  defense in depth (not the fix — the manifest staying `required` is), `resolveServeConfigWithProvenance`
+  (`packages/server/src/cli/resolve-config.ts`) and `run_serve` (`cli.ts`) now normalize an empty
+  string or any unresolved `${user_config.*}` placeholder to "absent" before falling back to
+  `OBSIDIAN_TC_CONFIG`, instead of either masking a real env fallback (the old `input ?? env` never
+  fell through on `""`, since `""` is not nullish) or handing placeholder text to `statSync`.
+  TC Bridge's community-directory scorecard: `packages/plugin`'s own source is clean (0 errors, 0
+  warnings across its 22 files), and the six findings THE-964 fixed there landed in 1.28.1 (not
+  1.28.0, which had already shipped when that fix merged). But the scanner itself — verified against
+  `obsidianmd/obsidian-workflows` and `eslint-plugin-obsidianmd` 0.4.1 — lints from the monorepo
+  ROOT (where `manifest.json` lives), and this repo has no root `tsconfig.json`; on that untyped
+  code path, `eslint-plugin-obsidianmd`'s own recommended config still pulls in type-aware
+  `typescript-eslint` rules unconditionally, so the scanner **crashes outright** (exit 2,
+  `@typescript-eslint/await-thenable` "requires type information" on `packages/native/fallback.ts`)
+  before it can produce any verdict at all — not a "packages/plugin is clean" story, a
+  "the scanner cannot finish running" one. A manual type-aware reproduction (supplying per-subtree
+  tsconfig context, the only way to get any signal) finds 18 errors and 462 warnings across the
+  monorepo, none of them in `packages/plugin/src` — server code and reranker-local account for all
+  of it — plus one independent warning (`depend/ban-dependencies` on `builtin-modules`,
+  `packages/plugin/package.json:16`) when that manifest is checked as its own scan root, a
+  dependency-hygiene note this PR leaves as-is. Fixing the root-`tsconfig.json` gap is out of scope
+  here (filed as a follow-up); the community.obsidian.md "Review: Caution" badge may reflect that
+  crash, a stale pre-1.28.1 review never re-requested, or both — either way it needs the owner's
+  "Check for new releases" + "Request review" action on a future release, not a code change in this
+  PR. `docs/src/content/docs/index.md` overstated the companion plugin as "powers tool-call delivery"
   (it's an optional bridge for live-Obsidian features; the server runs and degrades gracefully
   without it); `getting-started/install.md` pointed at the release zip instead of the community
-  directory (`community.obsidian.md/plugins/tc-bridge`), now the primary path with the zip as manual
-  fallback; `roadmap.md` had no forward-looking section, now a "Next" list of public themes. README
-  and the docs home now embed a quickstart demo storyboard (`docs/public/demo/`) above the fold, with
+  directory (`community.obsidian.md/plugins/tc-bridge`), now the primary path with the zip
+  extracted into `.obsidian/plugins/` as the manual fallback; `roadmap.md` had no forward-looking
+  section, now a "Next" list of public themes. README and the docs home now embed a quickstart demo
+  storyboard (`docs/public/demo/`) above the fold, with
   a `vhs` tape (`docs/demo/quickstart.tape`) to render the animated version once that toolchain is
   available.
 
