@@ -20,7 +20,10 @@ export async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
   // "every createEmbeddingProvider call site threads excludeFilter" invariant true by
   // construction.
   const egressFilter = compileEgressFilter(cfg.egress.excludePaths);
-  const provider = createEmbeddingProvider(cfg.embeddings, { excludeFilter: egressFilter });
+  const provider = createEmbeddingProvider(cfg.embeddings, {
+    excludeFilter: egressFilter,
+    cacheDir: cfg.cacheDir,
+  });
   const pfVaultRegistry = new VaultRegistry(cfg.vaults);
   const memByVault = new Map<string, string>();
   for (const v of cfg.vaults) if (v.memory) memByVault.set(v.id, v.memory.folder);

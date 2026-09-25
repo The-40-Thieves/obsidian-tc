@@ -5,7 +5,8 @@ describe("config schema", () => {
   it("applies defaults from a minimal config", () => {
     const c = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }] });
     expect(c.auth.mode).toBe("none");
-    expect(c.embeddings.provider).toBe("ollama");
+    // THE-1122: default moved "ollama" -> "local" (a bundled, fully offline dense embedder).
+    expect(c.embeddings.provider).toBe("local");
     expect(c.transports.stdio).toBe(true);
     expect(c.governor.maxResponseBytes).toBe(1_000_000);
   });

@@ -178,8 +178,21 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
   });
 
   it("createEmbeddingProvider(Async) is called ONLY from the allowlisted composition roots", () => {
+    // THE-1122: providers/local-embedder-registry.ts's buildLocalEmbeddingProvider calls
+    // `resolution.mod?.createEmbeddingProvider(...)` — the OPTIONAL @the-40-thieves/obsidian-tc-
+    // embedder-local package's OWN factory of the same name (dot-called on the dynamically resolved
+    // module, mirroring embeddings/provider.ts's naming), never this file's real, egress-guarded
+    // createEmbeddingProvider/createEmbeddingProviderAsync — those are what registry.ts's own
+    // resolveEmbeddings/resolveEmbeddingsAsync are called BY (embeddings/index.ts wraps whatever
+    // registry.ts's entry.build() returns with withEgressGuard AFTER this runs), not the other way
+    // round. Excluded by file, same as embeddings/index.ts's own definition site below. Extracted
+    // out of providers/registry.ts (which re-exports it) once adding it pushed that file over
+    // biome's 700-line cap — see local-embedder-registry.ts's own header comment.
     const found = callSites(/createEmbeddingProvider(Async)?\(/).filter(
-      (f) => f !== "embeddings/index.ts",
+      (f) =>
+        f !== "embeddings/index.ts" &&
+        f !== "providers/registry.ts" &&
+        f !== "providers/local-embedder-registry.ts",
     );
     expect(found).toEqual(EMBEDDING_PROVIDER_ALLOWLIST);
   });

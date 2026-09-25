@@ -70,6 +70,7 @@ function buildForcedConfig(): {
       },
       { id: NO_OWN, path: rootNoOwn },
     ],
+    cacheDir: ".otc-test-cache",
   });
   return { cfg: withReadOnlyAcl(cfg), rootFor: { [WITH_OWN]: rootWithOwn, [NO_OWN]: rootNoOwn } };
 }

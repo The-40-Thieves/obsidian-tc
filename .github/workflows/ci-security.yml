@@ -333,13 +333,25 @@ jobs:
           # the bumped lockfile, and osv-scanner flagged the old toml ignore as unused. If a new
           # adm-zip advisory with no fix lands, re-add a scoped ignore here AND in a restored
           # packages/reranker-local/osv-scanner.toml, never a blanket one.
+      # THE-1122: packages/embedder-local is a FOURTH separate bun workspace, same reasoning and
+      # same `if: always()` guard as reranker-local immediately above — it carries the identical
+      # adm-zip/onnxruntime-node override for the identical reason (same pinned
+      # @huggingface/transformers version).
+      - if: always()
+        run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: packages/embedder-local
+      - name: bun audit (embedder-local workspace)
+        if: always()
+        uses: ./.github/actions/bun-audit
+        with:
+          working-directory: packages/embedder-local
 
   osv-scanner:
     # Cross-ecosystem dependency scan, complementing bun-audit/cargo-audit above rather than
     # replacing them. Those each walk ONE lockfile in ONE ecosystem and depend on step ordering to
     # cover the second workspace (see the `if: always()` note above). osv-scanner walks the tree and
     # scans EVERY manifest it finds in a single invocation — root bun.lock, docs/bun.lock,
-    # packages/reranker-local/bun.lock, packages/native/Cargo.lock and the service requirements
+    # packages/reranker-local/bun.lock, packages/embedder-local/bun.lock, packages/native/Cargo.lock and the service requirements
     # files — against the OSV database,
     # which is a different feed from bun's. A local run over this repo covered 1183 packages across
     # 4 ecosystems in ~600ms and reported postcss once PER WORKSPACE, so a per-workspace regression

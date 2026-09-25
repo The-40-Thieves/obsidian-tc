@@ -50,7 +50,10 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
   } catch {
     gwc = null;
   }
-  const provider = createEmbeddingProvider(cfg.embeddings, { excludeFilter: egressFilter });
+  const provider = createEmbeddingProvider(cfg.embeddings, {
+    excludeFilter: egressFilter,
+    cacheDir: cfg.cacheDir,
+  });
   // EXPLICITLY TYPED, and that annotation is load-bearing. THE-621 put `judgeConcurrency` and
   // `minJudgedForKill` as direct properties of the literal passed to inferCitations precisely
   // because TypeScript excess-property-checks a fresh literal but NOT spread-in properties — a

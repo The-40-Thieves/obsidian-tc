@@ -1,6 +1,6 @@
 # obsidian-tc
 
-**Obsidian Turbocharged** — governed, agent-ready vault access over [MCP](https://modelcontextprotocol.io) for [Obsidian](https://obsidian.md). Built for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Runs locally by default (Ollama embeddings, SQLite, no cloud account).
+**Obsidian Turbocharged** — governed, agent-ready vault access over [MCP](https://modelcontextprotocol.io) for [Obsidian](https://obsidian.md). Built for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Runs locally by default (bundled offline embeddings, SQLite, no cloud account).
 
 ## At a glance
 
@@ -11,7 +11,7 @@
 |---|---|
 | **Version** | `1.31.3` |
 | **Tools** | 163 governed capabilities (advertised via the 3-tool facade), all visible/callable by default (`toolFacade.profile: "full"`); 97 with the opt-in `profile: "core"` |
-| **Config keys** | 239 |
+| **Config keys** | 241 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
 | **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
 | **MCP spec** | [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) |

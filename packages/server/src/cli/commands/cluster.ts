@@ -40,6 +40,7 @@ export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
         try {
           const embedProvider = createEmbeddingProvider(clusterConfig.embeddings, {
             excludeFilter: egressFilter,
+            cacheDir: clusterConfig.cacheDir,
           });
           const clusterSummaryStats = await maybeBuildClusterSummaries(
             clusterDb,

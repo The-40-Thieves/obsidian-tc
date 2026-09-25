@@ -71,9 +71,12 @@ describe("loadConfig plur env overlay", () => {
     process.env.OBSIDIAN_TC_PLUR_TOKEN = "";
   });
 
-  function writeConfig(obj: unknown): string {
+  // THE-1122 review round 3: cacheDir is now required whenever the resolved embeddings.provider
+  // is "local" (the default here, since none of these tests set `embeddings`) — see
+  // finalizeConfig's own enforcement in src/config/load.ts.
+  function writeConfig(obj: Record<string, unknown>): string {
     const p = join(dir, "config.json");
-    writeFileSync(p, JSON.stringify(obj), "utf8");
+    writeFileSync(p, JSON.stringify({ cacheDir: ".otc-test-cache", ...obj }), "utf8");
     return p;
   }
 

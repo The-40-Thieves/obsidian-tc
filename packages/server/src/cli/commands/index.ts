@@ -85,6 +85,13 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         process.stdout.write(`index: vec_chunks rebuilt (${event.reason ?? "representation"})\n`),
       ...(configPath !== undefined ? { configDir: dirname(configPath) } : {}),
       ...(cfg.securityProfile !== undefined ? { securityProfile: cfg.securityProfile } : {}),
+      // THE-1122 review: the "local" embeddings provider requires this — its model cache lands
+      // under <cacheDir>/models/embedder-local/ and now fails closed (no CWD-relative fallback)
+      // when it is missing. Every provider reads cacheDir the same way; this call site had simply
+      // never threaded it, so a "local"-provider `obsidian-tc index` run wrote model weights
+      // wherever the process happened to start (and could EACCES-crash outright from an
+      // unwritable cwd like `/`).
+      cacheDir: cfg.cacheDir,
       excludeFilter: egressFilter,
     });
 

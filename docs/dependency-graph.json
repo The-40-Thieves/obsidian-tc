@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 491,
-    "dependencies": 2271,
+    "modules": 494,
+    "dependencies": 2283,
     "subsystemPairs": 146,
-    "crossSubsystemImports": 1031
+    "crossSubsystemImports": 1033
   },
   "subsystems": {
     "auth": 4,
@@ -15,7 +15,7 @@
     "cli": 45,
     "config": 14,
     "db": 16,
-    "doctor": 19,
+    "doctor": 20,
     "embeddings": 6,
     "experiential": 28,
     "formats": 6,
@@ -31,7 +31,7 @@
     "plane": 9,
     "plugin": 20,
     "plur": 2,
-    "providers": 6,
+    "providers": 8,
     "runtime": 19,
     "scheduler": 4,
     "schemas": 1,
@@ -160,6 +160,11 @@
       "weight": 8
     },
     {
+      "from": "providers",
+      "to": "embeddings",
+      "weight": 8
+    },
+    {
       "from": "runtime",
       "to": "metrics",
       "weight": 8
@@ -197,11 +202,6 @@
     {
       "from": "memory-import",
       "to": "vault",
-      "weight": 7
-    },
-    {
-      "from": "providers",
-      "to": "embeddings",
       "weight": 7
     },
     {
@@ -351,6 +351,11 @@
     },
     {
       "from": "doctor",
+      "to": "providers",
+      "weight": 3
+    },
+    {
+      "from": "doctor",
       "to": "search",
       "weight": 3
     },
@@ -447,11 +452,6 @@
     {
       "from": "doctor",
       "to": "capability",
-      "weight": 2
-    },
-    {
-      "from": "doctor",
-      "to": "providers",
       "weight": 2
     },
     {

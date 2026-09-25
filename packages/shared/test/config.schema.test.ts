@@ -705,9 +705,41 @@ describe("EmbeddingsConfigSchema.provider (Task 2 follow-up)", () => {
     }
   });
 
-  it("defaults provider to 'ollama' when omitted", () => {
+  // THE-1122: the default moved "ollama" -> "local" — a bundled, fully offline dense embedder,
+  // so semantic search works with zero configuration. See indexing-embeddings.schema.ts's own
+  // comment on `provider`/`model`/`dimensions` for why these are plain unconditional defaults
+  // (a provider-conditional `.transform()` was tried and reverted — it broke docgen's config
+  // extractor for the whole `embeddings` subtree).
+  it("defaults provider/model/dimensions to the local catalog entry when the whole block is absent", () => {
     const parsed = EmbeddingsConfigSchema.parse({});
-    expect(parsed.provider).toBe("ollama");
+    expect(parsed.provider).toBe("local");
+    expect(parsed.model).toBe("nomic-embed-text-v1.5");
+    expect(parsed.dimensions).toBe(768);
+  });
+
+  // THE-1122: `model`/`dimensions` are no longer provider-conditional AT THE SCHEMA LEVEL — see
+  // the schema's own comment — so in ISOLATION, `EmbeddingsConfigSchema.parse` on `provider:
+  // "ollama"` alone now yields the SAME defaults as every other provider. This is NOT the
+  // end-to-end behaviour, though: packages/server's config loader (finalizeConfig,
+  // src/config/load.ts) restores the historical "nomic-embed-text"/768 pairing for exactly this
+  // case, post-parse — see test/config-load.test.ts in packages/server for that half. This schema
+  // package has no such loader seam (it's the shared, server-agnostic leaf schema), so this test
+  // pins what the SCHEMA alone does, which every real caller (loadConfig) then corrects for
+  // `provider: "ollama"` specifically.
+  it("provider 'ollama' alone (no model) — AT THE SCHEMA LEVEL — gets the SAME defaults as every other provider", () => {
+    const parsed = EmbeddingsConfigSchema.parse({ provider: "ollama" });
+    expect(parsed.model).toBe("nomic-embed-text-v1.5");
+    expect(parsed.dimensions).toBe(768);
+  });
+
+  it("provider 'ollama' WITH an explicit model/dimensions is unaffected", () => {
+    const parsed = EmbeddingsConfigSchema.parse({
+      provider: "ollama",
+      model: "nomic-embed-text",
+      dimensions: 768,
+    });
+    expect(parsed.model).toBe("nomic-embed-text");
+    expect(parsed.dimensions).toBe(768);
   });
 
   it("still rejects an empty-string provider (.min(1) survived the enum -> string change)", () => {

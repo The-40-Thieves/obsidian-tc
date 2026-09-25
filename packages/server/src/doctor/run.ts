@@ -42,6 +42,7 @@ import { type CitationJudgeView, citationJudgeCheck } from "./citation-judge";
 // above — its own resolution step (finding the install root) that no other check needs.
 import { type ConflictCopiesView, conflictCopiesCheck } from "./conflict-copies";
 import { type DbSpaceView, dbSpaceCheck } from "./db-space";
+import { type EmbeddingsBuildableView, embeddingsBuildableCheck } from "./embeddings-buildable";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
@@ -84,6 +85,10 @@ export interface DoctorConfigView {
   providers?: ProviderRegistrationView;
   /** THE-679: enough to answer whether a DECLARED reranker block can be built, offline. */
   rerankerBuildable?: RerankerBuildableView;
+  /** THE-1122: mirrors rerankerBuildable for the embeddings slot's "local" provider — enough to
+   *  answer whether the optional @the-40-thieves/obsidian-tc-embedder-local package actually
+   *  resolves. Optional, same reasoning as retrieval/snapshots above. */
+  embeddingsBuildable?: EmbeddingsBuildableView;
   /** THE-696: notes_fts availability, plus an optional integrity probe under `--probe`. Optional,
    *  same reasoning as retrieval/snapshots above. */
   notesFts?: NotesFtsView;
@@ -180,6 +185,9 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // actually be BUILT. A config naming model-tier without embeddings.modelTier.full hard-fails boot
   // while every name in it is perfectly valid, so doctor reported ok and exited 0.
   if (config.rerankerBuildable) checks.push(rerankerBuildableCheck(config.rerankerBuildable));
+  // THE-1122: same reasoning as rerankerBuildable above, for the embeddings slot's "local"
+  // provider — now the schema DEFAULT, so "no known build blocker" would be a lie without this.
+  if (config.embeddingsBuildable) checks.push(embeddingsBuildableCheck(config.embeddingsBuildable));
   // THE-696: notes_fts soundness. health.fts_enabled reports AVAILABILITY and stayed true while the
   // live index was malformed and silently serving partial answers — the same configured-vs-verified
   // gap THE-688 closed for the embeddings provider.

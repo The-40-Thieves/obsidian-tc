@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external @the-40-thieves/obsidian-tc-reranker-local --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
+    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.bun-smoke.json && tsc -p tsconfig.eval.json",
     "test": "vitest run",
     "smoke:live": "vitest run test/live-companion.test.ts",
@@ -30,6 +30,7 @@
     "docgen:sync-facts": "bun scripts/docgen/sync-facts.ts",
     "docgen:facts-check": "bun scripts/docgen/facts-check.ts",
     "docgen:error-envelope": "bun scripts/docgen/check-error-envelope.ts",
+    "check:cold-start-budget": "node scripts/check-cold-start-budget.mjs",
     "perf": "bun eval/perf/run.ts --scenario small --out perf-report.json",
     "perf:gate": "bun eval/perf/run.ts --scenario small --out perf-report.json --gate",
     "perf:isolated": "bun eval/perf/run.ts --scenario small --samples 5 --out perf-report.json",
@@ -58,6 +59,9 @@
     "systeminformation": "^5.33.13",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
+  },
+  "optionalDependencies": {
+    "@the-40-thieves/obsidian-tc-embedder-local": "1.31.3"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.1",

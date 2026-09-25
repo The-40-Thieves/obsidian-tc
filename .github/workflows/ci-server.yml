@@ -111,6 +111,12 @@ jobs:
       - name: public-facing text has no Linear leakage (docs scan)
         run: bun run check:public-text
 
+      # THE-1122 review: README.md is embedded verbatim on npm's package page, GitHub's landing
+      # page, and the MCP Registry listing — see check-readme-size.mjs's own header for the cap's
+      # provenance (this repo's own chosen ceiling, not an external limit) and why it exists.
+      - name: README.md size cap
+        run: bun run check:readme-size
+
       # DRY, as a detector rather than a principle. Every duplication that has cost time here was
       # invisible to the test suite because the copies AGREED — DEFAULT_MEMORY_FOLDER three ways
       # on a delete path, MAX_RESOURCE_BYTES vs a configurable maxResponseBytes, paginate<T> twice
@@ -164,6 +170,14 @@ jobs:
         run: bun run check:export-surface
       - name: facade parity (all extracted facades)
         run: bun run check:facade-parity
+
+      # THE-1122 review: packages/embedder-local/src/model-fetch.ts is a deliberate mirror of
+      # packages/reranker-local/src/model-fetch.ts (see that file's own header for why it is a
+      # mirror, not an import). Unlike the facade-parity gates above, this one needs no fetched
+      # baseline — it compares two files already in the working tree, not a file against its own
+      # history — so it does not depend on the "fetch parity baseline" step above.
+      - name: model-fetch parity (embedder-local vs reranker-local)
+        run: bun run check:model-fetch-parity
 
       # The gates above have their own unit tests, and those were unwired too. A gate whose tests
       # never run is a gate whose non-vacuity nobody is checking — exactly how the hardcoded
@@ -306,14 +320,22 @@ jobs:
         working-directory: packages/server
 
   # THE-941: proves the documented front door -- `npx obsidian-tc /path/to/vault`, no config file
-  # -- actually works with Ollama absent, rather than merely being a README claim. Builds the
-  # exact artifact `obsidian-tc`'s `bin` field points to (dist/cli.js), generates a five-note
-  # fixture vault, confirms the default embeddings port is closed, then drives the real CLI over
-  # stdio with the MCP client SDK: initialize, tools/list (the triad), search_text for a seeded
-  # phrase, get_index_status (degraded, never an error), then SIGTERM. The THE-941 task report
-  # captures two red runs proving this fails for the right reason: the fixture phrase removed, and
-  # the CLI pointed at a config file that names the `ollama` provider and expects "ok" health --
-  # which Ollama's absence on this runner cannot satisfy either way.
+  # -- actually works, rather than merely being a README claim. Builds the exact artifact
+  # `obsidian-tc`'s `bin` field points to (dist/cli.js), generates a five-note fixture vault, then
+  # drives the real CLI over stdio with the MCP client SDK: initialize, tools/list (the triad),
+  # search_text for a seeded phrase, get_index_status (degraded, never an error), then SIGTERM.
+  # The THE-941 task report captures two red runs proving this fails for the right reason: the
+  # fixture phrase removed, and the CLI pointed at a config file that names the `ollama` provider
+  # and expects "ok" health -- which Ollama's absence on this runner cannot satisfy either way.
+  #
+  # THE-1122: this job deliberately does NOT build packages/embedder-local, so "local" (the
+  # schema's own default provider since THE-1122) fails to resolve here and reconcile genuinely
+  # degrades -- see zero-config-smoke.ts's own header comment for why that is still a real,
+  # worth-having assertion (embeddings unavailable must degrade, never error boot) even though its
+  # meaning shifted from "Ollama absent" to "local embedder not built/available". The OTHER half —
+  # a clean install where local embeddings actually work end-to-end — is the
+  # zero-config-smoke-local-embeddings job right below, a separate job specifically so this one's
+  # build list stays minimal and its assertion stays about the degrade path.
   zero-config-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -327,8 +349,52 @@ jobs:
       - name: build server
         run: bun run build
         working-directory: packages/server
-      - name: zero-config smoke (stdio, no config file, Ollama absent)
+      - name: zero-config smoke (stdio, no config file, local embedder unbuilt -> degraded)
         run: bun run smoke:zero-config
+        working-directory: packages/server
+
+  # THE-1122 review item 8: the functional counterpart to zero-config-smoke above -- proves the
+  # NEW default (embeddings.provider "local") actually produces working semantic search on a
+  # clean install, not just a non-error boot. search_text (FTS) cannot prove this; search_semantic
+  # is dense-vector retrieval and is what this leg exercises. Builds packages/embedder-local too
+  # (the one difference from the job above), so "local" resolves via the source-checkout route.
+  #
+  # The pinned model weights (~137 MB for the default nomic-embed-text-v1.5, q8) are cached by
+  # actions/cache, keyed on the exact pinned revision from model-info.ts -- a future revision bump
+  # changes both the cache key AND the on-disk path underneath it (see modelDirFor's own doc
+  # comment: `<root>/<modelId>/<revision>/`), so a stale cache entry is simply never a hit for the
+  # new revision rather than needing an invalidation step. Without this, every PR run would
+  # re-download the same 137 MB from Hugging Face -- this repo's own checksum/lock machinery
+  # (model-fetch.ts) would still verify it correctly, but that is 137 MB of avoidable network
+  # traffic and time on every single PR.
+  zero-config-smoke-local-embeddings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: build shared
+        run: bun run build
+        working-directory: packages/shared
+      - name: build server
+        run: bun run build
+        working-directory: packages/server
+      - name: install + build embedder-local
+        working-directory: packages/embedder-local
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      # THE-1122: nomic-embed-text-v1.5 (the schema default)'s pinned revision, from
+      # packages/embedder-local/src/model-info.ts -- keep this key's suffix in sync with that
+      # file's NOMIC_EMBED_TEXT_V1_5.revision, or this cache silently stops being a hit.
+      - name: cache local embedder model weights (nomic-embed-text-v1.5, q8)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.obsidian-tc/models/embedder-local/nomic-ai/nomic-embed-text-v1.5/e9b6763023c676ca8431644204f50c2b100d9aab
+          key: local-embedder-model-nomic-embed-text-v1.5-q8-e9b6763023c676ca8431644204f50c2b100d9aab
+      - name: zero-config smoke, local embeddings end-to-end (search_semantic, reconcile ok)
+        run: bun run smoke:zero-config -- --expect-local-embeddings --reconcile-timeout-ms 180000
         working-directory: packages/server
 
   # THE-940: PR-time pre-flight for the MCP Registry publish that publish.yml's `publish-registry`
@@ -443,6 +509,28 @@ jobs:
       - name: test (pure-math + stubbed-inference; weights-gated integration test skips)
         run: bun run test
         working-directory: packages/reranker-local
+
+  # THE-1122: the optional local-embedder package's own test suite (29 tests) ran in no CI
+  # workflow — this job closes that gap, mirroring the reranker-local job immediately above line
+  # for line and for the identical reason (NOT a root workspace member; own checkout-scoped
+  # install). Its own tests (model-fetch, model-info, index orchestration) all stub or mock the
+  # real @huggingface/transformers pipeline — same "pure-math + stubbed-inference, no model
+  # download" posture as reranker-local's job.
+  embedder-local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-repo
+        with:
+          working-directory: packages/embedder-local
+          install-mode: frozen
+          cache-key-suffix: embedder-local
+      - name: build
+        run: bun run build
+        working-directory: packages/embedder-local
+      - name: test (mocked pipeline — no model download)
+        run: bun run test
+        working-directory: packages/embedder-local
 
   acl-audit:
     # THE-607: src/vault/acl-audit.ts (THE-414 follow-up, #280) already exists and already
@@ -645,6 +733,28 @@ jobs:
           name: perf-node-parity
           path: packages/server/perf-node-parity.json
           if-no-files-found: warn
+      # THE-1122: the "local" embeddings provider's cold-start budget — a fresh HF model download
+      # plus real ONNX CPU inference over a small (500-note) fixture vault, through the BUILT CLI
+      # (dist/cli.js) and the real (not the throughput harness's fake) provider. continue-on-error,
+      # same posture as the Node portability run just above and for the same reason: this varies
+      # with the runner's network and CPU far more than any in-process perf number ever does, so it
+      # is generous and visible rather than a hard per-PR-blocking gate (this job is push-to-main
+      # only regardless — see the job's own `if:` comment).
+      - name: build shared (cold-start budget dependency)
+        working-directory: packages/shared
+        run: bun run build
+      - name: build server (cold-start budget dependency)
+        working-directory: packages/server
+        run: bun run build
+      - name: install + build embedder-local (cold-start budget dependency)
+        working-directory: packages/embedder-local
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: local embedder cold-start budget (informational, generous ceiling; THE-1122)
+        continue-on-error: true
+        run: bun run check:cold-start-budget
+        working-directory: packages/server
       # THE-592: post-merge visibility. `perf` now runs only on push-to-main (see the `if:` on this
       # job) and is not a required check, so without this a red run just sits on the Actions tab --
       # GitHub's default per-user email notification is the only other signal, and it is easy to

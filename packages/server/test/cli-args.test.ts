@@ -139,7 +139,10 @@ describe("resolveServeConfig / configFromVaultPath", () => {
   it("a config file is loaded as written", () => {
     const dir = tmpDir("otc-cfg-");
     const file = join(dir, "c.json");
-    writeFileSync(file, JSON.stringify({ vaults: [{ id: "v1", path: dir }] }));
+    writeFileSync(
+      file,
+      JSON.stringify({ vaults: [{ id: "v1", path: dir }], cacheDir: ".otc-test-cache" }),
+    );
     expect(resolveServeConfig(file).vaults[0]?.id).toBe("v1");
   });
   it("cacheDir: explicit absolute is preserved; relative is anchored to home", () => {
@@ -262,7 +265,10 @@ describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/e
   it("an unresolved config_path placeholder falls through to a valid OBSIDIAN_TC_CONFIG, not a CliError", () => {
     const dir = tmpDir("otc-placeholder-env-");
     const file = join(dir, "c.json");
-    writeFileSync(file, JSON.stringify({ vaults: [{ id: "from-env", path: dir }] }));
+    writeFileSync(
+      file,
+      JSON.stringify({ vaults: [{ id: "from-env", path: dir }], cacheDir: ".otc-test-cache" }),
+    );
     process.env[ENV_KEY] = file;
     expect(resolveServeConfig(MCPB_CONFIG_PLACEHOLDER).vaults[0]?.id).toBe("from-env");
   });
@@ -270,7 +276,10 @@ describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/e
   it("an empty string falls through to a valid OBSIDIAN_TC_CONFIG (the exact bug: old `??` masked it)", () => {
     const dir = tmpDir("otc-empty-env-");
     const file = join(dir, "c.json");
-    writeFileSync(file, JSON.stringify({ vaults: [{ id: "from-env-2", path: dir }] }));
+    writeFileSync(
+      file,
+      JSON.stringify({ vaults: [{ id: "from-env-2", path: dir }], cacheDir: ".otc-test-cache" }),
+    );
     process.env[ENV_KEY] = file;
     expect(resolveServeConfig("").vaults[0]?.id).toBe("from-env-2");
   });
@@ -296,7 +305,11 @@ describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/e
     const file = join(dir, "c.json");
     writeFileSync(
       file,
-      JSON.stringify({ vaults: [{ id: "v1", path: dir }], plane: { enabled: true } }),
+      JSON.stringify({
+        vaults: [{ id: "v1", path: dir }],
+        plane: { enabled: true },
+        cacheDir: ".otc-test-cache",
+      }),
     );
     process.env[ENV_KEY] = file;
     const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance("");
@@ -319,7 +332,10 @@ describe("resolveServeConfigWithProvenance (THE-825)", () => {
   it("a config file that never mentions plane is not explicit", () => {
     const dir = tmpDir("otc-cfg-prov-absent-");
     const file = join(dir, "c.json");
-    writeFileSync(file, JSON.stringify({ vaults: [{ id: "v1", path: dir }] }));
+    writeFileSync(
+      file,
+      JSON.stringify({ vaults: [{ id: "v1", path: dir }], cacheDir: ".otc-test-cache" }),
+    );
     const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(file);
     expect(config.plane.enabled).toBe(false);
     expect(planeEnabledExplicit).toBe(false);
@@ -330,7 +346,11 @@ describe("resolveServeConfigWithProvenance (THE-825)", () => {
     const file = join(dir, "c.json");
     writeFileSync(
       file,
-      JSON.stringify({ vaults: [{ id: "v1", path: dir }], plane: { enabled: false } }),
+      JSON.stringify({
+        vaults: [{ id: "v1", path: dir }],
+        plane: { enabled: false },
+        cacheDir: ".otc-test-cache",
+      }),
     );
     const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(file);
     expect(config.plane.enabled).toBe(false);
@@ -342,7 +362,11 @@ describe("resolveServeConfigWithProvenance (THE-825)", () => {
     const file = join(dir, "c.json");
     writeFileSync(
       file,
-      JSON.stringify({ vaults: [{ id: "v1", path: dir }], plane: { enabled: true } }),
+      JSON.stringify({
+        vaults: [{ id: "v1", path: dir }],
+        plane: { enabled: true },
+        cacheDir: ".otc-test-cache",
+      }),
     );
     const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(file);
     expect(config.plane.enabled).toBe(true);

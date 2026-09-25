@@ -16,7 +16,15 @@ const VAULTS = [{ id: "main", path: "/tmp/vault" }];
 // provenance is ever computed, which is the schema doing its job.
 const SECRET_A = "a".repeat(40);
 const SECRET_B = "b".repeat(40);
-const base = (over: Record<string, unknown> = {}) => ({ vaults: VAULTS, ...over });
+// THE-1122 review round 3: cacheDir is now required whenever the resolved embeddings.provider is
+// "local" (the default here, since none of these tests set `embeddings`) — see finalizeConfig's
+// own enforcement in src/config/load.ts. `over`'s own cacheDir (e.g. the two tests below that
+// exercise cacheDir provenance specifically) still wins via spread order.
+const base = (over: Record<string, unknown> = {}) => ({
+  vaults: VAULTS,
+  cacheDir: ".otc-test-cache",
+  ...over,
+});
 const find = (e: ConfigExplanation, path: string) => e.entries.find((x) => x.path === path);
 
 describe("THE-518 config provenance", () => {

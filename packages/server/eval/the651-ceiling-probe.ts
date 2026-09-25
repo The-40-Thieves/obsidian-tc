@@ -104,6 +104,7 @@ async function main(): Promise<void> {
     // THE-934 fix round 3 (H): same rule as every other eval/ script -- loadConfig reads the
     // real config.egress.excludePaths, so this port must carry it too.
     excludeFilter: compileEgressFilter(config.egress.excludePaths),
+    cacheDir: config.cacheDir,
   });
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
 

@@ -500,3 +500,27 @@ export async function probeTelemetryState(
     } catch {}
   }
 }
+
+export async function probeStoredEmbeddingsProvider(
+  cacheDir: string,
+  busyTimeoutMs: number,
+): Promise<string | undefined> {
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return undefined;
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path, busyTimeoutMs, { readonly: true });
+    if (!tableExists(db, "vec_index_fingerprint")) return undefined;
+    const row = db.prepare("SELECT fingerprint FROM vec_index_fingerprint WHERE id = 1").get() as
+      | { fingerprint?: string }
+      | undefined;
+    const provider = row?.fingerprint?.split("|")[0];
+    return provider && provider.length > 0 ? provider : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      db?.close?.();
+    } catch {}
+  }
+}

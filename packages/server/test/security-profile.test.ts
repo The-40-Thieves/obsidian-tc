@@ -79,6 +79,7 @@ describe("THE-526 hardened profile through finalizeConfig", () => {
     const cfg = finalizeConfig({
       vaults: [{ id: "main", path: "/v" }],
       securityProfile: "hardened",
+      cacheDir: ".otc-test-cache",
     });
     expect(cfg.acl.strictReadDefault).toBe(true);
     expect(cfg.writes.requireCas).toBe(true);

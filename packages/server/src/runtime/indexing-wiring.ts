@@ -54,6 +54,12 @@ export interface IndexResourcesDeps {
    *  path" claim. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
+  /** THE-1122: config.cacheDir. Threaded into createEmbeddingProviderAsync so the "local"
+   *  embeddings entry fetches its pinned model weights under `<cacheDir>/models/embedder-local/`
+   *  rather than falling back to a CWD-relative default — see ResolveContext.cacheDir's own
+   *  comment (providers/types.ts). Optional so a caller that predates this keeps working
+   *  (falls back to the relative default, same as before this field existed). */
+  cacheDir?: string;
   /** THE-424: config.indexing.chunkTokens. Lives on `indexing` rather than `embeddings`, so it is
    *  threaded in beside the embeddings block rather than through it — but it must reach the
    *  manifest, because this is the ONE place a representation identity is derived and chunk size
@@ -129,6 +135,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
   const embeddingProvider = await createEmbeddingProviderAsync(deps.embeddings, {
     configDir: deps.configDir,
     securityProfile: deps.securityProfile,
+    cacheDir: deps.cacheDir,
     ...(deps.excludeFilter !== undefined ? { excludeFilter: deps.excludeFilter } : {}),
   });
   const embedConfig = {

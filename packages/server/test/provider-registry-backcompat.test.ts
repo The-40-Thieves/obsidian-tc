@@ -104,6 +104,8 @@ describe("provider registry back-compat", () => {
     expect(embeddingsProviderNames()).toEqual([
       "bge-m3",
       "cohere",
+      // THE-1122: added, alphabetically between cohere and model-tier.
+      "local",
       "model-tier",
       "module",
       "ollama",

@@ -34,6 +34,16 @@ export interface EmbeddingsConfigLike {
   /** THE-405: asymmetric instruct prefixes (see config schema docs). Both default empty. */
   queryPrefix?: string;
   documentPrefix?: string;
+  /** THE-1122: only read by provider "local" — Transformers.js `dtype` selection (quantized q8
+   *  ONNX vs full fp32). See packages/embedder-local's model-info.ts catalog. */
+  quantized?: boolean;
+  /** THE-1122: only read by provider "local" — onnxruntime-node intra-op thread count. Undefined
+   *  lets the runtime pick its own default. */
+  threads?: number;
+  /** THE-1122: not a schema-exposed config key today (see registry.ts's
+   *  resolveLocalEmbedderModule doc comment) — present so a test can drive the "local" embedder's
+   *  resolution ladder's route (i) the same way reranker.localModulePath does for its slot. */
+  localModulePath?: string;
   /** #237: polyglot model tier — Qwen3 dense (Rust TEI) + BGE-M3 multi-vector (Python service).
    *  Required when `provider === "model-tier"`. */
   modelTier?: {
@@ -83,6 +93,13 @@ export interface ResolveContext {
    *  claimed "undefined when derived from a vault path", which was false. */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
+  /** THE-1122: the server's `cacheDir` (config.cacheDir) — read only by the "local" embeddings
+   *  entry, which fetches its pinned model weights under `<cacheDir>/models/embedder-local/`
+   *  rather than the vault or a package-relative path (the model cache is regenerable derived
+   *  state, same as the rest of cacheDir). Absent -> the entry falls back to a fixed relative
+   *  default (see registry.ts's buildLocalEmbeddingProvider), so an omitted cacheDir never
+   *  crashes resolution, only relocates the cache. */
+  cacheDir?: string;
   /** The EMBEDDINGS config, needed by the model-tier reranker entry: buildModelTierReranker takes
    *  ModelTierConfigLike, which requires `dimensions` and `modelTier` (model/factory.ts:87-94) —
    *  fields a reranker descriptor does not carry. Passing it as ambient context is what makes that

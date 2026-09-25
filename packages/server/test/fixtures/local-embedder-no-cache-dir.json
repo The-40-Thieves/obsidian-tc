@@ -1,0 +1,4 @@
+{
+  "vaults": [{ "id": "verify", "path": "/tmp/verify-1122-vault" }],
+  "embeddings": { "provider": "local", "model": "all-MiniLM-L6-v2" }
+}

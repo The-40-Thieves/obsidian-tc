@@ -38,6 +38,7 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
   // than needing a documented exception.
   const provider = createEmbeddingProvider(cfg.embeddings, {
     excludeFilter: compileEgressFilter(cfg.egress.excludePaths),
+    cacheDir: cfg.cacheDir,
   });
   const vaultId = cmd.vault ?? cfg.vaults[0]?.id ?? "main";
   // THE-616: batch-shaped — ONE provider.embed(queries[]) call per invocation instead of one per

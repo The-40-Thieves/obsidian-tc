@@ -22,7 +22,8 @@ describe("extractConfig (THE-471)", () => {
 
   it("renders enum members in the type and captures their default", () => {
     expect(byPath.get("auth.mode")).toMatchObject({ type: "enum(none|jwt)", default: "none" });
-    expect(byPath.get("embeddings.provider")).toMatchObject({ type: "string", default: "ollama" });
+    // THE-1122: default moved "ollama" -> "local".
+    expect(byPath.get("embeddings.provider")).toMatchObject({ type: "string", default: "local" });
   });
 
   it("marks a defaulted key optional and a required key not optional", () => {

@@ -254,12 +254,16 @@ if (haveTag) {
 // THE-950: the MCPB bundle manifest lives at mcpb/manifest.json (the repo root now carries the
 // companion plugin's Obsidian manifest instead — see the mirror step after packages/plugin's
 // manifest.json is bumped, below).
+// THE-1122: packages/embedder-local/package.json joins the same lockstep set, for the identical
+// reason as reranker-local above (its own README; its own publish-embedder-local CI job with the
+// same F3-style already-published preflight).
 for (const p of [
   "package.json",
   "packages/server/package.json",
   "packages/native/package.json",
   "packages/shared/package.json",
   "packages/reranker-local/package.json",
+  "packages/embedder-local/package.json",
   "mcpb/manifest.json",
 ]) {
   setVersion(p, (o) => {
@@ -269,6 +273,24 @@ for (const p of [
 setVersion("server.json", (o) => {
   o.version = next;
   if (Array.isArray(o.packages)) for (const pkg of o.packages) pkg.version = next;
+});
+
+// THE-1122 review round 3: packages/server declares its runtime dependency on embedder-local as
+// an EXACT-pinned optionalDependency (not a semver range — package.json holds no comments, so the
+// "why exact" reasoning lives here and in check-version-coherence.mjs instead): a real npm
+// install must pull the SAME build that was actually tested/published alongside it, not merely
+// "any 1.x". That pin is a SEPARATE field from packages/embedder-local/package.json's own
+// `version` (already bumped in the loop above), so it needs its own bump here or a release ships
+// a server whose optionalDependency points at a version that was never actually
+// built/published alongside it.
+setVersion("packages/server/package.json", (o) => {
+  if (o.optionalDependencies?.["@the-40-thieves/obsidian-tc-embedder-local"] === undefined) {
+    throw new Error(
+      "packages/server/package.json lost its @the-40-thieves/obsidian-tc-embedder-local " +
+        "optionalDependency — this release script's THE-1122 bump step expects it to exist.",
+    );
+  }
+  o.optionalDependencies["@the-40-thieves/obsidian-tc-embedder-local"] = next;
 });
 
 // packages/plugin rejoins the repo version lockstep (decision 2026-07-02): bump its Obsidian

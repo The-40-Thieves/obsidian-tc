@@ -9,9 +9,19 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { finalizeConfig, isPlaneEnabledExplicit, readConfigFile } from "../config/load";
 import { CliError } from "./cli-error";
 
-/** Build a single-vault config from a vault directory, applying every schema default. */
+/** Build a single-vault config from a vault directory, applying every schema default.
+ *
+ *  THE-1122 review round 3: `cacheDir` is passed explicitly here (the SAME value
+ *  server.schema.ts's own `.default(".obsidian-tc")` would have supplied) rather than left for
+ *  the schema to backfill silently — finalizeConfig now requires an explicit cacheDir whenever
+ *  `embeddings.provider` resolves to "local" (which it always does here: this IS the zero-config
+ *  front door, and "local" is the schema default), and this is the one call site that constructs
+ *  that raw object instead of reading a real config file an operator could have set it in. */
 export function configFromVaultPath(dir: string): ServerConfig {
-  return finalizeConfig({ vaults: [{ id: "main", path: resolve(dir) }] });
+  return finalizeConfig({
+    vaults: [{ id: "main", path: resolve(dir) }],
+    cacheDir: ".obsidian-tc",
+  });
 }
 
 // The MCPB manifest spec (anthropics/dxt MANIFEST.md) never documents what a host substitutes

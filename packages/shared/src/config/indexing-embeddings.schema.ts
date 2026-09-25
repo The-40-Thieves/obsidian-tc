@@ -7,25 +7,83 @@
 // no cross-domain field read to keep back in config.schema.ts, so the whole schema moves here.
 import { z } from "zod";
 
+// THE-1122: `LOCAL_DEFAULT_MODEL` MUST stay in sync with packages/embedder-local/src/model-info.ts's
+// DEFAULT_MODEL_NAME — this file cannot import that optional, non-workspace package (it is
+// Node-fs- and network-shaped; this schema leaf is isomorphic and imports Zod only, see the file
+// header). embedder-local's own test/model-info.test.ts pins its DEFAULT_MODEL_NAME to the same
+// literal string, so a future change to one side is caught by that test, not just by this comment.
+//
+// NOT the smallest/fastest catalog entry — measured, not assumed, each model with its own
+// correct pooling strategy (docs/EVALUATION.md's "Local embedder model selection"). Both 384-dim
+// candidates FAILED the −0.015 non-inferiority floor against this exact model — MiniLM's deficit
+// is real and clearly detected; bge-small's nDCG@10 does not reach conventional significance at
+// this n, so read that one number as non-inferiority not established at this corpus's resolution
+// rather than a pass (its recall@10 IS significant, and it still fails the floor either way).
+// nomic-embed-text-v1.5 is the default as the conservative choice under this underpowered
+// comparison, not a claimed decisive win — see model-info.ts's own comment on DEFAULT_MODEL_NAME
+// for the exact numbers.
+//
+// WHY THIS IS A PLAIN UNCONDITIONAL DEFAULT, NOT PROVIDER-CONDITIONAL: an earlier version of this
+// change made `model`/`dimensions` default based on `provider` via a schema-level `.transform()`.
+// That broke scripts/docgen/extract-config.ts's hand-rolled Zod introspection walker (it requires
+// every nested config section to literally be `def.type === "object"` with a `.shape` to recurse
+// into it; a `.transform()` turns the schema into a ZodPipe, and the WHOLE `embeddings` subtree
+// silently vanished from generated docs — caught by test/docgen-config.test.ts, not by inspection).
+// The plain default below is the one-line fix: `provider`/`model`/`dimensions` keep the exact
+// unconditional-default shape every OTHER field in this schema already has. The one behavioural
+// cost: `{ "provider": "ollama" }` with no `model` now resolves `model` to "nomic-embed-text-v1.5"
+// (the new schema default) rather than the old "nomic-embed-text" (no version suffix — Ollama's
+// own tag name) — Ollama then 404s LOUDLY on a model it was never asked to pull, rather than
+// silently misconfiguring anything (the two happen to share `dimensions: 768`, so that half is
+// unaffected). This shorthand (provider set, model omitted) was never actually documented
+// anywhere in this repo's own config examples, which always pair `"provider": "ollama"` with an
+// explicit `"model"` — see docs/src/content/docs/configuration/config-yaml.md and
+// docs/wiki/Configuration.md.
+const LOCAL_DEFAULT_MODEL = "nomic-embed-text-v1.5";
+
+/** THE-1122 review (item 7): each "local" catalog entry's native vector width, duplicated from
+ *  packages/embedder-local/src/model-info.ts for the SAME reason LOCAL_DEFAULT_MODEL above is
+ *  duplicated rather than imported (this schema leaf cannot depend on that optional, Node-fs-
+ *  shaped package — see this file's own header). Kept in sync by the same mechanism:
+ *  embedder-local's own test/model-info.test.ts pins each catalog entry's real `dimensions`, so a
+ *  future catalog change that drifts from this map is caught there, not only by this comment.
+ *
+ *  Exported for packages/server/src/config/load.ts's finalizeConfig, which uses this to (a)
+ *  DERIVE `embeddings.dimensions` when a "local" config omits it (this schema's own `dimensions`
+ *  default is a PROVIDER-AGNOSTIC 768 — see LOCAL_DEFAULT_MODEL's comment above for why it cannot
+ *  be provider-conditional at the schema level — so a config selecting a 384-dim catalog entry
+ *  with no explicit `dimensions` would otherwise silently inherit the wrong width and crash later
+ *  at vec0 column-width mismatch), and (b) REJECT an explicit `dimensions` that contradicts the
+ *  selected model's real width, naming both numbers, rather than letting that surface as an opaque
+ *  failure far from the config that caused it. */
+export const LOCAL_CATALOG_DIMENSIONS: Readonly<Record<string, number>> = {
+  "all-MiniLM-L6-v2": 384,
+  "bge-small-en-v1.5": 384,
+  "nomic-embed-text-v1.5": 768,
+};
+
 export const EmbeddingsConfigSchema = z.object({
   provider: z
     .string()
     .min(1)
-    .default("ollama")
+    .default("local")
     .describe(
-      "Embeddings backend name, resolved against the provider registry at startup. Built-ins: ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. An unregistered name is a startup error listing every valid option.",
+      "Embeddings backend name, resolved against the provider registry at startup. Built-ins: local (a bundled, fully offline dense embedder via the optional @the-40-thieves/obsidian-tc-embedder-local package; no network, no Ollama, no API key), ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. `local` is the DEFAULT when this whole block is absent — semantic search works with zero configuration. An unregistered name is a startup error listing every valid option.",
     ),
   model: z
     .string()
-    .default("nomic-embed-text")
-    .describe("Embedding model name as the provider names it."),
+    .min(1)
+    .default(LOCAL_DEFAULT_MODEL)
+    .describe(
+      'Embedding model name as the provider names it. Defaults to nomic-embed-text-v1.5, the "local" provider\'s default catalog entry — set this explicitly for every other provider. Under provider "local" this MUST be one of embedder-local\'s pinned catalog names (all-MiniLM-L6-v2, bge-small-en-v1.5, nomic-embed-text-v1.5) — an unrecognized name is refused, since the local provider only ever loads checksum-verified weights it has a pinned manifest for.',
+    ),
   dimensions: z
     .number()
     .int()
     .positive()
     .default(768)
     .describe(
-      "Stored vector width, and the width of the vec0 column. Changing it requires a fresh index — existing vectors are not re-projected.",
+      "Stored vector width, and the width of the vec0 column. Changing it requires a fresh index — existing vectors are not re-projected. Defaults to 768, nomic-embed-text-v1.5's native width (the \"local\" provider's default model) — set this explicitly to match whatever model you configure (e.g. 384 for the smaller local catalog entries).",
     ),
   baseUrl: z
     .string()
@@ -203,6 +261,21 @@ export const EmbeddingsConfigSchema = z.object({
     .optional()
     .describe(
       "Polyglot model tier: dense retrieval from one service and sparse/ColBERT from another, fused by RRF on ranks. Required when provider is model-tier.",
+    ),
+  // THE-1122: only read by provider "local".
+  quantized: z
+    .boolean()
+    .default(true)
+    .describe(
+      'provider "local" only. true (default) loads the pinned q8 (int8) quantized ONNX export; false loads the pinned fp32 export instead — larger, slower, marginally more precise. Both are separately checksum-verified; toggling this re-downloads the other variant on first use if it is not already cached.',
+    ),
+  threads: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'provider "local" only. onnxruntime-node intra-/inter-op thread count. Absent lets the runtime pick its own default (usually the CPU core count).',
     ),
 });
 

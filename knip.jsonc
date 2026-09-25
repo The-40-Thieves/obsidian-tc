@@ -17,12 +17,13 @@
     "packages/native": { "entry": ["fallback.ts"], "project": ["*.{ts,js}"] },
     ".": { "entry": ["scripts/**/*.mjs"], "project": ["scripts/**/*.mjs"] }
   },
-  // packages/reranker-local is a standalone optional package (own bun.lock, not in the root
-  // package.json "workspaces" array, not configured as a knip workspace above) that server
-  // depends on only as an external at build time. Knip still walks it without this ignore
-  // (unlike docs/**, services/**, dist/**, target/**, which knip itself flagged as redundant
-  // and were removed) — verified via `bun run knip`, so this one entry stays.
-  "ignore": ["packages/reranker-local/**"],
+  // packages/reranker-local and packages/embedder-local (THE-1122, same shape) are standalone
+  // optional packages (own bun.lock, not in the root package.json "workspaces" array, not
+  // configured as a knip workspace above) that server depends on only as an external at build
+  // time. Knip still walks them without this ignore (unlike docs/**, services/**, dist/**,
+  // target/**, which knip itself flagged as redundant and were removed) — verified via
+  // `bun run knip`, so these entries stay.
+  "ignore": ["packages/reranker-local/**", "packages/embedder-local/**"],
   // Resolved dynamically by package name rather than via a static import/require, so knip's
   // static analysis can't see the usage:
   //  - @ast-grep/cli: scripts/ast-grep-bin.mjs resolves the package's own entry point (never

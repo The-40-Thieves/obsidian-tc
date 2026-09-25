@@ -132,6 +132,33 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   relevant domain, write back at session close). See the paired `### Fixed` entry below for a
   data-loss bug in the SHARED memory-materialization primitive this work found and fixed.
 
+- **Semantic search works out of the box: a bundled, fully offline local embedder is now the
+  DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122).** `local`
+  runs [`nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
+  (Apache-2.0, 768-dim, quantized ONNX, ~137 MB) via
+  [Transformers.js](https://www.npmjs.com/package/@huggingface/transformers) on CPU, through the
+  new optional `@the-40-thieves/obsidian-tc-embedder-local` package — same shape as the existing
+  local reranker (a small optional package, resolved at runtime, never a hard dependency of
+  `packages/server`, unavailable on the `bun --compile` standalone binary and the `.mcpb` bundle).
+  The model is fetched and sha256-verified per file on first use, into
+  `<cacheDir>/models/embedder-local/`, then fully offline. Two smaller, faster catalog models
+  (`all-MiniLM-L6-v2`, `bge-small-en-v1.5`, both ~23-34 MB, 384-dim) are selectable via
+  `embeddings.model`; two new config keys, `embeddings.quantized` and `embeddings.threads`, are
+  read only by this provider. `ollama` (now demoted from default, still fully supported and
+  unchanged when set explicitly) and every hosted provider remain opt-in. **The default model was
+  chosen by measurement, not by picking the smallest download**: both 384-dim candidates, each run
+  with its own correct pooling strategy, failed the −0.015 non-inferiority floor against
+  nomic-embed-text-v1.5 on a public, third-party-judged corpus (strict nDCG@10 one-sided 95% lower
+  bound −0.151 and −0.110 respectively, n=78). MiniLM's deficit is real and clearly detected;
+  bge-small's nDCG@10 does not reach conventional significance at this n, so read that one number
+  as non-inferiority not established at this corpus's resolution rather than a pass (its recall@10
+  IS significant, and it still misses the floor either way). nomic-embed-text-v1.5 is the default
+  as the conservative choice under this underpowered comparison, not a claimed decisive win — see
+  `docs/EVALUATION.md`'s "Local embedder model selection" section for the full table and the two
+  candidates
+  (EmbeddingGemma-300M, licensing; a model2vec/potion static model, no loadable Transformers.js
+  export) that were evaluated and dropped before reaching measurement. `obsidian-tc doctor` gained
+  an `embeddings.buildable` check mirroring the existing `reranker.buildable` one.
 - **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
   (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
   cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`
@@ -175,6 +202,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **Upgrade note: an absent `embeddings` block previously meant Ollama; it now means the
+  in-process local embedder.** Before this release, no `embeddings` config block meant
+  `provider: "ollama"` (model `nomic-embed-text`, requiring a separately-run Ollama server); it now
+  means `provider: "local"` (model `nomic-embed-text-v1.5`, bundled and fully offline — see the
+  "Added" entry above). **To keep using Ollama, set `"embeddings": { "provider": "ollama" }`
+  explicitly** — the implicit model name (`nomic-embed-text`) is preserved for that one case, so an
+  existing Ollama-backed config that already names the provider is unaffected either way. The
+  server detects the stored-vs-configured mismatch automatically on first boot after upgrading (the
+  representation fingerprint folds in provider and model) and rebuilds the vector index from a full
+  re-embed; `obsidian-tc doctor` and the boot log both name this explicitly, once, while the stored
+  index still disagrees with the configured provider. Config files must set `cacheDir` when the
+  embeddings provider is `local` (the default) — the bare `obsidian-tc <vault>` form sets it for
+  you; the old `.obsidian-tc`-under-the-working-directory default is gone because it wrote model
+  weights wherever the server happened to be started.
 - **`vitest` 4.1.11→5.0.1, `@vitest/coverage-v8` 4.1.11→5.0.1 (THE-1133, PR 2).** Every workspace
   that depends on vitest bumped together: `packages/server`, `packages/plugin`, `packages/shared`,
   `packages/native` (its `test:build-script` leg), and `packages/reranker-local` (a separate

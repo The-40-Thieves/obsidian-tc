@@ -209,6 +209,14 @@ export interface ManifestConfigLike {
   truncate?: boolean;
   queryPrefix?: string;
   documentPrefix?: string;
+  /** THE-1122 review: `embeddings.quantized` — provider "local" only (its schema default is
+   *  `true` for every provider, since the field is not nested under a per-provider discriminated
+   *  union; folded into `revision` below ONLY when `provider.provider === "local"`, so every other
+   *  provider's fingerprint is unaffected). Toggling q8 <-> fp32 for the SAME catalog model name
+   *  changes neither `model` nor `dimensions`, so without this the two quantization variants would
+   *  be indistinguishable to vec_chunks and a toggle would silently mix vectors from both instead
+   *  of triggering a rebuild. */
+  quantized?: boolean;
   /** THE-424: indexing.chunkTokens. Optional here and defaulted below to the chunker's own 512,
    *  so a caller that predates this field keeps producing the pre-THE-424 fingerprint string. */
   chunkTokens?: number;
@@ -241,7 +249,12 @@ export function buildRepresentationManifest(
     enrichmentVersion: cfg.chunkContext === true ? ENRICHMENT_VERSION : 0,
     chunkerVersion: CHUNKER_VERSION,
     schemaGen: VEC_SCHEMA_GEN,
-    revision: cfg.revision ?? "unknown",
+    // An explicit cfg.revision always wins (the operator's manual override, same contract as every
+    // other provider). Absent that, "local" derives a revision-equivalent disambiguator from
+    // `quantized` — see ManifestConfigLike.quantized's doc comment for why this is scoped to
+    // "local" only rather than a blanket fold.
+    revision:
+      cfg.revision ?? (provider.provider === "local" ? (cfg.quantized ? "q8" : "fp32") : "unknown"),
     pooling: cfg.pooling ?? "unknown",
     // Always knowable: "" is the real (default, off) value, distinct from never having looked.
     queryPrefix: cfg.queryPrefix ?? "",

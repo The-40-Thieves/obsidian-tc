@@ -18,6 +18,8 @@ import { compileEgressFilter } from "../plane/egress-filter";
 import { guardReranker, type Reranker } from "../search/rerank";
 import { openAiCompatibleProvider } from "./http-embeddings";
 import { cohereCompatibleReranker } from "./http-rerank";
+import { buildLocalEmbeddingProvider } from "./local-embedder-registry";
+import { isUnderNodeModules, type SourceCheckoutResolution } from "./local-package-resolution";
 import { loadProviderModule } from "./module-loader";
 import {
   autoSelectLocalRerankerApplies,
@@ -82,6 +84,19 @@ const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
     appendsPath: "",
     ownsPrefixing: true,
     build: (c, x) => buildModelTierProvider(c, { fetchFn: x.fetchFn }),
+  },
+  // THE-1122: a bundled, fully offline dense embedder — reachable with no Ollama/gateway/hosted
+  // key. appendsPath "" like model-tier/"local" reranker: reads none of baseUrl/apiKey/apiKeyEnv/
+  // modulePath/modelTier, only embeddings.model (a catalog name — see embedder-local's
+  // model-info.ts), .dimensions, and the local-only .quantized/.threads knobs.
+  // UNLIKE "local" reranker, `build` is SYNCHRONOUS (not asyncOnly) — "local" is the DEFAULT
+  // provider and must work from eval/run.ts's sync createEmbeddingProvider, so it cannot take the
+  // "module" entry's boot-wiring-only restriction. See local-embedder-registry.ts's
+  // buildLocalEmbeddingProvider doc comment for how: the provider object resolves synchronously,
+  // the package import + model load defer into embed()'s closure until the first real call.
+  local: {
+    appendsPath: "",
+    build: (c, x) => buildLocalEmbeddingProvider(c, x),
   },
   // The profile-gated escape hatch — see module-loader.ts's header comment. asyncOnly: true means
   // the sync `build` below is never actually called on a correctly-wired path; it exists only so
@@ -351,23 +366,6 @@ function isRerankerLocalAnchor(packageJsonPath: string): boolean {
   }
 }
 
-/** True when any path SEGMENT is exactly `node_modules` — not a bare substring match, so a
- *  directory merely named e.g. `my-node_modules-tools` does not false-positive. */
-function isUnderNodeModules(path: string): boolean {
-  return path.split(/[/\\]/).includes("node_modules");
-}
-
-export interface SourceCheckoutResolution {
-  path: string;
-  /** Set only when discovery was skipped outright (never walked the filesystem at all); absent
-   *  otherwise, whether or not an anchor was actually found. */
-  skippedReason?: string;
-  /** Every candidate directory the walk tried, in innermost-to-outermost order (the walk starts at
-   *  `startDir` and moves UP toward the filesystem root) — empty when `skippedReason` is set, since
-   *  no walk happened. */
-  candidates: string[];
-}
-
 /** Exported (not a private module-eval side effect) so tests can drive it with a synthetic
  *  `startDir` — a decoy anchor, or a fake install path under `node_modules` — without needing to
  *  fake `import.meta.url` itself. Production's own module-eval call below supplies no argument. */
@@ -379,6 +377,7 @@ export function resolveSourceCheckoutLocalRerankerPath(
       path: join(startDir, "..", "..", "..", "reranker-local", "dist", "index.js"),
       skippedReason: "skipped: running from node_modules",
       candidates: [],
+      anchorFound: false,
     };
   }
   const MAX_LEVELS = 6;
@@ -388,7 +387,11 @@ export function resolveSourceCheckoutLocalRerankerPath(
     candidates.push(dir);
     const anchor = join(dir, "packages", "reranker-local", "package.json");
     if (existsSync(anchor) && isRerankerLocalAnchor(anchor)) {
-      return { path: join(dir, "packages", "reranker-local", "dist", "index.js"), candidates };
+      return {
+        path: join(dir, "packages", "reranker-local", "dist", "index.js"),
+        candidates,
+        anchorFound: true,
+      };
     }
     const parent = dirname(dir);
     if (parent === dir) break; // filesystem root — stop rather than loop forever
@@ -399,6 +402,7 @@ export function resolveSourceCheckoutLocalRerankerPath(
   return {
     path: join(startDir, "..", "..", "..", "reranker-local", "dist", "index.js"),
     candidates,
+    anchorFound: false,
   };
 }
 
@@ -695,3 +699,12 @@ export async function resolveReranker(
   // makes this a harmless double-wrap for that one entry, not a gap).
   return reranker ? guardReranker(reranker, ctx.excludeFilter ?? compileEgressFilter([])) : null;
 }
+
+// Re-exported so doctor.ts/tests keep importing from here after the local-embedder-registry.ts split.
+export {
+  buildEmbeddingsDoctorProbes,
+  buildLocalEmbeddingProvider,
+  probeLocalEmbedderResolution,
+  resolveLocalEmbedderModule,
+  resolveSourceCheckoutLocalEmbedderPath,
+} from "./local-embedder-registry";
