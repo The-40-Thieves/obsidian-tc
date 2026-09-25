@@ -8,6 +8,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **A licensing FAQ page explains what AGPL-3.0 actually requires (THE-1126, PR #981).** New docs
+  page `/licensing/` ("AGPL and you") walks through §13's remote-network-interaction clause and
+  three situations people actually ask about: running an unmodified copy locally over stdio (no
+  source-offer duty, on the maintainer's reading — not legal advice), serving a modified copy to
+  remote users over HTTP (§13 applies), and hosting the server for third parties. Also covers the
+  commercial exception and who to contact about it, and a short list of common misconceptions
+  (linking to the vault over MCP does not make your notes AGPL; the TC Bridge plugin's license is
+  whatever `packages/plugin/package.json` says). Linked from the README's License section and
+  added to the docs sidebar.
 - **`toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client
   (THE-1123, PR #976).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
   the three from the connecting client's observed MCP `clientInfo.name`, cached once a NAME is
