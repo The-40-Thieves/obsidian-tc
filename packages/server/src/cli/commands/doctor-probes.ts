@@ -497,9 +497,7 @@ export async function probeTelemetryState(
   } finally {
     try {
       db?.close?.();
-    } catch {
-      /* see probeNotesFts */
-    }
+    } catch {}
   }
 }
 

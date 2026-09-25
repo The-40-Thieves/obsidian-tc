@@ -242,7 +242,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-632 | The lexical and sparse arms filter by ACL at query time (THE-632, #644). | CHANGELOG.md (1.14.0) | 16 |
 | THE-633 | Runtime: durable job-queue wiring | docs/design/runtime-job-wiring.md | 9 |
 | THE-634 | Proactive advisory surfacing, off by default (#779, #810, THE-634). | CHANGELOG.md (1.22.0) | 16 |
-| THE-635 | Point-in-time `since`/`until` retrieval filter (#824, THE-635). | CHANGELOG.md (1.22.0) | 9 |
+| THE-635 | Point-in-time `since`/`until` retrieval filter (#824, THE-635). | CHANGELOG.md (1.22.0) | 8 |
 | THE-636 | Vendor-neutral export/import of the derived plane (#808, THE-636). | CHANGELOG.md (1.22.0) | 10 |
 | THE-639 | A sanctioned, poison-scanned path for agent-synthesised notes (#814, THE-639). | CHANGELOG.md (1.22.0) | 7 |
 | THE-641 | _internal planning reference — see repo history_ | — | 1 |
@@ -363,7 +363,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
 | THE-939 | `doctor` warns on sync-service conflict copies in the install directory (#900, THE-939; issue #881). | CHANGELOG.md (1.27.0) | 5 |
 | THE-943 | Companion plugin renamed to TC Bridge (#888, THE-943). | CHANGELOG.md (1.26.0) | 2 |
-| THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 8 |
+| THE-944 | Local reranker reachable without a source checkout (#891, THE-944). | CHANGELOG.md (1.26.0) | 10 |
 | THE-963 | The four `import()` sites community.obsidian.md's automated review flagged as errors now carry scoped disables, and the plugin's release assets are attested (#909, THE-963). | CHANGELOG.md (1.28.0) | 3 |
 | THE-1037 | `call_capability` never redeemed an `elicit_token` nested in its inner `args` (#931, GH #925, THE-1037). | CHANGELOG.md (1.29.0) | 3 |
 | THE-1038 | `patch_note` heading anchor correctness, `read_note` section read, exact-string replace (#932, THE-1038, #922, #926, #927, #928). | CHANGELOG.md (1.29.0) | 4 |
@@ -376,20 +376,19 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1045 | A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole block was re-emitted by a plain stringify, losing every anchor, comment and byte of source formatting, and nothing said so (THE-1045, #943). | CHANGELOG.md (1.30.1) | 2 |
 | THE-1073 | `index_vault` no longer aborts a whole vault's reconcile over one note with unparseable YAML frontmatter (THE-1073). | CHANGELOG.md (Unreleased) | 13 |
 | THE-1078 | TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside the existing gateway chat judge (THE-1078, #950). | CHANGELOG.md (1.31.0) | 10 |
-| THE-1079 | The local reranker's source-checkout resolution never actually worked from the BUILT server bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949, #956). | CHANGELOG.md (1.31.1) | 4 |
+| THE-1079 | The local reranker's source-checkout resolution never actually worked from the BUILT server bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949, #956). | CHANGELOG.md (1.31.1) | 5 |
 | THE-1081 | A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` -> `/private/var`) made the native addon refuse every read/write in that vault, while the JS fallback accepted it (THE-1081, #946, #955). | CHANGELOG.md (1.31.1) | 11 |
 | THE-1082 | A client with no MCP elicitation support (Claude Code over stdio among them) had no way to clear an `elicit_required` gate at all (THE-1082, #945, #953). | CHANGELOG.md (1.31.1) | 5 |
 | THE-1084 | `experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator explicitly opts in (THE-1084, #959). | CHANGELOG.md (1.31.2) | 5 |
-| THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 6 |
-| THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 5 |
-| THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (Unreleased) | 11 |
+| THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 5 |
+| THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 6 |
+| THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (Unreleased) | 10 |
+| THE-1122 | Semantic search works out of the box: a bundled, fully offline local embedder is now the DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122). | CHANGELOG.md (Unreleased) | 16 |
 | THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 15 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (Unreleased) | 13 |
 | THE-1125 | Opt-in, anonymous usage telemetry (THE-1125). | CHANGELOG.md (Unreleased) | 29 |
-| THE-1130 | Validity intervals on memory observations — supersede instead of overwrite, and "what did we believe as_of D" (THE-1130, PR #986). | CHANGELOG.md (Unreleased) | 14 |
-| THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (Unreleased) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (Unreleased) | 1 |
 
-375 distinct ticket(s) across 534 source file(s) under
-`packages/*/src`; 276 resolved to a public summary, 99
+374 distinct ticket(s) across 536 source file(s) under
+`packages/*/src`; 275 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.
