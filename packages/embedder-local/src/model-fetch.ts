@@ -113,19 +113,13 @@ interface ResolvedSpec {
   lockPollMs: number;
 }
 
-// THE-1122 review: this used to be sized off "a healthy fetch takes < 10 minutes", which stopped
-// being true once the catalog grew to include nomic-embed-text-v1.5's fp32 export (~547 MB) — a
-// slow connection could legitimately still be downloading past 10 minutes, and a second process
-// waiting on the lock would wrongly steal it out from under a live download. The fix is the
-// refresh loop below (LOCK_REFRESH_INTERVAL_MS / startLockRefresh), not a bigger number here: a
-// live downloader re-touches the lock's owner.json every 30s, so its observed age never approaches
-// this threshold regardless of total file size — 10 minutes now means "no heartbeat in 10
-// minutes", i.e. a crashed or wedged holder, not "this file is unusually large".
+// 10 minutes means "no heartbeat in 10 minutes" (a crashed/wedged holder), not "this file is
+// unusually large" — a live downloader re-touches owner.json every LOCK_REFRESH_INTERVAL_MS (see
+// startLockRefresh), so its observed lock age never approaches this regardless of nomic's ~547 MB
+// fp32 export legitimately taking a slow connection past 10 minutes.
 const DEFAULT_LOCK_STALE_MS = 10 * 60 * 1000;
 const DEFAULT_LOCK_POLL_MS = 200;
-// How often an in-progress download re-touches its own lock's owner.json (see startLockRefresh).
-// Well under DEFAULT_LOCK_STALE_MS so a live downloader's observed lock age never approaches the
-// staleness threshold even accounting for scheduling jitter on a loaded CI runner.
+// Well under DEFAULT_LOCK_STALE_MS, with jitter margin — see startLockRefresh.
 const LOCK_REFRESH_INTERVAL_MS = 30 * 1000;
 
 function resolveSpec(spec: ModelFetchSpec): ResolvedSpec {
@@ -139,12 +133,9 @@ function resolveSpec(spec: ModelFetchSpec): ResolvedSpec {
   };
 }
 
-// THE-1122 review: streamed via createReadStream, not readFile — nomic-embed-text-v1.5's fp32
-// export is ~547 MB, and reading that whole into memory just to hash it is unnecessary peak RSS on
-// top of whatever the ONNX runtime itself is already holding. reranker-local's own copy of this
-// function stays readFile-based (its pinned model is ~23 MB, where the difference is immaterial) —
-// see DOCUMENTED_DELTAS in scripts/check-model-fetch-parity.mjs for why this is a deliberate,
-// tracked divergence rather than silent drift between the two mirrored files.
+// Streamed via createReadStream, not readFile — nomic's ~547 MB fp32 export shouldn't be read
+// whole into memory just to hash it. reranker-local's own copy stays readFile-based (its ~23 MB
+// model makes the difference immaterial) — see DOCUMENTED_DELTAS in check-model-fetch-parity.mjs.
 async function sha256File(path: string): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     const hash = createHash("sha256");
@@ -507,9 +498,8 @@ async function downloadFile(fetchFn: typeof fetch, url: string, destPath: string
     (async () => {
       try {
         for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
-          // THE-1122 review: honor write() backpressure — without this, a source faster than the
-          // destination disk (e.g. a fast connection writing nomic's ~547 MB fp32 file to a slow
-          // disk) buffers the whole response in memory instead of pausing the read side.
+          // Honor write() backpressure — a fast connection writing a large file to a slow disk
+          // otherwise buffers the whole response in memory instead of pausing the read side.
           const canContinue = out.write(chunk);
           if (!canContinue) {
             await new Promise<void>((drained) => out.once("drain", drained));

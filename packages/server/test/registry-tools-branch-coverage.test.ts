@@ -213,7 +213,13 @@ describe("THE-602 registry-tools branch coverage", () => {
     const configPath = join(cfgDir, "config.json");
     const harness = makeCustomVault({ configPath });
     try {
-      writeFileSync(configPath, JSON.stringify({ vaults: [{ id: "test", path: harness.root }] }));
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          vaults: [{ id: "test", path: harness.root }],
+          cacheDir: ".otc-test-cache",
+        }),
+      );
       const r = await harness.call("reload_vault", { vault: "test" });
       expect(r.ok).toBe(true);
       if (r.ok) {
@@ -234,7 +240,10 @@ describe("THE-602 registry-tools branch coverage", () => {
     const harness = makeCustomVault({ configPath });
     try {
       // "test" (the registered vault) is no longer in the config; only "other" is.
-      writeFileSync(configPath, JSON.stringify({ vaults: [{ id: "other", path: otherDir }] }));
+      writeFileSync(
+        configPath,
+        JSON.stringify({ vaults: [{ id: "other", path: otherDir }], cacheDir: ".otc-test-cache" }),
+      );
       const r = await harness.call("reload_vault", { vault: "test" });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.error.code).toBe("vault_not_found");
