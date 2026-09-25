@@ -387,7 +387,7 @@ export async function buildServerRuntime(
     wireHealthTools({
       registry,
       version: VERSION,
-      vaults: config.vaults,
+      ...{ vaults: config.vaults, toolFacade: config.toolFacade }, // THE-1123
       startedAt,
       hasVec,
       hasFts,
@@ -554,7 +554,7 @@ export async function buildServerRuntime(
       // comment. Stdio's is a fixed literal (never varies), so no readOnly/toolVisibility gap.
       visibility: { grantedScopes: new Set(["*"]), readOnly: acl?.readOnly },
       vaultRegistry,
-      facadeMode: config.toolFacade.mode,
+      ...{ facadeMode: config.toolFacade.mode, autoClients: config.toolFacade.autoClients }, // THE-1123
       // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
       // there are no retrieval rows for feedback to update.
       experientialLogRetrievals: config.experiential.logRetrievals,

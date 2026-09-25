@@ -46,6 +46,9 @@ import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
 import { retrievalHeadsCheck } from "./retrieval-heads";
+// THE-1123: toolFacade lives in its own module, same reasoning as capture-location above — its
+// own merged-table rendering that no other check needs.
+import { type ToolFacadeView, toolFacadeCheck } from "./tool-facade";
 import type { Check, DoctorReport } from "./types";
 
 /**
@@ -123,6 +126,10 @@ export interface DoctorConfigView {
   /** THE-1073: per-vault notes-on-disk vs notes-indexed counts, only under `--probe` (same
    *  reasoning as every other store-touching view above). */
   indexCoverage?: IndexCoverageView;
+  /** THE-1123: `toolFacade.mode`, plus (for "auto") the merged per-client resolution table. Always
+   *  present when supplied — no `--probe` gate, same reasoning as captureLocation/conflictCopies
+   *  above: reads only already-resolved config, nothing store-touching. */
+  toolFacade?: ToolFacadeView;
 }
 
 export interface AssembleOptions {
@@ -214,6 +221,9 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1073: is every note on disk actually reaching the index? Same optional-view reasoning as
   // retrieval/snapshots above.
   if (config.indexCoverage) checks.push(indexCoverageCheck(config.indexCoverage));
+  // THE-1123: toolFacade.mode, plus (for "auto") the merged per-client resolution table. Same
+  // optional-view reasoning as captureLocation/conflictCopies above.
+  if (config.toolFacade) checks.push(toolFacadeCheck(config.toolFacade));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

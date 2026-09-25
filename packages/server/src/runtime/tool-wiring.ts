@@ -15,6 +15,7 @@ import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import type { RetrievalLogger } from "../experiential/log";
 import { createGatewayClient, type GatewayClient } from "../gateway";
+import { toolFacadeHealthView } from "../mcp/facade-auto";
 import type { ToolRegistry } from "../mcp/registry";
 import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
@@ -69,6 +70,8 @@ export interface HealthToolsDeps {
     failed: number;
     oldestQueuedAgeMs: number | null;
   };
+  /** THE-1123: config.toolFacade, shaped by `wireHealthTools` for createHealthTool's own field. */
+  toolFacade?: ServerConfig["toolFacade"];
 }
 
 /**
@@ -112,6 +115,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
           : {}),
       }),
       getJobQueueStats: deps.getJobQueueStats,
+      ...(deps.toolFacade ? { toolFacade: toolFacadeHealthView(deps.toolFacade) } : {}),
     }),
   );
   deps.registry.register(

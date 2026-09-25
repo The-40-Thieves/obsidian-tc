@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { FacadeMode } from "../../mcp/facade";
+import { resolveAutoFacadeMode } from "../../mcp/facade-auto";
 import type { ToolDefinition } from "../../mcp/registry";
 
 export interface IndexHealthSnapshot {
@@ -64,6 +66,23 @@ export interface HealthInfo {
     retrying: number;
     failed: number;
     oldest_queued_age_ms: number | null;
+  };
+  /** THE-1123: the tool-facade mode this CALL got. Present whenever the server was wired with a
+   *  `toolFacade` config (every real deployment; absent only for a harness that omits it, like a
+   *  bare unit test of this tool). `configured` echoes `toolFacade.mode` as-is (may be "auto");
+   *  `effective` is the CONCRETE mode this call's own connection actually resolved to — for a
+   *  non-"auto" `configured` that is `configured` itself; for "auto" it is resolved fresh from
+   *  THIS call's own observed `clientInfo` (server_health dispatches through the same per-request
+   *  path as every other tool, so it is exactly as "per session" as tools/list is — see
+   *  mcp/server.ts's `resolveFacadeMode`, which this does NOT share a cache with: two concurrent
+   *  callers on the same auto-resolved connection could in principle disagree on `clientName` and
+   *  therefore transiently on `effective`, though in practice both read the same connection's
+   *  observed identity). `clientName` is this call's own `clientInfo.name`, when observed —
+   *  non-identifying (it names client SOFTWARE, e.g. "claude-code", never a person or vault). */
+  toolFacade?: {
+    configured: FacadeMode | "auto";
+    effective: FacadeMode;
+    clientName?: string;
   };
 }
 
@@ -142,6 +161,12 @@ const IndexHealthSnapshotOutput = z.object({
     .optional(),
 });
 
+const ToolFacadeHealthOutput = z.object({
+  configured: z.enum(["triad", "domain", "flat", "auto"]),
+  effective: z.enum(["triad", "domain", "flat"]),
+  clientName: z.string().optional(),
+});
+
 const HealthInfoOutput = z.object({
   status: z.literal("ok"),
   name: z.literal("obsidian-tc"),
@@ -163,6 +188,7 @@ const HealthInfoOutput = z.object({
       oldest_queued_age_ms: z.number().nullable(),
     })
     .optional(),
+  toolFacade: ToolFacadeHealthOutput.optional(),
 });
 
 export function createIndexStatusTool(opts: {
@@ -220,6 +246,12 @@ export function createHealthTool(opts: {
     failed: number;
     oldestQueuedAgeMs: number | null;
   };
+  /** THE-1123: the `toolFacade` health block. Optional so existing harnesses/tests stay
+   *  source-compatible — absent omits the whole block rather than reporting a hollow one. */
+  toolFacade?: {
+    configured: FacadeMode | "auto";
+    autoClients?: Readonly<Record<string, FacadeMode>>;
+  };
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
@@ -264,6 +296,18 @@ export function createHealthTool(opts: {
                 },
               };
             })()
+          : {}),
+        ...(opts.toolFacade
+          ? {
+              toolFacade: {
+                configured: opts.toolFacade.configured,
+                effective:
+                  opts.toolFacade.configured === "auto"
+                    ? resolveAutoFacadeMode(ctx.clientInfo?.name, opts.toolFacade.autoClients)
+                    : opts.toolFacade.configured,
+                ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
+              },
+            }
           : {}),
       };
     },

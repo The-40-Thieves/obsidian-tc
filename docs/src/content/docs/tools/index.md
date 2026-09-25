@@ -23,6 +23,24 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
 - **`domain`** — ~a dozen domain meta-tools (`notes`, `search`, `vault`, …), each
   taking `{ action, args }`.
 - **`flat`** — the full underlying surface.
+- **`auto`** — picks one of the three above **per connecting client**, from its
+  observed MCP `clientInfo.name`, and caches the choice for the rest of that
+  client's session. `toolFacade.autoClients` maps a case-insensitive substring of
+  the client name to a mode (checked in the config's own key order, before the
+  built-in table below — a match here overrides the same substring there); a
+  client matching nothing gets `triad`. The built-in table is:
+
+  | Client name contains | Mode | Why (provisional) |
+  | --- | --- | --- |
+  | `claude-code` | `domain` | Ships its own client-side tool search, so the triad's find/describe layer duplicates it — domain's grouped meta-tools give it real verbs to search over instead. |
+  | `cursor` | `triad` | A 40-tool cap has been reported but is unverified — kept at the existing default. |
+  | *(anything else)* | `triad` | The existing, ADR-anchored default. |
+
+  **This table is a starting point, not a measurement.** Nothing here has yet
+  measured tool-*selection* accuracy per client — only per raw tool count (see
+  `docs/adr/0006-the-default-surface-is-the-triad.md`). A follow-up ticket will
+  replace it with per-client data; until then, override any entry with
+  `toolFacade.autoClients` in your config.
 
 Every underlying tool stays callable by name in every mode, and `tools/list` is
 filtered per caller scopes + tool-visibility ACL. Routing always goes through the

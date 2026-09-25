@@ -294,7 +294,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // gapSweep/proactive blocks, server.schema.ts's reranker.provider and egress descriptions, and
   // personas.schema.ts's toolVisibility mask description. Description text only; no key, type,
   // default or constraint moved.
-  "e3ea86985b71e761f6c5750afb62443bc3b4aa14e6d3af6a249c40a035f06c9e";
+  // THE-1123 (2026-09-25): rebaselined deliberately. `toolFacade.mode` gains a fourth enum value,
+  // "auto" — picks one of triad/domain/flat PER CONNECTING CLIENT from its observed MCP
+  // clientInfo.name (see mcp/facade-auto.ts). Adds ONE new optional key, `toolFacade.autoClients`
+  // (record<string, enum(triad|domain|flat)>) — only consulted when mode is "auto"; a
+  // case-insensitive substring-of-clientInfo.name -> mode override table, checked before the
+  // server's built-in one. See config/tools.schema.ts's ToolFacadeConfigSchema for the full
+  // description text. No existing key, type, default or constraint moved.
+  "6d71a5af10aebf3cf159ebc13b09f9e7c819a63b2256b6ad851a62cd9ea2923c";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

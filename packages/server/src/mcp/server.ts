@@ -47,6 +47,7 @@ import {
   isFacadeTool,
   triadTools,
 } from "./facade";
+import { createFacadeModeResolver } from "./facade-mode-resolver";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
@@ -137,9 +138,11 @@ export interface McpServerOptions {
    * surface fits one page); overridable only so tests can exercise the cursor-paging path.
    */
   toolsPageSize?: number;
-  /** Tool-surface facade mode (THE-219). "triad" advertises 3 meta-tools; "flat" the full surface.
-   *  Defaults to "flat" when unset so direct callers/tests are unaffected; cli/http pass the config. */
-  facadeMode?: FacadeMode;
+  /** Tool-surface facade mode (THE-219/THE-1123): "triad"/"domain"/"flat" as before, plus "auto",
+   *  resolved per connecting client — see facade-mode-resolver.ts. Defaults to "flat" when unset. */
+  facadeMode?: FacadeMode | "auto";
+  /** Only consulted when `facadeMode` is "auto"; merged over facade-auto.ts's built-in table. */
+  autoClients?: Readonly<Record<string, FacadeMode>>;
   /**
    * THE-583: the protocol era this instance is being constructed to serve, as classified by the
    * SDK (`createMcpHandler`'s `McpRequestContext.era`).
@@ -328,7 +331,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     hint: { ttlMs: number; cacheScope: string },
   ): T => (isModern ? { ...result, ...hint } : result);
 
-  const facadeMode: FacadeMode = opts.facadeMode ?? "flat";
+  // THE-1123: see facade-mode-resolver.ts for the design (extracted to stay under biome's cap).
+  const { resolveFacadeMode, requestClientName } = createFacadeModeResolver(
+    server,
+    opts.facadeMode,
+    opts.autoClients,
+  );
 
   // THE-583: the verbosity floor for server->client log notifications is FIXED at `info` and
   // deliberately not settable. `logging/setLevel` is unroutable under MODERN (SEP-2575 removed
@@ -363,6 +371,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
   });
 
   server.setRequestHandler("tools/list", (req, extra): ListToolsResult => {
+    const facadeMode = resolveFacadeMode(
+      requestClientName(extra.mcpReq.envelope, req.params?._meta),
+    );
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
     // surface. Every registered tool stays callable by name via call_capability, so nothing is
     // hidden; flat mode is the back-compat full-surface behavior.
@@ -513,6 +524,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const clientInfo =
       extractClientInfo(extra.mcpReq.envelope) ?? extractClientInfo(req.params._meta);
     if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
+    // THE-1123: same resolution tools/list uses, reusing `clientInfo` above.
+    const facadeMode = resolveFacadeMode(clientInfo?.name ?? server.getClientVersion()?.name);
     // The SDK consumes the SEP-2575 envelope keys before a handler sees `params._meta`, so client
     // capabilities are read from its own accessor rather than re-parsed off the wire.
     const canElicit = clientSupportsFormElicitation(server.getClientCapabilities());

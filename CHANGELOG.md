@@ -8,6 +8,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client
+  (THE-1123, PR #TBD).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
+  the three from the connecting client's observed MCP `clientInfo.name`, resolved once per session
+  (cached on the connection for stdio; naturally per-request for HTTP's stateless transport) and
+  logged once at info level (`configured`/`client`/`effective`). `toolFacade.autoClients` maps a
+  case-insensitive substring of the client name to a mode, checked before a built-in table
+  (`claude-code` -> `domain`, `cursor` -> `triad`, everything else -> `triad`) — **the built-in
+  table is provisional**, a starting point pending real per-client tool-selection measurement, not
+  a result; override any entry via config. `server_health` and `doctor` both report
+  `toolFacade: { configured, effective, clientName }` (doctor, being offline, reports the merged
+  resolution table instead of a live `effective`/`clientName`).
 - **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
   (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
   cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`
