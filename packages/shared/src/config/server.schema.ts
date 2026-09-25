@@ -20,6 +20,7 @@ import {
   ReadwiseConfigSchema,
   SchedulerConfigSchema,
   SnapshotsConfigSchema,
+  TelemetryConfigSchema,
   WatchConfigSchema,
 } from "./observability.schema";
 import { PersonasConfigSchema } from "./personas.schema";
@@ -152,6 +153,13 @@ export const ServerConfigObject = z.object({
   ),
   sessions: SessionsConfigSchema.describe(
     "Whether the server opens workspace sessions itself, and how long one stays open.",
+  ),
+  // THE-1125: opt-in, anonymous, off-by-default usage telemetry. See TelemetryConfigSchema's own
+  // comment (observability.schema.ts) for the full contract — enabled requires endpoint (refused
+  // below the object level, in TelemetryConfigSchema's own superRefine, since both fields it reads
+  // are its own).
+  telemetry: TelemetryConfigSchema.describe(
+    "Opt-in, anonymous usage telemetry. Off by default, no default endpoint — see docs/configuration/telemetry.md.",
   ),
   idempotencyTtlSeconds: z
     .number()

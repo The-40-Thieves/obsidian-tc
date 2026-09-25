@@ -24,7 +24,7 @@ import {
   registerActivationRecompute,
 } from "../experiential/activation";
 import { databaseGaugeSources } from "../metrics/gauge-sources";
-import { MetricsRecorder } from "../metrics/registry";
+import { MetricsRecorder, type ToolCallObserver } from "../metrics/registry";
 import { MorgianaEmitter } from "../morgiana/emitter";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
@@ -51,6 +51,11 @@ export interface ObservabilityDeps {
   /** THE-585 (#11): null until the HTTP transport is constructed (and forever, on a stdio-only
    *  server) — see the gauge source below. */
   getHttpConstructSeconds: () => number | null;
+  /** THE-1125: opt-in telemetry's counter sink, fed from the SAME `observeToolCall` call sites
+   *  Prometheus already uses — see metrics/registry.ts's `ToolCallObserver` for why this is not a
+   *  second instrumentation site. Undefined on a build that never wires telemetry (every existing
+   *  caller of createObservability before THE-1125 keeps compiling unchanged). */
+  toolCallObserver?: ToolCallObserver;
 }
 
 export interface Observability {
@@ -101,49 +106,52 @@ export function createObservability(deps: ObservabilityDeps): Observability {
     ];
   };
 
-  const metrics = new MetricsRecorder({
-    // The DB-backed sources live in metrics/gauge-sources.ts so they are TESTABLE. Three of them
-    // (sessions / capture queue / elicit tokens) were declared in GaugeSources and never wired,
-    // emitting nothing for many releases — the only construction site was here, inside boot, where
-    // no test could reach it. Extracting them is what keeps that fixed.
-    ...databaseGaugeSources(deps.db),
-    // THE-585 (#1): index-coordinator depth. Read from the coordinator's own stats() rather than
-    // counted here, keeping the one-way dependency the composition root maintains.
-    indexQueueDepth: () => [
-      { vault: SUBSYSTEM_COORDINATOR, value: deps.getIndexCoordinatorStats().queued },
-    ],
-    indexActive: () =>
-      Object.entries(deps.getIndexCoordinatorStats().perVaultActive).map(([vault, value]) => ({
-        vault,
-        value,
-      })),
-    // THE-585 (#2): coalesced writes. Process-wide like the queue depth above, so the same bounded
-    // subsystem label.
-    indexCoalesced: () => [
-      { vault: SUBSYSTEM_COORDINATOR, value: deps.getIndexCoordinatorStats().coalesced },
-    ],
-    // THE-585 (#9): scheduler health. `vault` carries the bounded JOB NAME — the jobs are
-    // registered in code at startup, so the label set is fixed by the build, not by traffic.
-    schedulerSkipped: () =>
-      deps.getSchedulerStats().map((j) => ({ vault: j.job, value: j.skipped })),
-    schedulerConsecutiveFailures: () =>
-      deps.getSchedulerStats().map((j) => ({ vault: j.job, value: j.consecutiveFailures })),
-    schedulerDeferred: () =>
-      deps.getSchedulerStats().map((j) => ({ vault: j.job, value: j.deferred })),
-    // THE-585 (#11): boot-time HTTP construction. Stays an empty series until the transport is
-    // actually started — a stdio-only server never constructs one, and reporting 0 there would
-    // claim a measurement that never happened.
-    httpConstructSeconds: () => {
-      const seconds = deps.getHttpConstructSeconds();
-      return seconds === null ? [] : [{ vault: "http", value: seconds }];
+  const metrics = new MetricsRecorder(
+    {
+      // The DB-backed sources live in metrics/gauge-sources.ts so they are TESTABLE. Three of them
+      // (sessions / capture queue / elicit tokens) were declared in GaugeSources and never wired,
+      // emitting nothing for many releases — the only construction site was here, inside boot, where
+      // no test could reach it. Extracting them is what keeps that fixed.
+      ...databaseGaugeSources(deps.db),
+      // THE-585 (#1): index-coordinator depth. Read from the coordinator's own stats() rather than
+      // counted here, keeping the one-way dependency the composition root maintains.
+      indexQueueDepth: () => [
+        { vault: SUBSYSTEM_COORDINATOR, value: deps.getIndexCoordinatorStats().queued },
+      ],
+      indexActive: () =>
+        Object.entries(deps.getIndexCoordinatorStats().perVaultActive).map(([vault, value]) => ({
+          vault,
+          value,
+        })),
+      // THE-585 (#2): coalesced writes. Process-wide like the queue depth above, so the same bounded
+      // subsystem label.
+      indexCoalesced: () => [
+        { vault: SUBSYSTEM_COORDINATOR, value: deps.getIndexCoordinatorStats().coalesced },
+      ],
+      // THE-585 (#9): scheduler health. `vault` carries the bounded JOB NAME — the jobs are
+      // registered in code at startup, so the label set is fixed by the build, not by traffic.
+      schedulerSkipped: () =>
+        deps.getSchedulerStats().map((j) => ({ vault: j.job, value: j.skipped })),
+      schedulerConsecutiveFailures: () =>
+        deps.getSchedulerStats().map((j) => ({ vault: j.job, value: j.consecutiveFailures })),
+      schedulerDeferred: () =>
+        deps.getSchedulerStats().map((j) => ({ vault: j.job, value: j.deferred })),
+      // THE-585 (#11): boot-time HTTP construction. Stays an empty series until the transport is
+      // actually started — a stdio-only server never constructs one, and reporting 0 there would
+      // claim a measurement that never happened.
+      httpConstructSeconds: () => {
+        const seconds = deps.getHttpConstructSeconds();
+        return seconds === null ? [] : [{ vault: "http", value: seconds }];
+      },
+      queryCacheHits: cacheStat((s) => s.hits),
+      queryCacheMisses: cacheStat((s) => s.misses),
+      queryCacheEvictions: cacheStat((s) => s.evictions),
+      queryCacheExpirations: cacheStat((s) => s.expirations),
+      // idempotencyCacheBytes (THE-197) moved into databaseGaugeSources above alongside the three it
+      // was the only wired sibling of — keeping one here too would be a second copy of the same SQL.
     },
-    queryCacheHits: cacheStat((s) => s.hits),
-    queryCacheMisses: cacheStat((s) => s.misses),
-    queryCacheEvictions: cacheStat((s) => s.evictions),
-    queryCacheExpirations: cacheStat((s) => s.expirations),
-    // idempotencyCacheBytes (THE-197) moved into databaseGaugeSources above alongside the three it
-    // was the only wired sibling of — keeping one here too would be a second copy of the same SQL.
-  });
+    deps.toolCallObserver,
+  );
   // THE-585 (#7, #8): vec0 -> brute-force degradation counter. Defined here, next to the recorder,
   // so the search layer keeps taking a plain callback and never imports metrics.
   const onVecFallback = (vault: string, reason: "error" | "underfill"): void =>

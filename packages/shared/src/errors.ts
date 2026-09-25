@@ -205,6 +205,14 @@ export function recoveryFor(code: ErrorCode): string | undefined {
   return RECOVERY[code] ?? undefined;
 }
 
+/** THE-1125: every `ErrorCode`, derived from `RECOVERY`'s own exhaustive
+ *  `Record<ErrorCode, ...>` — cannot drift from the union type, since RECOVERY already fails to
+ *  compile if `ErrorCode` gains a member without a matching key. The telemetry collector's
+ *  error-code allowlist (packages/server/src/telemetry/collector.ts) reuses this rather than
+ *  hand-maintaining a second copy of the enum, so a code that reaches a caller and a code
+ *  telemetry will accept as a document key can never disagree. */
+export const ERROR_CODES: readonly ErrorCode[] = Object.keys(RECOVERY) as ErrorCode[];
+
 export interface ErrorJSON {
   code: ErrorCode;
   message: string;

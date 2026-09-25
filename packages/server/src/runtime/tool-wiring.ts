@@ -72,6 +72,15 @@ export interface HealthToolsDeps {
   };
   /** THE-1123: config.toolFacade, shaped by `wireHealthTools` for createHealthTool's own field. */
   toolFacade?: ServerConfig["toolFacade"];
+  /** THE-1125: opt-in telemetry status, read live per call — see telemetry/wiring.ts's
+   *  `getStatus`. Absent only for a harness that omits it. */
+  getTelemetryStatus?: () => {
+    enabled: boolean;
+    endpoint?: string;
+    installId?: string;
+    lastSendAt?: number;
+    lastError?: string;
+  };
 }
 
 /**
@@ -116,6 +125,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       }),
       getJobQueueStats: deps.getJobQueueStats,
       ...(deps.toolFacade ? { toolFacade: toolFacadeHealthView(deps.toolFacade) } : {}),
+      ...(deps.getTelemetryStatus ? { getTelemetryStatus: deps.getTelemetryStatus } : {}),
     }),
   );
   deps.registry.register(

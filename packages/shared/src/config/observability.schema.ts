@@ -1,16 +1,16 @@
 // WP1.6: extracted from ../config.schema.ts (which stays a compatibility facade re-exporting
-// these same symbol names). Leaf schema — imports Zod only, no shared scalars needed here.
+// these same symbol names). Leaf schema — imports Zod plus net-host.ts (a shared scalar helper,
+// not a schema module; retrieval.schema.ts's judge.baseUrl sets this precedent).
 //
 // Import direction is non-negotiable: this file must never import config.schema.ts,
-// server.schema.ts, or any other schema module. All seven schemas below chain only
-// `.prefault({})` (a default-application combinator, not a `.refine`/`.superRefine`) or nothing
-// at all — there is no cross-domain field read to keep back in config.schema.ts, so all move
-// here whole.
+// server.schema.ts, or any other schema module. Every schema below chains only `.prefault({})`
+// or a SELF-CONTAINED `.superRefine`/`.refine` reading only its own fields (EgressConfigSchema's
+// pattern refusal, TelemetryConfigSchema's enabled-requires-endpoint check below) — no cross-domain read.
 //
-// The http/auth interlock (ServerConfigSchema.superRefine) is NOT here — it reads
-// cfg.transports.http together with cfg.auth, which live in runtime.schema.ts and
-// auth-acl.schema.ts respectively, so it is cross-domain and stays in config.schema.ts.
+// The http/auth interlock (ServerConfigSchema.superRefine) is NOT here — cross-domain
+// (cfg.transports.http + cfg.auth), so it stays in config.schema.ts.
 import { z } from "zod";
+import { classifyJudgeBaseUrl, isDisallowedLiteralHost, isLoopbackHost } from "../net-host";
 
 export const ObservabilityConfigSchema = z.object({
   // traceDetail / tracesSampleRate were declared here and read by NOTHING: no sampling was ever applied
@@ -413,3 +413,92 @@ export const PensieveConfigSchema = z.object({
       "Base URL of a Pensieve instance (e.g. http://100.x.x.x:8839, its default port), queried at `/api/search`. Pensieve's API has no auth — access control is expected at the network layer (tailscale). Absent means `import-ambient` no-ops with NO network call.",
     ),
 });
+
+// Opt-in, anonymous usage telemetry (THE-1125). Full disclosure: docs/configuration/telemetry.md,
+// SECURITY.md; the closed key set enforcing "never sent" lives in server/src/telemetry/document.ts.
+export const TelemetryConfigSchema = z
+  .object({
+    enabled: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Opt in to anonymous usage telemetry. Off by default. Turning this on with no `endpoint` set is a CONFIG ERROR at boot (refused below), never a silent no-op — there is no default telemetry endpoint. When on, an aggregate document (never paths, note content, queries, vault ids, principals, tokens, hostnames or env) is POSTed to `endpoint` once every `intervalMinutes`, never at boot before the first interval elapses. `obsidian-tc telemetry preview` prints the exact document that would be sent right now.",
+      ),
+    endpoint: z
+      .string()
+      .url()
+      .optional()
+      .describe(
+        "Collector URL the telemetry document is POSTed to. Required when `enabled` is true — refused below when absent. Must be `https://` unless the host is loopback (`localhost`/`127.0.0.1`/`[::1]`), which is allowed ONLY for tests and a locally-run reference collector; unlike experiential.citationInfer.judge.baseUrl there is no `allowPlainHttp` widening here for a remote host — a bearer token (`authTokenEnv`) and the document both travel over it, so a remote endpoint must be encrypted in transit. Must not name a literal private, link-local, carrier-grade-NAT, unspecified, or cloud-metadata IP address (loopback is the one such range that IS allowed) — a hostname that happens to resolve to one is not checked here, by design.",
+      ),
+    intervalMinutes: z
+      .number()
+      .int()
+      .min(60)
+      .default(1440)
+      .describe(
+        "Minutes between telemetry sends. Minimum 60 — this is aggregate, low-frequency telemetry, not a heartbeat. The first send happens no sooner than this many minutes after boot; there is never a send at boot itself.",
+      ),
+    authTokenEnv: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Name of an environment variable holding a bearer token, sent as "Authorization: Bearer <value>" on the telemetry POST. Optional — most reference collectors need no auth at all. Never put a secret in `endpoint` itself (refused below); this is the only supported way to authenticate to a collector.',
+      ),
+  })
+  .superRefine((cfg, ctx) => {
+    if (cfg.enabled && cfg.endpoint === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endpoint"],
+        message:
+          "telemetry.enabled is true but telemetry.endpoint is not set. There is no default telemetry endpoint — obsidian-tc never phones home unless you opt in AND name a collector. Set telemetry.endpoint to the URL you want the aggregate usage document sent to, or leave telemetry.enabled false.",
+      });
+    }
+    if (cfg.endpoint !== undefined) {
+      const cls = classifyJudgeBaseUrl(cfg.endpoint);
+      if (cls === "invalid") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endpoint"],
+          message:
+            'telemetry.endpoint must be a canonical "scheme://host" URL with scheme https or http — either it could not be parsed that way, or its scheme is neither (e.g. ftp:/file:).',
+        });
+      } else if (cls === "http-remote") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endpoint"],
+          message:
+            "telemetry.endpoint must use https:// unless the host is loopback (localhost/127.0.0.1/[::1]) for tests or a locally-run reference collector. There is no allowPlainHttp-style widening for telemetry: a remote endpoint is always required to be https.",
+        });
+      }
+      let hasUserinfo = false;
+      try {
+        const u = new URL(cfg.endpoint);
+        hasUserinfo = u.username.length > 0 || u.password.length > 0;
+      } catch {}
+      if (hasUserinfo) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endpoint"],
+          message:
+            "telemetry.endpoint must not contain userinfo (a username/password embedded in the URL) — the endpoint is shown by `telemetry preview`/`status`, `doctor` and `server_health`, and logged on a failed send, so a credential placed there will leak. Put a collector secret in telemetry.authTokenEnv (an environment variable name) instead; it is sent as an Authorization header and never printed or logged.",
+        });
+      }
+      // https alone does not stop a literal private/link-local/metadata host (loopback excepted).
+      let host: string | undefined;
+      try {
+        host = new URL(cfg.endpoint).hostname;
+      } catch {}
+      if (host !== undefined && !isLoopbackHost(host) && isDisallowedLiteralHost(host)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endpoint"],
+          message:
+            "telemetry.endpoint must not name a literal private, link-local, carrier-grade-NAT, unspecified, or cloud-metadata IP address — this collector would then be reachable only from inside your own network, or (for a metadata address) could reach a cloud instance's credential-issuing endpoint. Loopback (localhost/127.0.0.1/[::1]) is the one such range that stays allowed, for tests and a locally-run collector.",
+        });
+      }
+    }
+  })
+  .prefault({});

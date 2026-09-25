@@ -494,6 +494,15 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `snapshots.enabled` | `boolean` | `true` |  | Capture the prior content-addressed state before a destructive note write, so restore_note can roll back. On by default under the trusted-local posture; retention is pruned inline, so growth is bounded. |
 | `snapshots.retention` | `number` | `10` |  | Maximum snapshot versions kept per note. Older versions are pruned. |
 
+### `telemetry`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `telemetry.authTokenEnv` | `string` | — |  | Name of an environment variable holding a bearer token, sent as "Authorization: Bearer <value>" on the telemetry POST. Optional — most reference collectors need no auth at all. Never put a secret in `endpoint` itself (refused below); this is the only supported way to authenticate to a collector. |
+| `telemetry.enabled` | `boolean` | `false` |  | Opt in to anonymous usage telemetry. Off by default. Turning this on with no `endpoint` set is a CONFIG ERROR at boot (refused below), never a silent no-op — there is no default telemetry endpoint. When on, an aggregate document (never paths, note content, queries, vault ids, principals, tokens, hostnames or env) is POSTed to `endpoint` once every `intervalMinutes`, never at boot before the first interval elapses. `obsidian-tc telemetry preview` prints the exact document that would be sent right now. |
+| `telemetry.endpoint` | `string` | — |  | Collector URL the telemetry document is POSTed to. Required when `enabled` is true — refused below when absent. Must be `https://` unless the host is loopback (`localhost`/`127.0.0.1`/`[::1]`), which is allowed ONLY for tests and a locally-run reference collector; unlike experiential.citationInfer.judge.baseUrl there is no `allowPlainHttp` widening here for a remote host — a bearer token (`authTokenEnv`) and the document both travel over it, so a remote endpoint must be encrypted in transit. Must not name a literal private, link-local, carrier-grade-NAT, unspecified, or cloud-metadata IP address (loopback is the one such range that IS allowed) — a hostname that happens to resolve to one is not checked here, by design. |
+| `telemetry.intervalMinutes` | `number` | `1440` |  | Minutes between telemetry sends. Minimum 60 — this is aggregate, low-frequency telemetry, not a heartbeat. The first send happens no sooner than this many minutes after boot; there is never a send at boot itself. |
+
 ### `throttle`
 
 | Key | Type | Default | Required | Description |

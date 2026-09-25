@@ -5,6 +5,7 @@ import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
 import { type MemoryImportCommand, parseMemoryImport } from "./parse-memory-import";
+import { parseTelemetry, type TelemetryCommand } from "./parse-telemetry";
 
 export type CliCommand =
   | { kind: "serve"; input?: string }
@@ -120,6 +121,7 @@ export type CliCommand =
   | MemoryImportCommand // THE-1124: `memory import` — basic-memory / claude-code-memory adapters. ./parse-memory-import.ts.
   | ConsolidateCommand // THE-934: one ambient consolidation pass, unscheduled. ./parse-consolidate.ts.
   | CompactCommand // THE-1039 (GH #930): compaction. Parser: ./parse-compact.ts.
+  | TelemetryCommand // THE-1125: `telemetry preview|status|reset-id`. Parser: ./parse-telemetry.ts.
   | { kind: "error"; message: string };
 
 // Re-exported so `import { CliError } from "../args"` keeps working — see cli-error.ts's header.
@@ -142,9 +144,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
       return { kind: "serve", input: flagValue(rest, "--config") ?? positional(rest) };
     }
     // THE-658: `token mint`. Parsed like `config <sub>` — a two-word command with the config path
-    // as a positional after the subcommand. Every value-taking flag is stripped before the
-    // positional scan so a flag's VALUE can never be mistaken for the config path (the same trap
-    // `doctor --token` documents above).
+    // as a positional after the subcommand. Every value-taking flag is stripped before the scan
+    // so a flag's VALUE can never be mistaken for the config path (same trap as `doctor --token`).
     if (first === "token") {
       const sub = rest[0];
       if (sub !== "mint") throw new CliError(`unknown token subcommand: ${sub ?? "(none)"}`);
@@ -218,9 +219,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const configPath = flagValue(rest, "--config") ?? positional(rest.slice(1));
       if (sub === "show") return { kind: "config-show", configPath };
       if (sub === "validate") return { kind: "config-validate", configPath };
-      // THE-518: `config explain` — the same resolved object as `config show`, but annotated with
-      // where each value came from. --source filters to one origin, which is how you answer
-      // "what is this deployment actually overriding" in one line.
+      // THE-518: `config explain` — the same resolved object as `config show`, annotated with
+      // where each value came from. --source filters to one origin ("what is this overriding").
       if (sub === "explain") {
         const scan = rest.slice(1);
         for (const f of ["--source", "--config"]) {
@@ -241,6 +241,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
       }
       return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
     }
+    if (first === "telemetry") return parseTelemetry(rest); // parser: ./parse-telemetry.ts
     if (first === "doctor") {
       // --json and --token are dropped before resolving the positional config path so neither is
       // mistaken for it. --token takes a raw JWT whose iat/exp are read (not verified) by auth.maxAge.

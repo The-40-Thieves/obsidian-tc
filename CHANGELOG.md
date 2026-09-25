@@ -17,7 +17,41 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (linking to the vault over MCP does not make your notes AGPL; the TC Bridge plugin's license is
   whatever `packages/plugin/package.json` says). Linked from the README's License section and
   added to the docs sidebar.
-
+- **Opt-in, anonymous usage telemetry (THE-1125).** Off by default, with **no default
+  endpoint** — `telemetry.enabled: true` with no `telemetry.endpoint` set is a config
+  error at boot, never a silent no-op. When enabled, once every
+  `telemetry.intervalMinutes` (never at boot) a small aggregate document is POSTed to
+  the configured collector: a random install id, server version, OS/arch, the active
+  tool-facade mode, per-tool call counts, per-error-code counts, and up to 32 distinct
+  canonicalized MCP client labels seen — never a vault path, note content, a search
+  query, a vault id, a principal/caller, a token, a hostname, or an environment
+  variable. `toolCalls`/`errorCodes` keys are allowlisted at record time against this
+  server's own registered tool names / closed `ErrorCode` enum (anything else
+  collapses to a fixed `"unknown"` bucket, never the caller's own string — a hostile
+  `tools/call` name can never become a document key); `clientNames` values are
+  similarly canonicalized against a small known-client table, else `"other"`. The
+  document is ALSO validated top-level against a `.strict()` zod schema whose key set
+  is closed (`packages/server/src/telemetry/document.ts`), fed from the same
+  `MetricsRecorder.observeToolCall` hook Prometheus's `obsidian_tc_tool_calls_total`
+  already uses — no second dispatch-level observation site. `endpoint` must be
+  `https://` unless loopback, may not name a literal private/link-local/
+  carrier-grade-NAT/unspecified/cloud-metadata IP address, and may not carry userinfo
+  (a URL is exactly what `telemetry preview`/`status`, `doctor`, and `server_health`
+  print, and what a failed send logs); a collector secret goes in
+  `telemetry.authTokenEnv` (an environment variable **name**), sent only as an
+  `Authorization: Bearer` header — refused (never sent unauthenticated) if the env var
+  is unset. A send never auto-follows a redirect, never reads the response body
+  (cancelled immediately, bounded by one timeout covering the whole send), never
+  retries in a loop, has a 10s timeout, and never blocks or throws into a tool call —
+  a failure is logged once at `warn`, with any bearer token value scrubbed too, with
+  the endpoint reduced to `scheme://host`, and the window's counters are kept (not
+  reset) so the next attempt is cumulative. New CLI commands: `obsidian-tc telemetry
+  preview` (prints the exact document that would be sent, with no network call),
+  `telemetry status`, `telemetry reset-id`. `doctor` and `server_health` report a
+  `telemetry` status block. See
+  [docs/configuration/telemetry.md](docs/src/content/docs/configuration/telemetry.md)
+  and [SECURITY.md](SECURITY.md#telemetry) for the full disclosure. The Obsidian
+  companion plugin does not participate in this feature.
 - **`toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client
   (THE-1123, PR #976).** `triad`/`domain`/`flat` still work unchanged; `"auto"` resolves one of
   the three from the connecting client's observed MCP `clientInfo.name`, cached once a NAME is

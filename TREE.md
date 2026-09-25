@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,374 tracked code files · 243,888 lines.
+**Scale:** 1,393 tracked code files · 246,957 lines.
 
-TypeScript 222,859 · JavaScript 15,447 · Python 2,406 · SQL 1,940 · Rust 753 · Shell 483.
+TypeScript 225,906 · JavaScript 15,447 · Python 2,406 · SQL 1,962 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,26 +86,27 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 91 | 18,994 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 91 | 19,034 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,998 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 28 | 7,210 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 25 | 6,300 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `cli/` | 43 | 5,938 | arg parsing + subcommands |
-| `runtime/` | 19 | 4,463 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `doctor/` | 18 | 3,151 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `mcp/` | 26 | 6,386 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `cli/` | 45 | 6,147 | arg parsing + subcommands |
+| `runtime/` | 19 | 4,513 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `doctor/` | 19 | 3,212 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 2,545 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `db/` | 15 | 1,996 | provisioning, migrate runner, experiential store |
-| `migrations/` | 53 | 1,940 | hand-registered SQL. **Two chains** — see below |
+| `db/` | 15 | 2,001 | provisioning, migrate runner, experiential store |
+| `migrations/` | 54 | 1,962 | hand-registered SQL. **Two chains** — see below |
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `providers/` | 6 | 1,313 |  |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `memory-import/` | 7 | 1,058 |  |
 | `workspace/` | 3 | 980 | session tracking |
-| `metrics/` | 4 | 887 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
+| `metrics/` | 4 | 916 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `bridge/` | 8 | 822 | Obsidian plugin bridge clients |
 | `capture/` | 5 | 768 | the capture queue |
 | `embeddings/` | 6 | 764 | providers incl. the deterministic fake used in tests |
+| `telemetry/` | 6 | 758 |  |
 | `transports/` | 3 | 739 | stdio, HTTP and the shared serve loop |
 | `gateway/` | 3 | 691 | inference-gateway client — the `judge`/`synthesize` roles |
 | `model/` | 7 | 646 | model-service clients |
@@ -119,7 +120,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 123 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 475 files across 32 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 486 files across 33 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -144,20 +145,20 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 823 | `packages/server/src/doctor/checks.ts` |
 | 806 | `packages/server/src/mcp/server.ts` |
 | 743 | `packages/server/src/runtime/server-runtime.ts` |
-| 702 | `packages/server/src/cli/args.ts` |
+| 703 | `packages/server/src/cli/args.ts` |
 | 697 | `packages/server/src/providers/registry.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
+| 674 | `packages/server/src/metrics/registry.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
-| 651 | `packages/server/src/runtime/tool-wiring.ts` |
+| 661 | `packages/server/src/runtime/tool-wiring.ts` |
+| 655 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
-| 645 | `packages/server/src/metrics/registry.ts` |
 | 645 | `packages/server/src/runtime/plane-wiring.ts` |
 | 641 | `packages/server/src/cli/commands/compact.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 619 | `packages/server/src/transports/http.ts` |
 | 612 | `packages/server/src/experiential/citation.ts` |
 | 611 | `packages/server/src/search/graph_search.ts` |
-| 606 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 602 | `packages/server/src/search/indexing/index-vault.ts` |
 | 599 | `packages/server/src/tools/m3/base-tools.ts` |
 | 588 | `packages/server/src/vault/frontmatter.ts` |
@@ -170,9 +171,12 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 510 | `packages/server/src/experiential/note-quality.ts` |
 | 509 | `packages/server/src/tools/m6/bulk-tools.ts` |
 | 509 | `packages/server/src/tools/m8/experiential-tools.ts` |
+| 504 | `packages/shared/src/config/observability.schema.ts` |
+| 502 | `packages/server/src/cli/commands/doctor-probes.ts` |
+| 502 | `packages/server/src/cli/commands/doctor.ts` |
 | 502 | `packages/server/src/tools/m1/frontmatter-tools.ts` |
 
-32 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+35 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
@@ -291,7 +295,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**478 modules · 2209 dependencies · 137 distinct subsystem pairs · 1006 cross-subsystem imports.**
+**488 modules · 2256 dependencies · 144 distinct subsystem pairs · 1025 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -309,17 +313,17 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 137 pairs.
+set is 144 pairs.
 
 ```mermaid
 flowchart LR
   tools[tools<br/>91 files]
   search[search<br/>61 files]
-  cli[cli<br/>43 files]
+  cli[cli<br/>45 files]
   experiential[experiential<br/>28 files]
-  mcp[mcp<br/>25 files]
+  mcp[mcp<br/>26 files]
+  doctor[doctor<br/>19 files]
   runtime[runtime<br/>19 files]
-  doctor[doctor<br/>18 files]
   vault[vault<br/>17 files]
   db[(db<br/>15 files)]
   plane[plane<br/>9 files]
@@ -329,6 +333,7 @@ flowchart LR
   embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
   providers[providers<br/>6 files]
+  telemetry[telemetry<br/>6 files]
   metrics[metrics<br/>4 files]
   scheduler[scheduler<br/>4 files]
   util[util<br/>4 files]
@@ -340,7 +345,7 @@ flowchart LR
 
   tools -->|184| vault
   tools -->|80| mcp
-  cli -->|52| db
+  cli -->|54| db
   search -->|52| db
   tools -->|50| search
   runtime -->|27| search
@@ -366,6 +371,7 @@ flowchart LR
   search -->|8| plane
   tools -->|8| plane
   tools -->|8| formats
+  cli -->|7| telemetry
   memory-import -->|7| vault
   providers -->|7| embeddings
   runtime -->|7| embeddings
@@ -396,9 +402,9 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 249 | `tools` | 400 |
-| `db` | 195 | `runtime` | 165 |
-| `search` | 112 | `cli` | 145 |
-| `mcp` | 110 | `search` | 94 |
+| `db` | 200 | `runtime` | 168 |
+| `search` | 112 | `cli` | 154 |
+| `mcp` | 111 | `search` | 94 |
 | `experiential` | 53 | `experiential` | 40 |
 <!-- END GENERATED: tree-fan -->
 

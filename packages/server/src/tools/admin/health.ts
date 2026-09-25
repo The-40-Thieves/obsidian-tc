@@ -84,6 +84,25 @@ export interface HealthInfo {
     effective: FacadeMode;
     clientName?: string;
   };
+  /** THE-1125: opt-in telemetry status. Always present when wired (every real deployment; absent
+   *  only for a harness/bare unit test of this tool). `endpoint` is REDACTED
+   *  (telemetry/redact-endpoint.ts: scheme + host ONLY, never the path) — never the raw configured
+   *  URL, whose userinfo, query string, or path may carry a collector API key. `installId`/
+   *  `lastSendAt`/`lastError`/`nextSendAt` are absent until this install has sent (or attempted to
+   *  send) at least once. Security review (in-pool HIGH-B): `nextSendAt` was returned by
+   *  `wiring.ts`'s `getStatus()` but not declared here — zod's `safeParse` silently stripped it
+   *  (passed), but the SDK's ajv validator rejects the unstripped payload outright once a send has
+   *  actually happened and the field is populated (the same zod/ajv drift class THE-1073 fixed).
+   *  Declared below now; see `test/health-output-schema.test.ts`'s ajv test, built from a REAL
+   *  `wireTelemetry(...).getStatus()` after a seeded send, not a hand-written fixture. */
+  telemetry?: {
+    enabled: boolean;
+    endpoint?: string;
+    installId?: string;
+    lastSendAt?: number;
+    lastError?: string;
+    nextSendAt?: number;
+  };
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
@@ -167,6 +186,15 @@ const ToolFacadeHealthOutput = z.object({
   clientName: z.string().optional(),
 });
 
+const TelemetryHealthOutput = z.object({
+  enabled: z.boolean(),
+  endpoint: z.string().optional(),
+  installId: z.string().optional(),
+  lastSendAt: z.number().optional(),
+  lastError: z.string().optional(),
+  nextSendAt: z.number().optional(),
+});
+
 const HealthInfoOutput = z.object({
   status: z.literal("ok"),
   name: z.literal("obsidian-tc"),
@@ -189,6 +217,7 @@ const HealthInfoOutput = z.object({
     })
     .optional(),
   toolFacade: ToolFacadeHealthOutput.optional(),
+  telemetry: TelemetryHealthOutput.optional(),
 });
 
 export function createIndexStatusTool(opts: {
@@ -251,6 +280,16 @@ export function createHealthTool(opts: {
   toolFacade?: {
     configured: FacadeMode | "auto";
     autoClients?: Readonly<Record<string, FacadeMode>>;
+  };
+  /** THE-1125: read live at call time (like getJobQueueStats above) — never cached, since
+   *  lastSendAt/lastError change on the scheduler's own cadence, independent of this call. */
+  getTelemetryStatus?: () => {
+    enabled: boolean;
+    endpoint?: string;
+    installId?: string;
+    lastSendAt?: number;
+    lastError?: string;
+    nextSendAt?: number;
   };
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
@@ -319,6 +358,7 @@ export function createHealthTool(opts: {
               },
             }
           : {}),
+        ...(opts.getTelemetryStatus ? { telemetry: opts.getTelemetryStatus() } : {}),
       };
     },
   };

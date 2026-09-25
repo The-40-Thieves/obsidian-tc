@@ -2,26 +2,26 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 478,
-    "dependencies": 2209,
-    "subsystemPairs": 137,
-    "crossSubsystemImports": 1006
+    "modules": 488,
+    "dependencies": 2256,
+    "subsystemPairs": 144,
+    "crossSubsystemImports": 1025
   },
   "subsystems": {
     "auth": 4,
     "bridge": 8,
     "capability": 6,
     "capture": 5,
-    "cli": 43,
+    "cli": 45,
     "config": 14,
     "db": 15,
-    "doctor": 18,
+    "doctor": 19,
     "embeddings": 6,
     "experiential": 28,
     "formats": 6,
     "gateway": 3,
     "graph": 1,
-    "mcp": 25,
+    "mcp": 26,
     "memory": 2,
     "memory-import": 7,
     "metrics": 4,
@@ -36,6 +36,7 @@
     "scheduler": 4,
     "schemas": 1,
     "search": 61,
+    "telemetry": 6,
     "tools": 91,
     "transports": 3,
     "util": 4,
@@ -56,7 +57,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 52
+      "weight": 54
     },
     {
       "from": "search",
@@ -182,6 +183,11 @@
       "from": "tools",
       "to": "formats",
       "weight": 8
+    },
+    {
+      "from": "cli",
+      "to": "telemetry",
+      "weight": 7
     },
     {
       "from": "memory-import",
@@ -385,7 +391,17 @@
     },
     {
       "from": "runtime",
+      "to": "telemetry",
+      "weight": 3
+    },
+    {
+      "from": "runtime",
       "to": "bridge",
+      "weight": 3
+    },
+    {
+      "from": "telemetry",
+      "to": "db",
       "weight": 3
     },
     {
@@ -609,6 +625,11 @@
       "weight": 1
     },
     {
+      "from": "mcp",
+      "to": "telemetry",
+      "weight": 1
+    },
+    {
       "from": "memory",
       "to": "db",
       "weight": 1
@@ -671,6 +692,21 @@
     {
       "from": "runtime",
       "to": "plur",
+      "weight": 1
+    },
+    {
+      "from": "telemetry",
+      "to": "mcp",
+      "weight": 1
+    },
+    {
+      "from": "telemetry",
+      "to": "metrics",
+      "weight": 1
+    },
+    {
+      "from": "telemetry",
+      "to": "scheduler",
       "weight": 1
     },
     {

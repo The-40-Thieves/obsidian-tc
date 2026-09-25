@@ -259,7 +259,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-654 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 1 |
 | THE-655 | The episode amendment chain is exposed, and `graphSearch` reports coverage (THE-655, THE-631). | CHANGELOG.md (1.14.0) | 1 |
 | THE-657 | The vault watcher is enabled on Windows (#715, THE-657). | CHANGELOG.md (1.20.0) | 4 |
-| THE-658 | `obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658, #539). | CHANGELOG.md (1.13.0) | 8 |
+| THE-658 | `obsidian-tc token mint` — reproducible, auditable bearer tokens (THE-658, #539). | CHANGELOG.md (1.13.0) | 9 |
 | THE-659 | Enabling `observability.prometheus` no longer kills the MCP HTTP server under Bun (THE-659, #535). | CHANGELOG.md (1.12.1) | 3 |
 | THE-661 | `bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown (THE-661, THE-606, THE-625, THE-614). | CHANGELOG.md (1.14.0) | 1 |
 | THE-663 | `vec0` is embedded in `--compile` release binaries (THE-663, #568). | CHANGELOG.md (1.14.0) | 3 |
@@ -294,7 +294,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-709 | Consolidation jobs get a per-attempt gateway timeout (THE-709). | CHANGELOG.md (1.16.0) | 2 |
 | THE-710 | `preference_profile` / `preference_deltas` are namespaced by vault (#675, THE-710). | CHANGELOG.md (1.17.0) | 7 |
 | THE-711 | `chunk_fts` is contentless, keyed on the chunks rowid (#728, THE-711). | CHANGELOG.md (1.20.0) | 8 |
-| THE-713 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 1 |
+| THE-713 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 3 |
 | THE-714 | Migration Manifest | docs/design/migration-manifest.md | 6 |
 | THE-715 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 4 |
 | THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 5 |
@@ -374,7 +374,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1043 | The frontmatter emitter now works on the original block's LINES, fixing a root flow mapping losing or duplicating keys, two broken removals and two lost-comment gaps (THE-1043; regressions of THE-1040, #937; #940). | CHANGELOG.md (1.30.0) | 1 |
 | THE-1044 | Frontmatter edits no longer leave a YAML alias dangling, and never trim a newly assigned string's trailing newlines (THE-1044, #941). | CHANGELOG.md (1.30.0) | 1 |
 | THE-1045 | A frontmatter block whose colliding keys hid an anchor stopped round-tripping at all: the whole block was re-emitted by a plain stringify, losing every anchor, comment and byte of source formatting, and nothing said so (THE-1045, #943). | CHANGELOG.md (1.30.1) | 2 |
-| THE-1073 | `index_vault` no longer aborts a whole vault's reconcile over one note with unparseable YAML frontmatter (THE-1073). | CHANGELOG.md (Unreleased) | 12 |
+| THE-1073 | `index_vault` no longer aborts a whole vault's reconcile over one note with unparseable YAML frontmatter (THE-1073). | CHANGELOG.md (Unreleased) | 13 |
 | THE-1078 | TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside the existing gateway chat judge (THE-1078, #950). | CHANGELOG.md (1.31.0) | 10 |
 | THE-1079 | The local reranker's source-checkout resolution never actually worked from the BUILT server bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949, #956). | CHANGELOG.md (1.31.1) | 4 |
 | THE-1081 | A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` -> `/private/var`) made the native addon refuse every read/write in that vault, while the JS fallback accepted it (THE-1081, #946, #955). | CHANGELOG.md (1.31.1) | 11 |
@@ -383,10 +383,11 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 5 |
 | THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 6 |
 | THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (Unreleased) | 10 |
-| THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 13 |
+| THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 15 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (Unreleased) | 13 |
+| THE-1125 | Opt-in, anonymous usage telemetry (THE-1125). | CHANGELOG.md (Unreleased) | 29 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (Unreleased) | 1 |
 
-372 distinct ticket(s) across 519 source file(s) under
-`packages/*/src`; 273 resolved to a public summary, 99
+373 distinct ticket(s) across 530 source file(s) under
+`packages/*/src`; 274 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

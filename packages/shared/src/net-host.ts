@@ -54,6 +54,66 @@ export function isLoopbackHost(host: string): boolean {
   return false;
 }
 
+function ipv4OctetsOf(h: string): [number, number, number, number] | null {
+  if (!isStrictIpv4(h)) return null;
+  const parts = h.split(".").map(Number);
+  return parts as [number, number, number, number];
+}
+
+// THE-1125 (security-review follow-up) — private/reserved IPv4 ranges a telemetry endpoint must
+// never be allowed to name literally: RFC1918 private space (10/8, 172.16/12, 192.168/16),
+// RFC3927 link-local (169.254/16 — this is ALSO the cloud metadata address, 169.254.169.254, on
+// every major cloud provider), RFC6598 carrier-grade NAT (100.64/10), and 0/8 ("this network").
+// 127/8 (loopback) is deliberately excluded here — it is checked and ALLOWED separately by
+// isLoopbackHost.
+function isDisallowedPrivateIpv4(octets: readonly [number, number, number, number]): boolean {
+  const [a, b] = octets;
+  if (a === 0) return true;
+  if (a === 10) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
+// THE-1125 — the IPv6 counterparts: "::" (unspecified), fc00::/7 (unique-local, RFC4193 —
+// fd00::/8 in practice, the IPv6 analogue of RFC1918), fe80::/10 (link-local). "::1" (loopback) is
+// deliberately excluded — allowed separately by isLoopbackHost. `h` must already be
+// normalizeHostForBind'd (lowercase, unbracketed).
+function isDisallowedPrivateIpv6(h: string): boolean {
+  if (h === "::") return true;
+  if (h.startsWith("fc") || h.startsWith("fd")) return true;
+  if (/^fe[89ab]/.test(h)) return true;
+  return false;
+}
+
+/**
+ * True when `host` is a LITERAL IP address (v4, v6, or an IPv4-mapped IPv6 form) in a private,
+ * link-local, carrier-grade-NAT, unspecified, or cloud-metadata range. Loopback is NOT included
+ * here (see isLoopbackHost) — it is the one such range a config is allowed to name.
+ *
+ * Deliberately does NOT resolve DNS: a hostname that happens to RESOLVE to one of these ranges at
+ * request time is out of scope by design (this is an operator-configured value, documented as
+ * such — resolving it here would need a network call inside config validation, and the resolved
+ * address could differ at send time anyway). This function only ever looks at the literal text of
+ * the host, exactly as `new URL(...).hostname` reports it.
+ */
+export function isDisallowedLiteralHost(host: string): boolean {
+  const h = normalizeHostForBind(host);
+  const direct = ipv4OctetsOf(h);
+  if (direct) return direct[0] !== 127 && isDisallowedPrivateIpv4(direct);
+  if (h.startsWith("::ffff:")) {
+    const rest = h.slice("::ffff:".length);
+    const dotted = ipv4OctetsOf(rest) ? rest : ipv4MappedHexToDotted(rest);
+    const mapped = dotted !== null ? ipv4OctetsOf(dotted) : null;
+    if (!mapped) return false; // unparseable — not this function's job to flag.
+    return mapped[0] !== 127 && isDisallowedPrivateIpv4(mapped);
+  }
+  if (h.includes(":")) return isDisallowedPrivateIpv6(h); // a bare IPv6 literal.
+  return false; // a hostname, not a literal IP — see the "does not resolve DNS" note above.
+}
+
 // Minimal ambient shape for the runtime `URL` global's constructor, read off `globalThis` rather
 // than the bare `URL` identifier: this package carries no DOM/Node lib (see the module header),
 // so the real `lib.dom` `URL` type isn't visible to it, and `typeof URL` would fail to compile —

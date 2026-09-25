@@ -68,6 +68,10 @@ export const CACHE_MIGRATION_FILES = [
   // (plane/jobs/audit.ts). chunks lives in the CACHE chain. See the migration's own header for the
   // re-evaluation rationale.
   "20260903_001_chunk_embedding_excluded.sql",
+  // THE-1125: telemetry_state -- one row holding the opt-in telemetry feature's install id and
+  // last-send outcome. AUTHORED server-instance state (an install id, not an observed/derived
+  // retrieval event), so CACHE chain per the THE-713 admission test above, not EXPERIENTIAL.
+  "20260925_001_telemetry_state.sql",
 ] as const;
 
 /**

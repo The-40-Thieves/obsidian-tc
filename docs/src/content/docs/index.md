@@ -30,3 +30,5 @@ audit pipeline every write goes through, and a session-bootstrap recipe.
 v1.31.3 is the current release, published to npm with a container image on GHCR.
 
 See [Getting Started](/getting-started/install/) for install instructions, or browse the [Tool Reference](/tools/).
+
+obsidian-tc sends no telemetry by default; usage telemetry is opt-in, anonymous, and never carries vault content — see [Telemetry](/configuration/telemetry/).

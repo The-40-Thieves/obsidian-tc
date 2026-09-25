@@ -49,6 +49,20 @@ import { VERDICT_TOOL_TAG } from "./types";
 // `ctx.now ?? Date.now` must be called at each existing call site, never hoisted into a
 // pre-sampled value. See docs/design/mcp-dispatch-and-transport.md.
 
+/** THE-1125: the `observeToolCall` `detail` argument, built once per call site from `ctx` — every
+ *  one of the six sites below already has `ctx` in scope, so this is not a new read of anything.
+ *  `errorCode` is passed only by the sites that have one; the two "ok" sites omit it. */
+function telemetryDetail(
+  ctx: CallerContext,
+  errorCode?: string,
+): { errorCode?: string; facadeMode?: string; clientName?: string } {
+  return {
+    ...(errorCode !== undefined ? { errorCode } : {}),
+    ...(ctx.effectiveFacadeMode !== undefined ? { facadeMode: ctx.effectiveFacadeMode } : {}),
+    ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
+  };
+}
+
 /** Everything runDispatch reads from ToolRegistry's construction-time config, bundled into one
  *  object so the function signature does not grow a positional parameter per field. Built once in
  *  ToolRegistry's constructor (not per-call) since every field here is itself immutable for the
@@ -151,7 +165,14 @@ export async function runDispatch(
     audit("error", duration, 0, e.code);
     deps.observability.meter((m) => {
       m.incIdempotencyHit(ctx.vaultId, name);
-      m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, 0);
+      m.observeToolCall(
+        ctx.vaultId,
+        name,
+        "error",
+        duration / 1000,
+        0,
+        telemetryDetail(ctx, e.code),
+      );
     });
     return {
       ok: false as const,
@@ -268,7 +289,14 @@ export async function runDispatch(
             audit("error", duration, overSize, e.code);
             deps.observability.meter((m) => {
               m.incIdempotencyHit(ctx.vaultId, name);
-              m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, overSize);
+              m.observeToolCall(
+                ctx.vaultId,
+                name,
+                "error",
+                duration / 1000,
+                overSize,
+                telemetryDetail(ctx, e.code),
+              );
             });
             return {
               ok: false,
@@ -289,7 +317,14 @@ export async function runDispatch(
             const duration = Math.max(0, now() - start);
             audit("ok", duration, resultSize);
             deps.observability.meter((m) =>
-              m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
+              m.observeToolCall(
+                ctx.vaultId,
+                name,
+                "ok",
+                duration / 1000,
+                resultSize,
+                telemetryDetail(ctx),
+              ),
             );
             deps.observability.meter((m) => m.incIdempotencyHit(ctx.vaultId, name));
             return {
@@ -478,7 +513,14 @@ export async function runDispatch(
       audit("error", duration, resultSize, e.code);
       deps.observability.meter((m) => {
         m.incGovernorTruncation(ctx.vaultId, name);
-        m.observeToolCall(ctx.vaultId, name, "error", duration / 1000, resultSize);
+        m.observeToolCall(
+          ctx.vaultId,
+          name,
+          "error",
+          duration / 1000,
+          resultSize,
+          telemetryDetail(ctx, e.code),
+        );
       });
       return {
         ok: false,
@@ -495,7 +537,7 @@ export async function runDispatch(
       finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
     audit("ok", duration, resultSize);
     deps.observability.meter((m) =>
-      m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize),
+      m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize, telemetryDetail(ctx)),
     );
     try {
       deps.onProfile?.({
@@ -594,7 +636,14 @@ export async function runDispatch(
     deps.observability.meter((m) => {
       if (error.code === "forbidden" || error.code === "acl_denied")
         m.incAclDenied(ctx.vaultId, scopeClass, error.code);
-      m.observeToolCall(ctx.vaultId, name, callStatusForError(error.code), duration / 1000, 0);
+      m.observeToolCall(
+        ctx.vaultId,
+        name,
+        callStatusForError(error.code),
+        duration / 1000,
+        0,
+        telemetryDetail(ctx, error.code),
+      );
     });
     return { ok: false, error: error.toJSON(), meta: { duration_ms: duration, result_size: 0 } };
   } finally {

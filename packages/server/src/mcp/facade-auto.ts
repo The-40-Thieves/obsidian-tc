@@ -22,16 +22,16 @@
 //     (FALLBACK_FACADE_MODE), the existing ADR-anchored default
 //     (docs/adr/0006-the-default-surface-is-the-triad.md) — auto mode never changes that default
 //     for an unrecognized or silent client.
+import type { TelemetryStatusInfo } from "../telemetry/wiring";
 import type { FacadeMode } from "./facade";
+// THE-1125 fix round: split out to a dependency-free leaf module so telemetry/wiring.ts can use
+// the SAME table without a cycle (this file already imports TelemetryStatusInfo from wiring.ts
+// above) — see known-clients.ts's own header for the full reasoning. Re-exported here so every
+// existing `import { BUILTIN_AUTO_FACADE_CLIENTS } from "./facade-auto"` call site (doctor/
+// tool-facade.ts, this file's own tests) keeps compiling unchanged.
+import { BUILTIN_AUTO_FACADE_CLIENTS } from "./known-clients";
 
-/**
- * Checked AFTER `toolFacade.autoClients` (the operator's own config) and only when nothing there
- * matched. Order is significant: read top to bottom, first substring match wins.
- */
-export const BUILTIN_AUTO_FACADE_CLIENTS: ReadonlyArray<readonly [string, FacadeMode]> = [
-  ["claude-code", "domain"],
-  ["cursor", "triad"],
-];
+export { BUILTIN_AUTO_FACADE_CLIENTS };
 
 /** What an unmatched client — or one with no observable `clientInfo.name` at all — gets. */
 export const FALLBACK_FACADE_MODE: FacadeMode = "triad";
@@ -59,14 +59,27 @@ export function toolFacadeHealthView(cfg: {
   return { configured: cfg.mode, autoClients: cfg.autoClients };
 }
 
-/** THE-1123 review fix (LOW #8): bundles two `config`-derived `wireHealthTools` deps — server-
- *  runtime.ts has no per-field line budget for them individually. Named + imported, called via a
- *  spread at the call site, rather than an unnamed inline object literal. */
-export function healthToolsWiringFields<V extends readonly { id: string }[]>(cfg: {
+/** THE-1123 review fix (LOW #8), extended THE-1125: bundles `config`-derived `wireHealthTools`
+ *  deps — server-runtime.ts has no per-field line budget for them individually. Named + imported,
+ *  called via a spread at the call site, rather than an unnamed inline object literal.
+ *  `telemetry` is optional so a caller that never wires telemetry (a harness/test) keeps
+ *  compiling; server-runtime.ts's own call site always passes it. */
+export function healthToolsWiringFields<V extends readonly { id: string }[]>(
+  cfg: {
+    vaults: V;
+    toolFacade: { mode: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> };
+  },
+  telemetry?: { getStatus: () => TelemetryStatusInfo },
+): {
   vaults: V;
-  toolFacade: { mode: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> };
-}): { vaults: V; toolFacade: typeof cfg.toolFacade } {
-  return { vaults: cfg.vaults, toolFacade: cfg.toolFacade };
+  toolFacade: typeof cfg.toolFacade;
+  getTelemetryStatus?: () => TelemetryStatusInfo;
+} {
+  return {
+    vaults: cfg.vaults,
+    toolFacade: cfg.toolFacade,
+    ...(telemetry ? { getTelemetryStatus: telemetry.getStatus } : {}),
+  };
 }
 
 /** THE-1123 review fix (LOW #8): `config.toolFacade` -> `createMcpServer`'s own two option names

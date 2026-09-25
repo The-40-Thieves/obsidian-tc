@@ -261,6 +261,21 @@ Usage:
                                           to match a JWT 'sub' (the value given to
                                           'token mint --sub') on an HTTP/jwt deployment. --vault is
                                           required when the config lists more than one vault.
+  obsidian-tc telemetry preview [path] [--json] [--show-path]
+                                          Print the exact aggregate document opt-in telemetry
+                                          would send right now (tool-call counts, error-code
+                                          counts, facade mode, distinct client names seen — never
+                                          paths, note content, queries, vault ids, principals,
+                                          tokens, hostnames or env), plus the configured endpoint,
+                                          REDACTED to scheme+host (--show-path additionally shows
+                                          the path; userinfo/query are never shown — a collector
+                                          secret belongs in telemetry.authTokenEnv, not the URL,
+                                          which config validation enforces). Makes NO network call.
+                                          See docs/configuration/telemetry.md.
+  obsidian-tc telemetry status [path] [--json]
+                                          Print enabled/endpoint/installId/lastSendAt/lastError/
+                                          nextSendAt.
+  obsidian-tc telemetry reset-id [path]   Rotate this install's telemetry install id.
   obsidian-tc version                     Print the version
   obsidian-tc help                        Show this help
 

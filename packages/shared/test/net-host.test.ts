@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyJudgeBaseUrl,
+  isDisallowedLiteralHost,
   isLoopbackHost,
   judgeBaseUrlHost,
   normalizeHostForBind,
@@ -174,5 +175,38 @@ describe("judgeBaseUrlHost", () => {
 
   it("returns undefined for an unparseable URL", () => {
     expect(judgeBaseUrlHost("not a url at all")).toBeUndefined();
+  });
+});
+
+describe("isDisallowedLiteralHost (THE-1125 security review)", () => {
+  it.each(["127.0.0.1", "localhost", "::1", "example.com", "internal.corp"])(
+    "false for a loopback literal or a hostname (DNS is never resolved): %s",
+    (host) => {
+      expect(isDisallowedLiteralHost(host)).toBe(false);
+    },
+  );
+
+  it.each([
+    ["0.0.0.0", "unspecified"],
+    ["10.0.0.1", "RFC1918 10/8"],
+    ["172.20.0.1", "RFC1918 172.16/12"],
+    ["192.168.1.10", "RFC1918 192.168/16"],
+    ["169.254.169.254", "link-local / cloud metadata"],
+    ["100.64.0.1", "carrier-grade NAT"],
+    ["::", "IPv6 unspecified"],
+    ["fd00::1", "IPv6 unique-local"],
+    ["fe80::1", "IPv6 link-local"],
+    ["::ffff:169.254.169.254", "IPv4-mapped IPv6 metadata"],
+  ])("true for %s (%s)", (host) => {
+    expect(isDisallowedLiteralHost(host)).toBe(true);
+  });
+
+  it("172.15.x and 172.32.x are OUTSIDE the RFC1918 172.16/12 block — not disallowed by this rule", () => {
+    expect(isDisallowedLiteralHost("172.15.0.1")).toBe(false);
+    expect(isDisallowedLiteralHost("172.32.0.1")).toBe(false);
+  });
+
+  it("127/8 is never flagged by this function — isLoopbackHost owns that range", () => {
+    expect(isDisallowedLiteralHost("127.5.5.5")).toBe(false);
   });
 });

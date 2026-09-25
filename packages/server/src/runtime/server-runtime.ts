@@ -32,6 +32,7 @@ import type { IndexCoordinator } from "../search/index-coordinator";
 import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
 import type { VecRebuildEvent } from "../search/vec";
+import { wireTelemetry } from "../telemetry/wiring";
 import type { ThrottleTiers } from "../throttle";
 import { connectStdio } from "../transports/stdio";
 import { emitBootNotices } from "./boot-notices";
@@ -247,11 +248,9 @@ export async function buildServerRuntime(
 ): Promise<ServerRuntime> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
-  // Trust root for a `module` provider's modulePath (embeddings.modulePath / reranker.modulePath):
-  // cwd in a container is arbitrary, so a relative modulePath resolves against the config FILE's
-  // directory instead, and is refused entirely when `configPath` is absent (module-loader.ts).
-  // `configPath` is not always a config file — see docs/design/server-runtime.md for the
-  // zero-config vault-path case.
+  // Trust root for a `module` provider's modulePath: cwd in a container is arbitrary, so a
+  // relative modulePath resolves against the config FILE's directory instead, refused entirely
+  // when `configPath` is absent (module-loader.ts; see docs/design/server-runtime.md).
   const configDir = configPath !== undefined ? dirname(configPath) : undefined;
   const startedAt = Date.now();
   // THE-934 fix round 1: computed FIRST (not beside wireGatewaySeams, round 0's placement) --
@@ -284,11 +283,12 @@ export async function buildServerRuntime(
   });
   // THE-585 (#11): set once, when the HTTP transport is constructed, below.
   let httpConstructSeconds: number | null = null;
-  // indexCoordinator and scheduler are constructed further down; the observability module reads
-  // them through these lazily-assigned refs so its gauge sources see the live objects at scrape
-  // time without the recorder having to be constructed after them.
+  // indexCoordinator/scheduler are built further down; these lazy refs let readers see them live.
   let indexCoordinatorRef: IndexCoordinator | undefined;
   let schedulerRef: Scheduler | undefined;
+  let toolRegistryRef: ToolRegistry | undefined; // grok HIGH-1: registry built after telemetry.
+  const getKnownToolNames = () => new Set(toolRegistryRef?.list().map((t) => t.name) ?? []);
+  const telemetry = wireTelemetry({ config, db, serverVersion: VERSION, getKnownToolNames }); // THE-1125
   const observability = createObservability({
     db,
     cacheDir: config.cacheDir,
@@ -297,6 +297,7 @@ export async function buildServerRuntime(
     getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
     getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
     getHttpConstructSeconds: () => httpConstructSeconds,
+    toolCallObserver: telemetry.observer,
   });
   const {
     metrics,
@@ -320,9 +321,8 @@ export async function buildServerRuntime(
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
-    // THE-1099: the registry's static toolVisibility, widened with the derived read-only
-    // exemption flag (see mcp/visibility.ts) — defaults through ALLOW_ALL like registry.ts's own
-    // `opts.toolVisibility ?? ALLOW_ALL` so an absent block still gets every required field.
+    // THE-1099: static toolVisibility, widened with the derived read-only exemption flag
+    // (mcp/visibility.ts) — defaults through ALLOW_ALL so an absent block gets every field.
     toolVisibility: {
       ...(config.toolVisibility ?? ALLOW_ALL),
       allowReadOnlyDerivedTelemetry: isFeedbackExemptFromReadOnly(config.experiential),
@@ -331,9 +331,8 @@ export async function buildServerRuntime(
     tracer: otel.tracer,
     morgiana,
     // otel is opened just above, between `stores` and this call — handing it in folds its shutdown
-    // into wireRuntimeCore's own unwind if governance or index resources throws. `onCleanup` fires
-    // here only when `wireRuntimeCore` itself throws (a distinct failure window from postCoreLayers
-    // below).
+    // into wireRuntimeCore's own unwind if governance or index resources throws (`onCleanup` fires
+    // only when wireRuntimeCore itself throws — a distinct window from postCoreLayers below).
     otel,
     onCleanup,
     embeddings: config.embeddings,
@@ -343,6 +342,7 @@ export async function buildServerRuntime(
     excludeFilter: egressFilter,
   });
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
+  toolRegistryRef = registry; // THE-1125: registry exists now — see this file's lazy-ref comment above.
   const {
     embeddingProvider,
     embedConfig,
@@ -361,9 +361,8 @@ export async function buildServerRuntime(
     { name: "stores", close: stores.close },
     { name: "governance", close: governance.close },
   ];
-  // requireBoot idiom (see this file's top): assigned once, at the end of the try block, after
-  // every post-core construction step succeeds; the catch below always rethrows, so the guard on
-  // the read after try/catch never actually fires in production.
+  // requireBoot idiom (see this file's top): assigned once at the end of the try block, after
+  // every post-core step succeeds; the catch below always rethrows.
   let postCore:
     | {
         runReconcile: (signal: AbortSignal) => Promise<void>;
@@ -387,7 +386,7 @@ export async function buildServerRuntime(
     wireHealthTools({
       registry,
       version: VERSION,
-      ...healthToolsWiringFields(config),
+      ...healthToolsWiringFields(config, telemetry),
       startedAt,
       hasVec,
       hasFts,
@@ -627,6 +626,7 @@ export async function buildServerRuntime(
       runReconcile,
       embeddingProvider,
       ...(transports.advisoryBus ? { advisoryBus: transports.advisoryBus } : {}), // THE-634
+      telemetry, // THE-1125
     });
     // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources.
     schedulerRef = scheduler;

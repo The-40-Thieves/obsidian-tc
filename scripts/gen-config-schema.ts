@@ -301,7 +301,20 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // case-insensitive substring-of-clientInfo.name -> mode override table, checked before the
   // server's built-in one. See config/tools.schema.ts's ToolFacadeConfigSchema for the full
   // description text. No existing key, type, default or constraint moved.
-  "6d71a5af10aebf3cf159ebc13b09f9e7c819a63b2256b6ad851a62cd9ea2923c";
+  // THE-1125 (2026-09-25): rebaselined deliberately. Adds ONE new block, `telemetry` (enabled:
+  // boolean default false; endpoint: optional url; intervalMinutes: int min 60 default 1440;
+  // authTokenEnv: optional string) — opt-in, anonymous usage telemetry, off by default with NO
+  // default endpoint (see observability.schema.ts's TelemetryConfigSchema for the full contract:
+  // enabled requires endpoint, endpoint must be https unless loopback, endpoint must not carry
+  // userinfo). No existing key, type, default or constraint moved.
+  // THE-1125 (2026-09-25, security-review fix round): rebaselined deliberately again —
+  // DESCRIPTION TEXT ONLY on `telemetry.endpoint`. Now also states the literal
+  // private/link-local/carrier-grade-NAT/unspecified/cloud-metadata IP refusal (a validation
+  // behavior added the same round, not merely documented) and that a bearer token travels
+  // alongside the document (fixing a description that used to say telemetry carries no bearer
+  // key, which stopped being true once `authTokenEnv` shipped). No key, type, default or
+  // constraint moved.
+  "e06095dcc0536f5d766a1fbf3f938d39e6db7fc4d57f43d7bf409e5a51b0077a";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
