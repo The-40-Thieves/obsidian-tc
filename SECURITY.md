@@ -212,6 +212,50 @@ by content it retrieves.
   single-use, and bound to the exact vault + tool + argument hash + issuing caller, and scope/ACL verdicts
   come from server config the agent cannot write to (`.obsidian/**` is hard-denied).
 
+## Telemetry
+
+Opt-in, anonymous usage telemetry. **Off by default, with no default endpoint** —
+turning `telemetry.enabled` on without `telemetry.endpoint` set is a config error at
+boot, never a silent no-op. Full configuration reference:
+[docs/configuration/telemetry.md](docs/src/content/docs/configuration/telemetry.md).
+
+**What is sent**, once every `telemetry.intervalMinutes` (never at boot): an install
+id (a random UUID, not derived from anything identifying), the server version, OS and
+architecture, which tool-surface facade mode is active, per-tool call counts,
+per-error-code counts, and up to 32 distinct MCP client names seen (software names —
+`"claude-code"`, `"cursor"` — never a person or a token).
+
+**What is never sent**: vault paths, note content, search queries, vault ids,
+principals/callers, tokens, hostnames, or environment variables. This is enforced
+structurally, not by convention — the outgoing document is validated against a
+`.strict()` zod schema whose key set is closed (`packages/server/src/telemetry/document.ts`);
+a field outside that set fails validation before it can be serialized, and a
+property-based test feeds adversarial tool/client names through the real counter
+pipeline and asserts the closed key set holds.
+
+**How to inspect it**: `obsidian-tc telemetry preview` prints the exact document that
+would be sent right now, without sending it. `obsidian-tc telemetry status` (or
+`doctor` / `server_health`'s `telemetry` block) prints enabled/endpoint/install
+id/last-send outcome.
+
+**Transport**: `endpoint` must be `https://` unless the host is loopback (a local
+test/dev collector) and may not contain userinfo (a URL is exactly what `preview`/
+`status`/`doctor`/`server_health` print and a failed send logs, so a credential
+embedded there would leak — an optional bearer token via `telemetry.authTokenEnv`,
+sent only as an `Authorization` header, is the supported alternative). A send never
+auto-follows a redirect (which could otherwise resend the bearer token and the
+document to an unaudited host), never retries in a loop, has a 10-second timeout, and
+never blocks or throws into a tool call — a failed send is logged once at `warn`,
+with the endpoint reduced to `scheme://host`, and the window's counts are kept (not
+reset) so the next attempt is cumulative.
+
+**How to turn it off**: set `telemetry.enabled: false` (the default), or omit the
+block entirely.
+
+**Obsidian plugin**: the companion desktop plugin does not participate in this
+feature — it has no telemetry of its own and does not read or forward this server's
+telemetry configuration.
+
 ## Known limitations and accepted residuals
 
 These are deliberate design decisions or narrow residuals tracked in the issue log, documented here

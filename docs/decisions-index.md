@@ -25,7 +25,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-136 | Anticipatory context prefetch (THE-136). | CHANGELOG.md (1.7.0) | 7 |
 | THE-160 | _internal planning reference — see repo history_ | — | 2 |
 | THE-170 | _internal planning reference — see repo history_ | — | 8 |
-| THE-175 | Source-agnostic ambient-capture import format + Pensieve adapter, staged via `capture_queue` (#841, THE-175). | CHANGELOG.md (1.23.0) | 17 |
+| THE-175 | Source-agnostic ambient-capture import format + Pensieve adapter, staged via `capture_queue` (#841, THE-175). | CHANGELOG.md (1.23.0) | 16 |
 | THE-176 | _internal planning reference — see repo history_ | — | 1 |
 | THE-178 | _internal planning reference — see repo history_ | — | 1 |
 | THE-180 | _internal planning reference — see repo history_ | — | 9 |
@@ -294,7 +294,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-709 | Consolidation jobs get a per-attempt gateway timeout (THE-709). | CHANGELOG.md (1.16.0) | 2 |
 | THE-710 | `preference_profile` / `preference_deltas` are namespaced by vault (#675, THE-710). | CHANGELOG.md (1.17.0) | 7 |
 | THE-711 | `chunk_fts` is contentless, keyed on the chunks rowid (#728, THE-711). | CHANGELOG.md (1.20.0) | 8 |
-| THE-713 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 1 |
+| THE-713 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 3 |
 | THE-714 | Migration Manifest | docs/design/migration-manifest.md | 6 |
 | THE-715 | doctor: the entity tables have a writer (#702, THE-629); `job_schedule` orphans are pruned and the experiential charter is stated (#700, THE-715, THE-713). | CHANGELOG.md (1.20.0) | 4 |
 | THE-716 | `job_runs` was empty while 128 jobs had completed (#685, THE-716). | CHANGELOG.md (1.17.1) | 5 |
@@ -355,7 +355,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-923 | The fetch cause was preserved only at `doFetch`, so a TLS-untrusted companion still misdirected every other transport (THE-923, #865). | CHANGELOG.md (1.23.4) | 7 |
 | THE-924 | Four introspection tools leaked cross-vault identifiers to a vault-bound HTTP caller (THE-924, #864). | CHANGELOG.md (1.23.4) | 6 |
 | THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 6 |
-| THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
+| THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 11 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
 | THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 60 |
 | THE-935 | `db.busyTimeoutMs` reachable from config (#902, THE-935; issue #878). | CHANGELOG.md (1.27.0) | 14 |
@@ -383,10 +383,9 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 5 |
 | THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 6 |
 | THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (Unreleased) | 10 |
-| THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 13 |
-| THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (Unreleased) | 13 |
-| THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (Unreleased) | 1 |
+| THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 14 |
+| THE-1125 | Opt-in, anonymous usage telemetry (THE-1125). | CHANGELOG.md (Unreleased) | 26 |
 
-372 distinct ticket(s) across 519 source file(s) under
-`packages/*/src`; 273 resolved to a public summary, 99
+371 distinct ticket(s) across 520 source file(s) under
+`packages/*/src`; 272 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

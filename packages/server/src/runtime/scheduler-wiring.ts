@@ -16,6 +16,7 @@ import type { GatewayRoles } from "../plane/gateway";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { makeJobRunner } from "../scheduler/job-runner";
 import { Scheduler } from "../scheduler/scheduler";
+import type { TelemetryWiring } from "../telemetry/wiring";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { schedulerPersistErrorSink } from "../util/errors";
 import { registerAdvisorySweep } from "./advisory-sweep";
@@ -55,6 +56,10 @@ export interface SchedulerWiringDeps {
   /** THE-634: publish side of the advisory push extension (mcp/advisories.ts). Present only when
    *  `experiential.proactive.enabled` — see server-runtime.ts's construction site. */
   advisoryBus?: AdvisoryBus;
+  /** THE-1125: opt-in telemetry's own registration — `telemetry.registerJob` no-ops when
+   *  `config.telemetry.enabled` is false, matching every other conditional job below. Optional so
+   *  a caller predating THE-1125 (a direct unit test of wireScheduler) keeps compiling. */
+  telemetry?: TelemetryWiring;
 }
 
 /**
@@ -192,6 +197,13 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       run: (signal) => deps.runReconcile(signal),
     });
   }
+
+  // THE-1125: opt-in telemetry send. Registered LAST, after every job an operator actually cares
+  // about the latency of — telemetry is the lowest-priority background work in this process, and
+  // registration order only matters under `config.scheduler.eventLoopDeferMs` budget deferral
+  // (this file's own header comment), where earlier-registered jobs win a contested tick.
+  // `registerJob` itself is the enabled/endpoint gate; see telemetry/wiring.ts.
+  deps.telemetry?.registerJob(scheduler);
 
   return scheduler;
 }

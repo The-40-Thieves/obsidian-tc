@@ -32,6 +32,7 @@ import type { IndexCoordinator } from "../search/index-coordinator";
 import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
 import type { VecRebuildEvent } from "../search/vec";
+import { wireTelemetry } from "../telemetry/wiring";
 import type { ThrottleTiers } from "../throttle";
 import { connectStdio } from "../transports/stdio";
 import { emitBootNotices } from "./boot-notices";
@@ -284,11 +285,11 @@ export async function buildServerRuntime(
   });
   // THE-585 (#11): set once, when the HTTP transport is constructed, below.
   let httpConstructSeconds: number | null = null;
-  // indexCoordinator and scheduler are constructed further down; the observability module reads
-  // them through these lazily-assigned refs so its gauge sources see the live objects at scrape
-  // time without the recorder having to be constructed after them.
+  // indexCoordinator/scheduler are constructed further down; observability reads them through
+  // these lazily-assigned refs so its gauge sources see the live objects without construction order.
   let indexCoordinatorRef: IndexCoordinator | undefined;
   let schedulerRef: Scheduler | undefined;
+  const telemetry = wireTelemetry({ config, db, serverVersion: VERSION }); // THE-1125
   const observability = createObservability({
     db,
     cacheDir: config.cacheDir,
@@ -297,6 +298,7 @@ export async function buildServerRuntime(
     getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
     getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
     getHttpConstructSeconds: () => httpConstructSeconds,
+    toolCallObserver: telemetry.observer,
   });
   const {
     metrics,
@@ -320,9 +322,8 @@ export async function buildServerRuntime(
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
-    // THE-1099: the registry's static toolVisibility, widened with the derived read-only
-    // exemption flag (see mcp/visibility.ts) — defaults through ALLOW_ALL like registry.ts's own
-    // `opts.toolVisibility ?? ALLOW_ALL` so an absent block still gets every required field.
+    // THE-1099: static toolVisibility, widened with the derived read-only exemption flag
+    // (mcp/visibility.ts) — defaults through ALLOW_ALL so an absent block gets every field.
     toolVisibility: {
       ...(config.toolVisibility ?? ALLOW_ALL),
       allowReadOnlyDerivedTelemetry: isFeedbackExemptFromReadOnly(config.experiential),
@@ -331,9 +332,8 @@ export async function buildServerRuntime(
     tracer: otel.tracer,
     morgiana,
     // otel is opened just above, between `stores` and this call — handing it in folds its shutdown
-    // into wireRuntimeCore's own unwind if governance or index resources throws. `onCleanup` fires
-    // here only when `wireRuntimeCore` itself throws (a distinct failure window from postCoreLayers
-    // below).
+    // into wireRuntimeCore's own unwind if governance or index resources throws (`onCleanup` fires
+    // only when wireRuntimeCore itself throws — a distinct window from postCoreLayers below).
     otel,
     onCleanup,
     embeddings: config.embeddings,
@@ -361,9 +361,8 @@ export async function buildServerRuntime(
     { name: "stores", close: stores.close },
     { name: "governance", close: governance.close },
   ];
-  // requireBoot idiom (see this file's top): assigned once, at the end of the try block, after
-  // every post-core construction step succeeds; the catch below always rethrows, so the guard on
-  // the read after try/catch never actually fires in production.
+  // requireBoot idiom (see this file's top): assigned once at the end of the try block, after
+  // every post-core step succeeds; the catch below always rethrows.
   let postCore:
     | {
         runReconcile: (signal: AbortSignal) => Promise<void>;
@@ -387,7 +386,7 @@ export async function buildServerRuntime(
     wireHealthTools({
       registry,
       version: VERSION,
-      ...healthToolsWiringFields(config),
+      ...healthToolsWiringFields(config, telemetry),
       startedAt,
       hasVec,
       hasFts,
@@ -627,6 +626,7 @@ export async function buildServerRuntime(
       runReconcile,
       embeddingProvider,
       ...(transports.advisoryBus ? { advisoryBus: transports.advisoryBus } : {}), // THE-634
+      telemetry, // THE-1125
     });
     // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources.
     schedulerRef = scheduler;

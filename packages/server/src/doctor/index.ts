@@ -50,6 +50,10 @@ export { renderText, runDoctor } from "./report";
 export type { DenseProbeResult } from "./retrieval-heads";
 export type { AssembleOptions, DoctorConfigView } from "./run";
 export { assembleDoctorReport, decodeTokenClaims } from "./run";
+// THE-1125: telemetry's view type, same barrel reasoning as every other doctor/*.ts submodule
+// above — the CLI builds it without importing through checks.ts.
+export type { TelemetryView } from "./telemetry";
+export { telemetryCheck } from "./telemetry";
 // THE-1123: toolFacade's view type, same barrel reasoning as every other doctor/*.ts submodule
 // above — the CLI builds it without importing through checks.ts.
 export type { ToolFacadeView } from "./tool-facade";

@@ -716,6 +716,107 @@ describe("EmbeddingsConfigSchema.provider (Task 2 follow-up)", () => {
   });
 });
 
+// THE-1125: opt-in, anonymous usage telemetry — off by default, NO default endpoint. Every
+// invariant here is acceptance-critical per the owner's THE-1117 constraints (opt-in, disclosed,
+// no phone-home by default): enabled-without-endpoint is a config ERROR, not a silent no-op; a
+// remote endpoint must be https; loopback http is the only exception; userinfo is refused outright
+// (a security-review follow-up — a secret belongs in authTokenEnv, never the URL).
+describe("TelemetryConfigSchema (THE-1125)", () => {
+  it("defaults to disabled with no endpoint, 1440-minute interval", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.telemetry.enabled).toBe(false);
+    expect(c.telemetry.endpoint).toBeUndefined();
+    expect(c.telemetry.intervalMinutes).toBe(1440);
+    expect(c.telemetry.authTokenEnv).toBeUndefined();
+  });
+
+  it("rejects enabled: true with no endpoint — this is a CONFIG ERROR, never a silent no-op", () => {
+    const r = ServerConfigSchema.safeParse({ ...base, telemetry: { enabled: true } });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error.issues.some((i) => i.path.join(".") === "telemetry.endpoint")).toBe(true);
+    }
+  });
+
+  it("accepts enabled: true with an https endpoint", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      telemetry: { enabled: true, endpoint: "https://collector.example/ingest" },
+    });
+    expect(c.telemetry.enabled).toBe(true);
+    expect(c.telemetry.endpoint).toBe("https://collector.example/ingest");
+  });
+
+  it("rejects a plain-http REMOTE endpoint — no allowPlainHttp-style widening for telemetry", () => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      telemetry: { enabled: true, endpoint: "http://collector.example/ingest" },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it.each([
+    "http://127.0.0.1:9000/ingest",
+    "http://localhost:9000/ingest",
+    "http://[::1]:9000/ingest",
+  ])("allows plain-http on a loopback endpoint for tests/local collectors: %s", (endpoint) => {
+    const c = ServerConfigSchema.parse({ ...base, telemetry: { enabled: true, endpoint } });
+    expect(c.telemetry.endpoint).toBe(endpoint);
+  });
+
+  it("rejects an unparseable/wrong-scheme endpoint", () => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      telemetry: { enabled: true, endpoint: "ftp://collector.example/ingest" },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects intervalMinutes below 60 — aggregate telemetry, not a heartbeat", () => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      telemetry: { intervalMinutes: 59 },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts an authTokenEnv name (never a secret value itself)", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      telemetry: {
+        enabled: true,
+        endpoint: "https://collector.example/ingest",
+        authTokenEnv: "MY_COLLECTOR_TOKEN",
+      },
+    });
+    expect(c.telemetry.authTokenEnv).toBe("MY_COLLECTOR_TOKEN");
+  });
+
+  // Security-review follow-up: a URL is exactly what telemetry preview/status/doctor/
+  // server_health print and what a failed send logs — userinfo embedded in it would leak.
+  it("rejects userinfo (username/password) embedded in the endpoint, https or not", () => {
+    const withUserinfo = ServerConfigSchema.safeParse({
+      ...base,
+      telemetry: { enabled: true, endpoint: "https://user:secret@collector.example/ingest" },
+    });
+    expect(withUserinfo.success).toBe(false);
+
+    const usernameOnly = ServerConfigSchema.safeParse({
+      ...base,
+      telemetry: { enabled: true, endpoint: "https://user@collector.example/ingest" },
+    });
+    expect(usernameOnly.success).toBe(false);
+  });
+
+  it("still rejects userinfo on a loopback endpoint", () => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      telemetry: { enabled: true, endpoint: "http://user:secret@127.0.0.1:9000/ingest" },
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
 describe("ObsidianTcError", () => {
   it("marks throttled retryable and forbidden non-retryable", () => {
     expect(new ObsidianTcError("throttled", "x").retryable).toBe(true);

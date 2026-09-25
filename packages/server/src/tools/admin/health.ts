@@ -84,6 +84,18 @@ export interface HealthInfo {
     effective: FacadeMode;
     clientName?: string;
   };
+  /** THE-1125: opt-in telemetry status. Always present when wired (every real deployment; absent
+   *  only for a harness/bare unit test of this tool). `endpoint` is REDACTED
+   *  (telemetry/redact-endpoint.ts: scheme + host + path) — never the raw configured URL, whose
+   *  userinfo or query string may carry a collector API key. `installId`/`lastSendAt`/`lastError`
+   *  are absent until this install has sent (or attempted to send) at least once. */
+  telemetry?: {
+    enabled: boolean;
+    endpoint?: string;
+    installId?: string;
+    lastSendAt?: number;
+    lastError?: string;
+  };
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
@@ -167,6 +179,14 @@ const ToolFacadeHealthOutput = z.object({
   clientName: z.string().optional(),
 });
 
+const TelemetryHealthOutput = z.object({
+  enabled: z.boolean(),
+  endpoint: z.string().optional(),
+  installId: z.string().optional(),
+  lastSendAt: z.number().optional(),
+  lastError: z.string().optional(),
+});
+
 const HealthInfoOutput = z.object({
   status: z.literal("ok"),
   name: z.literal("obsidian-tc"),
@@ -189,6 +209,7 @@ const HealthInfoOutput = z.object({
     })
     .optional(),
   toolFacade: ToolFacadeHealthOutput.optional(),
+  telemetry: TelemetryHealthOutput.optional(),
 });
 
 export function createIndexStatusTool(opts: {
@@ -251,6 +272,15 @@ export function createHealthTool(opts: {
   toolFacade?: {
     configured: FacadeMode | "auto";
     autoClients?: Readonly<Record<string, FacadeMode>>;
+  };
+  /** THE-1125: read live at call time (like getJobQueueStats above) — never cached, since
+   *  lastSendAt/lastError change on the scheduler's own cadence, independent of this call. */
+  getTelemetryStatus?: () => {
+    enabled: boolean;
+    endpoint?: string;
+    installId?: string;
+    lastSendAt?: number;
+    lastError?: string;
   };
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
@@ -319,6 +349,7 @@ export function createHealthTool(opts: {
               },
             }
           : {}),
+        ...(opts.getTelemetryStatus ? { telemetry: opts.getTelemetryStatus() } : {}),
       };
     },
   };

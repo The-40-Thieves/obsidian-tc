@@ -28,6 +28,7 @@ import type { ProviderDescriptor } from "../../providers/types";
 import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
+import { redactEndpoint } from "../../telemetry/redact-endpoint";
 import { canonicalizeVaultRoot } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 import {
@@ -37,6 +38,7 @@ import {
   probeEntryPoints,
   probeKbHealth,
   probeNotesFts,
+  probeTelemetryState,
 } from "./doctor-probes";
 
 // THE-523: derive the Local REST API plugin's on-disk state for a vault from the THE-522 capability
@@ -305,6 +307,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   // THE-1039 (GH #930): cache.db reclaimable-space, ALWAYS (no --probe gate) — see
   // probeDbSpace's own comment for why this one is cheap enough to run by default.
   const dbSpace = await probeDbSpace(config.cacheDir, busyTimeoutMs);
+  const telemetryEndpointRedacted =
+    config.telemetry.endpoint !== undefined ? redactEndpoint(config.telemetry.endpoint) : undefined;
+  const telemetryState = await probeTelemetryState(config.cacheDir, busyTimeoutMs, {
+    enabled: config.telemetry.enabled,
+    ...(telemetryEndpointRedacted !== undefined ? { endpointHost: telemetryEndpointRedacted } : {}),
+  });
 
   // THE-1079 (GH #949): resolved ONCE, up front — retrieval.heads and rerankerBuildable below both
   // read this SAME outcome, so the two checks cannot disagree.
@@ -480,6 +488,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         configured: config.toolFacade.mode,
         autoClients: config.toolFacade.autoClients,
       },
+      telemetry: telemetryState,
     },
     profile,
     bridgeReports,

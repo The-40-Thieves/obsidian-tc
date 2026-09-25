@@ -24,10 +24,12 @@ import type {
   DerivedTableState,
   EntryPointsProbe,
   KbHealthProbe,
+  TelemetryView,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
 import { experientialTableSpec } from "../../doctor/table-spec";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
+import { readTelemetryState } from "../../telemetry/state";
 
 /**
  * THE-696 — the opt-in notes_fts integrity probe behind `doctor --probe`. Opens cache.db
@@ -464,5 +466,37 @@ export async function probeDbSpace(cacheDir: string, busyTimeoutMs: number): Pro
     } catch {
       /* see probeNotesFts */
     }
+  }
+}
+
+export async function probeTelemetryState(
+  cacheDir: string,
+  busyTimeoutMs: number,
+  configured: { enabled: boolean; endpointHost?: string },
+): Promise<TelemetryView> {
+  const base: TelemetryView = {
+    enabled: configured.enabled,
+    ...(configured.endpointHost !== undefined ? { endpoint: configured.endpointHost } : {}),
+  };
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return base;
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path, busyTimeoutMs, { readonly: true });
+    if (!tableExists(db, "telemetry_state")) return base;
+    const state = readTelemetryState(db);
+    if (!state) return base;
+    return {
+      ...base,
+      installId: state.installId,
+      ...(state.lastSendAt != null ? { lastSendAt: state.lastSendAt } : {}),
+      ...(state.lastError != null ? { lastError: state.lastError } : {}),
+    };
+  } catch {
+    return base;
+  } finally {
+    try {
+      db?.close?.();
+    } catch {}
   }
 }

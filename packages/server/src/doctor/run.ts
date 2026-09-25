@@ -48,6 +48,7 @@ import type { RetrievalHeadsView } from "./retrieval-heads";
 import { retrievalHeadsCheck } from "./retrieval-heads";
 // THE-1123: toolFacade lives in its own module, same reasoning as capture-location above — its
 // own merged-table rendering that no other check needs.
+import { type TelemetryView, telemetryCheck } from "./telemetry";
 import { type ToolFacadeView, toolFacadeCheck } from "./tool-facade";
 import type { Check, DoctorReport } from "./types";
 
@@ -130,6 +131,9 @@ export interface DoctorConfigView {
    *  present when supplied — no `--probe` gate, same reasoning as captureLocation/conflictCopies
    *  above: reads only already-resolved config, nothing store-touching. */
   toolFacade?: ToolFacadeView;
+  /** THE-1125: opt-in telemetry posture. Always present when supplied — no `--probe` gate, same
+   *  reasoning as toolFacade/captureLocation above. */
+  telemetry?: TelemetryView;
 }
 
 export interface AssembleOptions {
@@ -224,6 +228,8 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1123: toolFacade.mode, plus (for "auto") the merged per-client resolution table. Same
   // optional-view reasoning as captureLocation/conflictCopies above.
   if (config.toolFacade) checks.push(toolFacadeCheck(config.toolFacade));
+  // THE-1125: opt-in telemetry posture. Same optional-view reasoning as toolFacade above.
+  if (config.telemetry) checks.push(telemetryCheck(config.telemetry));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

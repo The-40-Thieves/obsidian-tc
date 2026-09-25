@@ -265,6 +265,10 @@ until this generator existed, by which point five entire defaulted blocks had go
     "traceContent": true,
     "windowSeconds": 1800
   },
+  "telemetry": {
+    "enabled": false,
+    "intervalMinutes": 1440
+  },
   "idempotencyTtlSeconds": 86400,
   "idempotencyReclaimSeconds": 60,
   "elicitTtlSeconds": 300

@@ -56,6 +56,26 @@ export interface GaugeSources {
 /** Terminal call status for `obsidian_tc_tool_calls_total` (matches the OTEL status attribute). */
 export type ToolCallStatus = "ok" | "denied" | "error";
 
+/**
+ * THE-1125: the ONE observation site opt-in telemetry (telemetry/collector.ts) taps to build its
+ * own per-tool and per-error-code counts, instead of a second call site instrumenting
+ * `mcp/registry/dispatch.ts` a second time. `observeToolCall` below is already the single method
+ * every dispatch.ts call site funnels through (success and every error branch); a telemetry
+ * observer registered here sees exactly the same calls Prometheus's `obsidian_tc_tool_calls_total`
+ * does, with nothing new to keep in sync.
+ *
+ * Deliberately a narrow, telemetry-agnostic interface (not a dependency on
+ * `TelemetryCollector` itself) so this metrics-only module never imports from `telemetry/` —
+ * the composition root (runtime/observability.ts) is the only place that knows both exist.
+ */
+export interface ToolCallObserver {
+  onToolCall(
+    tool: string,
+    status: ToolCallStatus,
+    detail?: { errorCode?: string; facadeMode?: string; clientName?: string },
+  ): void;
+}
+
 // Log-spaced byte buckets from G2.4 (1k, 10k, 100k, 1M, 10M).
 const RESPONSE_BYTE_BUCKETS = [1_000, 10_000, 100_000, 1_000_000, 10_000_000];
 
@@ -118,10 +138,12 @@ export class MetricsRecorder {
   private readonly responseBytes: Histogram<string>;
   private readonly sqlLockWait: Histogram<string>;
   private readonly retrievalStageDuration: Histogram<string>;
+  private readonly toolCallObserver?: ToolCallObserver;
 
-  constructor(sources: GaugeSources = {}) {
+  constructor(sources: GaugeSources = {}, toolCallObserver?: ToolCallObserver) {
     const registry = new Registry();
     this.registry = registry;
+    this.toolCallObserver = toolCallObserver;
     const registers = [registry];
 
     this.toolCalls = new Counter({
@@ -499,17 +521,24 @@ export class MetricsRecorder {
     );
   }
 
-  /** Record one terminal tool call: count + duration + response-size histograms. */
+  /** Record one terminal tool call: count + duration + response-size histograms, plus (THE-1125)
+   *  the opt-in telemetry observer, when one is wired — see ToolCallObserver's own comment for why
+   *  this is the reuse point rather than a second instrumentation site in dispatch.ts. `detail` is
+   *  additive and OPTIONAL: every pre-existing caller (all six sites in dispatch.ts before
+   *  THE-1125) keeps compiling unchanged, and detail is meaningful only to the telemetry observer
+   *  — Prometheus's own three counters/histograms above never read it. */
   observeToolCall(
     vault: string,
     tool: string,
     status: ToolCallStatus,
     durationSeconds: number,
     responseBytes: number,
+    detail?: { errorCode?: string; facadeMode?: string; clientName?: string },
   ): void {
     this.toolCalls.inc({ vault, tool, status });
     this.toolDuration.observe({ vault, tool }, durationSeconds);
     this.responseBytes.observe({ vault, tool }, responseBytes);
+    this.toolCallObserver?.onToolCall(tool, status, detail);
   }
 
   incAclDenied(vault: string, scopeClass: string, reason: string): void {

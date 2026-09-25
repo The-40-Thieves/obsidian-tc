@@ -5,6 +5,7 @@ import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
 import { type MemoryImportCommand, parseMemoryImport } from "./parse-memory-import";
+import { parseTelemetry, type TelemetryCommand } from "./parse-telemetry";
 
 export type CliCommand =
   | { kind: "serve"; input?: string }
@@ -120,6 +121,10 @@ export type CliCommand =
   | MemoryImportCommand // THE-1124: `memory import` — basic-memory / claude-code-memory adapters. ./parse-memory-import.ts.
   | ConsolidateCommand // THE-934: one ambient consolidation pass, unscheduled. ./parse-consolidate.ts.
   | CompactCommand // THE-1039 (GH #930): compaction. Parser: ./parse-compact.ts.
+  // THE-1125: opt-in telemetry — `preview` (print the document that would be sent now, without
+  // sending it), `status` (enabled/endpoint/installId/next send time), `reset-id` (rotate the
+  // install id). Parser: ./parse-telemetry.ts.
+  | TelemetryCommand
   | { kind: "error"; message: string };
 
 // Re-exported so `import { CliError } from "../args"` keeps working — see cli-error.ts's header.
@@ -241,6 +246,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
       }
       return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
     }
+    // THE-1125: `telemetry preview|status|reset-id`. Parser in ./parse-telemetry.ts.
+    if (first === "telemetry") return parseTelemetry(rest);
     if (first === "doctor") {
       // --json and --token are dropped before resolving the positional config path so neither is
       // mistaken for it. --token takes a raw JWT whose iat/exp are read (not verified) by auth.maxAge.

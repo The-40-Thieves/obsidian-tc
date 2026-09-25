@@ -183,4 +183,67 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     const result = validate(JSON.parse(JSON.stringify(out)));
     expect(result.valid).toBe(true);
   });
+
+  // THE-1125: the telemetry block, both fully populated and absent-optionals, validates under ajv
+  // — the same zod/ajv drift class THE-1073 fixed (a field on an internal record that reaches a
+  // tool output must be declared in the zod schema, not merely present at runtime).
+  it("the telemetry block (fully populated) validates under ajv", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getTelemetryStatus: () => ({
+        enabled: true,
+        endpoint: "https://collector.example",
+        installId: "3b9e1a2c-4b1e-4a2f-9c3d-1e2f3a4b5c6d",
+        lastSendAt: 1737936000000,
+        lastError: "HTTP 503 from https://collector.example",
+      }),
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+    } as CallerContext) as HealthInfo;
+    expect(out.telemetry).toEqual({
+      enabled: true,
+      endpoint: "https://collector.example",
+      installId: "3b9e1a2c-4b1e-4a2f-9c3d-1e2f3a4b5c6d",
+      lastSendAt: 1737936000000,
+      lastError: "HTTP 503 from https://collector.example",
+    });
+
+    expect(tool.outputSchema).toBeDefined();
+    // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
+    const schema = toJson(tool.outputSchema!);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    const result = validate(JSON.parse(JSON.stringify(out)));
+    expect(result.valid).toBe(true);
+  });
+
+  it("the telemetry block (disabled, no install id yet) validates under ajv too", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getTelemetryStatus: () => ({ enabled: false }),
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+    } as CallerContext) as HealthInfo;
+    expect(out.telemetry).toEqual({ enabled: false });
+    expect(out.telemetry).not.toHaveProperty("endpoint");
+    expect(out.telemetry).not.toHaveProperty("installId");
+
+    expect(tool.outputSchema).toBeDefined();
+    // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
+    const schema = toJson(tool.outputSchema!);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    const result = validate(JSON.parse(JSON.stringify(out)));
+    expect(result.valid).toBe(true);
+  });
 });

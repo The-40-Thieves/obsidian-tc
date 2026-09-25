@@ -10,6 +10,7 @@ import {
   isFeedbackExemptFromReadOnly,
   type ServerConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { redactEndpoint } from "../telemetry/redact-endpoint";
 import { emitCaptureFirstRunNotice } from "./capture-first-run-notice";
 import { formatPlaneOptInNotice } from "./plane-opt-in-notice";
 
@@ -77,4 +78,23 @@ export function emitBootNotices(deps: {
     cacheDir: config.cacheDir,
     retentionDays: config.experiential.captureRetentionDays,
   });
+
+  // THE-1125: opt-in telemetry boot notice — one line naming the endpoint and the docs page,
+  // printed EVERY boot (not one-time like the capture notice above), for the same reason the
+  // security posture line above is unconditional: an operator reading the boot log must not have
+  // to go find the config file to learn this server phones home. stderr only, and only when
+  // enabled — a disabled/default config prints nothing (config validation already refuses
+  // `enabled: true` with no `endpoint`, so this can only ever name a real host).
+  if (config.telemetry.enabled && config.telemetry.endpoint !== undefined) {
+    // redactEndpoint (never the raw URL — userinfo/query could carry a collector key): scheme +
+    // host + path only.
+    const endpointRedacted = redactEndpoint(config.telemetry.endpoint);
+    process.stderr.write(
+      `telemetry: opt-in usage telemetry is ENABLED, sending to ${endpointRedacted} every ` +
+        `${config.telemetry.intervalMinutes}m. Aggregate counts only (no paths, note content, ` +
+        "queries, vault ids, principals, tokens, hostnames or env) — see " +
+        "docs/configuration/telemetry.md, `obsidian-tc telemetry preview`, or SECURITY.md. " +
+        "Disable with telemetry.enabled: false.\n",
+    );
+  }
 }
