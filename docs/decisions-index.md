@@ -242,7 +242,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-632 | The lexical and sparse arms filter by ACL at query time (THE-632, #644). | CHANGELOG.md (1.14.0) | 16 |
 | THE-633 | Runtime: durable job-queue wiring | docs/design/runtime-job-wiring.md | 9 |
 | THE-634 | Proactive advisory surfacing, off by default (#779, #810, THE-634). | CHANGELOG.md (1.22.0) | 16 |
-| THE-635 | Point-in-time `since`/`until` retrieval filter (#824, THE-635). | CHANGELOG.md (1.22.0) | 8 |
+| THE-635 | Point-in-time `since`/`until` retrieval filter (#824, THE-635). | CHANGELOG.md (1.22.0) | 9 |
 | THE-636 | Vendor-neutral export/import of the derived plane (#808, THE-636). | CHANGELOG.md (1.22.0) | 10 |
 | THE-639 | A sanctioned, poison-scanned path for agent-synthesised notes (#814, THE-639). | CHANGELOG.md (1.22.0) | 7 |
 | THE-641 | _internal planning reference — see repo history_ | — | 1 |
@@ -386,9 +386,10 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 15 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (Unreleased) | 13 |
 | THE-1125 | Opt-in, anonymous usage telemetry (THE-1125). | CHANGELOG.md (Unreleased) | 29 |
+| THE-1130 | Validity intervals on memory observations — supersede instead of overwrite, and "what did we believe as_of D" (THE-1130, PR #986). | CHANGELOG.md (Unreleased) | 14 |
 | THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (Unreleased) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (Unreleased) | 1 |
 
-374 distinct ticket(s) across 532 source file(s) under
-`packages/*/src`; 275 resolved to a public summary, 99
+375 distinct ticket(s) across 534 source file(s) under
+`packages/*/src`; 276 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.
