@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,346 tracked code files · 239,299 lines.
+**Scale:** 1,346 tracked code files · 239,476 lines.
 
-TypeScript 218,299 · JavaScript 15,429 · Python 2,406 · SQL 1,940 · Rust 742 · Shell 483.
+TypeScript 218,476 · JavaScript 15,429 · Python 2,406 · SQL 1,940 · Rust 742 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -90,7 +90,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `search/` | 61 | 12,998 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 28 | 7,210 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 22 | 6,039 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `cli/` | 41 | 5,635 | arg parsing + subcommands |
+| `cli/` | 41 | 5,670 | arg parsing + subcommands |
 | `runtime/` | 19 | 4,458 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 17 | 3,060 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 2,545 | filesystem primitives — paths, links, ACL, snapshots, prune |
@@ -144,7 +144,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 793 | `packages/server/src/mcp/server.ts` |
 | 743 | `packages/server/src/runtime/server-runtime.ts` |
 | 697 | `packages/server/src/providers/registry.ts` |
-| 690 | `packages/server/src/cli/args.ts` |
+| 691 | `packages/server/src/cli/args.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 647 | `packages/server/src/runtime/tool-wiring.ts` |
