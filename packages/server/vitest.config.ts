@@ -71,6 +71,22 @@ export default defineConfig({
       // here on this commit), restoring the ~6-point margin the vitest-3-era numbers implied.
       // Statement/function/line coverage sits ~88-90%, comfortably above 80. These are real
       // measures on both bases — no coverage theater.
+      //
+      // THE-1133 (PR 2, vitest 4.1.11 -> 5.0.1): the v8 provider's internal denominators moved
+      // again, same shape as the vitest 3->4 transition above — no test added or removed, no
+      // exclude changed:
+      //   vitest 4.1.11: statements 87.30%  branches 75.49%  functions 88.79%  lines 89.11%
+      //   vitest 5.0.1:  statements 86.96%  branches 80.35%  functions 86.43%  lines 87.94%
+      // (19,849 statements / 14,371 branches / 3,487 functions / 17,341 lines counted on 5.0.1,
+      // vs. 12,679 statements counted on 4.1.11 per the THE-602 note above — the denominator
+      // moved again, not the tested surface.) Branch coverage rose 4.86 points (75.49% ->
+      // 80.35%), widening its margin over the 75% floor from 0.49 to 5.35 points; statements,
+      // functions and lines each moved by 1-2.4 points and stayed 6.4-7 points clear of their own
+      // 80% floors. Measured on `packages/server` with the two known host-timing-flaky files
+      // (`text-search.test.ts`, `trace-args-capture.test.ts`) excluded from the run, so the
+      // numbers reflect every OTHER test passing, not a partial suite. No threshold changed, no
+      // exclude added — same "different (more accurate) measurement" story as THE-602, not a
+      // regression, and not comparable to the vitest-4 numbers above as a coverage trend.
       thresholds: { lines: 80, statements: 80, functions: 80, branches: 75 },
     },
   },

@@ -38,6 +38,14 @@ export default defineConfig({
       // datacore.ts drag the average down hardest). Thresholds are floored to the nearest 10 below
       // the measured value on each dimension so the current suite passes with room, not to imply
       // this coverage is sufficient.
+      //
+      // THE-1133 (PR 2, vitest 4.1.11 -> 5.0.1): re-measured, same "different denominator, not a
+      // regression" story as packages/server/vitest.config.ts's THE-1133 note — no test added or
+      // removed, no exclude changed (71 tests now pass, up from 55 at THE-929's time, from
+      // unrelated work landed since):
+      //   statements 52.01%  branches 27.68%  functions 87.5%  lines 56.66%
+      // Every dimension moved 0.2-1.5 points and stayed clear of its floor. Not comparable to the
+      // THE-929 numbers above as a coverage trend across the runner-major boundary.
       thresholds: { lines: 50, statements: 50, functions: 80, branches: 20 },
     },
   },

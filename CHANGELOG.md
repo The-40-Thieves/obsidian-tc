@@ -152,6 +152,40 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **`vitest` 4.1.11→5.0.1, `@vitest/coverage-v8` 4.1.11→5.0.1 (THE-1133, PR 2).** Every workspace
+  that depends on vitest bumped together: `packages/server`, `packages/plugin`, `packages/shared`,
+  `packages/native` (its `test:build-script` leg), and `packages/reranker-local` (a separate
+  package with its own `bun.lock`, installed and pinned independently). Read the full v5 migration
+  guide and mapped every breaking-change item against this repo: Node ≥22.12.0 (installed 26.10.0)
+  and Vite ≥6.4.0 (installed 7.3.6) both already cleared; `test.sequential`/`describe.sequential`/
+  `sequential` removed (zero usages); `expect.poll` now rejects on timeout (zero usages); unawaited
+  `.resolves`/`.rejects`/`toMatchFileSnapshot` now fail the test (every usage in the repo is
+  already `await`ed — checked programmatically, not by eye); `vi.mock`/`vi.unmock`/`vi.hoisted`
+  nested inside a block now throws instead of warning (zero usages); `clearMocks: true` by default
+  (every `vi.fn()`/`vi.spyOn()` in the repo is created and torn down inside its own test, so
+  clearing history at test start is a no-op here); browser-mode items (locator serialization,
+  strict locators, `toHaveTextContent`, `render` async) are all N/A — this repo has no
+  `@vitest/browser` usage; config files are no longer looked up from parent directories — moot,
+  since no root-level `vitest.config.*`/`vite.config.*` ever existed for a subpackage to
+  (accidentally) inherit from. **Coverage `include`/`exclude` now match more precisely** (a
+  pattern with no glob wildcard is treated as a directory match rather than a `contains`
+  substring match) — verified EMPIRICALLY, not just from the docs, that the bare-file excludes in
+  both `packages/server/vitest.config.ts` (`src/index.ts`, `src/cli.ts`, `src/db/types.ts`,
+  `src/db/bun-sqlite.ts`, `src/db/node-better-sqlite3.ts`, `src/transports/stdio.ts`) and
+  `packages/plugin/vitest.config.ts` (`src/main.ts`) still correctly exclude exactly those files
+  under the new matching rule, by inspecting a `coverage-final.json` file list directly.
+  Re-recorded the coverage baseline in both configs' comments the way THE-602 did for the vitest
+  3→4 transition (same "different denominator, not a regression" shape, no threshold changed, no
+  test added or removed): server statements 87.30%→86.96%, branches 75.49%→80.35% (a real margin
+  gain over the 75% floor, 0.49→5.35 points), functions 88.79%→86.43%, lines 89.11%→87.94%; plugin
+  statements 50.52%→52.01%, branches 26.9%→27.68%, functions 87.32%→87.5%, lines 55.2%→56.66%. Not
+  comparable across the runner-major boundary as a coverage trend. Did NOT re-record
+  `eval/perf/baseline.small.json` — the host was under load from a concurrent eval at bump time,
+  and the perf harness (`eval/perf/run.ts`) does not import vitest at all (confirmed: it spawns
+  fresh `bun`/`node` subprocesses directly via `execFileSync` and times them with
+  `node:perf_hooks`, entirely independent of the test runner), so this bump carries zero perf-
+  harness risk regardless. `bun run test:scripts` (`node --test`, unaffected by vitest) unchanged:
+  370/370.
 - **`@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1
   (THE-1133, PR 1).** Read every changeset between the two `@modelcontextprotocol/server` tags
   (`npm view` + the GitHub release body): (1) request-time OAuth scope challenges for
