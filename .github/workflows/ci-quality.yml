@@ -50,7 +50,7 @@ jobs:
     name: typos (source + docs spelling)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: install typos v1.48.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/typos-bin"
@@ -66,7 +66,7 @@ jobs:
     name: lychee (internal link rot)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: install lychee v0.24.2 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/lychee-bin"
@@ -88,13 +88,13 @@ jobs:
     name: ast-grep (structural invariants)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - name: install ast-grep 0.45.0 (pinned binary + checksum)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: install ast-grep 0.45.3 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/sg-bin"
           curl -sSL --fail -o "$RUNNER_TEMP/sg.zip" \
-            https://github.com/ast-grep/ast-grep/releases/download/0.45.0/app-x86_64-unknown-linux-gnu.zip
-          echo "78931ae35ebac33d9a72b3aecea3e3d62d6e5b0b718ac8bbedfbe69d68421e41  $RUNNER_TEMP/sg.zip" | sha256sum -c -
+            https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip
+          echo "f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8  $RUNNER_TEMP/sg.zip" | sha256sum -c -
           unzip -q -o "$RUNNER_TEMP/sg.zip" -d "$RUNNER_TEMP/sg-bin" ast-grep
           chmod +x "$RUNNER_TEMP/sg-bin/ast-grep"
           echo "$RUNNER_TEMP/sg-bin" >> "$GITHUB_PATH"
@@ -155,7 +155,7 @@ jobs:
       #
       # WHERE_SYMBOL_REQUIRE_ASTGREP=1 turns "ast-grep missing" into a hard error instead of a skip:
       # without it, a broken install would retire this file while the job stayed green.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
       - name: where-symbol declaration matcher (needs a real parser)
@@ -167,7 +167,7 @@ jobs:
     name: hadolint (Dockerfile style + correctness)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: install hadolint v2.14.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/hadolint-bin"
