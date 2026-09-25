@@ -96,7 +96,7 @@ function run(cmd, args) {
 //   import.meta.resolve("dependency-cruiser")
 //     -> file:///.../node_modules/.bun/dependency-cruiser@18.4.0/node_modules/dependency-cruiser/src/main/index.mjs
 //   -> ../../bin/dependency-cruiser.mjs from there exists on disk.
-// THE-1119a: 18.1.0 shipped this file as bin/dependency-cruise.mjs (no trailing "r"); 18.4.0
+// THE-1119: 18.1.0 shipped this file as bin/dependency-cruise.mjs (no trailing "r"); 18.4.0
 // renamed it to bin/dependency-cruiser.mjs. A hardcoded filename is exactly what breaks on a
 // version bump like this — the name is worth re-checking (`ls node_modules/.../bin/`) whenever
 // dependency-cruiser moves again, not just assumed stable.

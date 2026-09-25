@@ -11,7 +11,7 @@
 // `@ast-grep/cli` is an exact devDependency, currently pinned to 0.45.3. This module makes the
 // scripts actually USE it. ci-quality.yml's "ast-grep (structural invariants)" job installs its
 // own separately pinned + checksummed binary rather than this devDependency, so the two pins can
-// drift a patch version apart (THE-1119a bumped this one; GitHub Actions files are out of scope
+// drift a patch version apart (THE-1119 bumped this one; GitHub Actions files are out of scope
 // for that change) — check both when either moves.
 //
 // Two platform traps are handled deliberately:

@@ -17,7 +17,7 @@
  *      that is expected, not a bug.
  *
  * THE-593: `not-to-dev-dep` below is currently INERT. dependency-cruiser still has no TypeScript 7
- * API support as of 18.4.0 (THE-1119a re-verified this by planting a `src` file that imports
+ * API support as of 18.4.0 (THE-1119 re-verified this by planting a `src` file that imports
  * `vitest` and watching `check:boundaries` report 0 errors/warnings for it) — root package.json
  * pins `typescript@^7.0.2`, and dependency-cruiser prints so itself ("Support for typescript@>=7
  * will follow when its API is published and stable"). A rule keyed on `dependencyTypes` matches

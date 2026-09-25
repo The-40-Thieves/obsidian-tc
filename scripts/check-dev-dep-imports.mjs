@@ -7,7 +7,7 @@
  * `^7.0.2`): it prints "Support for typescript@>=7 will follow when its API is published and
  * stable" and falls back to a degraded resolver that never classifies an npm import as
  * `['npm-dev']` (18.1.0 tagged it `['unknown']`; 18.4.0 drops it from the dependency list
- * entirely — see `.dependency-cruiser.cjs`'s THE-593 comment for both, re-verified by THE-1119a).
+ * entirely — see `.dependency-cruiser.cjs`'s THE-593 comment for both, re-verified by THE-1119).
  * A `.dependency-cruiser.cjs` rule keyed on `dependencyTypes: ["npm-dev"]` therefore matches
  * nothing, ever — proven directly: a `src` file importing `vitest` (a devDependency) produced
  * `violations: [] error: 0`, exit 0. This script re-expresses the same intent — shipped code must
