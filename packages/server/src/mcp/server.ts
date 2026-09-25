@@ -1,7 +1,6 @@
 import {
   type CallToolResult,
   type GetPromptResult,
-  inputRequired,
   type ListPromptsResult,
   type ListResourcesResult,
   type ListResourceTemplatesResult,
@@ -12,8 +11,8 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/server";
-import { type ErrorJSON, err, isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
-import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
+import { type ErrorJSON, err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ElicitCodec } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
@@ -25,6 +24,14 @@ import {
   sampleViaClient,
 } from "./client-features";
 import { extractClientInfo } from "./client-info";
+import {
+  clientSupportsFormElicitation,
+  elicitStateContextPatch,
+  offerInputRequired,
+  resolveElicitConfirmation,
+  roundTripDeliverable,
+  withDeclinedFlag,
+} from "./elicit-form";
 import { splitElicitToken } from "./elicit-token";
 import { formatErrorDetail } from "./error-rendering";
 import {
@@ -36,15 +43,12 @@ import {
   type FacadeMode,
   FIND_CAPABILITY_SCHEMA,
   findCapability,
-  isAdvertisedDestructive,
   isDomainTool,
   isFacadeTool,
-  toInputJson,
-  toJson,
   triadTools,
 } from "./facade";
 import { getPrompt, listPrompts } from "./prompts";
-import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
+import type { CallerContext, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import {
   CATALOG_RESOURCE_URI,
@@ -56,19 +60,14 @@ import {
 } from "./resources";
 import {
   clientSupportsTasks,
+  MODERN_PROTOCOL_VERSION,
   TASK_CALL_JOB_TYPE,
   TASKS_EXTENSION,
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
+import { toMcpTool } from "./tool-projection";
 import { disclosableExplanation, type VisibilityCaller } from "./visibility";
-
-/**
- * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
- * `server/discover`). The SDK knows it internally as FIRST_MODERN_PROTOCOL_VERSION but does not
- * export it, and does not include it in SUPPORTED_PROTOCOL_VERSIONS — so it is named here.
- */
-const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
 /**
  * SEP-2549 cache hints. The SDK's cacheable set is a CLOSED list — `tools/list`, `prompts/list`,
@@ -155,12 +154,23 @@ export interface McpServerOptions {
    */
   era?: "legacy" | "modern";
   /**
-   * THE-583: codec for the 2026-07-28 HITL round trip (SEP-2260/2322). When supplied, an
-   * `elicit_required` outcome is answered with `inputRequired({ requestState })` — the protocol's
-   * own shape — instead of a bare error a generic client cannot act on. Absent (stdio, tests) keeps
-   * the 2025 behaviour: the error, and an `elicit_token` argument to satisfy it.
+   * THE-583: codec for the `inputRequired({ requestState })` HITL round trip (SEP-2260/2322).
+   * When supplied, an `elicit_required` outcome is answered with `inputRequired(...)` instead of a
+   * bare error — natively on a modern connection, or (with `legacyElicitationShim` below) via the
+   * SDK's own legacy shim on stdio. `runtime/server-runtime.ts` builds one for stdio from a
+   * per-process random secret; `transports/http.ts` builds one from `auth.jwtSecret`. Absent keeps
+   * the plain `elicit_required` error + `elicit_token` CLI fallback. See `roundTripDeliverable`
+   * (./elicit-form.ts) for exactly which connections this reaches.
    */
   elicitCodec?: ElicitCodec;
+  /**
+   * THE-1106: opt IN to the SDK's `LegacyInputRequiredShim` for a legacy-era connection —
+   * DEFAULT-ON at the SDK level (traced in `./elicit-form.ts`'s module doc comment) but NOT safe
+   * to inherit blindly: server-initiated legs over Streamable HTTP are unverified against real
+   * clients and out of scope. Only `runtime/server-runtime.ts`'s stdio server sets this true;
+   * `transports/http.ts` never does. Requires `elicitCodec` to have any effect.
+   */
+  legacyElicitationShim?: boolean;
   /**
    * THE-583: durable queue backing TASK-AUGMENTED tool calls.
    *
@@ -172,21 +182,6 @@ export interface McpServerOptions {
   /** THE-1098 (GH #964): `experiential.logRetrievals`, forwarded to `buildInstructions`. Absent
    *  defaults to `true` (the schema's own default), matching pre-THE-1098 behavior. */
   experientialLogRetrievals?: boolean;
-}
-
-/**
- * Did the caller advertise form elicitation?
- *
- * The 2026-07-28 revision carries client capabilities in the per-request `_meta` envelope, but the
- * SDK parses and consumes those keys before a handler runs — so this reads the capabilities object
- * the SDK exposes rather than re-parsing the wire. Offering an `inputRequired` naming a capability
- * the client never advertised is a hard -32021 protocol error, so this gate decides whether the
- * round trip is offered at all.
- */
-function clientSupportsFormElicitation(caps: unknown): boolean {
-  if (caps === null || typeof caps !== "object") return false;
-  const elicitation = (caps as Record<string, unknown>).elicitation;
-  return elicitation !== null && typeof elicitation === "object" && "form" in elicitation;
 }
 
 /**
@@ -227,63 +222,10 @@ function asStructured(data: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** Human-facing label for a snake_case tool name (spec: clients fall back to `name` if absent). */
-function titleize(name: string): string {
-  return name
-    .split("_")
-    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-    .join(" ");
-}
-
-/**
- * Derive MCP tool annotations from the registry's OWN ground truth, so the client-visible safety
- * contract cannot drift from server-side enforcement. `readOnlyHint` mirrors the exact `mutating`
- * predicate the dispatch read-only kill-switch uses (registry.runDispatch); `destructiveHint`
- * mirrors `isAdvertisedDestructive` (THE-824: `def.destructive` OR the display-only
- * `conditionallyDestructive`, never a dispatch-authorizing field on its own — see its doc comment);
- * every vault operation is closed-world (no external side effects). Annotations are advisory
- * hints, never a trust boundary — dispatch still authorizes every call.
- */
-function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> {
-  const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
-  return {
-    readOnlyHint: !mutating,
-    destructiveHint: isAdvertisedDestructive(def),
-    openWorldHint: false,
-    // THE-743: the fourth annotation. Emitted ONLY for mutating tools, because the spec defines it
-    // as meaningful only when `readOnlyHint == false` — sending it alongside `readOnlyHint: true`
-    // would state a fact the spec says carries no information, and reads as a contradiction.
-    // Sourced from an explicit per-tool declaration, never inferred: see ToolDefinition.idempotent
-    // for why it is NOT `acceptsIdempotencyKey` and why every tool here is currently false.
-    ...(mutating ? { idempotentHint: def.idempotent === true } : {}),
-  };
-}
-
-// THE-463: a tool's MCP projection (name/title/description/schemas/annotations/icons) is immutable
-// after registration; flat-mode tools/list rebuilt an identical object per request. Memoized by def
-// identity — the frozen Tool instance survives per-request server churn (transports/http.ts) since
-// defs live on the persistent registry. toJson/toInputJson are already memoized per schema.
-const mcpToolMemo = new WeakMap<ToolDefinition, Tool>();
-
-/** @internal exported for the THE-463 memoization test. */
-export function toMcpTool(def: ToolDefinition): Tool {
-  const cached = mcpToolMemo.get(def);
-  if (cached !== undefined) return cached;
-  const tool: Tool = {
-    name: def.name,
-    title: titleize(def.name),
-    description: def.description,
-    inputSchema: toInputJson(def.inputSchema),
-    ...(def.outputSchema
-      ? { outputSchema: toJson(def.outputSchema) as unknown as Tool["outputSchema"] }
-      : {}),
-    annotations: toolAnnotations(def),
-    ...(def.icons ? { icons: def.icons } : {}),
-  };
-  Object.freeze(tool);
-  mcpToolMemo.set(def, tool);
-  return tool;
-}
+// THE-1106 fix round 2: toolAnnotations/toMcpTool moved to ./tool-projection to fit biome's
+// noExcessiveLinesPerFile cap; re-exported so the THE-463 memoization test's
+// `import("../src/mcp/server")` still finds `toMcpTool` at its original path.
+export { toMcpTool } from "./tool-projection";
 
 /**
  * Assemble a low-level MCP Server bound to a ToolRegistry. ListTools is sourced
@@ -359,6 +301,17 @@ export function createMcpServer(opts: McpServerOptions): Server {
       ...(opts.elicitCodec
         ? { requestState: { verify: (state: string) => opts.elicitCodec?.verify(state) } }
         : {}),
+      // THE-1106: assert explicit, never the SDK default — see McpServerOptions.legacyElicitationShim.
+      inputRequired: {
+        legacyShim: opts.legacyElicitationShim === true,
+        // THE-1106 fix round 2 (LOW 1): cap the shim's per-leg timeout to the codec's OWN TTL
+        // (ElicitCodec.ttlSeconds's doc comment, elicit-request-state.ts) — the SDK's 600s default
+        // otherwise outlives a shorter TTL, so a human answering between the TTL and 600s gets a
+        // raw `requestState.verify` rejection (-32602) instead of the shim's own clean re-offer
+        // failure. Absent a codec, `roundTimeoutMs` is left at the SDK default (irrelevant: the
+        // shim is never reached without one — see `roundTripDeliverable`).
+        ...(opts.elicitCodec ? { roundTimeoutMs: opts.elicitCodec.ttlSeconds * 1000 } : {}),
+      },
     },
   );
 
@@ -476,58 +429,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
       isError: true,
     };
   };
-  const dispatchToResult = async (
-    name: string,
-    args: Record<string, unknown>,
-    ctx: CallerContext,
-    /** Whether the caller advertised form elicitation — decided once per request by the handler. */
-    canElicit = false,
-    /** This request's log sink (`extra.mcpReq.log`); absent for stdio/direct construction. */
-    log?: RequestLog,
-  ): Promise<CallToolResult> => {
-    const result = await opts.registry.dispatch(name, args, ctx);
-    if (!result.ok) {
-      // THE-583 (SEP-2260/2322): a confirmation requirement is not a failure, it is a round trip.
-      // Offered only on the modern era, only when a codec is wired, and only when the CLIENT
-      // declared form-elicitation support — the SDK refuses an `inputRequired` naming a capability
-      // the client never advertised (-32021). Every other caller gets the plain `elicit_required`
-      // error and the 2025 token path. `args_hash` comes from dispatch itself so the minted state
-      // is bound to the hash the gate will recompute. See design note for the shape comparison.
-      if (result.error.code === "elicit_required" && isModern && opts.elicitCodec && canElicit) {
-        const argsHash = (result.error as { details?: { args_hash?: string } }).details?.args_hash;
-        if (typeof argsHash === "string") {
-          return inputRequired({
-            requestState: await opts.elicitCodec.mint({
-              tool: name,
-              argsHash,
-              vaultId: ctx.vaultId,
-              caller: ctx.caller,
-            }),
-            inputRequests: {
-              confirm: {
-                method: "elicitation/create",
-                params: {
-                  mode: "form",
-                  message: `Confirm ${name}: this call changes vault content and needs approval.`,
-                  requestedSchema: {
-                    type: "object",
-                    properties: {
-                      approve: { type: "boolean", title: "Approve this change" },
-                    },
-                    required: ["approve"],
-                  },
-                },
-              },
-            },
-          }) as unknown as CallToolResult;
-        }
-      }
-      return errorToResult(result.error);
-    }
-    // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
-    // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
-    // shortened result believing it complete — the failure mode the governor exists to bound, moved
-    // one layer up. Fire-and-forget: a log line must never fail the call it describes.
+  // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
+  // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
+  // shortened result believing it complete — the failure mode the governor exists to bound, moved
+  // one layer up. Fire-and-forget: a log line must never fail the call it describes.
+  const toCallToolResult = (result: ToolResult, name: string, log?: RequestLog): CallToolResult => {
+    if (!result.ok) return errorToResult(result.error);
     const overflow = result.meta.overflow_bytes;
     if (typeof overflow === "number" && overflow > 0) {
       void emitLog(log, {
@@ -541,6 +448,50 @@ export function createMcpServer(opts: McpServerOptions): Server {
       });
     }
     return formatData(result.data);
+  };
+
+  const dispatchToResult = async (
+    name: string,
+    args: Record<string, unknown>,
+    ctx: CallerContext,
+    /** Whether the caller advertised form elicitation — decided once per request by the handler. */
+    canElicit = false,
+    /** This request's log sink (`extra.mcpReq.log`); absent for stdio/direct construction. */
+    log?: RequestLog,
+    /** THE-1106: true when a round for THIS request came back declined/cancelled — see
+     *  `resolveElicitConfirmation` (./elicit-form.ts). Stops a second offer for the same decline. */
+    roundDeclinedOrCancelled = false,
+    /** THE-1106 fix round 2: the echoed state's own round counter when APPROVED but mismatched —
+     *  `offerInputRequired` caps re-offers on this so a persistent mismatch cannot loop the SDK
+     *  shim's full `maxRounds` (8). See `resolveElicitConfirmation`'s doc comment. */
+    approvedRound: number | undefined = undefined,
+  ): Promise<CallToolResult> => {
+    const result = await opts.registry.dispatch(name, args, ctx);
+    if (!result.ok) {
+      // THE-583 + THE-1106: offered only when the SDK will ACTUALLY deliver it — offerInputRequired.
+      if (
+        result.error.code === "elicit_required" &&
+        opts.elicitCodec &&
+        canElicit &&
+        !roundDeclinedOrCancelled &&
+        roundTripDeliverable(server, isModern, opts.legacyElicitationShim)
+      ) {
+        const offer = await offerInputRequired(
+          opts.elicitCodec,
+          name,
+          result.error,
+          ctx,
+          approvedRound,
+        );
+        if (offer !== undefined) return offer;
+      }
+      // THE-1106 fix round 2 (LOW 6): render the decline-specific text — see withDeclinedFlag.
+      if (result.error.code === "elicit_required" && roundDeclinedOrCancelled) {
+        return errorToResult(withDeclinedFlag(result.error));
+      }
+      return errorToResult(result.error);
+    }
+    return toCallToolResult(result, name, log);
   };
 
   server.setRequestHandler("tools/call", async (req, extra): Promise<CallToolResult> => {
@@ -578,12 +529,20 @@ export function createMcpServer(opts: McpServerOptions): Server {
         ? { sample: (p: Parameters<typeof sampleViaClient>[1]) => sampleViaClient(server, p) }
         : {}),
     };
-    // THE-583: a verified 2026-07-28 request-state, when the client echoed one. The transport has
-    // already checked its HMAC and TTL; dispatch still checks that it authorizes this exact call.
-    const echoed = (
-      extra.mcpReq as { requestState?: <T>() => T | undefined }
-    ).requestState?.<ElicitRequestState>();
-    if (echoed !== undefined) ctx = { ...ctx, elicitState: echoed };
+    // THE-583 + THE-1106 (CRITICAL fix — see resolveElicitConfirmation's doc comment, elicit-form.ts).
+    const { elicitState, roundDeclinedOrCancelled, approvedRound } = resolveElicitConfirmation(
+      extra.mcpReq as {
+        requestState?: <T>() => T | undefined;
+        inputResponses?: Record<string, unknown>;
+      },
+    );
+    // THE-1106 fix round 2: elicitStateContextPatch's doc comment (./elicit-form.ts) covers why.
+    if (elicitState !== undefined) {
+      ctx = {
+        ...ctx,
+        ...elicitStateContextPatch(opts.registry, elicitState, ctx.vaultId, ctx.caller),
+      };
+    }
     ({ args, ctx } = splitElicitToken(rawArgs, ctx));
     // THE-583: run as a background TASK when the client asked and the tool opted in.
     //
@@ -619,7 +578,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
       const action = typeof args.action === "string" ? args.action : "";
       const rawActionArgs = (args.args ?? {}) as Record<string, unknown>;
       const { args: actionArgs, ctx: actionCtx } = splitElicitToken(rawActionArgs, ctx);
-      return dispatchToResult(action, actionArgs, actionCtx, canElicit, log);
+      return dispatchToResult(
+        action,
+        actionArgs,
+        actionCtx,
+        canElicit,
+        log,
+        roundDeclinedOrCancelled,
+        approvedRound,
+      );
     }
     // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
     // caller-visible catalog; call_capability routes the named TARGET through registry.dispatch so
@@ -695,12 +662,28 @@ export function createMcpServer(opts: McpServerOptions): Server {
           // THE-1037 (GH #925): `a` is call_capability's INNER args, forwarded here untouched by
           // callCapability itself — strip it the same way as the outer envelope (splitElicitToken).
           const { args: targetArgs, ctx: targetCtx } = splitElicitToken(a, ctx);
-          return dispatchToResult(n, targetArgs, targetCtx, canElicit, log);
+          return dispatchToResult(
+            n,
+            targetArgs,
+            targetCtx,
+            canElicit,
+            log,
+            roundDeclinedOrCancelled,
+            approvedRound,
+          );
         },
         errorToResult,
       );
     }
-    return dispatchToResult(req.params.name, args, ctx, canElicit, log);
+    return dispatchToResult(
+      req.params.name,
+      args,
+      ctx,
+      canElicit,
+      log,
+      roundDeclinedOrCancelled,
+      approvedRound,
+    );
   });
 
   // Resources: vault notes. resources.ts owns AUTHORIZATION (read:notes scope, vault binding,

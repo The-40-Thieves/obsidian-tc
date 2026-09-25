@@ -40,6 +40,13 @@ export interface CallerContext {
   /** THE-583: a transport-VERIFIED 2026-era HITL confirmation (HMAC+TTL already checked); the
    *  gate still binds it to this call. Absent for 2025 callers, who use `elicitToken`. */
   elicitState?: ElicitRequestState;
+  /** THE-1106 fix round 2: relays `tc.elicit.consumed` for a handler-side gate
+   *  (vault/hitl.ts's `requireConfirmation`) satisfied by `elicitState` — dispatch's own relay of
+   *  the same event only fires for dispatch-gated tools, so this is the ONLY audit signal for the
+   *  16 handler-side-only conditionally-gated tools. Set (mcp/server.ts) only alongside a verified,
+   *  accept+approve:true `elicitState`; absent otherwise, so a caller with no such state simply has
+   *  nothing to call. */
+  relayElicitConsumed?: (toolName: string) => void;
   acl?: FolderAcl;
   /** SEP-2577 client features (roots/sampling), deprecated but functional through the revision's
    *  migration window — see docs/design/mcp-registry-context-types.md. `undefined` when the client

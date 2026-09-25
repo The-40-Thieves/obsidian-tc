@@ -8,6 +8,29 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
+  (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
+  cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`
+  tool — 17+ `requireConfirmation` sites plus dispatch's own always-on gate) used to be clearable
+  on stdio only by shelling out to `obsidian-tc elicit` and resubmitting `elicit_token` by hand; an
+  agent with no shell either minted the token itself (bypassing the human) or gave up. `stdio` now
+  gets its own `requestState` codec (`runtime/server-runtime.ts`, a per-process random secret), and
+  `dispatchToResult` offers `inputRequired(...)` whenever a codec is wired and the client declared
+  elicitation support, on EITHER era — the installed `@modelcontextprotocol/server@2.0.0`'s
+  low-level `Server` (what `createMcpServer` builds) already routes an `inputRequired` handler
+  return per its own negotiated era, natively on 2026-07-28 and, on 2025-11-25/2025-06-18, through
+  its own `LegacyInputRequiredShim`: it sends the `elicitation/create` leg(s) server-side, gated by
+  the SAME bare-`{}`-means-form rule fixed below, and re-enters the handler with a verified
+  `requestState`. That legacy path is opt-in and **stdio-only** (`legacyElicitationShim`,
+  `runtime/server-runtime.ts`); `transports/http.ts` never sets it, so a legacy-era HTTP session is
+  unchanged — server-initiated requests over Streamable HTTP are unverified against real clients
+  and out of scope. Whichever path answers, a decline, a cancel, or an explicit `approve: false`
+  renders the ordinary `elicit_required` error, never a second prompt: the handler now checks the
+  elicitation leg's OWN answer (`inputResponse`, the SDK's own reader for `ctx.mcpReq
+  .inputResponses`) before trusting an echoed `requestState`, since the state alone only proves the
+  confirmation is authentic, never that it was granted — a real gap this closed on the EXISTING
+  2026-07-28 client-driven path too, not just the new legacy one.
+
 - **`experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived
   telemetry under a read-only vault (GH #964 part 2, THE-1099).** A read-only configuration
   (`acl.readOnly: true` and/or `toolVisibility.requireReadOnly: true`) previously blocked and
@@ -26,7 +49,85 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   not authorization. `inspect_visibility` reports the exemption with its own reason
   (`visible_derived_telemetry`).
 
+### Changed
+
+- **`elicit_required`'s text-channel instruction now leads with a directive to the AGENT, and
+  `clientSupportsFormElicitation` now reads a bare `elicitation: {}` as form support, on every
+  transport (GH #967 part 3, THE-1106).** Previously the rendered `obsidian-tc elicit ...` command
+  line was handed to an agent with no framing — nothing told it the call needed a HUMAN's yes, and
+  reports showed agents either minting the token themselves or giving up. The text now leads: "This
+  call needs the user's approval. Ask the user now whether to allow \<tool\> on \<path\> (when a
+  path is known — rendered as a `JSON.stringify`d, control-character-stripped literal, since a
+  vault path may legally contain a newline or a quote and neither reviewer's fix round would let
+  one forge a fake extra line). If they approve, run the command below and retry the same call with
+  elicit_token: \<token\>. Do not mint the token without their explicit yes." — the `confirm with:
+  obsidian-tc elicit ...` line itself is byte-identical to before. Separately,
+  `clientSupportsFormElicitation`'s predicate required an explicit `form` key (`"form" in
+  elicitation`), so a spec-conformant 2025-11-25 client declaring the bare, legal `elicitation: {}`
+  — the pre-mode default meaning form support, and measured on Claude Code 2.1.281's own stdio
+  `initialize` (`capabilities: { roots: { listChanged: true }, elicitation: {} }`) — was wrongly
+  classified as NOT supporting form elicitation. Only an explicit `elicitation: { url: {} }` with no
+  `form` key now opts out of the implied default; this mirrors the identical rule in
+  `@modelcontextprotocol/sdk`'s own `getSupportedElicitationModes` (client module) and
+  `@modelcontextprotocol/server`'s internal `isImpliedCapabilityMember`. This is a user-visible
+  behaviour change for any 2025-spec client already declaring `elicitation: {}`, on EVERY transport
+  (this predicate gates the pre-existing modern `inputRequired` branch too, not just the new
+  legacy-shim one): it now gets offered a confirmation round trip where it previously only got the
+  bare error. There is no server-initiated elicitation on HTTP either way — see the Added entry.
+
+### Security
+
+- **A declined or cancelled `inputRequired` HITL confirmation could still complete the call it was
+  declining (present since the 2026-07-28 round trip shipped, THE-583, v1.13.0; found and closed
+  under THE-1106; NOT a regression introduced by THE-1106 — this PR only made it easier to trigger
+  by adding a second delivery path).** Affects v1.13.0 through v1.31.3. Exact condition: an
+  HTTP deployment with `auth.jwtSecret` configured (the requestState codec requires one); a
+  2026-07-28 client that declared `elicitation.form` support so it was offered `inputRequired` at
+  all; the client echoes a validly-bound `requestState` on its resubmission after the human
+  declined, cancelled, or the elicitation response was omitted/malformed. Scope: ONLY the
+  dispatch-gated tools (`destructive: true`, or an HITL-floored required scope — `checkHitl`,
+  policy-gates.ts) were reachable this way; the 16 HANDLER-side-only conditionally-gated tools
+  (`write_note` overwrite, `move_note`, etc. — `vault/hitl.ts`'s `requireConfirmation`) never read
+  `ctx.elicitState` at all before this same PR added it, so THAT specific defect (fixed in the same
+  commit, see the HIGH item above the fold) never let a decline through — it simply never let an
+  APPROVAL through either, on the modern wire, until this PR. `requestState` verification (SEP-2260/
+  2322) proves an echoed state is AUTHENTIC and bound to the exact call — it says nothing about
+  whether the human actually approved, since the state is minted BEFORE the elicitation leg is even
+  asked; `mcp/server.ts`'s `tools/call` handler trusted an echoed state on that basis alone.
+  Reproduced directly: a `destructive: true` tool call, offered `inputRequired`, answered with
+  `{action: "decline"}` on the `elicitation/create` leg, still wrote. Fixed to also require the
+  confirm leg's OWN response (`inputResponse`, the SDK's own reader for `ctx.mcpReq
+  .inputResponses`) to be `{action: "accept", content: {approve: true}}` before trusting the echoed
+  state; a declined/cancelled/not-approved round now renders the ordinary `elicit_required` error
+  (and is never offered a second round for the SAME declined confirmation, which would otherwise
+  loop, capped separately for an approved-but-mismatched round too). **Not addressed by this fix:**
+  a malicious or non-compliant client can still choose to answer its OWN `elicitation/create` leg
+  with `{action: "accept", content: {approve: true}}` regardless of what the human actually said —
+  the server has no way to verify the CLIENT rendered the form honestly or that a human saw it at
+  all; this is inherent to the client-driven half of the 2026-07-28 protocol (the legacy shim,
+  where the SERVER itself sends and owns the leg, does not share this gap), not something a
+  server-side fix can close.
+
 ### Fixed
+
+- **The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated
+  tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`,
+  `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`,
+  `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`,
+  `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it
+  shipped.** `vault/hitl.ts`'s `requireConfirmation` — the gate all 16 of these call, since none of
+  them is `destructive: true` or scope-HITL-floored, so dispatch's own `checkHitl` never runs for
+  them — checked only `ctx.elicitToken`, never `ctx.elicitState`; `hitlSatisfiedByState` (THE-583)
+  had exactly one caller, `checkHitl`. An approved `inputRequired` round trip (modern or the new
+  legacy shim) therefore re-entered the handler, which threw `elicit_required` again regardless —
+  measured: 8 rounds, 0 writes, a final "still required input after 8 rounds" with no `args_hash`
+  and no CLI fallback to recover with. Fixed to accept EITHER path in `requireConfirmation`, mirror-
+  ing `checkHitl` exactly; safe because `ctx.elicitState` is set only after the confirm leg's own
+  response verified `{action: "accept", content: {approve: true}}` (see the Security entry above).
+  A round approved for one call but not matching what a handler-side gate ends up needing (a
+  mismatched confirmation) gets capped at one fresh retry, not the SDK shim's full 8 rounds.
+  Audit: `tc.elicit.consumed` — previously emitted only by dispatch's OWN gate, so never for these
+  16 tools on ANY path — now also fires when `elicitState` satisfies a handler-side gate.
 
 - **`index_vault` no longer aborts a whole vault's reconcile over one note with unparseable YAML
   frontmatter (THE-1073).** `processNote` (`search/indexing/index-vault.ts`) called `parseNote`

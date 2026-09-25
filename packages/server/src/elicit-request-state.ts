@@ -28,6 +28,15 @@ export interface ElicitRequestState {
   vaultId: string;
   /** Caller the confirmation was issued to, when the transport knows one. */
   caller: string | null;
+  /** THE-1106 fix round 2: how many times a round trip has already been offered for this ORIGINAL
+   *  call chain — 1 on the first offer, incremented on each re-offer after a human APPROVED but
+   *  the state didn't match what actually needed confirming (e.g. a handler-side gate the
+   *  dispatch-level state doesn't cover). `mcp/elicit-form.ts`'s `offerInputRequired` refuses to
+   *  mint past a small cap, so a persistent mismatch fails closed with a FEW prompts, not the
+   *  SDK shim's full `maxRounds` (8) — an actual decline/cancel is a separate, unrelated stop
+   *  condition (`roundDeclinedOrCancelled`) and never reaches this counter. Absent/`undefined`
+   *  reads as round 0 (pre-THE-1106-fix-round-2 states, and the very first offer). */
+  round?: number;
 }
 
 /**
@@ -48,6 +57,14 @@ export function deriveRequestStateKey(jwtSecret: string): Uint8Array {
 export interface ElicitCodec {
   mint: (payload: ElicitRequestState) => Promise<string>;
   verify: (state: string) => Promise<ElicitRequestState>;
+  /** THE-1106 fix round 2 (LOW 1): the TTL this codec was built with, in seconds — read back by
+   *  `createMcpServer` so the SDK legacy shim's per-leg `roundTimeoutMs` can be capped to it. The
+   *  shim's own default (600s) is LONGER than the codec's default TTL (300s): a human who answers
+   *  between 300s and 600s completes the leg fine, but the re-entered handler's `requestState
+   *  .verify` then rejects the now-EXPIRED state with a raw `-32602`, not a clean re-offer.
+   *  Capping the leg timeout to the TTL makes the SHIM itself time the leg out first, producing
+   *  its own clean `isError` failure (the existing `elicit_required` text/fallback path) instead. */
+  ttlSeconds: number;
 }
 
 /**
@@ -55,10 +72,13 @@ export interface ElicitCodec {
  * configured confirmation window is unchanged by the migration.
  */
 export function createElicitCodec(jwtSecret: string, ttlSeconds: number): ElicitCodec {
-  return createRequestStateCodec({
-    key: deriveRequestStateKey(jwtSecret),
+  return {
+    ...(createRequestStateCodec({
+      key: deriveRequestStateKey(jwtSecret),
+      ttlSeconds,
+    }) as unknown as Omit<ElicitCodec, "ttlSeconds">),
     ttlSeconds,
-  }) as unknown as ElicitCodec;
+  };
 }
 
 /**

@@ -16,6 +16,7 @@ import { isFeedbackExemptFromReadOnly } from "@the-40-thieves/obsidian-tc-shared
 import { version as VERSION } from "../../package.json";
 import type { FolderAcl } from "../acl";
 import { experientialMigrations } from "../cli/shared";
+import { createStdioElicitCodec } from "../elicit";
 import type { EmbeddingsConfigLike } from "../embeddings";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import type { RegistryOptions } from "../mcp/registry/types";
@@ -557,6 +558,8 @@ export async function buildServerRuntime(
       // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
       // there are no retrieval rows for feedback to update.
       experientialLogRetrievals: config.experiential.logRetrievals,
+      elicitCodec: createStdioElicitCodec(), // THE-1106: see its doc comment (elicit.ts)
+      legacyElicitationShim: true,
     });
 
     const transports = await wireTransports({
