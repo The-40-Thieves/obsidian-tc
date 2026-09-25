@@ -8,6 +8,7 @@ import {
   redactEndpoint,
   redactEndpointWithPath,
   scrubEndpointFromMessage,
+  scrubSecretsFromMessage,
 } from "../src/telemetry/redact-endpoint";
 
 const SECRET_URL = "https://user:pw@collector.example/ingest?key=abc#f";
@@ -52,6 +53,32 @@ describe("scrubEndpointFromMessage", () => {
 
   it("leaves an unrelated message untouched", () => {
     expect(scrubEndpointFromMessage("timeout", SECRET_URL)).toBe("timeout");
+  });
+});
+
+describe("scrubSecretsFromMessage (grok LOW-4)", () => {
+  const TOKEN = "abc123";
+
+  it("the exact security-scan test case: a message with 'Authorization: Bearer <token>' and the raw token stores neither", () => {
+    const message = `request failed: sent Authorization: Bearer ${TOKEN}, server said 401`;
+    const scrubbed = scrubSecretsFromMessage(message, SECRET_URL, TOKEN);
+    expect(scrubbed).not.toContain(TOKEN);
+    expect(scrubbed).not.toContain(`Bearer ${TOKEN}`);
+  });
+
+  it("also still scrubs the endpoint (composes with scrubEndpointFromMessage)", () => {
+    const message = `fetch failed: request to ${SECRET_URL} failed`;
+    const scrubbed = scrubSecretsFromMessage(message, SECRET_URL, TOKEN);
+    expect(scrubbed).not.toContain("user:pw");
+    expect(scrubbed).toContain("https://collector.example");
+  });
+
+  it("is a no-op on the token when none was configured", () => {
+    expect(scrubSecretsFromMessage("timeout", SECRET_URL, undefined)).toBe("timeout");
+  });
+
+  it("does not choke on an empty token", () => {
+    expect(scrubSecretsFromMessage("timeout", SECRET_URL, "")).toBe("timeout");
   });
 });
 

@@ -24,15 +24,14 @@
 //     for an unrecognized or silent client.
 import type { TelemetryStatusInfo } from "../telemetry/wiring";
 import type { FacadeMode } from "./facade";
+// THE-1125 fix round: split out to a dependency-free leaf module so telemetry/wiring.ts can use
+// the SAME table without a cycle (this file already imports TelemetryStatusInfo from wiring.ts
+// above) — see known-clients.ts's own header for the full reasoning. Re-exported here so every
+// existing `import { BUILTIN_AUTO_FACADE_CLIENTS } from "./facade-auto"` call site (doctor/
+// tool-facade.ts, this file's own tests) keeps compiling unchanged.
+import { BUILTIN_AUTO_FACADE_CLIENTS } from "./known-clients";
 
-/**
- * Checked AFTER `toolFacade.autoClients` (the operator's own config) and only when nothing there
- * matched. Order is significant: read top to bottom, first substring match wins.
- */
-export const BUILTIN_AUTO_FACADE_CLIENTS: ReadonlyArray<readonly [string, FacadeMode]> = [
-  ["claude-code", "domain"],
-  ["cursor", "triad"],
-];
+export { BUILTIN_AUTO_FACADE_CLIENTS };
 
 /** What an unmatched client — or one with no observable `clientInfo.name` at all — gets. */
 export const FALLBACK_FACADE_MODE: FacadeMode = "triad";

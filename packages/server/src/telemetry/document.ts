@@ -2,7 +2,7 @@
 // enforcement mechanism, not a formality: every key not listed here is a schema-validation
 // failure, so a future field added to `TelemetrySnapshot` (collector.ts) without a matching
 // schema key fails `buildTelemetryDocument`'s own `.parse()` loudly, in dev and in CI (see
-// telemetry-forbidden-fields.test.ts's property test), rather than silently reaching the network.
+// test/telemetry-document.test.ts's property test), rather than silently reaching the network.
 //
 // This is the SAME shape-of-defense the zod/ajv note in the repo's own memory describes for tool
 // outputs (a strict schema that REJECTS extra keys, not one that silently strips them) — this

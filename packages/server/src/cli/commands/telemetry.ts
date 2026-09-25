@@ -1,6 +1,7 @@
 // THE-1125 — `obsidian-tc telemetry preview|status|reset-id`. Opens cache.db directly (like
 // metrics.ts/consolidate.ts) rather than booting a full server: none of the three subcommands need
 // a running MCP server, only the config + the durable telemetry_state row.
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { version as VERSION } from "../../../package.json";
 import { openConfiguredDatabase } from "../../db/open";
@@ -8,7 +9,7 @@ import { provisionCacheDb } from "../../db/provision";
 import { TelemetryCollector } from "../../telemetry/collector";
 import { buildTelemetryDocument } from "../../telemetry/document";
 import { redactEndpoint, redactEndpointWithPath } from "../../telemetry/redact-endpoint";
-import { getOrCreateInstallId, readTelemetryState, resetInstallId } from "../../telemetry/state";
+import { readTelemetryState, resetInstallId } from "../../telemetry/state";
 import { defaultConfiguredFacadeMode } from "../../telemetry/wiring";
 import { CliError } from "../cli-error";
 import { type Cmd, resolveOrUsageExit } from "../shared";
@@ -21,13 +22,19 @@ export async function run_telemetry(cmd: Cmd<"telemetry">): Promise<void> {
   try {
     switch (cmd.sub) {
       case "preview": {
-        // A fresh, empty collector: `telemetry preview` from the CLI has observed no tool calls
-        // (there is no live server here), so it shows the SHAPE of the document with empty
-        // counters — real numbers come from a running server's own `telemetry preview` reachable
-        // once THE-926-style admin surfacing exists, or by reading server_health.telemetry. This
-        // still validates against the exact same strict schema a real send would use.
+        // Security review (in-pool MEDIUM-C, decided): this CLI process has observed no tool
+        // calls (there is no live server here) — counts are ALWAYS {} from this command, by
+        // construction, regardless of how much traffic a running server has actually seen.
+        // Persisting the live server's window to disk on every tick so this command could read it
+        // back was considered and rejected (a real cross-process cost — a durable write per tool
+        // call or per tick — for a CLI convenience command); this prints the exact DOCUMENT SHAPE
+        // and the real install id, and says so explicitly. Real per-tool counts are visible from
+        // `server_health`'s `telemetry` block or `doctor` on a RUNNING server instead.
         const collector = new TelemetryCollector();
-        const installId = getOrCreateInstallId(db);
+        // Security review (in-pool LOW-H): the install id is created on first ENABLED send
+        // (sendTelemetry's own getOrCreateInstallId call), never as a side effect of inspecting a
+        // disabled config. When no row exists yet, show an EPHEMERAL id (never persisted).
+        const installId = readTelemetryState(db)?.installId ?? randomUUID();
         const snap = collector.snapshot();
         const facadeMode = defaultConfiguredFacadeMode(cfg);
         const doc = buildTelemetryDocument({
@@ -43,6 +50,11 @@ export async function run_telemetry(cmd: Cmd<"telemetry">): Promise<void> {
           windowEnd: snap.windowEnd,
         });
         process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
+        process.stdout.write(
+          "\n(document SHAPE and install id only — this CLI process has observed no tool calls, " +
+            "so toolCalls/errorCodes/clientNames are always empty here; a running server's real " +
+            "counts are in server_health's telemetry block or doctor)\n",
+        );
         // Redacted by default (scheme+host — never userinfo/query, and config validation already
         // refuses userinfo in the endpoint outright); --show-path additionally shows the path,
         // which a collector convention can also use as a credential (e.g. "/ingest/<token>") —
@@ -59,7 +71,7 @@ export async function run_telemetry(cmd: Cmd<"telemetry">): Promise<void> {
           cfg.telemetry.enabled && state?.lastSendAt != null
             ? state.lastSendAt + cfg.telemetry.intervalMinutes * 60_000
             : undefined;
-        // Redacted (scheme+host+path — never the raw endpoint) — see redact-endpoint.ts.
+        // Redacted (scheme+host ONLY — never the raw endpoint) — see redact-endpoint.ts.
         const status = {
           enabled: cfg.telemetry.enabled,
           endpoint:

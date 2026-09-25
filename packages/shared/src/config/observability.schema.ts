@@ -7,11 +7,10 @@
 // or a SELF-CONTAINED `.superRefine`/`.refine` reading only its own fields (EgressConfigSchema's
 // pattern refusal, TelemetryConfigSchema's enabled-requires-endpoint check below) — no cross-domain read.
 //
-// The http/auth interlock (ServerConfigSchema.superRefine) is NOT here — it reads
-// cfg.transports.http together with cfg.auth (runtime.schema.ts/auth-acl.schema.ts), so it is
-// cross-domain and stays in config.schema.ts.
+// The http/auth interlock (ServerConfigSchema.superRefine) is NOT here — cross-domain
+// (cfg.transports.http + cfg.auth), so it stays in config.schema.ts.
 import { z } from "zod";
-import { classifyJudgeBaseUrl } from "../net-host";
+import { classifyJudgeBaseUrl, isDisallowedLiteralHost, isLoopbackHost } from "../net-host";
 
 export const ObservabilityConfigSchema = z.object({
   // traceDetail / tracesSampleRate were declared here and read by NOTHING: no sampling was ever applied
@@ -430,7 +429,7 @@ export const TelemetryConfigSchema = z
       .url()
       .optional()
       .describe(
-        "Collector URL the telemetry document is POSTed to. Required when `enabled` is true — refused below when absent. Must be `https://` unless the host is loopback (`localhost`/`127.0.0.1`/`[::1]`), which is allowed ONLY for tests and a locally-run reference collector; unlike experiential.citationInfer.judge.baseUrl there is no `allowPlainHttp` widening here for a remote host — telemetry carries no bearer key, but a remote endpoint must still be encrypted in transit.",
+        "Collector URL the telemetry document is POSTed to. Required when `enabled` is true — refused below when absent. Must be `https://` unless the host is loopback (`localhost`/`127.0.0.1`/`[::1]`), which is allowed ONLY for tests and a locally-run reference collector; unlike experiential.citationInfer.judge.baseUrl there is no `allowPlainHttp` widening here for a remote host — a bearer token (`authTokenEnv`) and the document both travel over it, so a remote endpoint must be encrypted in transit. Must not name a literal private, link-local, carrier-grade-NAT, unspecified, or cloud-metadata IP address (loopback is the one such range that IS allowed) — a hostname that happens to resolve to one is not checked here, by design.",
       ),
     intervalMinutes: z
       .number()
@@ -485,6 +484,19 @@ export const TelemetryConfigSchema = z
           path: ["endpoint"],
           message:
             "telemetry.endpoint must not contain userinfo (a username/password embedded in the URL) — the endpoint is shown by `telemetry preview`/`status`, `doctor` and `server_health`, and logged on a failed send, so a credential placed there will leak. Put a collector secret in telemetry.authTokenEnv (an environment variable name) instead; it is sent as an Authorization header and never printed or logged.",
+        });
+      }
+      // https alone does not stop a literal private/link-local/metadata host (loopback excepted).
+      let host: string | undefined;
+      try {
+        host = new URL(cfg.endpoint).hostname;
+      } catch {}
+      if (host !== undefined && !isLoopbackHost(host) && isDisallowedLiteralHost(host)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["endpoint"],
+          message:
+            "telemetry.endpoint must not name a literal private, link-local, carrier-grade-NAT, unspecified, or cloud-metadata IP address — this collector would then be reachable only from inside your own network, or (for a metadata address) could reach a cloud instance's credential-issuing endpoint. Loopback (localhost/127.0.0.1/[::1]) is the one such range that stays allowed, for tests and a locally-run collector.",
         });
       }
     }

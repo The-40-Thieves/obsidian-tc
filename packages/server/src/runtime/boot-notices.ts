@@ -86,8 +86,8 @@ export function emitBootNotices(deps: {
   // enabled — a disabled/default config prints nothing (config validation already refuses
   // `enabled: true` with no `endpoint`, so this can only ever name a real host).
   if (config.telemetry.enabled && config.telemetry.endpoint !== undefined) {
-    // redactEndpoint (never the raw URL — userinfo/query could carry a collector key): scheme +
-    // host + path only.
+    // redactEndpoint (never the raw URL — userinfo/query/path could carry a collector key):
+    // scheme + host only.
     const endpointRedacted = redactEndpoint(config.telemetry.endpoint);
     process.stderr.write(
       `telemetry: opt-in usage telemetry is ENABLED, sending to ${endpointRedacted} every ` +

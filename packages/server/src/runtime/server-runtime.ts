@@ -248,11 +248,9 @@ export async function buildServerRuntime(
 ): Promise<ServerRuntime> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults must contain at least one vault");
-  // Trust root for a `module` provider's modulePath (embeddings.modulePath / reranker.modulePath):
-  // cwd in a container is arbitrary, so a relative modulePath resolves against the config FILE's
-  // directory instead, and is refused entirely when `configPath` is absent (module-loader.ts).
-  // `configPath` is not always a config file — see docs/design/server-runtime.md for the
-  // zero-config vault-path case.
+  // Trust root for a `module` provider's modulePath: cwd in a container is arbitrary, so a
+  // relative modulePath resolves against the config FILE's directory instead, refused entirely
+  // when `configPath` is absent (module-loader.ts; see docs/design/server-runtime.md).
   const configDir = configPath !== undefined ? dirname(configPath) : undefined;
   const startedAt = Date.now();
   // THE-934 fix round 1: computed FIRST (not beside wireGatewaySeams, round 0's placement) --
@@ -285,11 +283,12 @@ export async function buildServerRuntime(
   });
   // THE-585 (#11): set once, when the HTTP transport is constructed, below.
   let httpConstructSeconds: number | null = null;
-  // indexCoordinator/scheduler are constructed further down; observability reads them through
-  // these lazily-assigned refs so its gauge sources see the live objects without construction order.
+  // indexCoordinator/scheduler are built further down; these lazy refs let readers see them live.
   let indexCoordinatorRef: IndexCoordinator | undefined;
   let schedulerRef: Scheduler | undefined;
-  const telemetry = wireTelemetry({ config, db, serverVersion: VERSION }); // THE-1125
+  let toolRegistryRef: ToolRegistry | undefined; // grok HIGH-1: registry built after telemetry.
+  const getKnownToolNames = () => new Set(toolRegistryRef?.list().map((t) => t.name) ?? []);
+  const telemetry = wireTelemetry({ config, db, serverVersion: VERSION, getKnownToolNames }); // THE-1125
   const observability = createObservability({
     db,
     cacheDir: config.cacheDir,
@@ -343,6 +342,7 @@ export async function buildServerRuntime(
     excludeFilter: egressFilter,
   });
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
+  toolRegistryRef = registry; // THE-1125: registry exists now — see this file's lazy-ref comment above.
   const {
     embeddingProvider,
     embedConfig,

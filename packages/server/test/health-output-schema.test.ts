@@ -10,13 +10,22 @@
 // false` regardless, and the SDK's ajv validator — what `Client.callTool` actually runs — rejects
 // the UNSTRIPPED payload outright. This test is the gate that stays red for that whole class of
 // drift, not just this one field.
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
+import { openDatabase } from "../src/db/open";
+import { provisionCacheDb } from "../src/db/provision";
 import { toJson } from "../src/mcp/facade";
 import type { CallerContext } from "../src/mcp/registry";
 import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
 import type { IndexStats } from "../src/search/indexer";
+import { TelemetryCollector } from "../src/telemetry/collector";
+import { sendTelemetry } from "../src/telemetry/sender";
+import { wireTelemetry } from "../src/telemetry/wiring";
 import { createHealthTool, type HealthInfo } from "../src/tools/admin/health";
 
 /** A clean IndexStats with one frontmatter failure — every field IndexStats requires. */
@@ -184,42 +193,79 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(result.valid).toBe(true);
   });
 
-  // THE-1125: the telemetry block, both fully populated and absent-optionals, validates under ajv
-  // — the same zod/ajv drift class THE-1073 fixed (a field on an internal record that reaches a
-  // tool output must be declared in the zod schema, not merely present at runtime).
-  it("the telemetry block (fully populated) validates under ajv", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
-      getTelemetryStatus: () => ({
-        enabled: true,
+  // THE-1125: the telemetry block validates under ajv — the same zod/ajv drift class THE-1073
+  // fixed (a field on an internal record that reaches a tool output must be declared in the zod
+  // schema, not merely present at runtime).
+  //
+  // Security review (in-pool HIGH-B): the ORIGINAL version of this test hand-wrote the
+  // `getTelemetryStatus` fixture, including a `lastSendAt` — which meant it could never have
+  // caught the actual bug: `wiring.ts`'s REAL `getStatus()` also returns `nextSendAt` once a send
+  // has happened, and that field was declared nowhere, so zod's safeParse silently stripped it
+  // while ajv rejected the real (unstripped) payload. This version runs a REAL seeded send
+  // through `sendTelemetry` against a real cache.db, then feeds the ACTUAL `getStatus()` output
+  // into the health tool — the only way to be sure every field that function can ever return is
+  // covered here, not just the ones a fixture author remembered to write down.
+  it("the telemetry block, from a REAL wireTelemetry(...).getStatus() after a seeded send, validates under ajv", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-health-telemetry-ajv-"));
+    try {
+      const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+      provisionCacheDb(db, { version: "test" });
+      const config = {
+        telemetry: { enabled: true, endpoint: "https://collector.example", intervalMinutes: 60 },
+        toolFacade: { mode: "triad" },
+      } as unknown as ServerConfig;
+      const telemetry = wireTelemetry({
+        config,
+        db,
+        serverVersion: "test",
+        now: () => 1737936000000,
+      });
+      // `getStatus()` reads lastSendAt/lastError back off `db` (state.ts), not off any collector
+      // instance — so a standalone collector fed straight to `sendTelemetry` against the SAME db
+      // is enough to seed real state for `telemetry.getStatus()` below to read back. This send
+      // fails (no real Loki reachable), which is what makes `lastError` populated too — the
+      // fullest real shape `getStatus()` can return.
+      await sendTelemetry({
+        db,
+        collector: new TelemetryCollector(),
         endpoint: "https://collector.example",
-        installId: "3b9e1a2c-4b1e-4a2f-9c3d-1e2f3a4b5c6d",
-        lastSendAt: 1737936000000,
-        lastError: "HTTP 503 from https://collector.example",
-      }),
-    });
-    const out = tool.handler({}, {
-      ...ctxBase,
-      authenticated: false,
-    } as CallerContext) as HealthInfo;
-    expect(out.telemetry).toEqual({
-      enabled: true,
-      endpoint: "https://collector.example",
-      installId: "3b9e1a2c-4b1e-4a2f-9c3d-1e2f3a4b5c6d",
-      lastSendAt: 1737936000000,
-      lastError: "HTTP 503 from https://collector.example",
-    });
+        serverVersion: "test",
+        facadeMode: "triad",
+        now: () => 1737936000000,
+        fetchImpl: (async () => new Response(null, { status: 503 })) as typeof fetch,
+      });
 
-    expect(tool.outputSchema).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
-    const schema = toJson(tool.outputSchema!);
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    const result = validate(JSON.parse(JSON.stringify(out)));
-    expect(result.valid).toBe(true);
+      const tool = createHealthTool({
+        version: "test",
+        vaults: ["v1"],
+        startedAt: 0,
+        nativeLoaded: false,
+        vecEnabled: false,
+        getTelemetryStatus: telemetry.getStatus,
+      });
+      const out = tool.handler({}, {
+        ...ctxBase,
+        authenticated: false,
+      } as CallerContext) as HealthInfo;
+
+      // The real shape: enabled, redacted endpoint, installId, lastSendAt, lastError, AND
+      // nextSendAt — this is exactly the field ajv used to reject.
+      expect(out.telemetry?.enabled).toBe(true);
+      expect(out.telemetry?.endpoint).toBe("https://collector.example");
+      expect(out.telemetry?.installId).toBeTruthy();
+      expect(out.telemetry?.lastSendAt).toBe(1737936000000);
+      expect(out.telemetry?.lastError).toBeTruthy();
+      expect(out.telemetry?.nextSendAt).toBe(1737936000000 + 60 * 60_000);
+
+      expect(tool.outputSchema).toBeDefined();
+      // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
+      const schema = toJson(tool.outputSchema!);
+      const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+      const result = validate(JSON.parse(JSON.stringify(out)));
+      expect(result.valid).toBe(true);
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
   });
 
   it("the telemetry block (disabled, no install id yet) validates under ajv too", () => {

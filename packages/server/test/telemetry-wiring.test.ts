@@ -46,7 +46,12 @@ describe("wireTelemetry — collector is fed from MetricsRecorder's ONE observeT
     const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
     provisionCacheDb(db, { version: "test" });
     const config = minimalTelemetryConfig({});
-    const telemetry = wireTelemetry({ config, db, serverVersion: "test" });
+    const telemetry = wireTelemetry({
+      config,
+      db,
+      serverVersion: "test",
+      getKnownToolNames: () => new Set(["search_text", "write_note"]),
+    });
     const metrics = new MetricsRecorder({}, telemetry.observer);
 
     metrics.observeToolCall("v1", "search_text", "ok", 0.01, 100, {

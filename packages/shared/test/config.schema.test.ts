@@ -815,6 +815,49 @@ describe("TelemetryConfigSchema (THE-1125)", () => {
     });
     expect(r.success).toBe(false);
   });
+
+  // Security review (grok, HIGH-3): https alone does not stop an endpoint naming a literal
+  // private/link-local/metadata IP. Exact table the reviewer used.
+  describe("literal private/link-local/metadata IP refusal (grok HIGH-3)", () => {
+    it.each(["http://127.0.0.1", "http://localhost", "http://[::1]", "http://127.1"])(
+      "allows a genuine loopback literal: %s",
+      (endpoint) => {
+        const r = ServerConfigSchema.safeParse({ ...base, telemetry: { enabled: true, endpoint } });
+        expect(r.success).toBe(true);
+      },
+    );
+
+    it.each([
+      "http://0.0.0.0",
+      "http://[::]",
+      "http://192.168.1.10",
+      "https://169.254.169.254",
+      "https://10.0.0.1",
+      "https://[fd00::1]",
+    ])("refuses a non-loopback private/link-local/unspecified/metadata literal: %s", (endpoint) => {
+      const r = ServerConfigSchema.safeParse({ ...base, telemetry: { enabled: true, endpoint } });
+      expect(r.success).toBe(false);
+    });
+
+    it("allows an uppercase-scheme public hostname", () => {
+      const r = ServerConfigSchema.safeParse({
+        ...base,
+        telemetry: { enabled: true, endpoint: "HTTPS://EXAMPLE.com" },
+      });
+      expect(r.success).toBe(true);
+    });
+
+    it("does not resolve DNS — a plain hostname is never checked against these ranges here", () => {
+      // Documented behavior, not a gap: a hostname that HAPPENS to resolve to 10.0.0.1 at request
+      // time is an operator's own configured, documented choice — this schema check only ever
+      // looks at the literal text of the URL.
+      const r = ServerConfigSchema.safeParse({
+        ...base,
+        telemetry: { enabled: true, endpoint: "https://internal.example.corp" },
+      });
+      expect(r.success).toBe(true);
+    });
+  });
 });
 
 describe("ObsidianTcError", () => {

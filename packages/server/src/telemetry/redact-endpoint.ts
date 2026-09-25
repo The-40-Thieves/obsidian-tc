@@ -57,6 +57,29 @@ export function scrubEndpointFromMessage(message: string, endpoint: string): str
   return out;
 }
 
+/**
+ * THE-1125 (grok LOW-4): `scrubEndpointFromMessage` protects the endpoint, but a transport error
+ * or an HTTP client library can ALSO echo request headers it sent — including
+ * `Authorization: Bearer <token>` — back into its own error text (observed on several `fetch`
+ * implementations' verbose error modes). `sender.ts` calls this INSTEAD of
+ * `scrubEndpointFromMessage` alone whenever `authToken` is defined, so the bearer value can never
+ * reach a log line or `telemetry_state.last_error`, the same guarantee the endpoint already has.
+ * Strips both the bare token substring and any `Bearer <token>` spelling; case-sensitive (a bearer
+ * token is itself case-sensitive, so a case-insensitive strip would both under- and over-match).
+ */
+export function scrubSecretsFromMessage(
+  message: string,
+  endpoint: string,
+  authToken: string | undefined,
+): string {
+  let out = scrubEndpointFromMessage(message, endpoint);
+  if (authToken !== undefined && authToken.length > 0) {
+    out = out.split(`Bearer ${authToken}`).join("Bearer <redacted>");
+    out = out.split(authToken).join("<redacted>");
+  }
+  return out;
+}
+
 /** Cap a message before it is logged or persisted as `lastError` — an unbounded transport error
  *  string (some stack-trace-shaped `AggregateError` messages run to several KB) is a storage and
  *  log-noise problem independent of the redaction above. Truncation happens AFTER scrubbing, so a

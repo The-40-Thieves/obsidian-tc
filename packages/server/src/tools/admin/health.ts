@@ -86,15 +86,22 @@ export interface HealthInfo {
   };
   /** THE-1125: opt-in telemetry status. Always present when wired (every real deployment; absent
    *  only for a harness/bare unit test of this tool). `endpoint` is REDACTED
-   *  (telemetry/redact-endpoint.ts: scheme + host + path) — never the raw configured URL, whose
-   *  userinfo or query string may carry a collector API key. `installId`/`lastSendAt`/`lastError`
-   *  are absent until this install has sent (or attempted to send) at least once. */
+   *  (telemetry/redact-endpoint.ts: scheme + host ONLY, never the path) — never the raw configured
+   *  URL, whose userinfo, query string, or path may carry a collector API key. `installId`/
+   *  `lastSendAt`/`lastError`/`nextSendAt` are absent until this install has sent (or attempted to
+   *  send) at least once. Security review (in-pool HIGH-B): `nextSendAt` was returned by
+   *  `wiring.ts`'s `getStatus()` but not declared here — zod's `safeParse` silently stripped it
+   *  (passed), but the SDK's ajv validator rejects the unstripped payload outright once a send has
+   *  actually happened and the field is populated (the same zod/ajv drift class THE-1073 fixed).
+   *  Declared below now; see `test/health-output-schema.test.ts`'s ajv test, built from a REAL
+   *  `wireTelemetry(...).getStatus()` after a seeded send, not a hand-written fixture. */
   telemetry?: {
     enabled: boolean;
     endpoint?: string;
     installId?: string;
     lastSendAt?: number;
     lastError?: string;
+    nextSendAt?: number;
   };
 }
 
@@ -185,6 +192,7 @@ const TelemetryHealthOutput = z.object({
   installId: z.string().optional(),
   lastSendAt: z.number().optional(),
   lastError: z.string().optional(),
+  nextSendAt: z.number().optional(),
 });
 
 const HealthInfoOutput = z.object({
@@ -281,6 +289,7 @@ export function createHealthTool(opts: {
     installId?: string;
     lastSendAt?: number;
     lastError?: string;
+    nextSendAt?: number;
   };
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {

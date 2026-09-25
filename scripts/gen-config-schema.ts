@@ -307,7 +307,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // default endpoint (see observability.schema.ts's TelemetryConfigSchema for the full contract:
   // enabled requires endpoint, endpoint must be https unless loopback, endpoint must not carry
   // userinfo). No existing key, type, default or constraint moved.
-  "56d16b2a4c5bed789084b09bd6f5c1e9cf7c1fb978951a61aca66320e83abc00";
+  // THE-1125 (2026-09-25, security-review fix round): rebaselined deliberately again —
+  // DESCRIPTION TEXT ONLY on `telemetry.endpoint`. Now also states the literal
+  // private/link-local/carrier-grade-NAT/unspecified/cloud-metadata IP refusal (a validation
+  // behavior added the same round, not merely documented) and that a bearer token travels
+  // alongside the document (fixing a description that used to say telemetry carries no bearer
+  // key, which stopped being true once `authTokenEnv` shipped). No key, type, default or
+  // constraint moved.
+  "e06095dcc0536f5d766a1fbf3f938d39e6db7fc4d57f43d7bf409e5a51b0077a";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

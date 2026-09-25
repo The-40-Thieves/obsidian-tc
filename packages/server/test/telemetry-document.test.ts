@@ -1,19 +1,31 @@
 // THE-1125 — TelemetryDocumentSchema is `.strict()`: the acceptance-critical guarantee this repo
 // promised (SECURITY.md, THE-1117 owner constraints) is that NOTHING but the declared keys can
 // ever reach the network. This file has two halves: (1) the schema's own shape (accepts the
-// well-formed document, rejects an extra key), and (2) a hand-rolled property test — no
-// fast-check in this repo's devDependencies, so a small seeded PRNG generator stands in for it —
-// that feeds hundreds of adversarial tool names / error codes / client names through the REAL
-// collector -> document pipeline and asserts the resulting object, re-serialized through
-// JSON.stringify, NEVER contains a key outside TELEMETRY_DOCUMENT_KEYS.
+// well-formed document, rejects an extra key), and (2) a property test that feeds adversarial tool
+// names through the REAL `ToolRegistry.dispatch` path — no fast-check in this repo's
+// devDependencies, so a small seeded PRNG generator stands in for it.
+//
+// Security review (grok HIGH-1, 2026-09-25): the ORIGINAL version of this test called
+// `collector.recordToolCall(...)` directly, so it only ever asserted the collector's OWN
+// behavior — it could not have caught the actual bug, which was that `dispatch.ts` handed the
+// collector a caller-supplied string it never validated at all (an unknown `tools/call` name
+// throws `not_found`, and `observeToolCall(..., name, ...)` still records that same name). This
+// version dispatches through a real `ToolRegistry` instead, the exact code path an adversarial
+// `tools/call`/`call_capability` invocation takes, and additionally scans the WHOLE serialized
+// document (not just top-level keys) for path/URL-shaped substrings.
 import { describe, expect, it } from "vitest";
-import { TelemetryCollector } from "../src/telemetry/collector";
+import { z } from "zod";
+import type { Database } from "../src/db/types";
+import type { CallerContext } from "../src/mcp/registry";
+import { ToolRegistry } from "../src/mcp/registry";
+import { MetricsRecorder } from "../src/metrics/registry";
 import {
   buildTelemetryDocument,
   TELEMETRY_DOCUMENT_KEYS,
   TELEMETRY_SCHEMA_VERSION,
   TelemetryDocumentSchema,
 } from "../src/telemetry/document";
+import { wireTelemetry } from "../src/telemetry/wiring";
 
 function validDoc() {
   return {
@@ -90,13 +102,14 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-// Mostly within TelemetryDocumentSchema's own bounds (min 1, max 200 for map keys / 128 for
-// client names) — adversarial in CONTENT (paths, SQL, secrets, prototype-pollution-shaped keys),
-// which is what a real (bounded-vocabulary) tool/error-code name could never legitimately be but
-// a bug elsewhere might still hand the collector. Two entries are deliberately OUT of bounds (an
-// empty string, an over-length string) to exercise buildTelemetryDocument's fail-closed path too.
+// Path/URL-shaped and otherwise-sensitive adversarial strings — what a hostile `tools/call`
+// might name a nonexistent tool, or what a client might declare as its own `clientInfo.name`.
+// Deliberately includes forward slashes, backslashes, "://", and prototype-pollution-shaped keys.
 const ADVERSARIAL_STRINGS = [
   "/Users/alice/vault/Private/journal.md",
+  "C:\\Users\\alice\\vault\\Private\\journal.md",
+  "https://evil.example/steal?token=abc123",
+  "file:///etc/passwd",
   "SELECT * FROM chunk_retrievals WHERE caller = 'bob'",
   "vault-id-abc123",
   "sk-live-abcdef1234567890",
@@ -108,67 +121,106 @@ const ADVERSARIAL_STRINGS = [
   "toolCalls",
   "errorCodes",
   "schema",
-  "", // out of bounds: exercises the fail-closed (empty-key) path
-  "a".repeat(500), // out of bounds: exercises the fail-closed (over-length) path
+  "a".repeat(300),
 ];
 
-describe("telemetry forbidden-fields property test (THE-1125)", () => {
-  it("random tool names / error codes / client names flowing through the REAL collector never leak a key outside the closed schema", () => {
+const REGISTERED_TOOL_NAMES = ["search_text", "read_note", "write_note"];
+
+const fakeDb = {
+  prepare: () => ({ run: () => undefined, get: () => undefined, all: () => [] }),
+} as unknown as Database;
+
+function ctx(overrides: Partial<CallerContext> = {}): CallerContext {
+  return {
+    caller: "test",
+    authenticated: true,
+    grantedScopes: new Set(["*"]),
+    vaultId: "main",
+    db: fakeDb,
+    ...overrides,
+  };
+}
+
+const tool = (name: string) => ({
+  name,
+  description: "",
+  inputSchema: z.object({}).strict(),
+  requiredScopes: [] as string[],
+  handler: () => ({ ok: true }),
+});
+
+describe("telemetry property test — fed through the REAL ToolRegistry.dispatch path (THE-1125)", () => {
+  it("random tool names and client names, dispatched for real, never leak a path/URL/raw-string key at any depth", async () => {
     const rand = mulberry32(20260925);
     const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)] as T;
-    let successCount = 0;
-    let failClosedCount = 0;
 
-    for (let trial = 0; trial < 500; trial++) {
-      const collector = new TelemetryCollector(() => 1000);
-      const toolCallCount = 1 + Math.floor(rand() * 8);
-      for (let i = 0; i < toolCallCount; i++) {
-        const tool = pick(ADVERSARIAL_STRINGS);
-        const hasError = rand() < 0.5;
-        collector.recordToolCall(tool, hasError ? pick(ADVERSARIAL_STRINGS) : undefined);
-        if (rand() < 0.5) collector.recordClientName(pick(ADVERSARIAL_STRINGS));
-      }
-      const snap = collector.snapshot(() => 2000);
-      // FAIL CLOSED is an acceptable outcome here: buildTelemetryDocument's own contract (see its
-      // doc comment) is to THROW rather than send a document it cannot validate — an
-      // out-of-bounds key/name from a malformed collector entry (never expected from the real
-      // bounded tool/error-code vocabularies, but this generator deliberately includes some) must
-      // never produce a document that escapes the closed schema; throwing satisfies that just as
-      // well as succeeding with a clean document does. Only a SUCCESSFUL build is checked against
-      // the closed key set below — a thrown build sent nothing, so there is nothing to leak.
-      let doc: ReturnType<typeof buildTelemetryDocument> | undefined;
-      try {
-        doc = buildTelemetryDocument({
-          installId: "3b9e1a2c-4b1e-4a2f-9c3d-1e2f3a4b5c6d",
-          serverVersion: "1.31.3",
-          os: "linux",
-          arch: "x64",
-          facadeMode: pick(["triad", "domain", "flat"] as const),
-          clientNames: snap.clientNames,
-          toolCalls: snap.toolCalls,
-          errorCodes: snap.errorCodes,
-          windowStart: snap.windowStart,
-          windowEnd: snap.windowEnd,
-        });
-      } catch {
-        failClosedCount++;
-        continue; // fail-closed: nothing was built, so nothing could have leaked.
-      }
-      successCount++;
-      // Round-trip through JSON exactly as the sender does before it ever reaches `fetch`.
-      const roundTripped = JSON.parse(JSON.stringify(doc));
-      const keys = Object.keys(roundTripped);
-      for (const k of keys) {
-        expect(TELEMETRY_DOCUMENT_KEYS).toContain(k);
-      }
-      // And the schema itself agrees (belt + suspenders: the closed key set AND strict parsing).
-      expect(TelemetryDocumentSchema.safeParse(roundTripped).success).toBe(true);
+    const config = {
+      telemetry: { enabled: false, intervalMinutes: 60 },
+      toolFacade: { mode: "triad" },
+    } as unknown as Parameters<typeof wireTelemetry>[0]["config"];
+    const telemetry = wireTelemetry({
+      config,
+      db: fakeDb,
+      serverVersion: "test",
+      getKnownToolNames: () => new Set(REGISTERED_TOOL_NAMES),
+    });
+    const metrics = new MetricsRecorder({}, telemetry.observer);
+    const registry = new ToolRegistry({ metrics });
+    for (const name of REGISTERED_TOOL_NAMES) registry.register(tool(name));
+
+    let registeredCalls = 0;
+    let unregisteredCalls = 0;
+
+    for (let trial = 0; trial < 300; trial++) {
+      const useRegistered = rand() < 0.3;
+      const name = useRegistered ? pick(REGISTERED_TOOL_NAMES) : pick(ADVERSARIAL_STRINGS);
+      if (useRegistered) registeredCalls++;
+      else unregisteredCalls++;
+      const clientName = rand() < 0.4 ? pick(ADVERSARIAL_STRINGS) : undefined;
+      // `reg.dispatch` is the REAL dispatch path (mcp/registry.ts -> registry/dispatch.ts):
+      // an unregistered name throws `not_found` internally and is still recorded via
+      // `observeToolCall`, exactly the sequence grok's HIGH-1 finding named.
+      await registry.dispatch(
+        name,
+        {},
+        ctx({ clientInfo: clientName ? { name: clientName } : undefined }),
+      );
     }
 
-    // Existence floor: a generator that always throws (or always succeeds) would make one whole
-    // branch of this test vacuous — assert BOTH paths actually ran, not just that neither one
-    // crashed the loop.
-    expect(successCount).toBeGreaterThan(0);
-    expect(failClosedCount).toBeGreaterThan(0);
+    // Existence floor: both branches of the generator actually ran.
+    expect(registeredCalls).toBeGreaterThan(0);
+    expect(unregisteredCalls).toBeGreaterThan(0);
+
+    const doc = telemetry.previewDocument();
+    const serialized = JSON.stringify(doc);
+
+    // Top-level closed-key-set check (belt + suspenders — the schema itself already enforces it).
+    for (const k of Object.keys(doc)) expect(TELEMETRY_DOCUMENT_KEYS).toContain(k);
+    expect(TelemetryDocumentSchema.safeParse(JSON.parse(serialized)).success).toBe(true);
+
+    // ANY-DEPTH check, scoped to the CALLER-INFLUENCED VALUES only — the MAP KEYS of
+    // toolCalls/errorCodes and the ELEMENTS of clientNames, joined as a flat string, never this
+    // test's own wrapper structure (which would otherwise false-positive on the literal strings
+    // "toolCalls"/"errorCodes" appearing as JSON keys, and `doc.schema` legitimately contains a
+    // "/" in its version literal). Must never contain a path separator, a "scheme://" marker, or
+    // any of the adversarial strings verbatim.
+    const callerInfluenced = [
+      ...Object.keys(doc.toolCalls),
+      ...Object.keys(doc.errorCodes),
+      ...doc.clientNames,
+    ].join("\u0000");
+    expect(callerInfluenced).not.toMatch(/\//);
+    expect(callerInfluenced).not.toMatch(/\\\\/);
+    expect(callerInfluenced).not.toContain("://");
+    for (const s of ADVERSARIAL_STRINGS) {
+      if (s.length === 0) continue;
+      expect(callerInfluenced).not.toContain(s);
+    }
+
+    // Positive control: a REGISTERED tool's own name DOES appear (proves the allowlist did not
+    // just blank everything — only unregistered/adversarial input is bucketed away).
+    expect(Object.keys(doc.toolCalls).some((k) => REGISTERED_TOOL_NAMES.includes(k))).toBe(true);
+    // And every unregistered call collapsed into the single "unknown" bucket, never its own key.
+    expect(doc.toolCalls.unknown).toBeGreaterThan(0);
   });
 });

@@ -220,34 +220,56 @@ boot, never a silent no-op. Full configuration reference:
 [docs/configuration/telemetry.md](docs/src/content/docs/configuration/telemetry.md).
 
 **What is sent**, once every `telemetry.intervalMinutes` (never at boot): an install
-id (a random UUID, not derived from anything identifying), the server version, OS and
-architecture, which tool-surface facade mode is active, per-tool call counts,
-per-error-code counts, and up to 32 distinct MCP client names seen (software names —
-`"claude-code"`, `"cursor"` — never a person or a token).
+id (a random UUID, generated on the first send, not derived from anything
+identifying), the server version, OS and architecture, which tool-surface facade mode
+is active, per-tool call counts, per-error-code counts, and up to 32 distinct
+canonicalized MCP client labels seen (software names — `"claude-code"`, `"cursor"`,
+else `"other"` — never a person or a token).
 
 **What is never sent**: vault paths, note content, search queries, vault ids,
 principals/callers, tokens, hostnames, or environment variables. This is enforced
-structurally, not by convention — the outgoing document is validated against a
-`.strict()` zod schema whose key set is closed (`packages/server/src/telemetry/document.ts`);
-a field outside that set fails validation before it can be serialized, and a
-property-based test feeds adversarial tool/client names through the real counter
-pipeline and asserts the closed key set holds.
+structurally, not by convention, at TWO levels: the outgoing document is validated
+against a `.strict()` zod schema whose top-level key set is closed
+(`packages/server/src/telemetry/document.ts`) — a field outside that set fails
+validation before it can be serialized — and, inside it, `toolCalls`/`errorCodes` keys
+and `clientNames` values are each allowlisted at RECORD time
+(`packages/server/src/telemetry/collector.ts`) against this server's own closed
+vocabularies (registered tool names, the fixed `ErrorCode` enum, and a small
+known-client table) — anything else collapses to a fixed `"unknown"`/`"other"` bucket,
+never the caller-supplied string itself. This closes a real finding from a
+security-lane review of this feature: an unregistered `tools/call` name used to be
+recorded verbatim, with no allowlist and no cap, before the caller ever reached the
+document schema. A property-based test dispatches adversarial names through this
+server's real dispatch path (the actual route a hostile `tools/call` takes) and
+asserts the resulting document never contains a path separator, a `scheme://` marker,
+or the caller's raw string, at any depth.
 
-**How to inspect it**: `obsidian-tc telemetry preview` prints the exact document that
-would be sent right now, without sending it. `obsidian-tc telemetry status` (or
-`doctor` / `server_health`'s `telemetry` block) prints enabled/endpoint/install
-id/last-send outcome.
+**How to inspect it**: `obsidian-tc telemetry preview` prints the exact document SHAPE
+and your install id (it runs in its own short-lived process, so its
+`toolCalls`/`errorCodes`/`clientNames` are always empty — read a running server's real
+counts from `server_health`'s `telemetry` block or `doctor` instead). `obsidian-tc
+telemetry status` (or `doctor` / `server_health`'s `telemetry` block) prints
+enabled/endpoint/install id/last-send outcome/next-send time.
 
 **Transport**: `endpoint` must be `https://` unless the host is loopback (a local
-test/dev collector) and may not contain userinfo (a URL is exactly what `preview`/
-`status`/`doctor`/`server_health` print and a failed send logs, so a credential
-embedded there would leak — an optional bearer token via `telemetry.authTokenEnv`,
-sent only as an `Authorization` header, is the supported alternative). A send never
-auto-follows a redirect (which could otherwise resend the bearer token and the
-document to an unaudited host), never retries in a loop, has a 10-second timeout, and
-never blocks or throws into a tool call — a failed send is logged once at `warn`,
-with the endpoint reduced to `scheme://host`, and the window's counts are kept (not
-reset) so the next attempt is cumulative.
+test/dev collector), may not name a literal private/link-local/carrier-grade-NAT/
+unspecified/cloud-metadata IP address (loopback is the one such range allowed; a
+hostname that RESOLVES to one is not checked, by design — see
+`packages/shared/src/net-host.ts`'s `isDisallowedLiteralHost`), and may not contain
+userinfo (a URL is exactly what `preview`/`status`/`doctor`/`server_health` print and
+a failed send logs, so a credential embedded there would leak — an optional bearer
+token via `telemetry.authTokenEnv`, sent only as an `Authorization` header and never
+printed/logged/persisted, is the supported alternative; if it is set but the named
+env var is unset, the send is refused rather than going out unauthenticated). A send
+never auto-follows a redirect (which could otherwise resend the bearer token and the
+document to an unaudited host), never reads the response body (cancelled immediately,
+bounded by one timeout that covers the whole send, not merely the header wait), never
+retries in a loop, has a 10-second timeout, and never blocks or throws into a tool
+call — a failed send is logged once at `warn`, with the endpoint reduced to
+`scheme://host` and any bearer token value scrubbed, and the window's counts are kept
+(not reset) so the next attempt is cumulative. A document-build failure (should be
+unreachable given the allowlisting above, but defended anyway) resets the window and
+records a fixed short code, never a raw error dump that could itself echo the cause.
 
 **How to turn it off**: set `telemetry.enabled: false` (the default), or omit the
 block entirely.

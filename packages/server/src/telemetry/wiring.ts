@@ -4,20 +4,25 @@
 // `telemetry status`/`preview` CLI commands need. Mirrors runtime/observability.ts's own seam
 // shape (a plain object of callbacks the rest of the server takes instead of importing this
 // module directly) so telemetry stays optional dead weight on a build that never enables it.
+import { randomUUID } from "node:crypto";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
+// THE-1125 fix round: imported from known-clients.ts, NOT facade-auto.ts — facade-auto.ts already
+// imports TelemetryStatusInfo (type-only) from THIS file, so importing back from facade-auto.ts
+// would be a real module-graph cycle (check:boundaries' no-circular catches type-only edges too).
+import { BUILTIN_AUTO_FACADE_CLIENTS } from "../mcp/known-clients";
 import type { ToolCallObserver, ToolCallStatus } from "../metrics/registry";
 import type { Scheduler } from "../scheduler/scheduler";
 import { TelemetryCollector } from "./collector";
 import { buildTelemetryDocument, type TelemetryDocument } from "./document";
 import { redactEndpoint } from "./redact-endpoint";
 import { sendTelemetry } from "./sender";
-import { getOrCreateInstallId, readTelemetryState } from "./state";
+import { readTelemetryState } from "./state";
 
 export interface TelemetryStatusInfo {
   enabled: boolean;
-  /** Redacted (redact-endpoint.ts: scheme + host + path) — never the raw configured URL, whose
-   *  userinfo or query string may carry a collector API key. */
+  /** Redacted (redact-endpoint.ts: scheme + host ONLY, never the path) — never the raw configured
+   *  URL, whose userinfo, query string, or path may carry a collector API key. */
   endpoint?: string;
   installId?: string;
   lastSendAt?: number;
@@ -61,6 +66,12 @@ export interface TelemetryWiringDeps {
    *  since THE-1123's `toolFacade.mode: "auto"` can differ per client). Defaults to
    *  `defaultConfiguredFacadeMode(config)`; a test seam may override. */
   getConfiguredFacadeMode?: () => "triad" | "domain" | "flat";
+  /** Security review (grok HIGH-1): the registered tool names `TelemetryCollector` allowlists
+   *  `toolCalls` keys against — read LIVE (the registry is constructed after telemetry itself in
+   *  server-runtime.ts's boot order; see that file's lazy-ref pattern). Defaults to an
+   *  always-empty set, which is safe (everything buckets to `unknown`) for a caller with no live
+   *  registry (the CLI `telemetry preview`/`status` commands, or a bare unit test). */
+  getKnownToolNames?: () => ReadonlySet<string>;
   now?: () => number;
 }
 
@@ -70,7 +81,7 @@ export interface TelemetryWiringDeps {
  *  network call. */
 export function wireTelemetry(deps: TelemetryWiringDeps): TelemetryWiring {
   const now = deps.now ?? Date.now;
-  const collector = new TelemetryCollector(now);
+  const collector = new TelemetryCollector(deps.getKnownToolNames, now);
   let lastFacadeMode: "triad" | "domain" | "flat" = (
     deps.getConfiguredFacadeMode ?? (() => defaultConfiguredFacadeMode(deps.config))
   )();
@@ -82,7 +93,7 @@ export function wireTelemetry(deps: TelemetryWiringDeps): TelemetryWiring {
       detail?: { errorCode?: string; facadeMode?: string; clientName?: string },
     ) {
       collector.recordToolCall(tool, detail?.errorCode);
-      collector.recordClientName(detail?.clientName);
+      collector.recordClientName(detail?.clientName, BUILTIN_AUTO_FACADE_CLIENTS);
       if (
         detail?.facadeMode === "triad" ||
         detail?.facadeMode === "domain" ||
@@ -132,7 +143,13 @@ export function wireTelemetry(deps: TelemetryWiringDeps): TelemetryWiring {
       };
     },
     previewDocument(): TelemetryDocument {
-      const installId = getOrCreateInstallId(deps.db, now);
+      // Security review (in-pool, LOW-H): the install id is created on first ENABLED send
+      // (sendTelemetry's own getOrCreateInstallId call), never as a side effect of a preview read
+      // — a disabled config that is merely being inspected must not seed durable state. When no
+      // row exists yet, show an EPHEMERAL id (never persisted) so the document's shape is still
+      // demonstrable; when a real one already exists (this install has sent, or enabled it
+      // before), show that one.
+      const installId = readTelemetryState(deps.db)?.installId ?? randomUUID();
       const snap = collector.snapshot(now);
       return buildTelemetryDocument({
         installId,
