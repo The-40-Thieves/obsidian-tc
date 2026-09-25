@@ -676,6 +676,59 @@ jobs:
           npm publish --provenance --access public --tag "$tag"
         shell: bash
 
+  # THE-1122: @the-40-thieves/obsidian-tc-embedder-local. Deliberately mirrors publish-reranker-local
+  # above line for line, same reasoning: NOT a root workspace member (its own README, same ~large
+  # @huggingface/transformers dependency), so its own install/build/publish steps, depends on
+  # verify-tag ONLY (no intra-repo dependency on native/shared/server), and the same "trusted
+  # publishing cannot create a new package" caveat applies — the very first `npm publish` for this
+  # package name is a deferred, one-time OWNER action; this job's publish step 403/404s on a
+  # from-scratch registry until that manual step has happened, which is EXPECTED, not a defect.
+  publish-embedder-local:
+    if: github.event_name == 'push' || !inputs.dry_run
+    needs: verify-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: install + build
+        working-directory: packages/embedder-local
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run build
+        shell: bash
+      - name: preflight — is this version already published?
+        id: preflight
+        working-directory: packages/embedder-local
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "already published: $name@$version"
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unpublished: $name@$version"
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+      - name: publish (trusted publishing / OIDC — requires the one-time manual first publish, see reranker-local's own job comment)
+        if: steps.preflight.outputs.already_published != 'true'
+        working-directory: packages/embedder-local
+        env:
+          PRERELEASE: ${{ needs.verify-tag.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if [ "$PRERELEASE" = "true" ]; then tag=next; else tag=latest; fi
+          echo "publishing $version to dist-tag: $tag"
+          npm publish --provenance --access public --tag "$tag"
+        shell: bash
+
   build-binaries:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
@@ -752,9 +805,13 @@ jobs:
       # external keeps the dynamic import() a genuine runtime lookup instead of a bundler resolution
       # failure; the "local" reranker is unreachable from a compiled binary either way (documented,
       # not fought — see the THE-705 research brief), and this only ensures that fact doesn't also
-      # break every OTHER provider's compile.
+      # break every OTHER provider's compile. THE-1122: the local EMBEDDER package is --external for
+      # the identical reason (same onnxruntime-node dlopen constraint) — it is now the DEFAULT
+      # embeddings provider, so its unreachability from a compiled binary is user-visible (docs say
+      # so: install.md's standalone-binary section names a hosted/self-hosted provider as the
+      # workaround there), but the compile-time handling is the same "mark external, never fought."
       - name: compile standalone binary
-        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --external @the-40-thieves/obsidian-tc-reranker-local --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
+        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
       # THE-578: RUN the thing we are about to ship. Two assertions, because the first alone is not
       # enough: `version` proves the module graph loads (the old failure was at load time, in

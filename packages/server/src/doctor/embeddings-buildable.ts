@@ -11,6 +11,11 @@ export interface LocalEmbedderProbeResult {
   ok: boolean;
   route?: string;
   attempts: string[];
+  /** True when this process is running from inside a source checkout of the monorepo (the
+   *  package's own directory was found, even though it isn't built) — see
+   *  local-embedder-registry.ts's LocalEmbedderResolution.inSourceCheckout doc comment. Governs
+   *  WARN vs FAIL below on an unsuccessful resolution. */
+  inSourceCheckout: boolean;
 }
 
 export interface EmbeddingsBuildableView {
@@ -67,11 +72,20 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
           },
         };
       }
+      // THE-1122 review: WARN (not FAIL) when this is a source checkout that simply hasn't run
+      // `bun run build` in packages/embedder-local yet — a normal, one-command-fixable dev-time
+      // state, not a broken install. FAIL is reserved for the case this genuinely CANNOT resolve
+      // (a real npm/Docker/binary install today, before the package's first npm publish — see
+      // packages/embedder-local/README.md's "Resolution ladder" and "Publishing status"): that is
+      // an actual "semantic search does not work" gap worth alarming on.
+      const sourceCheckoutNotBuilt = probe.inSourceCheckout;
       return {
-        status: "fail" as CheckStatus,
-        summary: platform.supported
-          ? 'embeddings: "local" could not resolve the optional @the-40-thieves/obsidian-tc-embedder-local package — indexing and semantic search will fail while this holds'
-          : `embeddings: "local" could not resolve, and this platform cannot run it anyway — ${platform.note}`,
+        status: (sourceCheckoutNotBuilt ? "warning" : "fail") as CheckStatus,
+        summary: !platform.supported
+          ? `embeddings: "local" could not resolve, and this platform cannot run it anyway — ${platform.note}`
+          : sourceCheckoutNotBuilt
+            ? 'embeddings: "local" is not yet built in this source checkout — run "bun run build" in packages/embedder-local'
+            : 'embeddings: "local" could not resolve the optional @the-40-thieves/obsidian-tc-embedder-local package — indexing and semantic search will fail while this holds',
         details: {
           provider: "local",
           attempts: probe.attempts,
@@ -79,7 +93,9 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
           ...platformDetails(view),
         },
         issues: [
-          'embeddings.provider "local" is configured (or is the unconfigured default) but the optional package does not resolve — dense retrieval and indexing will fail until this is fixed',
+          sourceCheckoutNotBuilt
+            ? 'embeddings.provider "local" (the default) is not built in this checkout yet — run "bun run build" in packages/embedder-local, or the boot reconcile will degrade to FTS-only, same as an unreachable hosted provider'
+            : 'embeddings.provider "local" is configured (or is the unconfigured default) but the optional package does not resolve — dense retrieval and indexing will fail until this is fixed',
         ],
         remediation:
           'In a source checkout of this monorepo, run "bun run build" inside packages/embedder-local; once published, run "bun add @the-40-thieves/obsidian-tc-embedder-local"; or set an explicit hosted/hosted-compatible embeddings.provider instead (openai, voyage, cohere, bge-m3, openai-compatible, ollama).',

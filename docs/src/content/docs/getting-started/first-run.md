@@ -9,11 +9,13 @@ The fastest way to try it, no install step and no config file:
 npx obsidian-tc /path/to/vault
 ```
 
-Every note tool and lexical search work immediately, and semantic search works out of the box
-too — a bundled, fully offline embedder handles indexing with no config at all (see
-[Embeddings](/configuration/embeddings/)). A config file is the upgrade for everything else:
-ACLs, human-in-the-loop confirmation, the generative tier, and choosing a different (Ollama or
-hosted) embeddings provider — the rest of this page walks through that path.
+Every note tool and lexical search work immediately. Semantic search is designed to work out of
+the box too — a bundled, fully offline embedder handles indexing with no config at all — but see
+[Embeddings](/configuration/embeddings/) for where that's actually reachable today (a source
+checkout; not yet the `npx`/npm install above or the Docker image, pending the embedder package's
+first publish). A config file is the upgrade for everything else: ACLs, human-in-the-loop
+confirmation, the generative tier, and choosing a different (Ollama or hosted) embeddings
+provider — the rest of this page walks through that path.
 
 ## 1. Write a config
 

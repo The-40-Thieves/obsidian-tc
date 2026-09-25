@@ -303,9 +303,14 @@ describe.skipIf(!bunAvailable)(
         configPath,
         `${JSON.stringify(
           {
-            // No reranker block, no gateway URL, default `ollama` embeddings (no modelTier.full) —
-            // exactly autoSelectLocalRerankerConfigAllows's "yes" case, on a supported platform
-            // (this box is linux glibc): auto-select "local" is attempted at boot.
+            // No reranker block, no gateway URL, `ollama` embeddings (no modelTier.full) — exactly
+            // autoSelectLocalRerankerConfigAllows's "yes" case, on a supported platform (this box
+            // is linux glibc): auto-select "local" is attempted at boot. THE-1122: `embeddings` is
+            // now EXPLICIT (provider "ollama", not the schema's new "local" default) — this test's
+            // fake monorepo tree has no packages/embedder-local anywhere, so the schema default
+            // would make doctor's (unrelated) embeddings.buildable check fail the whole run; this
+            // test's job is the RERANKER auto-select path only.
+            embeddings: { provider: "ollama", model: "nomic-embed-text", dimensions: 768 },
             vaults: [{ id: "smoke", path: join(stage, "vault") }],
             cacheDir: join(stage, "cache"),
           },

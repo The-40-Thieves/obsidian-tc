@@ -9,13 +9,17 @@ The fastest way to try it, no install step and no config file:
 npx obsidian-tc /path/to/vault
 ```
 
-Every note tool and lexical search work immediately, and semantic search works out
-of the box too: a bundled, fully offline embedder handles indexing with no config
-file, no Ollama, and no API key (small one-time model download on first use — see
-[Embeddings](/configuration/embeddings/)). Ollama and every hosted provider (OpenAI,
-Voyage, Cohere, …) are opt-in — a config file is what selects one, and is also the
-upgrade for ACLs, HITL, the generative tier, and everything else — see [First
-Run](/getting-started/first-run/).
+Every note tool and lexical search work immediately. Semantic search is designed to
+work out of the box too: a bundled, fully offline embedder handles indexing with no
+config file, no Ollama, and no API key (one-time model download on first use). **On
+the `npx`/npm install above and the Docker image, that default is not yet reachable**
+pending the embedder package's first npm publish (a deferred one-time step) — it
+works today only for a source checkout of this repo; see
+[Embeddings](/configuration/embeddings/) for the exact per-install-method state and
+the workaround (set an explicit hosted/self-hosted provider). Ollama and every hosted
+provider (OpenAI, Voyage, Cohere, …) are opt-in either way — a config file is what
+selects one, and is also the upgrade for ACLs, HITL, the generative tier, and
+everything else — see [First Run](/getting-started/first-run/).
 
 obsidian-tc ships in several forms. All of them run the same server; pick whichever
 fits your environment.
@@ -63,7 +67,11 @@ docker run --rm -v "$HOME/vaults:/vaults" \
 ```
 
 The image is an `oven/bun:1.4.2-slim` build (Debian, glibc): the native prebuilds are
-gnu, so a glibc base keeps them loadable instead of forcing the pure-JS fallback.
+gnu, so a glibc base keeps them loadable instead of forcing the pure-JS fallback. The
+bundled local embedder (and local reranker) cannot resolve here either — the image
+ships only the built server bundle, no `node_modules` — so the same npm-install
+caveat above applies: set a hosted or self-hosted `embeddings.provider` for semantic
+search until the embedder package's first npm publish lands.
 
 ## One-click bundle (`.mcpb`)
 

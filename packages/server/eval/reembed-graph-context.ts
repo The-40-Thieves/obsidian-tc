@@ -58,6 +58,7 @@ async function main(): Promise<void> {
     // reads the SAME config.egress.excludePaths a production run would), so the port must
     // carry the same filter or an excluded note's text reaches this provider unguarded.
     excludeFilter: compileEgressFilter(config.egress.excludePaths),
+    cacheDir: config.cacheDir,
   });
   const db = await openConfiguredDatabase(config, "cache.db");
 

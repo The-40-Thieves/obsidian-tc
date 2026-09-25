@@ -12,7 +12,7 @@
 // If packages/embedder-local has never been built (`bun run build` not yet run there), the
 // route-(iii)/(i) success cases are skipped rather than failing — same policy as
 // doctor-cli-bundle-reranker-resolution.test.ts for packages/shared/dist.
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +22,7 @@ import {
   resolveLocalEmbedderModule,
   resolveSourceCheckoutLocalEmbedderPath,
 } from "../src/providers/registry";
-import type { EmbeddingsConfigLike } from "../src/providers/types";
+import type { EmbeddingsConfigLike, ResolveContext } from "../src/providers/types";
 import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +35,9 @@ const BASE_CFG: EmbeddingsConfigLike = {
   model: "bge-small-en-v1.5",
   dimensions: 384,
 };
+// THE-1122 review: cacheDir is now REQUIRED (no CWD-relative fallback) — every real test below
+// that isn't specifically testing the fail-closed cacheDir check itself needs one.
+const TEST_CTX: ResolveContext = { cacheDir: "/tmp/embedder-local-test-cache" };
 
 /** Stages an anchor-only tree (package.json with the right `name`, no `dist/`) so
  *  resolveSourceCheckoutLocalEmbedderPath's upward walk finds a real anchor while the built entry
@@ -130,20 +133,77 @@ describe("buildLocalEmbeddingProvider", () => {
     let called = false;
     const resolveModule = async () => {
       called = true;
-      return { ok: false as const, attempts: [] };
+      return { ok: false as const, attempts: [], inSourceCheckout: false };
     };
-    const provider = buildLocalEmbeddingProvider(BASE_CFG, {}, resolveModule);
+    const provider = buildLocalEmbeddingProvider(BASE_CFG, TEST_CTX, resolveModule);
     expect(provider.provider).toBe("local");
     expect(provider.model).toBe("bge-small-en-v1.5");
     expect(provider.dimensions).toBe(384);
-    expect(provider.id).toBe("local:bge-small-en-v1.5");
+    // THE-1122 review: quantized folds into id — BASE_CFG leaves it unset, which defaults to q8
+    // (true), same as the schema's own `.default(true)` and embedder-local's own internal default.
+    expect(provider.id).toBe("local:bge-small-en-v1.5:q8");
     expect(called).toBe(false);
+  });
+
+  it("folds quantized: false into id as fp32, distinguishing it from the q8 default (THE-1122 review)", () => {
+    const provider = buildLocalEmbeddingProvider(
+      { ...BASE_CFG, quantized: false },
+      TEST_CTX,
+      async () => ({ ok: false as const, attempts: [], inSourceCheckout: false }),
+    );
+    expect(provider.id).toBe("local:bge-small-en-v1.5:fp32");
   });
 
   it("refuses a config that sets a field this provider does not read (baseUrl)", () => {
     expect(() =>
-      buildLocalEmbeddingProvider({ ...BASE_CFG, baseUrl: "http://example.com" }, {}),
+      buildLocalEmbeddingProvider({ ...BASE_CFG, baseUrl: "http://example.com" }, TEST_CTX),
     ).toThrow(/embeddings\.baseUrl/);
+  });
+
+  // THE-1122 review: root-cause fix for "obsidian-tc index writes model weights to CWD" — no
+  // fallback, fail closed naming the config key, so a caller that forgot to thread cacheDir finds
+  // out immediately (a thrown build() error) rather than silently scattering files wherever the
+  // process happened to start (and potentially EACCES-crashing from an unwritable cwd like `/`).
+  it("fails closed, naming the config key, when cacheDir is absent — no CWD-relative fallback", () => {
+    expect(() => buildLocalEmbeddingProvider(BASE_CFG, {})).toThrow(/cacheDir/);
+  });
+
+  it("never writes outside the configured cacheDir, regardless of process cwd", async () => {
+    const scratchCacheDir = mkdtempSync(join(tmpdir(), "obtc-embedder-cachedir-test-"));
+    const elsewhereCwd = mkdtempSync(join(tmpdir(), "obtc-embedder-cwd-elsewhere-"));
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(elsewhereCwd);
+      const stubProvider = {
+        id: "local:stub",
+        model: "bge-small-en-v1.5",
+        dimensions: 384,
+        embed: async (texts: string[]) => texts.map(() => [1, 2, 3]),
+      };
+      const resolveModule = async () => ({
+        ok: true as const,
+        mod: { createEmbeddingProvider: () => stubProvider },
+        attempts: [],
+        inSourceCheckout: false,
+      });
+      const provider = buildLocalEmbeddingProvider(
+        BASE_CFG,
+        { cacheDir: scratchCacheDir },
+        resolveModule,
+      );
+      await provider.embed(["a"]);
+      // Nothing written under the cwd this process happened to be started from — every real file
+      // a genuine (non-stubbed) resolution would write lands under scratchCacheDir instead.
+      expect(readdirSync(elsewhereCwd)).toEqual([]);
+    } finally {
+      process.chdir(originalCwd);
+      try {
+        rmTemp(scratchCacheDir);
+        rmTemp(elsewhereCwd);
+      } catch (e) {
+        console.warn("[embedder-local-resolution.test.ts] cleanup failed:", e);
+      }
+    }
   });
 
   it("embed() resolves through the injected module and returns its vectors", async () => {
@@ -157,8 +217,9 @@ describe("buildLocalEmbeddingProvider", () => {
       ok: true as const,
       mod: { createEmbeddingProvider: () => stubProvider },
       attempts: [],
+      inSourceCheckout: false,
     });
-    const provider = buildLocalEmbeddingProvider(BASE_CFG, {}, resolveModule);
+    const provider = buildLocalEmbeddingProvider(BASE_CFG, TEST_CTX, resolveModule);
     const vecs = await provider.embed(["a", "b"]);
     expect(vecs).toEqual([
       [1, 2, 3],
@@ -170,8 +231,9 @@ describe("buildLocalEmbeddingProvider", () => {
     const resolveModule = async () => ({
       ok: false as const,
       attempts: [{ route: "bare-specifier" as const, target: "x", ok: false, error: "boom" }],
+      inSourceCheckout: false,
     });
-    const provider = buildLocalEmbeddingProvider(BASE_CFG, {}, resolveModule);
+    const provider = buildLocalEmbeddingProvider(BASE_CFG, TEST_CTX, resolveModule);
     await expect(provider.embed(["a"])).rejects.toThrow(/could not resolve/);
   });
 
@@ -185,14 +247,15 @@ describe("buildLocalEmbeddingProvider", () => {
     };
     const resolveModule = async () => {
       attempt++;
-      if (attempt === 1) return { ok: false as const, attempts: [] };
+      if (attempt === 1) return { ok: false as const, attempts: [], inSourceCheckout: false };
       return {
         ok: true as const,
         mod: { createEmbeddingProvider: () => stubProvider },
         attempts: [],
+        inSourceCheckout: false,
       };
     };
-    const provider = buildLocalEmbeddingProvider(BASE_CFG, {}, resolveModule);
+    const provider = buildLocalEmbeddingProvider(BASE_CFG, TEST_CTX, resolveModule);
     await expect(provider.embed(["a"])).rejects.toThrow();
     const vecs = await provider.embed(["a"]);
     expect(vecs).toEqual([[9]]);

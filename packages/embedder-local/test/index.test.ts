@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { createEmbeddingProvider, DEFAULT_MODEL_NAME } from "../src/index.js";
 import { modelInfoByName } from "../src/model-info.js";
 
-function stubExtractor(dims: number) {
+function stubExtractor(dims: number, expectedPooling: "mean" | "cls" = "mean") {
   return vi.fn(async (texts: string[], opts: { pooling: string; normalize: boolean }) => {
-    expect(opts.pooling).toBe("mean");
+    expect(opts.pooling).toBe(expectedPooling);
     expect(opts.normalize).toBe(true);
     return { tolist: () => texts.map((_, i) => Array.from({ length: dims }, (_, j) => i + j)) };
   });
@@ -43,6 +43,14 @@ describe("createEmbeddingProvider", () => {
       pooling: "mean",
       normalize: true,
     });
+  });
+
+  it("embed() calls the extractor with pooling: cls for bge-small-en-v1.5 (its own 1_Pooling/config.json is CLS, not mean)", async () => {
+    const extractor = stubExtractor(384, "cls");
+    const loadSessionFn = vi.fn(async () => ({ extractor }));
+    const provider = createEmbeddingProvider({ model: "bge-small-en-v1.5" }, loadSessionFn);
+    await provider.embed(["hello"]);
+    expect(extractor).toHaveBeenCalledWith(["hello"], { pooling: "cls", normalize: true });
   });
 
   it("embed([]) returns [] without touching the session at all", async () => {

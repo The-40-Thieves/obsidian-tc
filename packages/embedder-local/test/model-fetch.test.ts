@@ -179,4 +179,13 @@ describe("unsupportedPlatformReason", () => {
       unsupportedPlatformReason({ platform: "linux", arch: "x64", isMuslRuntime: () => false }),
     ).toBeUndefined();
   });
+
+  it("names embeddings.provider as the fix on both unsupported platforms (THE-1122 review)", () => {
+    expect(unsupportedPlatformReason({ platform: "darwin", arch: "x64" })).toMatch(
+      /embeddings\.provider/,
+    );
+    expect(
+      unsupportedPlatformReason({ platform: "linux", arch: "x64", isMuslRuntime: () => true }),
+    ).toMatch(/embeddings\.provider/);
+  });
 });

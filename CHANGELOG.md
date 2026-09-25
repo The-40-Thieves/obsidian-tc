@@ -199,6 +199,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **Upgrade note: an absent `embeddings` block previously meant Ollama; it now means the
+  in-process local embedder.** Before this release, no `embeddings` config block meant
+  `provider: "ollama"` (model `nomic-embed-text`, requiring a separately-run Ollama server); it now
+  means `provider: "local"` (model `nomic-embed-text-v1.5`, bundled and fully offline — see the
+  "Added" entry above). **To keep using Ollama, set `"embeddings": { "provider": "ollama" }`
+  explicitly** — the implicit model name (`nomic-embed-text`) is preserved for that one case, so an
+  existing Ollama-backed config that already names the provider is unaffected either way. The
+  server detects the stored-vs-configured mismatch automatically on first boot after upgrading (the
+  representation fingerprint folds in provider and model) and rebuilds the vector index from a full
+  re-embed; `obsidian-tc doctor` and the boot log both name this explicitly, once, while the stored
+  index still disagrees with the configured provider.
 - **`vitest` 4.1.11→5.0.1, `@vitest/coverage-v8` 4.1.11→5.0.1 (THE-1133, PR 2).** Every workspace
   that depends on vitest bumped together: `packages/server`, `packages/plugin`, `packages/shared`,
   `packages/native` (its `test:build-script` leg), and `packages/reranker-local` (a separate

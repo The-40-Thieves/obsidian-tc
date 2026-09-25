@@ -348,7 +348,7 @@ retrieval quality:
   agreed to them.
 - **A model2vec/potion static-embedding model** (`minishlab/potion-retrieval-32M`, MIT, the
   low-RAM tier the brief asked for if a loadable export exists). Its ONNX export declares
-  `model_type: "model2vec"` / `architectures: ["StaticModel"]`, which Transformers.js 4.2.0 does
+  `model_type: "model2vec"` / `architectures: ["StaticModel"]`, which Transformers.js 4.3.0 does
   not register. Probed directly (2026-09-24):
   `pipeline("feature-extraction", "minishlab/potion-retrieval-32M")` falls back to a generic
   encoder-only wrapper and fails at inference with `"Missing the following inputs: offsets"` —
@@ -361,49 +361,57 @@ retrieval quality:
 in-process code path every candidate uses, since Ollama itself is not installed on this evaluation
 host. Every candidate is compared against it, not against each other.
 
-**Results** (n=78, evergreen corpus, `notes/…` paths, depth 30, no flags):
+**Results** (n=78, evergreen corpus, `notes/…` paths, depth 30, no flags — RE-MEASURED after a
+review round found the first pass had applied mean pooling uniformly, which is wrong for
+`bge-small-en-v1.5`'s own model card (CLS); see `model-info.ts`'s `pooling` field. This table
+replaces that first pass's numbers entirely):
 
-| Model | dims | strict nDCG@10 | strict recall@10 | lenient nDCG@10 | lenient recall@10 |
-| --- | --- | --- | --- | --- | --- |
-| all-MiniLM-L6-v2 | 384 | 0.749 | 0.885 | 0.574 | 0.607 |
-| bge-small-en-v1.5 | 384 | 0.802 | 0.872 | 0.590 | 0.588 |
-| **nomic-embed-text-v1.5 (acceptance)** | 768 | **0.818** | **0.912** | **0.615** | **0.640** |
+| Model | dims | pooling | strict nDCG@10 | strict recall@10 | lenient nDCG@10 | lenient recall@10 | model size | first-index time | peak RSS |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| all-MiniLM-L6-v2 | 384 | mean | 0.742 | 0.885 | 0.572 | 0.611 | ~23 MB (q8) | ~18 min | ~1.1-1.3 GB |
+| bge-small-en-v1.5 | 384 | cls | 0.788 | 0.861 | 0.564 | 0.564 | ~34 MB (q8) | ~33 min | ~1.2-1.3 GB |
+| **nomic-embed-text-v1.5 (acceptance)** | 768 | mean | **0.843** | **0.929** | **0.623** | **0.652** | ~137 MB (q8) | ~80 min | ~2.7 GB |
 
-Paired non-inferiority vs. the acceptance arm, strict binarization (the primary gate; n=78,
-one-sided 95% bootstrap lower bound vs. the −0.015 floor):
-
-| Candidate | ΔnDCG@10 mean | one-sided 95% lower | σ_d | MDE@n=78 | permutation *p* | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| all-MiniLM-L6-v2 | −0.069 | **−0.119** | 0.264 | 0.084 | 0.0259 | **FAILS FLOOR** |
-| bge-small-en-v1.5 | −0.016 | **−0.067** | 0.274 | 0.087 | 0.6045 | **FAILS FLOOR** |
-
-Lenient binarization tells the same story (all-MiniLM-L6-v2: Δ −0.041, lower bound −0.077,
-*p*=0.0640; bge-small-en-v1.5: Δ −0.025, lower bound −0.062, *p*=0.2877 — both below the −0.015
-floor). Recall@10 fails the floor for both candidates at both binarizations too (full numbers in
-the harness's own `--json` dumps; not reproduced here since nDCG@10 is the gate metric).
-
-**The default is `nomic-embed-text-v1.5` — not the smallest or fastest candidate.** Both 384-dim
-models measurably regress retrieval quality past the floor; `bge-small-en-v1.5` was the stronger
-of the two (its 95% lower bound, −0.067, comes closer to the floor than MiniLM's −0.119) but still
-fails it. Non-inferiority is a floor a model must clear to be **eligible**, not a reason to prefer
-whichever model clears it by the widest margin toward "smaller" — see this document's own framing
-throughout: the ship rule exists to keep a change from being *worse*, not to license picking the
-cheapest option that isn't disqualified. Since neither smaller model actually clears the floor
-here, the question does not arise; `nomic-embed-text-v1.5` ships as the default because it is the
-only evaluated, licensable, loadable candidate that does not regress retrieval quality relative to
-what `local` replaces. `all-MiniLM-L6-v2` and `bge-small-en-v1.5` remain selectable via
-`embeddings.model` for deployments that value download size or CPU cost over recall — that
-tradeoff is now a measured one, not a guess.
-
-**Cold start, on this evaluation host** (Ampere arm64, 4 vCPU, shared with other work — not a
-clean-room benchmark): indexing the full 1,291-note / 2,986-chunk evergreen corpus from a cold
-model cache took on the order of 10-12 minutes end to end (model download + ONNX session init +
-CPU inference over every chunk), observed via coarse polling rather than instrumented timing.
-Peak RSS across candidates during indexing was in the 0.9-1.3 GB range on this Bun/arm64 build.
-For a precisely-instrumented number on a small (500-note) fixture, see the `local embedder
+First-index time and peak RSS were measured on THIS evaluation host (Ampere arm64, 4 vCPU,
+**shared with other concurrent work throughout this ticket's own review round** — not a
+clean-room benchmark, and nomic's ~80 min in particular is inflated by that contention, not solely
+by its larger size; do not read these as a clean per-model speed comparison). Peak RSS is the
+highest value observed via periodic `ps` sampling during each run, not a `/usr/bin/time -v`
+peak-RSS instrumented measurement — a real observed floor on the true peak, not the true peak
+itself. For a precisely-instrumented, small-fixture number instead, see the `local embedder
 cold-start budget` step in CI (`packages/server/scripts/check-cold-start-budget.mjs`) — an
 informational, generous-ceiling check, not a tight regression gate, since first-index time varies
 with the runner's network and CPU far more than any of this document's other numbers.
+
+Paired non-inferiority vs. the acceptance arm, strict binarization (the primary gate; n=78,
+one-sided 95% bootstrap lower bound vs. the −0.015 floor; `eval/compare-baseline.ts`):
+
+| Candidate | ΔnDCG@10 mean | one-sided 95% lower | σ_d | MDE@n=78 | permutation *p* | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| all-MiniLM-L6-v2 | −0.101 | **−0.151** | 0.267 | 0.085 | 0.0014 | **FAILS FLOOR** |
+| bge-small-en-v1.5 | −0.055 | **−0.110** | 0.295 | 0.094 | 0.1034 | **FAILS FLOOR** |
+
+Lenient binarization tells the same story (all-MiniLM-L6-v2: Δ −0.052, lower bound −0.085,
+*p*=0.0124; bge-small-en-v1.5: Δ −0.059, lower bound −0.100, *p*=0.0135 — both below the −0.015
+floor). Recall@10 also fails the floor for both candidates at both binarizations (full numbers in
+the harness's own `--json` dumps; not reproduced here since nDCG@10 is the gate metric).
+
+**MiniLM's deficit is real and clearly detected — significant at both binarizations (*p*=0.0014
+strict, *p*=0.0124 lenient).** bge-small's deficit is real too (it fails the floor at both
+binarizations, correctly-pooled, and its recall@10 is significant at *p*=0.0489 strict) but its
+own nDCG@10 permutation test does not clear conventional significance at this n (*p*=0.10 strict) —
+read that one number, specifically, as **non-inferiority not established at this corpus's
+resolution** for nDCG@10, not as "passes." Every other reported metric and binarization for both
+candidates clears the floor's FAILS verdict on its own terms; nothing here flips to non-inferior.
+
+**The default is `nomic-embed-text-v1.5` — the conservative choice under a comparison this corpus
+does not power precisely, not a claimed decisive win.** Non-inferiority is a floor a model must
+clear to be **eligible**, not a reason to prefer whichever model clears it by the widest margin
+toward "smaller" — the ship rule exists to keep a change from being *worse*, not to license
+picking the cheapest option that isn't disqualified. Neither smaller model clears the floor here,
+so `nomic-embed-text-v1.5` ships as the default: the only evaluated, licensable, loadable candidate
+this measurement did not find worse. `all-MiniLM-L6-v2` and `bge-small-en-v1.5` remain selectable
+via `embeddings.model` for deployments that value download size or CPU cost over this measurement.
 
 **Caveats that travel with these numbers.**
 

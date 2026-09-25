@@ -36,6 +36,7 @@ export function resolveSourceCheckoutLocalEmbedderPath(
       path: join(startDir, "..", "..", "..", "embedder-local", "dist", "index.js"),
       skippedReason: "skipped: running from node_modules",
       candidates: [],
+      anchorFound: false,
     };
   }
   const MAX_LEVELS = 6;
@@ -45,7 +46,11 @@ export function resolveSourceCheckoutLocalEmbedderPath(
     candidates.push(dir);
     const anchor = join(dir, "packages", "embedder-local", "package.json");
     if (existsSync(anchor) && isEmbedderLocalAnchor(anchor)) {
-      return { path: join(dir, "packages", "embedder-local", "dist", "index.js"), candidates };
+      return {
+        path: join(dir, "packages", "embedder-local", "dist", "index.js"),
+        candidates,
+        anchorFound: true,
+      };
     }
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -54,6 +59,7 @@ export function resolveSourceCheckoutLocalEmbedderPath(
   return {
     path: join(startDir, "..", "..", "..", "embedder-local", "dist", "index.js"),
     candidates,
+    anchorFound: false,
   };
 }
 
@@ -61,6 +67,7 @@ const {
   path: EMBEDDER_SOURCE_CHECKOUT_PATH,
   skippedReason: EMBEDDER_SOURCE_CHECKOUT_SKIPPED_REASON,
   candidates: EMBEDDER_SOURCE_CHECKOUT_WALK_CANDIDATES,
+  anchorFound: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND,
 } = resolveSourceCheckoutLocalEmbedderPath();
 
 export interface LocalEmbedderCreateOpts {
@@ -107,6 +114,14 @@ export interface LocalEmbedderResolution {
   ok: boolean;
   mod?: LocalEmbedderModule;
   attempts: LocalEmbedderResolutionAttempt[];
+  /** True when the upward walk found packages/embedder-local's real anchor somewhere above this
+   *  process's own location — i.e. this IS a source checkout of the monorepo, even though
+   *  resolution otherwise failed (most commonly: the package just hasn't been built yet). See
+   *  SourceCheckoutResolution.anchorFound's own doc comment. False on every other environment
+   *  (a real npm install, Docker image, or compiled binary) — none of which has a
+   *  packages/embedder-local directory to find. Doctor uses this to choose WARN (fixable dev-time
+   *  state) vs FAIL (a genuine shipped-install gap) when resolution is unsuccessful. */
+  inSourceCheckout: boolean;
 }
 
 /** Never throws — resolution failure is reported structurally, exactly as
@@ -138,7 +153,7 @@ export async function resolveLocalEmbedderModule(
     try {
       const mod = (await importModule(pathToFileURL(abs).href)) as LocalEmbedderModule;
       attempts.push({ route: "localModulePath", target: abs, ok: true });
-      return { ok: true, mod, attempts };
+      return { ok: true, mod, attempts, inSourceCheckout: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND };
     } catch (e) {
       record("localModulePath", abs, e);
     }
@@ -147,7 +162,7 @@ export async function resolveLocalEmbedderModule(
   try {
     const mod = (await importModule(LOCAL_EMBEDDER_PACKAGE)) as LocalEmbedderModule;
     attempts.push({ route: "bare-specifier", target: LOCAL_EMBEDDER_PACKAGE, ok: true });
-    return { ok: true, mod, attempts };
+    return { ok: true, mod, attempts, inSourceCheckout: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND };
   } catch (e) {
     record("bare-specifier", LOCAL_EMBEDDER_PACKAGE, e);
   }
@@ -164,7 +179,7 @@ export async function resolveLocalEmbedderModule(
         pathToFileURL(EMBEDDER_SOURCE_CHECKOUT_PATH).href,
       )) as LocalEmbedderModule;
       attempts.push({ route: "source-checkout", target: EMBEDDER_SOURCE_CHECKOUT_PATH, ok: true });
-      return { ok: true, mod, attempts };
+      return { ok: true, mod, attempts, inSourceCheckout: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND };
     } catch (e) {
       record("source-checkout", EMBEDDER_SOURCE_CHECKOUT_PATH, e);
     }
@@ -176,13 +191,18 @@ export async function resolveLocalEmbedderModule(
     );
   }
 
-  return { ok: false, attempts };
+  return { ok: false, attempts, inSourceCheckout: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND };
 }
 
-/** doctor-facing shape of a resolution attempt — mirrors probeLocalRerankerResolution exactly. */
+/** doctor-facing shape of a resolution attempt — mirrors probeLocalRerankerResolution, plus
+ *  `inSourceCheckout` (reranker's probe has no equivalent — its "local" is opt-in, so an
+ *  unresolvable reranker has always been a uniform "warning" regardless of environment; "local"
+ *  embeddings is the schema DEFAULT, so the same unresolvable outcome needs to read very
+ *  differently on a developer's own not-yet-built checkout vs. a genuinely broken shipped
+ *  install — see embeddings-buildable.ts's own use of this field). */
 export async function probeLocalEmbedderResolution(
   ctx: ResolveContext = {},
-): Promise<{ ok: boolean; route?: string; attempts: string[] }> {
+): Promise<{ ok: boolean; route?: string; attempts: string[]; inSourceCheckout: boolean }> {
   const r = await resolveLocalEmbedderModule({}, ctx);
   return {
     ok: r.ok,
@@ -190,10 +210,9 @@ export async function probeLocalEmbedderResolution(
     attempts: r.attempts.map((a) =>
       a.ok ? `${a.route}: ${a.target} — resolved` : `${a.route}: ${a.target} — ${a.error}`,
     ),
+    inSourceCheckout: r.inSourceCheckout,
   };
 }
-
-const DEFAULT_LOCAL_EMBEDDER_CACHE_ROOT = ".obsidian-tc";
 
 /** embeddings.provider "local" — exported so it is directly unit-testable with an injected
  *  `resolveModule`, without needing @huggingface/transformers or real model weights present in
@@ -245,11 +264,25 @@ export function buildLocalEmbeddingProvider(
       },
     );
   }
-  const modelsRoot = join(
-    ctx.cacheDir ?? DEFAULT_LOCAL_EMBEDDER_CACHE_ROOT,
-    "models",
-    "embedder-local",
-  );
+  // THE-1122 review (root-cause fix, not a fallback): an earlier version fell back to a
+  // CWD-relative `.obsidian-tc` when `ctx.cacheDir` was absent. Every real caller — server boot,
+  // every CLI command, eval/run.ts — actually threads a real cacheDir (see this repo's own
+  // ResolveContext.cacheDir doc comment for the full call-site list); a caller that DOESN'T is a
+  // bug in that caller, and a silent CWD-relative write is exactly the kind of surprising
+  // filesystem side effect this repo's own conventions refuse (e.g. `obsidian-tc index` run from
+  // an unexpected directory must not scatter model weights wherever the process happened to
+  // start, and can EACCES-crash outright if that directory isn't writable). Fail closed, loudly,
+  // naming the config key, rather than silently choosing a location nobody asked for.
+  if (!ctx.cacheDir) {
+    throw err.invalidInput(
+      'embeddings.provider "local" requires a cacheDir, and none was provided to this resolution',
+      {
+        provider: "local",
+        hint: 'set "cacheDir" in your obsidian-tc config (it defaults to ~/.obsidian-tc when the config omits it — see server.schema.ts) — this is a bug in the CALLER if cacheDir is configured but not reaching this resolution.',
+      },
+    );
+  }
+  const modelsRoot = join(ctx.cacheDir, "models", "embedder-local");
   let pending: Promise<{ embed(texts: string[], opts?: unknown): Promise<number[][]> }> | undefined;
   const session = (): Promise<{ embed(texts: string[], opts?: unknown): Promise<number[][]> }> => {
     if (!pending) {
@@ -285,8 +318,16 @@ export function buildLocalEmbeddingProvider(
     }
     return pending;
   };
+  // THE-1122 review: quantized is folded into `id` — the SAME catalog model name (`c.model`) with
+  // `quantized: true` vs `false` produces vectors from two different ONNX exports (q8 vs fp32),
+  // which chunk_embeddings.model / activeModel backfill matching (see wireIndexResources's
+  // ensureVecChunks call) must be able to tell apart, exactly like embedder-local's OWN internal
+  // provider.id already does (see index.ts's createEmbeddingProvider) — this wrapper has its own
+  // separate id because it must be synchronous (see this function's own doc comment), so it cannot
+  // just read the inner module's id. Kept in sync with that convention deliberately, not by import.
+  const quantized = c.quantized ?? true;
   return {
-    id: `local:${c.model}`,
+    id: `local:${c.model}:${quantized ? "q8" : "fp32"}`,
     provider: "local",
     model: c.model,
     dimensions: c.dimensions,
@@ -304,7 +345,14 @@ export function buildEmbeddingsDoctorProbes(opts: {
   embeddingsProvider?: string;
   configDir?: string;
   cacheDir?: string;
-}): { probeLocalEmbedder?: () => Promise<{ ok: boolean; route?: string; attempts: string[] }> } {
+}): {
+  probeLocalEmbedder?: () => Promise<{
+    ok: boolean;
+    route?: string;
+    attempts: string[];
+    inSourceCheckout: boolean;
+  }>;
+} {
   if (opts.embeddingsProvider !== "local") return {};
   const ctx = { configDir: opts.configDir, cacheDir: opts.cacheDir };
   return { probeLocalEmbedder: () => probeLocalEmbedderResolution(ctx) };

@@ -13,9 +13,11 @@ import { z } from "zod";
 // header). embedder-local's own test/model-info.test.ts pins its DEFAULT_MODEL_NAME to the same
 // literal string, so a future change to one side is caught by that test, not just by this comment.
 //
-// NOT the smallest/fastest catalog entry — measured, not assumed (docs/EVALUATION.md's "Local
-// embedder model selection"). Both 384-dim candidates FAILED the −0.015 non-inferiority floor
-// against this exact model; see model-info.ts's own comment on DEFAULT_MODEL_NAME for the numbers.
+// NOT the smallest/fastest catalog entry — measured, not assumed, each model with its own
+// correct pooling strategy (docs/EVALUATION.md's "Local embedder model selection"). Both 384-dim
+// candidates FAILED the −0.015 non-inferiority floor against this exact model; see model-info.ts's
+// own comment on DEFAULT_MODEL_NAME for the numbers and the caveats around bge-small's nDCG@10
+// significance.
 //
 // WHY THIS IS A PLAIN UNCONDITIONAL DEFAULT, NOT PROVIDER-CONDITIONAL: an earlier version of this
 // change made `model`/`dimensions` default based on `provider` via a schema-level `.transform()`.
@@ -34,6 +36,27 @@ import { z } from "zod";
 // explicit `"model"` — see docs/src/content/docs/configuration/config-yaml.md and
 // docs/wiki/Configuration.md.
 const LOCAL_DEFAULT_MODEL = "nomic-embed-text-v1.5";
+
+/** THE-1122 review (item 7): each "local" catalog entry's native vector width, duplicated from
+ *  packages/embedder-local/src/model-info.ts for the SAME reason LOCAL_DEFAULT_MODEL above is
+ *  duplicated rather than imported (this schema leaf cannot depend on that optional, Node-fs-
+ *  shaped package — see this file's own header). Kept in sync by the same mechanism:
+ *  embedder-local's own test/model-info.test.ts pins each catalog entry's real `dimensions`, so a
+ *  future catalog change that drifts from this map is caught there, not only by this comment.
+ *
+ *  Exported for packages/server/src/config/load.ts's finalizeConfig, which uses this to (a)
+ *  DERIVE `embeddings.dimensions` when a "local" config omits it (this schema's own `dimensions`
+ *  default is a PROVIDER-AGNOSTIC 768 — see LOCAL_DEFAULT_MODEL's comment above for why it cannot
+ *  be provider-conditional at the schema level — so a config selecting a 384-dim catalog entry
+ *  with no explicit `dimensions` would otherwise silently inherit the wrong width and crash later
+ *  at vec0 column-width mismatch), and (b) REJECT an explicit `dimensions` that contradicts the
+ *  selected model's real width, naming both numbers, rather than letting that surface as an opaque
+ *  failure far from the config that caused it. */
+export const LOCAL_CATALOG_DIMENSIONS: Readonly<Record<string, number>> = {
+  "all-MiniLM-L6-v2": 384,
+  "bge-small-en-v1.5": 384,
+  "nomic-embed-text-v1.5": 768,
+};
 
 export const EmbeddingsConfigSchema = z.object({
   provider: z

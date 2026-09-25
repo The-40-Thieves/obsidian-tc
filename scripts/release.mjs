@@ -254,12 +254,16 @@ if (haveTag) {
 // THE-950: the MCPB bundle manifest lives at mcpb/manifest.json (the repo root now carries the
 // companion plugin's Obsidian manifest instead — see the mirror step after packages/plugin's
 // manifest.json is bumped, below).
+// THE-1122: packages/embedder-local/package.json joins the same lockstep set, for the identical
+// reason as reranker-local above (its own README; its own publish-embedder-local CI job with the
+// same F3-style already-published preflight).
 for (const p of [
   "package.json",
   "packages/server/package.json",
   "packages/native/package.json",
   "packages/shared/package.json",
   "packages/reranker-local/package.json",
+  "packages/embedder-local/package.json",
   "mcpb/manifest.json",
 ]) {
   setVersion(p, (o) => {

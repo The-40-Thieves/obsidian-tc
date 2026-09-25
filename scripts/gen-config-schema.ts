@@ -347,10 +347,10 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // THE-1122 review 2: rebaselined AGAIN — `embeddings.model`/`embeddings.dimensions` DEFAULTS
   // moved "bge-small-en-v1.5"/384 -> "nomic-embed-text-v1.5"/768. This is a measured correction,
   // not a typo: both 384-dim catalog candidates FAILED the ticket's own -0.015 non-inferiority
-  // floor against nomic-embed-text-v1.5 on the public evergreen corpus (strict nDCG@10 one-sided
-  // 95% lower bound: all-MiniLM-L6-v2 -0.119, bge-small-en-v1.5 -0.067, both below -0.015; n=78,
-  // both run through the SAME "local" code path). See
-  // packages/embedder-local/src/model-info.ts's DEFAULT_MODEL_NAME comment and
+  // floor against nomic-embed-text-v1.5 on the public evergreen corpus, each run with its own
+  // correct pooling strategy (strict nDCG@10 one-sided 95% lower bound: all-MiniLM-L6-v2 -0.151,
+  // bge-small-en-v1.5 -0.110, both below -0.015; n=78, both run through the SAME "local" code
+  // path). See packages/embedder-local/src/model-info.ts's DEFAULT_MODEL_NAME comment and
   // docs/EVALUATION.md's "Local embedder model selection" section for the full table. No key,
   // type or constraint moved — only these two default VALUES.
   // THE-1122 rebase: rebaselined again — rebasing onto main's THE-1123 (toolFacade.mode "auto")

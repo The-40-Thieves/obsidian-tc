@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  err,
+  LOCAL_CATALOG_DIMENSIONS,
+  type ServerConfig,
+  ServerConfigSchema,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { applySecurityProfile } from "./security-profile";
 
 /**
@@ -56,6 +61,40 @@ export function isPlaneEnabledExplicit(raw: Record<string, unknown>): boolean {
   return typeof plane === "object" && plane !== null && !Array.isArray(plane) && "enabled" in plane;
 }
 
+/** THE-1122 review: same "read the RAW pre-parse object" pattern as isPlaneEnabledExplicit above,
+ *  for the same reason — `embeddings.model`/`.dimensions` both moved from an unconditional Zod
+ *  default to a PLAIN one (indexing-embeddings.schema.ts's own comment explains why a
+ *  provider-conditional schema-level default broke docgen), so `{"provider":"ollama"}` with no
+ *  `model` now parses to the "local" provider's default model/dims rather than the historical
+ *  Ollama pairing. That is WRONG specifically for `provider: "ollama"`: an operator who wrote that
+ *  one field relying on the OLD schema default (this repo's own zero-config-smoke.ts did exactly
+ *  this) gets a model name Ollama was never asked to pull. finalizeConfig below restores the
+ *  historical pairing for that one case, post-parse — never touching any other provider's
+ *  behaviour, and never touching a config that named its own `model` explicitly. */
+export function isEmbeddingsModelExplicit(raw: Record<string, unknown>): boolean {
+  const embeddings = raw.embeddings;
+  return (
+    typeof embeddings === "object" &&
+    embeddings !== null &&
+    !Array.isArray(embeddings) &&
+    "model" in embeddings
+  );
+}
+
+/** THE-1122 review (item 7): same "read the RAW pre-parse object" pattern as
+ *  isEmbeddingsModelExplicit above, so a config that omits `dimensions` (letting the schema's own
+ *  provider-agnostic 768 default apply) is distinguishable from one that explicitly asked for 768
+ *  — the two must be handled differently for `provider: "local"` (see finalizeConfig below). */
+export function isEmbeddingsDimensionsExplicit(raw: Record<string, unknown>): boolean {
+  const embeddings = raw.embeddings;
+  return (
+    typeof embeddings === "object" &&
+    embeddings !== null &&
+    !Array.isArray(embeddings) &&
+    "dimensions" in embeddings
+  );
+}
+
 /** Parse a config file's raw JSON (BOM-stripped, THE-185), before any overlay or schema default
  *  is applied. Exported so a caller can inspect what the file itself said -- e.g.
  *  `isPlaneEnabledExplicit` -- without re-implementing this read. */
@@ -68,9 +107,62 @@ export function finalizeConfig(
   env: Record<string, string | undefined> = process.env,
 ): ServerConfig {
   applyEnvOverlays(raw, env);
+  // THE-1122 review: captured BEFORE parsing — applySecurityProfile/ServerConfigSchema.parse both
+  // leave `embeddings` untouched (verified: neither references it), so reading `raw` here or after
+  // either call is equivalent, but doing it here matches isPlaneEnabledExplicit's own convention.
+  const embeddingsModelWasExplicit = isEmbeddingsModelExplicit(raw);
+  const embeddingsDimensionsWasExplicit = isEmbeddingsDimensionsExplicit(raw);
   // THE-526: expand a named security profile into its field set BEFORE validation, so explicit fields
   // still override it and the result validates as a normal config.
   const config = ServerConfigSchema.parse(applySecurityProfile(raw));
+  // THE-1122 review: `provider: "ollama"` with no explicit `model` restores the HISTORICAL pairing
+  // (schema-level defaults are provider-agnostic now — see isEmbeddingsModelExplicit's own doc
+  // comment for why). Every other provider is unaffected, and an explicit `model` is never
+  // overridden regardless of provider.
+  if (config.embeddings.provider === "ollama" && !embeddingsModelWasExplicit) {
+    config.embeddings.model = "nomic-embed-text";
+    config.embeddings.dimensions = 768;
+  }
+  // THE-1122 review (item 7): the schema's `dimensions` default (768) is likewise provider-agnostic
+  // — see LOCAL_CATALOG_DIMENSIONS's own doc comment for why it cannot be provider-conditional at
+  // the schema level. Without this, `{"provider":"local","model":"all-MiniLM-L6-v2"}` (a 384-dim
+  // catalog entry) with no explicit `dimensions` silently inherits the WRONG width (768) and fails
+  // far away, at vec0 column-width mismatch — this derives the real width instead. An unrecognized
+  // `model` name is left alone here (embedder-local's own resolution refuses it with the supported
+  // list; this fix only has data for the three real catalog entries).
+  //
+  // `embeddings.truncate: true` is a legitimate reason for an explicit `dimensions` NARROWER than
+  // the catalog's native width (Matryoshka/MRL truncation — see that field's own doc comment), so
+  // only a mismatch truncate cannot explain is rejected: WIDER than native (impossible to produce
+  // by truncating), or any mismatch at all when truncate is off.
+  if (config.embeddings.provider === "local") {
+    const catalogDimensions = LOCAL_CATALOG_DIMENSIONS[config.embeddings.model];
+    if (catalogDimensions !== undefined) {
+      if (!embeddingsDimensionsWasExplicit) {
+        config.embeddings.dimensions = catalogDimensions;
+      } else {
+        const configured = config.embeddings.dimensions;
+        const explainedByTruncation = config.embeddings.truncate && configured <= catalogDimensions;
+        if (configured !== catalogDimensions && !explainedByTruncation) {
+          throw err.invalidInput(
+            `embeddings.dimensions (${configured}) does not match embeddings.model ` +
+              `"${config.embeddings.model}"'s native width (${catalogDimensions})`,
+            {
+              provider: "local",
+              model: config.embeddings.model,
+              configuredDimensions: configured,
+              catalogDimensions,
+              hint:
+                "remove embeddings.dimensions to let it default to the model's native width, set " +
+                `it to ${catalogDimensions} explicitly, or — if you intend Matryoshka (MRL) ` +
+                `truncation — also set embeddings.truncate: true with dimensions <= ${catalogDimensions}. ` +
+                "A mismatch reaching vec0 column creation instead fails with a far less actionable error.",
+            },
+          );
+        }
+      }
+    }
+  }
   // The cacheDir default (".obsidian-tc") is relative, so cli.ts mkdir's it against the process
   // CWD, which breaks when a GUI launcher spawns the server in a non-writable directory: Claude
   // Desktop starts MCP servers in C:\WINDOWS\system32, so `mkdir .obsidian-tc` is EPERM at boot

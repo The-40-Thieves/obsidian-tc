@@ -21,4 +21,13 @@ export interface SourceCheckoutResolution {
    *  `startDir` and moves UP toward the filesystem root) — empty when `skippedReason` is set, since
    *  no walk happened. */
   candidates: string[];
+  /** True only when the walk actually FOUND the package's anchor (its real `package.json`, name
+   *  verified) somewhere above `startDir` — i.e. this process is genuinely running from inside a
+   *  source checkout of the monorepo, even if `path` (computed from that anchor) doesn't exist yet
+   *  because the package hasn't been built. False when the walk exhausted MAX_LEVELS without ever
+   *  finding the anchor (or was skipped outright) — `path` is then only a best-effort fallback
+   *  guess, and its absence says nothing about whether this is a checkout. THE-1122: this is what
+   *  lets a resolution-failure caller distinguish "not built yet" (a normal, recoverable dev-time
+   *  state — WARN) from "not present at all" (a real shipped-install gap — FAIL). */
+  anchorFound: boolean;
 }

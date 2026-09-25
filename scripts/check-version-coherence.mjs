@@ -42,6 +42,11 @@ add(
   "packages/reranker-local/package.json",
   readJson("packages/reranker-local/package.json").version,
 );
+// THE-1122: packages/embedder-local joins the same lockstep set, for the identical reason.
+add(
+  "packages/embedder-local/package.json",
+  readJson("packages/embedder-local/package.json").version,
+);
 
 const server = readJson("server.json");
 add("server.json", server.version);

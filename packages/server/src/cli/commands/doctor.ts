@@ -43,6 +43,7 @@ import {
   probeEntryPoints,
   probeKbHealth,
   probeNotesFts,
+  probeStoredEmbeddingsProvider,
   probeTelemetryState,
 } from "./doctor-probes";
 
@@ -73,8 +74,6 @@ async function probeDenseProvider(
    *  unconditionally, but this keeps "every createEmbeddingProvider call site threads
    *  excludeFilter" true by construction rather than a documented exception. */
   excludeFilter?: EgressFilter,
-  /** THE-1122: config.cacheDir, threaded so a "local" provider probe resolves its model cache
-   *  under the SAME directory the real boot path would use, not the relative default. */
   cacheDir?: string,
 ): Promise<DenseProbeResult> {
   const started = Date.now();
@@ -323,6 +322,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     enabled: config.telemetry.enabled,
     ...(telemetryEndpointRedacted !== undefined ? { endpointHost: telemetryEndpointRedacted } : {}),
   });
+  const storedEmbeddingsProvider = await probeStoredEmbeddingsProvider(
+    config.cacheDir,
+    busyTimeoutMs,
+  );
 
   // THE-1079 (GH #949): resolved ONCE, up front — retrieval.heads and rerankerBuildable below both
   // read this SAME outcome, so the two checks cannot disagree.
@@ -337,8 +340,6 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const autoSelectLocalRerankerOutcome = rerankerDoctorProbes.probeAutoSelectLocalReranker
     ? await rerankerDoctorProbes.probeAutoSelectLocalReranker()
     : undefined;
-  // THE-1122: mirrors rerankerDoctorProbes immediately above, for the embeddings slot's "local"
-  // provider.
   const embeddingsDoctorProbes = buildEmbeddingsDoctorProbes({
     embeddingsProvider: config.embeddings.provider,
     configDir,
@@ -374,6 +375,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         autoSelectLocalRerankerResolved: autoSelectLocalRerankerOutcome?.ok,
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,
+        ...(storedEmbeddingsProvider !== undefined
+          ? { storedProviderMismatch: storedEmbeddingsProvider }
+          : {}),
         // THE-688 fix 2: attached ONLY under --probe, so the default run stays offline.
         ...(cmd.probe
           ? {

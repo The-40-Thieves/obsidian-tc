@@ -717,16 +717,16 @@ describe("EmbeddingsConfigSchema.provider (Task 2 follow-up)", () => {
     expect(parsed.dimensions).toBe(768);
   });
 
-  // THE-1122: this is a DELIBERATE behavioural change, not an oversight — see the schema's own
-  // comment. `model`/`dimensions` are no longer provider-conditional, so `provider: "ollama"`
-  // alone (no model) now gets the SAME defaults as every other provider. The dimension (768)
-  // happens to be unchanged from the old default, but the model NAME is not — "nomic-embed-text-
-  // v1.5" (this repo's local catalog entry, a HF-style name) is not "nomic-embed-text" (Ollama's
-  // own tag name for the same underlying model family), so an Ollama server still 404s loudly
-  // rather than silently misconfiguring anything. This repo's own documented config examples
-  // always pair `"provider": "ollama"` with an explicit `"model"`, so this shorthand was never a
-  // documented contract.
-  it("provider 'ollama' alone (no model) now gets the SAME defaults as every other provider", () => {
+  // THE-1122: `model`/`dimensions` are no longer provider-conditional AT THE SCHEMA LEVEL — see
+  // the schema's own comment — so in ISOLATION, `EmbeddingsConfigSchema.parse` on `provider:
+  // "ollama"` alone now yields the SAME defaults as every other provider. This is NOT the
+  // end-to-end behaviour, though: packages/server's config loader (finalizeConfig,
+  // src/config/load.ts) restores the historical "nomic-embed-text"/768 pairing for exactly this
+  // case, post-parse — see test/config-load.test.ts in packages/server for that half. This schema
+  // package has no such loader seam (it's the shared, server-agnostic leaf schema), so this test
+  // pins what the SCHEMA alone does, which every real caller (loadConfig) then corrects for
+  // `provider: "ollama"` specifically.
+  it("provider 'ollama' alone (no model) — AT THE SCHEMA LEVEL — gets the SAME defaults as every other provider", () => {
     const parsed = EmbeddingsConfigSchema.parse({ provider: "ollama" });
     expect(parsed.model).toBe("nomic-embed-text-v1.5");
     expect(parsed.dimensions).toBe(768);

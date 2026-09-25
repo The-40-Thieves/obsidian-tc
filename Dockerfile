@@ -34,6 +34,20 @@ RUN apt-get update \
  && chown bun:bun /app
 # Copy ONLY the built server bundle + its runtime assets (dist/migrations, dist/schema.sql,
 # dist/plugin from scripts/copy-assets.mjs). No source, no node_modules.
+#
+# THE-1122: this means the optional @the-40-thieves/obsidian-tc-embedder-local package (the
+# DEFAULT embeddings provider — no config block resolves to it) is UNREACHABLE from this image
+# today, the same way @the-40-thieves/obsidian-tc-reranker-local always has been here (its "local"
+# is opt-in, so that gap was low-stakes; embedder-local's is not, since it's the default). Neither
+# package is published to npm yet (see each package's own README's "Publishing status"), so there
+# is no `bun add` this stage could run that would resolve either one — wiring that in NOW would
+# make every PR's ci-docker.yml build fail on a 404 until the owner's one-time first publish
+# lands. Once published, adding an explicit `bun add @the-40-thieves/obsidian-tc-embedder-local`
+# install step to the builder stage (mirroring reranker-local's own future wiring) plus copying
+# its resolved node_modules subset into the runtime stage is the follow-up — tracked, not silently
+# dropped. Until then, `embeddings.buildable` in `obsidian-tc doctor` reports this correctly (FAIL,
+# not a source-checkout WARN, since this image has no packages/embedder-local directory to find
+# either), and install.md/embeddings.md name the workaround (a hosted/self-hosted provider).
 COPY --from=build --chown=bun:bun /app/packages/server/dist /app/packages/server/dist
 # Run unprivileged. The `bun` user (uid 1000) owns /app, so the default cache dir
 # (<cwd>/.obsidian-tc) stays writable; mount any external cache/vault dir writable by uid 1000.

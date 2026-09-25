@@ -42,6 +42,13 @@ export interface RetrievalHeadsView {
    *  just because someone ran it. When present, the check reports what it OBSERVED instead of what
    *  the config claims, and `ready` becomes a statement the check can actually support. */
   probe?: () => Promise<DenseProbeResult>;
+  /** THE-1122 review: the provider half of a STORED `vec_index_fingerprint` row, read
+   *  unconditionally (cli/commands/doctor.ts's probeStoredEmbeddingsProvider — cheap, read-only,
+   *  same posture as probeDbSpace), when it disagrees with `denseProvider` (the currently
+   *  CONFIGURED/resolved provider). Set ONLY on disagreement — the common case (a fresh install,
+   *  or an index the automatic rebuild has already caught up to) leaves this undefined, so the
+   *  upgrade note below appears only while a real mismatch is live, not on every run forever. */
+  storedProviderMismatch?: string;
 }
 
 /** Outcome of the opt-in dense probe. `ms` exists so an operator can distinguish "reachable" from
@@ -88,6 +95,19 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
       // which is true regardless of whether that provider currently answers.
       if (view.denseDeprecated)
         notes.push(`embeddings.provider '${view.denseProvider}': ${view.denseDeprecated}`);
+
+      // THE-1122 review: the upgrade note. Fires only while the STORED index's provider disagrees
+      // with the CONFIGURED one — most commonly, an upgrade that moved the zero-config default
+      // from "ollama" to "local" and this deployment hasn't re-embedded since. The automatic
+      // fingerprint-mismatch rebuild (search/vec.ts) already started that re-embed at boot; this
+      // note just explains WHY it's happening, once, rather than leaving an operator to notice an
+      // unexplained full reindex. It disappears on its own once the rebuild's fingerprint write
+      // catches up — no separate "seen it once" flag to maintain.
+      if (view.storedProviderMismatch && view.storedProviderMismatch !== view.denseProvider) {
+        notes.push(
+          `embeddings: the stored index was built with provider '${view.storedProviderMismatch}', but the configured/resolved provider is now '${view.denseProvider}' — a full re-embed is in progress (or already ran) from the automatic fingerprint-mismatch rebuild. If this is unexpected, see "Upgrading from a pre-local-embedder config" in the embeddings docs.`,
+        );
+      }
 
       // THE-688 fix 2: only under `doctor --probe`. This is the ONLY branch permitted to say
       // "ready", because it is the only one that has looked. An unreachable provider is a WARNING,

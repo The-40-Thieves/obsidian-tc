@@ -39,6 +39,12 @@ export interface EmbeddingModelInfo {
   revision: string;
   /** Native output width before any `embeddings.dimensions`/`truncate` handling. */
   dimensions: number;
+  /** The pooling strategy this model's own `1_Pooling/config.json` (or model card) declares —
+   *  Transformers.js's `feature-extraction` pipeline `pooling` option. NOT a free choice: using
+   *  the wrong one silently produces valid-looking but degraded vectors (caught mid-development —
+   *  bge-small-en-v1.5 is CLS, not mean, and was first measured with mean pooling applied
+   *  uniformly to every catalog entry). */
+  pooling: "mean" | "cls";
   /** License identifier, as recorded on the model card at pin time — see docs/EVALUATION.md and
    *  this file's header comment for why a candidate that was DROPPED (EmbeddingGemma, model2vec)
    *  has no catalog entry at all. */
@@ -65,6 +71,8 @@ const ALL_MINILM_L6_V2: EmbeddingModelInfo = {
   modelId: "Xenova/all-MiniLM-L6-v2",
   revision: "751bff37182d3f1213fa05d7196b954e230abad9",
   dimensions: 384,
+  // sentence-transformers/all-MiniLM-L6-v2's 1_Pooling/config.json: pooling_mode_mean_tokens=true.
+  pooling: "mean",
   license: "apache-2.0",
   sharedFiles: [
     {
@@ -106,6 +114,12 @@ const BGE_SMALL_EN_V1_5: EmbeddingModelInfo = {
   modelId: "Xenova/bge-small-en-v1.5",
   revision: "ea104dacec62c0de699686887e3f920caeb4f3e3",
   dimensions: 384,
+  // BAAI/bge-small-en-v1.5's 1_Pooling/config.json: pooling_mode_cls_token=true (mean=false). The
+  // model card confirms: "select the last hidden state of the FIRST token (i.e. [CLS]) as the
+  // sentence embedding." A first measurement applied mean pooling uniformly to every catalog
+  // entry — this model's correct pooling was caught mid-development, before the default was
+  // chosen, and the measurement re-run with this fix in place (see docs/EVALUATION.md).
+  pooling: "cls",
   license: "mit",
   sharedFiles: [
     {
@@ -147,6 +161,8 @@ const NOMIC_EMBED_TEXT_V1_5: EmbeddingModelInfo = {
   modelId: "nomic-ai/nomic-embed-text-v1.5",
   revision: "e9b6763023c676ca8431644204f50c2b100d9aab",
   dimensions: 768,
+  // nomic-ai/nomic-embed-text-v1.5's 1_Pooling/config.json: pooling_mode_mean_tokens=true.
+  pooling: "mean",
   license: "apache-2.0",
   sharedFiles: [
     {
@@ -194,7 +210,7 @@ const NOMIC_EMBED_TEXT_V1_5: EmbeddingModelInfo = {
  *
  *  A model2vec/potion static-embedding model (minishlab/potion-retrieval-32M, MIT) was also
  *  evaluated as the low-RAM tier. Its ONNX export uses `model_type: "model2vec"` /
- *  `architectures: ["StaticModel"]`, which Transformers.js 4.2.0 does not register — probed
+ *  `architectures: ["StaticModel"]`, which Transformers.js 4.3.0 does not register — probed
  *  directly (2026-09-24): `pipeline("feature-extraction", "minishlab/potion-retrieval-32M")` falls
  *  back to a generic EncoderOnly wrapper and fails at inference with "Missing the following
  *  inputs: offsets" (model2vec's bag-embedding ONNX graph has a different input contract than the
@@ -214,13 +230,15 @@ export const MODEL_CATALOG: readonly EmbeddingModelInfo[] = [
  *  why), so that constant is a duplicated literal; test/model-info.test.ts asserts this exact
  *  string so a future change to one is caught, not just documented.
  *
- *  NOT the smallest/fastest candidate — measured. Both 384-dim candidates (all-MiniLM-L6-v2,
- *  bge-small-en-v1.5) FAILED the ticket's own −0.015 non-inferiority floor against this exact
- *  model run through the SAME code path (strict nDCG@10 one-sided 95% lower bound: MiniLM −0.119,
- *  bge-small −0.067, both below the −0.015 floor; n=78). bge-small was the stronger of the two
- *  384-dim candidates but still failed. nomic-embed-text-v1.5 is therefore the only catalog entry
- *  that does not regress retrieval quality relative to what "local" replaces as the default — see
- *  docs/EVALUATION.md's "Local embedder model selection" section for the full table. */
+ *  NOT the smallest/fastest candidate — measured, each model run through the SAME code path with
+ *  ITS OWN correct pooling strategy (see `pooling` above). Both 384-dim candidates FAILED the
+ *  ticket's own −0.015 non-inferiority floor (strict nDCG@10 one-sided 95% lower bound: MiniLM
+ *  −0.151, bge-small −0.110, both below −0.015; n=78) — MiniLM's deficit is clearly significant
+ *  (p=0.0014); bge-small's nDCG@10 does not reach conventional significance at this n (p=0.10) but
+ *  still fails the floor on its own lower bound, and its recall@10 IS significant (p=0.0489). Read
+ *  this as the conservative default under a comparison this corpus does not power precisely, not
+ *  as a clean win — see docs/EVALUATION.md's "Local embedder model selection" section for the
+ *  full table and the exact caveats. */
 export const DEFAULT_MODEL_NAME = "nomic-embed-text-v1.5";
 
 export function modelInfoByName(name: string): EmbeddingModelInfo | undefined {

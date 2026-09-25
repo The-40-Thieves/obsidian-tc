@@ -79,8 +79,11 @@ export function weightsPresent(
 type TransformersModule = any;
 
 export interface Session {
-  // biome-ignore lint/suspicious/noExplicitAny: Transformers.js's own tensor/output shape.
-  extractor: (texts: string[], opts: { pooling: "mean"; normalize: boolean }) => Promise<any>;
+  extractor: (
+    texts: string[],
+    opts: { pooling: "mean" | "cls"; normalize: boolean },
+    // biome-ignore lint/suspicious/noExplicitAny: Transformers.js's own tensor/output shape.
+  ) => Promise<any>;
 }
 
 /** One memoized session per (modelsRoot, model, quantized, threads) tuple — a process only ever
@@ -178,7 +181,10 @@ export function createEmbeddingProvider(
     async embed(texts: string[]): Promise<number[][]> {
       if (texts.length === 0) return [];
       const { extractor } = await loadSessionFn(info, modelsRoot, quantized, threads);
-      const output = await extractor(texts, { pooling: "mean", normalize: true });
+      // THE-1122 review: pooling comes from the CATALOG ENTRY, not a hardcoded "mean" — a first
+      // measurement applied mean pooling uniformly, which is wrong for bge-small-en-v1.5 (CLS).
+      // See model-info.ts's EmbeddingModelInfo.pooling doc comment.
+      const output = await extractor(texts, { pooling: info.pooling, normalize: true });
       const vectors = output.tolist() as number[][];
       if (vectors.length !== texts.length) {
         throw new Error(

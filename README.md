@@ -26,10 +26,8 @@ No install:
 npx obsidian-tc /path/to/vault
 ```
 
-Every note tool and lexical search work immediately, and semantic search works out of the box
-too — a bundled, fully offline embedder handles indexing with no config at all. A config file
-is the upgrade for ACLs, human-in-the-loop confirmation, the generative tier, and everything
-else (including choosing Ollama or a hosted embeddings provider instead) — see
+Every note tool and lexical search work immediately. Semantic search defaults to a bundled
+embedder (source checkout — see [Embeddings](/configuration/embeddings/)) — see
 [When NOT to use](#when-not-to-use-obsidian-tc) below.
 
 For multi-vault, auth, or ACLs, use a config file:
@@ -50,11 +48,9 @@ Honest guidance — this is a heavier product than most alternatives:
   over one vault, a read-only wrapper, or the Obsidian URI/Local REST API plugin directly may be
   all you need — see the [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/). This mostly
   pays off with autonomous or multi-agent access.
-- **Zero setup, but a one-time model download.** No Obsidian install is needed — the vault is read
-  directly off disk — and semantic/graph retrieval work out of the box via a bundled, fully
-  offline embedder (~137 MB, fetched once on first use). It is unavailable on the standalone
-  binary and the `.mcpb` bundle (set a hosted/self-hosted `embeddings.provider` there instead);
-  lexical search works immediately everywhere.
+- **Zero setup — source checkouts only, for now.** The vault is read directly off disk; semantic
+  search defaults to a bundled offline embedder, but npm/Docker need an explicit provider until
+  it's published — see [Embeddings](/configuration/embeddings/).
 - **Zero-config trades away auth/ACLs.** `obsidian-tc /path/to/vault` boots with auth off, no
   folder ACL — fine only because it's local-only; governance is opt-in. Detail: [SECURITY.md](./SECURITY.md).
 - **AGPL-3.0's network-copyleft terms.** Not permissive; a commercial license may exist — see

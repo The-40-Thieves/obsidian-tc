@@ -253,6 +253,47 @@ describe("buildRepresentationManifest (THE-683: the production producer)", () =>
       representationFingerprint(buildRepresentationManifest(provider, cfg)),
     );
   });
+
+  // THE-1122 review: `quantized: true` (q8) vs `false` (fp32) for the SAME catalog model name
+  // produces vectors from two different ONNX exports — without this, chunk_embeddings.model /
+  // vec_index_fingerprint could not tell them apart, and toggling the config would silently mix
+  // vectors from both variants in the same vec0 table instead of triggering a rebuild.
+  describe('provider "local": quantized folds into revision (scoped to local only)', () => {
+    const local = { provider: "local", model: "nomic-embed-text-v1.5", dimensions: 768 };
+
+    it("quantized: true (the schema default) reports revision 'q8'", () => {
+      expect(buildRepresentationManifest(local, { quantized: true }).revision).toBe("q8");
+    });
+
+    it("quantized: false reports revision 'fp32'", () => {
+      expect(buildRepresentationManifest(local, { quantized: false }).revision).toBe("fp32");
+    });
+
+    it("toggling quantized moves the stored fingerprint", () => {
+      const q8 = representationFingerprint(buildRepresentationManifest(local, { quantized: true }));
+      const fp32 = representationFingerprint(
+        buildRepresentationManifest(local, { quantized: false }),
+      );
+      expect(fp32).not.toBe(q8);
+    });
+
+    it("an explicit cfg.revision still wins over the derived quantized value", () => {
+      expect(
+        buildRepresentationManifest(local, { quantized: true, revision: "manual-override" })
+          .revision,
+      ).toBe("manual-override");
+    });
+
+    // The schema's `quantized` default is `true` for EVERY provider (it is not nested under a
+    // per-provider discriminated union), so this fold must be gated on provider === "local" —
+    // otherwise every openai/voyage/cohere/... deployment would pick up a meaningless "q8"
+    // revision it never asked for, and "Omitting it reproduces today's behaviour exactly" (the
+    // schema's own documented contract for embeddings.revision) would stop being true for them.
+    it("does NOT fold quantized in for a non-local provider — revision stays 'unknown'", () => {
+      expect(buildRepresentationManifest(provider, { quantized: true }).revision).toBe("unknown");
+      expect(buildRepresentationManifest(provider, { quantized: false }).revision).toBe("unknown");
+    });
+  });
 });
 
 describe("representationFingerprint", () => {

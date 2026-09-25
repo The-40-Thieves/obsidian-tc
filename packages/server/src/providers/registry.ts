@@ -377,6 +377,7 @@ export function resolveSourceCheckoutLocalRerankerPath(
       path: join(startDir, "..", "..", "..", "reranker-local", "dist", "index.js"),
       skippedReason: "skipped: running from node_modules",
       candidates: [],
+      anchorFound: false,
     };
   }
   const MAX_LEVELS = 6;
@@ -386,7 +387,11 @@ export function resolveSourceCheckoutLocalRerankerPath(
     candidates.push(dir);
     const anchor = join(dir, "packages", "reranker-local", "package.json");
     if (existsSync(anchor) && isRerankerLocalAnchor(anchor)) {
-      return { path: join(dir, "packages", "reranker-local", "dist", "index.js"), candidates };
+      return {
+        path: join(dir, "packages", "reranker-local", "dist", "index.js"),
+        candidates,
+        anchorFound: true,
+      };
     }
     const parent = dirname(dir);
     if (parent === dir) break; // filesystem root — stop rather than loop forever
@@ -397,6 +402,7 @@ export function resolveSourceCheckoutLocalRerankerPath(
   return {
     path: join(startDir, "..", "..", "..", "reranker-local", "dist", "index.js"),
     candidates,
+    anchorFound: false,
   };
 }
 

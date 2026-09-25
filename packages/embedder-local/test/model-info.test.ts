@@ -66,4 +66,14 @@ describe("pinnedFilesFor / dtypeFor", () => {
       }
     }
   });
+
+  // THE-1122 review: pins each catalog entry's pooling against its OWN model card's
+  // 1_Pooling/config.json (verified directly, 2026-09-25) — a wrong value here silently produces
+  // valid-looking but degraded vectors, which is exactly what happened to bge-small-en-v1.5 in the
+  // first measurement (mean applied uniformly; its card is CLS).
+  it("pins each catalog entry's pooling strategy against its own model card", () => {
+    expect(modelInfoByName("all-MiniLM-L6-v2")?.pooling).toBe("mean");
+    expect(modelInfoByName("bge-small-en-v1.5")?.pooling).toBe("cls");
+    expect(modelInfoByName("nomic-embed-text-v1.5")?.pooling).toBe("mean");
+  });
 });

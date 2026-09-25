@@ -4,6 +4,7 @@ import {
   EmbeddingsConfigSchema,
   type IndexingConfig,
   IndexingConfigSchema,
+  LOCAL_CATALOG_DIMENSIONS,
 } from "./config/indexing-embeddings.schema";
 import {
   isUnusableEgressExcludePattern,
@@ -114,6 +115,7 @@ export {
   IndexingConfigSchema,
   isFeedbackExemptFromReadOnly,
   isUnusableEgressExcludePattern,
+  LOCAL_CATALOG_DIMENSIONS,
   MaintenanceConfigSchema,
   MetadataPriorRuleSchema,
   normalizeEgressExcludePattern,

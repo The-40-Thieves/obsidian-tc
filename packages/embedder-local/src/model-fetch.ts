@@ -18,7 +18,7 @@
 //
 // Not imported anywhere in a way that reaches the network at import time — only when CALLED.
 import { createHash } from "node:crypto";
-import { createWriteStream, type Dirent } from "node:fs";
+import { createReadStream, createWriteStream, type Dirent } from "node:fs";
 import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -43,7 +43,9 @@ export function unsupportedPlatformReason(
   if (platform === "darwin" && arch === "x64") {
     return (
       "this platform (darwin-x64 / Intel Mac) has NO onnxruntime-node prebuilt binary — the " +
-      '"local" embedder cannot run here regardless of whether the pinned weights are fetched.'
+      '"local" embedder cannot run here regardless of whether the pinned weights are fetched. ' +
+      "Set embeddings.provider to a hosted or self-hosted backend instead (openai, voyage, " +
+      "cohere, bge-m3, openai-compatible, ollama)."
     );
   }
   const isMuslRuntime =
@@ -60,7 +62,9 @@ export function unsupportedPlatformReason(
   if (platform === "linux" && isMuslRuntime()) {
     return (
       "this platform (linux musl libc, e.g. Alpine) has NO onnxruntime-node prebuilt binary — " +
-      'the "local" embedder cannot run here regardless of whether the pinned weights are fetched.'
+      'the "local" embedder cannot run here regardless of whether the pinned weights are fetched. ' +
+      "Set embeddings.provider to a hosted or self-hosted backend instead (openai, voyage, " +
+      "cohere, bge-m3, openai-compatible, ollama)."
     );
   }
   return undefined;
@@ -109,9 +113,20 @@ interface ResolvedSpec {
   lockPollMs: number;
 }
 
-// 10 minutes: well over a healthy ~20-35 MB fetch (+ retry); older almost certainly means crashed.
+// THE-1122 review: this used to be sized off "a healthy fetch takes < 10 minutes", which stopped
+// being true once the catalog grew to include nomic-embed-text-v1.5's fp32 export (~547 MB) — a
+// slow connection could legitimately still be downloading past 10 minutes, and a second process
+// waiting on the lock would wrongly steal it out from under a live download. The fix is the
+// refresh loop below (LOCK_REFRESH_INTERVAL_MS / startLockRefresh), not a bigger number here: a
+// live downloader re-touches the lock's owner.json every 30s, so its observed age never approaches
+// this threshold regardless of total file size — 10 minutes now means "no heartbeat in 10
+// minutes", i.e. a crashed or wedged holder, not "this file is unusually large".
 const DEFAULT_LOCK_STALE_MS = 10 * 60 * 1000;
 const DEFAULT_LOCK_POLL_MS = 200;
+// How often an in-progress download re-touches its own lock's owner.json (see startLockRefresh).
+// Well under DEFAULT_LOCK_STALE_MS so a live downloader's observed lock age never approaches the
+// staleness threshold even accounting for scheduling jitter on a loaded CI runner.
+const LOCK_REFRESH_INTERVAL_MS = 30 * 1000;
 
 function resolveSpec(spec: ModelFetchSpec): ResolvedSpec {
   return {
@@ -124,9 +139,20 @@ function resolveSpec(spec: ModelFetchSpec): ResolvedSpec {
   };
 }
 
+// THE-1122 review: streamed via createReadStream, not readFile — nomic-embed-text-v1.5's fp32
+// export is ~547 MB, and reading that whole into memory just to hash it is unnecessary peak RSS on
+// top of whatever the ONNX runtime itself is already holding. reranker-local's own copy of this
+// function stays readFile-based (its pinned model is ~23 MB, where the difference is immaterial) —
+// see DOCUMENTED_DELTAS in scripts/check-model-fetch-parity.mjs for why this is a deliberate,
+// tracked divergence rather than silent drift between the two mirrored files.
 async function sha256File(path: string): Promise<string> {
-  const buf = await readFile(path);
-  return createHash("sha256").update(buf).digest("hex");
+  return new Promise((resolvePromise, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolvePromise(hash.digest("hex")));
+    stream.on("error", reject);
+  });
 }
 
 /** Every relative entry present under `dir`, recursively. `readdir`'s `Dirent` classification
@@ -322,6 +348,25 @@ async function releaseLock(finalDir: string): Promise<void> {
   await rm(lockDirFor(finalDir), { recursive: true, force: true });
 }
 
+/** Keeps a held lock's observed age near zero for as long as a real download is progressing, by
+ *  re-writing `owner.json`'s `startedAt` to "now" every LOCK_REFRESH_INTERVAL_MS — see that
+ *  constant's comment for why this exists (a large fp32 model can legitimately take longer to
+ *  download than DEFAULT_LOCK_STALE_MS). `unref()`'d so this timer alone never keeps the process
+ *  alive; a failed refresh write is swallowed (best-effort heartbeat, not a correctness
+ *  requirement — the LOCK_WAIT_DEADLINE_MULTIPLIER backstop in acquireLockOrObserveVerified still
+ *  bounds a waiter even if every refresh in a run happened to fail). Returns a stop function the
+ *  caller MUST call (via `finally`) once the download settles, successfully or not. */
+function startLockRefresh(finalDir: string): () => void {
+  const lockDir = lockDirFor(finalDir);
+  const timer = setInterval(() => {
+    writeLockOwnerAtomic(lockDir, { pid: process.pid, startedAt: Date.now() }).catch(
+      () => undefined,
+    );
+  }, LOCK_REFRESH_INTERVAL_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 // A waiter gives up after this many multiples of `lockStaleMs` and throws rather than polling
 // forever — a backstop under the stale-takeover check for whatever `lockAgeMs` can't observe.
 const LOCK_WAIT_DEADLINE_MULTIPLIER = 3;
@@ -461,7 +506,15 @@ async function downloadFile(fetchFn: typeof fetch, url: string, destPath: string
     const out = createWriteStream(destPath);
     (async () => {
       try {
-        for await (const chunk of res.body as AsyncIterable<Uint8Array>) out.write(chunk);
+        for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
+          // THE-1122 review: honor write() backpressure — without this, a source faster than the
+          // destination disk (e.g. a fast connection writing nomic's ~547 MB fp32 file to a slow
+          // disk) buffers the whole response in memory instead of pausing the read side.
+          const canContinue = out.write(chunk);
+          if (!canContinue) {
+            await new Promise<void>((drained) => out.once("drain", drained));
+          }
+        }
         out.end();
       } catch (e) {
         reject(e);
@@ -484,6 +537,9 @@ export async function fetchAndVerifyModel(root: string, spec: ModelFetchSpec): P
 
   const outcome = await acquireLockOrObserveVerified(finalDir, spec, resolved);
   if (outcome === "already-verified") return finalDir;
+  // Refresh starts only once THIS process holds the lock ("acquired") — a waiter observing another
+  // holder's lock has nothing of its own to refresh.
+  const stopLockRefresh = startLockRefresh(finalDir);
   try {
     if (await isVerified(finalDir, spec)) return finalDir;
 
@@ -504,6 +560,7 @@ export async function fetchAndVerifyModel(root: string, spec: ModelFetchSpec): P
     }
     return finalDir;
   } finally {
+    stopLockRefresh();
     await releaseLock(finalDir);
   }
 }
