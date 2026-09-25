@@ -75,6 +75,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   legacy-shim one): it now gets offered a confirmation round trip where it previously only got the
   bare error. There is no server-initiated elicitation on HTTP either way — see the Added entry.
 
+- **README rewritten as a 60-second on-ramp, and bare Linear ticket ids removed from every
+  user-facing doc surface (THE-1121, #973).** The README's top now leads with a one-paragraph
+  pitch, the quickstart command, an honest "when NOT to use this" section, and a trimmed
+  comparison table (32.6 KB -> 12 KB); the rest — the full competitor comparison, milestones,
+  architecture detail, the generated tool-surface breakdown, and install instructions — moved below
+  a `## More` fold with a table of contents, verbatim. A new `check:public-text` gate
+  (`scripts/check-public-text.mjs`, wired into `ci-server.yml`'s `lint` job) fails on a bare
+  `THE-<digits>` id or a `linear.app` URL in README.md, the public docs site, the top-level package
+  READMEs, or the two MCP manifests; ~75 such references across 11 files were replaced with plain
+  descriptions of the behaviour they described (source-level `.describe()` schema/tool strings for
+  the two docgen-generated pages, so the fix survives regeneration). The withdrawn-headline-figures
+  explanation that used to sit on the README now lives only in `docs/EVALUATION.md`, with a
+  one-line pointer left on the README. `docs/RELEASING.md` gained a *Cadence* section.
+
 ### Security
 
 - **A declined or cancelled `inputRequired` HITL confirmation could still complete the call it was

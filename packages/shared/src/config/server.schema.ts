@@ -71,7 +71,7 @@ export const ServerConfigObject = z.object({
         .min(1)
         .default(5000)
         .describe(
-          "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection (THE-745) so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising obsidian_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault (THE-467), not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
+          "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising obsidian_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault, not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
         ),
     })
     .prefault({})
@@ -106,7 +106,7 @@ export const ServerConfigObject = z.object({
     "Embedding provider and indexing throughput.",
   ),
   reranker: RerankerConfigSchema.optional().describe(
-    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else — THE-944 — the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, exactly as before THE-944.",
+    "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, unchanged from before that fallback existed.",
   ),
   // THE-832: connection config for the inference gateway itself (extract/synthesize/judge/rerank).
   // ABSENT preserves today's behaviour exactly: falls through to OBSIDIAN_TC_GATEWAY_URL /
@@ -148,7 +148,7 @@ export const ServerConfigObject = z.object({
   snapshots: SnapshotsConfigSchema.describe("Point-in-time note snapshot policy."),
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),
   egress: EgressConfigSchema.describe(
-    "Paths withheld from the inference gateway and the embedding provider (THE-934) — a different question from auth.acl.readPaths, which governs read visibility.",
+    "Paths withheld from the inference gateway and the embedding provider — a different question from auth.acl.readPaths, which governs read visibility.",
   ),
   sessions: SessionsConfigSchema.describe(
     "Whether the server opens workspace sessions itself, and how long one stays open.",

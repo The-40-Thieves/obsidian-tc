@@ -142,7 +142,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_episode_chain",
       domain: "knowledge",
       description:
-        "Walk an episode's amendment chain in one call. `prev_id` links each episode to the caller's previous one, and following it hop by hop cost one round trip per link. Returns the chain newest-first starting at `id`. The THE-238 reader contract applies at every hop, not just the first: tombstoned rows never surface, expired rows are excluded, and the walk stays inside the calling principal unless any_caller (admin:workspace, P1.7). The walk STOPS at the first hop that fails those filters rather than skipping over it — a gap in a returned chain would itself disclose that a hidden episode exists.",
+        "Walk an episode's amendment chain in one call. `prev_id` links each episode to the caller's previous one, and following it hop by hop cost one round trip per link. Returns the chain newest-first starting at `id`. The work-memory reader contract applies at every hop, not just the first: tombstoned rows never surface, expired rows are excluded, and the walk stays inside the calling principal unless any_caller (admin:workspace, P1.7). The walk STOPS at the first hop that fails those filters rather than skipping over it — a gap in a returned chain would itself disclose that a hidden episode exists.",
       inputSchema: z
         .object({
           id: z.string().min(1),
@@ -273,7 +273,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_forget",
       domain: "knowledge",
       description:
-        "Tombstone an experiential episode (the THE-238 control-1 blocklist, surfaced as the first-party forget verb). A forgotten episode never surfaces in work_search again; each successful forget appends a THE-239 hash-chained forget_log row for forensics. Idempotent: a repeat call, foreign, or unknown episode id is a silent no-op (forgotten:false) that appends NO additional log row. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op, not an error.",
+        "Tombstone an experiential episode — the first-party forget verb for the work-memory tier. A forgotten episode never surfaces in work_search again; each successful forget appends a hash-chained forget_log row for forensics. Idempotent: a repeat call, foreign, or unknown episode id is a silent no-op (forgotten:false) that appends NO additional log row. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op, not an error.",
       inputSchema: z.object({ episode_id: z.string().min(1) }).strict(),
       outputSchema: availableWith({ episode_id: z.string(), forgotten: z.boolean() }),
       requiredScopes: ["write:workspace"],
@@ -330,7 +330,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "note_quality_report",
       domain: "knowledge",
       description:
-        "Read-only note-health report from the note_quality rollup (THE-537): which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking.",
+        "Read-only note-health report from the note_quality rollup: which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -445,7 +445,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "gap_report",
       domain: "knowledge",
       description:
-        "Read-only view of the latest gap-detector pass (THE-48/THE-616/THE-644): which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `obsidian-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL (THE-563/564) before being returned.",
+        "Read-only view of the latest gap-detector pass: which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `obsidian-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL before being returned.",
       inputSchema: z
         .object({
           vault: VaultId,

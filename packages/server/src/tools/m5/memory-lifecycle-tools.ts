@@ -78,7 +78,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
       domain: "knowledge",
       vaultArg: "vault",
       description:
-        "Rename a memory entity and/or change its lifecycle status (active/retired). At least one of new_name/status is required. THE-833: this is the reachable path for retiring an entity — get_entity and query_entity_graph filter status:retired out by default. Renaming moves the materialized note (preserving any frontmatter Obsidian or a person added directly to the file) and re-materializes every OTHER materialized entity that has a relation TO this one, so their [[links]] keep resolving under the new name. Does not rewrite free-text mentions of the old name elsewhere in the vault — only entities with a direct graph edge to this one are touched.",
+        "Rename a memory entity and/or change its lifecycle status (active/retired). At least one of new_name/status is required. This is the reachable path for retiring an entity — get_entity and query_entity_graph filter status:retired out by default. Renaming moves the materialized note (preserving any frontmatter Obsidian or a person added directly to the file) and re-materializes every OTHER materialized entity that has a relation TO this one, so their [[links]] keep resolving under the new name. Does not rewrite free-text mentions of the old name elsewhere in the vault — only entities with a direct graph edge to this one are touched.",
       inputSchema: z
         .object({
           vault: VaultId,

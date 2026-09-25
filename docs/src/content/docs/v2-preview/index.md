@@ -15,7 +15,7 @@ What remains genuinely reserved for **V2** — the next substrate generation:
 
 - **The typed-atom MemIR substrate** — claim atoms, bi-temporal
   `authoritative_claims`, `derives_from` provenance edges. Parked with an explicit
-  revisit trigger (THE-235): it lands with a purpose-built claim-extraction
+  revisit trigger: it lands with a purpose-built claim-extraction
   pipeline, and pulls reference-counted derived-artifact GC (upgrading `forget`'s
   cascade) with it.
 - **An episode → authored-claim promotion path** — deliberately absent today (the

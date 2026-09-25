@@ -1,7 +1,7 @@
 # @the-40-thieves/obsidian-tc-plugin
 
 Companion Obsidian plugin for the obsidian-tc MCP server, shipped under the manifest id
-`tc-bridge` / name "TC Bridge" (renamed from `obsidian-tc` / "Obsidian Turbocharged", THE-943 —
+`tc-bridge` / name "TC Bridge" (renamed from `obsidian-tc` / "Obsidian Turbocharged" —
 see "Renamed to TC Bridge" below; the npm package name above is unaffected).
 
 Extends the Local REST API plugin with namespaced endpoints for:
@@ -41,7 +41,7 @@ protect the **MCP surface**, not direct LRA / companion HTTP calls. See
 The server writes direct-to-disk; see [docs/COHERENCE.md](../../docs/COHERENCE.md) for the
 sole-agent-writer contract, open-pane refresh caveats, and Windows rename semantics.
 
-## Renamed to TC Bridge (THE-943)
+## Renamed to TC Bridge
 
 Obsidian's community-directory rules ban the word "obsidian" in a plugin id (verified via
 context7 against `obsidianmd/obsidian-developer-docs`, 2026-09-03), so this plugin's Obsidian
@@ -67,16 +67,16 @@ and the MCP server's own name (`obsidian-tc`) are unaffected — only the Obsidi
   See `docs/superpowers/plans/2026-09-03-listings/community-obsidian.md` for the prepared (not
   yet submitted) community-directory listing text.
 
-## Community-store submission notes (THE-282)
+## Community-store submission notes
 
 - `versions.json` (version → `minAppVersion`) lives beside `manifest.json` in this package and is
   asserted by `scripts/check-version-coherence.mjs`. **Obsidian's community-directory validator
   reads `manifest.json` from the plugin repository's default branch** (confirmed against
-  `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc, THE-950) — `versions.json` is a
+  `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc) — `versions.json` is a
   separate, optional runtime fallback Obsidian consults only for an already-installed plugin whose
   `minAppVersion` has risen past the user's app version, and it is not named as a submission
   requirement, so it stays here rather than also moving to the root.
-- **THE-950: this file's `manifest.json` is mirrored, byte-for-byte, to the repo root** by
+- **This file's `manifest.json` is mirrored, byte-for-byte, to the repo root** by
   `scripts/release.mjs`, which is what the community-directory validator's default-branch read
   actually finds — `scripts/check-version-coherence.mjs` fails the release if the two ever drift,
   so there is exactly one manifest to hand-edit, not two to keep in sync.

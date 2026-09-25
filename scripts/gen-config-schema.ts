@@ -287,7 +287,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // experiential.logRetrievals: true; otherwise there is nothing for it to update and the
   // exemption is inert. See retrieval.schema.ts's ExperientialConfigSchema.allowFeedbackInReadOnly
   // for the full description text. No existing key, type, default or constraint moved.
-  "e741b32bb1559884bc5e06ef370e0b991cc4da06f468d8d03f4538fd11bbdd2f";
+  // THE-1121 (2026-09-24): rebaselined deliberately. Removed bare Linear ticket ids from eleven
+  // `.describe()` strings that flow into the emitted JSON Schema (obsidian-tc is a public repo;
+  // the ticket ids leaked the private planning plane into a published artifact) —
+  // retrieval.schema.ts's adaptiveRrf/cache/summaries(.clusters)/citationInfer(.judge.provider)/
+  // gapSweep/proactive blocks, server.schema.ts's reranker.provider and egress descriptions, and
+  // personas.schema.ts's toolVisibility mask description. Description text only; no key, type,
+  // default or constraint moved.
+  "e3ea86985b71e761f6c5750afb62443bc3b4aa14e6d3af6a249c40a035f06c9e";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

@@ -103,6 +103,14 @@ jobs:
       - name: plugin route table vs ARCHITECTURE.md (source scan)
         run: bun run check:plugin-routes
 
+      # obsidian-tc is public (The-40-Thieves org); Linear is the private planning plane. A bare
+      # THE-<digits> ticket id or a linear.app URL in README.md, the public docs site, a top-level
+      # package README, or either MCP manifest leaks that private plane onto the public one. This
+      # scans exactly those surfaces (docs-scan gate) — see scripts/check-public-text.mjs's own
+      # header for the allowlist (CHANGELOG.md, EVALUATION.md, and other genuinely internal docs).
+      - name: public-facing text has no Linear leakage (docs scan)
+        run: bun run check:public-text
+
       # DRY, as a detector rather than a principle. Every duplication that has cost time here was
       # invisible to the test suite because the copies AGREED — DEFAULT_MEMORY_FOLDER three ways
       # on a delete path, MAX_RESOURCE_BYTES vs a configurable maxResponseBytes, paginate<T> twice

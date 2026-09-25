@@ -22,7 +22,7 @@
       "properties": {
         "busyTimeoutMs": {
           "default": 5000,
-          "description": "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection (THE-745) so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising obsidian_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault (THE-467), not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
+          "description": "Milliseconds SQLite's busy handler retries a write before giving up, applied FIRST on every connection so it covers even the WAL-conversion window. Raising it is SYMPTOM TREATMENT, not a fix: a rising obsidian_tc_sql_lock_wait_seconds tail past this value is the direct evidence the writers genuinely overlap that long, and the fix is splitting the shared database per vault, not raising this further. Easy to miss: stdio MCP spawns ONE SERVER PROCESS PER CLIENT, and every process opens the SAME cache.db, so the concurrent client count is load-bearing for how much contention this has to absorb — one operator measured `server_health` degraded (write_failures, last_write_error 'timed out') at 17 concurrent stdio processes on one cache.db, and ok again at 5 (GH #878).",
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
@@ -659,13 +659,13 @@
       }
     },
     "reranker": {
-      "description": "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else — THE-944 — the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, exactly as before THE-944.",
+      "description": "Reranker backend. ABSENT is meaningful: it preserves the historical behaviour of preferring the model-tier cross-encoder when configured, else the gateway passthrough, else the bundled offline 'local' cross-encoder IF the optional @the-40-thieves/obsidian-tc-reranker-local package happens to resolve on this deployment and no gateway URL is configured; else a graceful RRF-only no-op, unchanged from before that fallback existed.",
       "type": "object",
       "properties": {
         "provider": {
           "type": "string",
           "minLength": 1,
-          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (THE-705/THE-944: a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package, and is also tried AUTOMATICALLY — no need to set provider: 'local' explicitly — when this whole block is left unset, model-tier is not configured, and no gateway URL is configured either), and the profile-gated module."
+          "description": "Reranker backend name, resolved against the provider registry at startup. Built-ins: cohere-compatible (any Cohere-format /rerank endpoint), model-tier (the BGE cross-encoder, configured via embeddings.modelTier.full), gateway (the inference gateway passthrough), local (a bundled, fully offline cross-encoder — no gateway or Python service required; requires the optional @the-40-thieves/obsidian-tc-reranker-local package, and is also tried AUTOMATICALLY — no need to set provider: 'local' explicitly — when this whole block is left unset, model-tier is not configured, and no gateway URL is configured either), and the profile-gated module."
         },
         "model": {
           "description": "Rerank model name as the provider names it. Required by cohere-compatible (refused at boot if absent). Ignored — and refused at boot if set — by model-tier, which sources its model from embeddings.modelTier.full.model. Optional for gateway: omitting it silently falls back to the model literal \"rerank\".",
@@ -698,7 +698,7 @@
           "minLength": 1
         },
         "localModelPath": {
-          "description": "Absolute path to the ROOT directory under which <model-id>/<revision>/ lives (config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README) for provider 'local'. THE-944: no longer required to be pre-populated — fetched and sha256-verified automatically on the first rerank call if not already present. Defaults to that package's own models/ directory. `bun run fetch-model` still works, for offline/CI pre-population. Ignored — and refused at boot if set — by every other provider.",
+          "description": "Absolute path to the ROOT directory under which <model-id>/<revision>/ lives (config.json, tokenizer.json, onnx/model_int8.onnx — see @the-40-thieves/obsidian-tc-reranker-local's README) for provider 'local'. No longer required to be pre-populated — fetched and sha256-verified automatically on the first rerank call if not already present. Defaults to that package's own models/ directory. `bun run fetch-model` still works, for offline/CI pre-population. Ignored — and refused at boot if set — by every other provider.",
           "type": "string",
           "minLength": 1
         },
@@ -807,7 +807,7 @@
           "properties": {
             "mode": {
               "default": "cosine",
-              "description": "Which hardness rule gates the rerank: absolute top-1 cosine, or the model-agnostic z-margin. Default `cosine` preserves the shipped behaviour; `zMargin` is what THE-400 built and has never been the production default.",
+              "description": "Which hardness rule gates the rerank: absolute top-1 cosine, or the model-agnostic z-margin. Default `cosine` preserves the shipped behaviour; `zMargin` is a model-agnostic alternative that has never been the production default.",
               "type": "string",
               "enum": [
                 "cosine",
@@ -930,7 +930,7 @@
           }
         },
         "adaptiveRrf": {
-          "description": "Adaptive per-stream RRF weighting (THE-391): tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
+          "description": "Adaptive per-stream RRF weighting: tilts dense vs lexical/sparse stream weight by per-query lexical specificity. Off by default.",
           "default": {},
           "type": "object",
           "properties": {
@@ -949,7 +949,7 @@
           }
         },
         "cache": {
-          "description": "THE-497 in-process query-product cache. Off by default; a hit requires the same caller, query, vault generation and retrieval configuration.",
+          "description": "In-process query-product cache. Off by default; a hit requires the same caller, query, vault generation and retrieval configuration.",
           "default": {},
           "type": "object",
           "properties": {
@@ -974,13 +974,13 @@
           }
         },
         "summaries": {
-          "description": "THE-628 note-level summary tier (first PR: mechanism only, dark by default). See the block comment for the eval gate this is built ahead of.",
+          "description": "Note-level summary tier (mechanism only, dark by default). See the block comment for the eval gate this is built ahead of.",
           "default": {},
           "type": "object",
           "properties": {
             "enabled": {
               "default": false,
-              "description": "Generate + retrieve note-level summaries (THE-628). Off ships the mechanism dark: zero gateway calls at index time, no summary candidates at retrieval time. Gated on a pre-registered global-query eval, not built here.",
+              "description": "Generate + retrieve note-level summaries. Off ships the mechanism dark: zero gateway calls at index time, no summary candidates at retrieval time. Gated on a pre-registered global-query eval, not built here.",
               "type": "boolean"
             },
             "model": {
@@ -995,13 +995,13 @@
               "maximum": 9007199254740991
             },
             "clusters": {
-              "description": "THE-628 cluster-level (tier-2) summary tier (second PR: mechanism only, dark by default). Independent enable flag from the note-level tier above — see this block's comment.",
+              "description": "Cluster-level (tier-2) summary tier (mechanism only, dark by default). Independent enable flag from the note-level tier above — see this block's comment.",
               "default": {},
               "type": "object",
               "properties": {
                 "enabled": {
                   "default": false,
-                  "description": "Generate + retrieve cluster-level (tier-2/RAPTOR) summaries (THE-628, second PR). Off ships the mechanism dark: zero gateway/embed calls at the offline cluster pass, no cluster_summary candidates at retrieval time. Gated on the SAME pre-registered global-query eval as the note-level tier.",
+                  "description": "Generate + retrieve cluster-level (tier-2/RAPTOR) summaries. Off ships the mechanism dark: zero gateway/embed calls at the offline cluster pass, no cluster_summary candidates at retrieval time. Gated on the SAME pre-registered global-query eval as the note-level tier.",
                   "type": "boolean"
                 },
                 "maxConcurrency": {
@@ -1112,7 +1112,7 @@
         },
         "activationRerank": {
           "default": false,
-          "description": "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on is THE-424 Part B.",
+          "description": "Apply the ACT-R cached-activation-score signal to graph search ranking: builds the lookup, threads it to every M7 graphSearch call, and enables the bounded bubble pass that composes it into the fused order (each item moves at most one position). Ships off; the A/B that would justify turning it on has not shipped.",
           "type": "boolean"
         },
         "citationPreferences": {
@@ -1126,7 +1126,7 @@
           "type": "boolean"
         },
         "citationInfer": {
-          "description": "THE-717: scheduled citation-inference pass over a transcript index. Needs an out-of-tree producer for transcriptIndex — no MCP surface gives a server the assistant's answer.",
+          "description": "Scheduled citation-inference pass over a transcript index. Needs an out-of-tree producer for transcriptIndex — no MCP surface gives a server the assistant's answer.",
           "default": {},
           "type": "object",
           "properties": {
@@ -1147,7 +1147,7 @@
               "maximum": 8760
             },
             "judge": {
-              "description": "THE-1078: opt-in judge provider for the citation-inference stage-2 verdict. Absent -> today's behaviour unchanged (the gateway `judge` role when configured, or stage-1-only mode).",
+              "description": "Opt-in judge provider for the citation-inference stage-2 verdict. Absent -> today's behaviour unchanged (the gateway `judge` role when configured, or stage-1-only mode).",
               "type": "object",
               "properties": {
                 "provider": {
@@ -1202,7 +1202,7 @@
           }
         },
         "gapSweep": {
-          "description": "THE-719: scheduled coverage-gap sweep over recently logged queries. Advisory only — nothing auto-tunes retrieval config from its own gap measurements.",
+          "description": "Scheduled coverage-gap sweep over recently logged queries. Advisory only — nothing auto-tunes retrieval config from its own gap measurements.",
           "default": {},
           "type": "object",
           "properties": {
@@ -1228,7 +1228,7 @@
           }
         },
         "proactive": {
-          "description": "THE-634: scheduled proactive-advisory sweep over goal-anchored candidates (vault-watcher note changes, open contradictions, recent syntheses). Publishes into subscriptions/listen for modern-era (2026-07-28) sessions only; legacy-era sessions — the LiteLLM-fronted production majority — receive no delivery attempt, by design. See docs/MCP-COMPATIBILITY.md.",
+          "description": "Scheduled proactive-advisory sweep over goal-anchored candidates (vault-watcher note changes, open contradictions, recent syntheses). Publishes into subscriptions/listen for modern-era (2026-07-28) sessions only; legacy-era sessions — the LiteLLM-fronted production majority — receive no delivery attempt, by design. See docs/MCP-COMPATIBILITY.md.",
           "default": {},
           "type": "object",
           "properties": {
@@ -1333,7 +1333,7 @@
       "properties": {
         "maxResponseBytes": {
           "default": 1000000,
-          "description": "Ceiling on a single tool or resource response in bytes, before it is refused (THE-514: resources/read honors this too, not just tools).",
+          "description": "Ceiling on a single tool or resource response in bytes, before it is refused (resources/read honors this too, not just tools).",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
@@ -1452,7 +1452,7 @@
             "description": "The scopes a token carrying this persona is granted — REPLACES whatever scopes the token itself carries, never unioned with them, so a persona claim can only narrow or redirect a grant, never widen it beyond what the operator configured here."
           },
           "toolVisibility": {
-            "description": "Optional per-persona tool-visibility mask, composed with the server's static `toolVisibility` at the same disabled > hidden > scope_denied > listed chokepoint (THE-645 item 2's existence-oracle constraint still holds). Can only narrow what the static config already allows, never restore a tool the static config hid or disabled.",
+            "description": "Optional per-persona tool-visibility mask, composed with the server's static `toolVisibility` at the same disabled > hidden > scope_denied > listed chokepoint (the existence-oracle constraint still holds). Can only narrow what the static config already allows, never restore a tool the static config hid or disabled.",
             "type": "object",
             "properties": {
               "allowed": {
@@ -1833,7 +1833,7 @@
             },
             "tracesDays": {
               "default": 30,
-              "description": "Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (THE-572 writes the trace before the session row, so a failed attempt leaves a file with no row referencing it).",
+              "description": "Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (the trace is written before the session row, so a failed attempt leaves a file with no row referencing it).",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
@@ -1953,7 +1953,7 @@
       "properties": {
         "enabled": {
           "default": false,
-          "description": "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured. Opt-in (THE-825): a deployment with a gateway configured and this key unset gets a boot-time notice explaining how to turn it on.",
+          "description": "Run ambient sleep-time consolidation (synthesis and audit jobs). Only meaningful when the inference gateway roles are configured. Opt-in: a deployment with a gateway configured and this key unset gets a boot-time notice explaining how to turn it on.",
           "type": "boolean"
         },
         "intervalMinutes": {
@@ -1965,7 +1965,7 @@
         },
         "gatewayMaxAttempts": {
           "default": 6,
-          "description": "Attempts a consolidation job's gateway call may make before failing, each with its own fresh timeout. Higher than the interactive default (3) because the models behind the gateway roles may be serverless and scale to zero: a cold start measured at over 180s exceeded 3 attempts x 60s, so every scheduled pass failed with a timeout while the same request against a warm endpoint took 4.8s. Separate from the interactive path on purpose: a multi-minute budget suits a background weekly pass and not a user-facing call. NOTE (THE-709): attempts alone were not sufficient — retries only help a TRANSIENT failure, and a request that deterministically exceeds the per-attempt timeout fails identically on every attempt. See planeGatewayTimeoutMs, which is the knob for that case.",
+          "description": "Attempts a consolidation job's gateway call may make before failing, each with its own fresh timeout. Higher than the interactive default (3) because the models behind the gateway roles may be serverless and scale to zero: a cold start measured at over 180s exceeded 3 attempts x 60s, so every scheduled pass failed with a timeout while the same request against a warm endpoint took 4.8s. Separate from the interactive path on purpose: a multi-minute budget suits a background weekly pass and not a user-facing call. NOTE: attempts alone were not sufficient — retries only help a TRANSIENT failure, and a request that deterministically exceeds the per-attempt timeout fails identically on every attempt. See planeGatewayTimeoutMs, which is the knob for that case.",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
@@ -1979,7 +1979,7 @@
         },
         "maxPromptChars": {
           "default": 45535,
-          "description": "Aggregate character cap on a consolidation job's WHOLE gateway request (system prompt + user message). Not a per-item cap: the synthesis job already truncated each chunk to 1000 chars and still built a 169,258-char prompt from 200 of them, which the serving window rejected as ContextWindowExceeded. Sized in characters, not tokens, because no tokenizer is available on this side. The default is conservative on purpose — the model behind a gateway role is swappable at the gateway, and the server does not advertise its max_model_len through the LiteLLM /v1/models passthrough, so this side cannot discover the real ceiling. THE-891 item 7: sized so every vault shape keeps the SAME ~14,554-token output reserve inside a 32768-token window, not just prose-like ones — derived from the worst-case density this job documents (code/CJK, ~2.5 chars/token): (32768 - 14554) x 2.5 = 45535 chars. A prose-dense vault (measured on a real vault at 3.294 chars/token) gets MORE reserve than this, never less. Raise it when the role points at a larger serving window.",
+          "description": "Aggregate character cap on a consolidation job's WHOLE gateway request (system prompt + user message). Not a per-item cap: the synthesis job already truncated each chunk to 1000 chars and still built a 169,258-char prompt from 200 of them, which the serving window rejected as ContextWindowExceeded. Sized in characters, not tokens, because no tokenizer is available on this side. The default is conservative on purpose — the model behind a gateway role is swappable at the gateway, and the server does not advertise its max_model_len through the LiteLLM /v1/models passthrough, so this side cannot discover the real ceiling. Sized so every vault shape keeps the SAME ~14,554-token output reserve inside a 32768-token window, not just prose-like ones — derived from the worst-case density this job documents (code/CJK, ~2.5 chars/token): (32768 - 14554) x 2.5 = 45535 chars. A prose-dense vault (measured on a real vault at 3.294 chars/token) gets MORE reserve than this, never less. Raise it when the role points at a larger serving window.",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
@@ -1987,7 +1987,7 @@
       }
     },
     "egress": {
-      "description": "Paths withheld from the inference gateway and the embedding provider (THE-934) — a different question from auth.acl.readPaths, which governs read visibility.",
+      "description": "Paths withheld from the inference gateway and the embedding provider — a different question from auth.acl.readPaths, which governs read visibility.",
       "default": {},
       "type": "object",
       "properties": {
@@ -2013,7 +2013,7 @@
         },
         "traceContent": {
           "default": true,
-          "description": "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: \"hardened\"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface — see THE-737.",
+          "description": "Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: \"hardened\"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface.",
           "type": "boolean"
         },
         "windowSeconds": {

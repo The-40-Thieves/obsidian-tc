@@ -63,7 +63,7 @@ At server start (and on `reload_vault`) the server fires `GET /obsidian-tc/v1/pr
 
 Default 5s per route (`vault.bridges.timeoutMs`); OCR and Templater routes default to 30s. A timeout returns `plugin_unreachable`.
 
-## Version compatibility & bridge state (THE-523)
+## Version compatibility & bridge state
 
 The server and companion plugin form a versioned contract. On first bridge contact the server compares the companion's reported version and Obsidian API major against the supported range; a skew logs **once** at `warn` with the specific incompatibility rather than diverging silently at whichever route changed.
 
@@ -92,9 +92,9 @@ A companion **older** than the minimum, or on a different API major, is a **brea
 | `degraded` | `companion-unreachable` | Endpoint configured but no answer — check URL/key and that Obsidian is running. |
 | `degraded` | `version-skew` | Companion version or API major incompatible — update the companion. |
 
-The `plugin-not-installed` / `plugin-disabled` / `enabled-but-unreachable` distinction is sourced from on-disk detection ([[Environment detection|THE-522]]): three different operator actions that were previously one indistinguishable "headless". `companion-untrusted-cert` only fires when the on-disk hint is `enabled` or absent — a TLS handshake failure proves *something* is listening with a cert on that host:port, not that the plugin is installed, so an `absent`/`disabled` on-disk hint still wins and keeps its install/enable remediation.
+The `plugin-not-installed` / `plugin-disabled` / `enabled-but-unreachable` distinction is sourced from on-disk detection ([[Environment detection]]): three different operator actions that were previously one indistinguishable "headless". `companion-untrusted-cert` only fires when the on-disk hint is `enabled` or absent — a TLS handshake failure proves *something* is listening with a cert on that host:port, not that the plugin is installed, so an `absent`/`disabled` on-disk hint still wins and keeps its install/enable remediation.
 
-### Cause codes (THE-922)
+### Cause codes
 
 Every unreachable/degraded report carries `causeCode`: the underlying fetch failure's code (e.g. `ECONNREFUSED`, `ENOTFOUND`, a `CERT_`/`ERR_TLS_`-prefixed TLS code, or `ABORT_ERR` for a timeout/abort), surfaced **verbatim** even when the server doesn't classify it into one of the reasons above — one doctor line replaces what used to be a full diagnostic session. It's what drives the `companion-untrusted-cert` classification, but it's reported on every unreachable state, classified or not.
 
