@@ -118,6 +118,45 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **`@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1
+  (THE-1133, PR 1).** Read every changeset between the two `@modelcontextprotocol/server` tags
+  (`npm view` + the GitHub release body): (1) request-time OAuth scope challenges for
+  tools/resources/prompts (opt-in per primitive via a new `scopeChallenge` callback on
+  `McpServer`'s registration methods; **unused** — this repo registers `tools/call` directly on
+  the low-level `Server`, never through `McpServer`'s `.tool()`/`.resource()`/`.prompt()`, so the
+  preflight is structurally unreachable here regardless of any option) — confirmed by reading the
+  installed dist, not assumed; (2) `SdkError`/`SdkHttpError` now forward a wrapped cause through
+  the standard `Error.cause` chain (scoped to the SDK's own era-negotiation errors, which this
+  repo never triggers — server-only, no `/client` or `/core` client-probe dependency); (3) the SDK
+  stops sending `notifications/cancelled` for the `initialize` handshake (client-side `connect()`
+  behaviour; we never send `initialize` outbound); and (4) **request id `0` is now treated as a
+  real id** — two guards in the shared `Protocol` base tested a `RequestId` for truthiness, so
+  `notifications/cancelled` targeting id `0` was silently ignored and a `relatedRequestId: 0`
+  notification wrongly passed the debounce gate. Id `0` is not a corner case: it's the id every
+  peer assigns its first request on a connection. New test
+  `packages/server/test/sdk-request-id-zero.test.ts` reproduces this against our real `tools/call`
+  handler over `InMemoryTransport` — confirmed it FAILS on the old 2.0.0 dist (handler times out,
+  `AbortSignal` never fires) and PASSES on 2.1.0.
+  Re-traced the SDK's DEFAULT-ON `LegacyInputRequiredShim` (THE-1106's HITL/elicitation
+  foundation) against the new dist: byte-for-byte IDENTICAL to 2.0.0's at every cited span
+  (construction default, round-timeout constant, the wrap/invoke/fulfill call chain) — only line
+  numbers moved (`dist/mcp-*.mjs` ~L816/876/897 → ~L1120/1180/1201-1202), pushed down by the
+  unrelated scope-challenge and HTTP body-size-limit code added earlier in the same bundle.
+  Updated every source/test citation of the old line numbers and the `2.0.0` version pin
+  (`elicit-form.ts`, `client-info.ts`, `mcp-client-compat-matrix.test.ts`,
+  `hitl-legacy-shim-elicitation.test.ts`'s `SDK_VERSION` floor assertion,
+  `tool-surface-2025.test.ts`'s devDependency-floor comment). Added a regression guard
+  (`error-rendering.test.ts`) pinning that `ObsidianTcError.toJSON()` and `formatErrorDetail` stay
+  a field whitelist that never reads `.cause`, so a leaked internal path can't reach the wire
+  envelope regardless of which SDK error class raised it. Re-ran the full HITL/elicitation suite
+  battery (`hitl-legacy-shim-*`, `hitl-multi-round-trip*`, `elicit*`, `mcp-protocol-eras*`,
+  `error-rendering*`, `facade-elicit-token*`, `conditional-hitl-advertisement*`,
+  `mcp-client-compat-matrix*`, `facade-auto-*`, `health-output-schema`, `packages/shared`'s full
+  suite) plus a REAL stdio round trip against the BUILT server (spawned child process,
+  `initialize` as 2025-11-25 with `elicitation: {}`, `move_note` cross-folder with no token,
+  native `inputRequired` round trip completed) — all green. `bun install --frozen-lockfile`:
+  passes. `osv-scanner scan source` on a scratch copy: no issues.
+
 - **`docs/` workspace dependency batch (#979, THE-1119).** `astro` 7.2.8→7.3.5, `@astrojs/check`
   0.9.9→0.9.10, `@astrojs/starlight` 0.41.3→0.42.4 (all verified current with `npm view`). Read
   every Starlight changelog entry between 0.41.3 and 0.42.4: none of its 0.42.0 potentially-

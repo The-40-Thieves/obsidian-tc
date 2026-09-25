@@ -7,14 +7,16 @@
 // the REPLACEMENT design: an `elicitCodec` wired for stdio too, `dispatchToResult` returning
 // `inputRequired(...)` gated on `negotiatedModern() || (legacyElicitationShim && shim-asserted)`,
 // and the shim doing the actual round trip. Traced against the INSTALLED
-// `@modelcontextprotocol/server@2.0.0` (dist/mcp-*.mjs): `Server._wrapHandler("tools/call", ...)`
-// (~L816) wraps every `setRequestHandler("tools/call", ...)` registration (via the base
-// `Protocol.setRequestHandler`, src-*.mjs ~L6774, which calls `this._wrapHandler`, resolving to
-// the `Server` override) with `_invokeInputRequiredCapableHandler` (~L876), which — when
-// `!this._servedModernEra()` — calls `this._legacyInputRequiredShim().fulfill(...)` (~L897,
-// `legacyShim: options?.legacyShim ?? true` at construction, ~L493). Item (5) of the fix-round
-// brief: this is the wire test proving the shim is reachable through our EXACT `Server` +
-// `setRequestHandler("tools/call")` shape, not assumed from reading source alone.
+// `@modelcontextprotocol/server@2.1.0` (dist/mcp-*.mjs): `Server._wrapHandler("tools/call", ...)`
+// (~L1120) wraps every `setRequestHandler("tools/call", ...)` registration (via the base
+// `Protocol.setRequestHandler`, src-*.mjs, which calls `this._wrapHandler`, resolving to
+// the `Server` override) with `_invokeInputRequiredCapableHandler` (~L1180), which — when
+// `!this._servedModernEra()` — calls `this._legacyInputRequiredShim().fulfill(...)` (~L1201-1202,
+// `legacyShim: options?.legacyShim ?? true` at construction, ~L797). THE-1133: re-verified on
+// 2.1.0's dist — the span is byte-identical to 2.0.0's (only line numbers shifted, from unrelated
+// code — OAuth scope challenges, the HTTP body-size limit — added earlier in the same file). Item
+// (5) of the fix-round brief: this is the wire test proving the shim is reachable through our
+// EXACT `Server` + `setRequestHandler("tools/call")` shape, not assumed from reading source alone.
 
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -189,11 +191,12 @@ describe(`THE-1106 fix round 1: SDK legacy shim (proven against @modelcontextpro
   // THE-1106 fix round 2 (LOW 4): the version was printed in the describe label but never
   // actually asserted — a silent SDK bump would drift the label without failing anything. This is
   // the floor: every trace/line-number citation in this suite and in mcp/elicit-form.ts's doc
-  // comments is pinned to 2.0.0's SOURCE, not just its behaviour, so a version bump should fail
-  // loudly here and prompt re-verifying the trace, not pass silently on a coincidentally-compatible
-  // newer release.
+  // comments is pinned to 2.1.0's SOURCE (THE-1133: re-traced byte-for-byte identical to 2.0.0's,
+  // only line numbers shifted), not just its behaviour, so a version bump should fail loudly here
+  // and prompt re-verifying the trace, not pass silently on a coincidentally-compatible newer
+  // release.
   it("(SDK version floor) the installed package is the version this suite's trace was verified against", () => {
-    expect(SDK_VERSION).toBe("2.0.0");
+    expect(SDK_VERSION).toBe("2.1.0");
   });
 
   it("(shim-reachable) destructive call -> SDK sends elicitation/create -> accept completes it, exactly one leg", async () => {

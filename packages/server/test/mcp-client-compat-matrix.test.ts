@@ -165,7 +165,7 @@ const MATRIX: MatrixCell[] = [
   // FINDING (THE-725): the header comment on client-info.ts claimed client identity is read
   // from per-request `_meta`, "same code path in both eras". That is true of `extractClientInfo`
   // in ISOLATION (client-info.test.ts proves it against a hand-built `_meta` bag) — but it was NOT
-  // what happened on the real wire, in EITHER era, on the SDK version this repo pins (2.0.0).
+  // what happened on the real wire, in EITHER era, on the SDK version this repo pins (2.1.0).
   //
   // `io.modelcontextprotocol/clientInfo` is one of four keys `@modelcontextprotocol/server`
   // treats as RESERVED per-request envelope material (`RESERVED_ENVELOPE_META_KEYS` —
