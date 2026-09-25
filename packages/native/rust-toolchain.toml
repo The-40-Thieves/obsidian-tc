@@ -17,11 +17,11 @@
 # is where they are actually needed.
 [toolchain]
 # Exact patch, not "stable": a floating channel reintroduces "an unrelated PR goes red because a new
-# clippy lint shipped", which is the failure THE-506 set out to close. 1.97.1 is what `stable`
-# currently resolves to, so the cutover is a no-op on the compiler and isolates this change to the
-# plumbing. Keep three components — dtolnay special-cases the two-component form "1.97" into a
-# computed version, while a three-component string is passed through verbatim.
-channel = "1.97.1"
+# clippy lint shipped", which is the failure THE-506 set out to close. 1.98.1 is what `stable`
+# currently resolves to (THE-1119c), so the cutover is a no-op on the compiler and isolates this
+# change to the plumbing. Keep three components — dtolnay special-cases the two-component form
+# "1.98" into a computed version, while a three-component string is passed through verbatim.
+channel = "1.98.1"
 # `clippy` is gated in ci-native's lint job; once cargo resolves to this channel the component has to
 # exist HERE, not on `stable`. rustfmt is not gated yet but belongs with it so local `cargo fmt`
 # matches whenever it is. rustup installs anything listed here on the next proxied command, even for

@@ -25,7 +25,7 @@
 // embedding a JS engine); run it with `node bench/cosine-batch.cjs` and see the ticket report for
 // combined numbers.
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
 // The shipped kernels, linked from the rlib — not copies.
@@ -106,15 +106,19 @@ fn bench_precompute_norm(c: &mut Criterion) {
                     ))
                 });
             });
-            group.bench_with_input(BenchmarkId::new("new_precomputed_norm", &id), &id, |b, _| {
-                b.iter(|| {
-                    black_box(cosine_batch_core_new(
-                        black_box(&query_f32),
-                        black_box(&docs_flat),
-                        dim,
-                    ))
-                });
-            });
+            group.bench_with_input(
+                BenchmarkId::new("new_precomputed_norm", &id),
+                &id,
+                |b, _| {
+                    b.iter(|| {
+                        black_box(cosine_batch_core_new(
+                            black_box(&query_f32),
+                            black_box(&docs_flat),
+                            dim,
+                        ))
+                    });
+                },
+            );
         }
     }
     group.finish();
@@ -147,5 +151,9 @@ fn bench_f32_vs_f64_accumulation(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_precompute_norm, bench_f32_vs_f64_accumulation);
+criterion_group!(
+    benches,
+    bench_precompute_norm,
+    bench_f32_vs_f64_accumulation
+);
 criterion_main!(benches);

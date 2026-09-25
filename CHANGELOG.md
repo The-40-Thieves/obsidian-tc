@@ -51,6 +51,28 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **Rust toolchain + napi crate batch (#977, THE-1119).** `rust-toolchain.toml`/`Cargo.toml`
+  `rust-version` 1.97.1→1.98.1 (a no-op on the compiler — `stable` already resolves to 1.98.1);
+  `napi` 3.9.4→3.13.0, `napi-derive` 3.5.7→3.6.9, `napi-build` 2.3.2→2.5.0, `rustix` 1.1.4→1.1.5.
+  Read every intervening napi-rs release note: no macro/attribute renames, only fixes and
+  WASM/async-runtime additions we don't use — **napi 3.12.4 backports three security fixes**
+  (GHSA-rhpj-pggq-896v: OOB read/write via `Object::unwrap`/`remove_wrapped` payload provenance;
+  GHSA-f334-75xc-qxv3: serde deserializer `unreachable!()` abort on ordinary JS values;
+  GHSA-32mm-r9wp-hrvc: `*_external` slices pointing at freed memory) — 3.13.0 carries all three.
+  `Cargo.lock` updated with four `cargo update -p <crate> --precise <ver>` calls, not a full-tree
+  `cargo update`; the diff is exactly that closure (`napi`, `napi-build`, `napi-derive`,
+  `napi-derive-backend`, `napi-sys`, `convert_case`, `rustix`). `cargo semver-checks` not run: the
+  crate is `version = "0.0.0"`, never published to crates.io, and neither the justfile nor any
+  workflow runs it. A pre-existing `cargo fmt --check` failure on `benches/cosine_batch.rs`/
+  `src/lib.rs` (reproduces identically under 1.97.1 and 1.98.1, so it predates this bump) is fixed
+  in a separate `style(rust)` commit so the dependency bump stays reviewable — formatting only, no
+  behavior change (clippy/tests/the rebuilt `.node` all re-verified identical). `cargo fmt` still
+  isn't added as a CI gate here; it doesn't appear in `ci-native.yml` today. Dry-run validated: all
+  8 `publish.yml` `build-native` release targets (both musl included) succeeded on
+  `workflow_dispatch -f dry_run=true`, also exercising #975's `actions/checkout`/`setup-node`
+  bumps; `docker/setup-qemu-action` (used only in the dry-run-skipped `build-docker` job) remains
+  validated only by the next real release tag push.
+
 - **Same-major JS/TS dependency batch (#974, THE-1119).** `hono` 4.12.34→4.13.9 (root override
   and `packages/server`, `<5` ceiling kept), `@hono/node-server` 2.0.10→2.1.1, `jose` 6.2.3→6.2.12,
   `yaml` 2.9.0→2.9.1, `zod` 4.4.3/4.0.0→4.6.5 (`packages/server` + `packages/shared`),

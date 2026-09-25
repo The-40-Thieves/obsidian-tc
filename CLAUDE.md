@@ -10,7 +10,7 @@ Python model services.
 | Bun | **1.4.2** | `mise.toml` + `packageManager` in `package.json` — must agree |
 | Node | **26.5.0** dev / **24** in CI | `mise.toml`; `engines.node: ">=24"`. Dev runs ahead of the supported floor **deliberately** — CI validates the floor |
 | Python | **3.11** | `mise.toml`; both services declare `requires-python = ">=3.10"` |
-| Rust | **1.97.1** exact | `packages/native/rust-toolchain.toml` |
+| Rust | **1.98.1** exact | `packages/native/rust-toolchain.toml` |
 | TypeScript | **7.0.2** | root + `packages/shared`. `docs/` is a *separate install root* still on 6.0.3 (THE-604) |
 | Vitest | **4** | AST-aware coverage remapping is mandatory in v4 — numbers are not comparable to v3 |
 | Biome | **2.5.x** | format + lint; there is no ESLint/Prettier here |

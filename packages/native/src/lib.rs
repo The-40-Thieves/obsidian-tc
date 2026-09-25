@@ -229,10 +229,10 @@ pub fn safe_write_note_atomic(abs: String, data: Buffer) -> napi::Result<()> {
 
 #[cfg(unix)]
 mod safe_io {
-    use napi::bindgen_prelude::Buffer;
     use napi::Error;
+    use napi::bindgen_prelude::Buffer;
     use rustix::fd::OwnedFd;
-    use rustix::fs::{openat, renameat, unlinkat, AtFlags, Mode, OFlags, CWD};
+    use rustix::fs::{AtFlags, CWD, Mode, OFlags, openat, renameat, unlinkat};
     use std::io::{Read, Write};
     use std::os::unix::fs::MetadataExt;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -437,7 +437,10 @@ mod tests {
             .map(|d| cosine_core(&query_f64, d))
             .collect();
         let refactored = cosine_batch_core(&query_f32, &docs, dim);
-        assert_eq!(naive, refactored, "algorithm refactor alone must be bit-identical");
+        assert_eq!(
+            naive, refactored,
+            "algorithm refactor alone must be bit-identical"
+        );
     }
 
     /// THE-504: measures the f32-narrowing effect from item 2 (query: Vec<f64> -> Float32Array)
