@@ -72,15 +72,27 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
           },
         };
       }
-      // THE-1122 review: WARN (not FAIL) when this is a source checkout that simply hasn't run
-      // `bun run build` in packages/embedder-local yet — a normal, one-command-fixable dev-time
-      // state, not a broken install. FAIL is reserved for the case this genuinely CANNOT resolve
-      // (a real npm/Docker/binary install today, before the package's first npm publish — see
-      // packages/embedder-local/README.md's "Resolution ladder" and "Publishing status"): that is
-      // an actual "semantic search does not work" gap worth alarming on.
+      // THE-1122 review round 3: three-way status, not two.
+      //   - Platform genuinely unsupported (darwin-x64, musl): always WARN, never FAIL, even on a
+      //     real (not source-checkout) install — no amount of installing/building the package can
+      //     ever fix this; the honest remediation is "configure a different provider," which a
+      //     scary FAIL would misrepresent as a fixable broken state.
+      //   - Platform supported + this is a source checkout that simply hasn't run
+      //     `bun run build` in packages/embedder-local yet: WARN — a normal, one-command-fixable
+      //     dev-time state, not a broken install.
+      //   - Platform supported + the package genuinely cannot resolve (a real npm install before
+      //     the package's first publish, or a broken Docker image): FAIL, with remediation naming
+      //     the exact fix — this reaches this branch only when `denseProvider === "local"` (the
+      //     first branch above already returns "ok" for any other configured provider), so "no
+      //     other provider is configured" always holds here by construction.
       const sourceCheckoutNotBuilt = probe.inSourceCheckout;
+      const status: CheckStatus = !platform.supported
+        ? "warning"
+        : sourceCheckoutNotBuilt
+          ? "warning"
+          : "fail";
       return {
-        status: (sourceCheckoutNotBuilt ? "warning" : "fail") as CheckStatus,
+        status,
         summary: !platform.supported
           ? `embeddings: "local" could not resolve, and this platform cannot run it anyway — ${platform.note}`
           : sourceCheckoutNotBuilt

@@ -325,9 +325,19 @@ export function buildLocalEmbeddingProvider(
   // provider.id already does (see index.ts's createEmbeddingProvider) — this wrapper has its own
   // separate id because it must be synchronous (see this function's own doc comment), so it cannot
   // just read the inner module's id. Kept in sync with that convention deliberately, not by import.
+  //
+  // THE-1122 review round 3: `c.revision` (EmbeddingsConfigLike's generic, operator-settable
+  // "model revision / commit / checkpoint id" field — the same one representation.ts's
+  // buildRepresentationManifest folds into the fingerprint's `revision`) is ALSO folded in here.
+  // Without this, two configs that differ ONLY in `embeddings.revision` (e.g. pinning a future
+  // catalog checkpoint bump for the SAME catalog model name) would resolve to the identical
+  // provider.id, so chunk_embeddings.model / activeModel backfill matching could not tell them
+  // apart either — the same class of silent-vector-mixing bug quantized's own fold above exists
+  // to close, just on the revision axis instead of the quantization axis.
   const quantized = c.quantized ?? true;
+  const revisionSuffix = c.revision ? `:${c.revision}` : "";
   return {
-    id: `local:${c.model}:${quantized ? "q8" : "fp32"}`,
+    id: `local:${c.model}:${quantized ? "q8" : "fp32"}${revisionSuffix}`,
     provider: "local",
     model: c.model,
     dimensions: c.dimensions,

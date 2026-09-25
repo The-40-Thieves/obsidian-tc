@@ -146,13 +146,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `embeddings.model`; two new config keys, `embeddings.quantized` and `embeddings.threads`, are
   read only by this provider. `ollama` (now demoted from default, still fully supported and
   unchanged when set explicitly) and every hosted provider remain opt-in. **The default model was
-  chosen by measurement, not by picking the smallest download** — the conservative choice, not a
-  decisive win: both 384-dim candidates, each run with its own correct pooling strategy, failed the
-  −0.015 non-inferiority floor against nomic-embed-text-v1.5 on a public, third-party-judged corpus
-  (strict nDCG@10 one-sided 95% lower bound −0.151 and −0.110 respectively, n=78; MiniLM's deficit
-  is clearly significant, bge-small's nDCG@10 does not reach conventional significance at this n
-  though its recall@10 does and it still misses the floor either way) — see `docs/EVALUATION.md`'s
-  "Local embedder model selection" section for the full table and the two candidates
+  chosen by measurement, not by picking the smallest download**: both 384-dim candidates, each run
+  with its own correct pooling strategy, failed the −0.015 non-inferiority floor against
+  nomic-embed-text-v1.5 on a public, third-party-judged corpus (strict nDCG@10 one-sided 95% lower
+  bound −0.151 and −0.110 respectively, n=78). MiniLM's deficit is real and clearly detected;
+  bge-small's nDCG@10 does not reach conventional significance at this n, so read that one number
+  as non-inferiority not established at this corpus's resolution rather than a pass (its recall@10
+  IS significant, and it still misses the floor either way). nomic-embed-text-v1.5 is the default
+  as the conservative choice under this underpowered comparison, not a claimed decisive win — see
+  `docs/EVALUATION.md`'s "Local embedder model selection" section for the full table and the two
+  candidates
   (EmbeddingGemma-300M, licensing; a model2vec/potion static model, no loadable Transformers.js
   export) that were evaluated and dropped before reaching measurement. `obsidian-tc doctor` gained
   an `embeddings.buildable` check mirroring the existing `reranker.buildable` one.

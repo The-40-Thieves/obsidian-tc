@@ -90,7 +90,7 @@ describe("check-version-coherence.mjs covers packages/reranker-local (THE-944 re
     const result = runCheck();
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/packages\/reranker-local\/package\.json\s+\d+\.\d+\.\d+/);
-    expect(result.stdout).toMatch(/OK: all 9 version strings agree/);
+    expect(result.stdout).toMatch(/OK: all 10 version strings agree/);
   });
 
   it("fails when packages/reranker-local/package.json's version drifts from the repo version", () => {

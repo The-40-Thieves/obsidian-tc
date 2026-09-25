@@ -404,8 +404,8 @@ read that one number, specifically, as **non-inferiority not established at this
 resolution** for nDCG@10, not as "passes." Every other reported metric and binarization for both
 candidates clears the floor's FAILS verdict on its own terms; nothing here flips to non-inferior.
 
-**The default is `nomic-embed-text-v1.5` — the conservative choice under a comparison this corpus
-does not power precisely, not a claimed decisive win.** Non-inferiority is a floor a model must
+**The default is `nomic-embed-text-v1.5` — the conservative choice under an underpowered
+comparison, not a claimed decisive win.** Non-inferiority is a floor a model must
 clear to be **eligible**, not a reason to prefer whichever model clears it by the widest margin
 toward "smaller" — the ship rule exists to keep a change from being *worse*, not to license
 picking the cheapest option that isn't disqualified. Neither smaller model clears the floor here,

@@ -232,7 +232,16 @@ jobs:
     if: github.event_name == 'push' || !inputs.dry_run
     # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
     # build-native already needs verify-tag, so this changes no scheduling, only visibility.
-    needs: [build-native, verify-tag]
+    # THE-1122 review round 3: publish-embedder-local added. packages/server now declares
+    # @the-40-thieves/obsidian-tc-embedder-local as an EXACT-pinned optionalDependency (see
+    # check-version-coherence.mjs's own comment on that field) — without this ordering, `npm
+    # publish` of `obsidian-tc` here could complete before publish-embedder-local's own npm
+    # publish lands, leaving that pinned version unresolvable on the registry for however long the
+    # two jobs' race takes. publish-embedder-local's job SUCCEEDS whether it published a NEW
+    # version this run or found it already published (its own F3-style preflight only skips the
+    # publish STEP, never the job) — exactly the "the version exists on npm by the time we get
+    # here" guarantee this needs, not "a new publish just happened."
+    needs: [build-native, publish-embedder-local, verify-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

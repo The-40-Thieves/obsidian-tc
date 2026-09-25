@@ -233,12 +233,14 @@ export const MODEL_CATALOG: readonly EmbeddingModelInfo[] = [
  *  NOT the smallest/fastest candidate — measured, each model run through the SAME code path with
  *  ITS OWN correct pooling strategy (see `pooling` above). Both 384-dim candidates FAILED the
  *  ticket's own −0.015 non-inferiority floor (strict nDCG@10 one-sided 95% lower bound: MiniLM
- *  −0.151, bge-small −0.110, both below −0.015; n=78) — MiniLM's deficit is clearly significant
- *  (p=0.0014); bge-small's nDCG@10 does not reach conventional significance at this n (p=0.10) but
- *  still fails the floor on its own lower bound, and its recall@10 IS significant (p=0.0489). Read
- *  this as the conservative default under a comparison this corpus does not power precisely, not
- *  as a clean win — see docs/EVALUATION.md's "Local embedder model selection" section for the
- *  full table and the exact caveats. */
+ *  −0.151, bge-small −0.110, both below −0.015; n=78). MiniLM's deficit is real and clearly
+ *  detected (p=0.0014); bge-small's nDCG@10 does not reach conventional significance at this n
+ *  (p=0.10), so read that one number as non-inferiority not established at this corpus's resolution
+ *  rather than a pass — its recall@10 IS significant (p=0.0489), and it still fails the
+ *  floor on its own lower bound either way. nomic-embed-text-v1.5 is the default as the
+ *  conservative choice under this underpowered comparison, not a claimed decisive win — see
+ *  docs/EVALUATION.md's "Local embedder model selection" section for the full table and the exact
+ *  caveats. */
 export const DEFAULT_MODEL_NAME = "nomic-embed-text-v1.5";
 
 export function modelInfoByName(name: string): EmbeddingModelInfo | undefined {

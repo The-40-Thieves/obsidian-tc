@@ -7,7 +7,7 @@ Semantic search and graph-seeded retrieval both need vectors, produced by an **e
 provider**. `embeddings` is absent from a minimal config on purpose: the default provider is
 `local`, a bundled, fully offline dense embedder — no Ollama, no API key, no network call after
 the first run. **This works today for a source checkout of this monorepo** (`git clone` +
-`bun install`); on the published npm package and the Docker image it is not yet reachable pending
+`bun install`) and the Docker image; on the published npm package it is not yet reachable pending
 the package's first npm publish (a deferred owner action — see [Availability by install
 method](#availability-by-install-method) below for the exact current state and the workaround).
 
@@ -66,11 +66,11 @@ bar each candidate had to clear. **The result was not the smaller/faster pick**:
 candidates (`all-MiniLM-L6-v2`, `bge-small-en-v1.5`), each run with its own correct pooling
 strategy, failed strict nDCG@10's −0.015 non-inferiority floor against `nomic-embed-text-v1.5` run
 through the identical code path (one-sided 95% lower bound −0.151 and −0.110 respectively, n=78).
-MiniLM's deficit is clearly significant; bge-small's nDCG@10 does not reach conventional
-significance at this n, so read that one number as non-inferiority not established at this
-corpus's resolution rather than a pass — its recall@10 IS significant, and it still fails the
-floor on its own lower bound either way. `nomic-embed-text-v1.5` is the default as the conservative
-choice under this comparison, not a claimed decisive win; the smaller models remain available via
+MiniLM's deficit is real and clearly detected; bge-small's nDCG@10 does not reach conventional
+significance at this n, so read that one number as non-inferiority not established at this corpus's
+resolution rather than a pass — its recall@10 IS significant, and it still fails the floor on its
+own lower bound either way. `nomic-embed-text-v1.5` is the default as the conservative choice under
+this underpowered comparison, not a claimed decisive win; the smaller models remain available via
 `embeddings.model` for deployments that prioritize download size or CPU cost over this measurement.
 
 Two other candidates were evaluated and **dropped** before reaching the measurement stage, not
@@ -94,29 +94,31 @@ the same constraint the local reranker documents. Practically, today:
 | Install method | `local` embedder |
 | --- | --- |
 | A source checkout of this monorepo (`git clone` + `bun install`) | Works — resolves via the source-checkout route once `packages/embedder-local` is built (`bun run build` there; CI does this automatically). |
-| npm (`npm install -g obsidian-tc`) | **Not yet.** The published-npm route needs the package's first `npm publish`, a deferred owner action — see [Known gaps](#known-gaps) below. |
-| Docker (GHCR) | **Not yet**, same reason — the image ships only the built server bundle, no `node_modules`. |
+| Docker (GHCR) | **Works** — the image builds `packages/embedder-local` from source in the same stage as the server and copies its built package (dist + `node_modules`) into the same relative path the source-checkout resolution route walks for, so the identical route resolves inside the container. |
+| npm (`npm install -g obsidian-tc`) | **Not yet.** `packages/server`'s `package.json` declares `@the-40-thieves/obsidian-tc-embedder-local` as an `optionalDependencies` entry, so a fresh `npm install` WILL pull it once the package's first `npm publish` lands (a deferred owner action) — until then, npm has nothing to resolve and the install just skips the optional dependency. See [Known gaps](#known-gaps) below. |
 | Standalone binary (`bun --compile`) | **Unavailable**, structurally (the `onnxruntime-node` constraint above) — set `embeddings.provider` to a hosted/self-hosted backend instead, regardless of publishing status. |
 | One-click `.mcpb` bundle | **Unavailable**, same structural reason. |
 
 An unresolvable `local` provider does not crash boot — the same graceful degradation an
 unreachable Ollama endpoint has always had (a `[index] reconcile degraded` notice, FTS/lexical
-search stays fully functional). `obsidian-tc doctor`'s check (a doctor check id, not a config path, named `embeddings.buildable` <!-- config-path:ignore -->) distinguishes the two
-gaps above: **WARN** when running from a source checkout where the package simply hasn't been
-built yet (a one-command fix), and **FAIL** everywhere else the package genuinely cannot resolve —
-which, honestly, is every non-source-checkout install method today, until the first publish lands.
+search stays fully functional). `obsidian-tc doctor`'s check (a doctor check id, not a config path, named `embeddings.buildable` <!-- config-path:ignore -->) distinguishes: **WARN** when running
+from a source checkout where the package simply hasn't been built yet (a one-command fix) or when
+the platform genuinely has no `onnxruntime-node` prebuild AND another provider is already
+configured, and **FAIL** — with remediation naming the exact fix — when the platform IS supported
+but the package still cannot resolve (today: an npm install before the first publish).
 
 ### Known gaps
 
-**On npm and Docker installs specifically, `local` does not resolve today** — the same
+**On npm installs specifically, `local` does not resolve today** — the same
 not-yet-published-to-npm state the local reranker has been in since it shipped (its own
 `README.md` documents this candidly), just higher-stakes here because `local` is the schema
-default rather than an opt-in fallback. Until the package's first `npm publish` (and, for Docker,
-a follow-up image change to actually install it), an npm or Docker deployment needs an explicit
-hosted or self-hosted `embeddings.provider` (see [Hosted and self-hosted
+default rather than an opt-in fallback. Until the package's first `npm publish`, an npm deployment
+needs an explicit hosted or self-hosted `embeddings.provider` (see [Hosted and self-hosted
 providers](#hosted-and-self-hosted-providers) above) for semantic search to work. A source checkout
-of the monorepo is unaffected — the source-checkout resolution route works today, which is how
-this document's own [measurement table](#model-choice-measured-not-assumed) was produced.
+of the monorepo and the Docker image are both unaffected — the source-checkout resolution route
+works today for a checkout, and the same route works inside the Docker image because it ships the
+built embedder-local package at the path that route walks for (see the table above) — which is
+how this document's own [measurement table](#model-choice-measured-not-assumed) was produced.
 
 **Install footprint is heavier than the pinned model download.** `packages/embedder-local`'s
 `node_modules` is ~585 MB, almost entirely `@huggingface/transformers`'s two bundled ONNX

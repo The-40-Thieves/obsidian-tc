@@ -47,6 +47,18 @@ add(
   "packages/embedder-local/package.json",
   readJson("packages/embedder-local/package.json").version,
 );
+// THE-1122 review round 3: packages/server pins embedder-local as an EXACT-version
+// optionalDependency (package.json cannot hold a comment there, so the reasoning lives here and
+// in release.mjs's own bump step instead) rather than a semver range — a real npm install must
+// pull the SAME build that was actually tested/published alongside it, not merely "any 1.x". An
+// exact pin is worthless if it silently drifts from the dependency's own version, so it is
+// tracked here like every other lockstep source.
+add(
+  "packages/server/package.json optionalDependencies[embedder-local]",
+  readJson("packages/server/package.json").optionalDependencies?.[
+    "@the-40-thieves/obsidian-tc-embedder-local"
+  ],
+);
 
 const server = readJson("server.json");
 add("server.json", server.version);

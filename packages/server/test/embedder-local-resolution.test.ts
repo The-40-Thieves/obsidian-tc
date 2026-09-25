@@ -154,6 +154,16 @@ describe("buildLocalEmbeddingProvider", () => {
     expect(provider.id).toBe("local:bge-small-en-v1.5:fp32");
   });
 
+  it("folds embeddings.revision into id, so a revision bump on the SAME model/quantized re-embeds instead of mixing vectors (THE-1122 review round 3)", () => {
+    const resolve = async () => ({ ok: false as const, attempts: [], inSourceCheckout: false });
+    const a = buildLocalEmbeddingProvider({ ...BASE_CFG, revision: "rev-a" }, TEST_CTX, resolve);
+    const b = buildLocalEmbeddingProvider({ ...BASE_CFG, revision: "rev-b" }, TEST_CTX, resolve);
+    const noRevision = buildLocalEmbeddingProvider(BASE_CFG, TEST_CTX, resolve);
+    expect(a.id).toBe("local:bge-small-en-v1.5:q8:rev-a");
+    expect(b.id).not.toBe(a.id);
+    expect(noRevision.id).toBe("local:bge-small-en-v1.5:q8");
+  });
+
   it("refuses a config that sets a field this provider does not read (baseUrl)", () => {
     expect(() =>
       buildLocalEmbeddingProvider({ ...BASE_CFG, baseUrl: "http://example.com" }, TEST_CTX),

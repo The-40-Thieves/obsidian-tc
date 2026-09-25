@@ -14,7 +14,22 @@ afterEach(() => {
   process.env.OBSIDIAN_TC_JWT_SECRET = "";
 });
 
-function writeConfig(obj: unknown): string {
+// THE-1122 review round 3: cacheDir is now REQUIRED whenever the resolved embeddings.provider is
+// "local" (explicit or the default) — see finalizeConfig's own enforcement and the
+// "cacheDir requirement" describe block below for that behavior's own tests. Every OTHER test in
+// this file is about something else entirely, so writeConfig injects a default cacheDir unless
+// the caller's own object already sets one (spread order: obj's own key wins), keeping every
+// existing test's actual subject unaffected by this new requirement.
+function writeConfig(obj: Record<string, unknown>): string {
+  const withCacheDir = { cacheDir: ".otc-test-cache", ...obj };
+  const p = join(dir, "config.json");
+  writeFileSync(p, JSON.stringify(withCacheDir), "utf8");
+  return p;
+}
+
+/** For the "no cacheDir" enforcement tests specifically — writeConfig's own default would defeat
+ *  the point of testing its absence. */
+function writeConfigWithoutCacheDirDefault(obj: Record<string, unknown>): string {
   const p = join(dir, "config.json");
   writeFileSync(p, JSON.stringify(obj), "utf8");
   return p;
@@ -184,10 +199,52 @@ describe("loadConfig", () => {
     const p = join(dir, "bom.json");
     writeFileSync(
       p,
-      `\uFEFF${JSON.stringify({ vaults: [{ id: "v1", path: "/tmp/v1" }] })}`,
+      `\uFEFF${JSON.stringify({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        cacheDir: ".otc-test-cache",
+      })}`,
       "utf8",
     );
     expect(loadConfig(p).vaults[0]?.id).toBe("v1");
+  });
+});
+
+// THE-1122 review round 3: the provider factory (buildLocalEmbeddingProvider) already failed
+// closed when ctx.cacheDir was absent, but config LOAD never asked \u2014 that failure only ever
+// surfaced far later, at first embed, with a caller-specific error rather than one naming the
+// actual config problem. See isCacheDirExplicit's own doc comment for why this is scoped to
+// provider "local" specifically, and configFromVaultPath (cli/resolve-config.ts) for the one
+// call site (the true zero-config CLI front door) that supplies cacheDir itself rather than
+// tripping this.
+describe("cacheDir requirement for provider 'local' (THE-1122 review round 3)", () => {
+  it("rejects an explicit provider 'local' config with no cacheDir, naming cacheDir", () => {
+    const p = writeConfigWithoutCacheDirDefault({
+      vaults: [{ id: "v1", path: "/tmp/v1" }],
+      embeddings: { provider: "local" },
+    });
+    expect(() => loadConfig(p)).toThrow(/cacheDir/);
+  });
+
+  it("rejects a config with NO embeddings block at all (provider defaults to 'local') and no cacheDir", () => {
+    const p = writeConfigWithoutCacheDirDefault({ vaults: [{ id: "v1", path: "/tmp/v1" }] });
+    expect(() => loadConfig(p)).toThrow(/cacheDir/);
+  });
+
+  it("does NOT reject a non-local provider with no cacheDir \u2014 the schema default is fine there", () => {
+    const p = writeConfigWithoutCacheDirDefault({
+      vaults: [{ id: "v1", path: "/tmp/v1" }],
+      embeddings: { provider: "ollama" },
+    });
+    expect(() => loadConfig(p)).not.toThrow();
+  });
+
+  it("accepts an explicit provider 'local' config once cacheDir is set", () => {
+    const p = writeConfigWithoutCacheDirDefault({
+      vaults: [{ id: "v1", path: "/tmp/v1" }],
+      embeddings: { provider: "local" },
+      cacheDir: ".otc-test-cache",
+    });
+    expect(() => loadConfig(p)).not.toThrow();
   });
 });
 

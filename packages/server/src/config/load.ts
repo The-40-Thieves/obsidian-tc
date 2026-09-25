@@ -95,6 +95,17 @@ export function isEmbeddingsDimensionsExplicit(raw: Record<string, unknown>): bo
   );
 }
 
+/** THE-1122 review round 3: same "read the RAW pre-parse object" pattern as the two functions
+ *  above. `cacheDir` has a schema-level default (`.obsidian-tc`, anchored to the home directory
+ *  below) — every OTHER provider tolerates that default silently, but `provider: "local"` cannot:
+ *  its model cache lives under `<cacheDir>/models/embedder-local/`, and a config that never named
+ *  where that should live is far more likely a genuine oversight (the operator wrote out an
+ *  explicit `embeddings` block but forgot this one adjacent field) than an intentional "use
+ *  whatever the default happens to be" — see finalizeConfig's own enforcement below. */
+export function isCacheDirExplicit(raw: Record<string, unknown>): boolean {
+  return "cacheDir" in raw;
+}
+
 /** Parse a config file's raw JSON (BOM-stripped, THE-185), before any overlay or schema default
  *  is applied. Exported so a caller can inspect what the file itself said -- e.g.
  *  `isPlaneEnabledExplicit` -- without re-implementing this read. */
@@ -112,6 +123,7 @@ export function finalizeConfig(
   // either call is equivalent, but doing it here matches isPlaneEnabledExplicit's own convention.
   const embeddingsModelWasExplicit = isEmbeddingsModelExplicit(raw);
   const embeddingsDimensionsWasExplicit = isEmbeddingsDimensionsExplicit(raw);
+  const cacheDirWasExplicit = isCacheDirExplicit(raw);
   // THE-526: expand a named security profile into its field set BEFORE validation, so explicit fields
   // still override it and the result validates as a normal config.
   const config = ServerConfigSchema.parse(applySecurityProfile(raw));
@@ -162,6 +174,26 @@ export function finalizeConfig(
         }
       }
     }
+  }
+  // THE-1122 review round 3: `provider: "local"` (explicit OR the resolved schema default) must
+  // name its own cacheDir — the provider factory (buildLocalEmbeddingProvider) already fails
+  // closed when ctx.cacheDir is absent, but config LOAD itself never asked, so that failure only
+  // ever surfaced far later, at first embed, with a caller-specific error instead of one naming
+  // the actual config problem. `configFromVaultPath` (the true zero-config CLI front door: a bare
+  // vault directory, no config file at all) supplies an explicit cacheDir itself for exactly this
+  // reason — it is not exempt from this check, it just never trips it.
+  if (config.embeddings.provider === "local" && !cacheDirWasExplicit) {
+    throw err.invalidInput(
+      'embeddings.provider "local" (explicit or the default when the embeddings block is ' +
+        "absent) requires cacheDir to be set",
+      {
+        provider: "local",
+        hint:
+          'set "cacheDir" in your config (e.g. "~/.obsidian-tc" or an absolute path) — the local ' +
+          "embedder's model cache lives under <cacheDir>/models/embedder-local/, and this must be " +
+          "named explicitly rather than silently defaulted for this provider.",
+      },
+    );
   }
   // The cacheDir default (".obsidian-tc") is relative, so cli.ts mkdir's it against the process
   // CWD, which breaks when a GUI launcher spawns the server in a non-writable directory: Claude

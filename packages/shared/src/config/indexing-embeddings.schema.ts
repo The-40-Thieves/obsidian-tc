@@ -15,9 +15,13 @@ import { z } from "zod";
 //
 // NOT the smallest/fastest catalog entry — measured, not assumed, each model with its own
 // correct pooling strategy (docs/EVALUATION.md's "Local embedder model selection"). Both 384-dim
-// candidates FAILED the −0.015 non-inferiority floor against this exact model; see model-info.ts's
-// own comment on DEFAULT_MODEL_NAME for the numbers and the caveats around bge-small's nDCG@10
-// significance.
+// candidates FAILED the −0.015 non-inferiority floor against this exact model — MiniLM's deficit
+// is real and clearly detected; bge-small's nDCG@10 does not reach conventional significance at
+// this n, so read that one number as non-inferiority not established at this corpus's resolution
+// rather than a pass (its recall@10 IS significant, and it still fails the floor either way).
+// nomic-embed-text-v1.5 is the default as the conservative choice under this underpowered
+// comparison, not a claimed decisive win — see model-info.ts's own comment on DEFAULT_MODEL_NAME
+// for the exact numbers.
 //
 // WHY THIS IS A PLAIN UNCONDITIONAL DEFAULT, NOT PROVIDER-CONDITIONAL: an earlier version of this
 // change made `model`/`dimensions` default based on `provider` via a schema-level `.transform()`.
