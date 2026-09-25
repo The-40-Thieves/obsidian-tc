@@ -148,7 +148,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-460 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 10 |
 | THE-461 | Migration Manifest | docs/design/migration-manifest.md | 7 |
 | THE-462 | Wire the durable JobQueue to its workloads — THE-562 #14 (THE-517) | docs/superpowers/specs/2026-07-24-the-562-14-durable-job-queue-wiring-design.md | 10 |
-| THE-463 | _internal planning reference — see repo history_ | — | 2 |
+| THE-463 | _internal planning reference — see repo history_ | — | 3 |
 | THE-465 | Metrics Registry | docs/design/metrics-registry.md | 13 |
 | THE-466 | Server Runtime — Composition Root | docs/design/server-runtime.md | 8 |
 | THE-467 | Metrics Registry | docs/design/metrics-registry.md | 4 |
@@ -382,8 +382,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1084 | `experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator explicitly opts in (THE-1084, #959). | CHANGELOG.md (1.31.2) | 5 |
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 5 |
 | THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 6 |
-| THE-1106 | A declined or cancelled `inputRequired` HITL confirmation could still complete the call it was declining (THE-583 regression, found and closed under THE-1106). | CHANGELOG.md (Unreleased) | 6 |
+| THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (Unreleased) | 10 |
 
-369 distinct ticket(s) across 505 source file(s) under
+369 distinct ticket(s) across 506 source file(s) under
 `packages/*/src`; 269 resolved to a public summary, 100
 fall back to the internal-reference placeholder above.

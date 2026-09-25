@@ -30,7 +30,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
-import { getDefaultElicitTtlSeconds } from "../src/elicit";
+import { createStdioElicitCodec, getDefaultElicitTtlSeconds } from "../src/elicit";
 import { createElicitCodec } from "../src/elicit-request-state";
 import {
   buildConfirmElicitationParams,
@@ -67,11 +67,79 @@ function destructiveTool(effect: { applied: number; seen: string[] }): ToolDefin
   } as unknown as ToolDefinition;
 }
 
-async function bootStdio(effect = { applied: 0, seen: [] as string[] }) {
+/** THE-1106 fix round 2 (HIGH): a REAL handler-side-gated tool, NOT `destructive: true` — the
+ *  shape of the 16 tools (write_note overwrite of a non-empty note, move/copy_note, etc.) whose
+ *  gate `vault/hitl.ts`'s `requireConfirmation` enforces directly, never through dispatch's OWN
+ *  `checkHitl`. This is the tool the HIGH finding's regression actually reproduces on: before the
+ *  fix, an approved shim/modern round trip re-entered this handler, which threw `elicit_required`
+ *  again regardless (dispatch never sees this gate at all — `destructive` is unset). */
+function conditionalWriteNoteTool(effect: { applied: number; seen: string[] }): ToolDefinition {
+  return {
+    name: "write_note",
+    description: "test-only write_note overwrite-gate shape",
+    inputSchema: z.object({ path: z.string(), overwriteNonEmpty: z.boolean().optional() }),
+    requiredScopes: [],
+    handler: (i: { path: string; overwriteNonEmpty?: boolean }, ctx: CallerContext) => {
+      requireConfirmation(ctx, "write_note", i, i.overwriteNonEmpty === true, { path: i.path });
+      effect.applied += 1;
+      effect.seen.push(i.path);
+      return { wrote: true };
+    },
+  } as unknown as ToolDefinition;
+}
+
+/** THE-1106 fix round 2 (HIGH, "both gates, one prompt"): `destructive: true` (dispatch-gated, so
+ *  `checkHitl`/`hitlSatisfiedByState` already runs BEFORE the handler is called) AND the handler
+ *  ALSO calls `requireConfirmation` for the SAME tool/args — proving one approved state satisfies
+ *  BOTH gates without a second round trip, since `ctx.elicitState` is untouched by dispatch's own
+ *  (side-effect-free) check. */
+function bothGatesTool(effect: { applied: number; seen: string[] }): ToolDefinition {
+  return {
+    name: "double_gate",
+    description: "test-only dispatch-gated tool whose handler ALSO calls requireConfirmation",
+    inputSchema: z.object({ path: z.string() }),
+    requiredScopes: [],
+    destructive: true,
+    handler: (i: { path: string }, ctx: CallerContext) => {
+      requireConfirmation(ctx, "double_gate", i, true, { path: i.path });
+      effect.applied += 1;
+      effect.seen.push(i.path);
+      return { wrote: true };
+    },
+  } as unknown as ToolDefinition;
+}
+
+/** THE-1106 fix round 2 (HIGH, round-cap test): a deliberately BUGGY handler that hashes something
+ *  (a fresh random nonce) that changes on every invocation, so an approved confirmation can NEVER
+ *  match what the NEXT invocation demands — a persistent approved-but-mismatched round, the case
+ *  `offerInputRequired`'s cap exists for. Proves the cap holds at a SMALL number, not the SDK
+ *  shim's full `maxRounds` (8). */
+function mismatchTool(effect: { applied: number }): ToolDefinition {
+  return {
+    name: "mismatch_tool",
+    description: "test-only tool whose handler hashes a fresh nonce every call, on purpose",
+    inputSchema: z.object({ path: z.string() }),
+    requiredScopes: [],
+    handler: (i: { path: string }, ctx: CallerContext) => {
+      requireConfirmation(ctx, "mismatch_tool", { ...i, nonce: Math.random() }, true, {
+        path: i.path,
+      });
+      effect.applied += 1;
+      return { wrote: true };
+    },
+  } as unknown as ToolDefinition;
+}
+
+async function bootStdio(
+  effect = { applied: 0, seen: [] as string[] },
+  extraTools: ToolDefinition[] = [],
+  events: string[] = [],
+) {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ emit: (_v, type) => events.push(type) });
   registry.register(destructiveTool(effect));
+  for (const t of extraTools) registry.register(t);
   const context = (signal?: AbortSignal): CallerContext => ({
     caller: "stdio",
     authenticated: true,
@@ -97,7 +165,7 @@ async function bootStdio(effect = { applied: 0, seen: [] as string[] }) {
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
-  return { server, clientTransport, serverTransport, db, effect };
+  return { server, clientTransport, serverTransport, db, effect, events };
 }
 
 /** Spies on every server -> client message on the wire (works regardless of whether the client
@@ -118,6 +186,16 @@ function makeClient(capabilities: Record<string, unknown>) {
 }
 
 describe(`THE-1106 fix round 1: SDK legacy shim (proven against @modelcontextprotocol/server@${SDK_VERSION})`, () => {
+  // THE-1106 fix round 2 (LOW 4): the version was printed in the describe label but never
+  // actually asserted — a silent SDK bump would drift the label without failing anything. This is
+  // the floor: every trace/line-number citation in this suite and in mcp/elicit-form.ts's doc
+  // comments is pinned to 2.0.0's SOURCE, not just its behaviour, so a version bump should fail
+  // loudly here and prompt re-verifying the trace, not pass silently on a coincidentally-compatible
+  // newer release.
+  it("(SDK version floor) the installed package is the version this suite's trace was verified against", () => {
+    expect(SDK_VERSION).toBe("2.0.0");
+  });
+
   it("(shim-reachable) destructive call -> SDK sends elicitation/create -> accept completes it, exactly one leg", async () => {
     const { server, clientTransport, serverTransport, effect } = await bootStdio();
     const outbound = spyOutbound(serverTransport);
@@ -140,18 +218,163 @@ describe(`THE-1106 fix round 1: SDK legacy shim (proven against @modelcontextpro
   });
 
   it("(decline) the elicit_required error result, no effect, no second prompt", async () => {
-    const { server, clientTransport, effect } = await bootStdio();
+    const { server, clientTransport, serverTransport, effect } = await bootStdio();
+    // THE-1106 fix round 2 (LOW 5): the transport `send()` spy, not the client handler's own call
+    // counter — the counter only proves the CLIENT saw one leg, not that the SERVER sent exactly
+    // one onto the wire (e.g. a leg the client silently dropped would undercount the same way).
+    const outbound = spyOutbound(serverTransport);
     const client = makeClient({ elicitation: {} });
-    let legCalls = 0;
-    client.setRequestHandler(ElicitRequestSchema, async () => {
-      legCalls += 1;
-      return { action: "decline" };
-    });
+    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: "decline" }));
     await client.connect(clientTransport);
     const res = await client.callTool({ name: "danger_write", arguments: { path: "a.md" } });
     expect(res.isError).toBe(true);
     expect(effect.applied).toBe(0);
-    expect(legCalls).toBe(1);
+    expect(outbound.methods.filter((m) => m === "elicitation/create")).toHaveLength(1);
+    // THE-1106 fix round 2 (LOW 6): the decline-specific text, not the "ask the user now" directive.
+    const text = (res.content as Array<{ type: string; text: string }>)[0]?.text ?? "";
+    expect(text).toContain(
+      "The user declined this change. Do not retry it and do not mint a token.",
+    );
+    expect(text).not.toContain("confirm with:");
+    await client.close();
+    await server.close();
+  });
+
+  it("(cancel) the elicit_required error result, no effect, no second prompt", async () => {
+    const { server, clientTransport, serverTransport, effect } = await bootStdio();
+    const outbound = spyOutbound(serverTransport);
+    const client = makeClient({ elicitation: {} });
+    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: "cancel" }));
+    await client.connect(clientTransport);
+    const res = await client.callTool({ name: "danger_write", arguments: { path: "a.md" } });
+    expect(res.isError).toBe(true);
+    expect(effect.applied).toBe(0);
+    expect(outbound.methods.filter((m) => m === "elicitation/create")).toHaveLength(1);
+    const text = (res.content as Array<{ type: string; text: string }>)[0]?.text ?? "";
+    expect(text).toContain(
+      "The user declined this change. Do not retry it and do not mint a token.",
+    );
+    await client.close();
+    await server.close();
+  });
+
+  it("(non-boolean approve) accept with a non-boolean/truthy approve value is NOT approval", async () => {
+    const { server, clientTransport, serverTransport, effect } = await bootStdio();
+    const outbound = spyOutbound(serverTransport);
+    const client = makeClient({ elicitation: {} });
+    // "true" (string) and 1 (number) are both truthy but neither is `=== true` — the strict check
+    // (mcp/elicit-form.ts's `confirmApproved`) must reject both, not coerce.
+    client.setRequestHandler(ElicitRequestSchema, async () => ({
+      action: "accept",
+      content: { approve: "true" },
+    }));
+    await client.connect(clientTransport);
+    const res = await client.callTool({ name: "danger_write", arguments: { path: "a.md" } });
+    expect(res.isError).toBe(true);
+    expect(effect.applied).toBe(0);
+    expect(outbound.methods.filter((m) => m === "elicitation/create")).toHaveLength(1);
+    await client.close();
+    await server.close();
+  });
+
+  it("(HIGH fix, handler-side gate) write_note overwrite -> the shim clears vault/hitl.ts's OWN gate, exactly one leg, one write", async () => {
+    // THE-1106 fix round 2 (HIGH): before the fix, `requireConfirmation` never read `ctx
+    // .elicitState`, so an approved shim round trip re-entered this handler and it threw
+    // `elicit_required` again — measured: 8 legs, 0 writes. This is the regression test on the
+    // REAL gate shape (not `destructive: true`, which only ever exercised dispatch's OWN gate).
+    const effect = { applied: 0, seen: [] as string[] };
+    const events: string[] = [];
+    const { server, clientTransport, serverTransport } = await bootStdio(
+      effect,
+      [conditionalWriteNoteTool(effect)],
+      events,
+    );
+    const outbound = spyOutbound(serverTransport);
+    const client = makeClient({ elicitation: {} });
+    client.setRequestHandler(ElicitRequestSchema, async () => ({
+      action: "accept",
+      content: { approve: true },
+    }));
+    await client.connect(clientTransport);
+    const res = await client.callTool({
+      name: "write_note",
+      arguments: { path: "notes/a.md", overwriteNonEmpty: true },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(JSON.stringify(res)).toContain("wrote");
+    expect(effect.applied).toBe(1);
+    expect(effect.seen).toEqual(["notes/a.md"]);
+    expect(outbound.methods.filter((m) => m === "elicitation/create")).toHaveLength(1);
+    // THE-1106 fix round 2 (HIGH, audit): dispatch's OWN `tc.elicit.consumed` relay never runs for
+    // this tool (it is not dispatch-gated — no `destructive: true`, no HITL-floored scope), so the
+    // ONLY way an operator sees this approval in audit is `ctx.relayElicitConsumed` (mcp/server.ts),
+    // called from `vault/hitl.ts` when `elicitState` satisfies the handler-side gate.
+    expect(events).toContain("tc.elicit.consumed");
+    await client.close();
+    await server.close();
+  });
+
+  it("(HIGH fix) write_note overwrite: a DECLINED leg never writes and never satisfies vault/hitl.ts's gate", async () => {
+    const effect = { applied: 0, seen: [] as string[] };
+    const { server, clientTransport } = await bootStdio(effect, [conditionalWriteNoteTool(effect)]);
+    const client = makeClient({ elicitation: {} });
+    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: "decline" }));
+    await client.connect(clientTransport);
+    const res = await client.callTool({
+      name: "write_note",
+      arguments: { path: "notes/a.md", overwriteNonEmpty: true },
+    });
+    expect(res.isError).toBe(true);
+    expect(effect.applied).toBe(0);
+    await client.close();
+    await server.close();
+  });
+
+  it("(HIGH fix, both gates) a dispatch-gated tool whose handler ALSO calls requireConfirmation gets exactly ONE prompt", async () => {
+    // THE-1106 fix round 2 (HIGH, 'both gates, one prompt'): dispatch's OWN checkHitl (destructive:
+    // true) is satisfied by the approved elicitState BEFORE the handler runs; the handler then
+    // calls requireConfirmation for the SAME tool/args, which must ALSO be satisfied by the SAME
+    // (untouched) state — not demand a second round trip.
+    const effect = { applied: 0, seen: [] as string[] };
+    const { server, clientTransport, serverTransport } = await bootStdio(effect, [
+      bothGatesTool(effect),
+    ]);
+    const outbound = spyOutbound(serverTransport);
+    const client = makeClient({ elicitation: {} });
+    client.setRequestHandler(ElicitRequestSchema, async () => ({
+      action: "accept",
+      content: { approve: true },
+    }));
+    await client.connect(clientTransport);
+    const res = await client.callTool({ name: "double_gate", arguments: { path: "a.md" } });
+    expect(res.isError).toBeFalsy();
+    expect(effect.applied).toBe(1);
+    expect(outbound.methods.filter((m) => m === "elicitation/create")).toHaveLength(1);
+    await client.close();
+    await server.close();
+  });
+
+  it("(HIGH fix, round cap) a persistent approved-but-mismatched round is capped at 2 legs, NOT the SDK's maxRounds (8)", async () => {
+    const effect = { applied: 0 };
+    const { server, clientTransport, serverTransport } = await bootStdio(undefined, [
+      mismatchTool(effect),
+    ]);
+    const outbound = spyOutbound(serverTransport);
+    const client = makeClient({ elicitation: {} });
+    let legCalls = 0;
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+      legCalls += 1;
+      return { action: "accept", content: { approve: true } };
+    });
+    await client.connect(clientTransport);
+    const res = await client.callTool({ name: "mismatch_tool", arguments: { path: "a.md" } });
+    // Every answer was an approval, yet the call never completes (the handler's OWN hash never
+    // matches what it just approved) — the important assertion is HOW MANY TIMES the human was
+    // asked, not the final isError shape.
+    expect(res.isError).toBe(true);
+    expect(effect.applied).toBe(0);
+    expect(legCalls).toBe(2); // NOT 8 — offerInputRequired's MAX_MISMATCH_ROUNDS cap
+    expect(outbound.methods.filter((m) => m === "elicitation/create")).toHaveLength(2);
     await client.close();
     await server.close();
   });
@@ -295,16 +518,22 @@ describe("THE-1106 fix round 1: legacyElicitationShim is STDIO-ONLY (addendum 2)
   }
 
   it("a legacy-era HTTP session with elicitation:{} still gets the plain error, no round trip", async () => {
+    // THE-1106 fix round 2 (LOW 2, cross-vendor review): this behavioural test alone is WEAKER
+    // than it looks — stateless legacy HTTP never runs a real `initialize` handshake on its
+    // ephemeral Server instance, so `canElicit` already fails regardless of what `legacyShim` was
+    // passed at construction; this test would still pass even with the explicit assertion removed
+    // entirely (measured). The REAL proof that HTTP construction passes `{ legacyShim: false }` —
+    // not merely that this ONE client shape happens not to trigger it — is the constructor-spy
+    // unit test in test/hitl-legacy-shim-construction.test.ts. Kept here as an end-to-end sanity
+    // check of the observable behaviour, not as the primary evidence.
     const h = await bootHttp();
     const jwt = await token();
     try {
       // No mcp-protocol-version header at all == legacy (matches http.ts's era classification for
-      // an unversioned/pre-2026 request). The point: `legacyElicitationShim` is never set for
-      // HTTP, so createMcpServer asserts `legacyShim: false` and this can never reach the shim —
-      // a "spy on the wire" isn't meaningful over stateless request/response HTTP (there is no
-      // persistent socket to push a server-initiated request down mid-response), so this proves
-      // the SAME thing the way HTTP actually works: the response comes back as a normal, single,
-      // synchronous JSON-RPC result carrying the plain error, not a hung request awaiting a leg.
+      // an unversioned/pre-2026 request). The response comes back as a normal, single, synchronous
+      // JSON-RPC result carrying the plain error, not a hung request awaiting a leg — a "spy on the
+      // wire" isn't meaningful over stateless request/response HTTP (no persistent socket to push
+      // a server-initiated request down mid-response).
       const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
         method: "POST",
         headers: {
@@ -479,5 +708,25 @@ describe("THE-1106 fix round 1 (MEDIUM/LOW 2): path/tool are untrusted display t
       const lines = (detail ?? "").split("\n");
       expect(lines.filter((l) => l.startsWith("confirm with:"))).toHaveLength(1);
     }
+  });
+});
+
+describe("THE-1106 fix round 2 (LOW 5): createStdioElicitCodec instances are independently keyed", () => {
+  it("one instance's minted state is rejected by a different instance's verify", async () => {
+    // Each stdio server process builds its OWN codec from a fresh per-process random secret
+    // (elicit.ts's createStdioElicitCodec) — two instances (e.g. two server processes, or two
+    // calls in a test) must never accept each other's states, the same way two different JWT
+    // secrets must never cross-verify.
+    const codecA = createStdioElicitCodec();
+    const codecB = createStdioElicitCodec();
+    const state = await codecA.mint({
+      tool: "danger_write",
+      argsHash: "abc",
+      vaultId: "v1",
+      caller: null,
+    });
+    await expect(codecB.verify(state)).rejects.toThrow();
+    // The SAME instance verifies its OWN mint without error.
+    await expect(codecA.verify(state)).resolves.toMatchObject({ tool: "danger_write" });
   });
 });

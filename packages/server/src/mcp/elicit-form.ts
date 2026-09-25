@@ -18,25 +18,12 @@ import {
   inputResponse,
   type Server,
 } from "@modelcontextprotocol/server";
-import type { ErrorJSON } from "@the-40-thieves/obsidian-tc-shared";
+import type { ErrorJSON, MorgianaEventData } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
+import { callerHash } from "../throttle";
 // THE-1106 fix round 1 (check:duplicate-exports): reuse tasks.ts's copy rather than declaring a
 // second one — this module and tasks.ts independently needed the SAME SEP-2575 fact.
 import { MODERN_PROTOCOL_VERSION } from "./tasks";
-
-/**
- * THE-1106 fix round 1 (security review addendum + addendum 2): whether `createMcpServer` asserted
- * the legacy `inputRequired` shim's ACTIVE STATE explicitly, rather than leaving it to the SDK's
- * bundled default. `_inputRequiredServing.legacyShim` (`@modelcontextprotocol/server@2.0.0`,
- * `dist/mcp-*.mjs`'s `resolveLegacyShimOptions`, `legacyShim: options?.legacyShim ?? true` ~L493)
- * is a PRIVATE field with no public accessor, so its live value cannot be read back off a `Server`
- * instance — `createMcpServer` always passes `inputRequired: { legacyShim: opts.legacyElicitationShim
- * === true }`, an explicit `true` OR `false` depending on `McpServerOptions.legacyElicitationShim`,
- * never the SDK's own default in either direction. `true` here means only that this ASSERTION
- * happened, NOT that the shim is active for THIS instance — that still depends on the per-instance
- * `legacyElicitationShim` flag, checked separately by `roundTripDeliverable` below.
- */
-export const LEGACY_SHIM_ASSERTED_EXPLICIT = true;
 
 /**
  * Whether the NATIVE (modern-era) `inputRequired` round trip will reach the client, read from TWO
@@ -59,23 +46,24 @@ export function negotiatedModern(server: Server, isModern: boolean): boolean {
  * fail-closed gate `dispatchToResult` uses before offering the HITL round trip at all. TRUE for
  * either delivery path: native modern handling (`negotiatedModern`), or the legacy shim —
  * STDIO-ONLY, opted into per-instance (`legacyElicitationShim === true`; `false`/absent on every
- * HTTP-served server, so a legacy-era HTTP session takes neither path) and asserted explicit at
- * construction (`LEGACY_SHIM_ASSERTED_EXPLICIT`). Not a SECURITY gate either way — `checkHitl`
- * only ever accepts a verified `requestState` (itself now also checked against the confirm leg's
- * OWN accept/decline answer — see mcp/server.ts's `confirmApproved`) or a single-use token — a
- * wrong answer here degrades to the plain `elicit_required` text error rather than to a broken
- * shape. Server-initiated legs over Streamable HTTP are unverified against real clients and
- * explicitly out of scope, which is why the legacy half is opt-in and stdio-only.
+ * HTTP-served server, so a legacy-era HTTP session takes neither path). `createMcpServer` passes
+ * this SAME `legacyElicitationShim` value as `inputRequired: { legacyShim: ... }` at construction
+ * (an explicit `true`/`false`, never the SDK's own bundled default in either direction — see the
+ * `Server` constructor call site) — so `legacyElicitationShim === true` here is not a GUESS about
+ * the shim's state, it is the value this function's own caller used to configure it. Not a
+ * SECURITY gate either way — `checkHitl` only ever accepts a verified `requestState` (itself now
+ * also checked against the confirm leg's OWN accept/decline answer — see mcp/server.ts's
+ * `confirmApproved`) or a single-use token — a wrong answer here degrades to the plain
+ * `elicit_required` text error rather than to a broken shape. Server-initiated legs over
+ * Streamable HTTP are unverified against real clients and explicitly out of scope, which is why
+ * the legacy half is opt-in and stdio-only.
  */
 export function roundTripDeliverable(
   server: Server,
   isModern: boolean,
   legacyElicitationShim: boolean | undefined,
 ): boolean {
-  return (
-    negotiatedModern(server, isModern) ||
-    (legacyElicitationShim === true && LEGACY_SHIM_ASSERTED_EXPLICIT)
-  );
+  return negotiatedModern(server, isModern) || legacyElicitationShim === true;
 }
 
 export function clientSupportsFormElicitation(caps: unknown): boolean {
@@ -89,22 +77,31 @@ export function clientSupportsFormElicitation(caps: unknown): boolean {
 }
 
 /**
- * THE-1106 fix round 1 (MEDIUM/LOW 2, cross-vendor review — 2nd pass): `path` (and, defensively,
+ * THE-1106 fix round 2 (Opus M2, cross-vendor review — 3rd pass): `path` (and, defensively,
  * `tool`) arrive here as UNTRUSTED display text — a vault-relative `VaultPath` only rejects `..`
  * and an absolute leading slash, so it may legally contain newlines, backticks, double quotes, or
  * arbitrary prose. Left unsanitized, a crafted path can inject a fake extra "line" into a rendered
  * form message or directive sentence — e.g. a path ending the sentence and appending its own
  * spoofed `confirm with: obsidian-tc elicit ...` line, or a bogus "this is a harmless preview"
  * reassurance — that a human skimming the text, or a naive line-based locator, could mistake for
- * the real one. Strips C0/DEL control characters AND the backtick (the first review's fix rendered
- * the value inside backticks in prose — `` on `${path}` `` — so a path containing its own backtick
- * could close that span early; stripping it here closes that hole even though callers now quote
- * with `JSON.stringify` instead, which cannot be broken out of by ANY character) and caps length
- * so a pathologically long value cannot crowd out the real instruction.
+ * the real one.
+ *
+ * The 2nd-pass fix (`[\x00-\x1f\x7f\``]`, plus `JSON.stringify` quoting) MISSED three classes
+ * `JSON.stringify` does NOT escape and that render as line breaks or invisible reordering in a
+ * terminal/UI even INSIDE a JSON string literal: U+0085 (NEL), U+2028/U+2029 (LINE/PARAGRAPH
+ * SEPARATOR — measured: a path containing U+2028 produced 4 rendered lines and 2 `confirm with:`
+ * lines), and the bidi control range (U+202A-U+202E, U+2066-U+2069 — RLO/LRO/PDF and friends,
+ * which can make displayed text read in an order that does not match its bytes, independent of
+ * line-splitting). `\p{Cc}` (control) + `\p{Cf}` (format — covers NEL and every bidi control) +
+ * `\p{Zl}`/`\p{Zp}` (the two Unicode line/paragraph separators) is the closed set that actually
+ * covers "characters that can make rendered text lie about its own structure," not an enumerated
+ * guess at which ones matter. Caps length so a pathologically long value cannot crowd out the real
+ * instruction. `JSON.stringify` quoting on TOP of this still matters for every character this does
+ * NOT strip (letters, digits, ordinary punctuation) — the claim is "no character can forge the
+ * QUOTING," not "no character needs stripping first."
  */
 export function sanitizeDisplayText(value: string, maxLen = 200): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately stripping control chars
-  const stripped = value.replace(/[\x00-\x1f\x7f`]/g, "");
+  const stripped = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}`]/gu, "");
   return stripped.length > maxLen ? `${stripped.slice(0, maxLen)}…` : stripped;
 }
 
@@ -115,9 +112,12 @@ export function sanitizeDisplayText(value: string, maxLen = 200): string {
  * being overwritten/deleted/moved) so the human approving it can see WHAT before approving;
  * omitted when the triggering error carried none (e.g. the always-on `destructive: true` dispatch
  * gate, which has no `proposed` object to source a path from — see policy-gates.ts). Rendered as a
- * `JSON.stringify`d literal (after `sanitizeDisplayText`, belt-and-suspenders): the quoting itself
- * cannot be forged by any character the value contains, unlike interpolating it into a hand-picked
- * delimiter (backticks, parens) that the value could itself contain.
+ * `JSON.stringify`d literal AFTER `sanitizeDisplayText` strips control/format/line-separator
+ * characters and the backtick: the quoting itself (the `"..."` delimiters) cannot be forged by any
+ * character the SANITIZED value still contains, and the characters that could otherwise make the
+ * rendered text lie about its own line structure (real newlines, U+2028/2029, bidi controls) are
+ * removed before quoting even runs — `JSON.stringify` alone was not sufficient, since it does not
+ * escape those.
  */
 export function buildConfirmElicitationParams(
   name: string,
@@ -131,7 +131,10 @@ export function buildConfirmElicitationParams(
     required: ["approve"];
   };
 } {
-  const safeName = sanitizeDisplayText(name);
+  // THE-1106 fix round 2 (Opus M2): `tool` is quoted the SAME way `path` is — JSON.stringify after
+  // sanitizeDisplayText — even though it is registry-derived, never caller data, purely for
+  // defense in depth and so the message never mixes an unquoted vs a quoted untrusted field.
+  const safeName = JSON.stringify(sanitizeDisplayText(name));
   const target =
     path !== undefined ? ` (target: ${JSON.stringify(sanitizeDisplayText(path))})` : "";
   return {
@@ -165,14 +168,24 @@ export function buildConfirmElicitationParams(
  * approval — used by `dispatchToResult` to stop offering a SECOND `inputRequired` for the SAME
  * declined confirmation, which would otherwise loop (the re-thrown `elicit_required` looks
  * identical to a first attempt). Deliberately NOT triggered by an approved-but-mismatched state
- * (e.g. one minted for different arguments, a different vault, or an expired/forged one, still
- * approved by the human) — that case behaves like a fresh, never-yet-offered call, correctly
- * getting its OWN round trip rather than a suppressed error.
+ * (e.g. one minted for different arguments, a different vault, or one whose GATE doesn't cover
+ * what actually needed confirming — a handler-side gate the dispatch-level state doesn't reach) —
+ * that case gets its OWN fresh round trip rather than a suppressed error, capped by `approvedRound`
+ * below rather than by `roundDeclinedOrCancelled`.
+ *
+ * `approvedRound` surfaces the echoed state's OWN `round` counter whenever the leg was approved
+ * (matched or not) — `offerInputRequired` uses it to cap re-offers after a run of
+ * approved-but-mismatched rounds to a SMALL number, not the SDK shim's full `maxRounds` (8), so a
+ * persistent gate mismatch cannot prompt a human eight times for what looks like one call.
  */
 export function resolveElicitConfirmation(mcpReq: {
   requestState?: <T>() => T | undefined;
   inputResponses?: Record<string, unknown>;
-}): { elicitState: ElicitRequestState | undefined; roundDeclinedOrCancelled: boolean } {
+}): {
+  elicitState: ElicitRequestState | undefined;
+  roundDeclinedOrCancelled: boolean;
+  approvedRound: number | undefined;
+} {
   const echoed = mcpReq.requestState?.<ElicitRequestState>();
   const confirmResponse = inputResponse(mcpReq.inputResponses, "confirm");
   const confirmApproved =
@@ -182,23 +195,36 @@ export function resolveElicitConfirmation(mcpReq: {
   return {
     elicitState: confirmApproved ? echoed : undefined,
     roundDeclinedOrCancelled: confirmResponse.kind !== "missing" && !confirmApproved,
+    approvedRound: confirmApproved ? (echoed?.round ?? 0) : undefined,
   };
 }
+
+/**
+ * THE-1106 fix round 2: a persistent approved-but-mismatched round (see `resolveElicitConfirmation`)
+ * gets at most this many TOTAL offers before `offerInputRequired` refuses to mint another and the
+ * caller falls through to the plain text error — not the SDK shim's `maxRounds` (8). 2 means: the
+ * original offer, plus exactly one retry.
+ */
+const MAX_MISMATCH_ROUNDS = 2;
 
 /**
  * Mints a `requestState` and returns `inputRequired({ requestState, inputRequests: { confirm } })`
  * for an `elicit_required` error — the SDK then delivers it natively (modern) or via the legacy
  * shim (stdio), per `roundTripDeliverable`. `undefined` when the error carries no `args_hash` (a
- * malformed/unexpected error shape), in which case the caller falls through to the plain text
- * error. Callers gate on `roundTripDeliverable`/`canElicit`/`roundDeclinedOrCancelled` themselves
- * (mcp/server.ts's `dispatchToResult`) — this function does not re-check any of that.
+ * malformed/unexpected error shape) OR when `previousApprovedRound` is already at
+ * `MAX_MISMATCH_ROUNDS` (an approved-but-mismatched round would otherwise re-offer indefinitely) —
+ * either way, the caller falls through to the plain text error. Callers gate on
+ * `roundTripDeliverable`/`canElicit`/`roundDeclinedOrCancelled` themselves (mcp/server.ts's
+ * `dispatchToResult`) — this function does not re-check any of that.
  */
 export async function offerInputRequired(
   codec: ElicitCodec,
   name: string,
   error: ErrorJSON,
   ctx: { vaultId: string; caller: string | null },
+  previousApprovedRound: number | undefined,
 ): Promise<CallToolResult | undefined> {
+  if ((previousApprovedRound ?? 0) >= MAX_MISMATCH_ROUNDS) return undefined;
   const details = error as { details?: { args_hash?: string; path?: unknown } };
   const argsHash = details.details?.args_hash;
   if (typeof argsHash !== "string") return undefined;
@@ -209,6 +235,7 @@ export async function offerInputRequired(
       argsHash,
       vaultId: ctx.vaultId,
       caller: ctx.caller,
+      round: (previousApprovedRound ?? 0) + 1,
     }),
     inputRequests: {
       confirm: {
@@ -217,4 +244,31 @@ export async function offerInputRequired(
       },
     },
   }) as unknown as CallToolResult;
+}
+
+/** THE-1106 fix round 2 (LOW 6): marks an `elicit_required` error as an ACTUAL decline/cancel, not
+ *  a plain unconfirmed call — error-rendering.ts's `renderElicitInstruction` renders the
+ *  decline-specific text ("do not retry, do not mint a token") instead of the "ask the user now"
+ *  directive, which would be stale: the user already answered. */
+export function withDeclinedFlag(error: ErrorJSON): ErrorJSON {
+  return { ...error, details: { ...error.details, declined: true } } as ErrorJSON;
+}
+
+/** THE-1106 fix round 2 (HIGH, audit): the `CallerContext` patch for a verified, approved
+ *  `elicitState` — `elicitState` itself (consumed by `checkHitl`/`requireConfirmation`) plus
+ *  `relayElicitConsumed`, which `vault/hitl.ts` calls ONLY when `elicitState` satisfies a
+ *  HANDLER-side gate (dispatch's OWN `tc.elicit.consumed` relay never runs for those 16 tools).
+ *  `toolName` is an argument, not a closed-over name, because facade/call_capability routing can
+ *  make the ACTUAL target differ from `req.params.name`. */
+export function elicitStateContextPatch(
+  registry: { relayElicitConsumed: (vaultId: string, data: Partial<MorgianaEventData>) => void },
+  elicitState: ElicitRequestState,
+  vaultId: string,
+  caller: string | null,
+): { elicitState: ElicitRequestState; relayElicitConsumed: (toolName: string) => void } {
+  return {
+    elicitState,
+    relayElicitConsumed: (toolName: string) =>
+      registry.relayElicitConsumed(vaultId, { tool: toolName, caller_hash: callerHash(caller) }),
+  };
 }

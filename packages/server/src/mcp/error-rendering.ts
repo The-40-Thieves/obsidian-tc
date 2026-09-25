@@ -166,6 +166,15 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
   const hash = details?.args_hash;
   if (typeof hash !== "string") return undefined;
   const tool = details?.tool;
+  // THE-1106 fix round 2 (LOW 6, cross-vendor review): after an ACTUAL decline/cancel
+  // (`dispatchToResult`'s `roundDeclinedOrCancelled`, mcp/server.ts), the directive above — "Ask
+  // the user now... If they approve, run the command below" — is stale: the user already
+  // answered, and re-asking the agent to solicit another yes (or mint a token off the stale
+  // command) is exactly the bypass this whole mechanism exists to prevent. No `confirm with:`
+  // line either — there is nothing to confirm; the answer was no.
+  if (details?.declined === true) {
+    return "The user declined this change. Do not retry it and do not mint a token.";
+  }
   if (typeof tool !== "string") {
     return (
       "cannot render a confirm command: this error did not carry a tool name, and " +

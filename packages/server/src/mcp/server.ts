@@ -11,12 +11,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/server";
-import {
-  type ErrorJSON,
-  err,
-  isMutatingScope,
-  type ToolResult,
-} from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
@@ -31,9 +26,11 @@ import {
 import { extractClientInfo } from "./client-info";
 import {
   clientSupportsFormElicitation,
+  elicitStateContextPatch,
   offerInputRequired,
   resolveElicitConfirmation,
   roundTripDeliverable,
+  withDeclinedFlag,
 } from "./elicit-form";
 import { splitElicitToken } from "./elicit-token";
 import { formatErrorDetail } from "./error-rendering";
@@ -46,15 +43,12 @@ import {
   type FacadeMode,
   FIND_CAPABILITY_SCHEMA,
   findCapability,
-  isAdvertisedDestructive,
   isDomainTool,
   isFacadeTool,
-  toInputJson,
-  toJson,
   triadTools,
 } from "./facade";
 import { getPrompt, listPrompts } from "./prompts";
-import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
+import type { CallerContext, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
 import {
   CATALOG_RESOURCE_URI,
@@ -72,6 +66,7 @@ import {
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
+import { toMcpTool } from "./tool-projection";
 import { disclosableExplanation, type VisibilityCaller } from "./visibility";
 
 /**
@@ -227,63 +222,10 @@ function asStructured(data: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** Human-facing label for a snake_case tool name (spec: clients fall back to `name` if absent). */
-function titleize(name: string): string {
-  return name
-    .split("_")
-    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-    .join(" ");
-}
-
-/**
- * Derive MCP tool annotations from the registry's OWN ground truth, so the client-visible safety
- * contract cannot drift from server-side enforcement. `readOnlyHint` mirrors the exact `mutating`
- * predicate the dispatch read-only kill-switch uses (registry.runDispatch); `destructiveHint`
- * mirrors `isAdvertisedDestructive` (THE-824: `def.destructive` OR the display-only
- * `conditionallyDestructive`, never a dispatch-authorizing field on its own — see its doc comment);
- * every vault operation is closed-world (no external side effects). Annotations are advisory
- * hints, never a trust boundary — dispatch still authorizes every call.
- */
-function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> {
-  const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
-  return {
-    readOnlyHint: !mutating,
-    destructiveHint: isAdvertisedDestructive(def),
-    openWorldHint: false,
-    // THE-743: the fourth annotation. Emitted ONLY for mutating tools, because the spec defines it
-    // as meaningful only when `readOnlyHint == false` — sending it alongside `readOnlyHint: true`
-    // would state a fact the spec says carries no information, and reads as a contradiction.
-    // Sourced from an explicit per-tool declaration, never inferred: see ToolDefinition.idempotent
-    // for why it is NOT `acceptsIdempotencyKey` and why every tool here is currently false.
-    ...(mutating ? { idempotentHint: def.idempotent === true } : {}),
-  };
-}
-
-// THE-463: a tool's MCP projection (name/title/description/schemas/annotations/icons) is immutable
-// after registration; flat-mode tools/list rebuilt an identical object per request. Memoized by def
-// identity — the frozen Tool instance survives per-request server churn (transports/http.ts) since
-// defs live on the persistent registry. toJson/toInputJson are already memoized per schema.
-const mcpToolMemo = new WeakMap<ToolDefinition, Tool>();
-
-/** @internal exported for the THE-463 memoization test. */
-export function toMcpTool(def: ToolDefinition): Tool {
-  const cached = mcpToolMemo.get(def);
-  if (cached !== undefined) return cached;
-  const tool: Tool = {
-    name: def.name,
-    title: titleize(def.name),
-    description: def.description,
-    inputSchema: toInputJson(def.inputSchema),
-    ...(def.outputSchema
-      ? { outputSchema: toJson(def.outputSchema) as unknown as Tool["outputSchema"] }
-      : {}),
-    annotations: toolAnnotations(def),
-    ...(def.icons ? { icons: def.icons } : {}),
-  };
-  Object.freeze(tool);
-  mcpToolMemo.set(def, tool);
-  return tool;
-}
+// THE-1106 fix round 2: toolAnnotations/toMcpTool moved to ./tool-projection to fit biome's
+// noExcessiveLinesPerFile cap; re-exported so the THE-463 memoization test's
+// `import("../src/mcp/server")` still finds `toMcpTool` at its original path.
+export { toMcpTool } from "./tool-projection";
 
 /**
  * Assemble a low-level MCP Server bound to a ToolRegistry. ListTools is sourced
@@ -360,7 +302,16 @@ export function createMcpServer(opts: McpServerOptions): Server {
         ? { requestState: { verify: (state: string) => opts.elicitCodec?.verify(state) } }
         : {}),
       // THE-1106: assert explicit, never the SDK default — see McpServerOptions.legacyElicitationShim.
-      inputRequired: { legacyShim: opts.legacyElicitationShim === true },
+      inputRequired: {
+        legacyShim: opts.legacyElicitationShim === true,
+        // THE-1106 fix round 2 (LOW 1): cap the shim's per-leg timeout to the codec's OWN TTL
+        // (ElicitCodec.ttlSeconds's doc comment, elicit-request-state.ts) — the SDK's 600s default
+        // otherwise outlives a shorter TTL, so a human answering between the TTL and 600s gets a
+        // raw `requestState.verify` rejection (-32602) instead of the shim's own clean re-offer
+        // failure. Absent a codec, `roundTimeoutMs` is left at the SDK default (irrelevant: the
+        // shim is never reached without one — see `roundTripDeliverable`).
+        ...(opts.elicitCodec ? { roundTimeoutMs: opts.elicitCodec.ttlSeconds * 1000 } : {}),
+      },
     },
   );
 
@@ -510,6 +461,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
     /** THE-1106: true when a round for THIS request came back declined/cancelled — see
      *  `resolveElicitConfirmation` (./elicit-form.ts). Stops a second offer for the same decline. */
     roundDeclinedOrCancelled = false,
+    /** THE-1106 fix round 2: the echoed state's own round counter when APPROVED but mismatched —
+     *  `offerInputRequired` caps re-offers on this so a persistent mismatch cannot loop the SDK
+     *  shim's full `maxRounds` (8). See `resolveElicitConfirmation`'s doc comment. */
+    approvedRound: number | undefined = undefined,
   ): Promise<CallToolResult> => {
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
@@ -521,8 +476,18 @@ export function createMcpServer(opts: McpServerOptions): Server {
         !roundDeclinedOrCancelled &&
         roundTripDeliverable(server, isModern, opts.legacyElicitationShim)
       ) {
-        const offer = await offerInputRequired(opts.elicitCodec, name, result.error, ctx);
+        const offer = await offerInputRequired(
+          opts.elicitCodec,
+          name,
+          result.error,
+          ctx,
+          approvedRound,
+        );
         if (offer !== undefined) return offer;
+      }
+      // THE-1106 fix round 2 (LOW 6): render the decline-specific text — see withDeclinedFlag.
+      if (result.error.code === "elicit_required" && roundDeclinedOrCancelled) {
+        return errorToResult(withDeclinedFlag(result.error));
       }
       return errorToResult(result.error);
     }
@@ -565,13 +530,19 @@ export function createMcpServer(opts: McpServerOptions): Server {
         : {}),
     };
     // THE-583 + THE-1106 (CRITICAL fix — see resolveElicitConfirmation's doc comment, elicit-form.ts).
-    const { elicitState, roundDeclinedOrCancelled } = resolveElicitConfirmation(
+    const { elicitState, roundDeclinedOrCancelled, approvedRound } = resolveElicitConfirmation(
       extra.mcpReq as {
         requestState?: <T>() => T | undefined;
         inputResponses?: Record<string, unknown>;
       },
     );
-    if (elicitState !== undefined) ctx = { ...ctx, elicitState };
+    // THE-1106 fix round 2: elicitStateContextPatch's doc comment (./elicit-form.ts) covers why.
+    if (elicitState !== undefined) {
+      ctx = {
+        ...ctx,
+        ...elicitStateContextPatch(opts.registry, elicitState, ctx.vaultId, ctx.caller),
+      };
+    }
     ({ args, ctx } = splitElicitToken(rawArgs, ctx));
     // THE-583: run as a background TASK when the client asked and the tool opted in.
     //
@@ -614,6 +585,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         canElicit,
         log,
         roundDeclinedOrCancelled,
+        approvedRound,
       );
     }
     // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
@@ -697,12 +669,21 @@ export function createMcpServer(opts: McpServerOptions): Server {
             canElicit,
             log,
             roundDeclinedOrCancelled,
+            approvedRound,
           );
         },
         errorToResult,
       );
     }
-    return dispatchToResult(req.params.name, args, ctx, canElicit, log, roundDeclinedOrCancelled);
+    return dispatchToResult(
+      req.params.name,
+      args,
+      ctx,
+      canElicit,
+      log,
+      roundDeclinedOrCancelled,
+      approvedRound,
+    );
   });
 
   // Resources: vault notes. resources.ts owns AUTHORIZATION (read:notes scope, vault binding,

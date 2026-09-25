@@ -65,8 +65,8 @@ export function isAdvertisedDestructive(
   return def.destructive === true || def.conditionallyDestructive === true;
 }
 
-/** Human-facing label for a snake_case tool name. */
-function titleize(name: string): string {
+/** Human-facing label for a snake_case tool name. Also used by mcp/tool-projection.ts. */
+export function titleize(name: string): string {
   return name
     .split("_")
     .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))

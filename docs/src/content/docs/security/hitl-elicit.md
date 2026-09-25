@@ -7,11 +7,22 @@ description: Human-in-the-loop confirmation for sensitive actions and the respon
 
 Sensitive operations require explicit human confirmation before they run. The
 server issues an MCP **elicitation** request; the action proceeds only once the
-human approves. Approval is single-use: it is consumed at the point the handler
-runs (emitting `tc.elicit.consumed`), and a fresh request (`tc.elicit.requested`)
-is required for the next sensitive call. The approval is bound to the exact vault, tool,
-argument hash, and **issuing caller**, so on a multi-caller HTTP deployment one caller cannot
+human approves. The approval is bound to the exact vault, tool, argument hash,
+and **issuing caller**, so on a multi-caller HTTP deployment one caller cannot
 redeem another's approval.
+
+**Single-use, precisely: it depends on which mechanism cleared the gate.** The
+`obsidian-tc elicit` CLI token and the legacy server-initiated shim (stdio) are
+genuinely single-use — the CLI token is consumed with `UPDATE ... WHERE
+consumed_at IS NULL`, and the shim's confirmation never leaves the server at
+all, so there is nothing a client could replay. The 2026-07-28 client-driven
+`requestState` (SEP-2260/2322) is **replayable within its TTL** — a deliberate,
+documented trade (see `elicit-request-state.ts`): the codec authenticates and
+expires the state but does not consume it, so a captured `requestState` can
+authorize the same call more than once until it expires. Either way,
+`tc.elicit.consumed` fires once per handler run (not once per approval), and a
+fresh confirmation (`tc.elicit.requested`) is required for the next sensitive
+call.
 
 The elicitation thresholds are **hardcoded floors** — a client cannot configure
 them away. This keeps the confirmation gate present even under a permissive config.

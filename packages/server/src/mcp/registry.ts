@@ -155,6 +155,15 @@ export class ToolRegistry {
     this.observability.relay(vaultId, type, data);
   }
 
+  /** THE-1106 fix round 2: relay the EXISTING `tc.elicit.consumed` type for a handler-side gate
+   *  (vault/hitl.ts) satisfied by `ctx.elicitState` — dispatch's own relay of this event only
+   *  fires for dispatch-gated tools, so mcp/server.ts has no other way to reach this vault's event
+   *  sink for the 16 handler-side-only conditionally-gated tools. A narrow public method (fixed
+   *  event type), not a general `relay` exposure. */
+  relayElicitConsumed(vaultId: string, data: Partial<MorgianaEventData>): void {
+    this.relay(vaultId, "tc.elicit.consumed", data);
+  }
+
   /** See DispatchObservability.relayCompletion (registry/dispatch-observability.ts) — the MORGIANA
    *  completion-event fan-out shared by tool dispatch and dispatchResource's `emit` closure below. */
   private relayCompletion(
