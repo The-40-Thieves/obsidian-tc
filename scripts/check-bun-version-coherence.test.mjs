@@ -8,6 +8,7 @@ import { test } from "node:test";
 import {
   bunVersionProblems,
   findBunVersionOccurrences,
+  findDockerfileBunTags,
   readMiseBunPin,
   readSetupRepoDefault,
 } from "./check-bun-version-coherence.mjs";
@@ -17,6 +18,10 @@ const OK_OCCURRENCES = [
   { file: ".github/workflows/ci-native.yml", line: 49, value: "1.4.0" },
   { file: ".github/workflows/ci-server.yml", line: 195, value: "1.4.0" },
 ];
+const OK_DOCKERFILE_TAGS = [
+  { file: "Dockerfile", line: 15, value: "1.4.0-slim" },
+  { file: "Dockerfile", line: 26, value: "1.4.0-slim" },
+];
 
 test("agreeing pin, packageManager, setup-repo default and occurrences pass with no problems", () => {
   const problems = bunVersionProblems({
@@ -25,6 +30,7 @@ test("agreeing pin, packageManager, setup-repo default and occurrences pass with
     setupRepoDefault: "1.4.0",
     occurrences: OK_OCCURRENCES,
     filesScanned: 20,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.deepEqual(problems, []);
 });
@@ -39,6 +45,7 @@ test("a drifted workflow literal is reported with its file and line", () => {
       { file: ".github/workflows/perf-baseline.yml", line: 76, value: "1.3.14" },
     ],
     filesScanned: 20,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /perf-baseline\.yml:76: bun-version is "1\.3\.14", expected "1\.4\.0"/);
@@ -54,6 +61,7 @@ test("multiple drifted literals are each reported", () => {
       { file: "b.yml", line: 2, value: "1.3.14" },
     ],
     filesScanned: 5,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 2);
 });
@@ -65,6 +73,7 @@ test("a drifted packageManager is reported", () => {
     setupRepoDefault: "1.4.0",
     occurrences: OK_OCCURRENCES,
     filesScanned: 20,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /packageManager is "bun@1\.3\.14", expected "bun@1\.4\.0"/);
@@ -77,6 +86,7 @@ test("a missing packageManager is reported, not silently accepted", () => {
     setupRepoDefault: "1.4.0",
     occurrences: OK_OCCURRENCES,
     filesScanned: 20,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /packageManager is "\(missing\)"/);
@@ -89,6 +99,7 @@ test("a drifted setup-repo default is reported", () => {
     setupRepoDefault: "1.3.14",
     occurrences: OK_OCCURRENCES,
     filesScanned: 20,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /setup-repo\/action\.yml's bun-version default is "1\.3\.14"/);
@@ -101,6 +112,7 @@ test("existence floor: zero files scanned is reported as a broken scanner, not a
     setupRepoDefault: "1.4.0",
     occurrences: [],
     filesScanned: 0,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /scanned zero files.*scanner is broken, not the repo clean/);
@@ -113,6 +125,7 @@ test("existence floor: files scanned but zero occurrences is reported as a broke
     setupRepoDefault: "1.4.0",
     occurrences: [],
     filesScanned: 22,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /scanned 22 file\(s\).*zero literal `bun-version:` occurrences/);
@@ -125,9 +138,57 @@ test("a missing mise pin is reported and short-circuits — no authority to chec
     setupRepoDefault: "1.4.0",
     occurrences: OK_OCCURRENCES,
     filesScanned: 20,
+    dockerfileTags: OK_DOCKERFILE_TAGS,
   });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /mise\.toml has no `bun = "\.\.\."` pin/);
+});
+
+test("a drifted Dockerfile FROM tag is reported with its file and line", () => {
+  const problems = bunVersionProblems({
+    pin: PIN,
+    packageManager: "bun@1.4.0",
+    setupRepoDefault: "1.4.0",
+    occurrences: OK_OCCURRENCES,
+    filesScanned: 20,
+    dockerfileTags: [
+      { file: "Dockerfile", line: 15, value: "1-slim" },
+      { file: "Dockerfile", line: 26, value: "1.4.0-slim" },
+    ],
+  });
+  assert.equal(problems.length, 1);
+  assert.match(
+    problems[0],
+    /Dockerfile:15: FROM oven\/bun tag is "1-slim", expected "1\.4\.0-slim"/,
+  );
+});
+
+test("both drifted Dockerfile FROM tags are each reported", () => {
+  const problems = bunVersionProblems({
+    pin: PIN,
+    packageManager: "bun@1.4.0",
+    setupRepoDefault: "1.4.0",
+    occurrences: OK_OCCURRENCES,
+    filesScanned: 20,
+    dockerfileTags: [
+      { file: "Dockerfile", line: 15, value: "1-slim" },
+      { file: "Dockerfile", line: 26, value: "1-slim" },
+    ],
+  });
+  assert.equal(problems.length, 2);
+});
+
+test("existence floor: zero Dockerfile FROM oven/bun lines is reported as a broken scanner", () => {
+  const problems = bunVersionProblems({
+    pin: PIN,
+    packageManager: "bun@1.4.0",
+    setupRepoDefault: "1.4.0",
+    occurrences: OK_OCCURRENCES,
+    filesScanned: 20,
+    dockerfileTags: [],
+  });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /found zero `FROM oven\/bun:` lines in Dockerfile.*scanner is broken/);
 });
 
 test("readMiseBunPin parses the pin out of the [tools] table", () => {
@@ -195,4 +256,27 @@ test("a non-semver bun-version literal (e.g. 'latest') is reported as an occurre
     findBunVersionOccurrences("# every bun-version: literal must agree\n", "z.yml"),
     [],
   );
+});
+
+test("findDockerfileBunTags finds both stages of a multi-stage build", () => {
+  const text = [
+    "# comment mentioning FROM oven/bun: is not a match",
+    "FROM oven/bun:1.4.0-slim AS build",
+    "WORKDIR /app",
+    "FROM oven/bun:1.4.0-slim",
+    "WORKDIR /app",
+  ].join("\n");
+  assert.deepEqual(findDockerfileBunTags(text, "Dockerfile"), [
+    { file: "Dockerfile", line: 2, value: "1.4.0-slim" },
+    { file: "Dockerfile", line: 4, value: "1.4.0-slim" },
+  ]);
+});
+
+test("findDockerfileBunTags catches a floating tag with no patch version", () => {
+  const occ = findDockerfileBunTags("FROM oven/bun:1-slim AS build\n", "Dockerfile");
+  assert.deepEqual(occ, [{ file: "Dockerfile", line: 1, value: "1-slim" }]);
+});
+
+test("findDockerfileBunTags returns nothing for a Dockerfile with no oven/bun base", () => {
+  assert.deepEqual(findDockerfileBunTags("FROM node:24-slim\n", "Dockerfile"), []);
 });

@@ -9,17 +9,18 @@
 // different Bun than the one every other job used.
 //
 // This gate reads the pin from mise.toml, then asserts every other declared Bun version agrees:
-// package.json's packageManager, setup-repo's default, and every literal `bun-version:` value
-// under .github/workflows and .github/actions (composite actions included — actionlint's own
-// coverage gap for those is check-actions-shellcheck.mjs's territory, not a reason to skip them
-// here). `${{ inputs.bun-version }}`-style references are not literals and are skipped; they
-// resolve to whatever the caller passed, which is itself a checked literal somewhere else.
+// package.json's packageManager, setup-repo's default, every literal `bun-version:` value under
+// .github/workflows and .github/actions (composite actions included — actionlint's own coverage
+// gap for those is check-actions-shellcheck.mjs's territory, not a reason to skip them here), and
+// (THE-1118) every `FROM oven/bun:` tag in the root Dockerfile. `${{ inputs.bun-version }}`-style
+// references are not literals and are skipped; they resolve to whatever the caller passed, which
+// is itself a checked literal somewhere else.
 //
-// Existence floor: a scan that finds zero workflow/action files, or finds files but zero literal
-// `bun-version:` occurrences in them, is reported as a broken scanner — not a clean repo. Without
-// this floor a renamed directory or a reworded key would make the gate pass by finding nothing to
-// check, exactly the failure mode THE-580 already fixed once for check-version-coherence.mjs's
-// tool-count anchors.
+// Existence floor: a scan that finds zero workflow/action files, files but zero literal
+// `bun-version:` occurrences, or zero `FROM oven/bun:` lines in the Dockerfile, is reported as a
+// broken scanner — not a clean repo. Without this floor a renamed directory or a reworded key
+// would make the gate pass by finding nothing to check, exactly the failure mode THE-580 already
+// fixed once for check-version-coherence.mjs's tool-count anchors.
 import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -98,6 +99,7 @@ export function bunVersionProblems({
   setupRepoDefault,
   occurrences,
   filesScanned,
+  dockerfileTags,
 }) {
   const problems = [];
   if (!pin) {
@@ -138,7 +140,40 @@ export function bunVersionProblems({
     }
   }
 
+  const expectedDockerfileTag = `${pin}-slim`;
+  if (dockerfileTags.length === 0) {
+    problems.push(
+      "found zero `FROM oven/bun:` lines in Dockerfile — the scanner is broken, not the repo clean.",
+    );
+  } else {
+    for (const occ of dockerfileTags) {
+      if (occ.value !== expectedDockerfileTag) {
+        problems.push(
+          `${occ.file}:${occ.line}: FROM oven/bun tag is "${occ.value}", expected ` +
+            `"${expectedDockerfileTag}".`,
+        );
+      }
+    }
+  }
+
   return problems;
+}
+
+/**
+ * Extracts every `FROM oven/bun:<tag>` line from the root Dockerfile's text. A multi-stage build
+ * has more than one such line (builder + runtime), and each is a separate pin that can drift
+ * independently — a bump that only touches the builder stage still leaves the runtime image on
+ * the old tag. Pure and filesystem-free, mirroring `findBunVersionOccurrences` above.
+ */
+export function findDockerfileBunTags(text, filePath) {
+  const occurrences = [];
+  text.split("\n").forEach((line, i) => {
+    if (/^\s*#/.test(line)) return;
+    const m = line.match(/^\s*FROM\s+oven\/bun:(\S+)/);
+    if (!m) return;
+    occurrences.push({ file: filePath, line: i + 1, value: m[1] });
+  });
+  return occurrences;
 }
 
 function listFilesRecursive(dir) {
@@ -163,6 +198,7 @@ function main() {
     ...listFilesRecursive(".github/actions"),
   ];
   const occurrences = files.flatMap((f) => findBunVersionOccurrences(readText(f), f));
+  const dockerfileTags = findDockerfileBunTags(readText("Dockerfile"), "Dockerfile");
 
   const problems = bunVersionProblems({
     pin,
@@ -170,6 +206,7 @@ function main() {
     setupRepoDefault,
     occurrences,
     filesScanned: files.length,
+    dockerfileTags,
   });
 
   if (problems.length > 0) {
@@ -180,7 +217,8 @@ function main() {
 
   console.log(
     `check-bun-version-coherence: OK — bun@${pin} agrees across mise.toml, package.json, ` +
-      `setup-repo, and ${occurrences.length} workflow/action occurrence(s) across ${files.length} file(s).`,
+      `setup-repo, ${occurrences.length} workflow/action occurrence(s) across ${files.length} ` +
+      `file(s), and ${dockerfileTags.length} Dockerfile FROM line(s).`,
   );
 }
 

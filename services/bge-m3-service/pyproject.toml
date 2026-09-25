@@ -13,7 +13,10 @@ dependencies = [
     "pydantic>=2.13",
     "FlagEmbedding>=1.4",
     "torch>=2.3",
-    "huggingface-hub>=1",
+    # 2.0.0 (released 2026-09-24) shipped into a previously unbounded range; the compiled
+    # requirements.txt pins deployments to 1.24.0, so this ceiling only guards pyproject-only
+    # installs.
+    "huggingface-hub>=1,<2",
     # v6 (released 2026-08-18) is unvalidated against this service; the compiled requirements.txt
     # pins deployments, so this ceiling only guards pyproject-only installs.
     "sentence-transformers>=5,<6",

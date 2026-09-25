@@ -190,6 +190,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   read-only posture, not a secret) now answers `capability_hidden` naming the reason, while a name
   hidden by an `allowed` allowlist stays `not_found` (deliberately invisible).
 
+- **Bun pinned to 1.4.2 (was 1.4.0), the server image no longer floats `oven/bun:1-slim`, and
+  `huggingface-hub` gets a ceiling (THE-1118, #971).** From the 2026-09-24 stack-update review's
+  P1 batch: `mise.toml`, `package.json`'s `packageManager`, `.github/actions/setup-repo`'s
+  `bun-version` default, every hardcoded `bun-version:` literal across `.github/workflows`, and
+  `packages/server`'s `@types/bun` all move to 1.4.2 together; `bun.lock` regenerated (only the
+  `@types/bun`/`bun-types` entries changed). The `Dockerfile`'s two `FROM oven/bun:1-slim` stages
+  are now pinned to `1.4.2-slim`, and `check-bun-version-coherence.mjs` gained a
+  `findDockerfileBunTags` check so a re-introduced floating tag fails the same gate the workflow
+  literals do, instead of silently drifting the shipped image's Bun off every other declared pin.
+  Separately, `services/bge-m3-service/pyproject.toml`'s `huggingface-hub>=1` gets the same `<2`
+  ceiling `sentence-transformers` already has, guarding against huggingface-hub 2.0.0 (released
+  2026-09-24 into what was an unbounded range); the compiled `requirements.txt` already hash-pins
+  1.24.0, so no resolved deployment dependency changes. `services/docs-ingest` gets its first
+  `uv.lock` (all three extras — `parse`, `extract`, `test`), and the service's own `.gitignore`
+  no longer excludes it — it was silently ignored there, which would have kept it out of git and
+  out of `osv-scanner`'s recursive scan; `osv-scanner scan source --recursive .` now reports seven
+  lockfiles scanned (was six) with no new issues.
+
 ## [1.31.3] - 2026-09-21
 
 ### Fixed
