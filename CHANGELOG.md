@@ -51,6 +51,40 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **Same-major JS/TS dependency batch (#974, THE-1119).** `hono` 4.12.34→4.13.9 (root override
+  and `packages/server`, `<5` ceiling kept), `@hono/node-server` 2.0.10→2.1.1, `jose` 6.2.3→6.2.12,
+  `yaml` 2.9.0→2.9.1, `zod` 4.4.3/4.0.0→4.6.5 (`packages/server` + `packages/shared`),
+  `@opentelemetry/resources`/`sdk-trace-node` 2.8.0→2.11.0, `@opentelemetry/semantic-conventions`
+  1.41.1→1.43.0, `@opentelemetry/exporter-trace-otlp-http` 0.219.0→0.222.0 (changelog-reviewed: no
+  breaking change touches `OTLPTraceExporter`), `systeminformation` 5.33.0→5.33.13, `@biomejs/biome`
+  2.5.5→2.5.14 (2.5.x line), `knip` 6.32.0→6.38.0, `dependency-cruiser` 18.1.0→18.4.0, `jscpd`
+  5.0.12→5.3.2, `@ast-grep/cli` 0.45.0→0.45.3, `esbuild` 0.28.1→0.28.2 and `builtin-modules`
+  4.0.0→5.4.0 (`packages/plugin` devDeps; `builtin-modules`'s `index.js` is byte-identical between
+  the two majors, `index.d.ts` differs only in a doc-comment example, and `builtin-modules.json`
+  grew 53→117 entries — `punycode` removed, 65 added, almost all `node:`-prefixed plus the two
+  subpath entries `stream/iter`/`zlib/iter` — none of which changes `packages/plugin`'s production
+  `dist/main.js`, which has no `punycode` import either way), `@huggingface/transformers`
+  4.2.0→**4.3.0** (`packages/reranker-local`, own `bun.lock` — the model-gated integration test,
+  normally skipped without fetched weights, passed 3/3 on linux-arm64 after `bun run fetch-model`),
+  `@napi-rs/cli` 3.7.2→3.10.5 (`packages/native`; pulls a nested `typescript@6.0.3` for its own
+  build use only — the repo's own TypeScript stays `^7.0.2`, untouched).
+  `packages/reranker-local`'s `onnxruntime-node` moved 1.24.3→1.30.0, pinned exactly by
+  `@huggingface/transformers@4.3.0`'s own `dependencies`. `@napi-rs/cli@3.10.5` also declares
+  `js-yaml@^5.0.0`; the root override (`"js-yaml": ">=4.3.1 <5"`, added for GHSA-pm4m-ph32-ghv5 —
+  see the "Two HIGH dev-dependency advisories closed" Security entry) still caps the resolved
+  package at `4.3.2` regardless, and that is safe here too: `@napi-rs/cli`'s bundled `dist/cli.js`
+  only imports `{ dump, load }` from `js-yaml`, to rewrite GitHub Actions workflow YAML in `napi
+  new`/`napi rename` — paths this repo's own tooling never runs — and both functions are stable
+  across the 4.x/5.x line; `napi --version` (3.10.5) runs clean under the capped 4.3.2.
+  `packages/shared` gained a `@types/node` devDependency and `types: ["node"]` (matching every
+  sibling workspace): zod 4.6 added `URL`-typed exports (`canParseURL`, `URL_BAD_FORMAT`) that need
+  the ambient Node globals, and `packages/shared` was the one workspace missing them.
+  dependency-cruiser 18.4.0 renamed its CLI entry point from `bin/dependency-cruise.mjs` to
+  `bin/dependency-cruiser.mjs`; `scripts/check-boundaries.mjs` (and its test) now resolve the new
+  name — behavior otherwise unchanged (444 modules / 2091 dependencies / 0 violations, matched
+  against 18.1.0 on the same source). No runtime behavior change intended anywhere else in this
+  batch.
+
 - **`elicit_required`'s text-channel instruction now leads with a directive to the AGENT, and
   `clientSupportsFormElicitation` now reads a bare `elicitation: {}` as form support, on every
   transport (GH #967 part 3, THE-1106).** Previously the rendered `obsidian-tc elicit ...` command

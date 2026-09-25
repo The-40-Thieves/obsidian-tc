@@ -19,7 +19,7 @@
     "fetch-model": "bun scripts/fetch-model.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0"
+    "@huggingface/transformers": "^4.3.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

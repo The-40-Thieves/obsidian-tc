@@ -3,13 +3,15 @@
  * THE-593 — dev-dependency import gate (source-scan replacement for the vacuous
  * dependency-cruiser `not-to-dev-dep` rule).
  *
- * dependency-cruiser 18.1.0 cannot parse TypeScript 7 (root package.json pins `^7.0.2`): it
- * prints "Support for typescript@>=7 will follow when its API is published and stable" and falls
- * back to a degraded resolver that classifies every npm import as `['unknown']`, never
- * `['npm-dev']`. A `.dependency-cruiser.cjs` rule keyed on `dependencyTypes: ["npm-dev"]`
- * therefore matches nothing, ever — proven directly: a `src` file importing `vitest` (a
- * devDependency) produced `violations: [] error: 0`, exit 0. This script re-expresses the same
- * intent — shipped code must not import a devDependency, because it resolves locally and breaks
+ * dependency-cruiser still cannot parse TypeScript 7 as of 18.4.0 (root package.json pins
+ * `^7.0.2`): it prints "Support for typescript@>=7 will follow when its API is published and
+ * stable" and falls back to a degraded resolver that never classifies an npm import as
+ * `['npm-dev']` (18.1.0 tagged it `['unknown']`; 18.4.0 drops it from the dependency list
+ * entirely — see `.dependency-cruiser.cjs`'s THE-593 comment for both, re-verified by THE-1119).
+ * A `.dependency-cruiser.cjs` rule keyed on `dependencyTypes: ["npm-dev"]` therefore matches
+ * nothing, ever — proven directly: a `src` file importing `vitest` (a devDependency) produced
+ * `violations: [] error: 0`, exit 0. This script re-expresses the same intent — shipped code must
+ * not import a devDependency, because it resolves locally and breaks
  * for anyone installing the published package — as a plain-text scan that does not depend on
  * dependency-cruiser's TypeScript support at all.
  *

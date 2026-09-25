@@ -16,15 +16,17 @@
  *      Matching is on the (from, to, rule) tuple, so moving a file re-surfaces its violation —
  *      that is expected, not a bug.
  *
- * THE-593: `not-to-dev-dep` below is currently INERT. dependency-cruiser 18.1.0 (latest at time
- * of writing; no newer release exists) has no TypeScript 7 API support — root package.json pins
- * `typescript@^7.0.2` — and prints so itself ("Support for typescript@>=7 will follow when its
- * API is published and stable"). It falls back to a degraded resolver that classifies every npm
- * import as `dependencyTypes: ['unknown']`, never `['npm-dev']`, so a rule keyed on
- * `dependencyTypes` matches nothing, ever: proven by planting a `src` file that imports `vitest`
- * and watching `check:boundaries` report 0 errors. Kept rather than deleted, so the intent stays
- * documented and the rule resumes firing automatically the moment dependency-cruiser (or a future
- * TypeScript downgrade for just this tool) regains TS-7 support — deliberately NOT decided here.
+ * THE-593: `not-to-dev-dep` below is currently INERT. dependency-cruiser still has no TypeScript 7
+ * API support as of 18.4.0 (THE-1119 re-verified this by planting a `src` file that imports
+ * `vitest` and watching `check:boundaries` report 0 errors/warnings for it) — root package.json
+ * pins `typescript@^7.0.2`, and dependency-cruiser prints so itself ("Support for typescript@>=7
+ * will follow when its API is published and stable"). A rule keyed on `dependencyTypes` matches
+ * nothing, ever: 18.4.0's degraded resolver now drops such an import from the module's
+ * `dependencies` list entirely, rather than the `dependencyTypes: ['unknown']` it emitted at
+ * 18.1.0 — the classification changed, but the practical result (this rule never fires) did not.
+ * Kept rather than deleted, so the intent stays documented and the rule resumes firing
+ * automatically the moment dependency-cruiser (or a future TypeScript downgrade for just this
+ * tool) regains TS-7 support — deliberately NOT decided here.
  * Until then, the actual enforcement for "shipped code must not import a devDependency" is
  * scripts/check-dev-dep-imports.mjs (`bun run check:dev-dep-imports`), a source-scan gate that
  * does not depend on dependency-cruiser's TypeScript support at all.
