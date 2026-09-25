@@ -38,6 +38,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   made on that connection, never a second, independent resolution. `doctor`, being offline with no
   live connection to observe, reports the configured mode plus the merged resolution table instead
   of inventing a per-session `effective`/`clientName`.
+
+- **`obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #PENDING).** A new
+  CLI subcommand, `memory import --from <basic-memory|claude-code-memory> <dir> --vault <id>
+  [--apply]`, brings notes from two other memory formats into the vault's own memory graph —
+  through the exact `create_entity`/`add_observation`/`link_entities`/`update_frontmatter` dispatch
+  an MCP client uses (ACL-checked, audited; never a direct file write). Dry-run by default; a table
+  of what would be created/skipped, with reasons. Idempotent, keyed on a `source_path` provenance
+  frontmatter key rather than name alone, so a re-run never duplicates and a name collision with
+  unverifiable provenance is refused rather than silently adopted. Refuses symlinked files and
+  paths that escape the import directory, reusing the vault's own path-containment primitive. New
+  guide page `docs/getting-started/memory-you-own.md` (linked from the docs home): the real
+  on-disk entity/observation/relation shape, the ACL/audit pipeline every memory write goes
+  through, git provenance, recall with and without semantic search, an opt-in `episode_stats`
+  illustration, and a generic session-bootstrap prompt template (read a small index at session
+  start, load only the relevant domain, write back at session close).
+
 - **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
   (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
   cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`

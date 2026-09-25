@@ -184,6 +184,26 @@ Usage:
                                           app, text), so a re-polled static screen never
                                           re-enqueues. --dry-run reports counts and enqueues
                                           nothing.
+  obsidian-tc memory import --from <basic-memory|claude-code-memory> <dir> [path] --vault <id> [--apply]
+                                          Import external memory notes as entities in the
+                                          memory graph (THE-1124), through the same create_entity
+                                          / add_observation / link_entities / update_frontmatter
+                                          tools an MCP client calls — ACL-checked and audited, no
+                                          direct file writes. basic-memory: one entity per note
+                                          (frontmatter title/type; \`## Observations\` bullets,
+                                          \`- relation_type [[Target]]\` relations).
+                                          claude-code-memory: one entity per fact file
+                                          (frontmatter name/metadata.type; the whole body becomes
+                                          one observation; \`[[links]]\` become "relates_to"
+                                          relations); the index file itself is skipped. Refuses
+                                          symlinked files and paths escaping <dir>. Provenance
+                                          (imported_from, source_path, imported_at) is written as
+                                          frontmatter on each imported note. Dry-run by DEFAULT:
+                                          prints a table of what would be created/skipped and
+                                          writes nothing; --apply writes. Idempotent: re-running
+                                          --apply on the same directory does not duplicate
+                                          entities, observations, or relations (keyed on
+                                          source_path).
   obsidian-tc consolidate --once [--dry-run] [path]
                                           Run (or evaluate) one ambient sleep-time consolidation
                                           pass — a single synthesis + audit job — without arming

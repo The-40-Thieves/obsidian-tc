@@ -1042,6 +1042,121 @@ describe("THE-175 — parseCliArgs import-ambient", () => {
   });
 });
 
+describe("THE-1124 — parseCliArgs memory import", () => {
+  it("bare `memory import` carries no dir/vault/from (run_memory_import enforces them)", () => {
+    expect(parseCliArgs(["memory", "import"])).toStrictEqual({ kind: "memory-import" });
+  });
+
+  it("an unknown memory subcommand is a usage error", () => {
+    expect(parseCliArgs(["memory", "export"])).toStrictEqual({
+      kind: "error",
+      message: "unknown memory subcommand: export",
+    });
+  });
+
+  it("a missing memory subcommand is a usage error", () => {
+    expect(parseCliArgs(["memory"])).toStrictEqual({
+      kind: "error",
+      message: "unknown memory subcommand: (none)",
+    });
+  });
+
+  it("--from, the dir positional, and --vault are captured; --apply defaults omitted", () => {
+    expect(
+      parseCliArgs(["memory", "import", "--from", "basic-memory", "/tmp/notes", "--vault", "main"]),
+    ).toStrictEqual({
+      kind: "memory-import",
+      vault: "main",
+      from: "basic-memory",
+      dir: "/tmp/notes",
+    });
+  });
+
+  it("claude-code-memory is accepted as --from", () => {
+    expect(
+      parseCliArgs([
+        "memory",
+        "import",
+        "--from",
+        "claude-code-memory",
+        "/tmp/mem",
+        "--vault",
+        "main",
+      ]),
+    ).toMatchObject({ from: "claude-code-memory" });
+  });
+
+  it("rejects an unknown --from adapter", () => {
+    expect(
+      parseCliArgs(["memory", "import", "--from", "notion", "/tmp/notes", "--vault", "main"]),
+    ).toStrictEqual({
+      kind: "error",
+      message: "--from must be one of basic-memory|claude-code-memory, got: notion",
+    });
+  });
+
+  it("carries --apply through as a boolean, omitted when absent (dry-run by default)", () => {
+    expect(
+      parseCliArgs([
+        "memory",
+        "import",
+        "--from",
+        "basic-memory",
+        "/tmp/notes",
+        "--vault",
+        "main",
+        "--apply",
+      ]),
+    ).toMatchObject({ apply: true });
+    expect(
+      parseCliArgs(["memory", "import", "--from", "basic-memory", "/tmp/notes", "--vault", "main"]),
+    ).not.toHaveProperty("apply");
+  });
+
+  it("a second positional is the config path, the dir stays first (context-import's own dual-positional shape)", () => {
+    expect(
+      parseCliArgs([
+        "memory",
+        "import",
+        "--from",
+        "basic-memory",
+        "/tmp/notes",
+        "/etc/otc.json",
+        "--vault",
+        "main",
+      ]),
+    ).toStrictEqual({
+      kind: "memory-import",
+      configPath: "/etc/otc.json",
+      vault: "main",
+      from: "basic-memory",
+      dir: "/tmp/notes",
+    });
+  });
+
+  it("--config is honoured the same as the second positional", () => {
+    expect(
+      parseCliArgs([
+        "memory",
+        "import",
+        "--from",
+        "basic-memory",
+        "/tmp/notes",
+        "--config",
+        "/etc/otc.json",
+        "--vault",
+        "main",
+      ]),
+    ).toMatchObject({ configPath: "/etc/otc.json" });
+  });
+
+  it("--vault with no value is a usage error", () => {
+    expect(
+      parseCliArgs(["memory", "import", "--from", "basic-memory", "/tmp/notes", "--vault"]),
+    ).toStrictEqual({ kind: "error", message: "--vault requires a value" });
+  });
+});
+
 describe("parseCliArgs — note-quality --suggest (THE-643)", () => {
   it("is omitted when absent, matching every other boolean flag's convention", () => {
     expect(parseCliArgs(["note-quality"])).not.toHaveProperty("suggest");
