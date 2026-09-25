@@ -321,7 +321,49 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // is advertised). "full" is the default and does not change today's surface; "core" is an
   // opt-in, smaller curated set. See config/tools.schema.ts's ToolFacadeConfigSchema for the full
   // description text. No existing key, type, default or constraint moved.
-  "4a6cffb8cfb723307bcf7c975a3c8b62b0bd2f7e3e6d799f3c3c7aa40773114c";
+  // THE-1122: rebaselined deliberately, and this IS the behavioral PR the refusal message asks
+  // for. THREE existing defaults moved, all unconditional (still plain ZodObject field defaults —
+  // an earlier draft tried a provider-conditional `.transform()` and it broke
+  // scripts/docgen/extract-config.ts's hand-rolled introspection walker for the WHOLE embeddings
+  // subtree; see indexing-embeddings.schema.ts's own comment on why this stays a flat default):
+  // `embeddings.provider` "ollama" -> "local" (a bundled, fully offline dense embedder via the
+  // optional @the-40-thieves/obsidian-tc-embedder-local package, so semantic search works with a
+  // zero-configuration `embeddings` block); `embeddings.model` "nomic-embed-text" ->
+  // "bge-small-en-v1.5" (local's default catalog entry); `embeddings.dimensions` 768 -> 384
+  // (bge-small-en-v1.5's native width). A config that already sets `provider` (to ANY value,
+  // including "ollama") but not `model`/`dimensions` now gets the NEW defaults too, not the old
+  // ollama-shaped pairing — this repo's own documented config examples always set `model`
+  // alongside `provider: "ollama"` explicitly (config-yaml.md, docs/wiki/Configuration.md), so
+  // this shorthand was never a documented contract, and an Ollama server asked for
+  // "bge-small-en-v1.5" 404s loudly rather than silently misconfiguring anything. Two new keys,
+  // both read ONLY by provider "local": `embeddings.quantized` (boolean, default true — q8 vs
+  // fp32 ONNX export) and `embeddings.threads` (positive int, optional — onnxruntime-node thread
+  // count).
+  // THE-1122 review: rebaselined AGAIN, text-only — `embeddings.provider`'s .describe() string
+  // dropped its inline "(THE-1122 — ...)" parenthetical. Generated docs (config-reference.md,
+  // docs/wiki/Configuration.md) render every .describe() verbatim into user-facing pages, which a
+  // sibling PR's check:public-text gate refuses ticket ids in. No key, type, default or
+  // constraint moved.
+  // THE-1122 review 2: rebaselined AGAIN — `embeddings.model`/`embeddings.dimensions` DEFAULTS
+  // moved "bge-small-en-v1.5"/384 -> "nomic-embed-text-v1.5"/768. This is a measured correction,
+  // not a typo: both 384-dim catalog candidates FAILED the ticket's own -0.015 non-inferiority
+  // floor against nomic-embed-text-v1.5 on the public evergreen corpus (strict nDCG@10 one-sided
+  // 95% lower bound: all-MiniLM-L6-v2 -0.119, bge-small-en-v1.5 -0.067, both below -0.015; n=78,
+  // both run through the SAME "local" code path). See
+  // packages/embedder-local/src/model-info.ts's DEFAULT_MODEL_NAME comment and
+  // docs/EVALUATION.md's "Local embedder model selection" section for the full table. No key,
+  // type or constraint moved — only these two default VALUES.
+  // THE-1122 rebase: rebaselined again — rebasing onto main's THE-1123 (toolFacade.mode "auto")
+  // added ONE new description (toolFacade.autoClients) ahead of this entry in emission order,
+  // shifting the hash even though nothing in THIS change moved. No key, type, default or
+  // constraint of THIS PR's own changes moved.
+  // THE-1122 review round 2 rebase: rebaselined again onto main's THE-1125 (telemetry block) for
+  // the same reason as the THE-1123 rebase above — a new description ahead of this entry in
+  // emission order, nothing of THIS change's own moved.
+  // THE-1122 review round 3 rebase: rebaselined again onto main's THE-1131 (toolFacade.profile)
+  // for the same reason — a new description ahead of this entry in emission order, nothing of
+  // THIS change's own moved.
+  "b6ceea496a7ccc016ec2073570c4ff6e0064e447ab9fb3e7a180f0c33b079ba8";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

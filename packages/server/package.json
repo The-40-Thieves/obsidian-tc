@@ -30,6 +30,7 @@
     "docgen:sync-facts": "bun scripts/docgen/sync-facts.ts",
     "docgen:facts-check": "bun scripts/docgen/facts-check.ts",
     "docgen:error-envelope": "bun scripts/docgen/check-error-envelope.ts",
+    "check:cold-start-budget": "node scripts/check-cold-start-budget.mjs",
     "perf": "bun eval/perf/run.ts --scenario small --out perf-report.json",
     "perf:gate": "bun eval/perf/run.ts --scenario small --out perf-report.json --gate",
     "perf:isolated": "bun eval/perf/run.ts --scenario small --samples 5 --out perf-report.json",

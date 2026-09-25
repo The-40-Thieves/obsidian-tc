@@ -491,19 +491,20 @@
       "type": "object",
       "properties": {
         "provider": {
-          "default": "ollama",
-          "description": "Embeddings backend name, resolved against the provider registry at startup. Built-ins: ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. An unregistered name is a startup error listing every valid option.",
+          "default": "local",
+          "description": "Embeddings backend name, resolved against the provider registry at startup. Built-ins: local (a bundled, fully offline dense embedder via the optional @the-40-thieves/obsidian-tc-embedder-local package; no network, no Ollama, no API key), ollama, openai, voyage, cohere, bge-m3, model-tier (splits dense and multi-vector across two services), the generic openai-compatible, and the profile-gated module. `local` is the DEFAULT when this whole block is absent — semantic search works with zero configuration. An unregistered name is a startup error listing every valid option.",
           "type": "string",
           "minLength": 1
         },
         "model": {
-          "default": "nomic-embed-text",
-          "description": "Embedding model name as the provider names it.",
-          "type": "string"
+          "default": "nomic-embed-text-v1.5",
+          "description": "Embedding model name as the provider names it. Defaults to nomic-embed-text-v1.5, the \"local\" provider's default catalog entry — set this explicitly for every other provider. Under provider \"local\" this MUST be one of embedder-local's pinned catalog names (all-MiniLM-L6-v2, bge-small-en-v1.5, nomic-embed-text-v1.5) — an unrecognized name is refused, since the local provider only ever loads checksum-verified weights it has a pinned manifest for.",
+          "type": "string",
+          "minLength": 1
         },
         "dimensions": {
           "default": 768,
-          "description": "Stored vector width, and the width of the vec0 column. Changing it requires a fresh index — existing vectors are not re-projected.",
+          "description": "Stored vector width, and the width of the vec0 column. Changing it requires a fresh index — existing vectors are not re-projected. Defaults to 768, nomic-embed-text-v1.5's native width (the \"local\" provider's default model) — set this explicitly to match whatever model you configure (e.g. 384 for the smaller local catalog entries).",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
@@ -655,6 +656,17 @@
           "required": [
             "dense"
           ]
+        },
+        "quantized": {
+          "default": true,
+          "description": "provider \"local\" only. true (default) loads the pinned q8 (int8) quantized ONNX export; false loads the pinned fp32 export instead — larger, slower, marginally more precise. Both are separately checksum-verified; toggling this re-downloads the other variant on first use if it is not already cached.",
+          "type": "boolean"
+        },
+        "threads": {
+          "description": "provider \"local\" only. onnxruntime-node intra-/inter-op thread count. Absent lets the runtime pick its own default (usually the CPU core count).",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },

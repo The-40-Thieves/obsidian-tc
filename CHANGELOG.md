@@ -132,6 +132,30 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   relevant domain, write back at session close). See the paired `### Fixed` entry below for a
   data-loss bug in the SHARED memory-materialization primitive this work found and fixed.
 
+- **Semantic search works out of the box: a bundled, fully offline local embedder is now the
+  DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122).** `local`
+  runs [`nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
+  (Apache-2.0, 768-dim, quantized ONNX, ~137 MB) via
+  [Transformers.js](https://www.npmjs.com/package/@huggingface/transformers) on CPU, through the
+  new optional `@the-40-thieves/obsidian-tc-embedder-local` package — same shape as the existing
+  local reranker (a small optional package, resolved at runtime, never a hard dependency of
+  `packages/server`, unavailable on the `bun --compile` standalone binary and the `.mcpb` bundle).
+  The model is fetched and sha256-verified per file on first use, into
+  `<cacheDir>/models/embedder-local/`, then fully offline. Two smaller, faster catalog models
+  (`all-MiniLM-L6-v2`, `bge-small-en-v1.5`, both ~23-34 MB, 384-dim) are selectable via
+  `embeddings.model`; two new config keys, `embeddings.quantized` and `embeddings.threads`, are
+  read only by this provider. `ollama` (now demoted from default, still fully supported and
+  unchanged when set explicitly) and every hosted provider remain opt-in. **The default model was
+  chosen by measurement, not by picking the smallest download** — the conservative choice, not a
+  decisive win: both 384-dim candidates, each run with its own correct pooling strategy, failed the
+  −0.015 non-inferiority floor against nomic-embed-text-v1.5 on a public, third-party-judged corpus
+  (strict nDCG@10 one-sided 95% lower bound −0.151 and −0.110 respectively, n=78; MiniLM's deficit
+  is clearly significant, bge-small's nDCG@10 does not reach conventional significance at this n
+  though its recall@10 does and it still misses the floor either way) — see `docs/EVALUATION.md`'s
+  "Local embedder model selection" section for the full table and the two candidates
+  (EmbeddingGemma-300M, licensing; a model2vec/potion static model, no loadable Transformers.js
+  export) that were evaluated and dropped before reaching measurement. `obsidian-tc doctor` gained
+  an `embeddings.buildable` check mirroring the existing `reranker.buildable` one.
 - **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
   (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
   cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`

@@ -797,6 +797,10 @@ async function main(): Promise<void> {
     // reads the SAME config.egress.excludePaths a production run would), so the port must
     // carry the same filter or an excluded note's text reaches this provider unguarded.
     excludeFilter: compileEgressFilter(config.egress.excludePaths),
+    // THE-1122: so a "local"-provider eval config's model cache lands under ITS OWN configured
+    // cacheDir, not the relative default — otherwise repeated eval runs across different configs
+    // would collide on (or silently share) one CWD-relative cache.
+    cacheDir: config.cacheDir,
   });
   // THE-403: SPARSE_URL composes a MIXED provider — dense query vectors from the config provider
   // (must match the index's embeddings, e.g. nomic), learned-sparse query weights from a bge-m3

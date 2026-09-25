@@ -9,9 +9,11 @@ The fastest way to try it, no install step and no config file:
 npx obsidian-tc /path/to/vault
 ```
 
-Lexical search and every note tool work immediately; semantic and graph-seeded retrieval need
-an embeddings backend (Ollama by default), which is the upgrade a config file buys you — the
-rest of this page walks through that path.
+Every note tool and lexical search work immediately, and semantic search works out of the box
+too — a bundled, fully offline embedder handles indexing with no config at all (see
+[Embeddings](/configuration/embeddings/)). A config file is the upgrade for everything else:
+ACLs, human-in-the-loop confirmation, the generative tier, and choosing a different (Ollama or
+hosted) embeddings provider — the rest of this page walks through that path.
 
 ## 1. Write a config
 

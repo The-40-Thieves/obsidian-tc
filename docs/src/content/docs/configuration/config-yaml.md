@@ -49,8 +49,8 @@ until this generator existed, by which point five entire defaulted blocks had go
     "strictReadDefault": false
   },
   "embeddings": {
-    "provider": "ollama",
-    "model": "nomic-embed-text",
+    "provider": "local",
+    "model": "nomic-embed-text-v1.5",
     "dimensions": 768,
     "timeoutMs": 120000,
     "batchSize": 512,
@@ -59,7 +59,8 @@ until this generator existed, by which point five entire defaulted blocks had go
     "truncate": false,
     "chunkContext": true,
     "queryPrefix": "",
-    "documentPrefix": ""
+    "documentPrefix": "",
+    "quantized": true
   },
   "indexing": {
     "writeConcurrency": 8,

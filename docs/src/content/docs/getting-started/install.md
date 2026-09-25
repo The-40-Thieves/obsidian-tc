@@ -9,9 +9,13 @@ The fastest way to try it, no install step and no config file:
 npx obsidian-tc /path/to/vault
 ```
 
-Lexical search and every note tool work immediately; semantic and graph-seeded
-retrieval need an embeddings backend (Ollama by default), which is the upgrade a
-config file buys you — see [First Run](/getting-started/first-run/).
+Every note tool and lexical search work immediately, and semantic search works out
+of the box too: a bundled, fully offline embedder handles indexing with no config
+file, no Ollama, and no API key (small one-time model download on first use — see
+[Embeddings](/configuration/embeddings/)). Ollama and every hosted provider (OpenAI,
+Voyage, Cohere, …) are opt-in — a config file is what selects one, and is also the
+upgrade for ACLs, HITL, the generative tier, and everything else — see [First
+Run](/getting-started/first-run/).
 
 obsidian-tc ships in several forms. All of them run the same server; pick whichever
 fits your environment.
@@ -45,6 +49,11 @@ host. Targets: macOS x64 + arm64, Windows x64, and Linux x64 + arm64. Download t
 asset for your platform from the GitHub release and run it directly. (Windows on
 arm64 is not a `bun --compile` target; use the npm install there.)
 
+The bundled local embedder (and local reranker) cannot run here — their runtime
+dependency cannot survive `bun --compile`. Set `embeddings.provider` to a hosted or
+self-hosted backend (see [Embeddings](/configuration/embeddings/)) if you need
+semantic search from this install method; lexical search is unaffected.
+
 ## Docker
 
 ```sh
@@ -62,7 +71,9 @@ For MCPB-capable MCP hosts, each release attaches a one-click `obsidian-tc.mcpb`
 bundle. It runs the server under the host's Node (24+) and is fully self-contained:
 no `node_modules` and no native build are required, because it uses Node's built-in
 `node:sqlite` when `better-sqlite3` is absent (vector search then uses the
-brute-force fallback). Install it through your host's MCP-bundle installer.
+brute-force fallback). Install it through your host's MCP-bundle installer. Same
+caveat as the standalone binary above: the bundled local embedder is unavailable
+here — configure a hosted or self-hosted `embeddings.provider` for semantic search.
 
 ## Companion plugin
 

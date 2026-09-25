@@ -645,6 +645,28 @@ jobs:
           name: perf-node-parity
           path: packages/server/perf-node-parity.json
           if-no-files-found: warn
+      # THE-1122: the "local" embeddings provider's cold-start budget — a fresh HF model download
+      # plus real ONNX CPU inference over a small (500-note) fixture vault, through the BUILT CLI
+      # (dist/cli.js) and the real (not the throughput harness's fake) provider. continue-on-error,
+      # same posture as the Node portability run just above and for the same reason: this varies
+      # with the runner's network and CPU far more than any in-process perf number ever does, so it
+      # is generous and visible rather than a hard per-PR-blocking gate (this job is push-to-main
+      # only regardless — see the job's own `if:` comment).
+      - name: build shared (cold-start budget dependency)
+        working-directory: packages/shared
+        run: bun run build
+      - name: build server (cold-start budget dependency)
+        working-directory: packages/server
+        run: bun run build
+      - name: install + build embedder-local (cold-start budget dependency)
+        working-directory: packages/embedder-local
+        run: |
+          bun install
+          bun run build
+      - name: local embedder cold-start budget (informational, generous ceiling; THE-1122)
+        continue-on-error: true
+        run: bun run check:cold-start-budget
+        working-directory: packages/server
       # THE-592: post-merge visibility. `perf` now runs only on push-to-main (see the `if:` on this
       # job) and is not a required check, so without this a red run just sits on the Actions tab --
       # GitHub's default per-user email notification is the only other signal, and it is easy to

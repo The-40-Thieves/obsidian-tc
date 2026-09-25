@@ -67,6 +67,23 @@ assumptions:
 - Path-traversal prevention (byte-level rejection of `..` segments and absolute paths, plus a real-path symlink-containment check so in-vault symlinks cannot escape the vault root)
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
+- **Checksum-verified, lock-protected model downloads for the bundled local reranker and local
+  embedder.** Both `@the-40-thieves/obsidian-tc-reranker-local` and
+  `@the-40-thieves/obsidian-tc-embedder-local` (the latter added for the `embeddings.provider:
+  "local"` default) fetch their pinned ONNX weights from a **fixed, pinned revision** (a commit,
+  never a moving branch) of a named Hugging Face repo, never an operator-suppliable URL. Every
+  file's size and sha256 is checked against a hardcoded manifest before it is ever handed to the
+  ONNX runtime — a per-file mismatch, a symlink standing in for a pinned file, or an unexpected
+  extra file in the cache directory all refuse to load rather than silently serving tampered or
+  substituted bytes. Downloads follow HTTP redirects only to `huggingface.co`/`hf.co` (or a
+  subdomain); a redirect anywhere else is refused. The whole batch downloads into a temp directory
+  and is published with one atomic `rename()` — no reader ever observes a partial download — under
+  a cross-process exclusive lock (stale-lock takeover bounded, so a crashed fetcher cannot wedge a
+  later one forever). Already-verified files are read-only, zero-network on every call after the
+  first. Neither package is a hard dependency of `packages/server` — both are resolved at runtime
+  through an explicit-path / published-package / source-checkout ladder, and resolution failure
+  degrades gracefully (the same behaviour an unreachable hosted provider has always had) rather
+  than crashing boot.
 - Vault-kind isolation, enforced bidirectionally (P1.5 / THE-569): a vault's `kind` (`private` |
   `docs` | `system`) is a code-enforced property, not just a token-provisioning convention. The
   `read:docs` tools (`knowledge_search`, `knowledge_get_critical`) refuse any vault whose `kind`

@@ -120,10 +120,20 @@ export function createEmbeddingProvider(
   // constructing an ungated egress leg by definition, exactly the bug class this port exists to
   // rule out. egress-port-inventory.test.ts source-scans for `override:` outside test/ to hold
   // that invariant.
-  opts: { fetchFn?: FetchFn; override?: EmbeddingProvider; excludeFilter?: EgressFilter } = {},
+  opts: {
+    fetchFn?: FetchFn;
+    override?: EmbeddingProvider;
+    excludeFilter?: EgressFilter;
+    /** THE-1122: forwarded to the "local" entry as its model-cache root's parent — see
+     *  ResolveContext.cacheDir. */
+    cacheDir?: string;
+  } = {},
 ): EmbeddingProvider {
   if (opts.override) return opts.override;
-  const { provider: resolved, entry } = resolveEmbeddings(cfg, { fetchFn: opts.fetchFn });
+  const { provider: resolved, entry } = resolveEmbeddings(cfg, {
+    fetchFn: opts.fetchFn,
+    cacheDir: opts.cacheDir,
+  });
   return applyWrappers(resolved, entry, cfg, opts.excludeFilter ?? compileEgressFilter([]));
 }
 
@@ -141,6 +151,7 @@ export async function createEmbeddingProviderAsync(
     configDir: opts.configDir,
     securityProfile: opts.securityProfile,
     embeddings: opts.embeddings,
+    cacheDir: opts.cacheDir,
   });
   return applyWrappers(resolved, entry, cfg, opts.excludeFilter ?? compileEgressFilter([]));
 }

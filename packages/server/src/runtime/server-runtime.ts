@@ -6,8 +6,7 @@
 // `stores` (and `otel`) are constructed OUTSIDE `wireRuntimeCore` and handed in as params, then
 // folded into its own unwind stack, because real boot's construction order requires them to sit
 // textually between `stores` and `governance` — reordering that is forbidden, and accepting an
-// arbitrary deps callback would reintroduce the service-locator this file avoids. See
-// docs/design/server-runtime.md.
+// arbitrary deps callback would reintroduce the service-locator this file avoids (docs/design/server-runtime.md).
 
 import { dirname } from "node:path";
 import type { Tracer } from "@opentelemetry/api";
@@ -107,8 +106,7 @@ export async function unwindReversed(
 
 export interface RuntimeCoreDeps {
   /** Already-open stores. Ownership of its cleanup transfers to this call for its duration — see
-   *  this file's header comment for why stores is built outside and handed in rather than
-   *  constructed here. */
+   *  this file's header comment for why stores is built outside and handed in rather than here. */
   stores: Stores;
   /** THE-737: trace storage root (config.cacheDir) — governance's sessionTracer resolves a
    *  cache-store session's trace against it instead of the vault root. */
@@ -211,6 +209,7 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
       onVecRebuild: deps.onVecRebuild,
       configDir: deps.configDir,
       securityProfile: deps.securityProfile,
+      cacheDir: deps.cacheDir,
       ...(deps.excludeFilter !== undefined ? { excludeFilter: deps.excludeFilter } : {}),
     });
     indexHealthRef = indexResources.indexHealth;

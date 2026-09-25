@@ -24,7 +24,11 @@ import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { createTypesafeClient } from "../../gateway/typesafe";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
-import { buildRerankerDoctorProbes, embeddingsDeprecation } from "../../providers/registry";
+import {
+  buildEmbeddingsDoctorProbes,
+  buildRerankerDoctorProbes,
+  embeddingsDeprecation,
+} from "../../providers/registry";
 import type { ProviderDescriptor } from "../../providers/types";
 import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
@@ -69,10 +73,15 @@ async function probeDenseProvider(
    *  unconditionally, but this keeps "every createEmbeddingProvider call site threads
    *  excludeFilter" true by construction rather than a documented exception. */
   excludeFilter?: EgressFilter,
+  /** THE-1122: config.cacheDir, threaded so a "local" provider probe resolves its model cache
+   *  under the SAME directory the real boot path would use, not the relative default. */
+  cacheDir?: string,
 ): Promise<DenseProbeResult> {
   const started = Date.now();
   try {
-    const encoder = createQueryEncoder(createEmbeddingProvider(embeddings, { excludeFilter }));
+    const encoder = createQueryEncoder(
+      createEmbeddingProvider(embeddings, { excludeFilter, cacheDir }),
+    );
     const vector = await encoder.dense("obsidian-tc doctor probe");
     const ms = Date.now() - started;
     // `dense()` DEGRADES an absent vector to [] rather than throwing (deliberate, so a retrieval
@@ -328,6 +337,13 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const autoSelectLocalRerankerOutcome = rerankerDoctorProbes.probeAutoSelectLocalReranker
     ? await rerankerDoctorProbes.probeAutoSelectLocalReranker()
     : undefined;
+  // THE-1122: mirrors rerankerDoctorProbes immediately above, for the embeddings slot's "local"
+  // provider.
+  const embeddingsDoctorProbes = buildEmbeddingsDoctorProbes({
+    embeddingsProvider: config.embeddings.provider,
+    configDir,
+    cacheDir: config.cacheDir,
+  });
 
   const report = await assembleDoctorReport({
     config: {
@@ -365,6 +381,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
                 probeDenseProvider(
                   config.embeddings,
                   compileEgressFilter(config.egress.excludePaths),
+                  config.cacheDir,
                 ),
             }
           : {}),
@@ -507,6 +524,13 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ].filter((e) => e.names.length > 0),
       },
       telemetry: telemetryState,
+      embeddingsBuildable: {
+        denseProvider: config.embeddings.provider,
+        ...(config.embeddings.provider === "local"
+          ? { modelsCachePath: join(config.cacheDir, "models", "embedder-local") }
+          : {}),
+        ...embeddingsDoctorProbes,
+      },
     },
     profile,
     bridgeReports,

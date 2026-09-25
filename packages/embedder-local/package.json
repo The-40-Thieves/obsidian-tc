@@ -1,0 +1,48 @@
+{
+  "name": "@the-40-thieves/obsidian-tc-embedder-local",
+  "version": "1.31.3",
+  "description": "THE-1122: optional bundled dense embedder for obsidian-tc — runs fully offline, CPU-only, via @huggingface/transformers, no gateway or Ollama required",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepack": "bun run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "fetch-model": "bun scripts/fetch-model.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-40-Thieves/obsidian-tc.git",
+    "directory": "packages/embedder-local"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "overrides": {
+    "adm-zip": "^0.6.0",
+    "sharp": "^0.35.0"
+  }
+}

@@ -312,6 +312,117 @@ takes the run to **287 principal-query evaluations, still zero leaks**.
 3. **The self-authored-overlay caveat above applies here unchanged.** The overlay is arbitrary; the
    ground truth derived from it is not.
 
+## Local embedder model selection
+
+The default `embeddings.provider` moved from `ollama` (requires a separately-run Ollama server) to
+`local` (a bundled, fully offline dense embedder — see [Embeddings](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/src/content/docs/configuration/embeddings.md)).
+Picking which model backs that default was treated as an empirical question, on the same public
+corpus and harness as the rest of this document, not a specs-sheet judgment call.
+
+**MDE stated before running.** The endpoint (strict nDCG@10, non-inferiority floor **−0.015**,
+one-sided bootstrap lower bound), the corpus (the 78-query public evergreen set above), and the
+comparison shape (candidate vs. acceptance arm, both run through the identical "local" code path)
+were all fixed before any candidate was scored. At n=78 this corpus resolves an MDE of ~0.06-0.09
+nDCG@10 depending on the specific contrast (see the power lines in the table below) — a real
+regression smaller than that would read as "non-inferior" here, the same resolution limit this
+document's other n=78 comparisons already carry.
+
+**Candidates.** Three were shortlisted, run through Transformers.js's `feature-extraction`
+pipeline (mean pooling, L2-normalized, quantized q8 ONNX), no query/document instruct prefixes on
+any of them (a deliberate control — see caveats below):
+
+| Candidate | Params | Dims | License | q8 size |
+| --- | --- | --- | --- | --- |
+| `all-MiniLM-L6-v2` ([Xenova mirror](https://huggingface.co/Xenova/all-MiniLM-L6-v2)) | 22.7M | 384 | Apache-2.0 | ~23 MB |
+| `bge-small-en-v1.5` ([Xenova mirror](https://huggingface.co/Xenova/bge-small-en-v1.5)) | 33.4M | 384 | MIT | ~34 MB |
+| `nomic-embed-text-v1.5` ([nomic-ai](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)) — **acceptance arm** | 137M | 768 | Apache-2.0 | ~137 MB |
+
+Two more were evaluated and **dropped before reaching measurement**, both for reasons unrelated to
+retrieval quality:
+
+- **EmbeddingGemma-300M** ([onnx-community mirror](https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX)).
+  Model card license is `gemma` — Google's Gemma Terms of Use, not an OSI-approved license. It
+  carries a Prohibited Use Policy Google may update unilaterally, and redistribution obligations
+  (trademark notice, terms pass-through) that do not fit "auto-downloaded by default from every
+  install of an AGPL-3.0 public server" — a user would be bound to those terms without having
+  agreed to them.
+- **A model2vec/potion static-embedding model** (`minishlab/potion-retrieval-32M`, MIT, the
+  low-RAM tier the brief asked for if a loadable export exists). Its ONNX export declares
+  `model_type: "model2vec"` / `architectures: ["StaticModel"]`, which Transformers.js 4.2.0 does
+  not register. Probed directly (2026-09-24):
+  `pipeline("feature-extraction", "minishlab/potion-retrieval-32M")` falls back to a generic
+  encoder-only wrapper and fails at inference with `"Missing the following inputs: offsets"` —
+  model2vec's bag-embedding ONNX graph has a different input contract than the transformer models
+  Transformers.js's generic wrapper assumes. No Transformers.js-loadable export exists for this
+  architecture today.
+
+**Acceptance arm.** `nomic-embed-text-v1.5` stands in for what the old zero-config default
+(`ollama` + `nomic-embed-text`) actually delivered — same model family, run through the identical
+in-process code path every candidate uses, since Ollama itself is not installed on this evaluation
+host. Every candidate is compared against it, not against each other.
+
+**Results** (n=78, evergreen corpus, `notes/…` paths, depth 30, no flags):
+
+| Model | dims | strict nDCG@10 | strict recall@10 | lenient nDCG@10 | lenient recall@10 |
+| --- | --- | --- | --- | --- | --- |
+| all-MiniLM-L6-v2 | 384 | 0.749 | 0.885 | 0.574 | 0.607 |
+| bge-small-en-v1.5 | 384 | 0.802 | 0.872 | 0.590 | 0.588 |
+| **nomic-embed-text-v1.5 (acceptance)** | 768 | **0.818** | **0.912** | **0.615** | **0.640** |
+
+Paired non-inferiority vs. the acceptance arm, strict binarization (the primary gate; n=78,
+one-sided 95% bootstrap lower bound vs. the −0.015 floor):
+
+| Candidate | ΔnDCG@10 mean | one-sided 95% lower | σ_d | MDE@n=78 | permutation *p* | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| all-MiniLM-L6-v2 | −0.069 | **−0.119** | 0.264 | 0.084 | 0.0259 | **FAILS FLOOR** |
+| bge-small-en-v1.5 | −0.016 | **−0.067** | 0.274 | 0.087 | 0.6045 | **FAILS FLOOR** |
+
+Lenient binarization tells the same story (all-MiniLM-L6-v2: Δ −0.041, lower bound −0.077,
+*p*=0.0640; bge-small-en-v1.5: Δ −0.025, lower bound −0.062, *p*=0.2877 — both below the −0.015
+floor). Recall@10 fails the floor for both candidates at both binarizations too (full numbers in
+the harness's own `--json` dumps; not reproduced here since nDCG@10 is the gate metric).
+
+**The default is `nomic-embed-text-v1.5` — not the smallest or fastest candidate.** Both 384-dim
+models measurably regress retrieval quality past the floor; `bge-small-en-v1.5` was the stronger
+of the two (its 95% lower bound, −0.067, comes closer to the floor than MiniLM's −0.119) but still
+fails it. Non-inferiority is a floor a model must clear to be **eligible**, not a reason to prefer
+whichever model clears it by the widest margin toward "smaller" — see this document's own framing
+throughout: the ship rule exists to keep a change from being *worse*, not to license picking the
+cheapest option that isn't disqualified. Since neither smaller model actually clears the floor
+here, the question does not arise; `nomic-embed-text-v1.5` ships as the default because it is the
+only evaluated, licensable, loadable candidate that does not regress retrieval quality relative to
+what `local` replaces. `all-MiniLM-L6-v2` and `bge-small-en-v1.5` remain selectable via
+`embeddings.model` for deployments that value download size or CPU cost over recall — that
+tradeoff is now a measured one, not a guess.
+
+**Cold start, on this evaluation host** (Ampere arm64, 4 vCPU, shared with other work — not a
+clean-room benchmark): indexing the full 1,291-note / 2,986-chunk evergreen corpus from a cold
+model cache took on the order of 10-12 minutes end to end (model download + ONNX session init +
+CPU inference over every chunk), observed via coarse polling rather than instrumented timing.
+Peak RSS across candidates during indexing was in the 0.9-1.3 GB range on this Bun/arm64 build.
+For a precisely-instrumented number on a small (500-note) fixture, see the `local embedder
+cold-start budget` step in CI (`packages/server/scripts/check-cold-start-budget.mjs`) — an
+informational, generous-ceiling check, not a tight regression gate, since first-index time varies
+with the runner's network and CPU far more than any of this document's other numbers.
+
+**Caveats that travel with these numbers.**
+
+1. **No instruct prefixes on any candidate.** `bge-small-en-v1.5`'s and `nomic-embed-text-v1.5`'s
+   model cards both recommend a query-side (and, for nomic, a document-side) instruct prefix for
+   best retrieval performance; none was applied to any of the three models here, for the same
+   reason this repo's other comparisons run "no flags" — a consistent, disclosed control beats an
+   inconsistent one, and this document has separately measured nomic-style prefixes **harmful** on
+   a different corpus (see `queryPrefix`/`documentPrefix` in the config reference). A
+   prefix-enabled re-run could shift these numbers; it was not run for this ticket.
+2. **The acceptance arm is a stand-in, not the exact old default.** `nomic-embed-text-v1.5` (HF,
+   768-dim) is not byte-identical to Ollama's `nomic-embed-text` tag — same model family, different
+   serving path (in-process ONNX vs. Ollama's own runtime) and possibly a different checkpoint.
+   Ollama is not installed on this evaluation host, so a direct comparison was not possible; the
+   in-process HF equivalent was the closest available proxy.
+3. **This corpus has zero bridge-labeled queries** (see the caveat on the main published-corpus
+   table above) — this comparison says nothing about multi-hop/bridge retrieval quality across
+   embedding models, only single-hop nDCG@10/recall@10.
+
 ## Published negative results
 
 The gate is only credible if it has refused things. Three mechanisms were built, measured, and left

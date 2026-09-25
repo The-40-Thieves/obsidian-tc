@@ -83,4 +83,17 @@ describe("VecFingerprint (THE-460: full representation fingerprint, not just dim
     expect(original.dimensions).toBe(swapped.dimensions); // same dims, by construction
     expect(vecFingerprint(original)).not.toBe(vecFingerprint(swapped));
   });
+
+  // THE-1122: an index built before the default embeddings provider moved "ollama" -> "local"
+  // must NOT silently keep serving/mixing vectors from the old provider once a config predating
+  // this change is re-parsed against the new schema defaults — this is the general "documented
+  // migration protocol" (docs/src/content/docs/configuration/embedding-model-migration.md)
+  // exercised at the exact transition this ticket introduces, via the SAME provider-agnostic
+  // mechanism every other provider/model change already goes through (THE-460). No new detection
+  // machinery was written for this ticket — this test is the evidence that none was needed.
+  it("an old ollama-default fingerprint differs from the new local-default fingerprint (upgrade path)", () => {
+    const oldDefault = fp({ provider: "ollama", model: "nomic-embed-text", dimensions: 768 });
+    const newDefault = fp({ provider: "local", model: "nomic-embed-text-v1.5", dimensions: 768 });
+    expect(vecFingerprint(oldDefault)).not.toBe(vecFingerprint(newDefault));
+  });
 });

@@ -1,6 +1,6 @@
 # obsidian-tc
 
-**Obsidian Turbocharged** — governed, agent-ready vault access over [MCP](https://modelcontextprotocol.io) for [Obsidian](https://obsidian.md). Built for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Runs locally by default (Ollama embeddings, SQLite, no cloud account).
+**Obsidian Turbocharged** — governed, agent-ready vault access over [MCP](https://modelcontextprotocol.io) for [Obsidian](https://obsidian.md). Built for both humans and autonomous agents. Multi-vault native. Pluggable embeddings. Runs locally by default (bundled offline embeddings, SQLite, no cloud account).
 
 ## At a glance
 
