@@ -51,6 +51,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Changed
 
+- **Same-major JS/TS dependency batch (THE-1119, #974).** `hono` 4.12.34→4.13.9 (root override
+  and `packages/server`, `<5` ceiling kept), `@hono/node-server` 2.0.10→2.1.1, `jose` 6.2.3→6.2.12,
+  `yaml` 2.9.0→2.9.1, `zod` 4.4.3/4.0.0→4.6.5 (`packages/server` + `packages/shared`),
+  `@opentelemetry/resources`/`sdk-trace-node` 2.8.0→2.11.0, `@opentelemetry/semantic-conventions`
+  1.41.1→1.43.0, `@opentelemetry/exporter-trace-otlp-http` 0.219.0→0.222.0 (changelog-reviewed: no
+  breaking change touches `OTLPTraceExporter`), `systeminformation` 5.33.0→5.33.13, `@biomejs/biome`
+  2.5.5→2.5.14 (2.5.x line), `knip` 6.32.0→6.38.0, `dependency-cruiser` 18.1.0→18.4.0, `jscpd`
+  5.0.12→5.3.2, `@ast-grep/cli` 0.45.0→0.45.3, `esbuild` 0.28.1→0.28.2 and `builtin-modules`
+  4.0.0→5.4.0 (`packages/plugin` devDeps; `builtin-modules`' `index.js`/`index.d.ts` are
+  byte-identical between the two majors), `@huggingface/transformers` 4.2.0→**4.3.0**
+  (`packages/reranker-local`, own `bun.lock`), `@napi-rs/cli` 3.7.2→3.10.5 (`packages/native`).
+  `packages/shared` gained a `@types/node` devDependency + `types: ["node"]` (matching every
+  sibling workspace) — zod 4.6 added `URL`-typed exports (`canParseURL`, `URL_BAD_FORMAT`) that
+  need the ambient Node globals `packages/shared` alone was missing them. dependency-cruiser 18.4.0
+  renamed its CLI entry point from `bin/dependency-cruise.mjs` to `bin/dependency-cruiser.mjs`;
+  `scripts/check-boundaries.mjs` (and its test) now resolve the new name — behavior otherwise
+  unchanged (444 modules / 2091 dependencies / 0 violations, matched against 18.1.0 on the same
+  source). No runtime behavior change intended anywhere else in this batch.
+
 - **`elicit_required`'s text-channel instruction now leads with a directive to the AGENT, and
   `clientSupportsFormElicitation` now reads a bare `elicitation: {}` as form support, on every
   transport (GH #967 part 3, THE-1106).** Previously the rendered `obsidian-tc elicit ...` command

@@ -82,7 +82,7 @@ test("resolveDependencyCruiserCli: throws a clear error when the resolved bin do
     () => resolveDependencyCruiserCli(fakeResolve),
     (err) => {
       assert.match(err.message, /dependency-cruiser CLI not found/);
-      assert.match(err.message, /nonexistent.*bin.*dependency-cruise\.mjs/s);
+      assert.match(err.message, /nonexistent.*bin.*dependency-cruiser\.mjs/s);
       return true;
     },
   );
@@ -93,7 +93,7 @@ test("resolveDependencyCruiserCli: resolves the real installed CLI from the pack
   // against whatever is actually installed in node_modules, proving the walk (entry -> ../../bin)
   // matches the real package layout rather than only a mocked one.
   const cli = resolveDependencyCruiserCli();
-  assert.match(cli, /bin[\\/]dependency-cruise\.mjs$/);
+  assert.match(cli, /bin[\\/]dependency-cruiser\.mjs$/);
 });
 
 test("parseDependencyCruiserReport: parses a string", () => {

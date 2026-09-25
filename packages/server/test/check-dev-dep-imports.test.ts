@@ -1,8 +1,8 @@
 // THE-593: `.dependency-cruiser.cjs`'s `not-to-dev-dep` (severity: "error", wired into the
-// required `check:boundaries` CI job) cannot fire. dependency-cruiser 18.1.0 has no TypeScript 7
-// support (root package.json pins `^7.0.2`), falls back to a degraded parser, and classifies
-// every npm import as `['unknown']` — never `['npm-dev']`. A rule keyed on
-// `dependencyTypes: ["npm-dev"]` therefore matches nothing, silently, forever.
+// required `check:boundaries` CI job) cannot fire. dependency-cruiser still has no TypeScript 7
+// support as of 18.4.0 (root package.json pins `^7.0.2`), falls back to a degraded parser, and
+// never classifies an npm import as `['npm-dev']`. A rule keyed on `dependencyTypes: ["npm-dev"]`
+// therefore matches nothing, silently, forever.
 //
 // scripts/check-dev-dep-imports.mjs replaces that rule's coverage with a plain-text scan that
 // does not depend on dependency-cruiser's TypeScript support at all. This test is the point of

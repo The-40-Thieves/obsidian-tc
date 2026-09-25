@@ -13,8 +13,8 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@vitest/coverage-v8": "^4.1.11",
-    "builtin-modules": "^4.0.0",
-    "esbuild": "^0.28.1",
+    "builtin-modules": "^5.4.0",
+    "esbuild": "^0.28.2",
     "obsidian": "^1.13.1",
     "vitest": "^4.1.10"
   }

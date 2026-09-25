@@ -86,21 +86,25 @@ function run(cmd, args) {
 // dependency-cruiser's CLI script on disk and invoke it directly with `process.execPath` (the node
 // binary itself), which needs no shell and no shim on any platform.
 //
-// dependency-cruiser 18.1.0 only exports "." from its package.json (-> src/main/index.mjs) — it
-// exports NEITHER "bin/dependency-cruise.mjs" NOR "package.json". That means
-// `createRequire(...).resolve("dependency-cruiser/bin/dependency-cruise.mjs")` throws
+// dependency-cruiser 18.x only exports "." from its package.json (-> src/main/index.mjs) — it
+// exports NEITHER "bin/dependency-cruiser.mjs" NOR "package.json". That means
+// `createRequire(...).resolve("dependency-cruiser/bin/dependency-cruiser.mjs")` throws
 // ERR_PACKAGE_PATH_NOT_EXPORTED: the package is ESM-only and its exports map does not admit that
 // path. The only resolvable entry point is the bare specifier itself, so this walks from there:
 // resolve "." to find where the package lives, then step relative to the known bin/ layout.
-// Verified empirically against the installed dependency-cruiser@18.1.0:
+// Verified empirically against the installed dependency-cruiser@18.4.0:
 //   import.meta.resolve("dependency-cruiser")
-//     -> file:///.../node_modules/.bun/dependency-cruiser@18.1.0/node_modules/dependency-cruiser/src/main/index.mjs
-//   -> ../../bin/dependency-cruise.mjs from there exists on disk.
+//     -> file:///.../node_modules/.bun/dependency-cruiser@18.4.0/node_modules/dependency-cruiser/src/main/index.mjs
+//   -> ../../bin/dependency-cruiser.mjs from there exists on disk.
+// THE-1119a: 18.1.0 shipped this file as bin/dependency-cruise.mjs (no trailing "r"); 18.4.0
+// renamed it to bin/dependency-cruiser.mjs. A hardcoded filename is exactly what breaks on a
+// version bump like this — the name is worth re-checking (`ls node_modules/.../bin/`) whenever
+// dependency-cruiser moves again, not just assumed stable.
 // Someone will be tempted to "simplify" this back to require.resolve() or a bare "npx" call —
 // both are the bug this function exists to avoid re-introducing.
 export function resolveDependencyCruiserCli(resolve = import.meta.resolve) {
   const entry = resolve("dependency-cruiser");
-  const cli = fileURLToPath(new URL("../../bin/dependency-cruise.mjs", entry));
+  const cli = fileURLToPath(new URL("../../bin/dependency-cruiser.mjs", entry));
   if (!existsSync(cli)) {
     throw new Error(
       `boundary gate: dependency-cruiser CLI not found at ${cli} (resolved package entry: ${entry})`,
