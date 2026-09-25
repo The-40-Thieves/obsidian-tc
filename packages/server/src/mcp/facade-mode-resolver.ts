@@ -28,13 +28,21 @@ import type { FacadeMode } from "./facade-mode";
 /**
  * De-duplicates the info-level resolution log across every `createFacadeModeResolver` call in this
  * PROCESS (module scope, not per-resolver-instance) — HTTP constructs a fresh resolver per request,
- * so a per-instance set would still emit one line per request for the same client. Bounded by
- * construction: the key space is `configured` (a handful of literals) x sanitized-and-capped client
- * names x `FacadeMode` (three literals), so a hostile client spamming distinct forged names is the
- * only way to grow this, and each entry is capped at MAX_LOGGED_CLIENT_NAME_LEN bytes.
+ * so a per-instance set would still emit one line per request for the same client. Bounded on TWO
+ * axes: each entry is capped at MAX_LOGGED_CLIENT_NAME_LEN bytes (the per-entry length), and the
+ * SET ITSELF is capped at MAX_LOGGED_RESOLUTIONS entries (THE-1123 review fix — the per-entry cap
+ * alone does not bound the COUNT of entries: an authenticated HTTP caller sending a fresh forged
+ * clientInfo.name on every request grows this Set by one ~160-byte entry per request, unbounded,
+ * for the life of the process — a memory-growth DoS). 256 is plenty: the key space that matters in
+ * practice is a handful of real clients x a handful of configured/effective-mode combinations: once
+ * hit, adding and logging both stop (an already-logged key still dedupes silently, same as always),
+ * and ONE final notice line is written so an operator sees the log went quiet rather than assuming
+ * nothing more happened.
  */
 const loggedFacadeResolutions = new Set<string>();
 const MAX_LOGGED_CLIENT_NAME_LEN = 128; // matches client-info.ts's own MAX_LEN
+const MAX_LOGGED_RESOLUTIONS = 256;
+let loggedResolutionsCapNoticeWritten = false;
 
 function logFacadeResolutionOnce(
   configured: string,
@@ -50,6 +58,14 @@ function logFacadeResolutionOnce(
     rawName === undefined ? "(none)" : sanitizeDisplayText(rawName, MAX_LOGGED_CLIENT_NAME_LEN);
   const key = `${configured}\u0000${name}\u0000${effective}`;
   if (loggedFacadeResolutions.has(key)) return;
+  if (loggedFacadeResolutions.size >= MAX_LOGGED_RESOLUTIONS) {
+    if (loggedResolutionsCapNoticeWritten) return;
+    loggedResolutionsCapNoticeWritten = true;
+    process.stderr.write(
+      `obsidian-tc toolFacade: resolution log capped at ${MAX_LOGGED_RESOLUTIONS} distinct keys\n`,
+    );
+    return;
+  }
   loggedFacadeResolutions.add(key);
   process.stderr.write(
     `obsidian-tc toolFacade: configured=${configured} client=${name} effective=${effective}\n`,

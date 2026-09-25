@@ -81,6 +81,52 @@ describe("createFacadeModeResolver — resolution log (THE-1123 review fix MEDIU
   });
 });
 
+// THE-1123 review fix (memory-growth DoS): `loggedFacadeResolutions` is module-scoped and
+// UNBOUNDED as originally shipped — an authenticated HTTP caller sending a fresh forged clientInfo
+// name per request grows it by ~160 bytes/request for the life of the process. Own describe block,
+// with `vi.resetModules()` + a fresh dynamic import per test: the cap is module state, and the
+// tests above already rely on that SAME module state persisting across cases in this file (see
+// their own "module-scoped dedup" comments) — sharing it here would mean whichever test runs first
+// determines whether the other passes. A fresh module instance per test makes the 256-key cap
+// observable in isolation, the same isolation technique regex-worker-cooldown.test.ts uses for its
+// own module-scoped state.
+describe("createFacadeModeResolver — resolution log is capped (THE-1123 review fix)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it("300 distinct names: the Set stops growing at 256, exactly 257 lines are written (256 + the cap notice), the 301st NEW name logs nothing, and a repeat of an already-logged name logs nothing", async () => {
+    const { createFacadeModeResolver: freshCreate } = await import(
+      "../src/mcp/facade-mode-resolver"
+    );
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    // A FRESH resolver per name — one `resolveFacadeMode` call each, mirroring a fresh HTTP
+    // request per client (createMcpHandler constructs a new resolver per request; see the module
+    // comment). A single resolver instance caches after its first NAMED resolution and would never
+    // call the logger again, so this could not exercise the cap through one resolver's repeated
+    // calls with different names — the log's own dedup set is module-scoped exactly because the
+    // per-CONNECTION cache above it is not.
+    try {
+      for (let i = 0; i < 300; i++) {
+        freshCreate(stubServer(), { facadeMode: "auto" }).resolveFacadeMode(`client-${i}`);
+      }
+      expect(writeSpy).toHaveBeenCalledTimes(257);
+      const lastLine = writeSpy.mock.calls[256]?.[0] as string;
+      expect(lastLine).toBe("obsidian-tc toolFacade: resolution log capped at 256 distinct keys\n");
+
+      // The 301st request, a brand-new name: logs nothing (still capped).
+      freshCreate(stubServer(), { facadeMode: "auto" }).resolveFacadeMode("client-300");
+      expect(writeSpy).toHaveBeenCalledTimes(257);
+
+      // A repeat of an already-logged (one of the first 256) name: logs nothing either.
+      freshCreate(stubServer(), { facadeMode: "auto" }).resolveFacadeMode("client-0");
+      expect(writeSpy).toHaveBeenCalledTimes(257);
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+});
+
 describe("createFacadeModeResolver — requestClientName (THE-1123)", () => {
   it("falls back to server.getClientVersion(), bounded the same way extractClientInfo bounds a name", () => {
     const resolver = createFacadeModeResolver(stubServer({ name: "claude-code", version: "1" }), {
