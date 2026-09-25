@@ -3,9 +3,9 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 478,
-    "dependencies": 2206,
+    "dependencies": 2209,
     "subsystemPairs": 137,
-    "crossSubsystemImports": 1003
+    "crossSubsystemImports": 1006
   },
   "subsystems": {
     "auth": 4,
@@ -86,7 +86,7 @@
     {
       "from": "tools",
       "to": "db",
-      "weight": 19
+      "weight": 20
     },
     {
       "from": "cli",
@@ -184,6 +184,11 @@
       "weight": 8
     },
     {
+      "from": "memory-import",
+      "to": "vault",
+      "weight": 7
+    },
+    {
       "from": "providers",
       "to": "embeddings",
       "weight": 7
@@ -221,11 +226,6 @@
     {
       "from": "cli",
       "to": "doctor",
-      "weight": 6
-    },
-    {
-      "from": "memory-import",
-      "to": "vault",
       "weight": 6
     },
     {
@@ -359,6 +359,11 @@
       "weight": 3
     },
     {
+      "from": "memory-import",
+      "to": "memory",
+      "weight": 3
+    },
+    {
       "from": "metrics",
       "to": "db",
       "weight": 3
@@ -461,11 +466,6 @@
     {
       "from": "mcp",
       "to": "scheduler",
-      "weight": 2
-    },
-    {
-      "from": "memory-import",
-      "to": "memory",
       "weight": 2
     },
     {

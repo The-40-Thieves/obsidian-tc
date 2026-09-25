@@ -129,6 +129,80 @@ export interface MaterializeInput {
  * link_entities) must roll that row back on this throw, so refusing to materialize never leaves an
  * orphan SQL row behind either — see those handlers' own try/catch.
  */
+/** Read the note at `abs` (if any) and report who owns it: `{ exists: false }` when nothing is
+ *  there, else `{ exists: true, ownerId, frontmatter }` — `ownerId` is `null` when the note has no
+ *  (or a non-string) `obsidian_tc_id`, which reads identically to "not this entity's" everywhere
+ *  this is consulted. Shared by `materializeEntity`'s own check below and by
+ *  `assertNoteOwnership`, the pre-check lifecycle handlers (rename/unlink/delete_entity) call
+ *  BEFORE mutating SQLite — one read, one definition of "who owns this note", never re-derived. */
+function readNoteOwner(abs: string): {
+  exists: boolean;
+  ownerId: string | null;
+  frontmatter: Frontmatter | null;
+} {
+  const ex = noteExists(abs);
+  if (!ex.exists || ex.type !== "file") return { exists: false, ownerId: null, frontmatter: null };
+  const frontmatter = parseNote(readNote(abs).raw).frontmatter;
+  const ownerId =
+    frontmatter && typeof frontmatter.obsidian_tc_id === "string"
+      ? frontmatter.obsidian_tc_id
+      : null;
+  return { exists: true, ownerId, frontmatter };
+}
+
+function ownershipError(
+  rel: string,
+  expectedEntityId: string,
+  existingOwnerId: string | null,
+): Error {
+  return err.noteExists(
+    "refusing to touch a note this entity does not own " +
+      "(its obsidian_tc_id is missing or belongs to a different entity)",
+    {
+      path: rel,
+      entity_id: expectedEntityId,
+      ...(existingOwnerId ? { existing_owner_id: existingOwnerId } : {}),
+    },
+  );
+}
+
+/**
+ * Pre-check ownership of a vault-relative path BEFORE any write or SQLite mutation touches it —
+ * review finding: `rename_entity`'s "seed the new path with the old note's bytes" step used to
+ * write directly (bypassing `materializeEntity`'s own check entirely) and could overwrite a
+ * foreign note at the destination; `unlink_entities`/`delete_entity` mutated SQLite first and only
+ * discovered an ownership refusal afterward, leaving the row changed with nothing to undo it. A
+ * no-op when nothing is at `rel`, or when it is already this entity's own note. Callers should run
+ * EVERY `assertNoteOwnership` for an operation before making ANY SQLite change for that operation,
+ * so a refusal is a pure no-op — nothing to roll back — rather than a partial write.
+ */
+export function assertNoteOwnership(root: string, rel: string, expectedEntityId: string): void {
+  const owner = readNoteOwner(resolveVaultPath(root, rel));
+  if (owner.exists && owner.ownerId !== expectedEntityId)
+    throw ownershipError(rel, expectedEntityId, owner.ownerId);
+}
+
+/**
+ * Write (or rewrite) an entity's materialized note. Reads any existing note first so
+ * its unknown frontmatter survives the rewrite; the body is regenerated from SQLite.
+ * Path-safe (resolveVaultPath containment) + ACL-checked (enforcePathAcl write).
+ *
+ * Ownership check (review finding, data-loss class): a note already sitting at the target path
+ * whose `obsidian_tc_id` is MISSING or DIFFERENT from `input.id` is refused, not silently
+ * overwritten. Before this check, `create_entity` for a (type, name) that happened to collide
+ * with a hand-written note — or with an orphaned note left behind by a different, unrelated
+ * entity that once sanitized to the same path — kept only that note's frontmatter and threw away
+ * its ENTIRE BODY, because the body is always fully regenerated from SQLite. `input.id` is the
+ * entity actually being written at every call site (memory-projection.ts's rematerialize/
+ * materializeProjection always pass the row's own id, freshly generated on create), so this check
+ * cannot false-positive on an entity re-materializing its own note — only ever on a genuine
+ * foreign note at that exact path. Callers that insert a DB row before calling this (create_entity,
+ * link_entities) must roll that row back on this throw, so refusing to materialize never leaves an
+ * orphan SQL row behind either — see those handlers' own try/catch. Kept as a SECOND, defense-in-
+ * depth check even where a caller already ran `assertNoteOwnership` first (a synchronous handler
+ * has no TOCTOU window between the two, but this function is also called from places that never
+ * pre-check, e.g. `add_observation`'s materializeProjection).
+ */
 export function materializeEntity(input: MaterializeInput): {
   vaultPath: string;
   contentHash: string;
@@ -136,24 +210,10 @@ export function materializeEntity(input: MaterializeInput): {
   const rel = entityNotePath(input.folder, input.entityType, input.name);
   const abs = resolveVaultPath(input.root, rel);
   enforcePathAcl(input.acl, "write", rel, input.root, input.grantedScopes);
-  let preserved: Frontmatter | null = null;
-  const ex = noteExists(abs);
-  if (ex.exists && ex.type === "file") {
-    preserved = parseNote(readNote(abs).raw, rel).frontmatter;
-    const existingId =
-      preserved && typeof preserved.obsidian_tc_id === "string" ? preserved.obsidian_tc_id : null;
-    if (existingId !== input.id) {
-      throw err.noteExists(
-        "refusing to materialize over a note this entity does not own " +
-          "(its obsidian_tc_id is missing or belongs to a different entity)",
-        {
-          path: rel,
-          entity_id: input.id,
-          ...(existingId ? { existing_owner_id: existingId } : {}),
-        },
-      );
-    }
-  }
+  const owner = readNoteOwner(abs);
+  if (owner.exists && owner.ownerId !== input.id)
+    throw ownershipError(rel, input.id, owner.ownerId);
+  const preserved = owner.frontmatter;
   const content = renderEntityNote({ ...input, preserved });
   writeNoteAtomic(abs, content, true);
   return { vaultPath: rel, contentHash: contentHash(content) };

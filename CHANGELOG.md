@@ -55,11 +55,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   alone, so a re-run never duplicates and a collision (a different or unverifiable `source_path`,
   or two source files whose `(type, name)` sanitize to the same memory-note path — caught at
   preview time) is refused rather than silently adopted, and makes the command exit non-zero.
-  `--resume` relaxes that refusal only for an entity with zero observations — the shape a run
-  interrupted right after `create_entity` leaves behind. Refuses symlinked files, dot-prefixed
-  entries, and paths that escape the import directory (each reported with its true reason, not a
-  generic one), reusing the vault's own path-containment primitive; a missing/unreadable/not-a-
-  directory `<dir>` fails immediately instead of reporting an empty import. New guide page
+  `--resume` relaxes that refusal only for an entity with zero observations AND a note body that
+  is byte-identical to a freshly-created entity's empty scaffold (compared against the same
+  `renderEntityNote` the materializer itself uses, never a heuristic) — the shape a run interrupted
+  right after `create_entity` leaves behind; a zero-observation entity whose note gained
+  independently-added human content is still a collision. A dry run against an existing `cacheDir`
+  whose `cache.db` predates the memory schema (migration required) fails clearly and exits non-zero
+  instead of silently reading every lookup as "not found" and reporting every entity as new.
+  Refuses symlinked files, dot-prefixed entries, and paths that escape the import directory (each
+  reported with its true reason, not a generic one), reusing the vault's own path-containment
+  primitive — including on a case-insensitive filesystem (macOS/Windows), where a root `memory.md`
+  and `MEMORY.md` are the same directory entry and whichever the OS reports is unconditionally the
+  index; a missing/unreadable/not-a-directory `<dir>` fails immediately instead of reporting an
+  empty import. New guide page
   `docs/getting-started/memory-you-own.md` (linked from the docs home): the real on-disk entity/
   observation/relation shape, the ACL/audit pipeline every memory write goes through, git
   provenance, recall with and without semantic search, an opt-in `episode_stats` illustration, and
@@ -247,6 +255,39 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Security
 
+- **`create_entity`, `link_entities`, `rename_entity`, `unlink_entities`, and `delete_entity` could
+  silently destroy or overwrite the body of a note they did not own, or leave a lifecycle
+  operation's database row half-committed when the filesystem step it depended on was refused
+  (data-loss class; affects v1.0.1 through v1.31.3 — every released version since
+  `materializeEntity` shipped; `git show v1.0.1:packages/server/src/memory/materialize.ts` already
+  has the overwrite).** Materialization always regenerates a note's body from SQLite, keeping only
+  its frontmatter (`materialize.ts`'s round-trip discipline). If a note already sat at the computed
+  `memory/<type>/<name>.md` path — hand-authored, or an orphan left behind by a different entity
+  that once sanitized to the same path — its ENTIRE body was overwritten on the very next write
+  naming that `(type, name)`, keeping only its frontmatter. Five distinct call sites reached this:
+  `create_entity` and `link_entities` inserted their SQL row/relation BEFORE the fallible
+  materialization step; `rename_entity` seeded its destination path with a direct `writeNoteAtomic`
+  call that bypassed the ownership check entirely (so a rename could overwrite a foreign note at
+  the NEW name even once the check existed) and, for a status-only rename, could commit a retired
+  status with the note write refused; `unlink_entities` removed the relation row before discovering
+  the source note's rematerialization would be refused, leaving the edge gone with nothing to
+  restore it; `delete_entity`'s cascade could delete the target entity and its relations before a
+  NEIGHBOR's note (rematerialized to drop its now-stale `[[link]]`) was found to be foreign,
+  leaving the wrong entity deleted. Fixed at the shared primitive: `materializeEntity`
+  (`packages/server/src/memory/materialize.ts`) refuses to write over a note whose `obsidian_tc_id`
+  is missing or belongs to a different entity (`note_exists`) instead of silently claiming it, and
+  a new `assertNoteOwnership` pre-check runs BEFORE any SQLite mutation in the three lifecycle
+  tools (`packages/server/src/tools/m5/memory-lifecycle-tools.ts`) — every note a rename/unlink/
+  delete operation will touch, including cascade neighbors, is verified owned before the
+  transaction (`inWriteTransaction`, new `memory_rename`/`memory_unlink`/`memory_delete` labels)
+  opens, so a refusal is a pure no-op rather than a partial write. `create_entity`/`link_entities`
+  instead roll back the SQL row/relation they had already inserted on this refusal, so neither
+  approach ever leaves an orphan. Found while building `obsidian-tc memory import` (THE-1124)
+  above, but this is a fix to the SHARED primitives every M5 memory-write tool goes through, not a
+  memory-import-specific fix; a cross-vendor adversarial review (`test/m5-memory-ownership.test.ts`)
+  independently confirmed the class and verifies all five call sites and the transaction-rollback
+  behavior.
+
 - **A declined or cancelled `inputRequired` HITL confirmation could still complete the call it was
   declining (present since the 2026-07-28 round trip shipped, THE-583, v1.13.0; found and closed
   under THE-1106; NOT a regression introduced by THE-1106 — this PR only made it easier to trigger
@@ -279,21 +320,6 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   server-side fix can close.
 
 ### Fixed
-
-- **`create_entity`/`add_observation`/`link_entities` could silently destroy the body of a note
-  they did not own (data-loss class, affects v1.27.0 through v1.31.3 — every released version
-  since `materializeEntity` was introduced).** Materialization always regenerates a note's body
-  from SQLite, keeping only its frontmatter (`materialize.ts`'s round-trip discipline). If a note
-  already sat at the computed `memory/<type>/<name>.md` path — hand-authored, or an orphan left
-  behind by a different entity that once sanitized to the same path — its ENTIRE body was
-  overwritten on the very next `create_entity` for that `(type, name)`, keeping only its
-  frontmatter. `materializeEntity` (`packages/server/src/memory/materialize.ts`) now refuses to
-  materialize over a note whose `obsidian_tc_id` is missing or belongs to a different entity
-  (`note_exists`), instead of silently claiming it. `create_entity` and `link_entities`
-  (`tools/m5/memory-tools.ts`) roll back the SQL row/relation they had already inserted on this
-  refusal, so it never leaves an orphan. Found while building `obsidian-tc memory import` (THE-1124)
-  above, but this is a fix to the SHARED primitive every M5 memory-write tool goes through, not a
-  memory-import-specific fix.
 
 - **The public "front doors" — Smithery listing, TC Bridge's community-directory scorecard, and the
   docs — drifted from the shipped product (#972, THE-1120).** Smithery's card carried a stale "RBAC,

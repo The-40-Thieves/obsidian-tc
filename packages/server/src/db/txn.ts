@@ -165,6 +165,13 @@ export type WriteTxnLabel =
   | "index_generation"
   | "job_claim"
   | "memory_observation"
+  // THE-1124 review round 2: rename_entity/unlink_entities/delete_entity each mutate more than
+  // one row (an entity row, its relations, an ACL-checked filesystem write) — wrapped so a
+  // mid-operation SQLite failure never leaves e.g. a retired status committed with its note write
+  // refused, or a deleted relation with the entity row still present.
+  | "memory_rename"
+  | "memory_unlink"
+  | "memory_delete"
   // THE-726: the task-verdict projection. One label for the stamp AND the -1 demotion, because
   // they are one transaction by requirement: a crash between them would leave a session's episodes
   // condemned but still promoted, which is exactly the hold-rule bypass the demotion exists to

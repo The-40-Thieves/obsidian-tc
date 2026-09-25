@@ -69,7 +69,28 @@ export async function run_memory_import(cmd: Cmd<"memory-import">): Promise<void
     // Provisioning (schema migrations) is itself a write — skip it on a read-only dry run against
     // an ALREADY-existing store, which by construction has already been provisioned by whatever
     // `serve`/`--apply` run created it. Only the write path provisions from scratch here.
-    if (cmd.apply) provisionCacheDb(cacheDb, { version: VERSION });
+    if (cmd.apply) {
+      provisionCacheDb(cacheDb, { version: VERSION });
+    } else {
+      // Review finding: since dry-run deliberately never provisions (that would be a write), a
+      // cache.db that predates the M5 memory schema (or is otherwise mid-migration) makes every
+      // get_entity/read_frontmatter dispatch below fail with a raw SQL error — and
+      // readExistingEntity reads ANY dispatch failure as "not found", so this used to silently
+      // report every entity as brand new instead of surfacing the real problem. Check the schema
+      // directly, before dispatching anything.
+      const hasMemoryEntities = cacheDb
+        .prepare(
+          "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'memory_entities'",
+        )
+        .get() as { n: number };
+      if (hasMemoryEntities.n === 0) {
+        process.stderr.write(
+          `memory import: ${cacheDbPath} exists but its schema is missing memory_entities — migration required. Run an \`--apply\` (or \`obsidian-tc serve\` once) against this cacheDir first, or point --config at a fresh one.\n`,
+        );
+        cacheDb.close?.();
+        process.exit(1);
+      }
+    }
   } else {
     // Review finding: a dry run must not CREATE cacheDir when it does not exist yet — there is
     // nothing on disk to read, so every entity below would be created regardless of what a real

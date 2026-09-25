@@ -31,6 +31,8 @@
 // them are fire-and-forget (review finding: a discarded failure used to report success with the
 // entity then permanently unresumable, having "no verifiable import provenance").
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { renderEntityNote } from "../memory/materialize";
+import { parseNote } from "../vault/frontmatter";
 import type { ImportAdapterName, ParsedEntity, ParsedRelation, SkippedFile } from "./types";
 
 export type Dispatch = (name: string, input: Record<string, unknown>) => Promise<ToolResult>;
@@ -67,6 +69,37 @@ function errMessage(r: ToolResult): string {
 
 function isAlreadyExists(r: ToolResult): boolean {
   return !r.ok && r.error.code === "invalid_input" && /already exists/i.test(r.error.message);
+}
+
+/**
+ * `--resume` safety check (review finding): a note's zero-DB-observations state is not proof its
+ * BODY was never touched — a human can edit the file directly. Compares the note's actual body
+ * against the byte-exact body a freshly-created, zero-observation, zero-relation entity would
+ * render (the SAME renderEntityNote the materializer itself uses, so this can never drift from
+ * what "empty" really looks like) rather than a heuristic. `false` on any read failure — an
+ * unreadable note is never treated as safely resumable.
+ */
+async function noteBodyIsEmptyScaffold(
+  dispatch: Dispatch,
+  vault: string,
+  vaultPath: string,
+  entityId: string,
+  entityType: string,
+  name: string,
+): Promise<boolean> {
+  const r = await dispatch("read_note", { vault, path: vaultPath });
+  if (!r.ok) return false;
+  const actualBody = (r.data as { body: string }).body;
+  const scaffold = renderEntityNote({
+    id: entityId,
+    entityType,
+    name,
+    status: "active",
+    observations: [],
+    relations: [],
+  });
+  const scaffoldBody = parseNote(scaffold).body;
+  return actualBody === scaffoldBody;
 }
 
 async function setProvenance(
@@ -185,8 +218,25 @@ async function resolveEntity(
     // observations were ever added (create_entity's initial batch never landed, or this run
     // itself is what's about to add them for the first time), and provenance is unverifiable
     // (never a CONFIRMED mismatch — `match === false` is a real foreign entity, resume never
-    // overrides that).
-    const resumable = resume && match === undefined && found.entity.observations.size === 0;
+    // overrides that). Review finding: zero DB observations is NOT enough on its own — a human
+    // can edit the materialized NOTE FILE directly (add prose below the rendered scaffold)
+    // without ever calling add_observation, so the db-side count reads as "untouched" while the
+    // file genuinely carries content that must not be silently discarded. Compare the note's
+    // actual body against what a freshly-created, zero-observation entity's body would render as
+    // (byte for byte, via the SAME renderEntityNote the materializer itself uses) rather than a
+    // heuristic like "short" or "no prose keywords" — an empty scaffold is the one shape this can
+    // verify exactly.
+    let resumable = resume && match === undefined && found.entity.observations.size === 0;
+    if (resumable && found.entity.vaultPath) {
+      resumable = await noteBodyIsEmptyScaffold(
+        dispatch,
+        vault,
+        found.entity.vaultPath,
+        found.entity.entityId,
+        e.entityType,
+        e.name,
+      );
+    }
     if (resumable) {
       if (applied && found.entity.vaultPath) {
         const fm = await setProvenance(
@@ -225,8 +275,8 @@ async function resolveEntity(
             ? `entity ${e.entityType}/${e.name} already exists with a different source_path`
             : `entity ${e.entityType}/${e.name} already exists with no verifiable import provenance` +
               (resume
-                ? " (not resumable: it already has observations)"
-                : " (pass --resume if this is an interrupted prior run that never added any observations)"),
+                ? " (not resumable: it already has observations, or its note body has content beyond an empty scaffold)"
+                : " (pass --resume if this is an interrupted prior run that never added any observations and whose note body was never touched)"),
       },
       existingObservations: new Set(),
       existingOutRelations: new Set(),
