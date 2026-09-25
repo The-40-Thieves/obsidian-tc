@@ -207,7 +207,7 @@ in-memory one stands in for "nothing exists yet"); against one that already exis
 | source | one entity per… | name / type from | observations from | relations from |
 |---|---|---|---|---|
 | `basic-memory` | note | frontmatter `title` / `type` | `## Observations` bullets (`- [category] text`) | `## Relations` bullets (`- relation_type [[Target]]`); a link inside inline code or a fenced block is ignored (example text, not a real relation) |
-| `claude-code-memory` | fact file (the index file, exactly `MEMORY.md` at `<dir>`'s root, is skipped) | frontmatter `name` / `metadata.type` | the whole body — headings, list markers, and fenced code all flattened — as ONE observation; re-importing an edited fact file **appends** a new observation rather than replacing the old one (`add_observation` has no "supersede" operation) | every `[[link]]` in the body outside code/fences, as a `relates_to` relation |
+| `claude-code-memory` | fact file (the index file, exactly `MEMORY.md` at `<dir>`'s root, is skipped — on a case-insensitive filesystem, macOS/Windows by default, a root `memory.md` IS that same file and is skipped too, since the OS never let a second one coexist there) | frontmatter `name` / `metadata.type` | the whole body — headings, list markers, and fenced code all flattened — as ONE observation; re-importing an edited fact file **appends** a new observation rather than replacing the old one (`add_observation` has no "supersede" operation) | every `[[link]]` in the body outside code/fences, as a `relates_to` relation |
 
 Every imported note carries `imported_from`/`source_path`/`imported_at` provenance frontmatter
 (merged on, per the round-trip discipline above), and a re-run of `--apply` on the same directory
