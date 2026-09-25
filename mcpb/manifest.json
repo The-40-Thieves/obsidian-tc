@@ -3,7 +3,7 @@
   "name": "obsidian-tc",
   "display_name": "Obsidian Turbocharged",
   "version": "1.31.3",
-  "description": "Model-agnostic, agent-ready Obsidian MCP server with RBAC, SLSA provenance, and native search.",
+  "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "author": {
     "name": "The 40 Thieves",
     "url": "https://github.com/The-40-Thieves"
@@ -18,9 +18,14 @@
   },
   "keywords": [
     "obsidian",
+    "obsidian-vault",
     "mcp",
     "model-context-protocol",
     "knowledge-management",
+    "semantic-search",
+    "retrieval",
+    "memory",
+    "markdown",
     "agent",
     "rbac"
   ],
@@ -45,7 +50,7 @@
     "config_path": {
       "type": "file",
       "title": "Config file",
-      "description": "Absolute path to your obsidian-tc JSON config (vaults, ACL, transports).",
+      "description": "An obsidian-tc JSON config file, or a vault folder path (zero-config) typed or pasted here; a file picker cannot select a folder.",
       "required": true
     },
     "default_vault": {

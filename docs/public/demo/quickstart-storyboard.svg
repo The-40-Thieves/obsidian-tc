@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="'JetBrains Mono','Fira Code',ui-monospace,monospace">
+  <title>obsidian-tc quickstart: zero-config boot, search, read, and a confirmed overwrite</title>
+  <desc>
+    Static storyboard standing in for docs/demo/quickstart.gif until a machine with vhs, asciinema,
+    or agg installed renders docs/demo/quickstart.tape. Five panels: start the server zero-config on
+    a tiny fixture vault, search_text, read_note, a write_note overwrite that requires confirmation,
+    and the confirm. Every command output shown here was captured from a real run of the built
+    server against a scratch copy of examples/scratch-vault, not invented.
+  </desc>
+  <defs>
+    <style>
+      .bg { fill: #282a36; }
+      .bar { fill: #1e1f29; }
+      .dot { r: 6; }
+      .prompt { fill: #50fa7b; font-size: 15px; }
+      .cmd { fill: #f8f8f2; font-size: 15px; }
+      .out { fill: #6272a4; font-size: 13px; }
+      .hit { fill: #f1fa8c; font-size: 13px; }
+      .warn { fill: #ffb86c; font-size: 14px; font-weight: bold; }
+      .ok { fill: #50fa7b; font-size: 14px; font-weight: bold; }
+      .caption { fill: #bd93f9; font-size: 13px; font-weight: bold; letter-spacing: 0.02em; }
+      .panel-title { fill: #f8f8f2; font-size: 13px; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="800" fill="#191a21"/>
+  <text x="24" y="30" class="caption">obsidian-tc — zero-config boot -&gt; search -&gt; read -&gt; confirmed overwrite</text>
+
+  <!-- Panel 1: boot -->
+  <g transform="translate(24,50)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">1 · zero-config boot</text>
+    <text x="16" y="56" class="prompt">$ <tspan class="cmd">npx obsidian-tc examples/scratch-vault</tspan></text>
+    <text x="16" y="82" class="out">obsidian-tc 1.31.3 ready on stdio (vault main;</text>
+    <text x="34" y="100" class="out">native=on vec=on)</text>
+    <text x="16" y="140" class="prompt">$ <tspan class="cmd">claude mcp add obsidian-tc -- \</tspan></text>
+    <text x="34" y="160" class="cmd">npx -y obsidian-tc examples/scratch-vault</text>
+    <text x="16" y="186" class="out">Added stdio MCP server obsidian-tc</text>
+  </g>
+
+  <!-- Panel 2: search_text -->
+  <g transform="translate(624,50)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">2 · search_text</text>
+    <text x="16" y="56" class="prompt">$ <tspan class="cmd">claude -p "search for placeholder"</tspan></text>
+    <text x="16" y="86" class="out">-&gt; search_text(query: "placeholder")</text>
+    <text x="16" y="112" class="hit">Welcome.md:8  "This is placeholder text in a</text>
+    <text x="34" y="130" class="hit">synthetic note, invented for obsidian-tc's..."</text>
+    <text x="16" y="152" class="hit">Example Note.md:11  "## A placeholder section"</text>
+    <text x="16" y="182" class="out">total: 6 hits across 3 notes</text>
+  </g>
+
+  <!-- Panel 3: read_note -->
+  <g transform="translate(24,290)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">3 · read_note</text>
+    <text x="16" y="56" class="prompt">$ <tspan class="cmd">claude -p "read the Welcome note"</tspan></text>
+    <text x="16" y="86" class="out">-&gt; read_note(path: "Welcome.md")</text>
+    <text x="16" y="112" class="hit"># Welcome to the scratch vault</text>
+    <text x="16" y="132" class="hit">This is placeholder text in a synthetic note,</text>
+    <text x="34" y="150" class="hit">invented for obsidian-tc's own examples.</text>
+    <text x="16" y="172" class="hit">See [[Example Note]] for a second note that</text>
+    <text x="34" y="190" class="hit">links back here, exercising backlinks.</text>
+  </g>
+
+  <!-- Panel 4: overwrite -> confirmation -->
+  <g transform="translate(624,290)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">4 · write_note (overwrite)</text>
+    <text x="16" y="56" class="prompt">$ <tspan class="cmd">claude -p "overwrite Welcome with a</tspan></text>
+    <text x="34" y="74" class="cmd">one-line summary"</text>
+    <text x="16" y="100" class="out">-&gt; write_note(path: "Welcome.md", mode: "overwrite")</text>
+    <text x="16" y="126" class="warn">Error [elicit_required]: human confirmation</text>
+    <text x="34" y="144" class="warn">required</text>
+    <text x="16" y="166" class="out">confirm with: obsidian-tc elicit --hash a969f73c</text>
+    <text x="34" y="184" class="out">--tool write_note --vault main</text>
+  </g>
+
+  <!-- Panel 5: confirm -->
+  <g transform="translate(324,540)">
+    <rect class="bg" width="552" height="220" rx="10"/>
+    <rect class="bar" width="552" height="28" rx="10"/>
+    <circle class="dot" cx="18" cy="14" fill="#ff5555"/>
+    <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
+    <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
+    <text x="90" y="19" class="panel-title">5 · confirm</text>
+    <text x="16" y="56" class="prompt">$ <tspan class="cmd">obsidian-tc elicit &lt;vault&gt; --hash a969f73c \</tspan></text>
+    <text x="34" y="74" class="cmd">--tool write_note --vault main --json</text>
+    <text x="16" y="100" class="out">{"token":"3f75c923...","ttlSeconds":300, ...}</text>
+    <text x="16" y="126" class="out">-&gt; write_note(..., elicit_token: "3f75c923...")</text>
+    <text x="16" y="152" class="ok">✓ mode_used: "overwrite", bytes_written: 20</text>
+    <text x="16" y="174" class="out">content_hash: b74f564c... (was ca01b4b4...)</text>
+  </g>
+
+  <text x="24" y="782" class="out">docs/demo/quickstart.tape renders the live version of this sequence once vhs/asciinema+agg is available.</text>
+</svg>

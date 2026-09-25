@@ -684,6 +684,7 @@ export { redactConfig } from "./redact-config";
 // floor. Re-exported so every existing `import { ... } from "../args"` keeps working unchanged.
 export {
   configFromVaultPath,
+  normalizeConfigPathInput,
   type ResolvedServeConfig,
   resolveServeConfig,
   resolveServeConfigWithProvenance,

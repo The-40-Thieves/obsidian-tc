@@ -13,7 +13,7 @@
 // config, build the runtime, install the shutdown signal handlers, start. cli.ts's job is argument
 // dispatch and process exit — nothing else.
 
-import { parseCliArgs } from "./cli/args";
+import { normalizeConfigPathInput, parseCliArgs } from "./cli/args";
 import { run_activation_recompute } from "./cli/commands/activation-recompute";
 import { run_citation_infer } from "./cli/commands/citation-infer";
 import { run_cluster } from "./cli/commands/cluster";
@@ -50,7 +50,12 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // THE-825: planeEnabledExplicit gates the boot-time opt-in notice (server-runtime.ts's start()) —
   // whether the raw config file stated `plane.enabled` at all, not merely its resolved value.
   const { config, planeEnabledExplicit } = resolveOrUsageExitWithProvenance(cmd.input);
-  const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
+  // normalizeConfigPathInput (not a bare `cmd.input ?? env`): an empty string or an unresolved
+  // MCPB `${user_config.config_path}` placeholder must fall through to OBSIDIAN_TC_CONFIG the
+  // same way resolveOrUsageExitWithProvenance above already does for `config`, or this SEPARATE
+  // derivation of `configPath` -- the module-loader's trust root (server-runtime.ts) -- would pin
+  // to placeholder/empty text that `config` itself never saw.
+  const configPath = normalizeConfigPathInput(cmd.input) || process.env.OBSIDIAN_TC_CONFIG;
   const runtime = await buildServerRuntime(config, configPath, undefined, planeEnabledExplicit);
   installShutdownSignals(runtime);
   await runtime.start();

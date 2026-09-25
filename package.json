@@ -2,7 +2,7 @@
   "name": "obsidian-tc-monorepo",
   "version": "1.31.3",
   "private": true,
-  "description": "Obsidian Turbocharged — comprehensive, model-agnostic, agent-ready Obsidian MCP server",
+  "description": "Obsidian Turbocharged — governed vault access, hybrid retrieval, Markdown-native memory, HITL confirmations",
   "license": "AGPL-3.0-only",
   "author": "The 40 Thieves",
   "repository": {
