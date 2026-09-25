@@ -30,6 +30,9 @@ export interface MemoryImportHarness {
 export function makeMemoryImportHarness(vaultId = "test"): MemoryImportHarness {
   const vaultRoot = mkdtempSync(join(tmpdir(), "obtc-memimport-vault-"));
   const importRoot = mkdtempSync(join(tmpdir(), "obtc-memimport-src-"));
+  // Review finding: this dir used to be created and never removed (mkdtempSync leak) — every
+  // test run left one more empty `obtc-memimport-cache-*` directory behind in the OS temp dir.
+  const cacheDir = mkdtempSync(join(tmpdir(), "obtc-memimport-cache-"));
   const db = openMemoryDb();
   provisionCacheDb(db);
   const vaultRegistry = new VaultRegistry([{ id: vaultId, path: vaultRoot }]);
@@ -42,7 +45,7 @@ export function makeMemoryImportHarness(vaultId = "test"): MemoryImportHarness {
   });
   registerM5Tools(registry, {
     vaultRegistry,
-    cacheDir: mkdtempSync(join(tmpdir(), "obtc-memimport-cache-")),
+    cacheDir,
     memoryFolder: () => "memory",
   });
   const ctx: CallerContext = {
@@ -68,6 +71,7 @@ export function makeMemoryImportHarness(vaultId = "test"): MemoryImportHarness {
     cleanup: () => {
       rmTemp(vaultRoot);
       rmTemp(importRoot);
+      rmTemp(cacheDir);
     },
   };
 }

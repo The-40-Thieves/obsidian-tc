@@ -16,6 +16,8 @@ import type { ToolDefinition } from "../../mcp/registry";
 import {
   appendObservation,
   bfsGraph,
+  deleteEntity,
+  deleteRelation,
   type EntityRow,
   findEntitiesByName,
   findEntity,
@@ -159,7 +161,17 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             throw err.invalidInput("entity already exists", { type: input.type, name: input.name });
           throw caught;
         }
-        const vaultPath = input.materialize ? rematerialize(deps, ctx, v, e, now) : null;
+        let vaultPath: string | null;
+        try {
+          vaultPath = input.materialize ? rematerialize(deps, ctx, v, e, now) : null;
+        } catch (caught) {
+          // Roll back the just-inserted row: a materialization refusal (a note already sitting at
+          // this path that this brand-new entity does not own — materialize.ts's ownership check)
+          // must never leave an orphan memory_entities row with no note, or worse a stranger's
+          // note silently claimed. Mirrors delete_entity's own row removal (memory-lifecycle-tools.ts).
+          deleteEntity(ctx.db, e.id);
+          throw caught;
+        }
         return {
           entity_id: e.id,
           type: e.entity_type,
@@ -364,7 +376,16 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           );
         const now = (ctx.now ?? Date.now)();
         const { existedAlready } = insertRelation(ctx.db, src.id, tgt.id, input.relation_type, now);
-        const sourceVaultPath = rematerialize(deps, ctx, v, src, now);
+        let sourceVaultPath: string | null;
+        try {
+          sourceVaultPath = rematerialize(deps, ctx, v, src, now);
+        } catch (caught) {
+          // Same orphan-avoidance as create_entity above: a materialization refusal must not
+          // leave a relation row this call did not exist to have. Only roll back a relation THIS
+          // call actually created — never delete an edge that already existed before it.
+          if (!existedAlready) deleteRelation(ctx.db, src.id, tgt.id, input.relation_type);
+          throw caught;
+        }
         return {
           source_id: src.id,
           target_id: tgt.id,

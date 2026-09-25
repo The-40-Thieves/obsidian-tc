@@ -10,11 +10,28 @@
 // traversal guard (absolute / `..` rejection) plus a realpath containment check that canonicalizes
 // both the root and the deepest existing segment of the target through symlinks. Reused here
 // verbatim with the import directory standing in for "vault root" — the guarantee is identical.
-import { type Dirent, readdirSync } from "node:fs";
+import { type Dirent, lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPathChecked } from "../vault/paths";
 import type { SkippedFile } from "./types";
+
+/** Review finding: a missing/unreadable/not-a-directory `<dir>`, or a `<dir>` that is ITSELF a
+ *  symlink, must be a clear top-level error — not a walk that silently returns zero files (which
+ *  reads exactly like an empty, successfully-imported directory) and not a per-file skip reason
+ *  attributed to an arbitrary first entry. Thrown, not returned, so the CLI command surfaces it
+ *  before printing anything that looks like a completed run. */
+export function assertImportRootUsable(root: string): void {
+  let st: ReturnType<typeof lstatSync>;
+  try {
+    st = lstatSync(root);
+  } catch {
+    throw new Error(`import directory does not exist: ${root}`);
+  }
+  if (st.isSymbolicLink())
+    throw new Error(`import directory is a symlink, refusing to walk through it: ${root}`);
+  if (!st.isDirectory()) throw new Error(`import path is not a directory: ${root}`);
+}
 
 export interface WalkedFile {
   /** Forward-slash path relative to `root`. */
@@ -43,6 +60,7 @@ export function checkedImportPath(root: string, relPath: string): string {
  *  dot-directories/files and refusing every symlink and hard link by name (reported, not
  *  silently dropped — the caller's dry-run table needs the reason). */
 export function walkImportDir(root: string, opts: { extensions?: string[] } = {}): WalkResult {
+  assertImportRootUsable(root);
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const files: WalkedFile[] = [];
   const skipped: SkippedFile[] = [];
@@ -51,13 +69,23 @@ export function walkImportDir(root: string, opts: { extensions?: string[] } = {}
     let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (readErr) {
+      // The ROOT's own readability is asserted above and throws; a failure HERE is always a
+      // sub-directory encountered mid-walk (permission denied, removed mid-run, …) — reported
+      // against that directory's own path, not silently dropped.
+      skipped.push({
+        sourcePath: prefix || ".",
+        reason: `refused: directory unreadable: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
+      });
       return;
     }
     for (const e of entries) {
       const name = e.name;
-      if (name.startsWith(".")) continue;
       const rel = prefix ? `${prefix}/${name}` : name;
+      if (name.startsWith(".")) {
+        skipped.push({ sourcePath: rel, reason: "refused: dot-prefixed (ignored)" });
+        continue;
+      }
       const abs = join(dir, name);
       // Dirent.isSymbolicLink() reflects the entry itself (readdirSync does not follow it) — the
       // same walk-level guard walkVault (vault/paths.ts) applies, refusing the alias before any
@@ -75,8 +103,16 @@ export function walkImportDir(root: string, opts: { extensions?: string[] } = {}
       let checkedAbs: string;
       try {
         checkedAbs = checkedImportPath(root, rel);
-      } catch {
-        skipped.push({ sourcePath: rel, reason: "refused: path escapes the import root" });
+      } catch (pathErr) {
+        // Surface the REAL reason (traversal, absolute path, a reserved name like `nul.md`, or a
+        // genuine realpath-containment escape) instead of a single hardcoded "escapes" string —
+        // review finding: `nul.md` and similar were previously all reported as "escapes the
+        // import root", which is simply wrong for a reserved-name refusal.
+        const msg = pathErr instanceof Error ? pathErr.message : String(pathErr);
+        skipped.push({
+          sourcePath: rel,
+          reason: `refused: ${msg.replace(/vault root/g, "import root")}`,
+        });
         continue;
       }
       // readNote (vault/notes-io.ts) — never a hand-rolled readFileSync. It fstats the OPEN fd

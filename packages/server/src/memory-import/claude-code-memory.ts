@@ -56,18 +56,25 @@ export function parseClaudeCodeMemoryFile(raw: string, sourcePath: string): Pars
     metadata && typeof metadata.type === "string" && metadata.type.trim().length > 0
       ? metadata.type.trim()
       : "note";
-  // The stored `observations` column is newline-delimited (memory/entities.ts's
-  // serializeObservations/parseObservations — one observation per LINE), so a multi-line prose
-  // body cannot be passed through verbatim as a single observation: it would round-trip back as
-  // several. Collapse it to one line first.
-  const body = parsed.body.trim().replace(/\s+/g, " ");
-  const observations = body.length > 0 ? [body] : [];
+  // extractLinks runs on the ORIGINAL body (real newlines) — its fence/inline-code detection is
+  // line-based (vault/links.ts's FENCE regex matches only at a line's START), so it would never
+  // see a fence at all once the newlines below are collapsed. inCodeblock links are dropped: a
+  // `[[link]]` inside a fenced/inline code sample is example text, not a real citation.
   const seen = new Set<string>();
   const relations: ParsedRelation[] = [];
-  for (const link of extractLinks(body)) {
-    if (link.kind !== "wikilink" || seen.has(link.target)) continue;
+  for (const link of extractLinks(parsed.body)) {
+    if (link.kind !== "wikilink" || link.inCodeblock || seen.has(link.target)) continue;
     seen.add(link.target);
     relations.push({ relationType: RELATION_TYPE, targetName: link.target });
   }
+  // The stored `observations` column is newline-delimited (memory/entities.ts's
+  // serializeObservations/parseObservations — one observation per LINE), so a multi-line prose
+  // body cannot be passed through verbatim as a single observation: it would round-trip back as
+  // several. Collapse it to one line AFTER extracting links, once fence detection no longer needs
+  // real newlines. NOTE: this flattens headings, list markers, and fenced code into plain prose,
+  // and re-importing an edited fact file APPENDS a new observation rather than replacing the old
+  // one (add_observation has no "supersede" operation) — see the docs page for both caveats.
+  const body = parsed.body.trim().replace(/\s+/g, " ");
+  const observations = body.length > 0 ? [body] : [];
   return { ok: true, entity: { sourcePath, entityType, name, observations, relations } };
 }

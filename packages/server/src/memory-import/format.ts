@@ -21,7 +21,7 @@ function entityRow(e: EntityOutcome): string[] {
   const detail =
     e.action === "create"
       ? `+${e.observationsToAdd} observation(s)`
-      : e.action === "exists"
+      : e.action === "exists" || e.action === "resumed"
         ? `+${e.observationsToAdd} new, ${e.observationsAlready} already present`
         : (e.reason ?? "");
   return [e.action, e.entityType, e.name, e.sourcePath, detail];
@@ -66,6 +66,7 @@ export function formatImportReport(report: ImportReport): string {
 
   const created = report.entities.filter((e) => e.action === "create").length;
   const existing = report.entities.filter((e) => e.action === "exists").length;
+  const resumed = report.entities.filter((e) => e.action === "resumed").length;
   const collisions = report.entities.filter((e) => e.action === "collision");
   const errors = report.entities.filter((e) => e.action === "error");
   const obsToAdd = report.entities.reduce((n, e) => n + e.observationsToAdd, 0);
@@ -76,7 +77,7 @@ export function formatImportReport(report: ImportReport): string {
 
   lines.push(
     `Summary: ${created} entity(ies) to create, ${existing} already present, ` +
-      `${collisions.length} collision(s), ${errors.length} error(s); ` +
+      `${resumed} resumed, ${collisions.length} collision(s), ${errors.length} error(s); ` +
       `${obsToAdd} observation(s) to add, ${obsAlready} already present; ` +
       `${relCreated} relation(s) to create, ${relAlready} already present, ${relSkipped} skipped`,
   );

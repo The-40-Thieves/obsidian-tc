@@ -347,7 +347,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-855 | Captured content is poison-scanned at enqueue, and at commit (#823, #827, THE-855, THE-858). | CHANGELOG.md (1.22.0) | 9 |
 | THE-858 | Captured content is poison-scanned at enqueue, and at commit (#823, #827, THE-855, THE-858). | CHANGELOG.md (1.22.0) | 1 |
 | THE-860 | `/makemd/spaces` no longer silently degrades to an empty list (#837, THE-860). | CHANGELOG.md (1.23.0) | 1 |
-| THE-861 | Client identity now reaches `tools/call` handlers (#834, THE-861). | CHANGELOG.md (1.23.0) | 2 |
+| THE-861 | Client identity now reaches `tools/call` handlers (#834, THE-861). | CHANGELOG.md (1.23.0) | 3 |
 | THE-862 | `client-features.ts`'s `logging/setLevel` comment now matches what the SDK actually does under legacy (#835, THE-862). | CHANGELOG.md (1.23.0) | 2 |
 | THE-891 | Per-key preference scoping — human vs caller (#846, THE-891 item 6). | CHANGELOG.md (1.23.0) | 33 |
 | THE-906 | The boot ready line, `doctor`, the capability profile and `server_health` could all report `native=on` / "native acceleration module loaded" while actually running the pure-JS fallback (THE-906, #858). | CHANGELOG.md (1.23.2) | 4 |
@@ -383,8 +383,9 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098). | CHANGELOG.md (Unreleased) | 5 |
 | THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099). | CHANGELOG.md (Unreleased) | 6 |
 | THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (Unreleased) | 10 |
+| THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (Unreleased) | 13 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (Unreleased) | 12 |
 
-370 distinct ticket(s) across 515 source file(s) under
-`packages/*/src`; 271 resolved to a public summary, 99
+371 distinct ticket(s) across 519 source file(s) under
+`packages/*/src`; 272 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

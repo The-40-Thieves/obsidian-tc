@@ -20,10 +20,15 @@ that row (`serializeObservations`/`parseObservations`) and rendered as one bulle
 is a typed, directed edge in `memory_relations`, rendered as a `[[wikilink]]` under `## Related` on
 the *source* entity's note.
 
-The shape below is a real note, produced by running `create_entity` (with an initial
-observation), `add_observation`, and `link_entities` against a scratch copy of
+The shape below is a real note — specifically, the output of `obsidian-tc memory import --from
+basic-memory --apply` (the importer covered later on this page), which itself calls `create_entity`,
+`update_frontmatter` (the `imported_from`/`source_path`/`imported_at` keys — the importer is what
+adds those, not a bare `create_entity` call), and `link_entities`, in that order — run against a
+scratch copy of
 [`examples/scratch-vault`](https://github.com/The-40-Thieves/obsidian-tc/tree/main/examples/scratch-vault)
-and then reading the file back off disk:
+and then read back off disk. A note you create with `create_entity`/`add_observation` directly (an
+MCP client, not the importer) looks the same MINUS the three `imported_*` keys — those are specific
+to notes the importer touched.
 
 ```md
 ---
@@ -177,30 +182,53 @@ spends its calls on.
 ## Importing memory you already have
 
 `obsidian-tc memory import` brings notes from two other memory formats into this graph, through the
-exact write path above — dry-run by default, `--apply` to write:
+exact write path above — dry-run by default, `--apply` to write. `<dir>` is the source directory;
+`[path]` (or `--config <path>`) is the same config-path argument every other command here takes —
+a bare vault folder, a config file, or omitted to fall back to `OBSIDIAN_TC_CONFIG`:
 
 ```
-obsidian-tc memory import --from basic-memory <dir> --vault <id> [--apply]
-obsidian-tc memory import --from claude-code-memory <dir> --vault <id> [--apply]
+obsidian-tc memory import --from basic-memory <dir> [path] --vault <id> [--apply] [--resume]
+obsidian-tc memory import --from claude-code-memory <dir> [path] --vault <id> [--apply] [--resume]
 ```
+
+Every write goes through the SAME per-vault ACL an MCP client's calls would see — a `readOnly` root
+or a `writePaths` allowlist in the resolved config is enforced, not bypassed, for this command's
+`--vault`. Before touching anything, the command prints where it landed:
+
+```
+vault: /tmp/mi-redemo/vault  cache: /tmp/mi-redemo/cache  mode: dry-run
+no cache yet at /tmp/mi-redemo/cache — first --apply will create it; every entity below would be newly created.
+```
+
+A dry run against a `cacheDir` that does not exist yet opens no database at all (an ephemeral
+in-memory one stands in for "nothing exists yet"); against one that already exists, it opens it
+**read-only** — a dry run never creates or writes to the cache.
 
 | source | one entity per… | name / type from | observations from | relations from |
 |---|---|---|---|---|
-| `basic-memory` | note | frontmatter `title` / `type` | `## Observations` bullets (`- [category] text`) | `## Relations` bullets (`- relation_type [[Target]]`) |
-| `claude-code-memory` | fact file (the index file is skipped) | frontmatter `name` / `metadata.type` | the whole body, as one observation | every `[[link]]` in the body, as a `relates_to` relation |
+| `basic-memory` | note | frontmatter `title` / `type` | `## Observations` bullets (`- [category] text`) | `## Relations` bullets (`- relation_type [[Target]]`); a link inside inline code or a fenced block is ignored (example text, not a real relation) |
+| `claude-code-memory` | fact file (the index file, exactly `MEMORY.md` at `<dir>`'s root, is skipped) | frontmatter `name` / `metadata.type` | the whole body — headings, list markers, and fenced code all flattened — as ONE observation; re-importing an edited fact file **appends** a new observation rather than replacing the old one (`add_observation` has no "supersede" operation) | every `[[link]]` in the body outside code/fences, as a `relates_to` relation |
 
 Every imported note carries `imported_from`/`source_path`/`imported_at` provenance frontmatter
 (merged on, per the round-trip discipline above), and a re-run of `--apply` on the same directory
 is idempotent — it is keyed on `source_path`, not merely on name, so an entity that already exists
-with a **different** `source_path` is refused as a collision rather than silently adopted (the
-same "a path that can overwrite data must be at least as strict as the path that wrote it"
-discipline the vault's own delete paths follow). Files are refused, with a reason, if they are
-symlinked or if their resolved path escapes the import directory — the same containment guarantee
-(`resolveVaultPathChecked`, `packages/server/src/vault/paths.ts`) every vault-relative path write
-already uses.
+with a **different** (or unverifiable) `source_path` is refused as a collision rather than silently
+adopted (the same "a path that can overwrite data must be at least as strict as the path that wrote
+it" discipline the vault's own delete paths follow — collisions are reported AND make the command
+exit non-zero). `--resume` relaxes that refusal, but ONLY for an entity with a row and **zero**
+observations — the exact shape a run interrupted between `create_entity` and its follow-up
+`update_frontmatter` leaves behind — never for one with real content already written. Two source
+files whose `(type, name)` sanitize to the same memory-note path (an outright duplicate title, or
+two different pairs that happen to collide after sanitization) are also a collision, reported at
+PREVIEW time — the first file by `source_path` wins. Files are refused, with a reason, if they are
+symlinked, dot-prefixed, or if their resolved path escapes the import directory — the same
+containment guarantee (`resolveVaultPathChecked`, `packages/server/src/vault/paths.ts`) every
+vault-relative path write already uses — and a missing, unreadable, or not-a-directory `<dir>`
+fails immediately rather than reporting an empty (and misleadingly successful-looking) import.
 
 Real dry-run output against the `basic-memory` fixture above (one note references a target that
-does not exist in the batch, and one file has deliberately malformed frontmatter):
+does not exist in the batch, and one file has deliberately malformed frontmatter) — the banner
+lines above are followed by:
 
 ```
 obsidian-tc memory import --from basic-memory: DRY RUN (nothing was written; pass --apply to write)
@@ -219,7 +247,7 @@ Coffee Brewing Methods  relates_to      Tea Brewing Methods        planned
 Coffee Brewing Methods  requires        Proper Grinding Technique  skipped  relation target not found: Proper Grinding Technique
 Tea Brewing Methods     contrasts_with  Coffee Brewing Methods     planned
 
-Summary: 3 entity(ies) to create, 0 already present, 0 collision(s), 0 error(s); 4 observation(s) to add, 0 already present; 2 relation(s) to create, 0 already present, 1 skipped
+Summary: 3 entity(ies) to create, 0 already present, 0 resumed, 0 collision(s), 0 error(s); 4 observation(s) to add, 0 already present; 2 relation(s) to create, 0 already present, 1 skipped
 
 Skipped files:
 source_path         reason
@@ -227,6 +255,8 @@ source_path         reason
 notes/malformed.md  malformed frontmatter: frontmatter is not valid YAML in "notes/malformed.md": Flow sequence in block collection must be sufficiently indented and end with a ] at line 2, column 1:
 ```
 
+`--apply` runs the same plan for real (`mode: apply` in the banner, and `create` becomes an actual
+write — `Coffee Brewing Methods  relates_to  Tea Brewing Methods  created` instead of `planned`).
 Re-running with `--apply` a second time reports the same set as already present, not duplicated:
 
 ```
@@ -237,7 +267,7 @@ exists  note  Coffee Brewing Methods  notes/coffee-brewing.md        +0 new, 2 a
 exists  note  plain-no-frontmatter    notes/plain-no-frontmatter.md  +0 new, 1 already present
 exists  note  Tea Brewing Methods     notes/tea-brewing.md           +0 new, 1 already present
 
-Summary: 0 entity(ies) to create, 3 already present, 0 collision(s), 0 error(s); 0 observation(s) to add, 4 already present; 0 relation(s) to create, 2 already present, 1 skipped
+Summary: 0 entity(ies) to create, 3 already present, 0 resumed, 0 collision(s), 0 error(s); 0 observation(s) to add, 4 already present; 0 relation(s) to create, 2 already present, 1 skipped
 ```
 
 ## Session-bootstrap recipe

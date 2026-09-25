@@ -24,6 +24,7 @@
 // already handles aliases/headings/blocks so a `[[Target|alias]]` or `[[Target#heading]]` relation
 // resolves to the bare target the same way the vault's own link graph does.
 
+import { sectionBullets } from "../memory/materialize";
 import { isFrontmatterYamlError, parseNote } from "../vault/frontmatter";
 import { extractLinks } from "../vault/links";
 import type { ParsedRelation, ParseFileResult } from "./types";
@@ -32,31 +33,17 @@ function basename(sourcePath: string): string {
   return sourcePath.split("/").pop() ?? sourcePath;
 }
 
-/** Bullet lines under `## <heading>` (case-insensitive singular/plural — basic-memory's own docs
- *  use "Observations"/"Relations", both plural), stopping at the next heading. Returns the raw
- *  bullet text (everything after `- `), same convention memory/materialize.ts's own
- *  sectionBullets uses for the entity-note round trip. */
-function sectionLines(body: string, heading: string): string[] {
-  const lines = body.split(/\r?\n/);
-  const want = `## ${heading}`.toLowerCase();
-  const start = lines.findIndex((l) => l.trim().toLowerCase() === want);
-  if (start < 0) return [];
-  const out: string[] = [];
-  for (let i = start + 1; i < lines.length; i++) {
-    const l = lines[i] ?? "";
-    if (/^#{1,6}\s+/.test(l)) break;
-    const m = /^\s*-\s+(.*\S)\s*$/.exec(l);
-    if (m?.[1]) out.push(m[1]);
-  }
-  return out;
-}
-
+/** A `- relation_type [[Target]]` bullet -> a relation, or null when the line carries no
+ *  `relation_type` text before the link (a bare `- [[Target]]` with nothing to type it) or the
+ *  link is inside inline code / a fenced block (extractLinks still reports these, flagged
+ *  `inCodeblock`, so the caller decides — a link inside a code sample is example text, not a
+ *  real relation to create). */
 function parseRelationLine(line: string): ParsedRelation | null {
   const linkStart = line.indexOf("[[");
   if (linkStart < 0) return null;
   const relationType = line.slice(0, linkStart).trim();
   if (!relationType) return null;
-  const link = extractLinks(line).find((l) => l.kind === "wikilink");
+  const link = extractLinks(line).find((l) => l.kind === "wikilink" && !l.inCodeblock);
   if (!link) return null;
   return { relationType, targetName: link.target };
 }
@@ -77,8 +64,11 @@ export function parseBasicMemoryFile(raw: string, sourcePath: string): ParseFile
   if (!name) return { ok: false, reason: "no title and no usable filename" };
   const entityType =
     typeof fm.type === "string" && fm.type.trim().length > 0 ? fm.type.trim() : "note";
-  const observations = sectionLines(parsed.body, "Observations");
-  const relations = sectionLines(parsed.body, "Relations")
+  // sectionBullets is memory/materialize.ts's own `## <heading>` bullet parser, reused verbatim
+  // (not re-derived) — basic-memory's note format uses the same `## Observations` / `- bullet`
+  // shape as the entity notes this importer writes.
+  const observations = sectionBullets(parsed.body, "Observations");
+  const relations = sectionBullets(parsed.body, "Relations")
     .map(parseRelationLine)
     .filter((r): r is ParsedRelation => r !== null);
   return { ok: true, entity: { sourcePath, entityType, name, observations, relations } };

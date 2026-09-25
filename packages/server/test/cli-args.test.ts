@@ -1155,6 +1155,24 @@ describe("THE-1124 — parseCliArgs memory import", () => {
       parseCliArgs(["memory", "import", "--from", "basic-memory", "/tmp/notes", "--vault"]),
     ).toStrictEqual({ kind: "error", message: "--vault requires a value" });
   });
+
+  it("carries --resume through as a boolean, omitted when absent", () => {
+    expect(
+      parseCliArgs([
+        "memory",
+        "import",
+        "--from",
+        "basic-memory",
+        "/tmp/notes",
+        "--vault",
+        "main",
+        "--resume",
+      ]),
+    ).toMatchObject({ resume: true });
+    expect(
+      parseCliArgs(["memory", "import", "--from", "basic-memory", "/tmp/notes", "--vault", "main"]),
+    ).not.toHaveProperty("resume");
+  });
 });
 
 describe("parseCliArgs — note-quality --suggest (THE-643)", () => {

@@ -8,6 +8,7 @@
 // parseEntityNote reads a note back (frontmatter + observations + [[link]] targets)
 // for graph-integrity checks; it relies on the shared extractLinks parser, so aliases
 // ([[a|b]]), headings ([[a#h]]) and blocks ([[a#^id]]) all resolve to the bare target.
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { enforcePathAcl } from "../vault/acl-path";
 import { type Frontmatter, parseNote, serializeNote } from "../vault/frontmatter";
@@ -114,6 +115,19 @@ export interface MaterializeInput {
  * Write (or rewrite) an entity's materialized note. Reads any existing note first so
  * its unknown frontmatter survives the rewrite; the body is regenerated from SQLite.
  * Path-safe (resolveVaultPath containment) + ACL-checked (enforcePathAcl write).
+ *
+ * Ownership check (review finding, data-loss class): a note already sitting at the target path
+ * whose `obsidian_tc_id` is MISSING or DIFFERENT from `input.id` is refused, not silently
+ * overwritten. Before this check, `create_entity` for a (type, name) that happened to collide
+ * with a hand-written note — or with an orphaned note left behind by a different, unrelated
+ * entity that once sanitized to the same path — kept only that note's frontmatter and threw away
+ * its ENTIRE BODY, because the body is always fully regenerated from SQLite. `input.id` is the
+ * entity actually being written at every call site (memory-projection.ts's rematerialize/
+ * materializeProjection always pass the row's own id, freshly generated on create), so this check
+ * cannot false-positive on an entity re-materializing its own note — only ever on a genuine
+ * foreign note at that exact path. Callers that insert a DB row before calling this (create_entity,
+ * link_entities) must roll that row back on this throw, so refusing to materialize never leaves an
+ * orphan SQL row behind either — see those handlers' own try/catch.
  */
 export function materializeEntity(input: MaterializeInput): {
   vaultPath: string;
@@ -124,7 +138,22 @@ export function materializeEntity(input: MaterializeInput): {
   enforcePathAcl(input.acl, "write", rel, input.root, input.grantedScopes);
   let preserved: Frontmatter | null = null;
   const ex = noteExists(abs);
-  if (ex.exists && ex.type === "file") preserved = parseNote(readNote(abs).raw, rel).frontmatter;
+  if (ex.exists && ex.type === "file") {
+    preserved = parseNote(readNote(abs).raw, rel).frontmatter;
+    const existingId =
+      preserved && typeof preserved.obsidian_tc_id === "string" ? preserved.obsidian_tc_id : null;
+    if (existingId !== input.id) {
+      throw err.noteExists(
+        "refusing to materialize over a note this entity does not own " +
+          "(its obsidian_tc_id is missing or belongs to a different entity)",
+        {
+          path: rel,
+          entity_id: input.id,
+          ...(existingId ? { existing_owner_id: existingId } : {}),
+        },
+      );
+    }
+  }
   const content = renderEntityNote({ ...input, preserved });
   writeNoteAtomic(abs, content, true);
   return { vaultPath: rel, contentHash: contentHash(content) };
@@ -141,7 +170,12 @@ export interface ParsedEntityNote {
   relatedTargets: string[];
 }
 
-function sectionBullets(body: string, heading: string): string[] {
+/** Bullet lines under `## <heading>` (case-insensitive), stopping at the next heading; the
+ *  literal "_No observations._"/"_No relations._" placeholders renderEntityNote itself emits are
+ *  filtered out. Exported for memory-import/basic-memory.ts to reuse — basic-memory's own note
+ *  format uses the same `## Observations` / `- bullet` shape (see NOTE-FORMAT.md), and re-deriving
+ *  this parser there would drift from this one's exact heading-match / next-heading-stop rules. */
+export function sectionBullets(body: string, heading: string): string[] {
   const lines = body.split(/\r?\n/);
   const want = `## ${heading}`.toLowerCase();
   let i = lines.findIndex((l) => l.trim().toLowerCase() === want);

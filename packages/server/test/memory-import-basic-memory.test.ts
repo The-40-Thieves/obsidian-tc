@@ -147,7 +147,7 @@ describe("memory import — basic-memory adapter", () => {
     }
   });
 
-  it("refuses to touch an entity that already exists with a different source_path (collision)", async () => {
+  it("refuses to touch an entity that already exists with NO verifiable provenance (collision)", async () => {
     const h = makeMemoryImportHarness();
     try {
       // Plant an entity at the same (type, name) the fixture would import, but with no
@@ -171,6 +171,120 @@ describe("memory import — basic-memory adapter", () => {
       const coffee = report.entities.find((e) => e.name === "Coffee Brewing Methods");
       expect(coffee?.action).toBe("collision");
       expect(coffee?.reason).toContain("no verifiable import provenance");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("refuses to touch an entity that already exists with a DIFFERENT source_path (real mismatch, not just unverifiable)", async () => {
+    const h = makeMemoryImportHarness();
+    try {
+      // Plant an entity at the same (type, name), THIS time with real (but different)
+      // provenance — as if a PRIOR, unrelated import already claimed this (type, name).
+      const created = await h.dispatch("create_entity", {
+        vault: "test",
+        type: "note",
+        name: "Coffee Brewing Methods",
+        materialize: true,
+      });
+      expect(created.ok).toBe(true);
+      const createdData = created.ok ? (created.data as { vault_path: string }) : null;
+      const fm = await h.dispatch("update_frontmatter", {
+        vault: "test",
+        path: createdData?.vault_path,
+        operation: "merge",
+        properties: {
+          imported_from: "basic-memory",
+          source_path: "some/other/note.md",
+          imported_at: "2025-01-01T00:00:00.000Z",
+        },
+      });
+      expect(fm.ok).toBe(true);
+
+      const parsed = buildParsedSource(FIXTURE_ROOT, "basic-memory");
+      const report = await applyImport(parsed, {
+        vault: "test",
+        adapter: "basic-memory",
+        dispatch: h.dispatch,
+        applied: true,
+        now: () => "2026-01-01T00:00:00.000Z",
+      });
+      const coffee = report.entities.find((e) => e.name === "Coffee Brewing Methods");
+      expect(coffee?.action).toBe("collision");
+      expect(coffee?.reason).toContain("different source_path");
+      expect(coffee?.reason).not.toContain("no verifiable");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("--resume continues an entity with a row but no observations and no provenance (interrupted first run)", async () => {
+    const h = makeMemoryImportHarness();
+    try {
+      // Simulate a run that got as far as create_entity but crashed before its
+      // update_frontmatter — a real row, ZERO observations, no source_path.
+      const created = await h.dispatch("create_entity", {
+        vault: "test",
+        type: "note",
+        name: "Coffee Brewing Methods",
+        materialize: true,
+      });
+      expect(created.ok).toBe(true);
+
+      const parsed = buildParsedSource(FIXTURE_ROOT, "basic-memory");
+      const withoutResume = await applyImport(parsed, {
+        vault: "test",
+        adapter: "basic-memory",
+        dispatch: h.dispatch,
+        applied: true,
+        now: () => "2026-01-01T00:00:00.000Z",
+      });
+      expect(withoutResume.entities.find((e) => e.name === "Coffee Brewing Methods")?.action).toBe(
+        "collision",
+      );
+
+      const withResume = await applyImport(parsed, {
+        vault: "test",
+        adapter: "basic-memory",
+        dispatch: h.dispatch,
+        applied: true,
+        resume: true,
+        now: () => "2026-01-02T00:00:00.000Z",
+      });
+      const coffee = withResume.entities.find((e) => e.name === "Coffee Brewing Methods");
+      expect(coffee?.action).toBe("resumed");
+      expect(coffee?.observationsToAdd).toBe(2);
+      const note = h.read("memory/note/Coffee Brewing Methods.md");
+      expect(note).toContain("source_path: notes/coffee-brewing.md");
+      expect(note).toContain("- [method] Pour over provides more flavor clarity than French press");
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("--resume does NOT relax refusal once the entity has real observations", async () => {
+    const h = makeMemoryImportHarness();
+    try {
+      const created = await h.dispatch("create_entity", {
+        vault: "test",
+        type: "note",
+        name: "Coffee Brewing Methods",
+        materialize: true,
+        observations: ["someone else's note, not from this import"],
+      });
+      expect(created.ok).toBe(true);
+
+      const parsed = buildParsedSource(FIXTURE_ROOT, "basic-memory");
+      const report = await applyImport(parsed, {
+        vault: "test",
+        adapter: "basic-memory",
+        dispatch: h.dispatch,
+        applied: true,
+        resume: true,
+        now: () => "2026-01-01T00:00:00.000Z",
+      });
+      const coffee = report.entities.find((e) => e.name === "Coffee Brewing Methods");
+      expect(coffee?.action).toBe("collision");
     } finally {
       h.cleanup();
     }

@@ -8,7 +8,10 @@
 // provenance (imported_from/source_path/imported_at) is layered on with a SECOND sanctioned
 // call, update_frontmatter (operation: "merge") — which materialize.ts's round-trip discipline
 // then PRESERVES on every subsequent re-materialization (add_observation, link_entities), the
-// same as any other unknown frontmatter key.
+// same as any other unknown frontmatter key. Every observation a NEW entity carries is passed to
+// create_entity's own `observations` array at creation time (one call, one render) rather than a
+// separate add_observation per fact — avoids create-then-N-appends' O(n) re-materializations for
+// n observations (review finding: 1,000 observations measured at 7.8s, 4,000 at 43s the old way).
 //
 // Idempotency keys on source_path, not on (type, name) alone: a re-run that finds an entity
 // already at that (type, name) reads its `source_path` frontmatter back (read_frontmatter) before
@@ -18,6 +21,15 @@
 // verifiable provenance at all (unmaterialized entity, or one nothing has ever imported before),
 // is refused as a COLLISION rather than silently adopted — [[feedback-delete-path-as-strict-as-write-path]]:
 // a path that can overwrite someone else's data must be at least as strict as the path that wrote it.
+// The one exception is `--resume`: an entity with a row and ZERO observations and unverifiable
+// provenance is exactly what a run interrupted between create_entity and its update_frontmatter
+// call leaves behind, so `--resume` (never the default) treats it as ours and retries the
+// frontmatter write, rather than requiring the operator to hand-delete the orphaned row.
+//
+// Every dispatch result is checked. A failed add_observation, update_frontmatter, or link_entities
+// call is recorded as an error against that entity/relation and stops further work on it — none of
+// them are fire-and-forget (review finding: a discarded failure used to report success with the
+// entity then permanently unresumable, having "no verifiable import provenance").
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import type { ImportAdapterName, ParsedEntity, ParsedRelation, SkippedFile } from "./types";
 
@@ -32,7 +44,7 @@ export interface EntityOutcome {
   sourcePath: string;
   entityType: string;
   name: string;
-  action: "create" | "exists" | "collision" | "error";
+  action: "create" | "exists" | "resumed" | "collision" | "error";
   reason?: string;
   observationsToAdd: number;
   observationsAlready: number;
@@ -43,8 +55,9 @@ export interface ImportReport {
   adapter: ImportAdapterName;
   applied: boolean;
   entities: EntityOutcome[];
-  /** Parse-time skips (walk refusals, malformed frontmatter, the index file) — distinct from a
-   *  per-entity apply-time collision/error, which lives on that entity's EntityOutcome instead. */
+  /** Parse-time skips (walk refusals, malformed frontmatter, the index file, sanitized-name
+   *  collisions caught at plan time) — distinct from a per-entity apply-time collision/error,
+   *  which lives on that entity's EntityOutcome instead. */
   skipped: SkippedFile[];
 }
 
@@ -54,6 +67,22 @@ function errMessage(r: ToolResult): string {
 
 function isAlreadyExists(r: ToolResult): boolean {
   return !r.ok && r.error.code === "invalid_input" && /already exists/i.test(r.error.message);
+}
+
+async function setProvenance(
+  dispatch: Dispatch,
+  vault: string,
+  adapter: ImportAdapterName,
+  vaultPath: string,
+  sourcePath: string,
+  importedAt: string,
+): Promise<ToolResult> {
+  return dispatch("update_frontmatter", {
+    vault,
+    path: vaultPath,
+    operation: "merge",
+    properties: { imported_from: adapter, source_path: sourcePath, imported_at: importedAt },
+  });
 }
 
 interface ExistingEntity {
@@ -110,69 +139,107 @@ async function sourcePathMatches(
   return existing === sourcePath;
 }
 
+function baseOutcome(e: ParsedEntity): EntityOutcome {
+  return {
+    sourcePath: e.sourcePath,
+    entityType: e.entityType,
+    name: e.name,
+    action: "create",
+    observationsToAdd: 0,
+    observationsAlready: 0,
+    relations: [],
+  };
+}
+
+interface ResolveResult {
+  outcome: EntityOutcome;
+  /** Set only when the entity is usable as a relation source/target THIS run — absent for
+   *  collision/error, so batchIds/batchNames (applyImport's relation-phase bookkeeping) can gate
+   *  on presence alone rather than re-checking `outcome.action`. */
+  entityId?: string;
+  existingObservations: Set<string>;
+  existingOutRelations: Set<string>;
+}
+
 async function resolveEntity(
   dispatch: Dispatch,
   vault: string,
   adapter: ImportAdapterName,
   e: ParsedEntity,
   applied: boolean,
+  resume: boolean,
   importedAt: string,
-): Promise<{
-  outcome: EntityOutcome;
-  entityId: string | undefined;
-  existingObservations: Set<string>;
-  existingOutRelations: Set<string>;
-}> {
+): Promise<ResolveResult> {
   const found = await readExistingEntity(dispatch, vault, e.entityType, e.name);
   if (found.found) {
     const match = await sourcePathMatches(dispatch, vault, found.entity.vaultPath, e.sourcePath);
-    if (match !== true) {
+    if (match === true) {
       return {
-        outcome: {
-          sourcePath: e.sourcePath,
-          entityType: e.entityType,
-          name: e.name,
-          action: "collision",
-          reason:
-            match === false
-              ? `entity ${e.entityType}/${e.name} already exists with a different source_path`
-              : `entity ${e.entityType}/${e.name} already exists with no verifiable import provenance`,
-          observationsToAdd: 0,
-          observationsAlready: 0,
-          relations: [],
-        },
-        entityId: undefined,
-        existingObservations: new Set(),
-        existingOutRelations: new Set(),
+        outcome: { ...baseOutcome(e), action: "exists" },
+        entityId: found.entity.entityId,
+        existingObservations: found.entity.observations,
+        existingOutRelations: found.entity.outRelations,
+      };
+    }
+    // `--resume`: only for the exact shape an interrupted first run leaves — the row exists, no
+    // observations were ever added (create_entity's initial batch never landed, or this run
+    // itself is what's about to add them for the first time), and provenance is unverifiable
+    // (never a CONFIRMED mismatch — `match === false` is a real foreign entity, resume never
+    // overrides that).
+    const resumable = resume && match === undefined && found.entity.observations.size === 0;
+    if (resumable) {
+      if (applied && found.entity.vaultPath) {
+        const fm = await setProvenance(
+          dispatch,
+          vault,
+          adapter,
+          found.entity.vaultPath,
+          e.sourcePath,
+          importedAt,
+        );
+        if (!fm.ok) {
+          return {
+            outcome: {
+              ...baseOutcome(e),
+              action: "error",
+              reason: `--resume: could not set provenance frontmatter: ${errMessage(fm)}`,
+            },
+            existingObservations: new Set(),
+            existingOutRelations: new Set(),
+          };
+        }
+      }
+      return {
+        outcome: { ...baseOutcome(e), action: "resumed" },
+        entityId: found.entity.entityId,
+        existingObservations: found.entity.observations,
+        existingOutRelations: found.entity.outRelations,
       };
     }
     return {
       outcome: {
-        sourcePath: e.sourcePath,
-        entityType: e.entityType,
-        name: e.name,
-        action: "exists",
-        observationsToAdd: 0,
-        observationsAlready: 0,
-        relations: [],
+        ...baseOutcome(e),
+        action: "collision",
+        reason:
+          match === false
+            ? `entity ${e.entityType}/${e.name} already exists with a different source_path`
+            : `entity ${e.entityType}/${e.name} already exists with no verifiable import provenance` +
+              (resume
+                ? " (not resumable: it already has observations)"
+                : " (pass --resume if this is an interrupted prior run that never added any observations)"),
       },
-      entityId: found.entity.entityId,
-      existingObservations: found.entity.observations,
-      existingOutRelations: found.entity.outRelations,
+      existingObservations: new Set(),
+      existingOutRelations: new Set(),
     };
   }
   if (!applied) {
     return {
       outcome: {
-        sourcePath: e.sourcePath,
-        entityType: e.entityType,
-        name: e.name,
+        ...baseOutcome(e),
         action: "create",
-        observationsToAdd: 0,
+        observationsToAdd: e.observations.length,
         observationsAlready: 0,
-        relations: [],
       },
-      entityId: undefined,
       existingObservations: new Set(),
       existingOutRelations: new Set(),
     };
@@ -182,22 +249,14 @@ async function resolveEntity(
     type: e.entityType,
     name: e.name,
     materialize: true,
+    ...(e.observations.length > 0 ? { observations: e.observations } : {}),
   });
   if (!createRes.ok && isAlreadyExists(createRes)) {
-    // Lost a create-vs-create race (or a prior partial run committed the row but not the
-    // frontmatter merge below) — re-resolve as "exists" instead of failing the whole entity.
+    // Lost a create-vs-create race — re-resolve as "exists" instead of failing the whole entity.
     const retry = await readExistingEntity(dispatch, vault, e.entityType, e.name);
     if (retry.found) {
       return {
-        outcome: {
-          sourcePath: e.sourcePath,
-          entityType: e.entityType,
-          name: e.name,
-          action: "exists",
-          observationsToAdd: 0,
-          observationsAlready: 0,
-          relations: [],
-        },
+        outcome: { ...baseOutcome(e), action: "exists" },
         entityId: retry.entity.entityId,
         existingObservations: retry.entity.observations,
         existingOutRelations: retry.entity.outRelations,
@@ -206,42 +265,51 @@ async function resolveEntity(
   }
   if (!createRes.ok) {
     return {
-      outcome: {
-        sourcePath: e.sourcePath,
-        entityType: e.entityType,
-        name: e.name,
-        action: "error",
-        reason: errMessage(createRes),
-        observationsToAdd: 0,
-        observationsAlready: 0,
-        relations: [],
-      },
-      entityId: undefined,
+      outcome: { ...baseOutcome(e), action: "error", reason: errMessage(createRes) },
       existingObservations: new Set(),
       existingOutRelations: new Set(),
     };
   }
   const created = createRes.data as { entity_id: string; vault_path: string | null };
   if (created.vault_path) {
-    await dispatch("update_frontmatter", {
+    const fm = await setProvenance(
+      dispatch,
       vault,
-      path: created.vault_path,
-      operation: "merge",
-      properties: { imported_from: adapter, source_path: e.sourcePath, imported_at: importedAt },
-    });
+      adapter,
+      created.vault_path,
+      e.sourcePath,
+      importedAt,
+    );
+    // Review finding: this result was previously discarded — a failure here left a real,
+    // observation-bearing entity permanently reported as "no verifiable import provenance" on
+    // every future run, with no way forward short of --resume (which this entity now qualifies
+    // for, since its observations are non-empty... except --resume explicitly requires ZERO
+    // observations, so a failure here with real content already written is NOT resumable by
+    // design — it needs an operator's attention, which is exactly what surfacing it as an error
+    // gives them, instead of a silently-successful "create" outcome).
+    if (!fm.ok) {
+      return {
+        outcome: {
+          ...baseOutcome(e),
+          action: "error",
+          reason: `entity created, but provenance frontmatter could not be set: ${errMessage(fm)}`,
+        },
+        existingObservations: new Set(),
+        existingOutRelations: new Set(),
+      };
+    }
   }
   return {
     outcome: {
-      sourcePath: e.sourcePath,
-      entityType: e.entityType,
-      name: e.name,
+      ...baseOutcome(e),
       action: "create",
-      observationsToAdd: 0,
+      observationsToAdd: e.observations.length,
       observationsAlready: 0,
-      relations: [],
     },
     entityId: created.entity_id,
-    existingObservations: new Set(),
+    // All of e's observations were already included in create_entity's own call above — the
+    // relation phase / a future re-run's diff must see them as already present, not re-add them.
+    existingObservations: new Set(e.observations),
     existingOutRelations: new Set(),
   };
 }
@@ -251,6 +319,9 @@ export interface ApplyImportOptions {
   adapter: ImportAdapterName;
   dispatch: Dispatch;
   applied: boolean;
+  /** See resolveEntity's own comment: relaxes the provenance-collision refusal, but ONLY for an
+   *  existing entity with zero observations. Never implied by `applied` alone. */
+  resume?: boolean;
   /** ISO 8601 instant stamped as `imported_at`; injectable for deterministic tests. */
   now?: () => string;
 }
@@ -261,11 +332,10 @@ export async function applyImport(
 ): Promise<ImportReport> {
   const importedAt = (opts.now ?? (() => new Date().toISOString()))();
   const entityOutcomes: EntityOutcome[] = [];
-  // Every name this batch successfully resolved (created OR already-existing), independent of
-  // dry-run — a dry-run "create" has no real id yet but IS a valid relation target for the
-  // PREVIEW (the entity would exist by the time --apply runs the relation pass). `batchIds` holds
-  // the real id, only ever populated when one exists (always for "exists"; for "create" only
-  // once --apply actually ran create_entity).
+  // Every name this batch successfully resolved (created OR already-existing OR resumed),
+  // independent of dry-run — a dry-run "create" has no real id yet but IS a valid relation target
+  // for the PREVIEW (the entity would exist by the time --apply runs the relation pass).
+  // `batchIds` holds the real id, only ever populated when one exists.
   const batchNames = new Set<string>();
   const batchIds = new Map<string, string>();
   const perEntityState = new Map<
@@ -280,22 +350,47 @@ export async function applyImport(
       opts.adapter,
       e,
       opts.applied,
+      !!opts.resume,
       importedAt,
     );
     if (outcome.action === "collision" || outcome.action === "error") {
       entityOutcomes.push(outcome);
       continue;
     }
-    const toAdd = e.observations.filter((o) => !existingObservations.has(o));
-    outcome.observationsToAdd = toAdd.length;
-    outcome.observationsAlready = e.observations.length - toAdd.length;
-    if (opts.applied && entityId) {
-      for (const o of toAdd)
-        await opts.dispatch("add_observation", {
-          vault: opts.vault,
-          entity_id: entityId,
-          observation: o,
-        });
+    // "create" already carries every observation via create_entity's own call (resolveEntity) —
+    // only "exists"/"resumed" have a real diff-and-append to do here.
+    if (outcome.action !== "create") {
+      const toAdd = e.observations.filter((o) => !existingObservations.has(o));
+      outcome.observationsToAdd = toAdd.length;
+      outcome.observationsAlready = e.observations.length - toAdd.length;
+      if (opts.applied && entityId) {
+        let failed: ToolResult | null = null;
+        let added = 0;
+        for (const o of toAdd) {
+          const r = await opts.dispatch("add_observation", {
+            vault: opts.vault,
+            entity_id: entityId,
+            observation: o,
+          });
+          if (!r.ok) {
+            failed = r;
+            break;
+          }
+          added++;
+        }
+        if (failed) {
+          // Stop work on this entity — do not proceed to its relations, do not let it become a
+          // valid relation TARGET this run (an observation write failed mid-batch; its state is
+          // no longer what the plan assumed). Non-zero exit is the caller's (cli/commands/
+          // memory-import.ts) responsibility, gated on any "error" outcome being present.
+          outcome.action = "error";
+          outcome.reason = `add_observation failed after ${added}/${toAdd.length}: ${errMessage(failed)}`;
+          outcome.observationsToAdd = toAdd.length - added;
+          outcome.observationsAlready = e.observations.length - (toAdd.length - added);
+          entityOutcomes.push(outcome);
+          continue;
+        }
+      }
     }
     batchNames.add(e.name);
     if (entityId) batchIds.set(e.name, entityId);

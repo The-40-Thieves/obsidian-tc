@@ -55,13 +55,14 @@
     <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
     <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
     <text x="90" y="19" class="panel-title">2 · session one — --apply writes for real</text>
-    <text x="16" y="56" class="prompt">$ <tspan class="cmd">obsidian-tc memory import --from \</tspan></text>
-    <text x="34" y="74" class="cmd">basic-memory ./notes --vault main --apply</text>
-    <text x="16" y="98" class="out">APPLY (writes were made)</text>
-    <text x="16" y="120" class="ok">create note Coffee Brewing Methods +2 obs</text>
-    <text x="16" y="140" class="ok">create note Tea Brewing Methods    +1 obs</text>
-    <text x="16" y="164" class="ok">relates_to Coffee -&gt; Tea: created</text>
-    <text x="16" y="186" class="out">3 entity(ies) created, 4 observation(s) added</text>
+    <text x="16" y="52" class="prompt">$ <tspan class="cmd">obsidian-tc memory import --from \</tspan></text>
+    <text x="34" y="70" class="cmd">basic-memory ./notes cfg.json --vault main --apply</text>
+    <text x="16" y="92" class="out">mode: apply</text>
+    <text x="16" y="110" class="out">APPLY (writes were made)</text>
+    <text x="16" y="132" class="ok">create note Coffee Brewing Methods +2 obs</text>
+    <text x="16" y="150" class="ok">relates_to Coffee -&gt; Tea: created</text>
+    <text x="16" y="174" class="out">Summary: 3 entity(ies) to create, 0 already</text>
+    <text x="16" y="192" class="out">present, 0 resumed, 0 collision(s), 0 error(s)</text>
   </g>
 
   <!-- Panel 3: cat the note -->

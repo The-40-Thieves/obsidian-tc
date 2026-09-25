@@ -4,11 +4,15 @@
 // (checkedImportPath, backed by vault/paths.ts's resolveVaultPathChecked — see
 // [[feedback-delete-path-as-strict-as-write-path]]: a new read path over caller-supplied files
 // must reuse the write path's own containment guarantee, not a weaker ad hoc one).
-import { linkSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkedImportPath, walkImportDir } from "../src/memory-import/walk";
+import {
+  assertImportRootUsable,
+  checkedImportPath,
+  walkImportDir,
+} from "../src/memory-import/walk";
 import { rmTemp } from "./tmp";
 
 // Same capability probe vault-watcher.test.ts / server-runtime.test.ts use: creating a symlink
@@ -38,19 +42,63 @@ describe("walkImportDir", () => {
     }
   });
 
-  it("skips dot-directories and dot-files", () => {
+  it("does not recurse into dot-directories or read dot-files, and REPORTS both (not silent)", () => {
     const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-dot-"));
     try {
       mkdirSync(join(root, ".git"), { recursive: true });
       writeFileSync(join(root, ".git", "config.md"), "nope");
       writeFileSync(join(root, ".hidden.md"), "nope");
       writeFileSync(join(root, "visible.md"), "yes");
-      const { files } = walkImportDir(root, { extensions: [".md"] });
+      const { files, skipped } = walkImportDir(root, { extensions: [".md"] });
       expect(files.map((f) => f.sourcePath)).toStrictEqual(["visible.md"]);
+      expect(skipped).toStrictEqual([
+        { sourcePath: ".git", reason: "refused: dot-prefixed (ignored)" },
+        { sourcePath: ".hidden.md", reason: "refused: dot-prefixed (ignored)" },
+      ]);
     } finally {
       rmTemp(root);
     }
   });
+
+  it("reports a reserved Windows filename with its true reason, not a generic 'escapes' string", () => {
+    const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-reserved-"));
+    try {
+      writeFileSync(join(root, "nul.md"), "content");
+      const { skipped } = walkImportDir(root, { extensions: [".md"] });
+      expect(skipped).toHaveLength(1);
+      expect(skipped[0]?.sourcePath).toBe("nul.md");
+      expect(skipped[0]?.reason).toContain("reserved");
+      expect(skipped[0]?.reason).not.toContain("escapes");
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  // root (common in CI containers) ignores directory permission bits entirely, so a chmod 000
+  // probe would silently read through and the test would assert nothing real — skip rather than
+  // false-pass, the same shape symlinkOk's capability probe uses above.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an unreadable sub-directory against its own path, not silently",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-unreadable-"));
+      try {
+        mkdirSync(join(root, "locked"));
+        writeFileSync(join(root, "locked", "a.md"), "a");
+        chmodSync(join(root, "locked"), 0o000);
+        try {
+          const { files, skipped } = walkImportDir(root, { extensions: [".md"] });
+          expect(files).toStrictEqual([]);
+          expect(
+            skipped.some((s) => s.sourcePath === "locked" && /unreadable/.test(s.reason)),
+          ).toBe(true);
+        } finally {
+          chmodSync(join(root, "locked"), 0o755);
+        }
+      } finally {
+        rmTemp(root);
+      }
+    },
+  );
 
   it.skipIf(!symlinkOk)("refuses a symlinked file with a reason, does not read through it", () => {
     const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-symlink-"));
@@ -101,6 +149,55 @@ describe("walkImportDir", () => {
     } finally {
       rmTemp(root);
     }
+  });
+});
+
+describe("assertImportRootUsable", () => {
+  it("throws a clear error for a missing directory (never a silent empty walk)", () => {
+    expect(() => assertImportRootUsable(join(tmpdir(), "obtc-mi-does-not-exist-xyz"))).toThrow(
+      /does not exist/,
+    );
+  });
+
+  it("throws for a path that is a file, not a directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "obtc-mi-notdir-"));
+    try {
+      const file = join(root, "not-a-dir.md");
+      writeFileSync(file, "x");
+      expect(() => assertImportRootUsable(file)).toThrow(/not a directory/);
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  it.skipIf(!symlinkOk)("throws when the import root ITSELF is a symlink", () => {
+    const outside = mkdtempSync(join(tmpdir(), "obtc-mi-rootsym-outside-"));
+    const root = mkdtempSync(join(tmpdir(), "obtc-mi-rootsym-"));
+    const link = join(root, "link");
+    try {
+      symlinkSync(outside, link, "dir");
+      expect(() => assertImportRootUsable(link)).toThrow(/symlink/);
+    } finally {
+      rmTemp(root);
+      rmTemp(outside);
+    }
+  });
+
+  it("does not throw for a real, existing directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "obtc-mi-rootok-"));
+    try {
+      expect(() => assertImportRootUsable(root)).not.toThrow();
+    } finally {
+      rmTemp(root);
+    }
+  });
+});
+
+describe("walkImportDir — root validation", () => {
+  it("propagates assertImportRootUsable's throw instead of returning an empty result", () => {
+    expect(() => walkImportDir(join(tmpdir(), "obtc-mi-does-not-exist-xyz"))).toThrow(
+      /does not exist/,
+    );
   });
 });
 

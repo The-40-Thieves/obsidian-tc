@@ -7,7 +7,7 @@
 // replay a workspace JSONL trace; a plur proxy call against the fake AND its degraded
 // path. Asserts DB/file state and event_log audit rows. No live plur, no live Obsidian.
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -129,9 +129,33 @@ describe("M5 live-vault integration", () => {
     const list = data<{ items: unknown[] }>(await v.call("list_capture_queue", { vault: "test" }));
     expect(list.items).toHaveLength(1);
 
+    // ── Memory: create_entity refuses to overwrite a note it does not own ─────
+    // A hand-written note already sits at what would be Ada's materialized path — this must
+    // NOT be silently claimed and have its body destroyed (data-loss class review finding).
+    v.write(
+      "memory/person/Ada.md",
+      "---\ncssclasses:\n  - wide\n---\n# A human's own note\n\nDo not touch this.\n",
+    );
+    const refused = await v.call("create_entity", {
+      vault: "test",
+      type: "person",
+      name: "Ada",
+      observations: ["pioneer"],
+    });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe("note_exists");
+    // The foreign note survives untouched, and refusing left no orphan row.
+    expect(v.read("memory/person/Ada.md")).toContain("Do not touch this.");
+    expect(
+      v.db.prepare("SELECT COUNT(*) AS n FROM memory_entities WHERE name = 'Ada'").get(),
+    ).toEqual({ n: 0 });
+
     // ── Memory: unknown-frontmatter preservation through materialization ──────
-    // A note Obsidian already owns at the entity's path, carrying its own key.
-    v.write("memory/person/Ada.md", "---\ncssclasses:\n  - wide\n---\n# stale\n");
+    // Clear the path and create for real. cssclasses below comes from a key added directly to
+    // the note THIS entity already owns (the realistic case the preservation logic protects —
+    // Obsidian, or a person, editing a note the entity materialized) rather than a foreign note
+    // claiming the path, which is the refusal case just covered above.
+    rmSync(join(v.root, "memory/person/Ada.md"));
     const a = data<{ entity_id: string; vault_path: string }>(
       await v.call("create_entity", {
         vault: "test",
@@ -141,6 +165,10 @@ describe("M5 live-vault integration", () => {
       }),
     );
     expect(a.vault_path).toBe("memory/person/Ada.md");
+    v.write(
+      "memory/person/Ada.md",
+      v.read("memory/person/Ada.md").replace(/^---\n/, "---\ncssclasses:\n  - wide\n"),
+    );
     const b = data<{ entity_id: string }>(
       await v.call("create_entity", { vault: "test", type: "person", name: "Babbage" }),
     );

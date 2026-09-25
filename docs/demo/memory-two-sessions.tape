@@ -44,8 +44,12 @@ Set Framerate 30
 
 Hide
 # A scratch copy of the fixture vault + the fixture basic-memory source directory, so this
-# recording never dirties either checked-in fixture.
-Type "cp -r examples/scratch-vault /tmp/memory-demo-vault && cp -r packages/server/test/fixtures/memory-import/basic-memory /tmp/memory-demo-src"
+# recording never dirties either checked-in fixture — and an EXPLICIT config with an explicit,
+# scratch cacheDir. Passing a bare vault directory (zero-config mode) resolves cacheDir to a
+# HOME-ANCHORED default (config/load.ts) — exactly the trap that silently landed a real run's
+# audit rows in this box's own ~/.obsidian-tc during development of this feature; every recording
+# and every doc example on this page uses an explicit config for that reason.
+Type "cp -r examples/scratch-vault /tmp/memory-demo-vault && cp -r packages/server/test/fixtures/memory-import/basic-memory /tmp/memory-demo-src && printf '{\"vaults\":[{\"id\":\"main\",\"path\":\"/tmp/memory-demo-vault\"}],\"cacheDir\":\"/tmp/memory-demo-cache\"}' > /tmp/memory-demo-config.json"
 Enter
 Sleep 500ms
 Show
@@ -54,14 +58,16 @@ Show
 
 # 1. Dry-run preview — nothing written yet. Real output: 3 entities to create, 1 relation target
 # not found (a note in the fixture references a note that is not in this small batch), 1 file
-# skipped for malformed frontmatter.
-Type "obsidian-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-vault --vault main"
+# skipped for malformed frontmatter. The banner line ("vault: … cache: … mode: dry-run") prints
+# BEFORE anything else, so where this run is pointed is never a mystery.
+Type "obsidian-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-config.json --vault main"
 Enter
 Sleep 2s
 
 # 2. --apply writes for real: create_entity + add_observation + link_entities + update_frontmatter,
-# through the same ACL/audit-checked dispatch an MCP client uses.
-Type "obsidian-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-vault --vault main --apply"
+# through the same ACL-checked (built from THIS config's acl block, same as any MCP client's) and
+# audited dispatch.
+Type "obsidian-tc memory import --from basic-memory /tmp/memory-demo-src /tmp/memory-demo-config.json --vault main --apply"
 Enter
 Sleep 2s
 
@@ -95,7 +101,7 @@ Enter
 Sleep 3s
 
 Hide
-Type "rm -rf /tmp/memory-demo-vault /tmp/memory-demo-src"
+Type "rm -rf /tmp/memory-demo-vault /tmp/memory-demo-src /tmp/memory-demo-cache /tmp/memory-demo-config.json"
 Enter
 Show
 Sleep 1s
