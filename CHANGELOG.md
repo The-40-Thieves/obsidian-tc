@@ -84,6 +84,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   name — behavior otherwise unchanged (444 modules / 2091 dependencies / 0 violations, matched
   against 18.1.0 on the same source). No runtime behavior change intended anywhere else in this
   batch.
+- **GitHub Actions dependency batch (#975, THE-1119).** `actions/checkout` v6→v7.0.1,
+  `actions/setup-node` v6→v7.0.0 (also fixed two trailing comments that already said `# v5` while
+  pinned to the v6 sha — `ci-server.yml` and `.github/actions/setup-repo/action.yml`),
+  `actions/upload-pages-artifact` v3→v5.0.0 (`ci-docs.yml`), `docker/setup-buildx-action`
+  v4.2.0→v4.4.1, `docker/setup-qemu-action` v4.2.0→v4.4.0, `docker/build-push-action`
+  v7.3.0→v7.4.0 — every `uses:` stays SHA-pinned, each new sha resolved from
+  `repos/<owner>/<repo>/git/ref/tags/<tag>` and cross-checked against GitHub's own commit API. No
+  input changes: setup-node v7's only breaking change (the dummy `NODE_AUTH_TOKEN` fallback
+  removed) doesn't apply here — `publish.yml`'s two `registry-url` steps already get their real
+  token from `env: NODE_AUTH_TOKEN` on the publish step itself, never from setup-node's own
+  fallback. upload-pages-artifact v4's hidden-files-excluded default (the classic Pages
+  `.nojekyll`/dotfile trap) is also a no-op here: `docs/dist` (an Astro + `actions/deploy-pages`
+  site, which never runs Jekyll regardless) contains zero dotfiles — verified with a real
+  `bun run build`, so `include-hidden-files` was left unset.
+  `ci-quality.yml`'s independently curl-pinned ast-grep binary moves 0.45.0→0.45.3 to match the
+  `@ast-grep/cli` devDependency THE-1119a landed, checksum recomputed from the downloaded
+  `app-x86_64-unknown-linux-gnu.zip` release asset and cross-checked against GitHub's own reported
+  asset digest; `scripts/ast-grep-bin.mjs`'s comment updated to match.
 
 - **`elicit_required`'s text-channel instruction now leads with a directive to the AGENT, and
   `clientSupportsFormElicitation` now reads a bare `elicitation: {}` as form support, on every

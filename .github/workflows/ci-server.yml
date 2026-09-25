@@ -49,7 +49,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-repo
       - name: biome check
         run: bun run lint
@@ -197,13 +197,13 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.2'
       # vitest forks Node workers; node:sqlite + --experimental-sqlite require
       # Node >=22 on PATH. setup-node provides it for the test step below.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
       - name: cache bun install
@@ -259,7 +259,7 @@ jobs:
             target: bun-darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-repo
       - name: embed sqlite-vec for ${{ matrix.target }}
         shell: bash
@@ -299,7 +299,7 @@ jobs:
   bun-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-repo
       - name: bun:sqlite adapter smoke (bun test)
         run: bun test bun-smoke
@@ -317,7 +317,7 @@ jobs:
   zero-config-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-repo
         with:
           node-required: 'true'
@@ -355,7 +355,7 @@ jobs:
   registry-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Review finding M1: shared with publish.yml's publish-registry job so the pinned version +
       # checksum can drift in exactly one place, not two workflow files a reviewer has to remember
       # to grep together. `id:` so the step below can consume its `bin` output (review finding N5)
@@ -431,7 +431,7 @@ jobs:
   reranker-local:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-repo
         with:
           working-directory: packages/reranker-local
@@ -478,7 +478,7 @@ jobs:
     # it once it has run green for a while.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-repo
         with:
           node-required: 'true'
@@ -514,7 +514,7 @@ jobs:
     # exists to catch.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-repo
         with:
@@ -582,7 +582,7 @@ jobs:
       group: perf-exclusive
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: '1.4.2'
@@ -631,7 +631,7 @@ jobs:
       #
       # continue-on-error is on the STEP, not the job: a job-level setting does not survive a
       # failed step -- every later step is SKIPPED -- which would silently drop the upload below.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
       - name: node portability run (informational, never gated; THE-494)

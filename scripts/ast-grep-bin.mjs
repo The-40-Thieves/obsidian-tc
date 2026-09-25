@@ -8,11 +8,11 @@
 // local environment quirk rather than a missing dependency, and the fallback is `rg` — the exact
 // PROSE-ONLY blind spot the tool was built to remove.
 //
-// `@ast-grep/cli` is an exact devDependency, currently pinned to 0.45.3. This module makes the
-// scripts actually USE it. ci-quality.yml's "ast-grep (structural invariants)" job installs its
-// own separately pinned + checksummed binary rather than this devDependency, so the two pins can
-// drift a patch version apart (THE-1119 bumped this one; GitHub Actions files are out of scope
-// for that change) — check both when either moves.
+// `@ast-grep/cli` is an exact devDependency, pinned to 0.45.3 (THE-1119a). ci-quality.yml's
+// "ast-grep (structural invariants)" job installs its own separately pinned + checksummed binary
+// rather than reading this devDependency — also 0.45.3 as of THE-1119b — so the two pins CAN
+// drift a patch version apart across a bump that only lands one of them; check both when either
+// moves. This module makes the scripts actually USE the devDependency copy.
 //
 // Two platform traps are handled deliberately:
 //
