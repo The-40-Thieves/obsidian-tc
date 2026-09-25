@@ -124,6 +124,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **The public "front doors" — Smithery listing, TC Bridge's community-directory scorecard, and the
+  docs — drifted from the shipped product (THE-1120, #TBD).** Smithery's card required `config_path`
+  even though the server boots zero-config from a vault folder (`mcpb/manifest.json`'s `user_config`
+  now marks it optional and describes the zero-config path), carried a stale "RBAC, SLSA provenance,
+  and native search" description (now the same governed-retrieval/memory/HITL description everywhere
+  it's duplicated: `server.json`, `mcpb/manifest.json`, root `package.json`), and was missing search
+  keywords `mcpb/manifest.json`'s `keywords` now covers (`obsidian-vault`, `semantic-search`,
+  `retrieval`, `memory`, `markdown`). `packages/plugin` itself is already clean against the
+  community-directory scanner (0 errors, 0 warnings across 22 files, verified against the live
+  `eslint-plugin-obsidianmd` ruleset) — THE-964 cleared its six findings back in 1.28.0; the
+  community.obsidian.md "Review: Caution" badge is a stale, un-refreshed review, not a code issue.
+  `docs/src/content/docs/index.md` overstated the companion plugin as "powers tool-call delivery"
+  (it's an optional bridge for live-Obsidian features; the server runs and degrades gracefully
+  without it); `getting-started/install.md` pointed at the release zip instead of the community
+  directory (`community.obsidian.md/plugins/tc-bridge`), now the primary path with the zip as manual
+  fallback; `roadmap.md` had no forward-looking section, now a "Next" list of public themes. README
+  and the docs home now embed a quickstart demo storyboard (`docs/public/demo/`) above the fold, with
+  a `vhs` tape (`docs/demo/quickstart.tape`) to render the animated version once that toolchain is
+  available.
+
 - **The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated
   tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`,
   `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`,

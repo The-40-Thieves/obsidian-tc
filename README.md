@@ -1,6 +1,6 @@
 # obsidian-tc
 
-<!-- demo -->
+![obsidian-tc quickstart demo](docs/public/demo/quickstart-storyboard.svg)
 
 > Obsidian Turbocharged — governed, agent-ready vault access over MCP.
 
@@ -15,7 +15,7 @@ of raw filesystem access to years of notes, every tool call runs through one pip
 folder ACLs, a read-only kill switch, human-in-the-loop confirmation on destructive operations, and
 an audit log. It also adds fused retrieval (full-text, vector, graph) and a memory tier — episodes,
 activation decay, explicit forgetting — living *inside* your vault under that same ACL.
-**163 tools across 31 domains**, via a 3-tool facade. Full pitch: [docs/WHY.md](./docs/WHY.md).
+**163 tools across 31 domains**, via a 3-tool facade. Pitch: [docs/WHY.md](./docs/WHY.md).
 
 ## 60-second start
 
@@ -36,16 +36,16 @@ npm install -g obsidian-tc
 obsidian-tc ./obsidian-tc.config.json   # Node >= 24 or Bun >= 1.1
 ```
 
-Also ships as a Docker image, `.mcpb` bundle, and standalone binaries. Full walkthrough:
+Also ships as a Docker image, `.mcpb` bundle, and standalone binaries. More:
 [docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
 ## When NOT to use obsidian-tc
 
-Honest guidance — this is deliberately a heavier product than most alternatives:
+Honest guidance — this is a heavier product than most alternatives:
 
 - **Smallest possible footprint, read-only access, or no MCP at all.** A single trusted human
   over one vault, a read-only wrapper, or the Obsidian URI/Local REST API plugin directly may be
-  all you need — see the [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/). This governance mostly
+  all you need — see the [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/). This mostly
   pays off with autonomous or multi-agent access.
 - **Semantic/graph search with zero setup.** No Obsidian install is needed — the vault is read
   directly off disk — but semantic/graph retrieval need an embeddings backend (local Ollama by

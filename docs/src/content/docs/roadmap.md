@@ -32,6 +32,24 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
 - CycloneDX SBOMs, generated per package on release (`npm sbom`, THE-299) and uploaded as
   build artifacts (non-blocking).
 
+## Next
+
+Themes under active work, in no particular order — see the tool reference and
+configuration docs for what already ships today:
+
+- **Zero-config semantic search.** Lexical search and every note tool already work
+  with nothing but a vault path; closing the gap so semantic and graph-seeded
+  retrieval work out of the box too, without standing up a separate embeddings
+  backend first.
+- **Remote access with OAuth.** The HTTP transport is opt-in today, gated by
+  signed-JWT auth; an OAuth authorization-server flow is in design so a remote
+  agent can authenticate without a hand-provisioned token.
+- **Broader client coverage.** Verifying and documenting behavior across more MCP
+  clients, beyond the ones already covered in the compatibility matrix.
+- **Memory you own, in Markdown.** The experiential store already lives under the
+  same ACL as the rest of the vault; ongoing work makes what it remembers, and why,
+  more legible and more directly editable as plain notes.
+
 ## Deferred
 
 - cosign binary signing.
