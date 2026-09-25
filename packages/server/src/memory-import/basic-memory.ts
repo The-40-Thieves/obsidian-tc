@@ -24,10 +24,10 @@
 // already handles aliases/headings/blocks so a `[[Target|alias]]` or `[[Target#heading]]` relation
 // resolves to the bare target the same way the vault's own link graph does.
 
-import { sectionBullets } from "../memory/materialize";
+import { parseObservationBullet, sectionBullets } from "../memory/materialize";
 import { isFrontmatterYamlError, parseNote } from "../vault/frontmatter";
 import { extractLinks } from "../vault/links";
-import type { ParsedRelation, ParseFileResult } from "./types";
+import type { ParsedObservation, ParsedRelation, ParseFileResult } from "./types";
 
 function basename(sourcePath: string): string {
   return sourcePath.split("/").pop() ?? sourcePath;
@@ -66,8 +66,17 @@ export function parseBasicMemoryFile(raw: string, sourcePath: string): ParseFile
     typeof fm.type === "string" && fm.type.trim().length > 0 ? fm.type.trim() : "note";
   // sectionBullets is memory/materialize.ts's own `## <heading>` bullet parser, reused verbatim
   // (not re-derived) — basic-memory's note format uses the same `## Observations` / `- bullet`
-  // shape as the entity notes this importer writes.
-  const observations = sectionBullets(parsed.body, "Observations");
+  // shape as the entity notes this importer writes. THE-1130: basic-memory's own
+  // `- [category] text` convention is the SAME shape this repo's own renderer now uses for a
+  // keyed, open observation (`- [key] text`) — parseObservationBullet (also reused, not
+  // re-derived) maps `category` onto `key` whenever it passes add_observation's key regex, and
+  // leaves the bullet as plain unkeyed text (brackets included) when it doesn't.
+  const observations: ParsedObservation[] = sectionBullets(parsed.body, "Observations").map(
+    (bullet) => {
+      const { key, text } = parseObservationBullet(bullet);
+      return { text, key };
+    },
+  );
   const relations = sectionBullets(parsed.body, "Relations")
     .map(parseRelationLine)
     .filter((r): r is ParsedRelation => r !== null);

@@ -73,8 +73,10 @@ export function parseClaudeCodeMemoryFile(raw: string, sourcePath: string): Pars
   // several. Collapse it to one line AFTER extracting links, once fence detection no longer needs
   // real newlines. NOTE: this flattens headings, list markers, and fenced code into plain prose,
   // and re-importing an edited fact file APPENDS a new observation rather than replacing the old
-  // one (add_observation has no "supersede" operation) — see the docs page for both caveats.
+  // one — add_observation's supersede path (THE-1130) needs an explicit `key`, and this adapter's
+  // source format has no per-fact key convention to map one from (unlike basic-memory's
+  // `[category] text`), so every observation here is unkeyed — see the docs page for the caveat.
   const body = parsed.body.trim().replace(/\s+/g, " ");
-  const observations = body.length > 0 ? [body] : [];
+  const observations = body.length > 0 ? [{ text: body, key: null }] : [];
   return { ok: true, entity: { sourcePath, entityType, name, observations, relations } };
 }

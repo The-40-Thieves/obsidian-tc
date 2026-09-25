@@ -6,6 +6,17 @@ export interface ParsedRelation {
   targetName: string;
 }
 
+/** THE-1130: one imported observation, with its (optional) supersession key extracted — see
+ *  memory-import/basic-memory.ts's `[category] text` -> `{key: category, text}` mapping (only
+ *  when `category` passes add_observation's key regex; otherwise the whole bracketed string is
+ *  kept as literal `text` with `key: null`, same as a bullet this repo's own note renderer never
+ *  produced). claude-code-memory's adapter has no analogous convention, so its observations are
+ *  always `key: null`. */
+export interface ParsedObservation {
+  text: string;
+  key: string | null;
+}
+
 export interface ParsedEntity {
   /** Forward-slash path relative to the import root (`<dir>`) — never absolute. This is the
    *  provenance key: it becomes the entity note's `source_path` frontmatter and is what a
@@ -13,7 +24,7 @@ export interface ParsedEntity {
   sourcePath: string;
   entityType: string;
   name: string;
-  observations: string[];
+  observations: ParsedObservation[];
   relations: ParsedRelation[];
 }
 

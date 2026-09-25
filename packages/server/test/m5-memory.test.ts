@@ -142,9 +142,12 @@ describe("get_entity", () => {
       const id = await createEntity(v, "person", "Ada", { observations: ["pioneer"] });
       const byId = await v.call("get_entity", { vault: "test", entity_id: id });
       if (!byId.ok) throw new Error("by id failed");
-      expect((byId.data as { name: string; observations: string[] }).observations).toEqual([
-        "pioneer",
-      ]);
+      // THE-1130: observations are now { text, key, valid_from, valid_to, superseded_by } objects.
+      expect(
+        (byId.data as { name: string; observations: { text: string }[] }).observations.map(
+          (o) => o.text,
+        ),
+      ).toEqual(["pioneer"]);
 
       const byTypeName = await v.call("get_entity", { vault: "test", type: "person", name: "Ada" });
       expect(byTypeName.ok).toBe(true);

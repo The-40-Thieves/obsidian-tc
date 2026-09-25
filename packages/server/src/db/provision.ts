@@ -12,10 +12,19 @@
 // implementation with nobody checking it against the first.
 //
 // Both paths now provision through this chain. Divergence is no longer possible.
+import { backfillObservationIntervalsJs } from "./backfill-observation-intervals";
 import { type Migration, runMigrations } from "./migrate";
 import { CACHE_MIGRATION_FILES, versionOf } from "./migration-manifest";
 import { embeddedSql } from "./migrations-embedded";
 import type { Database } from "./types";
+
+// THE-1130: migration versions that need a JS `postApply` step alongside their `.sql` (see
+// db/migrate.ts's `Migration.postApply` doc and the memory_observation_intervals migration's own
+// header for why this one specifically cannot be pure SQL). Keyed by `versionOf(file)`, not the
+// filename, matching how `runMigrations` itself identifies a migration.
+const CACHE_POST_APPLY: Readonly<Record<string, (db: Database) => void>> = {
+  "20260925_002": backfillObservationIntervalsJs,
+};
 
 // THE-578: the SQL is INLINED (db/migrations-embedded.ts, generated) rather than read from disk.
 //
@@ -45,10 +54,10 @@ import type { Database } from "./types";
  * so low-trust per-retrieval state cannot FK into the authored atoms, and a reset is a file truncate.
  * Its migrations live in their own chain, still assembled in cli.ts.
  */
-export const CACHE_MIGRATIONS: Migration[] = CACHE_MIGRATION_FILES.map((file) => ({
-  version: versionOf(file),
-  sql: embeddedSql(file),
-}));
+export const CACHE_MIGRATIONS: Migration[] = CACHE_MIGRATION_FILES.map((file) => {
+  const version = versionOf(file);
+  return { version, sql: embeddedSql(file), postApply: CACHE_POST_APPLY[version] };
+});
 
 /** Bring a cache.db up to the current schema. The only way anything should provision one. */
 export function provisionCacheDb(

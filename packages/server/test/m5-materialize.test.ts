@@ -9,13 +9,23 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
+import type { ObservationView } from "../src/memory/entities";
 import {
   entityNotePath,
   materializeEntity,
   parseEntityNote,
+  parseObservationBullet,
   renderEntityNote,
+  sectionBullets,
 } from "../src/memory/materialize";
+import { parseNote } from "../src/vault/frontmatter";
 import { rmTemp } from "./tmp";
+
+/** An open (validTo: null), unkeyed observation view unless overridden — the common case for
+ *  these tests, which mostly care about text/relations, not intervals. */
+function ov(text: string, over: Partial<Omit<ObservationView, "text">> = {}): ObservationView {
+  return { text, key: null, validFrom: 0, validTo: null, supersededBy: null, ...over };
+}
 
 function tempVault(): {
   root: string;
@@ -53,7 +63,7 @@ describe("renderEntityNote", () => {
       entityType: "person",
       name: "Ada",
       status: "active",
-      observations: ["mathematician"],
+      observations: [ov("mathematician")],
       relations: [{ relationType: "collaborated_with", targetName: "Babbage" }],
     });
     expect(out).toContain("obsidian_tc_id: ent_1");
@@ -69,7 +79,7 @@ describe("renderEntityNote", () => {
         entityType: "person",
         name: "Ada",
         status: "active",
-        observations: ["mathematician"],
+        observations: [ov("mathematician")],
         relations: [{ relationType: "collaborated_with", targetName: "Babbage" }],
       }),
     ).toBe(out);
@@ -116,6 +126,81 @@ describe("renderEntityNote", () => {
     expect(a).toBe(b);
     expect(a.indexOf("[[A]]")).toBeLessThan(a.indexOf("[[Z]]"));
   });
+
+  // THE-1130: validity intervals split rendering into Observations (open) and Superseded
+  // (closed — validTo set, by supersession OR a stand-alone retirement); round-trips through
+  // parseObservationBullet losslessly for key/text and to day granularity for the dates, which is
+  // all the rendered text ever carries (see formatObservationBullet's own comment).
+  it("renders open observations under Observations, closed ones under Superseded, and round-trips key/text/dates", () => {
+    const closedFrom = Date.parse("2026-01-01T00:00:00Z");
+    const closedTo = Date.parse("2026-02-01T00:00:00Z");
+    const out = renderEntityNote({
+      id: "ent_1",
+      entityType: "person",
+      name: "Ada",
+      status: "active",
+      observations: [
+        ov("unkeyed open fact"),
+        ov("current title", { key: "title" }),
+        ov("prior title", {
+          key: "title",
+          validFrom: closedFrom,
+          validTo: closedTo,
+          supersededBy: "abc123",
+        }),
+        ov("an unkeyed fact that was later bounded", { validFrom: closedFrom, validTo: closedTo }),
+      ],
+      relations: [],
+    });
+    // Section split + exact bullet shape.
+    expect(out).toContain("## Observations");
+    expect(out).toContain("## Superseded");
+    expect(out).toContain("- unkeyed open fact");
+    expect(out).toContain("- [title] current title");
+    expect(out).toContain("- [title] prior title (valid 2026-01-01 → 2026-02-01)");
+    expect(out).toContain(
+      "- an unkeyed fact that was later bounded (valid 2026-01-01 → 2026-02-01)",
+    );
+    // Observations section holds only the open ones; the closed ones are ONLY under Superseded.
+    const observationsSection = out.slice(
+      out.indexOf("## Observations"),
+      out.indexOf("## Superseded"),
+    );
+    expect(observationsSection).not.toContain("prior title");
+    expect(observationsSection).not.toContain("later bounded");
+
+    // Round-trip: parse every bullet in the note back and recover key/text (exact) and the
+    // date-level validity window (all the text carries — see formatObservationBullet's comment).
+    const open = parseEntityNote(out).observations.map(parseObservationBullet);
+    expect(open).toEqual([
+      { key: null, text: "unkeyed open fact", validFrom: null, validTo: null },
+      { key: "title", text: "current title", validFrom: null, validTo: null },
+    ]);
+    const superseded = sectionBullets(parseNote(out).body, "Superseded").map(
+      parseObservationBullet,
+    );
+    expect(superseded).toEqual([
+      { key: "title", text: "prior title", validFrom: "2026-01-01", validTo: "2026-02-01" },
+      {
+        key: null,
+        text: "an unkeyed fact that was later bounded",
+        validFrom: "2026-01-01",
+        validTo: "2026-02-01",
+      },
+    ]);
+  });
+
+  it("omits the Superseded heading entirely when nothing is closed (byte-stable for the common case)", () => {
+    const out = renderEntityNote({
+      id: "ent_1",
+      entityType: "person",
+      name: "Ada",
+      status: "active",
+      observations: [ov("one")],
+      relations: [],
+    });
+    expect(out).not.toContain("Superseded");
+  });
 });
 
 describe("materializeEntity", () => {
@@ -130,7 +215,7 @@ describe("materializeEntity", () => {
         entityType: "person",
         name: "Ada",
         status: "active",
-        observations: ["mathematician"],
+        observations: [ov("mathematician")],
         relations: [{ relationType: "knows", targetName: "Babbage" }],
       } as const;
       const r1 = materializeEntity({ ...args });
@@ -161,7 +246,7 @@ describe("materializeEntity", () => {
         entityType: "person",
         name: "Ada",
         status: "active",
-        observations: ["mathematician"],
+        observations: [ov("mathematician")],
         relations: [{ relationType: "knows", targetName: "Babbage" }],
       });
       const after = readFileSync(join(v.root, r.vaultPath), "utf8");

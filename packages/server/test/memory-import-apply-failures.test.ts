@@ -89,10 +89,18 @@ describe("apply.ts — dispatch failures are never discarded", () => {
             sourcePath: "notes/coffee-brewing.md",
             entityType: "note",
             name: "Coffee Brewing Methods",
+            // THE-1130: the real basic-memory parser now strips a `[category]` bullet prefix into
+            // `key` (when it passes the key regex) and stores the bare text — matching what run 1
+            // (the REAL fixture, through the REAL parser) actually persisted. These two must match
+            // that stored shape for the dedup below to recognize them as already-present; only the
+            // third is genuinely new.
             observations: [
-              "[method] Pour over provides more flavor clarity than French press",
-              "[technique] Water temperature at 205F extracts optimal compounds #brewing",
-              "[new] a second-run observation that must be added",
+              { text: "Pour over provides more flavor clarity than French press", key: "method" },
+              {
+                text: "Water temperature at 205F extracts optimal compounds #brewing",
+                key: "technique",
+              },
+              { text: "a second-run observation that must be added", key: "new" },
             ],
             relations: [],
           },

@@ -8,6 +8,7 @@ import {
   type BootstrapConfig,
   BootstrapConfigSchema,
   DEFAULT_MEMORY_FOLDER,
+  err,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { PlurClient } from "../../plur/client";
 import type { VaultRegistry } from "../../vault/registry";
@@ -59,4 +60,15 @@ const DEFAULT_BOOTSTRAP: BootstrapConfig = BootstrapConfigSchema.parse(undefined
 /** THE-101: the session-bootstrap routing table for this server, or the empty default. */
 export function bootstrapConfigFor(deps: M5Deps): BootstrapConfig {
   return deps.bootstrap ?? DEFAULT_BOOTSTRAP;
+}
+
+/** Parse an optional ISO-8601 date to epoch-ms; throws invalid_input on a bad value. Shared by
+ *  session-tools.ts (start/end_session's from/to) and memory-tools.ts (THE-1130's add_observation
+ *  valid_from/valid_to) — one definition of "what counts as a valid caller-supplied date". */
+export function parseIso(value: string | undefined, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms))
+    throw err.invalidInput(`${field} is not a valid ISO date`, { [field]: value });
+  return ms;
 }

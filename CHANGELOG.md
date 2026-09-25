@@ -8,6 +8,29 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Validity intervals on memory observations — supersede instead of overwrite, and "what did we
+  believe as_of D" (THE-1130, PR #986).** `add_observation` gains an optional `key` (a short
+  slug, `^[a-z0-9][a-z0-9_.-]*$`) that opts a fact INTO supersession tracking: adding a new
+  observation with the same key as an existing OPEN one closes the prior interval (its text stays
+  on the note, under a new `## Superseded` section — nothing is deleted) and opens a new one.
+  Unkeyed observations behave exactly as before (append only, never superseded). `valid_from`/
+  `valid_to` (ISO 8601) let a caller backdate a fact or bound it explicitly; omitting `observation`
+  while passing `key` + `valid_to` retires a keyed fact with nothing replacing it. `get_entity` and
+  `query_entity_graph` both gain `as_of` (THE-635's own epoch-ms convention), filtering returned
+  observations to those valid at that instant (default now); each observation's output now carries
+  `key`/`valid_from`/`valid_to`/`superseded_by`. Storage: one new table,
+  `memory_observation_intervals` (migration `20260925_002` — `20260925_001` is the unrelated
+  telemetry_state migration below), correlated to the existing
+  `memory_entities.observations` text blob by insertion order rather than a duplicated text
+  column; pre-existing observations are backfilled as open, unkeyed intervals with `valid_from` =
+  the owning entity's `created_at`. `memory import`'s basic-memory adapter maps a
+  `- [category] text` bullet's `category` onto `key` when it passes the key regex, so re-importing
+  a note whose bullet category is unchanged now supersedes instead of duplicating. Both
+  `create_entity`'s `observations` array and `add_observation`'s `observation` field reject (not
+  silently split or drop) a blank-after-trim value or one containing an embedded `\r`/`\n` — a
+  caller with more than one fact makes more than one call; pre-existing observations are backfilled
+  by a JS step (not SQL) that reuses the exact same parser every read path already uses.
+
 - **A licensing FAQ page explains what AGPL-3.0 actually requires (THE-1126, PR #981).** New docs
   page `/licensing/` ("AGPL and you") walks through §13's remote-network-interaction clause and
   three situations people actually ask about: running an unmodified copy locally over stdio (no

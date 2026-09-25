@@ -28,9 +28,11 @@ describe("memory import — basic-memory adapter", () => {
     ]);
     const coffee = parsed.entities.find((e) => e.name === "Coffee Brewing Methods");
     expect(coffee?.entityType).toBe("note");
+    // THE-1130: a `[category] text` bullet whose category passes add_observation's key regex is
+    // split into { key, text } — both do here ("method", "technique").
     expect(coffee?.observations).toStrictEqual([
-      "[method] Pour over provides more flavor clarity than French press",
-      "[technique] Water temperature at 205F extracts optimal compounds #brewing",
+      { key: "method", text: "Pour over provides more flavor clarity than French press" },
+      { key: "technique", text: "Water temperature at 205F extracts optimal compounds #brewing" },
     ]);
     expect(coffee?.relations).toStrictEqual([
       { relationType: "relates_to", targetName: "Tea Brewing Methods" },

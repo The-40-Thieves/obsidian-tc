@@ -7,7 +7,8 @@
 import type { CallerContext } from "../../mcp/registry";
 import {
   type EntityRow,
-  parseObservations,
+  type ObservationView,
+  observationViews,
   relationsForEntity,
   setEntityVaultPath,
 } from "../../memory/entities";
@@ -35,7 +36,7 @@ export function materializeProjection(
   ctx: CallerContext,
   v: ResolvedVault,
   e: EntityRow,
-  observations: readonly string[],
+  observations: readonly ObservationView[],
 ): string | null {
   if (e.materialize !== 1) return null;
   return materializeEntity({
@@ -62,13 +63,7 @@ export function rematerialize(
   now: number,
 ): string | null {
   if (e.materialize !== 1) return e.vault_path;
-  const vaultPath = materializeProjection(
-    deps,
-    ctx,
-    v,
-    e,
-    parseObservations(e.observations),
-  ) as string;
+  const vaultPath = materializeProjection(deps, ctx, v, e, observationViews(ctx.db, e)) as string;
   setEntityVaultPath(ctx.db, e.id, vaultPath, now);
   return vaultPath;
 }

@@ -31,7 +31,7 @@ import {
   type TraceRecord,
 } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
-import type { M5Deps } from "./shared";
+import { type M5Deps, parseIso } from "./shared";
 
 /**
  * THE-737 — resolve a session's trace file, applying the folder ACL only where it means something.
@@ -59,15 +59,6 @@ function traceAbsFor(
     cacheDir: deps.cacheDir,
     vaultRoot: v.root,
   });
-}
-
-/** Parse an optional ISO-8601 date to epoch-ms; throws invalid_input on a bad value. */
-function parseIso(value: string | undefined, field: string): number | undefined {
-  if (value === undefined) return undefined;
-  const ms = Date.parse(value);
-  if (Number.isNaN(ms))
-    throw err.invalidInput(`${field} is not a valid ISO date`, { [field]: value });
-  return ms;
 }
 
 const StartSessionOutput = z.object({

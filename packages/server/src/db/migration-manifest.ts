@@ -72,6 +72,13 @@ export const CACHE_MIGRATION_FILES = [
   // last-send outcome. AUTHORED server-instance state (an install id, not an observed/derived
   // retrieval event), so CACHE chain per the THE-713 admission test above, not EXPERIENTIAL.
   "20260925_001_telemetry_state.sql",
+  // THE-1130: 20260925_002 adds memory_observation_intervals — validity intervals
+  // (valid_from/valid_to/superseded_by) layered on top of memory_entities.observations, so
+  // add_observation can supersede a keyed fact instead of overwriting it and get_entity/
+  // query_entity_graph can answer "what did we believe as_of D". CACHE chain because
+  // memory_entities (its FK target) is created by 20260519_001_initial.sql, in cache.db. Bumped
+  // to _002 at rebase time — _001 was already claimed by telemetry_state above.
+  "20260925_002_memory_observation_intervals.sql",
 ] as const;
 
 /**
