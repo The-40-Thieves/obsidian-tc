@@ -9,17 +9,18 @@
 // different Bun than the one every other job used.
 //
 // This gate reads the pin from mise.toml, then asserts every other declared Bun version agrees:
-// package.json's packageManager, setup-repo's default, and every literal `bun-version:` value
-// under .github/workflows and .github/actions (composite actions included — actionlint's own
-// coverage gap for those is check-actions-shellcheck.mjs's territory, not a reason to skip them
-// here). `${{ inputs.bun-version }}`-style references are not literals and are skipped; they
-// resolve to whatever the caller passed, which is itself a checked literal somewhere else.
+// package.json's packageManager, setup-repo's default, every literal `bun-version:` value under
+// .github/workflows and .github/actions (composite actions included — actionlint's own coverage
+// gap for those is check-actions-shellcheck.mjs's territory, not a reason to skip them here), and
+// (THE-1118) every `FROM oven/bun:` tag in the root Dockerfile. `${{ inputs.bun-version }}`-style
+// references are not literals and are skipped; they resolve to whatever the caller passed, which
+// is itself a checked literal somewhere else.
 //
-// Existence floor: a scan that finds zero workflow/action files, or finds files but zero literal
-// `bun-version:` occurrences in them, is reported as a broken scanner — not a clean repo. Without
-// this floor a renamed directory or a reworded key would make the gate pass by finding nothing to
-// check, exactly the failure mode THE-580 already fixed once for check-version-coherence.mjs's
-// tool-count anchors.
+// Existence floor: a scan that finds zero workflow/action files, files but zero literal
+// `bun-version:` occurrences, or zero `FROM oven/bun:` lines in the Dockerfile, is reported as a
+// broken scanner — not a clean repo. Without this floor a renamed directory or a reworded key
+// would make the gate pass by finding nothing to check, exactly the failure mode THE-580 already
+// fixed once for check-version-coherence.mjs's tool-count anchors.
 import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -98,6 +99,7 @@ export function bunVersionProblems({
   setupRepoDefault,
   occurrences,
   filesScanned,
+  dockerfileTags,
 }) {
   const problems = [];
   if (!pin) {
@@ -138,7 +140,60 @@ export function bunVersionProblems({
     }
   }
 
+  const expectedDockerfileTag = `${pin}-slim`;
+  if (dockerfileTags.length === 0) {
+    problems.push(
+      "found zero `FROM oven/bun:` lines in Dockerfile — the scanner is broken, not the repo clean.",
+    );
+  } else {
+    for (const occ of dockerfileTags) {
+      if (occ.value !== expectedDockerfileTag) {
+        problems.push(
+          `${occ.file}:${occ.line}: FROM oven/bun tag is "${occ.value}", expected ` +
+            `"${expectedDockerfileTag}".`,
+        );
+      }
+    }
+  }
+
   return problems;
+}
+
+// Matches a `FROM` instruction that ultimately names `oven/bun`, tolerating everything Docker
+// itself tolerates around it (THE-1118 fix round — the original `/^\s*FROM\s+oven\/bun:(\S+)/`
+// missed all of these, so a second stage written in any of them would drift silently past the
+// existence floor below, which only needs ONE match to stay quiet):
+//   - case: Dockerfile instructions are case-insensitive (`from oven/bun:1-slim` is legal).
+//   - BuildKit flags before the image ref (`FROM --platform=$BUILDPLATFORM oven/bun:1-slim`).
+//   - an explicit registry host (`FROM docker.io/oven/bun:1-slim`, `index.docker.io/...`) — Bun's
+//     own published image has no registry prefix, but Docker resolves the bare form to Docker Hub
+//     regardless, so both spellings name the identical image.
+//   - a missing tag (`FROM oven/bun`), which Docker resolves to `latest` — captured as the
+//     literal string "latest" below so the caller's expected-tag comparison flags it as drifted,
+//     the same as any other wrong tag.
+// The tag group stops at `@` so a trailing digest (`oven/bun:1.4.2-slim@sha256:...`) does not get
+// folded into the captured value. The digest itself is never compared — this script has no
+// network access to resolve what a digest points at (see the module header's "deliberately NOT a
+// recompile" philosophy), so a digest-pinned line is checked on its tag component only.
+const DOCKERFILE_FROM_RE =
+  /^\s*FROM\s+(?:--\S+\s+)*(?:(?:index\.)?docker\.io\/)?oven\/bun(?::([^\s@]+))?/i;
+
+/**
+ * Extracts every `FROM oven/bun` line from the root Dockerfile's text (see `DOCKERFILE_FROM_RE`
+ * above for exactly what counts). A multi-stage build has more than one such line (builder +
+ * runtime), and each is a separate pin that can drift independently — a bump that only touches
+ * the builder stage still leaves the runtime image on the old tag. Pure and filesystem-free,
+ * mirroring `findBunVersionOccurrences` above.
+ */
+export function findDockerfileBunTags(text, filePath) {
+  const occurrences = [];
+  text.split("\n").forEach((line, i) => {
+    if (/^\s*#/.test(line)) return;
+    const m = DOCKERFILE_FROM_RE.exec(line);
+    if (!m) return;
+    occurrences.push({ file: filePath, line: i + 1, value: m[1] ?? "latest" });
+  });
+  return occurrences;
 }
 
 function listFilesRecursive(dir) {
@@ -163,6 +218,7 @@ function main() {
     ...listFilesRecursive(".github/actions"),
   ];
   const occurrences = files.flatMap((f) => findBunVersionOccurrences(readText(f), f));
+  const dockerfileTags = findDockerfileBunTags(readText("Dockerfile"), "Dockerfile");
 
   const problems = bunVersionProblems({
     pin,
@@ -170,6 +226,7 @@ function main() {
     setupRepoDefault,
     occurrences,
     filesScanned: files.length,
+    dockerfileTags,
   });
 
   if (problems.length > 0) {
@@ -180,7 +237,8 @@ function main() {
 
   console.log(
     `check-bun-version-coherence: OK — bun@${pin} agrees across mise.toml, package.json, ` +
-      `setup-repo, and ${occurrences.length} workflow/action occurrence(s) across ${files.length} file(s).`,
+      `setup-repo, ${occurrences.length} workflow/action occurrence(s) across ${files.length} ` +
+      `file(s), and ${dockerfileTags.length} Dockerfile FROM line(s).`,
   );
 }
 

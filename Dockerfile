@@ -1,5 +1,8 @@
-# obsidian-tc server image (G2.5 §2.4, THE-276). Multi-stage on glibc oven/bun:1-slim
-# (Debian trixie-slim). glibc base (NOT alpine/musl): the native prebuilds are gnu-only, so a
+# obsidian-tc server image (G2.5 §2.4, THE-276). Multi-stage on glibc oven/bun:1.4.2-slim
+# (Debian trixie-slim), pinned to the same Bun version as mise.toml (THE-1118) — a floating
+# `1-slim` tag would silently drift the image's Bun off the pin everything else agrees on;
+# check-bun-version-coherence.mjs enforces both `FROM oven/bun:` lines below stay in sync.
+# glibc base (NOT alpine/musl): the native prebuilds are gnu-only, so a
 # gnu .node can never load against musl. The builder installs deps + builds shared + server; the
 # runtime stage copies ONLY packages/server/dist. The bundle is built --target node with all npm
 # deps (incl. @the-40-thieves/obsidian-tc-shared) inlined and only better-sqlite3 kept external.
@@ -12,7 +15,7 @@
 # human v* tag; the PR gate (ci-docker.yml) does a build + `version` smoke.
 
 # ---- builder: install deps, build shared then server (this whole stage is discarded) ----
-FROM oven/bun:1-slim AS build
+FROM oven/bun:1.4.2-slim AS build
 WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
@@ -23,7 +26,7 @@ RUN bun install --frozen-lockfile --ignore-scripts \
  && (cd packages/server && bun run build)
 
 # ---- runtime: bun + ca-certs + the server dist only ----
-FROM oven/bun:1-slim
+FROM oven/bun:1.4.2-slim
 WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \

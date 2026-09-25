@@ -79,15 +79,27 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
+      - name: uv.lock is up to date with pyproject.toml
+        # THE-1118: uv.lock (all three extras — parse, extract, test) exists so osv-scanner's
+        # recursive scan has a lockfile to read; nothing installs FROM it (the step below still
+        # installs via pip -e, not uv), so nothing else in this job would notice pyproject.toml
+        # drifting away from it. `uv lock --check` recomputes the lock in memory and diffs it
+        # against the committed uv.lock without writing anything, failing exactly when a
+        # dependency change here was not mirrored into the lockfile.
+        run: |
+          python -m pip install --upgrade pip uv
+          uv lock --check
       - name: install package + test deps
         # docs-ingest's live parse/extract backends (docling, langextract) are lazy-imported
         # INSIDE the functions that need them (see pipeline.py), so the router/writer/pipeline
         # unit tests need neither — installing the `test` extra alone is enough. Unlike
         # bge-m3-service, docs-ingest has no hash-locked requirements-ci.txt yet; its own
         # pyproject.toml pins by floor only (pydantic>=2.13, pytest>=8), which is the existing
-        # convention there. ruff isn't a project dependency (it's a dev tool, not something
-        # obsidian_tc_docs_ingest imports), so it needs its own install — pinned to the same
-        # version bge-m3-service's requirements-ci.txt locks, for one ruff version across the repo.
+        # convention there — the uv.lock above exists for CVE-scanner coverage (THE-1118), not as
+        # this job's install source. ruff isn't a project dependency (it's a dev tool, not
+        # something obsidian_tc_docs_ingest imports), so it needs its own install — pinned to the
+        # same version bge-m3-service's requirements-ci.txt locks, for one ruff version across the
+        # repo.
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
