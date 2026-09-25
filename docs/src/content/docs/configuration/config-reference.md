@@ -67,7 +67,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `cacheDir` | `string` | `".obsidian-tc"` |  | Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth. |
+| `cacheDir` | `string` | `".obsidian-tc"` |  | Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth. This default only applies when `embeddings.provider` is not "local" — a config file must set `cacheDir` explicitly when the embeddings provider is "local" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you. |
 
 ### `db`
 

@@ -223,3 +223,9 @@ your config now resolves to. To keep using Ollama unchanged, add `"embeddings": 
 "ollama" }` to your config explicitly — the implicit model (`nomic-embed-text`) is preserved for
 that one case; see [`ollama` (deprecated, still supported)](#ollama-deprecated-still-supported)
 above.
+
+**Config files must set `cacheDir` when the embeddings provider is `local` (the default)** — the
+bare `obsidian-tc <vault>` form (no config file) sets it for you, so this only affects a config
+file that never named `cacheDir`. The old `.obsidian-tc`-under-the-working-directory default is
+gone because it wrote model weights wherever the server happened to be started; config load now
+fails at startup, naming `cacheDir`, rather than that surprising at first embed instead.

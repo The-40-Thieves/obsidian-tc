@@ -212,7 +212,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   server detects the stored-vs-configured mismatch automatically on first boot after upgrading (the
   representation fingerprint folds in provider and model) and rebuilds the vector index from a full
   re-embed; `obsidian-tc doctor` and the boot log both name this explicitly, once, while the stored
-  index still disagrees with the configured provider.
+  index still disagrees with the configured provider. Config files must set `cacheDir` when the
+  embeddings provider is `local` (the default) — the bare `obsidian-tc <vault>` form sets it for
+  you; the old `.obsidian-tc`-under-the-working-directory default is gone because it wrote model
+  weights wherever the server happened to be started.
 - **`vitest` 4.1.11→5.0.1, `@vitest/coverage-v8` 4.1.11→5.0.1 (THE-1133, PR 2).** Every workspace
   that depends on vitest bumped together: `packages/server`, `packages/plugin`, `packages/shared`,
   `packages/native` (its `test:build-script` leg), and `packages/reranker-local` (a separate

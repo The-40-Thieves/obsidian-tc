@@ -363,7 +363,13 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // THE-1122 review round 3 rebase: rebaselined again onto main's THE-1131 (toolFacade.profile)
   // for the same reason — a new description ahead of this entry in emission order, nothing of
   // THIS change's own moved.
-  "b6ceea496a7ccc016ec2073570c4ff6e0064e447ab9fb3e7a180f0c33b079ba8";
+  // THE-1122 pre-merge doc pass: rebaselined deliberately, text-only — `cacheDir`'s .describe()
+  // string gained a sentence documenting the review-round-2 behavioral change (config load now
+  // requires cacheDir explicitly when embeddings.provider is "local", the default provider) —
+  // this was a real, user-visible upgrade note that the field's own generated documentation
+  // (config-reference.md, docs/wiki/Configuration.md) had never stated. No key, type, default or
+  // constraint moved.
+  "2974c55468ef4e13bba067cbe4c4a82f7721af6b2f7dba7d56af32e6d20eb336";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

@@ -60,7 +60,7 @@ export const ServerConfigObject = z.object({
     .string()
     .default(".obsidian-tc")
     .describe(
-      "Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth.",
+      'Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth. This default only applies when `embeddings.provider` is not "local" — a config file must set `cacheDir` explicitly when the embeddings provider is "local" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you.',
     ),
   // THE-935 (GH #878): the first config surface over db/pragmas.ts — no `db` block existed before
   // this, so it is introduced here, beside cacheDir, rather than nested under it.
