@@ -125,7 +125,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Fixed
 
 - **The public "front doors" — Smithery listing, TC Bridge's community-directory scorecard, and the
-  docs — drifted from the shipped product (THE-1120, #TBD).** Smithery's card required `config_path`
+  docs — drifted from the shipped product (#972, THE-1120).** Smithery's card required `config_path`
   even though the server boots zero-config from a vault folder (`mcpb/manifest.json`'s `user_config`
   now marks it optional and describes the zero-config path), carried a stale "RBAC, SLSA provenance,
   and native search" description (now the same governed-retrieval/memory/HITL description everywhere
