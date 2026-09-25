@@ -1,6 +1,10 @@
 // THE-1125 — telemetry_state (install id + last-send outcome), the durable half of opt-in
 // telemetry. Real on-disk cache.db per test, mirroring doctor-db-space.test.ts's shape.
-import { mkdtempSync, rmSync } from "node:fs";
+//
+// CI fix (windows-latest): close the db handle BEFORE cleanup (Windows refuses to delete a file
+// with an open handle), and use `rmTemp` (test/tmp.ts) for the retrying, Windows-safe remove —
+// see that file's own header for the full incident shape.
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,15 +16,18 @@ import {
   recordSendResult,
   resetInstallId,
 } from "../src/telemetry/state";
+import { rmTemp } from "./tmp";
 
 async function withDb(fn: (db: Awaited<ReturnType<typeof openDatabase>>) => Promise<void> | void) {
   const cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-state-"));
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+    db = await openDatabase(join(cacheDir, "cache.db"), 5000);
     provisionCacheDb(db, { version: "test" });
     await fn(db);
   } finally {
-    rmSync(cacheDir, { recursive: true, force: true });
+    db?.close?.();
+    rmTemp(cacheDir);
   }
 }
 

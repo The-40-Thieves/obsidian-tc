@@ -10,7 +10,7 @@
 // false` regardless, and the SDK's ajv validator — what `Client.callTool` actually runs — rejects
 // the UNSTRIPPED payload outright. This test is the gate that stays red for that whole class of
 // drift, not just this one field.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
@@ -27,6 +27,7 @@ import { TelemetryCollector } from "../src/telemetry/collector";
 import { sendTelemetry } from "../src/telemetry/sender";
 import { wireTelemetry } from "../src/telemetry/wiring";
 import { createHealthTool, type HealthInfo } from "../src/tools/admin/health";
+import { rmTemp } from "./tmp";
 
 /** A clean IndexStats with one frontmatter failure — every field IndexStats requires. */
 function statsWithFrontmatterFailure(): IndexStats {
@@ -197,6 +198,9 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   // fixed (a field on an internal record that reaches a tool output must be declared in the zod
   // schema, not merely present at runtime).
   //
+  // CI fix (windows-latest): `db` is closed BEFORE cleanup below, and cleanup uses `rmTemp`
+  // (test/tmp.ts) — Windows refuses to delete a file with an open handle; see that file's header.
+  //
   // Security review (in-pool HIGH-B): the ORIGINAL version of this test hand-wrote the
   // `getTelemetryStatus` fixture, including a `lastSendAt` — which meant it could never have
   // caught the actual bug: `wiring.ts`'s REAL `getStatus()` also returns `nextSendAt` once a send
@@ -207,8 +211,9 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   // covered here, not just the ones a fixture author remembered to write down.
   it("the telemetry block, from a REAL wireTelemetry(...).getStatus() after a seeded send, validates under ajv", async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-health-telemetry-ajv-"));
+    let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
-      const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+      db = await openDatabase(join(cacheDir, "cache.db"), 5000);
       provisionCacheDb(db, { version: "test" });
       const config = {
         telemetry: { enabled: true, endpoint: "https://collector.example", intervalMinutes: 60 },
@@ -264,7 +269,8 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       const result = validate(JSON.parse(JSON.stringify(out)));
       expect(result.valid).toBe(true);
     } finally {
-      rmSync(cacheDir, { recursive: true, force: true });
+      db?.close?.();
+      rmTemp(cacheDir);
     }
   });
 

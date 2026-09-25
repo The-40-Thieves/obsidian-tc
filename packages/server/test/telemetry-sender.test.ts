@@ -1,6 +1,12 @@
 // THE-1125 — sendTelemetry: the one network call opt-in telemetry ever makes. Real cache.db per
 // test (mkdtempSync, mirroring doctor-db-space.test.ts), spied `fetch`.
-import { mkdtempSync, rmSync } from "node:fs";
+//
+// CI fix (windows-latest, build-test): `rmSync` used to run while the SQLite handle was still
+// open — Windows refuses to delete a file with an open handle (EPERM), unlike POSIX, which lets
+// you unlink one happily. `db` is now closed BEFORE cleanup, and cleanup itself uses `rmTemp`
+// (test/tmp.ts) — Node's own EBUSY/EPERM retry, the repo's existing backstop for a handle that
+// takes a moment longer to release (see that file's own header for the full incident shape).
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,15 +16,18 @@ import { TelemetryCollector } from "../src/telemetry/collector";
 import { redactEndpoint } from "../src/telemetry/redact-endpoint";
 import { sendTelemetry } from "../src/telemetry/sender";
 import { readTelemetryState } from "../src/telemetry/state";
+import { rmTemp } from "./tmp";
 
 async function withDb(fn: (db: Awaited<ReturnType<typeof openDatabase>>) => Promise<void> | void) {
   const cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-sender-"));
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
-    const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+    db = await openDatabase(join(cacheDir, "cache.db"), 5000);
     provisionCacheDb(db, { version: "test" });
     await fn(db);
   } finally {
-    rmSync(cacheDir, { recursive: true, force: true });
+    db?.close?.();
+    rmTemp(cacheDir);
   }
 }
 

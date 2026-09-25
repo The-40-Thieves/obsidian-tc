@@ -2,7 +2,7 @@
 // here: (1) the collector is fed from the SAME MetricsRecorder.observeToolCall hook Prometheus
 // uses (no second observation site), and (2) NOTHING leaves the process when telemetry is
 // disabled — not at boot, not across any number of tool calls, not on a forced interval tick.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
@@ -12,6 +12,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { defaultConfiguredFacadeMode, wireTelemetry } from "../src/telemetry/wiring";
+import { rmTemp } from "./tmp";
 
 function minimalTelemetryConfig(overrides: Partial<ServerConfig["telemetry"]>): ServerConfig {
   return {
@@ -35,15 +36,20 @@ describe("defaultConfiguredFacadeMode", () => {
 
 describe("wireTelemetry — collector is fed from MetricsRecorder's ONE observeToolCall hook", () => {
   let cacheDir: string;
+  // Windows refuses to delete a file with an open handle; close the db (if the test opened one)
+  // before the retrying, Windows-safe `rmTemp` cleanup — see test/tmp.ts's own header.
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   beforeEach(() => {
     cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-wiring-"));
   });
   afterEach(() => {
-    rmSync(cacheDir, { recursive: true, force: true });
+    db?.close?.();
+    db = undefined;
+    rmTemp(cacheDir);
   });
 
   it("a tool call observed through MetricsRecorder.observeToolCall reaches the collector, with no second call site", async () => {
-    const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+    db = await openDatabase(join(cacheDir, "cache.db"), 5000);
     provisionCacheDb(db, { version: "test" });
     const config = minimalTelemetryConfig({});
     const telemetry = wireTelemetry({
@@ -70,17 +76,22 @@ describe("wireTelemetry — collector is fed from MetricsRecorder's ONE observeT
 
 describe("wireTelemetry — nothing leaves the process when disabled (THE-1117 owner constraint)", () => {
   let cacheDir: string;
+  // Windows refuses to delete a file with an open handle; close the db before the retrying,
+  // Windows-safe `rmTemp` cleanup — see test/tmp.ts's own header.
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   beforeEach(() => {
     vi.useFakeTimers();
     cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-disabled-"));
   });
   afterEach(async () => {
     vi.useRealTimers();
-    rmSync(cacheDir, { recursive: true, force: true });
+    db?.close?.();
+    db = undefined;
+    rmTemp(cacheDir);
   });
 
   it("registerJob registers NO scheduler job when telemetry.enabled is false", async () => {
-    const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+    db = await openDatabase(join(cacheDir, "cache.db"), 5000);
     provisionCacheDb(db, { version: "test" });
     const config = minimalTelemetryConfig({});
     const telemetry = wireTelemetry({ config, db, serverVersion: "test" });
@@ -90,7 +101,7 @@ describe("wireTelemetry — nothing leaves the process when disabled (THE-1117 o
   });
 
   it("boot + 50 tool calls + a forced interval tick makes ZERO fetch calls when disabled", async () => {
-    const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+    db = await openDatabase(join(cacheDir, "cache.db"), 5000);
     provisionCacheDb(db, { version: "test" });
     const config = minimalTelemetryConfig({}); // enabled: false
     const telemetry = wireTelemetry({ config, db, serverVersion: "test" });
@@ -119,7 +130,7 @@ describe("wireTelemetry — nothing leaves the process when disabled (THE-1117 o
   });
 
   it("enabling telemetry with an endpoint DOES register a job and eventually sends", async () => {
-    const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
+    db = await openDatabase(join(cacheDir, "cache.db"), 5000);
     provisionCacheDb(db, { version: "test" });
     const config = minimalTelemetryConfig({
       enabled: true,
