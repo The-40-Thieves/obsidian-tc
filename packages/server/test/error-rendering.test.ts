@@ -227,6 +227,44 @@ describe("formatErrorDetail: non-elicit codes stay byte-identical (THE-1042, GH 
   });
 });
 
+describe("THE-1133: `@modelcontextprotocol/server` 2.1.0's Error.cause forwarding does not leak a path", () => {
+  // 2.1.0 (SDK PR #2726) made `SdkError`/`SdkHttpError` forward a wrapped error through the
+  // standard `Error.cause` chain (previously readable only via the deprecated `error.data.cause`).
+  // That change is scoped to the SDK's OWN era-negotiation errors, which this repo never triggers
+  // (server-only; no `/client` or `/core` client-probe dependency) — but the wire boundary is the
+  // one that matters, not which SDK class raised the error: an internal filesystem `Error` here
+  // commonly carries a `.cause` naming a real host path (Node's `fs` errors do this natively), and
+  // `dispatch.ts`'s catch-all already redacts a non-`ObsidianTcError` throw to a bare
+  // `internal error` — this pins that `ObsidianTcError.toJSON()` (packages/shared/src/errors.ts)
+  // and `formatErrorDetail` (this module) both stay a FIELD WHITELIST that never reads `.cause`,
+  // so neither a future call site nor an SDK upgrade can start forwarding it by accident.
+  it("ObsidianTcError.toJSON() never surfaces a `.cause` set on construction or on the instance", () => {
+    const withPathyCause = new Error("ENOENT: no such file or directory", {
+      cause: new Error("open '/home/ubuntu/.ssh/id_ed25519' failed"),
+    });
+    const err = new ObsidianTcError("internal", "internal error");
+    // toJSON() only ever reads code/message/details/retryable/recovery (see errors.ts) — setting
+    // `.cause` on the instance directly proves it is not a magically-forwarded standard property.
+    (err as unknown as { cause: unknown }).cause = withPathyCause;
+    const json = err.toJSON();
+    expect(JSON.stringify(json)).not.toContain("/home/ubuntu");
+    expect(JSON.stringify(json)).not.toContain("id_ed25519");
+    expect(Object.keys(json)).not.toContain("cause");
+  });
+
+  it("formatErrorDetail's rendered text never contains a path from details.cause-shaped data", () => {
+    const detail = formatErrorDetail({
+      code: "validation_error",
+      message: "input validation failed",
+      retryable: false,
+      // Not a real ErrorJSON field — proves formatErrorDetail reads only the fields it declares
+      // (issues/vault hints), so a `cause`-shaped field smuggled into `details` renders as nothing.
+      details: { cause: "open '/home/ubuntu/.ssh/id_ed25519' failed" } as Record<string, unknown>,
+    });
+    expect(detail ?? "").not.toContain("/home/ubuntu");
+  });
+});
+
 describe("hitl.ts: proposed can never override the trusted fields (fix round 2)", () => {
   it("a proposed object carrying tool/vault/args_hash does not win", () => {
     const db = freshDb();

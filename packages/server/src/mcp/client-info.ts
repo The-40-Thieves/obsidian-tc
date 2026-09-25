@@ -17,7 +17,7 @@
 // `sessionIdGenerator: undefined`), so "once per connection" was never a shape we actually had.
 //
 // THE-861: point 2 above is true of `extractClientInfo` in isolation, but the pinned SDK v2
-// (`@modelcontextprotocol/server@2.0.0`) reserves this key as per-request ENVELOPE material and
+// (`@modelcontextprotocol/server@2.1.0`) reserves this key as per-request ENVELOPE material and
 // LIFTS it out of inbound `_meta` before any handler runs — on every message, both spec eras
 // (`liftWireOnlyMaterial`, the shared `Protocol._onrequest` base) — surfacing it instead at
 // `extra.mcpReq.envelope`. So the CALL SITE (`server.ts`'s `tools/call` handler) reads

@@ -154,7 +154,7 @@ describe("THE-457 strict output-schema enforcement", () => {
 
 describe("THE-278 protocol version", () => {
   it("negotiates MCP 2025-11-25 (the SDK dependency's advertised latest)", async () => {
-    // The package.json floor (>=1.29.0) guarantees the SDK advertises 2025-11-25 as its latest;
+    // The package.json floor (>=1.30.1) guarantees the SDK advertises 2025-11-25 as its latest;
     // the server negotiates the SDK default, so a floor regression would drop this below target.
     expect(LATEST_PROTOCOL_VERSION).toBe("2025-11-25");
     // And a real client completes the initialize handshake against the server.
