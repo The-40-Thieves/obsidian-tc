@@ -63,9 +63,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `cargo update`; the diff is exactly that closure (`napi`, `napi-build`, `napi-derive`,
   `napi-derive-backend`, `napi-sys`, `convert_case`, `rustix`). `cargo semver-checks` not run: the
   crate is `version = "0.0.0"`, never published to crates.io, and neither the justfile nor any
-  workflow runs it. **Not touched**, out of scope: a pre-existing `cargo fmt --check` failure on
-  `benches/cosine_batch.rs`/`src/lib.rs` (reproduces identically under 1.97.1 and 1.98.1, so it
-  predates this bump and isn't CI-gated — `cargo fmt` doesn't appear in `ci-native.yml` at all).
+  workflow runs it. A pre-existing `cargo fmt --check` failure on `benches/cosine_batch.rs`/
+  `src/lib.rs` (reproduces identically under 1.97.1 and 1.98.1, so it predates this bump) is fixed
+  in a separate `style(rust)` commit so the dependency bump stays reviewable — formatting only, no
+  behavior change (clippy/tests/the rebuilt `.node` all re-verified identical). `cargo fmt` still
+  isn't added as a CI gate here; it doesn't appear in `ci-native.yml` today. Dry-run validated: all
+  8 `publish.yml` `build-native` release targets (both musl included) succeeded on
+  `workflow_dispatch -f dry_run=true`, also exercising #975's `actions/checkout`/`setup-node`
+  bumps; `docker/setup-qemu-action` (used only in the dry-run-skipped `build-docker` job) remains
+  validated only by the next real release tag push.
 
 - **Same-major JS/TS dependency batch (#974, THE-1119).** `hono` 4.12.34→4.13.9 (root override
   and `packages/server`, `<5` ceiling kept), `@hono/node-server` 2.0.10→2.1.1, `jose` 6.2.3→6.2.12,
