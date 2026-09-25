@@ -13,7 +13,7 @@ import { bm25Score, tokenize } from "../search/native";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
 import type { VisibilityCaller } from "./visibility";
 
-export type FacadeMode = "triad" | "domain" | "flat";
+export type { FacadeMode } from "./facade-mode";
 
 const FACADE_TOOL_NAMES = ["find_capability", "describe_capability", "call_capability"] as const;
 export function isFacadeTool(name: string): boolean {

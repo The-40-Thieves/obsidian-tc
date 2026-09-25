@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { FacadeMode } from "../../mcp/facade";
+import { FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
 import type { ToolDefinition } from "../../mcp/registry";
 
 export interface IndexHealthSnapshot {
@@ -64,6 +66,23 @@ export interface HealthInfo {
     retrying: number;
     failed: number;
     oldest_queued_age_ms: number | null;
+  };
+  /** THE-1123: the tool-facade mode this CALL got. Present whenever the server was wired with a
+   *  `toolFacade` config (every real deployment; absent only for a harness that omits it, like a
+   *  bare unit test of this tool). `configured` echoes `toolFacade.mode` as-is (may be "auto");
+   *  `effective` is `ctx.effectiveFacadeMode` — the SAME resolution mcp/server.ts's `tools/call`
+   *  handler already made for THIS request (and, for "auto", the SAME cached-per-connection value
+   *  `tools/list` advertised by), never re-derived here. Read the review fix in registry/types.ts's
+   *  `effectiveFacadeMode` doc comment for why a second, independent resolution in this file was a
+   *  bug (THE-1123 review round 1): it read `ctx.clientInfo`, which — unlike `ctx.effectiveFacadeMode`
+   *  — was never backfilled from a legacy `initialize`-only connection's `getClientVersion()`, so a
+   *  connection whose identity only ever appeared at `initialize` reported `triad`/no clientName
+   *  here while `tools/list` had already advertised `domain`. `clientName` mirrors `ctx.clientInfo`
+   *  — non-identifying (it names client SOFTWARE, e.g. "claude-code", never a person or vault). */
+  toolFacade?: {
+    configured: FacadeMode | "auto";
+    effective: FacadeMode;
+    clientName?: string;
   };
 }
 
@@ -142,6 +161,12 @@ const IndexHealthSnapshotOutput = z.object({
     .optional(),
 });
 
+const ToolFacadeHealthOutput = z.object({
+  configured: z.enum(["triad", "domain", "flat", "auto"]),
+  effective: z.enum(["triad", "domain", "flat"]),
+  clientName: z.string().optional(),
+});
+
 const HealthInfoOutput = z.object({
   status: z.literal("ok"),
   name: z.literal("obsidian-tc"),
@@ -163,6 +188,7 @@ const HealthInfoOutput = z.object({
       oldest_queued_age_ms: z.number().nullable(),
     })
     .optional(),
+  toolFacade: ToolFacadeHealthOutput.optional(),
 });
 
 export function createIndexStatusTool(opts: {
@@ -220,6 +246,12 @@ export function createHealthTool(opts: {
     failed: number;
     oldestQueuedAgeMs: number | null;
   };
+  /** THE-1123: the `toolFacade` health block. Optional so existing harnesses/tests stay
+   *  source-compatible — absent omits the whole block rather than reporting a hollow one. */
+  toolFacade?: {
+    configured: FacadeMode | "auto";
+    autoClients?: Readonly<Record<string, FacadeMode>>;
+  };
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
@@ -264,6 +296,28 @@ export function createHealthTool(opts: {
                 },
               };
             })()
+          : {}),
+        ...(opts.toolFacade
+          ? {
+              toolFacade: {
+                configured: opts.toolFacade.configured,
+                // THE-1123 review fix (HIGH): read the ALREADY-resolved decision off `ctx`
+                // (mcp/server.ts's `tools/call` handler sets it from the SAME resolver + cache
+                // `tools/list` uses) rather than re-resolving here from `ctx.clientInfo` — a second,
+                // independent resolution disagreed with what `tools/list` had just advertised on a
+                // legacy stdio connection whose identity only ever came from `initialize`, because
+                // `ctx.clientInfo` back then wasn't backfilled from `getClientVersion()` either.
+                // Absent only for a caller that bypassed that handler entirely (a bare unit test of
+                // this tool's own `handler` against a hand-built ctx); FALLBACK_FACADE_MODE is the
+                // documented default, not a second resolution of anything.
+                effective:
+                  ctx.effectiveFacadeMode ??
+                  (opts.toolFacade.configured === "auto"
+                    ? FALLBACK_FACADE_MODE
+                    : opts.toolFacade.configured),
+                ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
+              },
+            }
           : {}),
       };
     },

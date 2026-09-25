@@ -15,6 +15,7 @@ import type { RateLimiter } from "../../throttle";
 import type { AclOp } from "../../vault/acl-path";
 import type { TraceRecord } from "../../workspace/sessions";
 import type { ClientInfo } from "../client-info";
+import type { FacadeMode } from "../facade-mode";
 import type { EffectiveToolVisibilityConfig } from "../visibility";
 
 // WP4.1: this file holds registry.ts's public types and pure declarations — no behaviour, no
@@ -92,10 +93,19 @@ export interface CallerContext {
    *  edge and starting a second, unrelated tree. Absent for any caller that sends none — the span
    *  is then a root exactly as before. */
   traceCarrier?: TraceCarrier;
-  /** THE-627: which client software made this call, lifted from the request's MCP `_meta`. Absent
-   *  for every caller that sends none — which is all of them under the current spec, so absent is
-   *  the normal value. Consumed by start_session to stamp the session row. */
+  /** THE-627: which client software made this call, lifted from the request's MCP `_meta`, falling
+   *  back (THE-1123) to the SDK's own `Server.getClientVersion()` — a legacy `initialize`'s
+   *  `clientInfo`, cached on the `Server` instance — for a connection that never sends a per-request
+   *  envelope at all (stdio's common case). Absent only for a caller that sent neither. Consumed by
+   *  start_session to stamp the session row, and by server_health's `toolFacade.clientName`. */
   clientInfo?: ClientInfo;
+  /** THE-1123: the CONCRETE tool-facade mode THIS request's connection resolved to — set by
+   *  mcp/server.ts's `tools/call` handler from `resolveFacadeMode` (facade-mode-resolver.ts),
+   *  unconditionally (every mode, not just "auto"), so a handler never has to re-derive it from
+   *  `clientInfo` + config and risk disagreeing with what `tools/list` actually advertised on this
+   *  same connection. Read by server_health's `toolFacade.effective`; absent only for a caller that
+   *  never went through that handler (e.g. a bare unit test of a tool's own handler). */
+  effectiveFacadeMode?: FacadeMode;
   /** THE-647 item 2: the resolved persona name, when the token carried a `persona` claim that
    *  resolved against the server's `personas` config (auth/persona.ts). Present for tracing/audit
    *  only — dispatch never branches on the STRING; `grantedScopes`/`vaultId`/`toolVisibility`

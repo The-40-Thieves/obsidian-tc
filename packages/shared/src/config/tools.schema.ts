@@ -59,21 +59,38 @@ export type ToolVisibilityConfig = z.infer<typeof ToolVisibilityConfigSchema>;
 // Tool-surface facade (THE-219 consolidation). Which surface tools/list advertises: "triad" (the
 // default) exposes three meta-tools (find/describe/call_capability); "flat" advertises the full
 // tool surface (back-compat); "domain" advertises ~a dozen domain meta-tools (landed under THE-275,
-// which was itself cancelled — see facade.ts's note). Every registered tool stays callable by name
-// regardless of mode, so nothing is removed.
+// which was itself cancelled — see facade.ts's note); "auto" (THE-1123) picks one of the three
+// PER CONNECTING CLIENT from its observed MCP `clientInfo.name`, merging `autoClients` below over
+// a built-in table. Every registered tool stays callable by name regardless of mode, so nothing is
+// removed in any of the four.
 //
 // The "triad" default is a DECISION, not an accident, and re-litigating it has a specific bar:
 // docs/adr/0006-the-default-surface-is-the-triad.md. Short version — 3 advertised tools is already
 // leaner than every comparable server (market range 6-15), and switching to "domain" wants an
-// eval that measures tool-SELECTION accuracy, which does not exist yet.
+// eval that measures tool-SELECTION accuracy, which does not exist yet. "auto" does not relitigate
+// that default: every client it cannot place by name still gets "triad".
 export const ToolFacadeConfigSchema = z.object({
   mode: z
-    .enum(["triad", "domain", "flat"])
+    .enum(["triad", "domain", "flat", "auto"])
     .default("triad")
     .describe(
-      "Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability), `domain` about a dozen domain meta-tools, `flat` the full tool surface. Every registered tool stays callable by name in every mode.",
+      "Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability), `domain` about a dozen domain meta-tools, `flat` the full tool surface, `auto` picks one of the three per connecting client from its observed clientInfo.name (see `autoClients`). Every registered tool stays callable by name in every mode.",
+    ),
+  // THE-1123 (part a): only consulted when `mode` is "auto". A client's observed `clientInfo.name`
+  // is matched against these keys as a case-insensitive SUBSTRING, in this map's own key order,
+  // BEFORE the server's built-in table (mcp/facade-auto.ts) — so a key here for a name the built-in
+  // table also matches overrides it. First match wins; a client that matches nothing here or in the
+  // built-in table gets "triad". The built-in table itself is PROVISIONAL, not a measurement (see
+  // mcp/facade-auto.ts's module comment) — this field is how an operator corrects it without a code
+  // change while that measurement is pending.
+  autoClients: z
+    .record(z.string().min(1), z.enum(["triad", "domain", "flat"]))
+    .optional()
+    .describe(
+      'Only used when mode is "auto". Maps a case-insensitive substring of the connecting client\'s clientInfo.name to a facade mode; checked in this object\'s own key order, before the server\'s built-in table, so an entry here overrides the same substring there. Absent clientInfo.name (most callers today) always falls back to "triad".',
     ),
 });
+export type ToolFacadeConfig = z.infer<typeof ToolFacadeConfigSchema>;
 // Session-bootstrap routing (THE-101). Server-level, not per-vault: the routing table is a
 // judgment value supplied by config, never baked into the public tree. session_bootstrap triages
 // the opening message to lightweight | standard | deep and reads the resolved context notes. A

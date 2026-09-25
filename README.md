@@ -152,8 +152,8 @@ Dispatch-pipeline and package-layout detail: [ARCHITECTURE.md](./ARCHITECTURE.md
 
 By default the server advertises just **three meta-tools** instead of a wall of 163:
 `find_capability`, `describe_capability`, `call_capability` (invoke by name, same pipeline as a
-direct call). `toolFacade.mode` selects `triad` (default), `domain`, or `flat` — boundary-only,
-no gate is ever bypassed.
+direct call). `toolFacade.mode` selects `triad` (default), `domain`, `flat`, or `auto` — boundary-
+only, no gate bypassed.
 
 ### Install in Cursor / VS Code
 

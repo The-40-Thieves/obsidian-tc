@@ -18,6 +18,7 @@ import type { FolderAcl } from "../acl";
 import { experientialMigrations } from "../cli/shared";
 import { createStdioElicitCodec } from "../elicit";
 import type { EmbeddingsConfigLike } from "../embeddings";
+import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import type { RegistryOptions } from "../mcp/registry/types";
 import { createMcpServer } from "../mcp/server";
@@ -382,12 +383,11 @@ export async function buildServerRuntime(
     // server_health's getJobQueueStats accessor below can close over it.
     const jobQueue = createJobQueue(db, sqlHooksFor);
 
-    // server_health / get_index_status: the two tools NOT counted in boot.tools_registered (see
-    // tool-wiring.ts's header comment) — registered here (not earlier) so hasVec is known.
+    // server_health / get_index_status: NOT in boot.tools_registered (tool-wiring.ts header comment).
     wireHealthTools({
       registry,
       version: VERSION,
-      vaults: config.vaults,
+      ...healthToolsWiringFields(config),
       startedAt,
       hasVec,
       hasFts,
@@ -554,7 +554,7 @@ export async function buildServerRuntime(
       // comment. Stdio's is a fixed literal (never varies), so no readOnly/toolVisibility gap.
       visibility: { grantedScopes: new Set(["*"]), readOnly: acl?.readOnly },
       vaultRegistry,
-      facadeMode: config.toolFacade.mode,
+      ...mcpServerFacadeOptions(config.toolFacade),
       // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
       // there are no retrieval rows for feedback to update.
       experientialLogRetrievals: config.experiential.logRetrievals,

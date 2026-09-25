@@ -364,7 +364,8 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `toolFacade.mode` | `enum(triad\|domain\|flat)` | `"triad"` |  | Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability), `domain` about a dozen domain meta-tools, `flat` the full tool surface. Every registered tool stays callable by name in every mode. |
+| `toolFacade.autoClients` | `record` | — |  | Only used when mode is "auto". Maps a case-insensitive substring of the connecting client's clientInfo.name to a facade mode; checked in this object's own key order, before the server's built-in table, so an entry here overrides the same substring there. Absent clientInfo.name (most callers today) always falls back to "triad". |
+| `toolFacade.mode` | `enum(triad\|domain\|flat\|auto)` | `"triad"` |  | Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability), `domain` about a dozen domain meta-tools, `flat` the full tool surface, `auto` picks one of the three per connecting client from its observed clientInfo.name (see `autoClients`). Every registered tool stays callable by name in every mode. |
 
 ### `toolVisibility`
 

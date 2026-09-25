@@ -74,6 +74,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       host: config.transports.http.host,
       port: config.transports.http.port,
       facadeMode: config.toolFacade.mode,
+      autoClients: config.toolFacade.autoClients,
       // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
       // there are no retrieval rows for feedback to update.
       experientialLogRetrievals: config.experiential.logRetrievals,

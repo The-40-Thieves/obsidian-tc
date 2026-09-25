@@ -109,7 +109,9 @@ export interface HttpAppOptions {
    *  is false, so the wire surface itself — not just the scheduler tick — is unchanged by the flag. */
   advisoryBus?: AdvisoryBus;
   /** Tool-surface facade mode (THE-219), threaded to createMcpServer. */
-  facadeMode?: FacadeMode;
+  facadeMode?: FacadeMode | "auto";
+  /** THE-1123: only consulted when `facadeMode` is "auto", threaded to createMcpServer. */
+  autoClients?: Readonly<Record<string, FacadeMode>>;
   /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
   enableDnsRebindingProtection?: boolean;
   /** Extra Host header values accepted beyond loopback (e.g. a reverse-proxy domain). */
@@ -359,6 +361,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         visibility: visibilityFromAuthInfo(opts, mcpCtx.authInfo),
         vaultRegistry: opts.vaultRegistry,
         facadeMode: opts.facadeMode,
+        autoClients: opts.autoClients,
         // The SDK's own classification, not a header we re-interpret.
         era: mcpCtx.era,
         elicitCodec,

@@ -22,9 +22,12 @@ and a structured result. See the [Tool Reference](/tools/).
 `toolFacade.mode` controls what `tools/list` advertises: **`triad`** (default)
 exposes three meta-tools (`find_capability`, `describe_capability`,
 `call_capability`) for progressive discovery; **`domain`** exposes ~a dozen domain
-meta-tools taking `{ action, args }`; **`flat`** advertises every tool. In every
-mode each tool stays callable by name, and `tools/list` is further filtered per
-caller scopes + tool-visibility ACL.
+meta-tools taking `{ action, args }`; **`flat`** advertises every tool; **`auto`**
+picks one of the three per connecting client from its `clientInfo.name`
+(provisional table; precise on stdio and on HTTP for 2026-07-28 clients only —
+see the [Tool Reference](/tools/#tool-surface-facade) for the full breakdown). In
+every mode each tool stays callable by name, and `tools/list` is further
+filtered per caller scopes + tool-visibility ACL.
 
 `find_capability` is query-only — it answers "which tool does X", not "what
 exists". Two additions close that gap without a fourth meta-tool or any change to

@@ -476,6 +476,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           ? { probeAutoSelectLocalReranker: () => Promise.resolve(autoSelectLocalRerankerOutcome) }
           : {}),
       },
+      toolFacade: {
+        configured: config.toolFacade.mode,
+        autoClients: config.toolFacade.autoClients,
+      },
     },
     profile,
     bridgeReports,

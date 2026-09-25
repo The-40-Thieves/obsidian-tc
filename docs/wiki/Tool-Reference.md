@@ -6,7 +6,7 @@ Every tool carries four annotations enforced by the dispatch pipeline: **acl** (
 
 ## The facade
 
-What `tools/list` advertises is controlled by `toolFacade.mode`: **`triad`** (default — `find_capability`, `describe_capability`, `call_capability`), **`domain`** (~a dozen domain meta-tools taking `{ action, args }`), or **`flat`** (the full surface). Every underlying tool stays callable by name in every mode; routing always goes through the same authorization pipeline.
+What `tools/list` advertises is controlled by `toolFacade.mode`: **`triad`** (default — `find_capability`, `describe_capability`, `call_capability`), **`domain`** (~a dozen domain meta-tools taking `{ action, args }`), **`flat`** (the full surface), or **`auto`** (one of the three above, resolved per connecting client from its `clientInfo.name`; provisional table, precise on stdio and on HTTP for 2026-07-28 clients only). Every underlying tool stays callable by name in every mode; routing always goes through the same authorization pipeline.
 
 ## Domain groups
 

@@ -17,7 +17,7 @@ import type { CallerContext } from "../src/mcp/registry";
 import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
 import type { IndexStats } from "../src/search/indexer";
-import { createHealthTool } from "../src/tools/admin/health";
+import { createHealthTool, type HealthInfo } from "../src/tools/admin/health";
 
 /** A clean IndexStats with one frontmatter failure — every field IndexStats requires. */
 function statsWithFrontmatterFailure(): IndexStats {
@@ -95,6 +95,89 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     // @modelcontextprotocol/sdk's Client.callTool runs client-side, and the one that actually
     // rejected fix round 1's leaked `kind` field with "must NOT have additional properties".
     // biome-ignore lint/style/noNonNullAssertion: asserted defined above.
+    const schema = toJson(tool.outputSchema!);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    const result = validate(JSON.parse(JSON.stringify(out)));
+    expect(result.valid).toBe(true);
+  });
+
+  // THE-1123: the `toolFacade` block is assembled from internal state (ctx.clientInfo +
+  // ctx.effectiveFacadeMode), exactly the shape the zod-safeParse-strips-but-ajv-rejects trap bites
+  // — see reference_obsidian_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys. Pinned here so a
+  // future field added to that block is caught the same way fix round 1's `kind` leak was.
+  it("the toolFacade block (auto mode, resolved from ctx.effectiveFacadeMode) validates under ajv too", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      toolFacade: { configured: "auto", autoClients: { cursor: "flat" } },
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+      clientInfo: { name: "claude-code-cli" },
+      // THE-1123 review fix (HIGH): the REAL dispatch pipeline (mcp/server.ts's tools/call
+      // handler) sets this from the SAME resolver `tools/list` used — never re-derived here.
+      effectiveFacadeMode: "domain",
+    } as CallerContext) as HealthInfo;
+    expect(out.toolFacade).toEqual({
+      configured: "auto",
+      effective: "domain",
+      clientName: "claude-code-cli",
+    });
+
+    expect(tool.outputSchema).toBeDefined();
+    // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
+    expect(tool.outputSchema!.safeParse(out).success).toBe(true);
+    // biome-ignore lint/style/noNonNullAssertion: asserted defined above.
+    const schema = toJson(tool.outputSchema!);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    const result = validate(JSON.parse(JSON.stringify(out)));
+    expect(result.valid).toBe(true);
+  });
+
+  // THE-1123 review fix (HIGH): the exact regression the reviewer reproduced — a naive
+  // re-resolution from `ctx.clientInfo` would say "domain" here (clientInfo.name matches the
+  // built-in claude-code entry), but `ctx.effectiveFacadeMode` is what the real connection actually
+  // resolved to (set once, cached, shared with tools/list) and MUST win.
+  it("effective reads ctx.effectiveFacadeMode even when a naive re-resolution from clientInfo would disagree", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      toolFacade: { configured: "auto" },
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+      clientInfo: { name: "claude-code" }, // built-in table alone would say "domain"
+      effectiveFacadeMode: "flat", // but THIS connection already resolved to "flat"
+    } as CallerContext) as HealthInfo;
+    expect(out.toolFacade?.effective).toBe("flat");
+  });
+
+  it("a caller with no observable clientInfo omits clientName (never a placeholder)", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      toolFacade: { configured: "triad" },
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+    } as CallerContext) as HealthInfo;
+    expect(out.toolFacade).toEqual({ configured: "triad", effective: "triad" });
+    expect(out.toolFacade).not.toHaveProperty("clientName");
+
+    expect(tool.outputSchema).toBeDefined();
+    // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
     const schema = toJson(tool.outputSchema!);
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     const result = validate(JSON.parse(JSON.stringify(out)));

@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 465,
-    "dependencies": 2150,
-    "subsystemPairs": 133,
-    "crossSubsystemImports": 979
+    "modules": 469,
+    "dependencies": 2166,
+    "subsystemPairs": 134,
+    "crossSubsystemImports": 985
   },
   "subsystems": {
     "auth": 4,
@@ -15,13 +15,13 @@
     "cli": 41,
     "config": 14,
     "db": 15,
-    "doctor": 17,
+    "doctor": 18,
     "embeddings": 6,
     "experiential": 28,
     "formats": 6,
     "gateway": 3,
     "graph": 1,
-    "mcp": 22,
+    "mcp": 25,
     "memory": 2,
     "metrics": 4,
     "model": 7,
@@ -50,7 +50,7 @@
     {
       "from": "tools",
       "to": "mcp",
-      "weight": 78
+      "weight": 80
     },
     {
       "from": "search",
@@ -109,6 +109,11 @@
     },
     {
       "from": "runtime",
+      "to": "mcp",
+      "weight": 15
+    },
+    {
+      "from": "runtime",
       "to": "plane",
       "weight": 14
     },
@@ -120,11 +125,6 @@
     {
       "from": "runtime",
       "to": "scheduler",
-      "weight": 13
-    },
-    {
-      "from": "runtime",
-      "to": "mcp",
       "weight": 13
     },
     {
@@ -413,6 +413,11 @@
       "weight": 2
     },
     {
+      "from": "doctor",
+      "to": "mcp",
+      "weight": 2
+    },
+    {
       "from": "embeddings",
       "to": "providers",
       "weight": 2
@@ -574,17 +579,17 @@
     },
     {
       "from": "mcp",
+      "to": "search",
+      "weight": 1
+    },
+    {
+      "from": "mcp",
       "to": "experiential",
       "weight": 1
     },
     {
       "from": "mcp",
       "to": "workspace",
-      "weight": 1
-    },
-    {
-      "from": "mcp",
-      "to": "search",
       "weight": 1
     },
     {
