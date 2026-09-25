@@ -72,12 +72,24 @@ async function token(): Promise<string> {
     .sign(new TextEncoder().encode(SECRET));
 }
 
-/** One modern tools/call, optionally echoing a previously issued requestState. */
+/** One modern tools/call, optionally echoing a previously issued requestState AND the embedded
+ *  request's response (`inputResponses`) — THE-1106 fix round 1: a spec-compliant retry carries
+ *  BOTH (`InputResponses` is a real field on a retried request's params, not a shim-only concept —
+ *  `@modelcontextprotocol/server`'s `createMcpHandler-*.d.mts` names it "A map of embedded input
+ *  responses" on the retry), and dispatch now requires the confirm leg's OWN accept/decline
+ *  (`ctx.mcpReq.inputResponses`) before trusting an echoed state — a verified `requestState` alone
+ *  only proves the token is authentic, not that the human approved. Defaults to an accepting
+ *  response whenever a state is echoed, matching what a real client sends after the human approves;
+ *  pass `inputResponses: null` to omit it (an incomplete/non-compliant retry) or a different value
+ *  to simulate a decline. */
 async function call(
   port: number,
   jwt: string,
   args: Record<string, unknown>,
   requestState?: string,
+  inputResponses: Record<string, unknown> | null | undefined = requestState
+    ? { confirm: { action: "accept", content: { approve: true } } }
+    : undefined,
 ): Promise<any> {
   const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
@@ -98,6 +110,7 @@ async function call(
         arguments: args,
         _meta: META,
         ...(requestState ? { requestState } : {}),
+        ...(inputResponses ? { inputResponses } : {}),
       },
     }),
   });
@@ -170,6 +183,52 @@ describe("HITL multi-round-trip (THE-583, SEP-2260/2322)", () => {
       const answered = forged.error !== undefined || forged.result?.resultType === "input_required";
       expect(answered).toBe(true);
       expect(JSON.stringify(forged)).not.toContain("wrote");
+    } finally {
+      await h.close();
+    }
+  }, 25_000);
+
+  // THE-1106 fix round 1 (CRITICAL, cross-vendor review): a verified `requestState` alone proves
+  // the token is authentic and bound to this call — it says nothing about whether the human
+  // actually approved. Before this fix, echoing a VALID state back was enough to satisfy the HITL
+  // gate regardless of what `inputResponses` said, so a client (or a bug) that echoed the state
+  // after a DECLINE still completed the write. Reproduced directly by the stdio shim's wire tests
+  // (test/hitl-legacy-shim-elicitation.test.ts); this is the same property proven on the modern,
+  // client-driven wire this file otherwise covers.
+  it("a declined confirmation echoing the SAME state must NOT complete the call", async () => {
+    const h = await boot();
+    const jwt = await token();
+    try {
+      const args = { vault: "v1", path: "a.md" };
+      const first = await call(h.port, jwt, args);
+      const state = first.result.requestState as string;
+
+      const declined = await call(h.port, jwt, args, state, {
+        confirm: { action: "decline" },
+      });
+      expect(JSON.stringify(declined)).not.toContain("wrote");
+      expect(declined.result?.isError).toBe(true);
+      // And no infinite/looping re-offer: the decline renders the plain elicit_required error,
+      // never a second input_required round.
+      expect(declined.result?.resultType).not.toBe("input_required");
+    } finally {
+      await h.close();
+    }
+  }, 25_000);
+
+  it("approve: false on the embedded response must NOT complete the call either", async () => {
+    const h = await boot();
+    const jwt = await token();
+    try {
+      const args = { vault: "v1", path: "a.md" };
+      const first = await call(h.port, jwt, args);
+      const state = first.result.requestState as string;
+
+      const notApproved = await call(h.port, jwt, args, state, {
+        confirm: { action: "accept", content: { approve: false } },
+      });
+      expect(JSON.stringify(notApproved)).not.toContain("wrote");
+      expect(notApproved.result?.isError).toBe(true);
     } finally {
       await h.close();
     }

@@ -11,9 +11,6 @@ export const MORGIANA_EVENT_TYPES = [
   "tc.acl.denied",
   "tc.elicit.requested",
   "tc.elicit.consumed",
-  // THE-1106 — additive: a confirmation cleared IN-BAND (server-initiated `elicitation/create` on
-  // a legacy-era connection, e.g. stdio) rather than via the CLI `obsidian-tc elicit` mint path.
-  "tc.elicit.in_band",
   "tc.rate_limit.hit",
   "tc.governor.overflow",
   "tc.vault.cache_reset",

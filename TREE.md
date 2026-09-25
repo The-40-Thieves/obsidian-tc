@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,341 tracked code files · 237,800 lines.
+**Scale:** 1,341 tracked code files · 238,028 lines.
 
-TypeScript 217,420 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
+TypeScript 217,648 · JavaScript 14,958 · Python 2,257 · SQL 1,940 · Rust 742 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,7 +89,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 91 | 18,872 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 12,998 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 28 | 7,210 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 21 | 5,909 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 21 | 5,925 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 41 | 5,635 | arg parsing + subcommands |
 | `runtime/` | 19 | 4,458 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 17 | 3,060 | `obsidian-tc doctor` — checks, report rendering, runner |
@@ -141,7 +141,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 919 | `packages/shared/src/config/retrieval.schema.ts` |
 | 835 | `packages/server/src/experiential/reflect.ts` |
 | 823 | `packages/server/src/doctor/checks.ts` |
-| 808 | `packages/server/src/mcp/server.ts` |
+| 812 | `packages/server/src/mcp/server.ts` |
 | 743 | `packages/server/src/runtime/server-runtime.ts` |
 | 697 | `packages/server/src/providers/registry.ts` |
 | 690 | `packages/server/src/cli/args.ts` |

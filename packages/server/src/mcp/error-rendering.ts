@@ -3,6 +3,7 @@
 // module has no dependency on the rest of server.ts, so the split adds no circular import.
 import type { ErrorJSON } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { sanitizeDisplayText } from "./elicit-form";
 
 // THE-823: real MCP clients drop `structuredContent` on an isError result and render the text block
 // alone, so `details.issues` (the Zod issue array `err.validation` / parseInput attach — see
@@ -122,16 +123,16 @@ function renderFlag(flag: string, value: string): string {
 }
 
 /** THE-1082 (GH #945; fix round 2 per cross-vendor review) + THE-1106 (GH #967 part 3): the
- *  text-channel rendering of an `elicit_required` error's token path. `mcp/server.ts`'s modern
- *  SEP-2260 `inputRequired` round trip (`isModern && opts.elicitCodec && canElicit`) and THE-1106's
- *  legacy server-initiated round trip (`!isModern && opts.inBandElicitation && canElicit`) never
- *  reach this — both intercept `elicit_required` before `errorToResult` runs. Every OTHER caller
- *  (a 2025-era client with no elicitation capability, or one whose in-band attempt was
- *  declined/failed) falls through to `errorToResult`, and per THE-823 that caller drops
- *  `structuredContent` on an isError result, so `args_hash` (already there — #931/THE-1037 made
- *  `call_capability` accept a redeemed token) is otherwise stranded where nothing reads it. This
- *  renders the actual `obsidian-tc elicit` invocation (cli/commands/elicit-mint.ts, flags per
- *  cli/usage.ts) rather than describing it, so a caller with no MCP elicitation support can still
+ *  text-channel rendering of an `elicit_required` error's token path. `mcp/server.ts`'s
+ *  `inputRequired` round trip (`opts.elicitCodec && canElicit && roundTripDeliverable` — native on
+ *  a modern connection, or the SDK's own legacy shim on stdio) never reaches this — it intercepts
+ *  `elicit_required` before `errorToResult` runs. Every OTHER caller (a client with no elicitation
+ *  capability, or one whose round trip was declined/cancelled/failed) falls through to
+ *  `errorToResult`, and per THE-823 that caller drops `structuredContent` on an isError result, so
+ *  `args_hash` (already there — #931/THE-1037 made `call_capability` accept a redeemed token) is
+ *  otherwise stranded where nothing reads it. This renders the actual `obsidian-tc elicit`
+ *  invocation (cli/commands/elicit-mint.ts, flags per cli/usage.ts) rather than describing it, so
+ *  a caller with no MCP elicitation support can still
  *  clear the gate.
  *
  *  THE-1106: the previous version handed an AGENT a bare command line and trusted it to notice a
@@ -172,16 +173,19 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
       `instead, or mint manually once you know the tool name, using args_hash ${shellQuote(hash)}.`
     );
   }
-  // THE-1106: the target path, rendered in backticks in PROSE (never shell-interpolated there —
-  // it names the call's target for a human reading a sentence, not an argv token); omitted
-  // entirely when the error carried none (e.g. dispatch.ts's always-on `destructive: true` gate,
-  // which has no `proposed` object to source a path from).
+  // THE-1106 (MEDIUM/LOW 2, cross-vendor review — 2nd pass): `path` is UNTRUSTED display text — a
+  // vault-relative `VaultPath` may legally contain a newline, backtick, or quote — so it is quoted
+  // with `JSON.stringify` (after `sanitizeDisplayText`, ./elicit-form.ts, shared with the
+  // `inputRequired` form message) rather than a hand-picked delimiter the value could itself
+  // contain: the quoting cannot be forged by ANY character. Omitted when the error carried none.
+  // `tool` is sanitized the same way defensively, though it is registry-derived, never caller data.
+  const safeTool = sanitizeDisplayText(tool);
   const path = details?.path;
-  const target = typeof path === "string" ? ` on \`${path}\`` : "";
+  const target = typeof path === "string" ? ` on ${JSON.stringify(sanitizeDisplayText(path))}` : "";
   const vault = details?.vault;
   const vaultFlag = typeof vault === "string" ? ` ${renderFlag("--vault", vault)}` : "";
   return (
-    `This call needs the user's approval. Ask the user now whether to allow ${tool}${target}. ` +
+    `This call needs the user's approval. Ask the user now whether to allow ${safeTool}${target}. ` +
     "If they approve, run the command below and retry the same call with elicit_token: <token>. " +
     "Do not mint the token without their explicit yes.\n" +
     `confirm with: obsidian-tc elicit ${renderFlag("--hash", hash)} ${renderFlag("--tool", tool)}${vaultFlag}\n` +

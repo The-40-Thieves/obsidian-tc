@@ -1,7 +1,6 @@
 import {
   type CallToolResult,
   type GetPromptResult,
-  inputRequired,
   type ListPromptsResult,
   type ListResourcesResult,
   type ListResourceTemplatesResult,
@@ -12,18 +11,30 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/server";
-import { type ErrorJSON, err, isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
-import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
+import {
+  type ErrorJSON,
+  err,
+  isMutatingScope,
+  type ToolResult,
+} from "@the-40-thieves/obsidian-tc-shared";
+import type { ElicitCodec } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import {
   clientRoots,
   clientSupportsSampling,
+  emitLog,
   type RequestLog,
   sampleViaClient,
 } from "./client-features";
 import { extractClientInfo } from "./client-info";
+import {
+  clientSupportsFormElicitation,
+  offerInputRequired,
+  resolveElicitConfirmation,
+  roundTripDeliverable,
+} from "./elicit-form";
 import { splitElicitToken } from "./elicit-token";
 import { formatErrorDetail } from "./error-rendering";
 import {
@@ -42,12 +53,6 @@ import {
   toJson,
   triadTools,
 } from "./facade";
-import {
-  buildConfirmElicitationParams,
-  clientSupportsFormElicitation,
-  toCallToolResult,
-  tryInBandElicitation,
-} from "./in-band-elicitation";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolDefinition, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
@@ -61,19 +66,13 @@ import {
 } from "./resources";
 import {
   clientSupportsTasks,
+  MODERN_PROTOCOL_VERSION,
   TASK_CALL_JOB_TYPE,
   TASKS_EXTENSION,
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
 import { disclosableExplanation, type VisibilityCaller } from "./visibility";
-
-/**
- * The first "modern" revision (SEP-2575: no initialize handshake, protocol version in `_meta`,
- * `server/discover`). The SDK knows it internally as FIRST_MODERN_PROTOCOL_VERSION but does not
- * export it, and does not include it in SUPPORTED_PROTOCOL_VERSIONS — so it is named here.
- */
-const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
 /**
  * SEP-2549 cache hints. The SDK's cacheable set is a CLOSED list — `tools/list`, `prompts/list`,
@@ -160,19 +159,23 @@ export interface McpServerOptions {
    */
   era?: "legacy" | "modern";
   /**
-   * THE-583: codec for the 2026-07-28 HITL round trip (SEP-2260/2322). When supplied, an
-   * `elicit_required` outcome is answered with `inputRequired({ requestState })` — the protocol's
-   * own shape — instead of a bare error a generic client cannot act on. Absent (stdio, tests) keeps
-   * the 2025 behaviour: the error, and an `elicit_token` argument to satisfy it.
+   * THE-583: codec for the `inputRequired({ requestState })` HITL round trip (SEP-2260/2322).
+   * When supplied, an `elicit_required` outcome is answered with `inputRequired(...)` instead of a
+   * bare error — natively on a modern connection, or (with `legacyElicitationShim` below) via the
+   * SDK's own legacy shim on stdio. `runtime/server-runtime.ts` builds one for stdio from a
+   * per-process random secret; `transports/http.ts` builds one from `auth.jwtSecret`. Absent keeps
+   * the plain `elicit_required` error + `elicit_token` CLI fallback. See `roundTripDeliverable`
+   * (./elicit-form.ts) for exactly which connections this reaches.
    */
   elicitCodec?: ElicitCodec;
-  /** THE-1106 (GH #967 parts 1/3): opt IN to server-initiated `elicitation/create` on a LEGACY-era
-   *  connection — `inputRequired` is unreachable there (2026-07-28+ only negotiates via
-   *  `server/discover`, never legacy `initialize`). Absent/false keeps the pre-THE-1106 plain
-   *  `elicit_required` error. Only stdio (runtime/server-runtime.ts) sets this; http.ts never does
-   *  — server-initiated requests are unverified against Streamable HTTP clients. See
-   *  ./in-band-elicitation.ts. */
-  inBandElicitation?: boolean;
+  /**
+   * THE-1106: opt IN to the SDK's `LegacyInputRequiredShim` for a legacy-era connection —
+   * DEFAULT-ON at the SDK level (traced in `./elicit-form.ts`'s module doc comment) but NOT safe
+   * to inherit blindly: server-initiated legs over Streamable HTTP are unverified against real
+   * clients and out of scope. Only `runtime/server-runtime.ts`'s stdio server sets this true;
+   * `transports/http.ts` never does. Requires `elicitCodec` to have any effect.
+   */
+  legacyElicitationShim?: boolean;
   /**
    * THE-583: durable queue backing TASK-AUGMENTED tool calls.
    *
@@ -356,6 +359,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
       ...(opts.elicitCodec
         ? { requestState: { verify: (state: string) => opts.elicitCodec?.verify(state) } }
         : {}),
+      // THE-1106: assert explicit, never the SDK default — see McpServerOptions.legacyElicitationShim.
+      inputRequired: { legacyShim: opts.legacyElicitationShim === true },
     },
   );
 
@@ -473,8 +478,26 @@ export function createMcpServer(opts: McpServerOptions): Server {
       isError: true,
     };
   };
-  // THE-583/THE-1106: success/overflow/error formatting, shared with the in-band elicitation
-  // re-dispatch (in-band-elicitation.ts's `toCallToolResult`) so neither can drift from the other.
+  // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
+  // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
+  // shortened result believing it complete — the failure mode the governor exists to bound, moved
+  // one layer up. Fire-and-forget: a log line must never fail the call it describes.
+  const toCallToolResult = (result: ToolResult, name: string, log?: RequestLog): CallToolResult => {
+    if (!result.ok) return errorToResult(result.error);
+    const overflow = result.meta.overflow_bytes;
+    if (typeof overflow === "number" && overflow > 0) {
+      void emitLog(log, {
+        level: "warning",
+        logger: "obsidian-tc/governor",
+        data: {
+          tool: name,
+          overflow_bytes: overflow,
+          message: "response truncated by byte ceiling",
+        },
+      });
+    }
+    return formatData(result.data);
+  };
 
   const dispatchToResult = async (
     name: string,
@@ -484,61 +507,26 @@ export function createMcpServer(opts: McpServerOptions): Server {
     canElicit = false,
     /** This request's log sink (`extra.mcpReq.log`); absent for stdio/direct construction. */
     log?: RequestLog,
+    /** THE-1106: true when a round for THIS request came back declined/cancelled — see
+     *  `resolveElicitConfirmation` (./elicit-form.ts). Stops a second offer for the same decline. */
+    roundDeclinedOrCancelled = false,
   ): Promise<CallToolResult> => {
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
-      const argsHash = (result.error as { details?: { args_hash?: string } }).details?.args_hash;
-      // THE-583 (SEP-2260/2322): a confirmation requirement is not a failure, it is a round trip.
-      // Offered only on the modern era, only when a codec is wired, and only when the CLIENT
-      // declared form-elicitation support — the SDK refuses an `inputRequired` naming a capability
-      // the client never advertised (-32021). Every other caller gets the plain `elicit_required`
-      // error and the 2025 token path. `args_hash` comes from dispatch itself so the minted state
-      // is bound to the hash the gate will recompute. See design note for the shape comparison.
+      // THE-583 + THE-1106: offered only when the SDK will ACTUALLY deliver it — offerInputRequired.
       if (
         result.error.code === "elicit_required" &&
-        isModern &&
         opts.elicitCodec &&
         canElicit &&
-        typeof argsHash === "string"
+        !roundDeclinedOrCancelled &&
+        roundTripDeliverable(server, isModern, opts.legacyElicitationShim)
       ) {
-        return inputRequired({
-          requestState: await opts.elicitCodec.mint({
-            tool: name,
-            argsHash,
-            vaultId: ctx.vaultId,
-            caller: ctx.caller,
-          }),
-          inputRequests: {
-            confirm: {
-              method: "elicitation/create",
-              params: buildConfirmElicitationParams(name),
-            },
-          },
-        }) as unknown as CallToolResult;
-      }
-      // THE-1106: the legacy-era counterpart (in-band-elicitation.ts) — opt-in only, never on HTTP.
-      const legacyElicit =
-        result.error.code === "elicit_required" &&
-        !isModern &&
-        opts.inBandElicitation &&
-        canElicit &&
-        typeof argsHash === "string";
-      if (legacyElicit) {
-        const path = (result.error as { details?: { path?: unknown } }).details?.path;
-        const inBand = await tryInBandElicitation(
-          { server, registry: opts.registry, formatData, errorToResult },
-          name,
-          args,
-          ctx,
-          argsHash as string,
-          typeof path === "string" ? path : undefined,
-          log,
-        );
-        if (inBand !== undefined) return inBand;
+        const offer = await offerInputRequired(opts.elicitCodec, name, result.error, ctx);
+        if (offer !== undefined) return offer;
       }
       return errorToResult(result.error);
     }
-    return toCallToolResult(formatData, errorToResult, result, name, log);
+    return toCallToolResult(result, name, log);
   };
 
   server.setRequestHandler("tools/call", async (req, extra): Promise<CallToolResult> => {
@@ -576,12 +564,14 @@ export function createMcpServer(opts: McpServerOptions): Server {
         ? { sample: (p: Parameters<typeof sampleViaClient>[1]) => sampleViaClient(server, p) }
         : {}),
     };
-    // THE-583: a verified 2026-07-28 request-state, when the client echoed one. The transport has
-    // already checked its HMAC and TTL; dispatch still checks that it authorizes this exact call.
-    const echoed = (
-      extra.mcpReq as { requestState?: <T>() => T | undefined }
-    ).requestState?.<ElicitRequestState>();
-    if (echoed !== undefined) ctx = { ...ctx, elicitState: echoed };
+    // THE-583 + THE-1106 (CRITICAL fix — see resolveElicitConfirmation's doc comment, elicit-form.ts).
+    const { elicitState, roundDeclinedOrCancelled } = resolveElicitConfirmation(
+      extra.mcpReq as {
+        requestState?: <T>() => T | undefined;
+        inputResponses?: Record<string, unknown>;
+      },
+    );
+    if (elicitState !== undefined) ctx = { ...ctx, elicitState };
     ({ args, ctx } = splitElicitToken(rawArgs, ctx));
     // THE-583: run as a background TASK when the client asked and the tool opted in.
     //
@@ -617,7 +607,14 @@ export function createMcpServer(opts: McpServerOptions): Server {
       const action = typeof args.action === "string" ? args.action : "";
       const rawActionArgs = (args.args ?? {}) as Record<string, unknown>;
       const { args: actionArgs, ctx: actionCtx } = splitElicitToken(rawActionArgs, ctx);
-      return dispatchToResult(action, actionArgs, actionCtx, canElicit, log);
+      return dispatchToResult(
+        action,
+        actionArgs,
+        actionCtx,
+        canElicit,
+        log,
+        roundDeclinedOrCancelled,
+      );
     }
     // THE-219 facade interception (boundary-only): find/describe are pure metadata over the
     // caller-visible catalog; call_capability routes the named TARGET through registry.dispatch so
@@ -693,12 +690,19 @@ export function createMcpServer(opts: McpServerOptions): Server {
           // THE-1037 (GH #925): `a` is call_capability's INNER args, forwarded here untouched by
           // callCapability itself — strip it the same way as the outer envelope (splitElicitToken).
           const { args: targetArgs, ctx: targetCtx } = splitElicitToken(a, ctx);
-          return dispatchToResult(n, targetArgs, targetCtx, canElicit, log);
+          return dispatchToResult(
+            n,
+            targetArgs,
+            targetCtx,
+            canElicit,
+            log,
+            roundDeclinedOrCancelled,
+          );
         },
         errorToResult,
       );
     }
-    return dispatchToResult(req.params.name, args, ctx, canElicit, log);
+    return dispatchToResult(req.params.name, args, ctx, canElicit, log, roundDeclinedOrCancelled);
   });
 
   // Resources: vault notes. resources.ts owns AUTHORIZATION (read:notes scope, vault binding,

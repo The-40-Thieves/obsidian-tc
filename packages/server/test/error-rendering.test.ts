@@ -93,14 +93,14 @@ describe("formatErrorDetail: elicit_required (THE-1082, GH #945)", () => {
     );
   });
 
-  it("path present: the directive names the target in backticks; omitted from the confirm line", () => {
+  it("path present: the directive names the target as a JSON literal; omitted from the confirm line", () => {
     const detail = formatErrorDetail({
       code: "elicit_required",
       message: "human confirmation required",
       retryable: false,
       details: { args_hash: "abc123", tool: "write_note", vault: "v1", path: "notes/a.md" },
     });
-    expect(detail).toContain("Ask the user now whether to allow write_note on `notes/a.md`.");
+    expect(detail).toContain('Ask the user now whether to allow write_note on "notes/a.md".');
     const confirmLine = detail?.split("\n").find((l) => l.startsWith("confirm with:"));
     expect(confirmLine).not.toContain("notes/a.md");
   });

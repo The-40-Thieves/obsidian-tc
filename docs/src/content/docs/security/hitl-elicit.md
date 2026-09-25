@@ -16,33 +16,46 @@ redeem another's approval.
 The elicitation thresholds are **hardcoded floors** — a client cannot configure
 them away. This keeps the confirmation gate present even under a permissive config.
 
-## In-band confirmation on stdio (THE-1106)
+## The `inputRequired` round trip, on stdio too (THE-1106)
 
-On a legacy-era connection (2025-11-25/2025-06-18 — this is every stdio client; a
-2026-07-28 revision is only ever negotiated over Streamable HTTP via `server/discover`,
-never over stdio's `initialize` handshake), a client that advertises elicitation gets the
-confirmation **in band**: the server sends a server-initiated `elicitation/create` request
-(`mode: "form"`) asking the human to approve the call, and on `accept`/`approve: true` the
-server itself mints and redeems a single-use token and completes the call — no shell
-round trip. This is what closes the gate for Claude Code over stdio and similar clients: a
-bare `elicitation: {}` capability declaration (the pre-mode 2025 default) counts as form
-support, not just an explicit `elicitation: { form: {} }`. A decline, a cancel, or
-`approve: false` all render the same `elicit_required` error as before — never a second
-prompt. Every confirmation cleared this way is logged as `tc.elicit.in_band`, distinct
-from `tc.elicit.consumed` (which still fires too, since the mechanism underneath is the
-same single-use token). This is stdio-only: Streamable HTTP never sends a server-initiated
-request (unverified against real HTTP clients; out of scope).
+A client that advertises the MCP **elicitation** capability (`elicitation/create`,
+SEP-2260/2322) gets the confirmation as an actual protocol round trip — the server
+answers `inputRequired({ requestState, inputRequests: { confirm: … } })`, and the
+call completes once the human answers `accept` with `approve: true`. This works on
+**both** stdio and HTTP, and on **both** protocol eras:
+
+- On a MODERN (2026-07-28) connection, the client drives the round trip itself:
+  it shows the form, resubmits the call echoing back `requestState` and the
+  answer, and the server verifies both before trusting them.
+- On a LEGACY (2025-11-25/2025-06-18) connection, the underlying MCP SDK's
+  low-level `Server` fulfils the round trip *server-side*: it sends the
+  `elicitation/create` request itself, waits for the answer, and re-enters the
+  handler with a verified `requestState` — the client sees nothing different
+  from the modern case except the wire shape. This legacy path is opt-in and
+  **stdio-only** (`legacyElicitationShim`); Streamable HTTP never takes it, since
+  a server-initiated request over stateless HTTP is unverified against real
+  clients and out of scope. A legacy-era HTTP session behaves exactly as it did
+  before this mechanism existed: the plain `elicit_required` error below.
+
+Either way: a decline, a cancel, or an explicit `approve: false` renders the same
+`elicit_required` error as an unconfirmed call — never a second prompt, and never
+treated as an approval (a verified `requestState` alone proves the confirmation is
+*authentic*, never that it was *granted* — the server also checks the elicitation's
+own answer before trusting it). The single-use elicit-token/CLI mechanism below is
+what a client with no elicitation capability at all still falls back to.
+
+A client that declares a bare `elicitation: {}` capability (no `form`/`url` sub-key)
+is treated as supporting form mode — the 2025 spec's pre-mode default — not as
+declining elicitation; this applies uniformly, on every transport and era.
 
 ## When your client can't render the prompt (THE-826)
 
-The mechanism above assumes the client implements the MCP **elicitation** capability
-(`elicitation/create`, SEP-2260/2322) — most now do, and the in-band path above handles it
-automatically. A client with NO elicitation capability at all still gets nothing to act
-on: a call to one of the 16 conditionally-gated tools (`move_note` across a folder
-boundary, `delete_note`, `restore_note`, `prune_hub_links`, and others) simply fails with
-an `elicit_required` error and no round trip to complete it. The error text itself now
-leads with a directive telling the AGENT to ask the human before running anything (THE-1106
-part 3) — it is not an instruction the agent should act on unilaterally:
+A client with NO elicitation capability at all gets nothing to act on: a call to
+one of the 16 conditionally-gated tools (`move_note` across a folder boundary,
+`delete_note`, `restore_note`, `prune_hub_links`, and others) simply fails with
+an `elicit_required` error and no round trip to complete it. The error text itself
+leads with a directive telling the AGENT to ask the human before running anything
+(THE-1106 part 3) — it is not an instruction the agent should act on unilaterally:
 
 ```json
 { "code": "elicit_required", "details": { "args_hash": "…" } }

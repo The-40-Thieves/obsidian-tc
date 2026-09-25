@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Database } from "./db/types";
+import { createElicitCodec, type ElicitCodec } from "./elicit-request-state";
 import type { CallerContext } from "./mcp/registry";
 
 /** Built-in default elicit-token TTL: 5 minutes (G2.4 A.3). Overridable at startup from the
@@ -22,6 +23,15 @@ export function setDefaultElicitTtlSeconds(seconds: number): void {
  */
 export function getDefaultElicitTtlSeconds(): number {
   return defaultTtlSeconds;
+}
+
+/** THE-1106: stdio's own `requestState` codec (HTTP's is keyed off `auth.jwtSecret`, which stdio
+ *  has none of — trusted local transport, no bearer auth). A per-process random secret is fine:
+ *  the codec only needs to authenticate a state THIS process minted, never one from elsewhere, and
+ *  restart invalidates every outstanding confirmation exactly like a token TTL would. Never logged
+ *  — `createElicitCodec` only ever derives a hash from it. */
+export function createStdioElicitCodec(): ElicitCodec {
+  return createElicitCodec(randomBytes(32).toString("hex"), getDefaultElicitTtlSeconds());
 }
 
 export interface IssueElicitInput {

@@ -7,12 +7,10 @@ import { describe, expect, it } from "vitest";
 
 describe("MORGIANA CloudEvents schema (G2.4)", () => {
   it("declares the spec event types plus additive extensions", () => {
-    expect(MORGIANA_EVENT_TYPES).toHaveLength(11);
+    expect(MORGIANA_EVENT_TYPES).toHaveLength(10);
     expect(MORGIANA_EVENT_TYPES).toContain("tc.maintenance.sweep");
     expect(MORGIANA_EVENT_TYPES).toContain("tc.tool.call.completed");
     expect(MORGIANA_EVENT_TYPES).toContain("tc.server.shutdown");
-    // THE-1106: server-initiated (legacy-era, e.g. stdio) elicitation confirmation.
-    expect(MORGIANA_EVENT_TYPES).toContain("tc.elicit.in_band");
   });
 
   it("validates a full tool-call CloudEvent envelope", () => {

@@ -1,6 +1,6 @@
 ---
 title: MORGIANA Event Spool
-description: A fail-soft CloudEvents 1.0 JSONL spool of eleven lifecycle and tool events.
+description: A fail-soft CloudEvents 1.0 JSONL spool of nine lifecycle and tool events.
 ---
 
 **MORGIANA** is obsidian-tc's structured event spool. Each event is a
@@ -8,7 +8,7 @@ description: A fail-soft CloudEvents 1.0 JSONL spool of eleven lifecycle and too
 daily-rotated file under the cache directory
 (`<cacheDir>/<vault>/morgiana-events-<date>.jsonl`).
 
-## The eleven event types
+## The nine event types
 
 | Event | When |
 | --- | --- |
@@ -16,13 +16,11 @@ daily-rotated file under the cache directory
 | `tc.acl.denied` | a scope/ACL denial |
 | `tc.elicit.requested` | a HITL confirmation is requested |
 | `tc.elicit.consumed` | a HITL approval is consumed at handler entry |
-| `tc.elicit.in_band` | a HITL confirmation was cleared via server-initiated `elicitation/create` on a legacy-era (stdio) connection, not the CLI mint path — THE-1106 |
 | `tc.rate_limit.hit` | a call is throttled |
 | `tc.governor.overflow` | a response is truncated by the governor |
 | `tc.vault.cache_reset` | a vault cache is reset |
 | `tc.server.start` | server startup |
 | `tc.server.shutdown` | graceful shutdown (incl. SIGTERM/SIGINT) |
-| `tc.maintenance.sweep` | periodic `cache.db` maintenance sweep |
 
 ## Fail-soft by design
 

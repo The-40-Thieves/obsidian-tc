@@ -8,27 +8,28 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
-- **In-band HITL confirmation on stdio (GH #967 part 1, THE-1106).** Every HITL-gated call
-  (`write_note` overwrite, `delete_note`, cross-folder move, frontmatter replace, a non-dry-run
-  link rewrite, and every `destructive: true` tool — 17+ `requireConfirmation` sites plus
-  dispatch's own always-on gate) used to be clearable on stdio only by shelling out to
-  `obsidian-tc elicit` and resubmitting `elicit_token` by hand; an agent with no shell either
-  minted the token itself (bypassing the human) or gave up. The SDK's client-driven `inputRequired`
-  round trip (SEP-2260/2322, THE-583) does not help here — a 2026-07-28-or-later protocol revision
-  is never negotiated via stdio's legacy `initialize` handshake, only ever via `server/discover`, so
-  that branch is permanently unreachable over stdio whatever codec is supplied. Instead,
-  `createMcpServer` now sends a **server-initiated** `elicitation/create` (`mode: "form"`) on a
-  legacy-era connection when the new `inBandElicitation` option is set (stdio only —
-  `runtime/server-runtime.ts`; `transports/http.ts` deliberately never sets it, since
-  server-initiated requests over Streamable HTTP are unverified against this deployment's clients)
-  and the client advertised form elicitation. On `{action: "accept", content: {approve: true}}` the
-  server mints a real, single-use elicit token (the same `issueElicitToken` the CLI uses) and
-  re-dispatches the SAME call exactly once through the same `elicit_token` -> `ctx.elicitToken`
-  path a client resubmission takes (`splitElicitToken`, THE-1037); a decline, cancel, `approve:
-  false`, or a transport error all render the ordinary `elicit_required` error, never a second
-  prompt. Every attempt — approved or not — is logged as a new `tc.elicit.in_band` MORGIANA event
-  (`docs/observability/morgiana.md`, now eleven event types) alongside the existing
-  `tc.elicit.consumed`.
+- **The `inputRequired` HITL confirmation round trip now works on stdio, on either protocol era
+  (GH #967 part 1, THE-1106).** Every HITL-gated call (`write_note` overwrite, `delete_note`,
+  cross-folder move, frontmatter replace, a non-dry-run link rewrite, and every `destructive: true`
+  tool — 17+ `requireConfirmation` sites plus dispatch's own always-on gate) used to be clearable
+  on stdio only by shelling out to `obsidian-tc elicit` and resubmitting `elicit_token` by hand; an
+  agent with no shell either minted the token itself (bypassing the human) or gave up. `stdio` now
+  gets its own `requestState` codec (`runtime/server-runtime.ts`, a per-process random secret), and
+  `dispatchToResult` offers `inputRequired(...)` whenever a codec is wired and the client declared
+  elicitation support, on EITHER era — the installed `@modelcontextprotocol/server@2.0.0`'s
+  low-level `Server` (what `createMcpServer` builds) already routes an `inputRequired` handler
+  return per its own negotiated era, natively on 2026-07-28 and, on 2025-11-25/2025-06-18, through
+  its own `LegacyInputRequiredShim`: it sends the `elicitation/create` leg(s) server-side, gated by
+  the SAME bare-`{}`-means-form rule fixed below, and re-enters the handler with a verified
+  `requestState`. That legacy path is opt-in and **stdio-only** (`legacyElicitationShim`,
+  `runtime/server-runtime.ts`); `transports/http.ts` never sets it, so a legacy-era HTTP session is
+  unchanged — server-initiated requests over Streamable HTTP are unverified against real clients
+  and out of scope. Whichever path answers, a decline, a cancel, or an explicit `approve: false`
+  renders the ordinary `elicit_required` error, never a second prompt: the handler now checks the
+  elicitation leg's OWN answer (`inputResponse`, the SDK's own reader for `ctx.mcpReq
+  .inputResponses`) before trusting an echoed `requestState`, since the state alone only proves the
+  confirmation is authentic, never that it was granted — a real gap this closed on the EXISTING
+  2026-07-28 client-driven path too, not just the new legacy one.
 
 - **`experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived
   telemetry under a read-only vault (GH #964 part 2, THE-1099).** A read-only configuration
@@ -51,25 +52,47 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Changed
 
 - **`elicit_required`'s text-channel instruction now leads with a directive to the AGENT, and
-  `clientSupportsFormElicitation` now reads a bare `elicitation: {}` as form support (GH #967 part
-  3, THE-1106).** Previously the rendered `obsidian-tc elicit ...` command line was handed to an
-  agent with no framing — nothing told it the call needed a HUMAN's yes, and reports showed agents
-  either minting the token themselves or giving up. The text now leads: "This call needs the user's
-  approval. Ask the user now whether to allow \<tool\> on \<path\> (when a path is known). If they
-  approve, run the command below and retry the same call with elicit_token: \<token\>. Do not mint
-  the token without their explicit yes." — the `confirm with: obsidian-tc elicit ...` line itself is
-  byte-identical to before. Separately, and affecting BOTH the modern `inputRequired` branch and the
-  new in-band branch above: `clientSupportsFormElicitation`'s predicate required an explicit `form`
-  key (`"form" in elicitation`), so a spec-conformant 2025-11-25 client declaring the bare, legal
-  `elicitation: {}` — the pre-mode default meaning form support, and measured on Claude Code
-  2.1.281's own stdio `initialize` (`capabilities: { roots: { listChanged: true }, elicitation: {}
-  }`) — was wrongly classified as NOT supporting form elicitation. Only an explicit `elicitation: {
-  url: {} }` with no `form` key now opts out of the implied default; this mirrors the identical rule
-  in `@modelcontextprotocol/sdk`'s own `getSupportedElicitationModes` (client module) and
+  `clientSupportsFormElicitation` now reads a bare `elicitation: {}` as form support, on every
+  transport (GH #967 part 3, THE-1106).** Previously the rendered `obsidian-tc elicit ...` command
+  line was handed to an agent with no framing — nothing told it the call needed a HUMAN's yes, and
+  reports showed agents either minting the token themselves or giving up. The text now leads: "This
+  call needs the user's approval. Ask the user now whether to allow \<tool\> on \<path\> (when a
+  path is known — rendered as a `JSON.stringify`d, control-character-stripped literal, since a
+  vault path may legally contain a newline or a quote and neither reviewer's fix round would let
+  one forge a fake extra line). If they approve, run the command below and retry the same call with
+  elicit_token: \<token\>. Do not mint the token without their explicit yes." — the `confirm with:
+  obsidian-tc elicit ...` line itself is byte-identical to before. Separately,
+  `clientSupportsFormElicitation`'s predicate required an explicit `form` key (`"form" in
+  elicitation`), so a spec-conformant 2025-11-25 client declaring the bare, legal `elicitation: {}`
+  — the pre-mode default meaning form support, and measured on Claude Code 2.1.281's own stdio
+  `initialize` (`capabilities: { roots: { listChanged: true }, elicitation: {} }`) — was wrongly
+  classified as NOT supporting form elicitation. Only an explicit `elicitation: { url: {} }` with no
+  `form` key now opts out of the implied default; this mirrors the identical rule in
+  `@modelcontextprotocol/sdk`'s own `getSupportedElicitationModes` (client module) and
   `@modelcontextprotocol/server`'s internal `isImpliedCapabilityMember`. This is a user-visible
-  behaviour change for any 2025-spec client already declaring `elicitation: {}`: it now gets offered
-  a confirmation round trip (modern `inputRequired`, or the new in-band one on stdio) where it
-  previously only got the bare error.
+  behaviour change for any 2025-spec client already declaring `elicitation: {}`, on EVERY transport
+  (this predicate gates the pre-existing modern `inputRequired` branch too, not just the new
+  legacy-shim one): it now gets offered a confirmation round trip where it previously only got the
+  bare error. There is no server-initiated elicitation on HTTP either way — see the Added entry.
+
+### Security
+
+- **A declined or cancelled `inputRequired` HITL confirmation could still complete the call it was
+  declining (THE-583 regression, found and closed under THE-1106).** `requestState` verification
+  (the 2026-07-28 round trip, SEP-2260/2322) proves an echoed state is AUTHENTIC and bound to the
+  exact call — it says nothing about whether the human actually approved, since the state is minted
+  BEFORE the elicitation leg is even asked. `mcp/server.ts`'s `tools/call` handler trusted an echoed
+  state on that basis alone; a resubmission (or, once THE-1106's legacy shim landed, the SDK's own
+  automatic re-entry after EVERY leg outcome — accept, decline, or cancel) that carried a validly
+  bound state satisfied the HITL gate regardless of what the elicitation actually answered.
+  Reproduced directly: a `destructive: true` tool call, offered `inputRequired`, answered with
+  `{action: "decline"}` on the `elicitation/create` leg, still wrote. Fixed to also require the
+  confirm leg's OWN response (`inputResponse`, the SDK's own reader for `ctx.mcpReq
+  .inputResponses`) to be `{action: "accept", content: {approve: true}}` before trusting the echoed
+  state; a declined/cancelled/not-approved round now renders the ordinary `elicit_required` error
+  (and is never offered a second round for the SAME declined confirmation, which would otherwise
+  loop). Affects every deployment using the 2026-07-28 HITL round trip, on any transport — not only
+  the new stdio path this ticket added.
 
 ### Fixed
 

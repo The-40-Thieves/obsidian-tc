@@ -35,12 +35,14 @@ or convention; each gate is server-side code:
   configuration, and ACL checks run against the symlink-canonicalized,
   Unicode-normalized path — not the string the caller typed.
 - **HITL (human-in-the-loop).** Destructive operations fail closed with
-  `elicit_required`. Proceeding needs a single-use elicit token bound to the exact
-  vault, tool, and argument hash, with a 5-minute TTL. Agents cannot mint tokens;
-  humans grant them per call — either via the `obsidian-tc elicit` CLI, or, on a
-  stdio connection whose client supports MCP elicitation, in band: the server asks
-  the human directly and mints the token itself only on an explicit approval
-  (THE-1106).
+  `elicit_required`. Agents cannot grant their own confirmation; humans grant it
+  per call — either via the `obsidian-tc elicit` CLI (a single-use token bound to
+  the exact vault, tool and argument hash, with a 5-minute TTL), or, for a client
+  that advertises MCP elicitation, as an actual protocol round trip
+  (`inputRequired`/`elicitation/create`) that asks the human directly and is
+  verified server-side before it authorizes anything — on both the modern and
+  legacy protocol eras, and on stdio as well as HTTP (THE-1106; the legacy-era
+  server-initiated form is stdio-only, never HTTP).
 - **CAS (compare-and-swap).** Writes accept a `prev_hash`: if the note (or bookmark /
   workspace file) changed underneath the caller, the write fails with
   `concurrent_modification` instead of clobbering. Idempotency keys make retried
