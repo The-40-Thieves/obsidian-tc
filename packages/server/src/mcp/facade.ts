@@ -10,6 +10,7 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
 import { type ErrorJSON, err, isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
+import { profileHiddenTools } from "./capability-hidden";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
 import type { VisibilityCaller } from "./visibility";
 
@@ -245,6 +246,31 @@ export function findCapability(
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, limit));
+}
+
+/** THE-1131: find_capability's full response, including the `core`-profile disclosure — a
+ *  profile-hidden query match is named+counted, so `core` never reads as "these are all the tools". */
+export function findCapabilityResponse(
+  registry: ToolRegistry,
+  caller: VisibilityCaller,
+  query: string,
+  limit: number,
+): {
+  matches: { name: string; summary: string; score: number }[];
+  hiddenByProfile?: { count: number; names: string[]; note: string };
+} {
+  const matches = findCapability(registry.listVisible(caller), query, limit);
+  const hidden = profileHiddenTools(registry.list(), registry.visibilityConfig(), caller);
+  const hiddenMatches = hidden.length > 0 ? findCapability(hidden, query, limit) : [];
+  if (hiddenMatches.length === 0) return { matches };
+  return {
+    matches,
+    hiddenByProfile: {
+      count: hiddenMatches.length,
+      names: hiddenMatches.map((m) => m.name),
+      note: `${hiddenMatches.length} more tool(s) match "${query}" but are hidden by toolFacade.profile: "core"; set toolFacade.profile: "full" to see them, or call describe_capability/call_capability by name.`,
+    },
+  };
 }
 
 // THE-463: a capability's description is immutable after registration, so memoize it by def identity
@@ -492,11 +518,9 @@ export function renderInstructions(groups: CatalogGroup[]): string {
 }
 
 // THE-718's feedback clause plus THE-937's catalog summary, for the SAME caller both instruction
-// surfaces in mcp/server.ts serve (the constructor's static `instructions`, legacy `initialize`;
-// the per-request `server/discover`), so they cannot drift. Takes the REGISTRY and the CALLER, not
-// a tool list: a prior version took a raw list and trusted it pre-filtered, and the constructor
-// call site didn't filter it (round 2) — `instructions` named tools an HTTP caller with a scoped
-// JWT could not call. Filtering happens INSIDE now, so no parameter can carry an unfiltered set.
+// surfaces in mcp/server.ts serve, so they cannot drift. Takes the REGISTRY and the CALLER, not a
+// tool list — a prior version took a raw, trusted-pre-filtered list and named tools an HTTP caller
+// with a scoped JWT could not call; filtering happens INSIDE now.
 export function buildInstructions(
   name: string,
   version: string,
@@ -512,9 +536,18 @@ export function buildInstructions(
     ? " After acting on a retrieved chunk, report whether it helped via record_retrieval_feedback " +
       "— retrieval quality is learned from that signal and nothing else supplies it."
     : "";
+  const hiddenCount = profileHiddenTools(
+    registry.list(),
+    registry.visibilityConfig(),
+    caller ?? { grantedScopes: [] },
+  ).length;
+  const profileClause =
+    hiddenCount > 0
+      ? ` toolFacade.profile: "core" is active — ${hiddenCount} additional tool(s) exist but are hidden; find_capability/describe_capability/call_capability disclose them by name.`
+      : "";
   const preamble =
     `${name} ${version} — an MCP server over Obsidian vaults. ` +
-    `Tools are authorized per call (scopes + folder ACL); resources are vault notes.${feedbackClause}`;
+    `Tools are authorized per call (scopes + folder ACL); resources are vault notes.${feedbackClause}${profileClause}`;
   // The pointer only makes sense when resources are wired — see triadTools()'s same gate.
   const catalogPointer = hasResources
     ? " (read obsidian-tc://catalog for the full caller-visible list)"

@@ -1,6 +1,10 @@
 // docgen — tools renderer (THE-472). ToolDoc[] -> CommonMark. Emits a single sorted reference table
-// (Tool | Access | Scopes | Description) dense enough for the wiki + README, and complete: every
-// registered tool appears, so the write surface can never silently drop out of the docs.
+// (Tool | Access | Profile | Scopes | Description) dense enough for the wiki + README, and
+// complete: every registered tool appears, so the write surface can never silently drop out of the
+// docs. THE-1131: the Profile column is generated FROM tool-profiles.ts (the single source of
+// truth every other profile-aware gate reads), never hand-marked — a tool moved between profiles
+// updates this table on the next `docgen:render`, not by someone remembering to edit prose.
+import { isNonCoreTool } from "../../src/mcp/tool-profiles";
 import type { ToolDoc } from "./model";
 
 // Escape backslashes THEN pipes (order matters — a bare `\|` must not become an unescaped pipe that
@@ -16,19 +20,28 @@ function access(t: ToolDoc): string {
   return mutating ? "write" : "read";
 }
 
+/** "full only" for the tools `toolFacade.profile: "core"` hides; "core, full" (visible/callable
+ *  under both) otherwise. */
+function profileCell(name: string): string {
+  return isNonCoreTool(name) ? "full only" : "core, full";
+}
+
 /** Render the tool reference table (tools sorted by name). */
 export function renderTools(tools: ToolDoc[]): string {
   const rows = tools.slice().sort((a, b) => a.name.localeCompare(b.name));
   const parts: string[] = [
-    `_${rows.length} tools. Access is a coarse hint; the required scopes are authoritative._`,
+    `_${rows.length} tools. Access is a coarse hint; the required scopes are authoritative. Profile ` +
+      "is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._",
     "",
-    "| Tool | Access | Scopes | Description |",
-    "|---|---|---|---|",
+    "| Tool | Access | Profile | Scopes | Description |",
+    "|---|---|---|---|---|",
   ];
   for (const t of rows) {
     const scopes =
       t.requiredScopes.length > 0 ? t.requiredScopes.map((s) => `\`${s}\``).join(", ") : "—";
-    parts.push(`| \`${cell(t.name)}\` | ${access(t)} | ${scopes} | ${cell(t.description)} |`);
+    parts.push(
+      `| \`${cell(t.name)}\` | ${access(t)} | ${profileCell(t.name)} | ${scopes} | ${cell(t.description)} |`,
+    );
   }
   return parts.join("\n");
 }

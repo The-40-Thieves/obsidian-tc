@@ -16,6 +16,7 @@ import type { ElicitCodec } from "../elicit-request-state";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
+import { capabilityHiddenCheck } from "./capability-hidden";
 import {
   clientRoots,
   clientSupportsSampling,
@@ -42,7 +43,7 @@ import {
   domainTools,
   type FacadeMode,
   FIND_CAPABILITY_SCHEMA,
-  findCapability,
+  findCapabilityResponse,
   isDomainTool,
   isFacadeTool,
   triadTools,
@@ -68,7 +69,7 @@ import {
   toCreateTaskResult,
 } from "./tasks";
 import { toMcpTool } from "./tool-projection";
-import { disclosableExplanation, type VisibilityCaller } from "./visibility";
+import type { VisibilityCaller } from "./visibility";
 
 /**
  * SEP-2549 cache hints. The SDK's cacheable set is a CLOSED list — `tools/list`, `prompts/list`,
@@ -526,6 +527,14 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
     const facadeMode = resolveFacadeMode(clientInfo?.name);
     ctx = { ...ctx, effectiveFacadeMode: facadeMode };
+    // THE-1131: shared disclosable-hidden check (describe/call_capability + direct dispatch).
+    const checkHidden = (name: string): CallToolResult | null =>
+      capabilityHiddenCheck(
+        name,
+        opts.registry.list(),
+        opts.registry.visibilityConfig(),
+        visibilityCallerOf(ctx),
+      );
     // The SDK consumes the SEP-2575 envelope keys before a handler sees `params._meta`, so client
     // capabilities are read from its own accessor rather than re-parsed off the wire.
     const canElicit = clientSupportsFormElicitation(server.getClientCapabilities());
@@ -616,10 +625,14 @@ export function createMcpServer(opts: McpServerOptions): Server {
           return errorToResult(
             err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
           );
-        const visible = opts.registry.listVisible(visibilityCallerOf(ctx));
-        return formatData({
-          matches: findCapability(visible, parsed.data.query, parsed.data.limit),
-        });
+        return formatData(
+          findCapabilityResponse(
+            opts.registry,
+            visibilityCallerOf(ctx),
+            parsed.data.query,
+            parsed.data.limit,
+          ),
+        );
       }
       if (req.params.name === "describe_capability") {
         const parsed = DESCRIBE_CAPABILITY_SCHEMA.safeParse(args);
@@ -631,28 +644,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
         const visible = opts.registry.listVisible(visibilityCaller);
         const target = visible.find((d) => d.name === parsed.data.name);
         if (!target) {
-          // THE-1098 (GH #964) item 2: a hidden-but-registered tool used to read identically to
-          // an unregistered one. Re-run the SAME verdict `listVisible` used, over the full
-          // registered set, so this can never disagree with the enforcer.
-          const registered = opts.registry.list().find((d) => d.name === parsed.data.name);
-          const explanation =
-            registered &&
-            disclosableExplanation(registered, opts.registry.visibilityConfig(), visibilityCaller);
-          if (explanation) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    code: "capability_hidden",
-                    message: `capability hidden by server policy: ${parsed.data.name}`,
-                    reason: explanation.reason,
-                  }),
-                },
-              ],
-              isError: true,
-            };
-          }
+          const hidden = checkHidden(parsed.data.name);
+          if (hidden) return hidden;
           return {
             content: [
               {
@@ -667,6 +660,11 @@ export function createMcpServer(opts: McpServerOptions): Server {
           };
         }
         return formatData(describeCapability(target));
+      }
+      // THE-1131: same pre-check as describe_capability above.
+      if (typeof args.name === "string") {
+        const hidden = checkHidden(args.name);
+        if (hidden) return hidden;
       }
       return callCapability(
         rawArgs,
@@ -688,6 +686,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
         errorToResult,
       );
     }
+    const hiddenDirect = checkHidden(req.params.name); // THE-1131: direct dispatch, same check.
+    if (hiddenDirect) return hiddenDirect;
     return dispatchToResult(
       req.params.name,
       args,
@@ -760,12 +760,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
           () => {
             if (isCatalog) {
               // Filtered exactly the way find_capability is (same listVisible call, same inputs).
-              const visible = opts.registry.listVisible({
-                grantedScopes: ctx.grantedScopes,
-                readOnly: ctx.acl?.readOnly,
-                toolVisibility: ctx.toolVisibility,
-              });
-              return readCatalogResource(ctx, visible, opts.registry.maxResponseBytes);
+              return readCatalogResource(
+                ctx,
+                opts.registry,
+                visibilityCallerOf(ctx),
+                opts.registry.maxResponseBytes,
+              );
             }
             // Synchronous, so a try/catch rather than .catch — the miss must surface as -32602.
             try {

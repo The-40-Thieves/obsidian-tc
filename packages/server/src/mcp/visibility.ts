@@ -5,14 +5,11 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 
 // Tool-visibility scoping. A pure verdict layer over the Registry.listVisible() / dispatch
-// chokepoints: it never mutates the registry, it only classifies a tool.
-//
-// Two layers compose over ONE chokepoint and ONE verdict, never duplicated:
-//   - STATIC-CONFIG (THE-219): the per-server `toolVisibility` block.
-//   - PER-CALLER (THE-250): the caller's granted ACL scopes + read-only flag.
-// Both feed `visibilityOf` with a single precedence `disabled > hidden > scope_denied >
-// listed`, so a tool is offered to a caller only when the config lists it AND the caller
-// can dispatch it. Omitting the caller (a full `*` grant) collapses to the static layer.
+// chokepoints: it never mutates the registry, it only classifies a tool. Two layers compose over
+// ONE chokepoint and ONE verdict, never duplicated — STATIC-CONFIG (THE-219, the per-server
+// `toolVisibility` block) and PER-CALLER (THE-250, the caller's granted ACL scopes + read-only
+// flag) — feeding `visibilityOf` a single precedence `disabled > hidden > scope_denied > listed`.
+// Omitting the caller (a full `*` grant) collapses to the static layer.
 
 export type Visibility = "listed" | "hidden" | "disabled" | "scope_denied";
 
@@ -68,6 +65,7 @@ export const READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS: readonly string[] = [
  *  importing. */
 export interface EffectiveToolVisibilityConfig extends ToolVisibilityConfig {
   allowReadOnlyDerivedTelemetry?: boolean;
+  disabledByProfile?: readonly string[];
 }
 
 /** True when `name` may bypass the read-only gates below: on the allowlist above AND the operator
@@ -109,6 +107,7 @@ export type VisibilityReason =
   | "listed"
   | "disabled_name"
   | "disabled_tag"
+  | "disabled_by_profile" // THE-1131: profile-hidden; disclosable, unlike disabled_name/_tag.
   | "hidden_name"
   | "hidden_tag"
   | "hidden_require_read_only"
@@ -138,12 +137,15 @@ export interface VisibilityExplanation {
 //     `toolVisibility.requireReadOnly`, or the caller's own `acl.readOnly`) is not a secret from a
 //     caller operating under it — GH #964's reporter hit exactly this discovering
 //     record_retrieval_feedback via the server's own instructions.
+//   - disabled_by_profile (THE-1131): `toolFacade.profile` is server-wide config, not a targeted
+//     per-tool operator decision — same argument as above.
 // Every other reason (disabled_name/_tag, hidden_name/_tag, hidden_not_allowlisted,
 // scope_denied_missing_scope) is an operator choice to hide a SPECIFIC tool or a deliberately
 // invisible allowlist, and stays `not_found` — see explainVisibility's precedence doc comment.
 export const DISCLOSABLE_HIDDEN_REASONS: ReadonlySet<VisibilityReason> = new Set([
   "hidden_require_read_only",
   "scope_denied_read_only",
+  "disabled_by_profile",
 ]);
 
 // The single-config verdict `explainVisibility` used to BE — factored out so THE-647 item 2 can
@@ -159,14 +161,24 @@ function explainAgainstConfig(
   // own `toolVisibility` mask carries no such field, and re-deriving per layer would make a
   // persona overlay silently re-hide an exempted tool the static layer already cleared.
   readOnlyExempt: boolean,
+  profileHidden: boolean,
 ): VisibilityExplanation {
   const base = { matchedTag: null, missingScopes: [] as readonly string[] };
 
+  // THE-1131 (review round 2): an OPERATOR's own explicit per-tool disable is checked BEFORE the
+  // blanket profile default and wins — it is the stricter, more specific, earlier-stated rule.
+  // `inspect_visibility` under `core` for a tool the operator ALSO disabled by name must report
+  // the operator's own reason, never `disabled_by_profile`, so an operator reading their own
+  // config is never told "the profile did this" for something they did themselves.
   if (config.disabled.includes(target.name))
     return { ...base, visibility: "disabled", reason: "disabled_name" };
   const disabledTag = matchingTag(target.tags, config.disabledTags);
   if (disabledTag !== null)
     return { ...base, visibility: "disabled", reason: "disabled_tag", matchedTag: disabledTag };
+
+  // Still ahead of `hidden`/`scope_denied`: more fundamental than either (and disclosable, unlike
+  // an operator's own hide/disable choices).
+  if (profileHidden) return { ...base, visibility: "disabled", reason: "disabled_by_profile" };
 
   if (config.hidden.includes(target.name))
     return { ...base, visibility: "hidden", reason: "hidden_name" };
@@ -208,12 +220,9 @@ function explainAgainstConfig(
  * here rather than restated: `disabled > hidden > scope_denied > listed`.
  *
  * THE-647 item 2: `caller.toolVisibility` (a persona's own mask) composes with the static
- * `config` at this SAME chokepoint rather than a separate gate. It is evaluated ONLY when the
- * static config already says `listed` — a persona mask can narrow further (hide or disable a
- * tool the static config would otherwise show) but can never WIDEN past what the static config
- * decided, so a persona can never restore visibility to a tool the operator disabled or hid
- * server-wide. This preserves THE-645 item 2's existence-oracle constraint: whichever layer
- * denies, denial still reads identically to "never registered".
+ * `config` at this SAME chokepoint, evaluated ONLY when the static config already says `listed` —
+ * a persona can narrow further but never WIDEN past the static config's decision, preserving
+ * THE-645 item 2's existence-oracle constraint (denial always reads as "never registered").
  */
 export function explainVisibility(
   target: VisibilityTarget,
@@ -223,21 +232,18 @@ export function explainVisibility(
   // THE-1099: resolved once, from the STATIC config only — see explainAgainstConfig's doc comment
   // on the `readOnlyExempt` parameter for why this must not be re-derived per layer.
   const readOnlyExempt = isReadOnlyDerivedTelemetryExempt(target.name, config);
-  const staticVerdict = explainAgainstConfig(target, config, caller, readOnlyExempt);
+  const profileHidden = config.disabledByProfile?.includes(target.name) ?? false;
+  const staticVerdict = explainAgainstConfig(target, config, caller, readOnlyExempt, profileHidden);
   if (staticVerdict.visibility !== "listed") return staticVerdict;
   if (caller?.toolVisibility === undefined) return staticVerdict;
-  return explainAgainstConfig(target, caller.toolVisibility, caller, readOnlyExempt);
+  return explainAgainstConfig(target, caller.toolVisibility, caller, readOnlyExempt, false);
 }
 
-// THE-1098 follow-up (PR #965 review): a DISCLOSABLE reason can still fire ahead of a
-// non-disclosable one, since `explainAgainstConfig` short-circuits on its FIRST match —
-// `requireReadOnly: true` + `allowed: ["read_note"]` on a mutating, unlisted tool trips
-// `hidden_require_read_only` before ever reaching the allowlist check, even though the allowlist
-// alone would have hidden it too. So this re-checks with the read-only knobs neutralized
-// (config.requireReadOnly, caller.readOnly, caller.toolVisibility.requireReadOnly): if the tool is
-// STILL not `listed`, some other rule independently hides it, and disclosure is refused.
-// `explainAgainstConfig`'s own precedence is untouched — `inspect_visibility` keeps the real,
-// first-match reason.
+// THE-1098 follow-up (PR #965 review): a DISCLOSABLE reason can fire ahead of a non-disclosable
+// one (explainAgainstConfig short-circuits on its FIRST match), so this re-checks with THAT
+// reason's own knob(s) neutralized — if the tool is STILL not `listed`, some other rule
+// independently hides it, and disclosure is refused. `explainAgainstConfig`'s own precedence is
+// untouched — `inspect_visibility` keeps the real, first-match reason.
 export function disclosableExplanation(
   target: VisibilityTarget,
   config: ToolVisibilityConfig,
@@ -245,6 +251,11 @@ export function disclosableExplanation(
 ): VisibilityExplanation | null {
   const explanation = explainVisibility(target, config, caller);
   if (!DISCLOSABLE_HIDDEN_REASONS.has(explanation.reason)) return null;
+  if (explanation.reason === "disabled_by_profile") {
+    const neutralConfig = { ...config, disabledByProfile: [] }; // THE-1131: its own knob only.
+    const stillHidden = explainVisibility(target, neutralConfig, caller).visibility !== "listed";
+    return stillHidden ? null : explanation;
+  }
   const neutralCaller: VisibilityCaller | undefined = caller && {
     ...caller,
     readOnly: false,

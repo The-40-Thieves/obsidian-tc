@@ -247,6 +247,32 @@ export const myTool = defineTool({
 
 Register it in the domain's `register<M>Tools` (e.g. `packages/server/src/tools/m1/index.ts`), add a `*.test.ts` under `packages/server/test/`, and document it (or rely on the auto-generated reference under `docs/src/content/docs/tools/`). See `docs/G2.1-tools.md` for the scope/ACL/HITL conventions and the full tool surface.
 
+### Adding a Tool Domain
+
+A whole new tool *domain* (a new `packages/server/src/tools/m<N>/` family, not one more tool in an
+existing one) is a bigger commitment than a single tool: it grows the surface every gate in
+`test/tool-count.test.ts` and `test/tool-facade-domain-coverage.test.ts` counts, the m7-style
+metadata parity snapshots, and `docs/G2.1-tools.md`'s domain list. Before opening that PR:
+
+- **State the user.** Who calls this, and through what client? "An agent might want this" is not a
+  user; a named workflow or a linked usage report is.
+- **Bring usage evidence, or say there is none.** The `toolFacade.profile: "core"` curated set
+  (`packages/server/src/mcp/tool-profiles.ts`'s `NON_CORE_TOOL_NAMES`, i.e. the tools `core`
+  excludes) is informed by a real usage report — an `episode_stats` export over recorded
+  `call_capability` calls, filed as a GitHub issue with the counts attached (see issue #877 for the
+  shape: distinct tools called, calls per tool, the zero-call remainder). Point at that kind of
+  artifact, or an equivalent telemetry export from your own deployment, when you have one — but read
+  #877's own lesson first: it names only individual tools as confirmed zero-call, never whole
+  families, and a family absent from a usage report is not the same claim as a family confirmed
+  unwanted (the same reporter separately praised a tool, in #879, that a hasty first draft of this
+  policy would have miscategorized from #877's silence alone).
+- **Default to `full`, not `core`.** A new domain is visible/callable under the default
+  `toolFacade.profile: "full"` like everything else; it joins `core`'s curated set only when the
+  usage evidence above supports it, or when it shares the structural shape (pure filesystem, no
+  live-plugin dependency, not a memory/triad/catalog/health/HITL dependency) the existing `core` set
+  is curated on. Moving a tool INTO `core` later, once it earns evidence, is a small, reviewable
+  diff; moving one OUT after operators start relying on it is not.
+
 ## Working with Issues
 
 Issues are triaged on a rolling basis. Labels indicate state:

@@ -18,6 +18,7 @@ import {
 } from "../../doctor";
 import { probeIndexCoverage } from "../../doctor/index-coverage";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
+import { hiddenNamesInAllowlist } from "../../doctor/tool-facade";
 import { createEmbeddingProvider } from "../../embeddings";
 import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
@@ -487,6 +488,23 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       toolFacade: {
         configured: config.toolFacade.mode,
         autoClients: config.toolFacade.autoClients,
+        profile: config.toolFacade.profile,
+        hiddenAllowlistEntries: [
+          {
+            source: "toolVisibility.allowed",
+            names: hiddenNamesInAllowlist(
+              config.toolVisibility?.allowed,
+              config.toolFacade.profile,
+            ),
+          },
+          ...Object.entries(config.personas ?? {}).map(([personaName, persona]) => ({
+            source: `personas.${personaName}.toolVisibility.allowed`,
+            names: hiddenNamesInAllowlist(
+              persona.toolVisibility?.allowed,
+              config.toolFacade.profile,
+            ),
+          })),
+        ].filter((e) => e.names.length > 0),
       },
       telemetry: telemetryState,
     },

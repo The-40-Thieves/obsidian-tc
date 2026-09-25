@@ -55,8 +55,13 @@ export const FALLBACK_FACADE_MODE: FacadeMode = "triad";
 export function toolFacadeHealthView(cfg: {
   mode: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
-}): { configured: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> } {
-  return { configured: cfg.mode, autoClients: cfg.autoClients };
+  profile: "full" | "core";
+}): {
+  configured: FacadeMode | "auto";
+  autoClients?: Readonly<Record<string, FacadeMode>>;
+  profile: "full" | "core";
+} {
+  return { configured: cfg.mode, autoClients: cfg.autoClients, profile: cfg.profile };
 }
 
 /** THE-1123 review fix (LOW #8), extended THE-1125: bundles `config`-derived `wireHealthTools`
@@ -67,7 +72,11 @@ export function toolFacadeHealthView(cfg: {
 export function healthToolsWiringFields<V extends readonly { id: string }[]>(
   cfg: {
     vaults: V;
-    toolFacade: { mode: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> };
+    toolFacade: {
+      mode: FacadeMode | "auto";
+      autoClients?: Readonly<Record<string, FacadeMode>>;
+      profile: "full" | "core";
+    };
   },
   telemetry?: { getStatus: () => TelemetryStatusInfo },
 ): {

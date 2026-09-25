@@ -67,6 +67,8 @@ Results come back as MCP tool content — a human-readable `text` block plus `st
 
 The other `toolFacade.mode` values: `domain` (about a dozen `{ action, args }` domain tools), `flat` (the full surface advertised directly), and `auto` (picks one of the three per connecting client — provisional, and only precise on stdio or on HTTP for 2026-07-28 clients). See the [Tool Reference](/tools/) for the domain map and the full `auto` breakdown.
 
+A separate, deployment-level setting, `toolFacade.profile`, can additionally narrow which tools are visible/callable at all — see [Tool profile](/tools/#tool-profile). Under the opt-in `profile: "core"`, a `find_capability` query that also matches a hidden tool says so (name + count, in a `hiddenByProfile` field); `describe_capability`/`call_capability` on a hidden tool by name answer `capability_hidden` with a reason, never a bare "not found".
+
 ## Authenticate
 
 | `auth.mode` | Use |

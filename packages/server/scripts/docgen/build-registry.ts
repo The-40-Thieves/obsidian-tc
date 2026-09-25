@@ -7,6 +7,7 @@
 // surface to audit pathAcl coverage).
 
 import { ToolRegistry } from "../../src/mcp/registry";
+import type { EffectiveToolVisibilityConfig } from "../../src/mcp/visibility";
 import { buildRepresentationManifest } from "../../src/search/representation";
 import { RateLimiter } from "../../src/throttle";
 import { createHealthTool, createIndexStatusTool } from "../../src/tools/admin/health";
@@ -28,8 +29,14 @@ const NO_THROTTLE = {
   admin: { perMinute: 1e6, burst: 1e6 },
 };
 
-/** A registry with every M1–M8 tool + the health tool registered against stub deps. */
-export function buildFullRegistry(): ToolRegistry {
+/** A registry with every M1–M8 tool + the health tool registered against stub deps.
+ *  THE-1131: `toolVisibility`, when passed, is threaded straight into the `ToolRegistry`
+ *  constructor — the same knob `test/tool-facade-profile.test.ts` uses to assert the `core`/
+ *  `extended` profile counts against the REAL M1-M8 registration recipe rather than a duplicated
+ *  toy one (see output-schema-coverage.test.ts's note on why that recipe must have one copy). */
+export function buildFullRegistry(opts?: {
+  toolVisibility?: EffectiveToolVisibilityConfig;
+}): ToolRegistry {
   const noop = (): void => {};
   const stub = undefined as never; // loosely-typed deps unused during registration
   const vaultRegistry = new VaultRegistry([{ id: "t", name: "t", path: process.cwd() }]);
@@ -42,7 +49,7 @@ export function buildFullRegistry(): ToolRegistry {
   const metadataIndex = { hasFts: false, ready: () => true };
   const bridge = () => ({ client: undefined, timeoutMs: 1000 });
 
-  const registry = new ToolRegistry({ rateLimiter });
+  const registry = new ToolRegistry({ rateLimiter, toolVisibility: opts?.toolVisibility });
   registry.register(
     createHealthTool({
       version: "docgen",

@@ -89,6 +89,22 @@ export const ToolFacadeConfigSchema = z.object({
     .describe(
       'Only used when mode is "auto". Maps a case-insensitive substring of the connecting client\'s clientInfo.name to a facade mode; checked in this object\'s own key order, before the server\'s built-in table, so an entry here overrides the same substring there. Absent clientInfo.name (most callers today) always falls back to "triad".',
     ),
+  // Deployment-level and orthogonal to `mode` above: `mode` picks what a given SESSION is
+  // advertised, `profile` picks which tools are VISIBLE and CALLABLE at all, resolved once
+  // when the registry is built. Registration itself is profile-invariant — every tool is always
+  // registered (see registered-tool-count.ts); `profile` only changes dispatch-time visibility.
+  // "full" (the default) leaves every tool visible/callable, unchanged from today. "core" is an
+  // OPT-IN, smaller curated surface — a structural/dependency curation (see
+  // mcp/tool-profiles.ts's module comment for the evidence per family), not a claim that the
+  // moved tools are unwanted. A tool `core` hides still exists (`inspect_visibility` reports
+  // `disabled_by_profile`); describe_capability/call_capability answer it with a
+  // `capability_hidden` error naming this config key, never a silent dispatch failure.
+  profile: z
+    .enum(["full", "core"])
+    .default("full")
+    .describe(
+      'Which tools are visible/callable for this process — registration itself is unaffected (every tool is always registered). "full" (the default) leaves every tool visible/callable, unchanged from today. "core" is an opt-in, smaller curated surface. Orthogonal to `mode`: `mode` picks what a session is ADVERTISED, `profile` picks what is CALLABLE. A tool `core` hides answers describe_capability/call_capability with a `capability_hidden` error rather than a silent failure.',
+    ),
 });
 export type ToolFacadeConfig = z.infer<typeof ToolFacadeConfigSchema>;
 // Session-bootstrap routing (THE-101). Server-level, not per-vault: the routing table is a

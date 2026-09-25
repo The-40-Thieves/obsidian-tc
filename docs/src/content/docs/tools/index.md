@@ -66,20 +66,66 @@ Every underlying tool stays callable by name in every mode, and `tools/list` is
 filtered per caller scopes + tool-visibility ACL. Routing always goes through the
 same authorization / ACL / HITL / idempotency / throttle pipeline.
 
+## Tool profile
+
+`toolFacade.mode` (above) picks what a given **session** is advertised. A separate,
+deployment-level setting, `toolFacade.profile`, picks which tools are **visible and
+callable** at all. Registration itself never changes — every tool is always
+registered (`server_health`/`inspect_visibility` can always name all 163) — only
+dispatch-time visibility does:
+
+- **`full`** (the default) — every tool stays visible/callable, exactly as today.
+  **This ticket does not change the default.** A usage report over 4,787 recorded
+  calls (GitHub issue #877) found 97 of 163 tools never called once — but it names
+  only five tools as confirmed zero-call, not whole families, and the same
+  reporter separately filed a whole issue (#879) praising one of the tools an
+  earlier draft of this feature would have hidden. Flipping the default needs its
+  own evidence-gated decision, not a side effect of adding the mechanism — see
+  `docs/adr/` for that bar.
+- **`core`** (opt-in) — a smaller, curated surface for an operator who wants one.
+  Five graph-analysis tools (`graph_centrality`, `graph_communities`,
+  `suggest_links`, `find_link_cycles`, `prune_hub_links`) are the ONLY ones with
+  direct usage evidence behind the cut (#877 names them explicitly as zero-call).
+  The rest of the curation — the structured-document family (Bases, Canvas,
+  Kanban, periodic notes, bookmarks, attachments, tables) and the plugin-bridge
+  family (Excalidraw, MakeMD, Remotely Save, OCR, git, Templater, QuickAdd,
+  Dataview, and siblings) — is a STRUCTURAL choice (every member proxies to a live
+  companion plugin and degrades when it is absent), not a usage claim; #877 gives
+  no evidence either way for these. `bundle_files`/`bundle_folder` stay in `core`
+  despite living in the plugin-bridge domain: both are pure filesystem (no
+  companion dependency) and `bundle_folder` has direct positive usage evidence
+  (#879). Everything the triad facade, the memory tools (M5/M7/M8), catalog
+  discovery, health/admin, or the HITL/elicit flow depends on stays in `core`
+  regardless of usage. See `packages/server/src/mcp/tool-profiles.ts`'s module
+  comment for the full accounting, including the caution that a documented history
+  of plugin-bridge integration bugs (companion routes 404ing, a wrong plugin-id
+  mapping) means zero calls to that family cannot be read as zero want.
+
+A tool `core` hides is not silently missing: `find_capability` discloses a
+profile-hidden match by name and count when your query matches one;
+`describe_capability`/`call_capability` on one by name both answer a
+`capability_hidden` error naming the config key, never a bare "not found" and
+never a silent dispatch; `inspect_visibility` reports `disabled_by_profile`.
+`toolFacade.profile` is the default (`"full"`) unless you set it — no migration
+needed.
+
 ## Domains
 
 | Group | Domains | Examples |
 | --- | --- | --- |
-| **Notes & metadata** | notes, frontmatter, properties, tags, links, headings | `read_note`, `write_note`, `patch_note`, `update_frontmatter`, `get_backlinks` |
+| **Notes & metadata** (5 tools `full`-only) | notes, frontmatter, properties, tags, links, headings | `read_note`, `write_note`, `patch_note`, `update_frontmatter`, `get_backlinks`; graph analysis is `full`-only: `graph_centrality`, `graph_communities`, `suggest_links`, `find_link_cycles`, `prune_hub_links` |
 | **Search & retrieval** | text search, DQL, vector / hybrid search, embeddings | `search_vault`, `search_dql`, `search_semantic` |
-| **Structured formats** | Bases, Canvas, periodic notes, tasks, outlines | `read_base`, `update_canvas`, `create_periodic_note`, `list_tasks` |
-| **Plugin bridges** | Dataview, Templater, OCR, command execution, workspace | `eval_dataview_field`, `execute_template`, `execute_command` |
+| **Structured formats** (`full`-only) | Bases, Canvas, periodic notes, bookmarks, outlines | `read_base`, `update_canvas`, `create_periodic_note`, `list_bookmarks` |
+| **Plugin bridges** (`full`-only) | Dataview, Templater, OCR, command execution, tasks, workspace | `eval_dataview_field`, `execute_template`, `execute_command`, `list_tasks` |
 | **Memory & capture** | memory store, capture queue, workspace traces, PLUR proxy | `add_observation`, `enqueue_capture`, `plur_recall` |
 | **Knowledge & context** | GraphRAG, composite context, reflection, red-team challenge | `vault_graph_search`, `vault_context`, `reflect`, `knowledge_challenge` |
 | **Work memory (experiential)** | quarantined agent-episode store with an eligibility-gated reader contract | `work_search`, `work_episodes`, `work_forget`, `record_retrieval_feedback` |
-| **Git & sync bridges** | Obsidian Git (commit is HITL-floored), Remotely Save backup signal | `git_status`, `git_diff`, `git_commit`, `remotely_save_status` |
-| **Bulk & URI** | bulk note create / move / set-property, `obsidian://` URI generation | `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`, `generate_uri` |
+| **Git & sync bridges** (`full`-only) | Obsidian Git (commit is HITL-floored), Remotely Save backup signal | `git_status`, `git_diff`, `git_commit`, `remotely_save_status` |
+| **Bulk & URI** | bulk note create / move / set-property, `obsidian://` URI generation, plus `bundle_files`/`bundle_folder` (filesystem-only, kept in `core`) | `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`, `generate_uri`, `bundle_folder` |
 | **Server admin** | health, config, ACL, metrics introspection | `server_health`, `get_server_config`, `inspect_acl`, `get_metrics` |
+
+See the [Tool Catalog](/tools/tool-catalog/) for the per-tool Profile column (generated from
+`tool-profiles.ts`, the single source of truth this table's `full`-only markers also read from).
 
 ## Degradation & errors
 

@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { extractStats } from "../scripts/docgen/extract-stats";
 import { renderStats } from "../scripts/docgen/render-stats";
+import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 
 describe("extractStats + renderStats (homepage)", () => {
   it("extracts a semver version and live counts", () => {
@@ -10,6 +11,14 @@ describe("extractStats + renderStats (homepage)", () => {
     expect(s.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(s.tools).toBeGreaterThan(100);
     expect(s.configKeys).toBeGreaterThan(100);
+  });
+
+  // THE-1131: coreTools is derived from the SAME NON_CORE_TOOL_NAMES every other
+  // profile-aware gate reads, never a second hand-kept count.
+  it("coreTools = tools minus the extended-only count", () => {
+    const s = extractStats();
+    expect(s.coreTools).toBe(s.tools - NON_CORE_TOOL_NAMES.length);
+    expect(s.coreTools).toBeLessThanOrEqual(100);
   });
 
   it("carries the curated facts from docs/project-facts.json", () => {
@@ -22,12 +31,15 @@ describe("extractStats + renderStats (homepage)", () => {
     const md = renderStats({
       version: "1.10.0",
       tools: 143,
+      coreTools: 95,
       configKeys: 147,
       goldenSetSize: 250,
       enrichmentGain: "+0.223 nDCG",
     });
     expect(md).toContain("| **Version** | `1.10.0` |");
     expect(md).toContain("143 governed capabilities");
+    expect(md).toContain('all visible/callable by default (`toolFacade.profile: "full"`)');
+    expect(md).toContain('95 with the opt-in `profile: "core"`');
     expect(md).toContain("| **Config keys** | 147 |");
     expect(md).toContain("250 queries");
     expect(md).toContain("+0.223 nDCG, defaults on");

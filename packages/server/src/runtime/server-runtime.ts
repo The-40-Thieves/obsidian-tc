@@ -22,6 +22,7 @@ import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-a
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import type { RegistryOptions } from "../mcp/registry/types";
 import { createMcpServer } from "../mcp/server";
+import { disabledByProfileFor } from "../mcp/tool-profiles";
 import { ALLOW_ALL } from "../mcp/visibility";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
@@ -321,11 +322,10 @@ export async function buildServerRuntime(
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
-    // THE-1099: static toolVisibility, widened with the derived read-only exemption flag
-    // (mcp/visibility.ts) — defaults through ALLOW_ALL so an absent block gets every field.
     toolVisibility: {
       ...(config.toolVisibility ?? ALLOW_ALL),
       allowReadOnlyDerivedTelemetry: isFeedbackExemptFromReadOnly(config.experiential),
+      disabledByProfile: disabledByProfileFor(config.toolFacade.profile),
     },
     metrics,
     tracer: otel.tracer,

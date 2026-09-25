@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import type { CallerContext } from "../src/mcp/registry";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
+import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 import { createHealthTool } from "../src/tools/admin/health";
 
 function reg(): ToolRegistry {
@@ -26,7 +27,7 @@ function reg(): ToolRegistry {
       startedAt: 0,
       nativeLoaded: false,
       vecEnabled: false,
-      toolFacade: { configured: "auto" },
+      toolFacade: { configured: "auto", profile: "core" },
     }),
   );
   return r;
@@ -59,7 +60,13 @@ async function connectAs(clientName: string) {
 }
 
 function healthPayload(res: unknown): {
-  toolFacade?: { configured: string; effective: string; clientName?: string };
+  toolFacade?: {
+    configured: string;
+    effective: string;
+    clientName?: string;
+    profile: string;
+    nonCoreToolCount: number;
+  };
 } {
   const content = (res as { content: [{ text: string }] }).content;
   return JSON.parse(content[0].text);
@@ -81,6 +88,8 @@ describe("tools/list and server_health agree on the auto-resolved facade mode (T
       configured: "auto",
       effective: "domain",
       clientName: "claude-code",
+      profile: "core",
+      nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
     });
 
     await client.close();
