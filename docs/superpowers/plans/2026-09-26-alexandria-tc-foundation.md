@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-26-alexandria-tc-foundation-design.md`
 
+**Inputs after approval:** the 2026-09-26 platform survey (spec Appendix A) changed no task here; its findings land in the hosted-deploy and authorization-server children of the remote-first epic and in sub-projects 2 and 3.
+
 ## Global Constraints
 
 - Toolchain pins from `mise.toml`: `bun = "1.4.2"`, `node = "26.5.0"`. Run repo commands via `mise exec --` or an activated mise shell.

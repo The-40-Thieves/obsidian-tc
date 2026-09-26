@@ -249,3 +249,30 @@ existing obsidian-tc user who installs the shim gets the same tool surface plus 
 1. Confirm the lockstep `2.0.0` version (the alternative is an independent number for the library package).
 2. The Obsidian community-plugin listing name: unchanged (`obsidian-tc`) or renamed in sub-project 4.
 3. Whether to publish `corpus` as a public package early so third parties can write adapters before sub-project 3.
+
+## Appendix A. Platform survey inputs (2026-09-26, after approval; no change to §3–§9)
+
+Run at the owner's request before execution. Six scouted digests (hosting, Cloudflare as host,
+authorization providers, retrieval and eval services, listing channels, vault sync sources), with
+every load-bearing claim re-checked at the source. Full tables: vault note
+`08-research/06-ai-tech/2026-09-26-alexandria-tc-platform-survey`.
+
+- **Hosted deploy target stays Railway** (attached volumes $0.15/GB-month, $5 Hobby floor, templates
+  declare volumes and healthchecks). Cloudflare is not a host for this shape: Containers have
+  ephemeral disk, the deploy button provisions only Workers bindings, and Workers cannot load
+  native modules or sqlite-vec. Fly.io is the second target (~$15/mo, no free tier).
+- **Vault source for a hosted box: the official Obsidian Headless client**
+  (`obsidianmd/obsidian-headless`, created 2026-02-27, release 0.0.14 on 2026-07-30, Node 22+,
+  `ob sync --continuous`, JSON output; needs Obsidian Sync). Git-backed and cloud-drive brokers
+  become fallbacks. This answers the hosted-deploy child's open "vault source" question and belongs
+  to that child, not to this foundation.
+- **Authorization:** no 2026 example bundles passkey + CIMD in-server; the authorization-server
+  design stands. Its bring-your-own list gains Clerk (CIMD GA 2026-09-17, verified), Keycloak 26.7
+  (CIMD experimental), Auth0 Auth for MCP (GA May 2026), Cloudflare Access managed OAuth (claude.ai
+  `resource`-parameter caveat).
+- **Registry mechanics confirm §6:** the official registry has immutable versions and no unpublish,
+  so the old entries get a final forward-pointing version; Smithery and Glama are edits/re-claims;
+  Docker catalog and Cline are new submissions.
+- **Retrieval fallbacks for sub-project 2:** DeepInfra bge-m3 ($0.01/M) and Voyage (200M free) in
+  LiteLLM `/embeddings`; Cohere rerank is the only LiteLLM-native reranker; Langfuse takes the
+  eval harness's OTel spans if it ever runs off Cave.
