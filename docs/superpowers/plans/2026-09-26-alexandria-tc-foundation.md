@@ -4,7 +4,7 @@
 
 **Goal:** Turn obsidian-tc and alexandria-mcp into one MIT monorepo named alexandria-tc with a corpus contract around the Obsidian vault, Alexandria imported with history as a corpus package, both runtimes green in CI, and a `2.0.0` cut under the new names with deprecation shims for the old ones, changing no user-visible behaviour.
 
-**Architecture:** Rename the obsidian-tc repo (keeps OIDC bindings, redirects, history), lift `db/ search/ embeddings/ graph/` into `packages/core`, add `packages/corpus` (contract, `FileCorpus`, conformance kit) and `packages/corpus-obsidian` (the vault as a corpus), import Alexandria via `git filter-repo` into `packages/corpus-library`. The server keeps calling the same functions through one-line re-export files, so the 161-tool catalog stays byte-identical; a new catalog-diff gate proves it on every PR.
+**Architecture:** Rename the obsidian-tc repo (keeps OIDC bindings, redirects, history), lift `db/ search/ embeddings/ graph/` into `packages/core`, add `packages/corpus` (contract, `FileCorpus`, conformance kit) and `packages/corpus-obsidian` (the vault as a corpus), import Alexandria via `git filter-repo` into `packages/corpus-library`. The server keeps calling the same functions through one-line re-export files, so the 163-tool catalog stays byte-identical; a new catalog-diff gate proves it on every PR.
 
 **Tech Stack:** Bun 1.4.2 (primary; workspaces, `bun run --filter`), Node 26.5.0 (vitest for the server, `node --test` for corpus-library), TypeScript, zod, sqlite via the existing driver seam, dependency-cruiser (boundary gate), git-filter-repo, GitHub Actions with npm OIDC trusted publishing.
 
@@ -79,7 +79,7 @@ cd packages/server && node ./node_modules/vitest/vitest.mjs run 2>&1 | tail -3
 cd ../.. && rg -n 'export const REGISTERED_TOOL_COUNT' packages/server/test/registered-tool-count.ts
 cd ~/alexandria-mcp && ALEXANDRIA_STATE_DB=:memory: NODE_ENV=test node --test 'src/**/*.test.ts' 2>&1 | grep -E '^# (tests|pass|fail)'
 ```
-Expected: a vitest summary line like `Tests  NNNN passed`, the `REGISTERED_TOOL_COUNT = <n>;` line (161 at time of writing; `tools/list` returns two fewer than it because `health` and `index_status` register inline in `cli.ts`), and `# tests 1507` / `# fail 0` (or the current counts; write down whatever prints).
+Expected: a vitest summary line like `Tests  NNNN passed`, the `REGISTERED_TOOL_COUNT = <n>;` line (163 as reported by check-version-coherence on 2026-09-26; `tools/list` returns two fewer than it because `health` and `index_status` register inline in `cli.ts`), and `# tests 1507` / `# fail 0` (or the current counts; write down whatever prints).
 
 - [ ] **Step 3: Write the baseline file**
 
