@@ -6,14 +6,6 @@
 // with named exports and doctor.ts imports them. No behaviour change and no signature change
 // beyond the move — see db-busy-timeout-inventory.test.ts, which still scans this file (it globs
 // packages/server/src/**/*.ts) and is unaffected by which file a compliant call site lives in.
-//
-// Three of the five doc comments were reattached to the function they actually describe while
-// moving: probeDerivedTables', probeDerivedColumns' and probeKbHealth's JSDoc blocks had drifted
-// to sit consecutively above probeKbHealth alone (probeDerivedTables/probeDerivedColumns follow
-// it in the file, so their descriptions ended up stacked above a function neither describes) —
-// a pre-existing drift from an earlier reordering, not something this move introduced, fixed as a
-// side effect of relocating each block with its function instead of copying whatever text was
-// textually adjacent.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { dbFootprintBytes, FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
@@ -503,14 +495,10 @@ export async function probeTelemetryState(
   }
 }
 
-/**
- * THE-1108 — the opt-in `sessions.liveness` probe behind `doctor --probe`. Delegates to
- * `staleExplicitSessionSummary` (workspace/sessions.ts) rather than re-querying
- * `workspace_sessions` here — the same reason `probeEpisodeBacklog` delegates to `reflect.ts`: the
- * checker and the resolver/sweep must use one predicate or they can disagree about what counts as
- * stale. Never throws: no cache.db yet, or an unreadable one, reports zero rather than a false
- * finding.
- */
+/** THE-1108 — the opt-in `sessions.liveness` probe behind `doctor --probe`. Delegates to
+ *  `staleExplicitSessionSummary` so checker and resolver/sweep share ONE staleness predicate
+ *  (same reason probeEpisodeBacklog delegates to reflect.ts). Never throws: no/unreadable cache.db
+ *  reports zero rather than a false finding. */
 export async function probeStaleExplicitSessions(
   cacheDir: string,
   busyTimeoutMs: number,

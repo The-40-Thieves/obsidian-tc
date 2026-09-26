@@ -111,13 +111,10 @@ export interface HealthInfo {
     lastError?: string;
     nextSendAt?: number;
   };
-  /** THE-1108: open EXPLICIT (start_session) sessions already older than sessions.windowSeconds —
-   *  the resolver bound that stops NEW dispatches from attaching to them, distinct from actually
-   *  closing them (sessions.maxExplicitLifetimeSeconds, enforced by the maintenance sweep). A
-   *  non-zero count is a forgotten start_session, not necessarily a problem on its own — this is
-   *  visibility, not a health verdict. `stale_explicit`/`oldest_age_ms` are non-identifying and
-   *  always present when wired; `oldest_principal` names a caller identity, so — like `vaults`
-   *  above — it is withheld from any caller that is not authenticated AND unbound (THE-924). */
+  /** THE-1108: open EXPLICIT sessions already older than sessions.windowSeconds (the resolver
+   *  bound; closing them is the sweep's job via maxExplicitLifetimeSeconds). Visibility, not a
+   *  verdict: a non-zero count is a forgotten start_session. `oldest_principal` names a caller
+   *  identity, so like `vaults` above it is withheld unless authenticated AND unbound (THE-924). */
   sessions?: {
     stale_explicit: number;
     oldest_age_ms: number | null;

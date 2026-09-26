@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,426 tracked code files · 255,109 lines.
+**Scale:** 1,426 tracked code files · 255,091 lines.
 
-TypeScript 233,257 · JavaScript 16,179 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
+TypeScript 233,239 · JavaScript 16,179 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,11 +86,11 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 91 | 19,279 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 91 | 19,276 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 61 | 13,011 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 28 | 7,210 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 28 | 6,712 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `cli/` | 45 | 6,299 | arg parsing + subcommands |
+| `cli/` | 45 | 6,284 | arg parsing + subcommands |
 | `runtime/` | 19 | 4,636 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 21 | 3,512 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 2,545 | filesystem primitives — paths, links, ACL, snapshots, prune |
@@ -166,10 +166,10 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 588 | `packages/server/src/vault/frontmatter.ts` |
 | 580 | `packages/server/src/memory-import/apply.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
-| 568 | `packages/server/src/cli/commands/doctor-probes.ts` |
-| 563 | `packages/server/src/cli/commands/doctor.ts` |
 | 562 | `packages/server/src/memory/entities.ts` |
+| 560 | `packages/server/src/cli/commands/doctor.ts` |
 | 559 | `packages/server/src/mcp/facade.ts` |
+| 556 | `packages/server/src/cli/commands/doctor-probes.ts` |
 | 535 | `packages/server/src/tools/m7/knowledge/retrieval-runtime.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
