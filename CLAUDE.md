@@ -59,9 +59,10 @@ signature in the vec/indexing path, the bun-smoke project is what catches those 
 
 **`check:comment-style` is a RATCHET on the COUNT of files with >= 120 comment lines**
 (`scripts/comment-style-baseline.json`, `maxFiles`), not a per-file cap. A file sitting at 119 on
-main fails the job the moment a new docblock lands in it, and the script does not name the file
-— compute `commentLineCount(extractComments(src))` from the script's own exports over your touched
-files, or trim the block you added. Prefer trimming over raising `maxFiles`.
+main fails the job the moment a new docblock lands in it. On failure the gate lists every offending
+file with its count, marking each one not already over the threshold on `origin/main` as new (with
+main's count) — see the `gates` skill for the exact shape. Prefer trimming the new/grown block back
+under the threshold over raising `maxFiles`.
 
 **`check:config-threading` is NOT a script — do not try to run it.** No such entry exists in either
 `package.json`. The config-threading gate lives in `ci-security.yml`, which invokes the file

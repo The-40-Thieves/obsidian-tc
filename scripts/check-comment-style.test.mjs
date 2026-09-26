@@ -10,8 +10,10 @@ import {
   evaluateRatchet,
   extractComments,
   findViolations,
+  formatOffenders,
   isGeneratedFile,
   loadBaseline,
+  mainCommentLineCount,
   scopeFiles,
   stripQuotedProse,
 } from "./check-comment-style.mjs";
@@ -259,6 +261,62 @@ test("the checked-in baseline's threshold boundary is inclusive (>=), matching m
   );
   const comments = extractComments(atThreshold);
   assert.equal(commentLineCount(comments), threshold);
+});
+
+// ---- formatOffenders / mainCommentLineCount: ratchet-failure offender listing ------------------
+
+const BASELINE = { threshold: 120, maxFiles: 34 };
+
+test("formatOffenders lists a file that is over the threshold on main too, with no '(main:' annotation", () => {
+  const output = formatOffenders([{ file: "a.ts", count: 128 }], BASELINE, () => 140);
+  assert.equal(output, "  128  a.ts");
+});
+
+test("formatOffenders marks a file NOT over on main as new, showing main's count (the ticket's exact shape)", () => {
+  const output = formatOffenders(
+    [{ file: "packages/server/src/cli/commands/doctor-probes.ts", count: 128 }],
+    BASELINE,
+    () => 119,
+  );
+  assert.equal(output, "  128  packages/server/src/cli/commands/doctor-probes.ts  (main: 119)");
+});
+
+test("formatOffenders prints '(main: ?)' when the file/ref is unreadable on main (shallow clone)", () => {
+  const output = formatOffenders([{ file: "new-file.ts", count: 130 }], BASELINE, () => null);
+  assert.equal(output, "  130  new-file.ts  (main: ?)");
+});
+
+test("formatOffenders sorts worst offender first, then alphabetically on a tie", () => {
+  const offenders = [
+    { file: "b.ts", count: 125 },
+    { file: "a.ts", count: 130 },
+    { file: "c.ts", count: 130 },
+  ];
+  const output = formatOffenders(offenders, BASELINE, () => 200); // all "over on main" -> plain lines
+  assert.equal(output, ["  130  a.ts", "  130  c.ts", "  125  b.ts"].join("\n"));
+});
+
+test("formatOffenders: a file exactly AT the threshold on main is not 'new' (inclusive >=, matches evaluateRatchet)", () => {
+  const output = formatOffenders(
+    [{ file: "a.ts", count: 121 }],
+    BASELINE,
+    () => BASELINE.threshold,
+  );
+  assert.equal(output, "  121  a.ts");
+});
+
+test("mainCommentLineCount returns null for a file that never existed, rather than throwing", () => {
+  assert.equal(mainCommentLineCount("this/file/does/not/exist/anywhere.ts"), null);
+});
+
+// CI runs `test:scripts` BEFORE the "fetch parity baseline" step that creates `origin/main`
+// (ci-server.yml: `comment style` and the first `test:scripts` both run ahead of the
+// `git fetch ... origin main:refs/remotes/origin/main` step check-facade-parity relies on) --
+// so on a real shallow clone `origin/main` may not exist yet. This must degrade to `null`, never
+// throw, exactly like an unknown file does; it must NOT assert a specific value either way.
+test("mainCommentLineCount never throws when origin/main may not be fetched (shallow-clone safe)", () => {
+  const count = mainCommentLineCount("packages/plugin/src/main.ts");
+  assert.ok(count === null || (typeof count === "number" && count >= 0));
 });
 
 // ---- scope glob -----------------------------------------------------------------------------
