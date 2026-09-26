@@ -46,6 +46,25 @@ the usual way to trip it — put the command's shape inline in the `CliCommand` 
 `cli/args.ts` and have the command module use `Cmd<"my-command">` from `cli/shared.ts`, never the
 reverse.
 
+`check:comment-style` is a **ratchet on the COUNT of files** with >= 120 comment lines
+(`scripts/comment-style-baseline.json`'s `maxFiles`), not a per-file cap — a file may carry a long
+comment block, it just can't grow the number of such files. On failure it lists every offending
+file with its current count, worst first, and marks each one NOT already over the threshold on
+`origin/main` as new, with main's count:
+
+```
+comment-style gate: 35 file(s) >= 120 comment lines (baseline 34). New since main:
+  133  packages/plugin/src/main.ts  (main: 41)
+  128  packages/server/src/search/vec.ts
+```
+
+An unannotated line was already over on main — it isn't what regressed the ratchet, don't spend
+time on it. The main-side count comes from `git show origin/main:<file>`, so on a shallow clone
+where `origin/main` hasn't been fetched yet (this repo's own CI runs `test:scripts` and
+`check:comment-style` before the `fetch parity baseline` step creates that ref) every file prints
+`(main: ?)` instead — the gate still runs and still fails correctly, it just cannot say which
+offenders are new until the ref exists.
+
 Then the rest, which live in other jobs:
 
 ```bash

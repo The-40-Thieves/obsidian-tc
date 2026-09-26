@@ -247,6 +247,39 @@ export function evaluateRatchet(oversizedCount, baseline) {
   return { status: "at", failed: false };
 }
 
+/** `file`'s comment-line count on `origin/main`, via the same `extractComments`/`commentLineCount`
+ *  pair the working-tree scan uses -- reused, not reimplemented. Returns `null` (never throws) when
+ *  the ref or the file is unreadable there: a shallow clone with no `origin/main`, or a file that is
+ *  new since main. The caller renders that as "?" rather than failing the gate over it -- naming
+ *  offenders on a ratchet failure must not itself become a new way to fail the gate. */
+export function mainCommentLineCount(file) {
+  let source;
+  try {
+    source = run("git", ["show", `origin/main:${file}`]);
+  } catch {
+    return null;
+  }
+  return commentLineCount(extractComments(source));
+}
+
+/** Render the ratchet-failure offender list: every `{ file, count }` at/over `baseline.threshold`,
+ *  worst first, each line marked "(main: N)" -- or "(main: ?)" when `getMainCount` cannot say --
+ *  whenever that file was NOT already over the threshold on `origin/main`. A file already over on
+ *  main carries no annotation: it is not what regressed this ratchet. `getMainCount` is injectable
+ *  so the tests below never shell out to git. */
+export function formatOffenders(offenders, baseline, getMainCount = mainCommentLineCount) {
+  return offenders
+    .slice()
+    .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file))
+    .map(({ file, count }) => {
+      const mainCount = getMainCount(file);
+      const isNew = mainCount === null || mainCount < baseline.threshold;
+      if (!isNew) return `  ${count}  ${file}`;
+      return `  ${count}  ${file}  (main: ${mainCount === null ? "?" : mainCount})`;
+    })
+    .join("\n");
+}
+
 export function main() {
   const files = scopeFiles();
   if (files.length < MIN_EXPECTED_FILES) {
@@ -260,7 +293,7 @@ export function main() {
 
   const baseline = loadBaseline();
   const violations = [];
-  let oversizedCount = 0;
+  const offenders = [];
   let scanned = 0;
 
   for (const file of files) {
@@ -275,8 +308,11 @@ export function main() {
 
     const comments = extractComments(source);
     for (const v of findViolations(comments)) violations.push({ file, ...v });
-    if (commentLineCount(comments) >= baseline.threshold) oversizedCount++;
+    const count = commentLineCount(comments);
+    if (count >= baseline.threshold) offenders.push({ file, count });
   }
+
+  const oversizedCount = offenders.length;
 
   console.log(
     `comment-style gate: ${scanned} file(s) scanned, ${violations.length} banned-pattern ` +
@@ -310,6 +346,10 @@ export function main() {
         "still carry a long comment block, but the COUNT of such files may not grow. Either trim " +
         "the new/grown block(s) back under the threshold, or -- if the growth is deliberate and " +
         "load-bearing -- raise maxFiles in the baseline file and explain why in the PR.",
+    );
+    console.error(
+      `\ncomment-style gate: ${oversizedCount} file(s) >= ${baseline.threshold} comment lines ` +
+        `(baseline ${baseline.maxFiles}). New since main:\n${formatOffenders(offenders, baseline)}`,
     );
   } else if (ratchet.status === "under") {
     console.log(
