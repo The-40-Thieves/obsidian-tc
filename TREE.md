@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,426 tracked code files · 255,091 lines.
+**Scale:** 1,426 tracked code files · 255,115 lines.
 
-TypeScript 233,239 · JavaScript 16,179 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
+TypeScript 233,263 · JavaScript 16,179 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -100,7 +100,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
-| `workspace/` | 3 | 1,207 | session tracking |
+| `workspace/` | 3 | 1,215 | session tracking |
 | `memory-import/` | 7 | 1,132 |  |
 | `metrics/` | 4 | 916 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `memory/` | 2 | 908 | entity extraction and materialization for the memory folder |
@@ -151,7 +151,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 679 | `packages/server/src/runtime/tool-wiring.ts` |
 | 674 | `packages/server/src/metrics/registry.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
-| 662 | `packages/server/src/workspace/sessions.ts` |
+| 670 | `packages/server/src/workspace/sessions.ts` |
 | 655 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 645 | `packages/server/src/runtime/plane-wiring.ts` |
