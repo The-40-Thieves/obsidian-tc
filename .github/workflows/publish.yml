@@ -529,6 +529,29 @@ jobs:
       # registry itself builds, derived from server.json rather than hardcoded (I3), and loops
       # every npm entry in `packages[]` (today: just `obsidian-tc`; see the `needs:` comment above
       # for what changes if a second one is ever added).
+      #
+      # THE-1135: the old budget (10 attempts x 10s = 100s) was measured too short on two real
+      # releases (2026-09-26) — the version document turned 200 after ~2 minutes, so every release
+      # needed a manual `gh run rerun --failed`. Replaced with a ~5 minute budget, backing off from
+      # 10s and doubling to a 60s cap, so a genuinely slow-but-real propagation is covered without
+      # a never-published version spinning anywhere near that long either.
+      #
+      # Also now polls the packument's `dist-tags.latest` alongside the version document, as an
+      # INFORMATIONAL log line only — never a gate. Two reasons it cannot be a second requirement:
+      # (1) it is a separate CDN object with its own propagation lag (the exact reason the version
+      # document is authoritative here, not this one), and (2) it is not always the version we are
+      # waiting for in the first place — "publish umbrellas to the release dist-tag" above sends a
+      # prerelease to the `next` tag, never `latest`, so `latest` can correctly keep pointing at the
+      # prior stable release for the entire wait. Query-string cache-busted: measured 2026-09-26
+      # against registry.npmjs.org, this endpoint IS Cloudflare-edge-cached (`cache-control:
+      # public, max-age=300`) and a client `Cache-Control: no-cache` request header is silently
+      # ignored (still served `cf-cache-status: HIT`), but a unique query param flips it to `MISS`
+      # every time — so the busted URL is what makes the logged value trustworthy rather than up to
+      # 5 minutes stale. The version-document 404 above is NOT given the same treatment: measured
+      # the same day, a 404 for a not-yet-propagated version carries no `cache-control` header and
+      # no `cf-cache-status` at all, i.e. Cloudflare never edge-caches it — the delay there is
+      # backend replication lag, not an edge cache a query param could bust, so adding one would be
+      # decoration with no measured effect.
       - name: wait for every npm package in server.json to resolve at its exact version
         if: steps.preflight.outputs.already_published != 'true'
         shell: bash
@@ -558,34 +581,64 @@ jobs:
             # contain any other character `url.PathEscape` would touch.
             enc_id=$(jq -rn --arg n "$identifier" '$n | gsub("/";"%2F")')
             url="$base/$enc_id/$version"
+            packument_url="$base/$enc_id"
             echo "waiting for $identifier@$version to resolve at $url (the exact document the registry itself fetches to validate npm ownership)..."
             resolved=false
-            for i in $(seq 1 10); do
-              # N1 fix: `|| status="000"` is load-bearing under `set -euo pipefail` — without
-              # it, a DNS or TCP blip on curl itself (not an HTTP error, a connection failure —
-              # exit 6, "Could not resolve host") aborts this whole step immediately, so the
-              # ten-attempt retry loop whose entire purpose is tolerating exactly that never runs a
-              # second time. The fallback is on the ASSIGNMENT, not inside the command
-              # substitution (`|| echo 000` there would double up with curl's own `-w` output,
-              # which already prints a literal "000" on a connection-level failure before exiting
-              # non-zero — measured: that shape yields the string "000000", not "000"). `000` is
-              # not a real HTTP status, so it always falls through to the "retry in 10s" branch
-              # below rather than being mistaken for success.
-              # G4 fix: same --connect-timeout/--max-time bound as the preflight curl above — a
-              # stalled connection (not a fast DNS/TCP failure, which the `|| status="000"`
-              # fallback already covers) would otherwise hang this attempt indefinitely instead of
-              # counting as one of the ten and moving on to the next.
-              status=$(curl -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "$url") || status="000"
+            attempt=0
+            delay=10
+            max_wait=300
+            start=$SECONDS
+            while :; do
+              attempt=$((attempt + 1))
+              elapsed=$((SECONDS - start))
+              # N1 fix (unchanged): `|| status="000"` is load-bearing under `set -euo pipefail` —
+              # without it, a DNS or TCP blip on curl itself (not an HTTP error, a connection
+              # failure — exit 6, "Could not resolve host") aborts this whole step immediately, so
+              # the retry loop whose entire purpose is tolerating exactly that never runs a second
+              # time. The fallback is on the ASSIGNMENT, not inside the command substitution
+              # (`|| echo 000` there would double up with curl's own `-w` output, which already
+              # prints a literal "000" on a connection-level failure before exiting non-zero —
+              # measured: that shape yields the string "000000", not "000"). `000` is not a real
+              # HTTP status, so it always falls through to the retry branch below.
+              # G4 fix (unchanged): --connect-timeout/--max-time bound how long a stalled
+              # connection can hang this attempt instead of counting as one of the budget's steps.
+              # Cap each request at the time left in the budget so two 20s curls cannot carry the
+              # loop past max_wait (floor 1s: curl treats --max-time 0 as "no limit").
+              req_max=$((max_wait - elapsed))
+              [ "$req_max" -gt 20 ] && req_max=20
+              [ "$req_max" -lt 1 ] && req_max=1
+              req_connect=$((req_max < 10 ? req_max : 10))
+              status=$(curl -sS --connect-timeout "$req_connect" --max-time "$req_max" -o /dev/null -w '%{http_code}' "$url") || status="000"
               if [ "$status" = "200" ]; then
-                echo "  attempt $i: $url -> 200, resolved"
+                echo "  attempt $attempt (t=${elapsed}s): $url -> 200, resolved"
                 resolved=true
                 break
               fi
-              echo "  attempt $i: $url -> $status, retrying in 10s..."
-              sleep 10
+              # Informational dist-tags.latest poll — see the step comment above for why this is
+              # never a gate and why it is cache-busted with a unique query param.
+              req_max=$((max_wait - (SECONDS - start)))
+              [ "$req_max" -gt 20 ] && req_max=20
+              [ "$req_max" -lt 1 ] && req_max=1
+              req_connect=$((req_max < 10 ? req_max : 10))
+              latest=$(curl -sS --connect-timeout "$req_connect" --max-time "$req_max" "${packument_url}?_cb=${SECONDS}${RANDOM}" \
+                | jq -r '.["dist-tags"].latest // "unknown"') || latest="unknown"
+              echo "  attempt $attempt (t=${elapsed}s): $url -> $status (dist-tags.latest=$latest)"
+              # Re-read the clock: the polls above took real time, and a stale `elapsed` would
+              # both overrun the deadline and under-report it in the error below.
+              elapsed=$((SECONDS - start))
+              if [ "$elapsed" -ge "$max_wait" ]; then
+                break
+              fi
+              sleep_for=$delay
+              if [ $((elapsed + sleep_for)) -gt "$max_wait" ]; then
+                sleep_for=$((max_wait - elapsed))
+              fi
+              [ "$sleep_for" -gt 0 ] && sleep "$sleep_for"
+              delay=$((delay * 2))
+              [ "$delay" -gt 60 ] && delay=60
             done
             if [ "$resolved" != "true" ]; then
-              echo "::error::$identifier@$version never resolved at $url after 10 attempts (this is the exact npm version-document endpoint the registry itself fetches, not the packument) — refusing to publish, which would 404 on this same lookup."
+              echo "::error::$identifier@$version never resolved at $url after ${elapsed}s across $attempt attempts (this is the exact npm version-document endpoint the registry itself fetches, not the packument) — refusing to publish, which would 404 on this same lookup."
               exit 1
             fi
           done

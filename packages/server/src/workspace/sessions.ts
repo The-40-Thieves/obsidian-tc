@@ -254,11 +254,19 @@ export function activeSessionFor(
   opts?: { windowSeconds?: number; now?: number },
 ): { sessionId: string; vaultId: string } | undefined {
   if (principal === null || principal === undefined || principal === "") return undefined;
+  // `rowid DESC` breaks a `started_at` tie deterministically: `workspace_sessions` is an ordinary
+  // rowid table (no `WITHOUT ROWID`), so rowid is monotonically increasing insertion order and
+  // `ORDER BY started_at DESC, rowid DESC` always picks the LATEST-INSERTED row among equal
+  // timestamps. Without it, two rows minted in the same millisecond — e.g. `start_session`'s
+  // explicit row landing right after this same request's own auto-opened implicit one — resolve
+  // to whichever SQLite happens to return first, which is observably the wrong one on a fast
+  // runner (a caller-declared session losing its very first dispatch to the implicit session that
+  // preceded it).
   const row = db
     .prepare(
       `SELECT id, vault_id, caller, started_at FROM workspace_sessions
         WHERE principal = ? AND ended_at IS NULL
-        ORDER BY started_at DESC
+        ORDER BY started_at DESC, rowid DESC
         LIMIT 1`,
     )
     .get(principal) as
@@ -503,7 +511,7 @@ export function staleExplicitSessionSummary(
     .prepare(
       `SELECT started_at, principal FROM workspace_sessions
         WHERE ended_at IS NULL AND caller IS NOT NULL AND started_at < ?
-        ORDER BY started_at ASC
+        ORDER BY started_at ASC, rowid ASC
         LIMIT 1`,
     )
     .get(cutoff) as { started_at: number; principal: string | null };
@@ -548,7 +556,7 @@ export function sessionsInWindow(
   }
   return db
     .prepare(
-      `SELECT ${SESSION_COLS} FROM workspace_sessions WHERE ${clauses.join(" AND ")} ORDER BY started_at DESC`,
+      `SELECT ${SESSION_COLS} FROM workspace_sessions WHERE ${clauses.join(" AND ")} ORDER BY started_at DESC, rowid DESC`,
     )
     .all(...params) as SessionRow[];
 }
