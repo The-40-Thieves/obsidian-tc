@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.5] - 2026-09-26
+
 ### Fixed
 
 - **An open explicit `start_session` session no longer absorbs a principal's traffic forever
