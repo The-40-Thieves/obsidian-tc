@@ -9,7 +9,7 @@
 <!-- BEGIN GENERATED: stats -->
 | | |
 |---|---|
-| **Version** | `1.31.4` |
+| **Version** | `1.31.5` |
 | **Tools** | 163 governed capabilities (advertised via the 3-tool facade), all visible/callable by default (`toolFacade.profile: "full"`); 97 with the opt-in `profile: "core"` |
 | **Config keys** | 242 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
@@ -18,7 +18,7 @@
 | **License** | AGPL-3.0-only |
 <!-- END GENERATED: stats -->
 
-> **Status:** Shipped — **v1.31.4**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.31.4`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **163 tools across 31 domains**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
+> **Status:** Shipped — **v1.31.5**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.31.5`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **163 tools across 31 domains**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
 
 ## Three pillars
 

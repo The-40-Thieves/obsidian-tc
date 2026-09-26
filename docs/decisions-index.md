@@ -383,7 +383,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098, PR #965). | CHANGELOG.md (1.31.4) | 6 |
 | THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099, PR #966). | CHANGELOG.md (1.31.4) | 5 |
 | THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (1.31.4) | 11 |
-| THE-1108 | An open explicit `start_session` session no longer absorbs a principal's traffic forever (THE-1108, PR #988). | CHANGELOG.md (Unreleased) | 18 |
+| THE-1108 | An open explicit `start_session` session no longer absorbs a principal's traffic forever (THE-1108, PR #988). | CHANGELOG.md (1.31.5) | 18 |
 | THE-1122 | Semantic search works out of the box: a bundled, fully offline local embedder is now the DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122, PR #980). | CHANGELOG.md (1.31.4) | 17 |
 | THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (1.31.4) | 15 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (1.31.4) | 13 |
