@@ -85,6 +85,18 @@ jobs:
       # cleanly and silently does nothing. This is the mechanized guard against that recurring.
       - name: config-path existence (source scan)
         run: bun run check:config-paths
+      # The facade-parity family compares the CURRENT export surface against the same file at
+      # `origin/main`, and the comment-style ratchet reads it for its "new since main" column, so
+      # this fetch runs before both. actions/checkout leaves fetch-depth at 1, which gives no
+      # `origin/main` ref at all — so this fetch is load-bearing, not a convenience. Depth 1 is
+      # enough: the gates only read that commit's tree, never its history.
+      #
+      # The two parity gates fail closed on an unresolvable ref, so a broken fetch is loud rather than a
+      # green run that compared nothing. That property was already in check-export-surface; it was
+      # missing from check-facade-parity until it was added alongside this wiring.
+      - name: fetch parity baseline
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+
       # #850/#851/#852: CONTRIBUTING.md's "Inline commentary" section bans dated ticket-thread
       # banners (CORRECTED 2026-08-04:, VERIFIED 2026-...) and first-person narrative ("I found",
       # "we measured") in packages/*/src comments, and the sweep in #851/#852 already relocated
@@ -151,16 +163,6 @@ jobs:
       - name: copy-paste detection
         run: bun run check:duplication
 
-      # The facade-parity family compares the CURRENT export surface against the same file at
-      # `origin/main`. actions/checkout leaves fetch-depth at 1, which gives no `origin/main` ref at
-      # all — so this fetch is load-bearing, not a convenience. Depth 1 is enough: the gates only
-      # read that commit's tree, never its history.
-      #
-      # Both gates fail closed on an unresolvable ref, so a broken fetch is loud rather than a
-      # green run that compared nothing. That property was already in check-export-surface; it was
-      # missing from check-facade-parity until it was added alongside this wiring.
-      - name: fetch parity baseline
-        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 
       # These two shipped as committed, unit-tested scripts but were never invoked by any workflow,
       # so across the whole schema/M7/indexer refactor they only ever ran when someone remembered to
