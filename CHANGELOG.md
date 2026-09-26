@@ -6,6 +6,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **An open explicit `start_session` session no longer absorbs a principal's traffic forever
+  (THE-1108).** Once a session opened by `start_session` is older than `sessions.windowSeconds`,
+  `activeSessionFor` stops attaching new dispatch traffic to it — the caller gets a fresh implicit
+  session instead — but the explicit row itself is left open and unswept, since the maintenance
+  sweep previously only ever judged ENDED sessions. The maintenance sweep now also closes any
+  explicit session past a new, separate ceiling, `sessions.maxExplicitLifetimeSeconds` (default
+  `86400`, a day vs. `windowSeconds`' default 30 minutes), recording `ended_reason:
+  "absolute_expired"` in the session's existing metadata; like the existing stale-implicit sweep,
+  it never touches a `caller IS NULL` row and never closes a session with a request in flight.
+  `server_health`/`doctor` gain a `sessions.liveness` check reporting stale open explicit sessions
+  (count, oldest age, oldest principal) so the in-between state is visible before the sweep
+  catches up, and boot itself prints one line when a session is already past the new ceiling at
+  startup.
+
 ## [1.31.4] - 2026-09-26
 
 ### Added

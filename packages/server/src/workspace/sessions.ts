@@ -234,21 +234,42 @@ export function insertSession(db: Database, input: InsertSessionInput): SessionR
  * Returns the most recent open session when several exist. The schema does not enforce one-per-
  * principal and this must not assume it — a client that calls start_session twice without ending
  * the first is doing something legal, and the newest is the honest answer.
+ *
+ * THE-1108: `opts.windowSeconds`, when supplied, refuses to bind to the most-recent row when it is
+ * an EXPLICIT session (`caller IS NOT NULL`) older than the window — the call then returns
+ * `undefined`, exactly as if no explicit session existed, and the caller falls through to its own
+ * "no active session" path (on HTTP dispatch, that means opening a fresh implicit one). This is
+ * the fix for a forgotten `start_session` silently absorbing weeks of a principal's traffic: only
+ * `end_session` (or the separate absolute-lifetime sweep, `closeExpiredExplicitSessions`) actually
+ * CLOSES the stale row — this just stops NEW dispatches from correlating to it. An implicit
+ * session (`caller IS NULL`) is never subject to this check: `closeStaleImplicitSessions` already
+ * owns that row's lifetime on the same `windowSeconds` value, and this resolver would otherwise be
+ * racing that sweep for no reason. `opts.now` defaults to `Date.now()` (injectable for tests).
+ * Omitting `opts` (or `opts.windowSeconds`) reproduces the pre-THE-1108 behaviour byte-for-byte —
+ * every call site that does not thread a window is unaffected.
  */
 export function activeSessionFor(
   db: Database,
   principal: string | null | undefined,
+  opts?: { windowSeconds?: number; now?: number },
 ): { sessionId: string; vaultId: string } | undefined {
   if (principal === null || principal === undefined || principal === "") return undefined;
   const row = db
     .prepare(
-      `SELECT id, vault_id FROM workspace_sessions
+      `SELECT id, vault_id, caller, started_at FROM workspace_sessions
         WHERE principal = ? AND ended_at IS NULL
         ORDER BY started_at DESC
         LIMIT 1`,
     )
-    .get(principal) as { id: string; vault_id: string } | undefined;
-  return row ? { sessionId: row.id, vaultId: row.vault_id } : undefined;
+    .get(principal) as
+    | { id: string; vault_id: string; caller: string | null; started_at: number }
+    | undefined;
+  if (!row) return undefined;
+  if (opts?.windowSeconds !== undefined && row.caller !== null) {
+    const now = opts.now ?? Date.now();
+    if (now - row.started_at > opts.windowSeconds * 1000) return undefined;
+  }
+  return { sessionId: row.id, vaultId: row.vault_id };
 }
 
 /**
@@ -319,6 +340,90 @@ export function closeStaleImplicitSessions(
         WHERE ended_at IS NULL AND caller IS NULL AND principal IS NOT NULL AND started_at < ?`,
     )
     .run(opts.now, cutoff).changes;
+}
+
+/**
+ * THE-1108: close an EXPLICIT (`caller IS NOT NULL`) session that has been open longer than
+ * `maxExplicitLifetimeSeconds`, regardless of activity.
+ *
+ * Deliberately a SEPARATE function from `closeStaleImplicitSessions` rather than a shared helper
+ * with a flipped predicate: that function's whole documented contract is "a session a client
+ * opened deliberately is never closed here", and folding a path that closes exactly those sessions
+ * into it would make that claim require reading the call site to verify. Keeping them apart means
+ * `closeStaleImplicitSessions`'s `caller IS NULL` safety property stays true by inspection, not by
+ * convention.
+ *
+ * Records `ended_reason: "absolute_expired"` into the session's existing `metadata_json` (merged,
+ * not overwritten — `session_metadata` is caller-supplied and this must not clobber it) rather than
+ * adding a column: there is no migration in this change, and `metadata_json` is the one place a
+ * session already carries structured, mutable state. `json_set` treats a NULL/absent column as `{}`
+ * via the `COALESCE`, since `session_metadata` is optional on `start_session` and most explicit
+ * sessions never set one. `session_metadata` is `z.record(z.string(), z.unknown())` when present
+ * (never an array or scalar), so `json_set` against it (or against `'{}'`) is always well-formed.
+ *
+ * NO in-flight guard. Searched for the pattern the implicit-session sweep or the HTTP transport
+ * uses to know "is a request for session X executing right now" — neither exists. `HttpApp.close`
+ * aborts in-flight MCP EXCHANGES (transport-wide), and `ActiveSessionTracker` is a process-local
+ * caller->session map with no request-liveness bit, not a per-session in-flight counter. Absent
+ * that primitive, the bound stays purely age-based on `started_at`, exactly like
+ * `closeStaleImplicitSessions` above. In practice this is a low-risk gap: `maxExplicitLifetimeSeconds`
+ * defaults to a full day, so a request would have to still be executing a day after its session
+ * opened to be affected, and closing the session does not cancel or corrupt that request — it only
+ * stops FUTURE dispatches from correlating to it.
+ */
+export function closeExpiredExplicitSessions(
+  db: Database,
+  opts: { now: number; maxExplicitLifetimeSeconds: number },
+): number {
+  const cutoff = opts.now - opts.maxExplicitLifetimeSeconds * 1000;
+  return db
+    .prepare(
+      `UPDATE workspace_sessions
+          SET ended_at = ?,
+              metadata_json = json_set(COALESCE(metadata_json, '{}'), '$.ended_reason', 'absolute_expired')
+        WHERE ended_at IS NULL AND caller IS NOT NULL AND started_at < ?`,
+    )
+    .run(opts.now, cutoff).changes;
+}
+
+/** THE-1108: visibility for `server_health` / `doctor` — how many open EXPLICIT sessions are
+ *  already older than `thresholdSeconds` (the resolver's own `windowSeconds`, or the boot check's
+ *  `maxExplicitLifetimeSeconds`), the age of the oldest one, and the principal it belongs to.
+ *  `null` fields mean none qualify — never coerced to 0/"", which would read as a measured session
+ *  rather than the absence of one. Two queries rather than one aggregate: SQLite has no portable
+ *  "value of another column at the row where X is MIN" without a window function or a self-join,
+ *  and this table is small enough that a second indexed query is cheaper to read than either. */
+export interface StaleExplicitSessionSummary {
+  count: number;
+  oldestAgeMs: number | null;
+  oldestPrincipal: string | null;
+}
+
+export function staleExplicitSessionSummary(
+  db: Database,
+  opts: { now: number; thresholdSeconds: number },
+): StaleExplicitSessionSummary {
+  const cutoff = opts.now - opts.thresholdSeconds * 1000;
+  const { c: count } = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM workspace_sessions
+        WHERE ended_at IS NULL AND caller IS NOT NULL AND started_at < ?`,
+    )
+    .get(cutoff) as { c: number };
+  if (count === 0) return { count: 0, oldestAgeMs: null, oldestPrincipal: null };
+  const oldest = db
+    .prepare(
+      `SELECT started_at, principal FROM workspace_sessions
+        WHERE ended_at IS NULL AND caller IS NOT NULL AND started_at < ?
+        ORDER BY started_at ASC
+        LIMIT 1`,
+    )
+    .get(cutoff) as { started_at: number; principal: string | null };
+  return {
+    count,
+    oldestAgeMs: opts.now - oldest.started_at,
+    oldestPrincipal: oldest.principal,
+  };
 }
 
 export function getSession(db: Database, id: string): SessionRow | undefined {

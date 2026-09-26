@@ -50,6 +50,10 @@ export { renderText, runDoctor } from "./report";
 export type { DenseProbeResult } from "./retrieval-heads";
 export type { AssembleOptions, DoctorConfigView } from "./run";
 export { assembleDoctorReport, decodeTokenClaims } from "./run";
+// THE-1108: sessions.liveness's probe result type, same barrel reasoning as every other
+// doctor/*.ts submodule above — the CLI builds its probe without importing through checks.ts.
+export type { SessionLivenessProbe, SessionLivenessView } from "./session-liveness";
+export { sessionLivenessCheck } from "./session-liveness";
 // THE-1125: telemetry's view type, same barrel reasoning as every other doctor/*.ts submodule
 // above — the CLI builds it without importing through checks.ts.
 export type { TelemetryView } from "./telemetry";

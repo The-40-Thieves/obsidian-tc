@@ -24,12 +24,14 @@ import type {
   DerivedTableState,
   EntryPointsProbe,
   KbHealthProbe,
+  SessionLivenessProbe,
   TelemetryView,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
 import { experientialTableSpec } from "../../doctor/table-spec";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { readTelemetryState } from "../../telemetry/state";
+import { staleExplicitSessionSummary } from "../../workspace/sessions";
 
 /**
  * THE-696 — the opt-in notes_fts integrity probe behind `doctor --probe`. Opens cache.db
@@ -498,6 +500,46 @@ export async function probeTelemetryState(
     try {
       db?.close?.();
     } catch {}
+  }
+}
+
+/**
+ * THE-1108 — the opt-in `sessions.liveness` probe behind `doctor --probe`. Delegates to
+ * `staleExplicitSessionSummary` (workspace/sessions.ts) rather than re-querying
+ * `workspace_sessions` here — the same reason `probeEpisodeBacklog` delegates to `reflect.ts`: the
+ * checker and the resolver/sweep must use one predicate or they can disagree about what counts as
+ * stale. Never throws: no cache.db yet, or an unreadable one, reports zero rather than a false
+ * finding.
+ */
+export async function probeStaleExplicitSessions(
+  cacheDir: string,
+  busyTimeoutMs: number,
+  windowSeconds: number,
+): Promise<SessionLivenessProbe> {
+  const empty: SessionLivenessProbe = {
+    staleExplicit: 0,
+    oldestAgeMs: null,
+    oldestPrincipal: null,
+  };
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return empty;
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path, busyTimeoutMs);
+    const s = staleExplicitSessionSummary(db, { now: Date.now(), thresholdSeconds: windowSeconds });
+    return {
+      staleExplicit: s.count,
+      oldestAgeMs: s.oldestAgeMs,
+      oldestPrincipal: s.oldestPrincipal,
+    };
+  } catch {
+    return empty;
+  } finally {
+    try {
+      db?.close?.();
+    } catch {
+      /* see probeNotesFts */
+    }
   }
 }
 

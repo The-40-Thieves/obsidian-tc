@@ -165,4 +165,42 @@ describe("server_health (F3)", () => {
     expect(out.job_queue?.queued).toBeGreaterThanOrEqual(1);
     expect(out.job_queue?.failed).toBeGreaterThanOrEqual(1);
   });
+
+  it("THE-1108: surfaces stale-explicit-session count/age always, and withholds the principal from an unauthenticated or vaultBound caller", () => {
+    const t = createHealthTool({
+      version: "1.0.0",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getStaleExplicitSessions: () => ({
+        count: 1,
+        oldestAgeMs: 34 * 86_400_000,
+        oldestPrincipal: "alice",
+      }),
+    });
+    const anon = t.handler({}, { ...base, authenticated: false } as CallerContext) as {
+      sessions?: {
+        stale_explicit: number;
+        oldest_age_ms: number | null;
+        oldest_principal?: string;
+      };
+    };
+    expect(anon.sessions?.stale_explicit).toBe(1);
+    expect(anon.sessions?.oldest_age_ms).toBe(34 * 86_400_000);
+    // A principal is caller identity — withheld the same as `vaults` (THE-924).
+    expect(anon.sessions?.oldest_principal).toBeUndefined();
+
+    const bound = t.handler({}, {
+      ...base,
+      authenticated: true,
+      vaultBound: true,
+    } as CallerContext) as { sessions?: { oldest_principal?: string } };
+    expect(bound.sessions?.oldest_principal).toBeUndefined();
+
+    const unboundAuthed = t.handler({}, { ...base, authenticated: true } as CallerContext) as {
+      sessions?: { oldest_principal?: string };
+    };
+    expect(unboundAuthed.sessions?.oldest_principal).toBe("alice");
+  });
 });

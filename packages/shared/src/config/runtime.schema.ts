@@ -192,7 +192,21 @@ export const SessionsConfigSchema = z
       .positive()
       .default(1800)
       .describe(
-        "How long a server-opened session keeps correlating before it becomes ELIGIBLE to be closed. This is a floor, not an exact lifetime: the closing is done by the maintenance sweep on ITS schedule (maintenance.intervalMinutes, default 60), so a session actually lives between windowSeconds and windowSeconds + that interval — with both defaults, between 30 and 90 minutes. A session is a bounded activity window, not an idle timeout: it is closed on age, never on inactivity, and the next request opens a fresh one. Explicit start_session sessions are never closed by the sweep — only end_session closes those.",
+        "How long a server-opened session keeps correlating before it becomes ELIGIBLE to be closed. This is a floor, not an exact lifetime: the closing is done by the maintenance sweep on ITS schedule (maintenance.intervalMinutes, default 60), so a session actually lives between windowSeconds and windowSeconds + that interval — with both defaults, between 30 and 90 minutes. A session is a bounded activity window, not an idle timeout: it is closed on age, never on inactivity, and the next request opens a fresh one. Explicit start_session sessions are never closed by the sweep on this window alone — only end_session closes those early — but THE-1108 uses this SAME number as the resolver's bound: once an explicit session is older than windowSeconds, dispatch stops attaching new traffic to it (the caller gets a fresh implicit session instead), and sessions.maxExplicitLifetimeSeconds is the separate, longer bound on how long the stale row itself may stay open.",
+      ),
+    // THE-1108: an open explicit session had no ceiling at all — one forgotten start_session
+    // absorbed 34 days and 1,279 events of a principal's traffic, and the derive pass only judges
+    // ENDED sessions, so none of it was ever evaluated. windowSeconds above stops new dispatches
+    // from attaching to a stale explicit session; this is what actually closes one nobody ended.
+    // Deliberately much longer than windowSeconds (a day vs. 30 minutes): windowSeconds trips on
+    // ordinary idle time, this is a backstop for a session that was simply never ended.
+    maxExplicitLifetimeSeconds: z
+      .number()
+      .int()
+      .positive()
+      .default(86400)
+      .describe(
+        "THE-1108: the absolute ceiling on how long an explicit start_session session may stay open, regardless of activity — end_session still closes one early at any time. Once started_at + maxExplicitLifetimeSeconds has passed, the maintenance sweep closes it (recording ended_reason: \"absolute_expired\" in the session's existing metadata) on the same schedule closeStaleImplicitSessions runs on. Like that sweep, it never touches a `caller IS NULL` row — that stays closeStaleImplicitSessions's job — and never closes a session with a request in flight.",
       ),
   })
   .prefault({});

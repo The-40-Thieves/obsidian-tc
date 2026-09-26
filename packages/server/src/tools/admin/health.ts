@@ -111,6 +111,18 @@ export interface HealthInfo {
     lastError?: string;
     nextSendAt?: number;
   };
+  /** THE-1108: open EXPLICIT (start_session) sessions already older than sessions.windowSeconds —
+   *  the resolver bound that stops NEW dispatches from attaching to them, distinct from actually
+   *  closing them (sessions.maxExplicitLifetimeSeconds, enforced by the maintenance sweep). A
+   *  non-zero count is a forgotten start_session, not necessarily a problem on its own — this is
+   *  visibility, not a health verdict. `stale_explicit`/`oldest_age_ms` are non-identifying and
+   *  always present when wired; `oldest_principal` names a caller identity, so — like `vaults`
+   *  above — it is withheld from any caller that is not authenticated AND unbound (THE-924). */
+  sessions?: {
+    stale_explicit: number;
+    oldest_age_ms: number | null;
+    oldest_principal?: string | null;
+  };
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
@@ -228,6 +240,13 @@ const HealthInfoOutput = z.object({
     .optional(),
   toolFacade: ToolFacadeHealthOutput.optional(),
   telemetry: TelemetryHealthOutput.optional(),
+  sessions: z
+    .object({
+      stale_explicit: z.number(),
+      oldest_age_ms: z.number().nullable(),
+      oldest_principal: z.string().nullable().optional(),
+    })
+    .optional(),
 });
 
 export function createIndexStatusTool(opts: {
@@ -303,6 +322,13 @@ export function createHealthTool(opts: {
     lastError?: string;
     nextSendAt?: number;
   };
+  /** THE-1108: read live at call time (like getJobQueueStats/getTelemetryStatus above) — session
+   *  age changes independently of this call's own clock. Absent omits the block entirely. */
+  getStaleExplicitSessions?: () => {
+    count: number;
+    oldestAgeMs: number | null;
+    oldestPrincipal: string | null;
+  };
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
@@ -373,6 +399,20 @@ export function createHealthTool(opts: {
             }
           : {}),
         ...(opts.getTelemetryStatus ? { telemetry: opts.getTelemetryStatus() } : {}),
+        ...(opts.getStaleExplicitSessions
+          ? (() => {
+              const s = opts.getStaleExplicitSessions?.();
+              if (!s) return {};
+              return {
+                sessions: {
+                  stale_explicit: s.count,
+                  oldest_age_ms: s.oldestAgeMs,
+                  // THE-924: a principal is caller identity, withheld the same as `vaults`.
+                  ...(authedUnbound ? { oldest_principal: s.oldestPrincipal } : {}),
+                },
+              };
+            })()
+          : {}),
       };
     },
   };

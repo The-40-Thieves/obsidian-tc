@@ -10,8 +10,10 @@ import {
   isFeedbackExemptFromReadOnly,
   type ServerConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
+import type { Database } from "../db/types";
 import { hiddenNamesInAllowlist } from "../doctor/tool-facade";
 import { redactEndpoint } from "../telemetry/redact-endpoint";
+import { staleExplicitSessionSummary } from "../workspace/sessions";
 import { emitCaptureFirstRunNotice } from "./capture-first-run-notice";
 import { formatPlaneOptInNotice } from "./plane-opt-in-notice";
 
@@ -34,6 +36,9 @@ export function emitBootNotices(deps: {
   /** Whether the raw (pre-default) config explicitly set `plane.enabled` — see
    *  config/load.ts's `isPlaneEnabledExplicit`. */
   planeEnabledExplicit: boolean;
+  /** THE-1108: cache.db handle, so the stale-explicit-session notice below can read
+   *  workspace_sessions. */
+  db: Database;
 }): void {
   const { config } = deps;
 
@@ -122,5 +127,27 @@ export function emitBootNotices(deps: {
         `toolFacade: personas.${personaName}.toolVisibility.allowed names ${personaHidden.length} tool(s) hidden by toolFacade.profile: ${personaHidden.join(", ")}\n`,
       );
     }
+  }
+
+  // THE-1108: a session this old already predates the absolute-lifetime bound the maintenance
+  // sweep enforces — it will be closed on the sweep's own cadence (maintenance.intervalMinutes),
+  // same "eligible, not yet closed" gap windowSeconds documents. One line at boot so an operator
+  // reading the log sees it immediately rather than only after the first sweep runs, or not at
+  // all on a deployment with maintenance disabled.
+  const staleAtBoot = staleExplicitSessionSummary(deps.db, {
+    now: Date.now(),
+    thresholdSeconds: config.sessions.maxExplicitLifetimeSeconds,
+  });
+  if (staleAtBoot.count > 0) {
+    const oldestDays = ((staleAtBoot.oldestAgeMs ?? 0) / 86_400_000).toFixed(1);
+    process.stderr.write(
+      `sessions: ${staleAtBoot.count} open explicit session(s) already past sessions.maxExplicitLifetimeSeconds ` +
+        `(${config.sessions.maxExplicitLifetimeSeconds}s) at boot — oldest is ${oldestDays}d old` +
+        (staleAtBoot.oldestPrincipal !== null
+          ? ` (principal: ${staleAtBoot.oldestPrincipal})`
+          : "") +
+        ". The maintenance sweep will close them on its own schedule (maintenance.intervalMinutes); " +
+        "call end_session yourself if you want it sooner.\n",
+    );
   }
 }

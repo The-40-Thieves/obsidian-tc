@@ -121,3 +121,52 @@ describe("activeSessionFor — lifecycle and shape", () => {
     db.close?.();
   });
 });
+
+describe("activeSessionFor — THE-1108 resolver bound on a stale EXPLICIT session", () => {
+  it("refuses to bind to an explicit session older than windowSeconds — exactly as if none existed", () => {
+    const db = freshDb();
+    const stale = open(db, { caller: "agent-alpha", principal: "alice", startedAt: 0 });
+    expect(activeSessionFor(db, "alice", { windowSeconds: 1800, now: 1_800_001 })).toBeUndefined();
+    // The row itself is untouched by the resolver — only a sweep closes it.
+    const row = db.prepare("SELECT ended_at FROM workspace_sessions WHERE id = ?").get(stale) as {
+      ended_at: number | null;
+    };
+    expect(row.ended_at).toBeNull();
+    db.close?.();
+  });
+
+  it("still binds an explicit session within the window", () => {
+    const db = freshDb();
+    const fresh = open(db, { caller: "agent-alpha", principal: "alice", startedAt: 1_000_000 });
+    expect(activeSessionFor(db, "alice", { windowSeconds: 1800, now: 1_800_000 })?.sessionId).toBe(
+      fresh,
+    );
+    db.close?.();
+  });
+
+  it("does NOT apply the bound to an IMPLICIT (server-opened) session — that stays closeStaleImplicitSessions's job", () => {
+    const db = freshDb();
+    const implicit = open(db, { caller: null, principal: "alice", startedAt: 0 });
+    expect(activeSessionFor(db, "alice", { windowSeconds: 1800, now: 1_800_001 })?.sessionId).toBe(
+      implicit,
+    );
+    db.close?.();
+  });
+
+  it("omitting windowSeconds reproduces the pre-THE-1108 behaviour byte-for-byte, however old the row", () => {
+    const db = freshDb();
+    const ancient = open(db, { caller: "agent-alpha", principal: "alice", startedAt: 0 });
+    expect(activeSessionFor(db, "alice")?.sessionId).toBe(ancient);
+    expect(activeSessionFor(db, "alice", {})?.sessionId).toBe(ancient);
+    db.close?.();
+  });
+
+  it("re-keys on `caller` only for the STALENESS check, never for identity — the cross-principal probe still fails", () => {
+    const db = freshDb();
+    open(db, { caller: "agent-alpha", principal: "alice", startedAt: 0 });
+    // Same as the undecorated call: a caller-supplied declaration must never resolve a session,
+    // window or no window.
+    expect(activeSessionFor(db, "agent-alpha", { windowSeconds: 1800, now: 1 })).toBeUndefined();
+    db.close?.();
+  });
+});

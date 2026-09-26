@@ -37,8 +37,10 @@ export interface MaintenanceWiringDeps {
    *  args_json redaction). Absent leaves the redaction arm unarmed, same as every other
    *  optional experiential-adjacent field here. */
   experiential?: { captureRetentionDays: number };
-  /** config.sessions — THE-726. Absent, or autoOpen false, leaves the session arm unarmed. */
-  sessions?: { autoOpen: boolean; windowSeconds: number };
+  /** config.sessions — THE-726. Absent, or autoOpen false, leaves the implicit-session arm
+   *  unarmed. THE-1108: `maxExplicitLifetimeSeconds` arms a SEPARATE arm that is not gated on
+   *  `autoOpen` — see this file's `configureMaintenance` for why. */
+  sessions?: { autoOpen: boolean; windowSeconds: number; maxExplicitLifetimeSeconds: number };
   /** The CANONICAL vault roots (vaultRegistry-resolved `.root`, not raw config.vaults — see
    *  server-runtime.ts's wireScheduler call site, THE-1081 review round 2), other fields (e.g.
    *  `workspace`) preserved from config. Trace dirs are per-vault and resolved with containment
@@ -112,6 +114,12 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     // `caller IS NULL` rows if any other writer ever produced that shape.
     ...(deps.sessions?.autoOpen === true
       ? { sessionWindowSeconds: deps.sessions.windowSeconds }
+      : {}),
+    // THE-1108: NOT gated on autoOpen — an explicit session comes from a client calling
+    // start_session, which is possible whether or not the server ever opens one of its own, so
+    // this arm arms whenever a sessions block is supplied at all.
+    ...(deps.sessions !== undefined
+      ? { sessionMaxExplicitLifetimeSeconds: deps.sessions.maxExplicitLifetimeSeconds }
       : {}),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     onSweep: (counts) => {

@@ -43,6 +43,7 @@ import {
   probeEntryPoints,
   probeKbHealth,
   probeNotesFts,
+  probeStaleExplicitSessions,
   probeStoredEmbeddingsProvider,
   probeTelemetryState,
 } from "./doctor-probes";
@@ -289,6 +290,14 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     : undefined;
   // THE-722: the reader audit_reports never had.
   const kbHealth = cmd.probe ? await probeKbHealth(config.cacheDir, busyTimeoutMs) : undefined;
+  // THE-1108: is any explicit session already older than the resolver's own windowSeconds?
+  const sessionLiveness = cmd.probe
+    ? await probeStaleExplicitSessions(
+        config.cacheDir,
+        busyTimeoutMs,
+        config.sessions.windowSeconds,
+      )
+    : undefined;
   // THE-891 item 5: per-vault note-summary scan size, only under --probe (same contract as every
   // other store-touching probe above).
   const noteSummariesScale = cmd.probe
@@ -528,6 +537,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ].filter((e) => e.names.length > 0),
       },
       telemetry: telemetryState,
+      // THE-1108: windowSeconds always present (a pure config value); the stale-session count only
+      // under --probe, same reasoning as notesFts/derivedTables above.
+      sessions: {
+        windowSeconds: config.sessions.windowSeconds,
+        ...(sessionLiveness !== undefined ? { probe: () => sessionLiveness } : {}),
+      },
       embeddingsBuildable: {
         denseProvider: config.embeddings.provider,
         ...(config.embeddings.provider === "local"

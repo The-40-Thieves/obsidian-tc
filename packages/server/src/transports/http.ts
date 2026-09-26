@@ -296,7 +296,13 @@ function contextFromAuthInfo(
       ...(() => {
         const bound = extra?.vault ?? opts.vaultId;
         const principal = extra?.caller ?? null;
-        const active = activeSessionFor(opts.db, principal);
+        // THE-1108: thread the SAME windowSeconds the maintenance sweep already receives
+        // (opts.sessions, config.sessions.windowSeconds — see transport-wiring.ts), not a second
+        // config read. A forgotten start_session past this age stops absorbing new dispatch
+        // traffic; the row itself stays open until end_session or the absolute-lifetime sweep.
+        const active = activeSessionFor(opts.db, principal, {
+          windowSeconds: opts.sessions?.windowSeconds,
+        });
         if (active) return active.vaultId === bound ? { sessionId: active.sessionId } : {};
         // `activeSessionFor` already refuses a NULL/empty principal; re-checking here keeps the
         // OPEN path from depending on that, because writing a row for an unidentifiable principal

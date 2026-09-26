@@ -102,7 +102,12 @@ export function buildVerdictTools(deps: M8Deps): ToolDefinition[] {
         // cross-principal hole THE-838 closed on `end_session` cannot exist here by construction
         // rather than by a guard someone has to remember. A caller cannot name a session it does
         // not own because it cannot name one at all.
-        const active = activeSessionFor(ctx.db, ctx.caller);
+        // THE-1108: same resolver bound the HTTP dispatch context uses — a principal whose only
+        // "open" session is a forgotten start_session past windowSeconds gets treated as having
+        // none, same as every other activeSessionFor call site.
+        const active = activeSessionFor(ctx.db, ctx.caller, {
+          windowSeconds: deps.sessions?.windowSeconds,
+        });
         if (!active) {
           // THROWS rather than returning the degraded `available: false` envelope. Those are
           // different conditions and conflating them costs the caller the one thing it needs: the
