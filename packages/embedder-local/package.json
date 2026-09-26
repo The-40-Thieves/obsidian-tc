@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/obsidian-tc-embedder-local",
-  "version": "1.31.3",
+  "version": "1.31.4",
   "description": "Optional bundled dense embedder for obsidian-tc — runs fully offline, CPU-only, via @huggingface/transformers, no gateway or Ollama required",
   "license": "AGPL-3.0-only",
   "type": "module",

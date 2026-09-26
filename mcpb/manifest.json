@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "obsidian-tc",
   "display_name": "Obsidian Turbocharged",
-  "version": "1.31.3",
+  "version": "1.31.4",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "author": {
     "name": "The 40 Thieves",

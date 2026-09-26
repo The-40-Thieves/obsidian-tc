@@ -3,7 +3,7 @@
   "name": "io.github.The-40-Thieves/obsidian-tc",
   "title": "Obsidian Turbocharged",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
-  "version": "1.31.3",
+  "version": "1.31.4",
   "websiteUrl": "https://github.com/The-40-Thieves/obsidian-tc#readme",
   "repository": {
     "url": "https://github.com/The-40-Thieves/obsidian-tc",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "obsidian-tc",
-      "version": "1.31.3",
+      "version": "1.31.4",
       "transport": {
         "type": "stdio"
       },
