@@ -376,7 +376,7 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // behavior (activeSessionFor stops attaching new dispatches to an explicit session past this
   // age) rather than only the sweep-eligibility text it already had. No existing key, type,
   // default or constraint moved.
-  "5594c4c4ceffe2d0bcbc48dfca5a4fca3caf1ec2f0a5f4f75e43702882091630";
+  "c1c1f9c38795fbf891c13e7793ece5881bc88f329ae3df7bcaafd6d6433da50a";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
