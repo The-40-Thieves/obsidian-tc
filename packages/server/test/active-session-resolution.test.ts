@@ -172,6 +172,22 @@ describe("activeSessionFor — THE-1108 resolver bound on a stale EXPLICIT sessi
   });
 });
 
+describe("activeSessionFor — THE-1108 same-millisecond tiebreak", () => {
+  it("resolves to the later-INSERTED row when two open rows share an identical started_at", () => {
+    const db = freshDb();
+    // Reproduces the race in transports/http.ts: on a fast runner, the auto-opened IMPLICIT
+    // session and the EXPLICIT row `start_session` inserts moments later can land on the same
+    // millisecond. `ORDER BY started_at DESC` alone is then a coin flip in SQLite — this pins the
+    // `rowid DESC` tiebreaker that makes the most-recently-inserted row win deterministically.
+    const sameMs = 42_000;
+    const implicit = open(db, { caller: null, principal: "alice", startedAt: sameMs });
+    const explicit = open(db, { caller: "agent-alpha", principal: "alice", startedAt: sameMs });
+    expect(activeSessionFor(db, "alice")?.sessionId).toBe(explicit);
+    expect(activeSessionFor(db, "alice")?.sessionId).not.toBe(implicit);
+    db.close?.();
+  });
+});
+
 describe("ActiveSessionTracker.validate — THE-1108 fix (Codex P1-1): stdio must stop reusing a closed/stale entry", () => {
   it("returns the tracked entry unchanged when the row is still open and within window", () => {
     const db = freshDb();
