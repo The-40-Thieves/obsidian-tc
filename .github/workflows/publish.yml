@@ -602,7 +602,13 @@ jobs:
               # HTTP status, so it always falls through to the retry branch below.
               # G4 fix (unchanged): --connect-timeout/--max-time bound how long a stalled
               # connection can hang this attempt instead of counting as one of the budget's steps.
-              status=$(curl -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "$url") || status="000"
+              # Cap each request at the time left in the budget so two 20s curls cannot carry the
+              # loop past max_wait (floor 1s: curl treats --max-time 0 as "no limit").
+              req_max=$((max_wait - elapsed))
+              [ "$req_max" -gt 20 ] && req_max=20
+              [ "$req_max" -lt 1 ] && req_max=1
+              req_connect=$((req_max < 10 ? req_max : 10))
+              status=$(curl -sS --connect-timeout "$req_connect" --max-time "$req_max" -o /dev/null -w '%{http_code}' "$url") || status="000"
               if [ "$status" = "200" ]; then
                 echo "  attempt $attempt (t=${elapsed}s): $url -> 200, resolved"
                 resolved=true
@@ -610,9 +616,16 @@ jobs:
               fi
               # Informational dist-tags.latest poll — see the step comment above for why this is
               # never a gate and why it is cache-busted with a unique query param.
-              latest=$(curl -sS --connect-timeout 10 --max-time 20 "${packument_url}?_cb=${SECONDS}${RANDOM}" \
+              req_max=$((max_wait - (SECONDS - start)))
+              [ "$req_max" -gt 20 ] && req_max=20
+              [ "$req_max" -lt 1 ] && req_max=1
+              req_connect=$((req_max < 10 ? req_max : 10))
+              latest=$(curl -sS --connect-timeout "$req_connect" --max-time "$req_max" "${packument_url}?_cb=${SECONDS}${RANDOM}" \
                 | jq -r '.["dist-tags"].latest // "unknown"') || latest="unknown"
               echo "  attempt $attempt (t=${elapsed}s): $url -> $status (dist-tags.latest=$latest)"
+              # Re-read the clock: the polls above took real time, and a stale `elapsed` would
+              # both overrun the deadline and under-report it in the error below.
+              elapsed=$((SECONDS - start))
               if [ "$elapsed" -ge "$max_wait" ]; then
                 break
               fi
