@@ -27,7 +27,7 @@ Memory you write with obsidian-tc is plain Markdown in your own vault, not a ven
 feature — see [Memory you own](/getting-started/memory-you-own/) for the on-disk shape, the ACL/
 audit pipeline every write goes through, and a session-bootstrap recipe.
 
-v1.31.3 is the current release, published to npm with a container image on GHCR.
+v1.31.4 is the current release, published to npm with a container image on GHCR.
 
 See [Getting Started](/getting-started/install/) for install instructions, or browse the [Tool Reference](/tools/).
 

@@ -63,7 +63,7 @@ semantic search from this install method; lexical search is unaffected.
 ```sh
 docker run --rm -v "$HOME/vaults:/vaults" \
   -v "$HOME/.config/obsidian-tc:/config" \
-  ghcr.io/the-40-thieves/obsidian-tc:1.31.3 /config/config.json
+  ghcr.io/the-40-thieves/obsidian-tc:1.31.4 /config/config.json
 ```
 
 The image is an `oven/bun:1.4.2-slim` build (Debian, glibc): the native prebuilds are

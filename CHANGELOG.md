@@ -6,6 +6,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.4] - 2026-09-26
+
 ### Added
 
 - **Validity intervals on memory observations — supersede instead of overwrite, and "what did we
@@ -40,7 +42,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (linking to the vault over MCP does not make your notes AGPL; the TC Bridge plugin's license is
   whatever `packages/plugin/package.json` says). Linked from the README's License section and
   added to the docs sidebar.
-- **Opt-in, anonymous usage telemetry (THE-1125).** Off by default, with **no default
+- **Opt-in, anonymous usage telemetry (THE-1125, PR #982).** Off by default, with **no default
   endpoint** — `telemetry.enabled: true` with no `telemetry.endpoint` set is a config
   error at boot, never a silent no-op. When enabled, once every
   `telemetry.intervalMinutes` (never at boot) a small aggregate document is POSTed to
@@ -133,7 +135,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   data-loss bug in the SHARED memory-materialization primitive this work found and fixed.
 
 - **Semantic search works out of the box: a bundled, fully offline local embedder is now the
-  DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122).** `local`
+  DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122, PR #980).** `local`
   runs [`nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5)
   (Apache-2.0, 768-dim, quantized ONNX, ~137 MB) via
   [Transformers.js](https://www.npmjs.com/package/@huggingface/transformers) on CPU, through the
@@ -183,7 +185,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   2026-07-28 client-driven path too, not just the new legacy one.
 
 - **`experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived
-  telemetry under a read-only vault (GH #964 part 2, THE-1099).** A read-only configuration
+  telemetry under a read-only vault (GH #964 part 2, THE-1099, PR #966).** A read-only configuration
   (`acl.readOnly: true` and/or `toolVisibility.requireReadOnly: true`) previously blocked and
   hid `record_retrieval_feedback` exactly like any other mutating tool, even though its writes
   land only in `chunk_retrievals` in `experiential.db` — the derived-cognition plane, never
@@ -583,7 +585,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   16 tools on ANY path — now also fires when `elicitState` satisfies a handler-side gate.
 
 - **`index_vault` no longer aborts a whole vault's reconcile over one note with unparseable YAML
-  frontmatter (THE-1073).** `processNote` (`search/indexing/index-vault.ts`) called `parseNote`
+  frontmatter (THE-1073, PR #968).** `processNote` (`search/indexing/index-vault.ts`) called `parseNote`
   twice per note (once directly, once inside `computeNotePlan`), and `parseNote`
   (`vault/frontmatter.ts`) throws on a YAML failure — that throw escaped `indexVault` entirely, so
   `runtime/plane-wiring.ts`'s reconcile mapped the WHOLE pass to a single health error and no note
@@ -630,7 +632,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   a follow-up, not fixed here.
 
 - **Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it
-  (GH #964 part 1, THE-1098).** `buildInstructions`'s feedback clause was unconditional, so it
+  (GH #964 part 1, THE-1098, PR #965).** `buildInstructions`'s feedback clause was unconditional, so it
   survived under `toolVisibility.requireReadOnly: true` (the tool hidden), `acl.readOnly: true`
   (blocked at dispatch), and `experiential.logRetrievals: false` (no retrieval rows to give
   feedback on) — an agent following the server's own instructions could not actually call the tool
