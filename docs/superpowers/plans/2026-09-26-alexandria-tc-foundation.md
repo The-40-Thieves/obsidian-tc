@@ -15,6 +15,10 @@
 ## Global Constraints
 
 - Toolchain pins from `mise.toml`: `bun = "1.4.2"`, `node = "26.5.0"`. Run repo commands via `mise exec --` or an activated mise shell.
+- Node floor: dev runs Node 26.5.0 but CI validates the **Node 24** floor (`engines.node: ">=24"`, `@types/node ^24`). New packages copy that `engines` and `@types/node` pin; never type against a 26-only API.
+- Full suites run on GitHub runners, not on Cave (4 cores shared with ~43 containers): `gh workflow run ci-server.yml --ref <branch>` and `gh workflow run ci-corpus.yml --ref <branch>`; local runs are targeted vitest (`bunx vitest run <path>`) or `bun run test:local` in `packages/server`. Every "Run: just test" line in this plan means "dispatch ci-server.yml and read the run" unless a single package is named.
+- `bun run map` runs AFTER `git add` and is the LAST thing before commit (it counts tracked files); then `bun run map:check`. Never hand-edit `TREE.md`, `docs/dependency-graph.json`, the config schema JSON or `migrations-embedded.ts` (a PreToolUse hook blocks it).
+- The tool count's source of truth is `REGISTERED_TOOL_COUNT` in `packages/server/test/registered-tool-count.ts` (read by `check-version-coherence.mjs`); the catalog gate's floor and BASELINE.md cite it, not a grep.
 - License: **MIT** in the root `LICENSE` and in every `packages/*/package.json` `license` field. No AGPL text remains outside `CHANGELOG.md` and `docs/adr/`.
 - Names: server npm package `@the-40-thieves/alexandria-tc`, bin `alexandria-tc`, `mcpName` and `server.json` name `io.github.The-40-Thieves/alexandria-tc`, image `ghcr.io/the-40-thieves/alexandria-tc`. Internal packages `@the-40-thieves/alexandria-tc-<name>`. Published version lockstep `2.0.0`.
 - Runtime rule: `bun:` imports allowed only in `packages/core/src/db/bun-sqlite.ts` and under `packages/native/`. Enforced by a dependency-cruiser rule (Task 12).
@@ -72,10 +76,10 @@ Expected: `## foundation/00-baseline` and no changes.
 Run:
 ```bash
 cd packages/server && node ./node_modules/vitest/vitest.mjs run 2>&1 | tail -3
-cd ../.. && rg -c "registerTool\(|defineTool\(" packages/server/src/tools --glob '!*test*' | awk -F: '{s+=$2} END{print "tool registrations:", s}'
+cd ../.. && rg -n 'export const REGISTERED_TOOL_COUNT' packages/server/test/registered-tool-count.ts
 cd ~/alexandria-mcp && ALEXANDRIA_STATE_DB=:memory: NODE_ENV=test node --test 'src/**/*.test.ts' 2>&1 | grep -E '^# (tests|pass|fail)'
 ```
-Expected: a vitest summary line like `Tests  NNNN passed`, `tool registrations: 161`, and `# tests 1507` / `# fail 0` (or the current counts; write down whatever prints).
+Expected: a vitest summary line like `Tests  NNNN passed`, the `REGISTERED_TOOL_COUNT = <n>;` line (161 at time of writing; `tools/list` returns two fewer than it because `health` and `index_status` register inline in `cli.ts`), and `# tests 1507` / `# fail 0` (or the current counts; write down whatever prints).
 
 - [ ] **Step 3: Write the baseline file**
 
@@ -156,7 +160,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 const SNAPSHOT = "docs/catalog/tools.snapshot.json";
-const TOOL_FLOOR = 150;
+const TOOL_FLOOR = 150; // REGISTERED_TOOL_COUNT minus the two inline tools, rounded down; see BASELINE.md
 // Copy the zero-config-smoke command from ci-server.yml verbatim, split into argv:
 const SERVER_CMD = ["bun", "packages/server/dist/cli.js", "serve", "--transport", "stdio"];
 
