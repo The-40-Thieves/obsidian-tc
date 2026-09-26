@@ -10,8 +10,13 @@ import {
   isFeedbackExemptFromReadOnly,
   type ServerConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
+import type { Database } from "../db/types";
 import { hiddenNamesInAllowlist } from "../doctor/tool-facade";
 import { redactEndpoint } from "../telemetry/redact-endpoint";
+import {
+  type StaleExplicitSessionSummary,
+  staleExplicitSessionSummary,
+} from "../workspace/sessions";
 import { emitCaptureFirstRunNotice } from "./capture-first-run-notice";
 import { formatPlaneOptInNotice } from "./plane-opt-in-notice";
 
@@ -27,6 +32,32 @@ export function readOnlyFeedbackExemptionActive(
   return isFeedbackExemptFromReadOnly(config.experiential);
 }
 
+/** THE-1108 fix (Codex P2): pure formatter for the stale-explicit-session boot notice, split out
+ *  the same way `readOnlyFeedbackExemptionActive` above is — testable without a real db or a full
+ *  config. `maintenanceEnabled` decides the CLOSING sentence: with `maintenance.enabled: false`,
+ *  `configureMaintenance` (maintenance-wiring.ts) registers no sweep at all, so the original
+ *  unconditional "the maintenance sweep will close them" would be a promise nothing keeps.
+ *  Returns `undefined` when there is nothing stale to report. */
+export function formatStaleExplicitSessionNotice(
+  stale: StaleExplicitSessionSummary,
+  opts: { maxExplicitLifetimeSeconds: number; maintenanceEnabled: boolean },
+): string | undefined {
+  if (stale.count === 0) return undefined;
+  const oldestDays = ((stale.oldestAgeMs ?? 0) / 86_400_000).toFixed(1);
+  const closing = opts.maintenanceEnabled
+    ? "The maintenance sweep will close them on its own schedule (maintenance.intervalMinutes); " +
+      "call end_session yourself if you want it sooner.\n"
+    : "maintenance.enabled is false, so nothing will close them automatically — call end_session " +
+      "yourself, or turn maintenance on.\n";
+  return (
+    `sessions: ${stale.count} open explicit session(s) already past sessions.maxExplicitLifetimeSeconds ` +
+    `(${opts.maxExplicitLifetimeSeconds}s) at boot — oldest is ${oldestDays}d old` +
+    (stale.oldestPrincipal !== null ? ` (principal: ${stale.oldestPrincipal})` : "") +
+    ". " +
+    closing
+  );
+}
+
 export function emitBootNotices(deps: {
   config: ServerConfig;
   /** `roles !== null` at the buildServerRuntime call site — see plane-opt-in-notice.ts. */
@@ -34,6 +65,9 @@ export function emitBootNotices(deps: {
   /** Whether the raw (pre-default) config explicitly set `plane.enabled` — see
    *  config/load.ts's `isPlaneEnabledExplicit`. */
   planeEnabledExplicit: boolean;
+  /** THE-1108: cache.db handle, so the stale-explicit-session notice below can read
+   *  workspace_sessions. */
+  db: Database;
 }): void {
   const { config } = deps;
 
@@ -123,4 +157,18 @@ export function emitBootNotices(deps: {
       );
     }
   }
+
+  // THE-1108: a session this old already predates the absolute-lifetime bound the maintenance
+  // sweep enforces. One line at boot so an operator reading the log sees it immediately rather
+  // than only after the first sweep runs — see formatStaleExplicitSessionNotice for why the
+  // closing sentence depends on whether a sweep will actually run at all (fix round, Codex P2).
+  const staleAtBoot = staleExplicitSessionSummary(deps.db, {
+    now: Date.now(),
+    thresholdSeconds: config.sessions.maxExplicitLifetimeSeconds,
+  });
+  const staleNotice = formatStaleExplicitSessionNotice(staleAtBoot, {
+    maxExplicitLifetimeSeconds: config.sessions.maxExplicitLifetimeSeconds,
+    maintenanceEnabled: config.maintenance.enabled,
+  });
+  if (staleNotice !== undefined) process.stderr.write(staleNotice);
 }

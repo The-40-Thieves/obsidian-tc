@@ -32,10 +32,13 @@ import { VaultRegistry } from "../src/vault/registry";
 import {
   activeSessionFor,
   cacheTraceRelPath,
+  closeExpiredExplicitSessions,
   closeStaleImplicitSessions,
   DEFAULT_TRACE_FOLDER,
   genSessionId,
+  inFlightCount,
   insertSession,
+  markInFlight,
   openImplicitSession,
 } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
@@ -60,6 +63,26 @@ describe("the config default is the privacy posture", () => {
     const parsed = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/tmp/x" }] });
     expect(parsed.sessions.autoOpen).toBe(false);
     expect(parsed.sessions.windowSeconds).toBe(1800);
+  });
+
+  it("THE-1108: defaults maxExplicitLifetimeSeconds to a full day, and rejects 0 or negative", () => {
+    const parsed = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/tmp/x" }] });
+    expect(parsed.sessions.maxExplicitLifetimeSeconds).toBe(86_400);
+
+    for (const bad of [0, -1, -86_400]) {
+      expect(() =>
+        ServerConfigSchema.parse({
+          vaults: [{ id: "main", path: "/tmp/x" }],
+          sessions: { maxExplicitLifetimeSeconds: bad },
+        }),
+      ).toThrow();
+    }
+
+    const custom = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/tmp/x" }],
+      sessions: { maxExplicitLifetimeSeconds: 3600 },
+    });
+    expect(custom.sessions.maxExplicitLifetimeSeconds).toBe(3600);
   });
 });
 
@@ -167,6 +190,216 @@ describe("closeStaleImplicitSessions — bounded window, deliberate sessions unt
   });
 });
 
+describe("closeExpiredExplicitSessions — THE-1108 absolute lifetime, deliberately separate from closeStaleImplicitSessions", () => {
+  function openExplicit(db: Database, id: string, startedAt: number, principal = "alice"): void {
+    insertSession(db, {
+      id,
+      vaultId: "main",
+      caller: "agent-alpha",
+      startedAt,
+      tracePath: `${DEFAULT_TRACE_FOLDER}/${id}.jsonl`,
+      principal,
+    });
+  }
+
+  it("closes an explicit session once it exceeds maxExplicitLifetimeSeconds, and records ended_reason in its metadata", () => {
+    const db = freshDb();
+    const old = genSessionId();
+    openExplicit(db, old, 0);
+
+    expect(
+      closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+    ).toBe(1);
+    const row = db
+      .prepare("SELECT ended_at, metadata_json FROM workspace_sessions WHERE id = ?")
+      .get(old) as { ended_at: number | null; metadata_json: string | null };
+    expect(row.ended_at).toBe(86_400_001);
+    expect(JSON.parse(row.metadata_json ?? "{}")).toEqual({ ended_reason: "absolute_expired" });
+  });
+
+  it("MERGES ended_reason into existing caller-supplied metadata rather than clobbering it", () => {
+    const db = freshDb();
+    const old = genSessionId();
+    insertSession(db, {
+      id: old,
+      vaultId: "main",
+      caller: "agent-alpha",
+      startedAt: 0,
+      tracePath: `${DEFAULT_TRACE_FOLDER}/${old}.jsonl`,
+      principal: "alice",
+      metadata: { task: "reindex the vault" },
+    });
+    closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 });
+    const row = db
+      .prepare("SELECT metadata_json FROM workspace_sessions WHERE id = ?")
+      .get(old) as {
+      metadata_json: string | null;
+    };
+    expect(JSON.parse(row.metadata_json ?? "{}")).toEqual({
+      task: "reindex the vault",
+      ended_reason: "absolute_expired",
+    });
+  });
+
+  it("leaves an explicit session INSIDE the lifetime untouched", () => {
+    const db = freshDb();
+    const fresh = genSessionId();
+    openExplicit(db, fresh, 80_000_000);
+    expect(
+      closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+    ).toBe(0);
+    expect(activeSessionFor(db, "alice")?.sessionId).toBe(fresh);
+  });
+
+  it("never touches a `caller IS NULL` (implicit) row — that stays closeStaleImplicitSessions's job", () => {
+    const db = freshDb();
+    const implicit = openImplicitSession(db, {
+      principal: "alice",
+      vaultId: "main",
+      traceFolder: DEFAULT_TRACE_FOLDER,
+      now: 0,
+    });
+    expect(
+      closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+    ).toBe(0);
+    expect(activeSessionFor(db, "alice")?.sessionId).toBe(implicit.sessionId);
+  });
+
+  it("closes several stale explicit sessions across DIFFERENT principals in one sweep", () => {
+    const db = freshDb();
+    const a = genSessionId();
+    const b = genSessionId();
+    openExplicit(db, a, 0, "alice");
+    openExplicit(db, b, 0, "bob");
+    expect(
+      closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+    ).toBe(2);
+    expect(activeSessionFor(db, "alice")).toBeUndefined();
+    expect(activeSessionFor(db, "bob")).toBeUndefined();
+  });
+
+  it("THE-1108 fix (Codex P1-2): defers a session with a call in flight, and closes it on the next sweep once released", () => {
+    const db = freshDb();
+    const old = genSessionId();
+    openExplicit(db, old, 0);
+    const release = markInFlight(old);
+    try {
+      expect(
+        closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+      ).toBe(0);
+      expect(activeSessionFor(db, "alice")?.sessionId).toBe(old);
+    } finally {
+      release();
+    }
+    // Released: the NEXT sweep closes it.
+    expect(
+      closeExpiredExplicitSessions(db, { now: 86_400_002, maxExplicitLifetimeSeconds: 86_400 }),
+    ).toBe(1);
+    expect(activeSessionFor(db, "alice")).toBeUndefined();
+  });
+
+  it("still closes every OTHER stale session in the same sweep when one is deferred for being in flight", () => {
+    const db = freshDb();
+    const busy = genSessionId();
+    const idle = genSessionId();
+    openExplicit(db, busy, 0, "alice");
+    openExplicit(db, idle, 0, "bob");
+    const release = markInFlight(busy);
+    try {
+      expect(
+        closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+      ).toBe(1);
+      expect(activeSessionFor(db, "alice")?.sessionId).toBe(busy);
+      expect(activeSessionFor(db, "bob")).toBeUndefined();
+    } finally {
+      release();
+    }
+  });
+
+  it("invokes onClosed once per session actually closed, carrying its id and principal", () => {
+    const db = freshDb();
+    const a = genSessionId();
+    const b = genSessionId();
+    openExplicit(db, a, 0, "alice");
+    openExplicit(db, b, 0, "bob");
+    const closed: { id: string; principal: string | null }[] = [];
+    closeExpiredExplicitSessions(db, {
+      now: 86_400_001,
+      maxExplicitLifetimeSeconds: 86_400,
+      onClosed: (row) => closed.push(row),
+    });
+    expect(closed).toHaveLength(2);
+    expect(closed).toContainEqual({ id: a, principal: "alice" });
+    expect(closed).toContainEqual({ id: b, principal: "bob" });
+  });
+
+  it("does NOT invoke onClosed for a session deferred as in-flight", () => {
+    const db = freshDb();
+    const busy = genSessionId();
+    openExplicit(db, busy, 0);
+    const release = markInFlight(busy);
+    const closed: unknown[] = [];
+    try {
+      closeExpiredExplicitSessions(db, {
+        now: 86_400_001,
+        maxExplicitLifetimeSeconds: 86_400,
+        onClosed: (row) => closed.push(row),
+      });
+      expect(closed).toEqual([]);
+    } finally {
+      release();
+    }
+  });
+});
+
+describe("markInFlight / inFlightCount — THE-1108 fix (Codex P1-2)", () => {
+  it("counts 0 for a session nothing has marked", () => {
+    expect(inFlightCount(genSessionId())).toBe(0);
+  });
+
+  it("release() drops the count back to 0, and is idempotent past the first call", () => {
+    const id = genSessionId();
+    const release = markInFlight(id);
+    expect(inFlightCount(id)).toBe(1);
+    release();
+    expect(inFlightCount(id)).toBe(0);
+    release(); // duplicate release must not go negative or throw
+    expect(inFlightCount(id)).toBe(0);
+  });
+
+  it("is reference-counted: a second concurrent mark survives the first release", () => {
+    const id = genSessionId();
+    const releaseA = markInFlight(id);
+    const releaseB = markInFlight(id);
+    expect(inFlightCount(id)).toBe(2);
+    releaseA();
+    expect(inFlightCount(id)).toBe(1);
+    releaseB();
+    expect(inFlightCount(id)).toBe(0);
+  });
+});
+
+describe("closeStaleImplicitSessions — THE-1108 fix (Codex P1-2): in-flight guard", () => {
+  it("defers a session with a call in flight, and closes it on the next sweep once released", () => {
+    const db = freshDb();
+    const s = openImplicitSession(db, {
+      principal: "alice",
+      vaultId: "main",
+      traceFolder: DEFAULT_TRACE_FOLDER,
+      now: 0,
+    });
+    const release = markInFlight(s.sessionId);
+    try {
+      expect(closeStaleImplicitSessions(db, { now: 1_800_001, windowSeconds: 1800 })).toBe(0);
+      expect(activeSessionFor(db, "alice")?.sessionId).toBe(s.sessionId);
+    } finally {
+      release();
+    }
+    expect(closeStaleImplicitSessions(db, { now: 1_800_002, windowSeconds: 1800 })).toBe(1);
+    expect(activeSessionFor(db, "alice")).toBeUndefined();
+  });
+});
+
 describe("the maintenance sweep arm", () => {
   it("is INERT unless a window is configured, so autoOpen:false costs nothing", () => {
     const db = freshDb();
@@ -203,6 +436,40 @@ describe("the maintenance sweep arm", () => {
       sessionWindowSeconds: 1800,
     });
     expect(counts.sessions_closed).toBe(1);
+    expect(activeSessionFor(db, "alice")).toBeUndefined();
+    db.close?.();
+  });
+
+  it("THE-1108: the absolute-lifetime arm is a SEPARATE opt-in from the window arm", () => {
+    const db = freshDb();
+    const explicitId = genSessionId();
+    insertSession(db, {
+      id: explicitId,
+      vaultId: "main",
+      caller: "agent-alpha",
+      startedAt: 0,
+      tracePath: `${DEFAULT_TRACE_FOLDER}/${explicitId}.jsonl`,
+      principal: "alice",
+    });
+    // No sessionMaxExplicitLifetimeSeconds passed: the arm is skipped, matching
+    // `sessionWindowSeconds`'s own "omitted -> skipped" contract.
+    const inert = runMaintenanceSweep(db, {
+      now: () => 31_536_000_000,
+      eventLogDays: 30,
+      jobsCompleteDays: 7,
+      jobsFailedDays: 30,
+    });
+    expect(inert.sessions_expired).toBe(0);
+    expect(activeSessionFor(db, "alice")?.sessionId).toBe(explicitId);
+
+    const armed = runMaintenanceSweep(db, {
+      now: () => 31_536_000_000,
+      eventLogDays: 30,
+      jobsCompleteDays: 7,
+      jobsFailedDays: 30,
+      sessionMaxExplicitLifetimeSeconds: 86_400,
+    });
+    expect(armed.sessions_expired).toBe(1);
     expect(activeSessionFor(db, "alice")).toBeUndefined();
     db.close?.();
   });
@@ -390,6 +657,39 @@ describe("THE-726 slice 3 end-to-end: the server opens the session", () => {
           }
         ).ended_at,
       ).toBeNull();
+    } finally {
+      await h.close();
+    }
+  }, 30_000);
+
+  it("THE-1108: a stale explicit session stops receiving new dispatches — the next call opens a fresh implicit session, and the stale row is untouched", async () => {
+    const h = await boot({ autoOpen: true, windowSeconds: 1800 });
+    try {
+      const alice = await tokenFor("alice");
+      const declared = (
+        await call(h.port, alice, "start_session", { vault: "main", caller: "agent-alpha" })
+      ).session_id as string;
+      expect((await call(h.port, alice, "probe")).session_id).toBe(declared);
+
+      // Simulate the forgotten-session scenario directly: back-date started_at past the window
+      // rather than waiting 30 minutes of real time.
+      h.db
+        .prepare("UPDATE workspace_sessions SET started_at = ? WHERE id = ?")
+        .run(Date.now() - 3_600_000, declared);
+
+      // The next dispatch must NOT attach to the stale explicit session. `sessions.autoOpen` is on,
+      // so it gets a fresh IMPLICIT one instead — a different session_id.
+      const next = (await call(h.port, alice, "probe")).session_id as string;
+      expect(next).not.toBe(declared);
+      expect(next).toMatch(/^sess_[0-9a-f]{24}$/);
+
+      // The explicit row itself is unchanged: still open, ended_at NULL. The resolver only stopped
+      // ATTACHING to it — closing it is end_session's job, or the absolute-lifetime sweep's.
+      const row = h.db
+        .prepare("SELECT ended_at, caller FROM workspace_sessions WHERE id = ?")
+        .get(declared) as { ended_at: number | null; caller: string | null };
+      expect(row.ended_at).toBeNull();
+      expect(row.caller).toBe("agent-alpha");
     } finally {
       await h.close();
     }

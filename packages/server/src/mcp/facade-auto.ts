@@ -22,6 +22,7 @@
 //     (FALLBACK_FACADE_MODE), the existing ADR-anchored default
 //     (docs/adr/0006-the-default-surface-is-the-triad.md) — auto mode never changes that default
 //     for an unrecognized or silent client.
+import type { Database } from "../db/types";
 import type { TelemetryStatusInfo } from "../telemetry/wiring";
 import type { FacadeMode } from "./facade";
 // THE-1125 fix round: split out to a dependency-free leaf module so telemetry/wiring.ts can use
@@ -64,11 +65,14 @@ export function toolFacadeHealthView(cfg: {
   return { configured: cfg.mode, autoClients: cfg.autoClients, profile: cfg.profile };
 }
 
-/** THE-1123 review fix (LOW #8), extended THE-1125: bundles `config`-derived `wireHealthTools`
- *  deps — server-runtime.ts has no per-field line budget for them individually. Named + imported,
- *  called via a spread at the call site, rather than an unnamed inline object literal.
- *  `telemetry` is optional so a caller that never wires telemetry (a harness/test) keeps
- *  compiling; server-runtime.ts's own call site always passes it. */
+/** THE-1123 review fix (LOW #8), extended THE-1125, extended THE-1108: bundles `config`-derived
+ *  `wireHealthTools` deps — server-runtime.ts has no per-field line budget for them individually.
+ *  Named + imported, called via a spread at the call site, rather than an unnamed inline object
+ *  literal. `telemetry` is optional so a caller that never wires telemetry (a harness/test) keeps
+ *  compiling; server-runtime.ts's own call site always passes it. `db` (THE-1108) is likewise
+ *  optional and, together with `cfg.sessions`, lets `wireHealthTools` build
+ *  `createHealthTool`'s `getStaleExplicitSessions` accessor — folded into this same spread rather
+ *  than two more dedicated lines at the call site, the reason this file exists. */
 export function healthToolsWiringFields<V extends readonly { id: string }[]>(
   cfg: {
     vaults: V;
@@ -77,17 +81,22 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
       autoClients?: Readonly<Record<string, FacadeMode>>;
       profile: "full" | "core";
     };
+    sessions?: { windowSeconds: number };
   },
   telemetry?: { getStatus: () => TelemetryStatusInfo },
+  db?: Database,
 ): {
   vaults: V;
   toolFacade: typeof cfg.toolFacade;
   getTelemetryStatus?: () => TelemetryStatusInfo;
+  db?: Database;
+  sessions?: { windowSeconds: number };
 } {
   return {
     vaults: cfg.vaults,
     toolFacade: cfg.toolFacade,
     ...(telemetry ? { getTelemetryStatus: telemetry.getStatus } : {}),
+    ...(db && cfg.sessions ? { db, sessions: cfg.sessions } : {}),
   };
 }
 

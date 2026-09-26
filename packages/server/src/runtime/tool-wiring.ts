@@ -46,7 +46,7 @@ import { type M6Deps, registerM6Tools } from "../tools/m6";
 import { registerM7Tools } from "../tools/m7";
 import { registerM8Tools } from "../tools/m8";
 import type { VaultRegistry } from "../vault/registry";
-import type { ActiveSessionTracker } from "../workspace/sessions";
+import { type ActiveSessionTracker, staleExplicitSessionSummary } from "../workspace/sessions";
 import { buildAcls } from "./acl-build";
 import type { IndexHealthState } from "./indexing-wiring";
 
@@ -81,6 +81,11 @@ export interface HealthToolsDeps {
     lastSendAt?: number;
     lastError?: string;
   };
+  /** THE-1108: cache.db handle + config.sessions, so wireHealthTools can build
+   *  createHealthTool's `getStaleExplicitSessions` accessor itself. Absent -> the block is
+   *  omitted, same as every other optional health accessor above. */
+  db?: Database;
+  sessions?: { windowSeconds: number };
 }
 
 /**
@@ -126,6 +131,16 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       getJobQueueStats: deps.getJobQueueStats,
       ...(deps.toolFacade ? { toolFacade: toolFacadeHealthView(deps.toolFacade) } : {}),
       ...(deps.getTelemetryStatus ? { getTelemetryStatus: deps.getTelemetryStatus } : {}),
+      // THE-1108: same windowSeconds bound the HTTP resolver uses, read live per call.
+      ...(deps.db && deps.sessions
+        ? {
+            getStaleExplicitSessions: () =>
+              staleExplicitSessionSummary(deps.db as Database, {
+                now: Date.now(),
+                thresholdSeconds: (deps.sessions as { windowSeconds: number }).windowSeconds,
+              }),
+          }
+        : {}),
     }),
   );
   deps.registry.register(
@@ -657,5 +672,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-642 item 1: work_search's semantic channel reuses the SAME embedding provider M7
     // knowledge search gets above, rather than standing up a second one.
     embeddingProvider: deps.embeddingProvider,
+    // THE-1108: same windowSeconds config.sessions already carries for the HTTP transport and the
+    // maintenance sweep — not a second config read.
+    sessions: { windowSeconds: config.sessions.windowSeconds },
   });
 }

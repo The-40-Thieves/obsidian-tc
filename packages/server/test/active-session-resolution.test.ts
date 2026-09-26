@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import {
+  ActiveSessionTracker,
   activeSessionFor,
   endSession,
   genSessionId,
@@ -118,6 +119,127 @@ describe("activeSessionFor — lifecycle and shape", () => {
     expect(activeSessionFor(db, "alice")?.sessionId).toBe(a);
     expect(activeSessionFor(db, "bob")?.sessionId).toBe(b);
     expect(a).not.toBe(b);
+    db.close?.();
+  });
+});
+
+describe("activeSessionFor — THE-1108 resolver bound on a stale EXPLICIT session", () => {
+  it("refuses to bind to an explicit session older than windowSeconds — exactly as if none existed", () => {
+    const db = freshDb();
+    const stale = open(db, { caller: "agent-alpha", principal: "alice", startedAt: 0 });
+    expect(activeSessionFor(db, "alice", { windowSeconds: 1800, now: 1_800_001 })).toBeUndefined();
+    // The row itself is untouched by the resolver — only a sweep closes it.
+    const row = db.prepare("SELECT ended_at FROM workspace_sessions WHERE id = ?").get(stale) as {
+      ended_at: number | null;
+    };
+    expect(row.ended_at).toBeNull();
+    db.close?.();
+  });
+
+  it("still binds an explicit session within the window", () => {
+    const db = freshDb();
+    const fresh = open(db, { caller: "agent-alpha", principal: "alice", startedAt: 1_000_000 });
+    expect(activeSessionFor(db, "alice", { windowSeconds: 1800, now: 1_800_000 })?.sessionId).toBe(
+      fresh,
+    );
+    db.close?.();
+  });
+
+  it("does NOT apply the bound to an IMPLICIT (server-opened) session — that stays closeStaleImplicitSessions's job", () => {
+    const db = freshDb();
+    const implicit = open(db, { caller: null, principal: "alice", startedAt: 0 });
+    expect(activeSessionFor(db, "alice", { windowSeconds: 1800, now: 1_800_001 })?.sessionId).toBe(
+      implicit,
+    );
+    db.close?.();
+  });
+
+  it("omitting windowSeconds reproduces the pre-THE-1108 behaviour byte-for-byte, however old the row", () => {
+    const db = freshDb();
+    const ancient = open(db, { caller: "agent-alpha", principal: "alice", startedAt: 0 });
+    expect(activeSessionFor(db, "alice")?.sessionId).toBe(ancient);
+    expect(activeSessionFor(db, "alice", {})?.sessionId).toBe(ancient);
+    db.close?.();
+  });
+
+  it("re-keys on `caller` only for the STALENESS check, never for identity — the cross-principal probe still fails", () => {
+    const db = freshDb();
+    open(db, { caller: "agent-alpha", principal: "alice", startedAt: 0 });
+    // Same as the undecorated call: a caller-supplied declaration must never resolve a session,
+    // window or no window.
+    expect(activeSessionFor(db, "agent-alpha", { windowSeconds: 1800, now: 1 })).toBeUndefined();
+    db.close?.();
+  });
+});
+
+describe("ActiveSessionTracker.validate — THE-1108 fix (Codex P1-1): stdio must stop reusing a closed/stale entry", () => {
+  it("returns the tracked entry unchanged when the row is still open and within window", () => {
+    const db = freshDb();
+    const id = open(db, { caller: "agent-alpha", principal: "stdio", startedAt: 0 });
+    const tracker = new ActiveSessionTracker();
+    tracker.set("stdio", id, "main");
+    expect(tracker.validate(db, "stdio", { windowSeconds: 1800, now: 1000 })).toStrictEqual({
+      sessionId: id,
+      vaultId: "main",
+    });
+    db.close?.();
+  });
+
+  it("clears and refuses a tracked entry whose row the SWEEP already closed — SQL closing a row is invisible to a raw get()", () => {
+    const db = freshDb();
+    const id = open(db, { caller: "agent-alpha", principal: "stdio", startedAt: 0 });
+    const tracker = new ActiveSessionTracker();
+    tracker.set("stdio", id, "main");
+    // Simulate what closeExpiredExplicitSessions does: close the row directly in SQL, exactly as
+    // the sweep would, WITHOUT going through end_session or touching the tracker.
+    db.prepare("UPDATE workspace_sessions SET ended_at = ? WHERE id = ?").run(999_999, id);
+    expect(tracker.validate(db, "stdio")).toBeUndefined();
+    // Cleared, not merely masked — a second read must not find a ghost entry either.
+    expect(tracker.get("stdio")).toBeUndefined();
+    db.close?.();
+  });
+
+  it("clears and refuses a tracked entry whose row `end_session` already closed from elsewhere (defense in depth)", () => {
+    const db = freshDb();
+    const id = open(db, { caller: "agent-alpha", principal: "stdio", startedAt: 0 });
+    const tracker = new ActiveSessionTracker();
+    tracker.set("stdio", id, "main");
+    endSession(db, id, 1000);
+    expect(tracker.validate(db, "stdio")).toBeUndefined();
+    expect(tracker.get("stdio")).toBeUndefined();
+    db.close?.();
+  });
+
+  it("applies the SAME age rule as activeSessionFor's durable lookup to an explicit row, and clears once past it", () => {
+    const db = freshDb();
+    const id = open(db, { caller: "agent-alpha", principal: "stdio", startedAt: 0 });
+    const tracker = new ActiveSessionTracker();
+    tracker.set("stdio", id, "main");
+    // Past windowSeconds: the durable resolver would refuse this row too (see the describe block
+    // above) — validate must agree, not keep serving dispatch a session activeSessionFor would not.
+    expect(tracker.validate(db, "stdio", { windowSeconds: 1800, now: 1_800_001 })).toBeUndefined();
+    expect(tracker.get("stdio")).toBeUndefined();
+    // The row itself is untouched — validate only stops REUSE, same as activeSessionFor's own bound.
+    const row = db.prepare("SELECT ended_at FROM workspace_sessions WHERE id = ?").get(id) as {
+      ended_at: number | null;
+    };
+    expect(row.ended_at).toBeNull();
+    db.close?.();
+  });
+
+  it("clears and refuses a tracked entry whose row does not exist at all (e.g. a different db)", () => {
+    const tracker = new ActiveSessionTracker();
+    const db = freshDb();
+    tracker.set("stdio", genSessionId(), "main");
+    expect(tracker.validate(db, "stdio", { windowSeconds: 1800 })).toBeUndefined();
+    expect(tracker.get("stdio")).toBeUndefined();
+    db.close?.();
+  });
+
+  it("returns undefined without touching the db when nothing is tracked for this caller", () => {
+    const db = freshDb();
+    const tracker = new ActiveSessionTracker();
+    expect(tracker.validate(db, "stdio")).toBeUndefined();
     db.close?.();
   });
 });

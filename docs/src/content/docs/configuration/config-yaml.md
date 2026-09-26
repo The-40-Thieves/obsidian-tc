@@ -265,7 +265,8 @@ until this generator existed, by which point five entire defaulted blocks had go
   "sessions": {
     "autoOpen": false,
     "traceContent": true,
-    "windowSeconds": 1800
+    "windowSeconds": 1800,
+    "maxExplicitLifetimeSeconds": 86400
   },
   "telemetry": {
     "enabled": false,

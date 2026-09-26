@@ -65,6 +65,7 @@ describe("sweepTotal — every arm joins the total", () => {
         trace_files: 3,
         episode_content_redacted: 0,
         sessions_closed: 0,
+        sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
       }),
@@ -80,6 +81,7 @@ describe("sweepTotal — every arm joins the total", () => {
         trace_files: 16,
         episode_content_redacted: 0,
         sessions_closed: 0,
+        sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
       }),
@@ -102,6 +104,7 @@ describe("sweepTotal — every arm joins the total", () => {
         trace_files: 0,
         episode_content_redacted: 0,
         sessions_closed: 0,
+        sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: ["notes_fts", "chunk_fts"],
       }),
@@ -139,6 +142,7 @@ describe("sweepTotal — every arm joins the total", () => {
         trace_files: 0,
         episode_content_redacted: 0,
         sessions_closed: 0,
+        sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
       }),
@@ -162,6 +166,30 @@ describe("configureMaintenance", () => {
       await vi.advanceTimersByTimeAsync(180_000);
       expect(emitted).toEqual([]);
       await sched.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("THE-1108 fix: forwards onExplicitSessionClosed all the way from configureMaintenance to the sweep's actual close", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = freshDb();
+      db.prepare(
+        "INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, principal) VALUES (?,?,?,?,NULL,?,?)",
+      ).run("sess_stale", "v1", "agent-alpha", NOW - 100_000_000, "t/sess_stale.jsonl", "alice");
+      const { m } = fakeMorgiana();
+      const sched = new Scheduler();
+      const closed: { id: string; principal: string | null }[] = [];
+      configureMaintenance(sched, {
+        ...baseDeps(db, m),
+        sessions: { autoOpen: false, windowSeconds: 1800, maxExplicitLifetimeSeconds: 60 },
+        onExplicitSessionClosed: (row) => closed.push(row),
+      });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(61_000);
+      await sched.stop();
+      expect(closed).toEqual([{ id: "sess_stale", principal: "alice" }]);
     } finally {
       vi.useRealTimers();
     }

@@ -34,6 +34,12 @@ export interface M8Deps {
    *  standing up a second one. Absent -> `semantic: true` degrades to lexical-only (the documented
    *  "no provider configured" fallback), never an error. */
   embeddingProvider?: EmbeddingProvider;
+  /** THE-1108: `config.sessions.windowSeconds`, threaded so `work_result`'s own `activeSessionFor`
+   *  call applies the SAME stale-explicit-session bound the HTTP dispatch context factory does
+   *  (transports/http.ts) — reused from the config object already read for the tool-wiring
+   *  composition root, not a second config read. Absent -> `activeSessionFor` there falls back to
+   *  its pre-THE-1108 behaviour (a bare unit test of this module that hand-builds M8Deps). */
+  sessions?: { windowSeconds: number };
 }
 
 // Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no

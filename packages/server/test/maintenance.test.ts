@@ -41,16 +41,18 @@ describe("cache.db maintenance sweep (THE-292)", () => {
     });
     // Deliberately an EXACT shape, not toMatchObject: a new sweep arm must be acknowledged here
     // rather than added silently. THE-571 added `jobs`; THE-610 added `trace_files`; THE-726 added
-    // `sessions_closed`. All report 0 here — this db has no terminal jobs, no traceDirs were passed
-    // so the filesystem arm is skipped entirely (its own coverage lives in maintenance-traces.test.ts),
-    // and no `sessionWindowSeconds` was passed so the session arm is skipped too, which is the
-    // correct behaviour when `sessions.autoOpen` is off and no server-opened session can exist.
+    // `sessions_closed`; THE-1108 added `sessions_expired`. All report 0 here — this db has no
+    // terminal jobs, no traceDirs were passed so the filesystem arm is skipped entirely (its own
+    // coverage lives in maintenance-traces.test.ts), and neither `sessionWindowSeconds` nor
+    // `sessionMaxExplicitLifetimeSeconds` was passed so both session arms are skipped too, which is
+    // the correct behaviour when `sessions.autoOpen` is off and no server-opened session can exist.
     expect(counts).toEqual({
       idempotency_keys: 1,
       elicit_tokens: 1,
       event_log: 1,
       jobs: 0,
       sessions_closed: 0,
+      sessions_expired: 0,
       orphan_schedule_rows: 0,
       // THE-610 arm 2: no `edb` was passed, so both experiential arms skip entirely — which is the
       // correct behaviour when the membrane is not open. Their own coverage is in
@@ -97,6 +99,24 @@ describe("cache.db maintenance sweep (THE-292)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("THE-1108 fix: forwards onExplicitSessionClosed into closeExpiredExplicitSessions's onClosed", () => {
+    const db = freshDb();
+    const insert =
+      "INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, principal) VALUES (?,?,?,?,NULL,?,?)";
+    db.prepare(insert).run("sess_a", "v1", "agent-alpha", 0, "t/sess_a.jsonl", "alice");
+    const closed: { id: string; principal: string | null }[] = [];
+    const counts = runMaintenanceSweep(db, {
+      now: () => 86_400_001,
+      eventLogDays: 30,
+      jobsCompleteDays: 7,
+      jobsFailedDays: 30,
+      sessionMaxExplicitLifetimeSeconds: 86_400,
+      onExplicitSessionClosed: (row) => closed.push(row),
+    });
+    expect(counts.sessions_expired).toBe(1);
+    expect(closed).toEqual([{ id: "sess_a", principal: "alice" }]);
   });
 
   it("routes a sweep failure to onError without escaping", async () => {

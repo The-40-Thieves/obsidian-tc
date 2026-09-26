@@ -385,7 +385,7 @@ export async function buildServerRuntime(
     wireHealthTools({
       registry,
       version: VERSION,
-      ...healthToolsWiringFields(config, telemetry),
+      ...healthToolsWiringFields(config, telemetry, db), // THE-1108: db -> getStaleExplicitSessions.
       startedAt,
       hasVec,
       hasFts,
@@ -525,12 +525,12 @@ export async function buildServerRuntime(
       experientialDb,
     });
 
-    // stdio is the trusted local transport: the operator runs the binary against their own vault, so
-    // calls are authenticated with full local scope. THE-514: signal is the SDK's per-request
-    // extra.signal, threaded through so a caller that cancels a stdio call stops runDispatch at the
-    // next stage boundary.
+    /** stdio is the trusted local transport: the operator runs the binary against their own vault,
+     *  so calls are authenticated with full local scope. THE-514: signal is the SDK's per-request
+     *  extra.signal, threaded through so a caller that cancels a stdio call stops runDispatch at
+     *  the next stage boundary. */
     const context = (signal?: AbortSignal): CallerContext => {
-      const active = activeSessions.get("stdio");
+      const active = activeSessions.validate(db, "stdio", config.sessions);
       return {
         caller: "stdio",
         authenticated: true,
@@ -626,6 +626,7 @@ export async function buildServerRuntime(
       embeddingProvider,
       ...(transports.advisoryBus ? { advisoryBus: transports.advisoryBus } : {}), // THE-634
       telemetry, // THE-1125
+      activeSessions, // THE-1108 fix
     });
     // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources.
     schedulerRef = scheduler;
@@ -666,9 +667,9 @@ export async function buildServerRuntime(
 
     scheduler.start();
 
-    // Security posture summary, THE-825 plane opt-in notice, THE-891 capture first-run notice —
-    // all three folded into one call; see boot-notices.ts's header for why they moved out of here.
-    emitBootNotices({ config, gatewayConfigured, planeEnabledExplicit });
+    // Security posture, THE-825 plane opt-in, THE-891 capture, THE-1108 stale-session notices —
+    // folded into one call; see boot-notices.ts's header for why they moved out of here.
+    emitBootNotices({ config, gatewayConfigured, planeEnabledExplicit, db });
 
     // THE-288: honor transports.stdio. Default (true) connects the stdio MCP transport; when
     // false the server serves HTTP-only (the listening socket keeps the process alive), and if

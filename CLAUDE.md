@@ -52,8 +52,16 @@ signature in the vec/indexing path, the bun-smoke project is what catches those 
 `bun run lint` says nothing about them. Enumerate the real list from `.github/workflows/` — the
 `lint` job currently runs biome plus `check:boundaries`, `check:dev-dep-imports`,
 `check:perf-timing-scope`, `check:ingest-telemetry-wiring`, `check:config-paths`,
-`check:duplicate-exports`, `check:duplication`, `check:export-surface`, `check:facade-parity` and
-`test:scripts`.
+`check:comment-style`, `check:plugin-routes`, `check:public-text`, `check:readme-size`,
+`check:duplicate-exports`, `check:table-readers`, `check:embedding-transport`, `test:scripts`,
+`check:duplication`, `check:export-surface`, `check:facade-parity` and `check:model-fetch-parity`
+(18 steps; this list read *ten* until 2026-09-26, and the eleventh cost a CI round).
+
+**`check:comment-style` is a RATCHET on the COUNT of files with >= 120 comment lines**
+(`scripts/comment-style-baseline.json`, `maxFiles`), not a per-file cap. A file sitting at 119 on
+main fails the job the moment a new docblock lands in it, and the script does not name the file
+— compute `commentLineCount(extractComments(src))` from the script's own exports over your touched
+files, or trim the block you added. Prefer trimming over raising `maxFiles`.
 
 **`check:config-threading` is NOT a script — do not try to run it.** No such entry exists in either
 `package.json`. The config-threading gate lives in `ci-security.yml`, which invokes the file

@@ -10,7 +10,7 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Scheduler } from "../scheduler/scheduler";
-import { closeStaleImplicitSessions } from "../workspace/sessions";
+import { closeExpiredExplicitSessions, closeStaleImplicitSessions } from "../workspace/sessions";
 import { FTS_TABLE_NAMES, tableExists } from "./introspect";
 import type { Database } from "./types";
 
@@ -36,6 +36,11 @@ export interface SweepCounts {
   /** THE-726: server-OPENED sessions closed because their window elapsed. Never counts a session a
    *  client opened deliberately — only `end_session` closes those. */
   sessions_closed: number;
+  /** THE-1108: EXPLICIT sessions closed because `sessions.maxExplicitLifetimeSeconds` elapsed — a
+   *  session a client opened deliberately and never ended. Distinct from `sessions_closed` above,
+   *  which never touches a `caller IS NOT NULL` row by design; this arm exists BECAUSE that one
+   *  cannot, so a forgotten `start_session` has some ceiling instead of none. */
+  sessions_expired: number;
   /** THE-715: `job_schedule` rows with a NULL `name`. Structurally unreachable — every read keys on
    *  `name` — so they are pure dead weight, and the count is 0 forever once the backlog clears. */
   orphan_schedule_rows: number;
@@ -254,6 +259,14 @@ export function runMaintenanceSweep(
      *  and `sessions_closed` is 0, which is correct when `sessions.autoOpen` is off: nothing opens
      *  such a session, so nothing needs closing. */
     sessionWindowSeconds?: number;
+    /** THE-1108: absolute lifetime after which an EXPLICIT session is closed regardless of
+     *  activity. Omitted -> the arm is skipped and `sessions_expired` is 0. Unlike
+     *  `sessionWindowSeconds` above, this is not gated on `sessions.autoOpen` — an explicit session
+     *  can exist (and go stale) whether or not the server ever opens one of its own. */
+    sessionMaxExplicitLifetimeSeconds?: number;
+    /** THE-1108 fix: forwarded verbatim into `closeExpiredExplicitSessions`'s `onClosed` — see
+     *  its own doc comment. Omitted -> no callback, unchanged behavior. */
+    onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
   },
 ): SweepCounts {
   const t = opts.now();
@@ -347,6 +360,16 @@ export function runMaintenanceSweep(
     opts.sessionWindowSeconds !== undefined
       ? closeStaleImplicitSessions(db, { now: t, windowSeconds: opts.sessionWindowSeconds })
       : 0;
+  const sessionsExpired =
+    opts.sessionMaxExplicitLifetimeSeconds !== undefined
+      ? closeExpiredExplicitSessions(db, {
+          now: t,
+          maxExplicitLifetimeSeconds: opts.sessionMaxExplicitLifetimeSeconds,
+          ...(opts.onExplicitSessionClosed !== undefined
+            ? { onClosed: opts.onExplicitSessionClosed }
+            : {}),
+        })
+      : 0;
   return {
     idempotency_keys: idem,
     elicit_tokens: elicit,
@@ -357,6 +380,7 @@ export function runMaintenanceSweep(
     trace_files: traceFiles,
     episode_content_redacted: episodeContentRedacted,
     sessions_closed: sessionsClosed,
+    sessions_expired: sessionsExpired,
     orphan_schedule_rows: orphanScheduleRows,
     fts_merged: ftsMerged,
   };
@@ -380,6 +404,10 @@ export interface MaintenanceDeps {
   captureRetentionDays?: number;
   /** THE-726: see runMaintenanceSweep's option of the same name. */
   sessionWindowSeconds?: number;
+  /** THE-1108: see runMaintenanceSweep's option of the same name. */
+  sessionMaxExplicitLifetimeSeconds?: number;
+  /** THE-1108 fix: see runMaintenanceSweep's option of the same name. */
+  onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
   now?: () => number;
   onSweep?: (counts: SweepCounts) => void;
   onError?: (e: unknown) => void;
@@ -409,6 +437,12 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
           : {}),
         ...(deps.sessionWindowSeconds !== undefined
           ? { sessionWindowSeconds: deps.sessionWindowSeconds }
+          : {}),
+        ...(deps.sessionMaxExplicitLifetimeSeconds !== undefined
+          ? { sessionMaxExplicitLifetimeSeconds: deps.sessionMaxExplicitLifetimeSeconds }
+          : {}),
+        ...(deps.onExplicitSessionClosed !== undefined
+          ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
           : {}),
       });
       deps.onSweep?.(counts);

@@ -369,7 +369,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // this was a real, user-visible upgrade note that the field's own generated documentation
   // (config-reference.md, docs/wiki/Configuration.md) had never stated. No key, type, default or
   // constraint moved.
-  "2974c55468ef4e13bba067cbe4c4a82f7721af6b2f7dba7d56af32e6d20eb336";
+  // THE-1108: rebaselined deliberately. Adds ONE new key, `sessions.maxExplicitLifetimeSeconds`
+  // (int, positive, default 86400) — the absolute ceiling on how long an explicit start_session
+  // session may stay open before the maintenance sweep closes it, regardless of activity. Also
+  // rewrites `sessions.windowSeconds`'s `.describe()` text to state the new resolver-bound
+  // behavior (activeSessionFor stops attaching new dispatches to an explicit session past this
+  // age) rather than only the sweep-eligibility text it already had. No existing key, type,
+  // default or constraint moved.
+  "c1c1f9c38795fbf891c13e7793ece5881bc88f329ae3df7bcaafd6d6433da50a";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

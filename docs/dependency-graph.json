@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 494,
-    "dependencies": 2283,
+    "modules": 495,
+    "dependencies": 2292,
     "subsystemPairs": 146,
-    "crossSubsystemImports": 1033
+    "crossSubsystemImports": 1039
   },
   "subsystems": {
     "auth": 4,
@@ -15,7 +15,7 @@
     "cli": 45,
     "config": 14,
     "db": 16,
-    "doctor": 20,
+    "doctor": 21,
     "embeddings": 6,
     "experiential": 28,
     "formats": 6,
@@ -82,7 +82,7 @@
     {
       "from": "runtime",
       "to": "db",
-      "weight": 20
+      "weight": 21
     },
     {
       "from": "tools",
@@ -240,6 +240,11 @@
       "weight": 6
     },
     {
+      "from": "runtime",
+      "to": "workspace",
+      "weight": 6
+    },
+    {
       "from": "tools",
       "to": "memory",
       "weight": 6
@@ -296,12 +301,12 @@
     },
     {
       "from": "cli",
-      "to": "capture",
+      "to": "workspace",
       "weight": 4
     },
     {
-      "from": "runtime",
-      "to": "workspace",
+      "from": "cli",
+      "to": "capture",
       "weight": 4
     },
     {
@@ -345,11 +350,6 @@
       "weight": 3
     },
     {
-      "from": "cli",
-      "to": "workspace",
-      "weight": 3
-    },
-    {
       "from": "doctor",
       "to": "providers",
       "weight": 3
@@ -372,6 +372,11 @@
     {
       "from": "mcp",
       "to": "metrics",
+      "weight": 3
+    },
+    {
+      "from": "mcp",
+      "to": "db",
       "weight": 3
     },
     {
@@ -476,7 +481,7 @@
     },
     {
       "from": "mcp",
-      "to": "db",
+      "to": "workspace",
       "weight": 2
     },
     {
@@ -622,11 +627,6 @@
     {
       "from": "mcp",
       "to": "experiential",
-      "weight": 1
-    },
-    {
-      "from": "mcp",
-      "to": "workspace",
       "weight": 1
     },
     {
