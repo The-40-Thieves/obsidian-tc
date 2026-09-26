@@ -12,6 +12,7 @@ import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
 import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
+import { markInFlight } from "../workspace/sessions";
 import { type DispatchDeps, runDispatch as runDispatchPipeline } from "./registry/dispatch";
 import {
   annotateSpanResult,
@@ -318,35 +319,46 @@ export class ToolRegistry {
   }
 
   async dispatch(name: string, rawInput: unknown, ctx: CallerContext): Promise<ToolResult> {
-    const tracer = this.tracer;
-    if (!tracer) {
-      const result = await this.runDispatch(name, rawInput, ctx);
-      this.emitCompletion(name, ctx, result);
-      return result;
+    // THE-1108 fix (Codex P1-2): the ONE shared attach point — every dispatch call site
+    // (mcp/server.ts, the job runner's task-call-runner, rerun, prefetch, memory-import) funnels
+    // through here, so one guard here (rather than one per site) is what lets both maintenance
+    // sweeps (workspace/sessions.ts's closeStaleImplicitSessions/closeExpiredExplicitSessions)
+    // know never to close a session a call is still running against. `finally` below so a throw
+    // from runDispatch (or from the tracer branch) still releases.
+    const release = ctx.sessionId !== undefined ? markInFlight(ctx.sessionId) : undefined;
+    try {
+      const tracer = this.tracer;
+      if (!tracer) {
+        const result = await this.runDispatch(name, rawInput, ctx);
+        this.emitCompletion(name, ctx, result);
+        return result;
+      }
+      // SEP-414: parent the SERVER span to the caller's trace when they sent one. withTraceCarrier
+      // is a pass-through when they did not, so the no-carrier path is unchanged — and a malformed
+      // carrier degrades to a root span rather than losing one.
+      return await withTraceCarrier(ctx.traceCarrier, () =>
+        tracer.startActiveSpan(`obsidian_tc.${name}`, { kind: SpanKind.SERVER }, async (span) => {
+          try {
+            span.setAttribute(SPAN_ATTR.vaultId, ctx.vaultId);
+            span.setAttribute(SPAN_ATTR.tool, name);
+            span.setAttribute(SPAN_ATTR.callerHash, callerHash(ctx.caller));
+            span.setAttribute(
+              SPAN_ATTR.scopesRequired,
+              (this.toolStore.get(name)?.requiredScopes ?? []).join(","),
+            );
+            span.setAttribute(SPAN_ATTR.elicitUsed, !!ctx.elicitToken);
+            const result = await this.runDispatch(name, rawInput, ctx);
+            annotateSpanResult(span, result);
+            this.emitCompletion(name, ctx, result);
+            return result;
+          } finally {
+            span.end();
+          }
+        }),
+      );
+    } finally {
+      release?.();
     }
-    // SEP-414: parent the SERVER span to the caller's trace when they sent one. withTraceCarrier is
-    // a pass-through when they did not, so the no-carrier path is unchanged — and a malformed
-    // carrier degrades to a root span rather than losing one.
-    return withTraceCarrier(ctx.traceCarrier, () =>
-      tracer.startActiveSpan(`obsidian_tc.${name}`, { kind: SpanKind.SERVER }, async (span) => {
-        try {
-          span.setAttribute(SPAN_ATTR.vaultId, ctx.vaultId);
-          span.setAttribute(SPAN_ATTR.tool, name);
-          span.setAttribute(SPAN_ATTR.callerHash, callerHash(ctx.caller));
-          span.setAttribute(
-            SPAN_ATTR.scopesRequired,
-            (this.toolStore.get(name)?.requiredScopes ?? []).join(","),
-          );
-          span.setAttribute(SPAN_ATTR.elicitUsed, !!ctx.elicitToken);
-          const result = await this.runDispatch(name, rawInput, ctx);
-          annotateSpanResult(span, result);
-          this.emitCompletion(name, ctx, result);
-          return result;
-        } finally {
-          span.end();
-        }
-      }),
-    );
   }
 
   /** WP4.3: the pipeline itself now lives in registry/dispatch.ts's runDispatch — this is a thin

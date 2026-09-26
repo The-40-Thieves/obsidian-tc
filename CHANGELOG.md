@@ -9,7 +9,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Fixed
 
 - **An open explicit `start_session` session no longer absorbs a principal's traffic forever
-  (THE-1108).** Once a session opened by `start_session` is older than `sessions.windowSeconds`,
+  (THE-1108, PR #988).** Once a session opened by `start_session` is older than `sessions.windowSeconds`,
   `activeSessionFor` stops attaching new dispatch traffic to it — the caller gets a fresh implicit
   session instead — but the explicit row itself is left open and unswept, since the maintenance
   sweep previously only ever judged ENDED sessions. The maintenance sweep now also closes any

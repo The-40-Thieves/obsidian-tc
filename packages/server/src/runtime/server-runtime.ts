@@ -525,12 +525,12 @@ export async function buildServerRuntime(
       experientialDb,
     });
 
-    // stdio is the trusted local transport: the operator runs the binary against their own vault, so
-    // calls are authenticated with full local scope. THE-514: signal is the SDK's per-request
-    // extra.signal, threaded through so a caller that cancels a stdio call stops runDispatch at the
-    // next stage boundary.
+    /** stdio is the trusted local transport: the operator runs the binary against their own vault,
+     *  so calls are authenticated with full local scope. THE-514: signal is the SDK's per-request
+     *  extra.signal, threaded through so a caller that cancels a stdio call stops runDispatch at
+     *  the next stage boundary. */
     const context = (signal?: AbortSignal): CallerContext => {
-      const active = activeSessions.get("stdio");
+      const active = activeSessions.validate(db, "stdio", config.sessions);
       return {
         caller: "stdio",
         authenticated: true,
@@ -626,6 +626,7 @@ export async function buildServerRuntime(
       embeddingProvider,
       ...(transports.advisoryBus ? { advisoryBus: transports.advisoryBus } : {}), // THE-634
       telemetry, // THE-1125
+      activeSessions, // THE-1108 fix
     });
     // THE-466 slice 2: hand the live scheduler to the observability module's lazy gauge sources.
     schedulerRef = scheduler;

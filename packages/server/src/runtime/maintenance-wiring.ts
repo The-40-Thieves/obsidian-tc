@@ -41,6 +41,11 @@ export interface MaintenanceWiringDeps {
    *  unarmed. THE-1108: `maxExplicitLifetimeSeconds` arms a SEPARATE arm that is not gated on
    *  `autoOpen` — see this file's `configureMaintenance` for why. */
   sessions?: { autoOpen: boolean; windowSeconds: number; maxExplicitLifetimeSeconds: number };
+  /** THE-1108 fix: invoked once per explicit session the sweep actually closes, so the composition
+   *  root can clear its own process-local `ActiveSessionTracker` entry — the tracker has no other
+   *  way to learn a row closed by this sweep's SQL rather than by `end_session`. Absent -> no
+   *  callback, unchanged behavior (e.g. a caller with no in-process tracker to clear). */
+  onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
   /** The CANONICAL vault roots (vaultRegistry-resolved `.root`, not raw config.vaults — see
    *  server-runtime.ts's wireScheduler call site, THE-1081 review round 2), other fields (e.g.
    *  `workspace`) preserved from config. Trace dirs are per-vault and resolved with containment
@@ -120,6 +125,9 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     // this arm arms whenever a sessions block is supplied at all.
     ...(deps.sessions !== undefined
       ? { sessionMaxExplicitLifetimeSeconds: deps.sessions.maxExplicitLifetimeSeconds }
+      : {}),
+    ...(deps.onExplicitSessionClosed !== undefined
+      ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
       : {}),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     onSweep: (counts) => {

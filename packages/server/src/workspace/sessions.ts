@@ -313,6 +313,56 @@ export function openImplicitSession(
 }
 
 /**
+ * THE-1108 fix round (Codex P1-2): process-local, best-effort registry of "does any call have this
+ * session attached RIGHT NOW" — the one thing a purely age-based close needs to keep the promise
+ * both sweeps below (and `maxExplicitLifetimeSeconds`'s own schema description) make: a session
+ * with a request in flight is never closed out from under it.
+ *
+ * `markInFlight` is called from the single shared dispatch attach point (`ToolRegistry.dispatch`,
+ * mcp/registry.ts) in a try/finally, so a throw mid-handler still releases. Reference-counted, not
+ * a boolean: two concurrent calls sharing one sessionId must not let the first call's release
+ * un-mark the second's still-running one. The returned release function is itself idempotent — a
+ * duplicate call cannot under-count.
+ *
+ * Not persisted, same caveat as `ActiveSessionTracker` below: a crash mid-call loses the count, so
+ * a session genuinely in flight at the moment of a crash is fair game for the sweep after a
+ * restart — no worse than this function not existing at all.
+ */
+const inFlightCounts = new Map<string, number>();
+
+/** Mark `sessionId` as having one more call attached. Returns a release function — call it exactly
+ *  once when that call finishes, success or throw; a duplicate call is a no-op. */
+export function markInFlight(sessionId: string): () => void {
+  inFlightCounts.set(sessionId, (inFlightCounts.get(sessionId) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (inFlightCounts.get(sessionId) ?? 1) - 1;
+    if (remaining <= 0) inFlightCounts.delete(sessionId);
+    else inFlightCounts.set(sessionId, remaining);
+  };
+}
+
+/** How many calls currently have `sessionId` attached. 0 — the common case — means nothing is
+ *  calling through it right now, not that the session is invalid. */
+export function inFlightCount(sessionId: string): number {
+  return inFlightCounts.get(sessionId) ?? 0;
+}
+
+/** THE-1108 fix: opt-in, off-by-default stderr note when a sweep defers closing a session because
+ *  a call is still attached. Off by default because deferral is the CORRECT, expected outcome of a
+ *  rare race, not a problem to page on — same idiom as search/indexing/note-plan.ts's
+ *  `OBSIDIAN_TC_DEBUG_DEDUP`. */
+const DEBUG_SESSIONS = process.env.OBSIDIAN_TC_DEBUG_SESSIONS !== undefined;
+
+function logDeferredClose(kind: "implicit" | "explicit", id: string): void {
+  if (DEBUG_SESSIONS) {
+    process.stderr.write(`sessions: deferring ${kind} close of ${id} — call in flight\n`);
+  }
+}
+
+/**
  * THE-726: close server-opened sessions older than the configured window.
  *
  * A WINDOW, not an idle timeout — see SessionsConfigSchema for why. An idle timeout needs a
@@ -328,18 +378,37 @@ export function openImplicitSession(
  * closed here, because only `end_session` may decide a declared session is over. Left unbounded,
  * server-opened sessions would otherwise stay open forever and `activeSessionFor` would keep
  * correlating a principal's retrievals to a session opened days earlier.
+ *
+ * THE-1108 fix: a candidate whose id has `inFlightCount(id) > 0` is left open THIS sweep and
+ * picked up on a later one once the call finishes — see `markInFlight`'s doc comment above. Staged
+ * as SELECT-candidates-then-UPDATE-by-id rather than one UPDATE, precisely so the in-flight check
+ * can run between the two; a session that transitions to in-flight in that gap is still closed by
+ * this pass, an accepted race no tighter than the sweep's own multi-minute cadence already is.
  */
 export function closeStaleImplicitSessions(
   db: Database,
   opts: { now: number; windowSeconds: number },
 ): number {
   const cutoff = opts.now - opts.windowSeconds * 1000;
-  return db
+  const candidates = db
     .prepare(
-      `UPDATE workspace_sessions SET ended_at = ?
+      `SELECT id FROM workspace_sessions
         WHERE ended_at IS NULL AND caller IS NULL AND principal IS NOT NULL AND started_at < ?`,
     )
-    .run(opts.now, cutoff).changes;
+    .all(cutoff) as { id: string }[];
+  const ids = candidates
+    .map((row) => row.id)
+    .filter((id) => {
+      if (inFlightCount(id) === 0) return true;
+      logDeferredClose("implicit", id);
+      return false;
+    });
+  if (ids.length === 0) return 0;
+  return db
+    .prepare(
+      `UPDATE workspace_sessions SET ended_at = ? WHERE id IN (${ids.map(() => "?").join(",")})`,
+    )
+    .run(opts.now, ...ids).changes;
 }
 
 /**
@@ -361,29 +430,48 @@ export function closeStaleImplicitSessions(
  * sessions never set one. `session_metadata` is `z.record(z.string(), z.unknown())` when present
  * (never an array or scalar), so `json_set` against it (or against `'{}'`) is always well-formed.
  *
- * NO in-flight guard. Searched for the pattern the implicit-session sweep or the HTTP transport
- * uses to know "is a request for session X executing right now" — neither exists. `HttpApp.close`
- * aborts in-flight MCP EXCHANGES (transport-wide), and `ActiveSessionTracker` is a process-local
- * caller->session map with no request-liveness bit, not a per-session in-flight counter. Absent
- * that primitive, the bound stays purely age-based on `started_at`, exactly like
- * `closeStaleImplicitSessions` above. In practice this is a low-risk gap: `maxExplicitLifetimeSeconds`
- * defaults to a full day, so a request would have to still be executing a day after its session
- * opened to be affected, and closing the session does not cancel or corrupt that request — it only
- * stops FUTURE dispatches from correlating to it.
+ * IN-FLIGHT GUARD (THE-1108 fix round; this function shipped without one — see `markInFlight`'s
+ * doc comment for the primitive that was missing at the time). A candidate whose id has
+ * `inFlightCount(id) > 0` is left open this sweep and picked up on a later one once the call
+ * finishes, same as `closeStaleImplicitSessions` above and the same accepted
+ * SELECT-then-UPDATE race.
  */
 export function closeExpiredExplicitSessions(
   db: Database,
-  opts: { now: number; maxExplicitLifetimeSeconds: number },
+  opts: {
+    now: number;
+    maxExplicitLifetimeSeconds: number;
+    /** THE-1108 fix: invoked once per session THIS call actually closes, so a caller (the
+     *  composition root) can clear its own process-local `ActiveSessionTracker` entry — the
+     *  tracker has no other way to learn that a row closed by this SQL UPDATE rather than by
+     *  `end_session`. Omitted -> no callback, behavior otherwise unchanged. */
+    onClosed?: (row: { id: string; principal: string | null }) => void;
+  },
 ): number {
   const cutoff = opts.now - opts.maxExplicitLifetimeSeconds * 1000;
-  return db
+  const candidates = db
+    .prepare(
+      `SELECT id, principal FROM workspace_sessions
+        WHERE ended_at IS NULL AND caller IS NOT NULL AND started_at < ?`,
+    )
+    .all(cutoff) as { id: string; principal: string | null }[];
+  const toClose = candidates.filter((row) => {
+    if (inFlightCount(row.id) === 0) return true;
+    logDeferredClose("explicit", row.id);
+    return false;
+  });
+  if (toClose.length === 0) return 0;
+  const placeholders = toClose.map(() => "?").join(",");
+  const changes = db
     .prepare(
       `UPDATE workspace_sessions
           SET ended_at = ?,
               metadata_json = json_set(COALESCE(metadata_json, '{}'), '$.ended_reason', 'absolute_expired')
-        WHERE ended_at IS NULL AND caller IS NOT NULL AND started_at < ?`,
+        WHERE id IN (${placeholders})`,
     )
-    .run(opts.now, cutoff).changes;
+    .run(opts.now, ...toClose.map((row) => row.id)).changes;
+  for (const row of toClose) opts.onClosed?.(row);
+  return changes;
 }
 
 /** THE-1108: visibility for `server_health` / `doctor` — how many open EXPLICIT sessions are
@@ -536,5 +624,39 @@ export class ActiveSessionTracker {
   clear(caller: string | null, sessionId: string): void {
     const key = caller ?? "";
     if (this.byCaller.get(key)?.sessionId === sessionId) this.byCaller.delete(key);
+  }
+  /**
+   * THE-1108 fix (Codex P1-1): `get` alone let a caller reuse a tracked entry whose DURABLE row
+   * had already been closed — by `end_session` from elsewhere in the same process (defense in
+   * depth; that path already clears synchronously) or, the actual gap this closes, by the
+   * maintenance sweep, which updates SQLite directly and never touches this map. `validate`
+   * re-checks the row before handing a tracked entry back: missing or `ended_at IS NOT NULL`
+   * refuses it outright, and for an EXPLICIT row (`caller IS NOT NULL`) with `opts.windowSeconds`
+   * supplied it applies the SAME age rule `activeSessionFor`'s durable lookup applies — so a
+   * tracked stdio session and a durably-resolved HTTP one never disagree about whether a session
+   * this old is still current. A stale or closed entry is CLEARED here (never silently reused) so
+   * the caller falls through to its own "no active session" path exactly as if nothing had ever
+   * been tracked.
+   */
+  validate(
+    db: Database,
+    caller: string | null,
+    opts?: { windowSeconds?: number; now?: number },
+  ): { sessionId: string; vaultId: string } | undefined {
+    const tracked = this.get(caller);
+    if (!tracked) return undefined;
+    const row = getSession(db, tracked.sessionId);
+    const now = opts?.now ?? Date.now();
+    const stale =
+      row === undefined ||
+      row.ended_at !== null ||
+      (opts?.windowSeconds !== undefined &&
+        row.caller !== null &&
+        now - row.started_at > opts.windowSeconds * 1000);
+    if (stale) {
+      this.clear(caller, tracked.sessionId);
+      return undefined;
+    }
+    return tracked;
   }
 }

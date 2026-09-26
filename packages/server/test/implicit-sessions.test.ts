@@ -36,7 +36,9 @@ import {
   closeStaleImplicitSessions,
   DEFAULT_TRACE_FOLDER,
   genSessionId,
+  inFlightCount,
   insertSession,
+  markInFlight,
   openImplicitSession,
 } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
@@ -276,10 +278,126 @@ describe("closeExpiredExplicitSessions — THE-1108 absolute lifetime, deliberat
     expect(activeSessionFor(db, "bob")).toBeUndefined();
   });
 
-  // No in-flight guard: searched for the pattern the implicit-session sweep or the HTTP transport
-  // use to know "is a request for session X executing right now" and found neither (see
-  // closeExpiredExplicitSessions's own doc comment) — so there is nothing to inject here that would
-  // exercise one. The bound stays purely age-based on `started_at`, which the tests above cover.
+  it("THE-1108 fix (Codex P1-2): defers a session with a call in flight, and closes it on the next sweep once released", () => {
+    const db = freshDb();
+    const old = genSessionId();
+    openExplicit(db, old, 0);
+    const release = markInFlight(old);
+    try {
+      expect(
+        closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+      ).toBe(0);
+      expect(activeSessionFor(db, "alice")?.sessionId).toBe(old);
+    } finally {
+      release();
+    }
+    // Released: the NEXT sweep closes it.
+    expect(
+      closeExpiredExplicitSessions(db, { now: 86_400_002, maxExplicitLifetimeSeconds: 86_400 }),
+    ).toBe(1);
+    expect(activeSessionFor(db, "alice")).toBeUndefined();
+  });
+
+  it("still closes every OTHER stale session in the same sweep when one is deferred for being in flight", () => {
+    const db = freshDb();
+    const busy = genSessionId();
+    const idle = genSessionId();
+    openExplicit(db, busy, 0, "alice");
+    openExplicit(db, idle, 0, "bob");
+    const release = markInFlight(busy);
+    try {
+      expect(
+        closeExpiredExplicitSessions(db, { now: 86_400_001, maxExplicitLifetimeSeconds: 86_400 }),
+      ).toBe(1);
+      expect(activeSessionFor(db, "alice")?.sessionId).toBe(busy);
+      expect(activeSessionFor(db, "bob")).toBeUndefined();
+    } finally {
+      release();
+    }
+  });
+
+  it("invokes onClosed once per session actually closed, carrying its id and principal", () => {
+    const db = freshDb();
+    const a = genSessionId();
+    const b = genSessionId();
+    openExplicit(db, a, 0, "alice");
+    openExplicit(db, b, 0, "bob");
+    const closed: { id: string; principal: string | null }[] = [];
+    closeExpiredExplicitSessions(db, {
+      now: 86_400_001,
+      maxExplicitLifetimeSeconds: 86_400,
+      onClosed: (row) => closed.push(row),
+    });
+    expect(closed).toHaveLength(2);
+    expect(closed).toContainEqual({ id: a, principal: "alice" });
+    expect(closed).toContainEqual({ id: b, principal: "bob" });
+  });
+
+  it("does NOT invoke onClosed for a session deferred as in-flight", () => {
+    const db = freshDb();
+    const busy = genSessionId();
+    openExplicit(db, busy, 0);
+    const release = markInFlight(busy);
+    const closed: unknown[] = [];
+    try {
+      closeExpiredExplicitSessions(db, {
+        now: 86_400_001,
+        maxExplicitLifetimeSeconds: 86_400,
+        onClosed: (row) => closed.push(row),
+      });
+      expect(closed).toEqual([]);
+    } finally {
+      release();
+    }
+  });
+});
+
+describe("markInFlight / inFlightCount — THE-1108 fix (Codex P1-2)", () => {
+  it("counts 0 for a session nothing has marked", () => {
+    expect(inFlightCount(genSessionId())).toBe(0);
+  });
+
+  it("release() drops the count back to 0, and is idempotent past the first call", () => {
+    const id = genSessionId();
+    const release = markInFlight(id);
+    expect(inFlightCount(id)).toBe(1);
+    release();
+    expect(inFlightCount(id)).toBe(0);
+    release(); // duplicate release must not go negative or throw
+    expect(inFlightCount(id)).toBe(0);
+  });
+
+  it("is reference-counted: a second concurrent mark survives the first release", () => {
+    const id = genSessionId();
+    const releaseA = markInFlight(id);
+    const releaseB = markInFlight(id);
+    expect(inFlightCount(id)).toBe(2);
+    releaseA();
+    expect(inFlightCount(id)).toBe(1);
+    releaseB();
+    expect(inFlightCount(id)).toBe(0);
+  });
+});
+
+describe("closeStaleImplicitSessions — THE-1108 fix (Codex P1-2): in-flight guard", () => {
+  it("defers a session with a call in flight, and closes it on the next sweep once released", () => {
+    const db = freshDb();
+    const s = openImplicitSession(db, {
+      principal: "alice",
+      vaultId: "main",
+      traceFolder: DEFAULT_TRACE_FOLDER,
+      now: 0,
+    });
+    const release = markInFlight(s.sessionId);
+    try {
+      expect(closeStaleImplicitSessions(db, { now: 1_800_001, windowSeconds: 1800 })).toBe(0);
+      expect(activeSessionFor(db, "alice")?.sessionId).toBe(s.sessionId);
+    } finally {
+      release();
+    }
+    expect(closeStaleImplicitSessions(db, { now: 1_800_002, windowSeconds: 1800 })).toBe(1);
+    expect(activeSessionFor(db, "alice")).toBeUndefined();
+  });
 });
 
 describe("the maintenance sweep arm", () => {

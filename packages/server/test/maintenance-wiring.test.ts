@@ -171,6 +171,30 @@ describe("configureMaintenance", () => {
     }
   });
 
+  it("THE-1108 fix: forwards onExplicitSessionClosed all the way from configureMaintenance to the sweep's actual close", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = freshDb();
+      db.prepare(
+        "INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, principal) VALUES (?,?,?,?,NULL,?,?)",
+      ).run("sess_stale", "v1", "agent-alpha", NOW - 100_000_000, "t/sess_stale.jsonl", "alice");
+      const { m } = fakeMorgiana();
+      const sched = new Scheduler();
+      const closed: { id: string; principal: string | null }[] = [];
+      configureMaintenance(sched, {
+        ...baseDeps(db, m),
+        sessions: { autoOpen: false, windowSeconds: 1800, maxExplicitLifetimeSeconds: 60 },
+        onExplicitSessionClosed: (row) => closed.push(row),
+      });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(61_000);
+      await sched.stop();
+      expect(closed).toEqual([{ id: "sess_stale", principal: "alice" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("emits tc.maintenance.sweep with the total AND the per-arm breakdown on each tick", async () => {
     vi.useFakeTimers();
     try {

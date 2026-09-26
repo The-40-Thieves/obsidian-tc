@@ -264,6 +264,9 @@ export function runMaintenanceSweep(
      *  `sessionWindowSeconds` above, this is not gated on `sessions.autoOpen` — an explicit session
      *  can exist (and go stale) whether or not the server ever opens one of its own. */
     sessionMaxExplicitLifetimeSeconds?: number;
+    /** THE-1108 fix: forwarded verbatim into `closeExpiredExplicitSessions`'s `onClosed` — see
+     *  its own doc comment. Omitted -> no callback, unchanged behavior. */
+    onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
   },
 ): SweepCounts {
   const t = opts.now();
@@ -362,6 +365,9 @@ export function runMaintenanceSweep(
       ? closeExpiredExplicitSessions(db, {
           now: t,
           maxExplicitLifetimeSeconds: opts.sessionMaxExplicitLifetimeSeconds,
+          ...(opts.onExplicitSessionClosed !== undefined
+            ? { onClosed: opts.onExplicitSessionClosed }
+            : {}),
         })
       : 0;
   return {
@@ -400,6 +406,8 @@ export interface MaintenanceDeps {
   sessionWindowSeconds?: number;
   /** THE-1108: see runMaintenanceSweep's option of the same name. */
   sessionMaxExplicitLifetimeSeconds?: number;
+  /** THE-1108 fix: see runMaintenanceSweep's option of the same name. */
+  onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
   now?: () => number;
   onSweep?: (counts: SweepCounts) => void;
   onError?: (e: unknown) => void;
@@ -432,6 +440,9 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
           : {}),
         ...(deps.sessionMaxExplicitLifetimeSeconds !== undefined
           ? { sessionMaxExplicitLifetimeSeconds: deps.sessionMaxExplicitLifetimeSeconds }
+          : {}),
+        ...(deps.onExplicitSessionClosed !== undefined
+          ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
           : {}),
       });
       deps.onSweep?.(counts);

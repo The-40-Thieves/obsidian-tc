@@ -3,9 +3,9 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 495,
-    "dependencies": 2290,
+    "dependencies": 2292,
     "subsystemPairs": 146,
-    "crossSubsystemImports": 1037
+    "crossSubsystemImports": 1039
   },
   "subsystems": {
     "auth": 4,
@@ -240,6 +240,11 @@
       "weight": 6
     },
     {
+      "from": "runtime",
+      "to": "workspace",
+      "weight": 6
+    },
+    {
       "from": "tools",
       "to": "memory",
       "weight": 6
@@ -287,11 +292,6 @@
     {
       "from": "runtime",
       "to": "morgiana",
-      "weight": 5
-    },
-    {
-      "from": "runtime",
-      "to": "workspace",
       "weight": 5
     },
     {
@@ -481,6 +481,11 @@
     },
     {
       "from": "mcp",
+      "to": "workspace",
+      "weight": 2
+    },
+    {
+      "from": "mcp",
       "to": "scheduler",
       "weight": 2
     },
@@ -622,11 +627,6 @@
     {
       "from": "mcp",
       "to": "experiential",
-      "weight": 1
-    },
-    {
-      "from": "mcp",
-      "to": "workspace",
       "weight": 1
     },
     {

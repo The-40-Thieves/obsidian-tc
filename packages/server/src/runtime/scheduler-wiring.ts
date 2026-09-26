@@ -19,6 +19,7 @@ import { Scheduler } from "../scheduler/scheduler";
 import type { TelemetryWiring } from "../telemetry/wiring";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { schedulerPersistErrorSink } from "../util/errors";
+import type { ActiveSessionTracker } from "../workspace/sessions";
 import { registerAdvisorySweep } from "./advisory-sweep";
 import { registerGapSweep } from "./gap-sweep";
 import { configureMaintenance } from "./maintenance-wiring";
@@ -60,6 +61,10 @@ export interface SchedulerWiringDeps {
    *  `config.telemetry.enabled` is false, matching every other conditional job below. Optional so
    *  a caller predating THE-1125 (a direct unit test of wireScheduler) keeps compiling. */
   telemetry?: TelemetryWiring;
+  /** THE-1108 fix: the composition root's live tracker — the maintenance sweep's explicit-session
+   *  close callback clears its entry here, since SQL closing the row is invisible to this
+   *  process-local map otherwise. */
+  activeSessions: ActiveSessionTracker;
 }
 
 /**
@@ -99,6 +104,9 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
     morgiana: deps.morgiana,
     eventVaultId: deps.eventVaultId,
+    // THE-1108 fix: clear the LIVE tracker entry for a session the sweep just closed by SQL — the
+    // tracker (server-runtime.ts's stdio context factory reads it) has no other way to learn that.
+    onExplicitSessionClosed: (row) => deps.activeSessions.clear(row.principal, row.id),
   });
 
   registerPlaneSchedule(scheduler, {

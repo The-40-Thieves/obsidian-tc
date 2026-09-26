@@ -101,6 +101,24 @@ describe("cache.db maintenance sweep (THE-292)", () => {
     }
   });
 
+  it("THE-1108 fix: forwards onExplicitSessionClosed into closeExpiredExplicitSessions's onClosed", () => {
+    const db = freshDb();
+    const insert =
+      "INSERT INTO workspace_sessions (id, vault_id, caller, started_at, ended_at, trace_path, principal) VALUES (?,?,?,?,NULL,?,?)";
+    db.prepare(insert).run("sess_a", "v1", "agent-alpha", 0, "t/sess_a.jsonl", "alice");
+    const closed: { id: string; principal: string | null }[] = [];
+    const counts = runMaintenanceSweep(db, {
+      now: () => 86_400_001,
+      eventLogDays: 30,
+      jobsCompleteDays: 7,
+      jobsFailedDays: 30,
+      sessionMaxExplicitLifetimeSeconds: 86_400,
+      onExplicitSessionClosed: (row) => closed.push(row),
+    });
+    expect(counts.sessions_expired).toBe(1);
+    expect(closed).toEqual([{ id: "sess_a", principal: "alice" }]);
+  });
+
   it("routes a sweep failure to onError without escaping", async () => {
     vi.useFakeTimers();
     try {
