@@ -28,7 +28,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/The-40-Thieves/obsidian-tc.git",
+    "url": "git+https://github.com/The-40-Thieves/obsidian-tc.git",
     "directory": "packages/embedder-local"
   },
   "exports": {
