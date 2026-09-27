@@ -89,7 +89,7 @@ Expected: a vitest summary line like `Tests  NNNN passed`, the `REGISTERED_TOOL_
 | measure | value | command |
 |---|---|---|
 | server vitest tests passing | <N from step 2> | `cd packages/server && node ./node_modules/vitest/vitest.mjs run` |
-| tool registrations | 161 | `rg -c "registerTool\(|defineTool\(" packages/server/src/tools --glob '!*test*'` |
+| tool registrations | 161 (grep count; 163 registered at runtime, see REGISTERED_TOOL_COUNT) | `rg -c "registerTool\(|defineTool\(" packages/server/src/tools --glob '!*test*'` |
 | alexandria node --test passing | <N> | `node --test 'src/**/*.test.ts'` |
 | alexandria routing nDCG@5 | 0.910 | `npm run eval:routing` |
 
@@ -219,7 +219,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 - [ ] **Step 5: Run the tests, then the script for real**
 
 Run: `node --test scripts/catalog-snapshot.test.mjs && bun run build && node scripts/catalog-snapshot.mjs && node scripts/catalog-snapshot.mjs --check`
-Expected: 2 tests pass; `wrote docs/catalog/tools.snapshot.json: 161 tools, N resources`; then `catalog identical`. If the server needs a flag other than the one copied, the `initialize` call hangs: kill it, re-read step 1, fix `SERVER_CMD`.
+Expected: 2 tests pass; `wrote docs/catalog/tools.snapshot.json: 163 tools, N resources`; then `catalog identical`. If the server needs a flag other than the one copied, the `initialize` call hangs: kill it, re-read step 1, fix `SERVER_CMD`.
 
 - [ ] **Step 6: Wire the scripts and the CI step**
 
