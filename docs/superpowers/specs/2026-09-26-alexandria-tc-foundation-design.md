@@ -224,8 +224,8 @@ Every PR carries an invariant ledger (property + exact command), replayed on the
 
 **Out of scope, assigned**: wiring the library into the server and one search (sub-project 2); any
 adapter beyond Obsidian (sub-project 3); docs site, listing copy, logo (sub-project 4); regrouping
-the 161 tools by domain and publishing internal packages (later cleanups); the remote-first OAuth
-work (THE-1110/THE-1111 stay on their epic; the foundation only keeps `auth.resource`,
+the 163 tools by domain and publishing internal packages (later cleanups); the remote-first OAuth
+work (the auth-server and BYO-provider tickets stay on their epic; the foundation only keeps `auth.resource`,
 `allowedHosts` and the JWT verifier where they are).
 
 | risk | mitigation in this design |
