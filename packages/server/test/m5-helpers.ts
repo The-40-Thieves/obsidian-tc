@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { type FakeRequestInfo, type FakeRoute, fakeBridgeTransport } from "../src/bridge";
 import { provisionCacheDb } from "../src/db/provision";
@@ -15,6 +15,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import type { MetricsRecorder } from "../src/metrics/registry";
 import { createPlurClient } from "../src/plur/client";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
@@ -35,6 +36,13 @@ export interface M5VaultOptions {
   /** Force a configured plur client even with no routes (uses the 404 fallback). */
   plurConfigured?: boolean;
   vaultId?: string;
+  /** GH #994: per-vault memoryDefense policy — same config every vault ID resolves to. Omit to
+   *  leave memoryDefense unwired (MEMORY_DEFENSE_OFF, the existing "no behaviour change" case
+   *  every pre-#994 test here already exercises). */
+  memoryDefense?: VaultMemoryDefenseConfig;
+  /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter — pass a real
+   *  MetricsRecorder to assert on it from a test. */
+  metrics?: MetricsRecorder;
 }
 
 export interface M5EventRow {
@@ -110,6 +118,10 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
     plur,
     memoryFolder: () => opts.memoryFolder ?? "memory",
     traceFolder: () => opts.traceFolder ?? ".obsidian-tc/traces",
+    ...(opts.memoryDefense
+      ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
+      : {}),
+    ...(opts.metrics ? { metrics: opts.metrics } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

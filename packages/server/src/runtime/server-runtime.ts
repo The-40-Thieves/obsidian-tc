@@ -460,7 +460,7 @@ export async function buildServerRuntime(
     });
 
     // M4 plugin bridges (THE-180): per-vault client + probed capability snapshot, built before M2 so search_dql can share the same Dataview bridge.
-    const { capabilities, memoryFolderByVault, traceFolderByVault, m4Deps } = await wireBridges({
+    const bridges = await wireBridges({
       vaults: config.vaults,
       vaultRegistry,
       reindex: reindexHook,
@@ -473,19 +473,21 @@ export async function buildServerRuntime(
       embeddingProvider,
       representation: indexResources.representation,
       ...(retrievalLog ? { retrievalLog } : {}),
-      m4Deps,
+      m4Deps: bridges.m4Deps,
       hasFts,
       indexHealth,
       recordIngestStatsFor,
       reindex: reindexHook,
       deindex: deindexHook,
       activeSessions,
-      memoryFolderByVault,
-      traceFolderByVault,
+      memoryFolderByVault: bridges.memoryFolderByVault,
+      traceFolderByVault: bridges.traceFolderByVault,
+      memoryDefenseByVault: bridges.memoryDefenseByVault,
+      metrics,
       rateLimiter,
       version: VERSION,
       startedAt,
-      capabilities,
+      capabilities: bridges.capabilities,
       reranker,
       roles,
       retrievalCaches,

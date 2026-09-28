@@ -1,26 +1,30 @@
-// Domain 22 — Memory entities + [[link]] graph (G2.1). Five tools over the SQLite
-// memory_entities + memory_relations tables: create_entity, get_entity,
-// add_observation, link_entities, query_entity_graph. SQLite is the SOURCE OF TRUTH;
-// each materialized entity also gets a regenerable .md projection so its [[links]]
-// resolve in Obsidian's graph. Reads take read:memory, mutations take write:memory
-// (write family — readOnly kill-switch applies, no execute HITL floor; spec hitl:never).
-// Materialization funnels through resolveVaultPath + enforcePathAcl; the write ACL is
-// pre-checked before the SQLite insert so an ACL denial leaves no orphan row. THE-567: the
-// memory-note path is server-computed (folder + type + name), not input-derivable, so it cannot
-// be declared via a central pathAcl extractor — ctx.grantedScopes is threaded into every
-// handler-side enforcePathAcl call instead, so the P1.4 rule-scope gate still applies here.
-import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+// Domain 22 — Memory entities + [[link]] graph (G2.1), WRITE half: create_entity,
+// add_observation, link_entities. get_entity/query_entity_graph (the read half) live in
+// memory-read-tools.ts — split purely to stay under biome's 700-line ceiling; both share
+// memory-projection.ts's materialization helpers so neither imports the other. SQLite is the
+// SOURCE OF TRUTH; each materialized entity also gets a regenerable .md projection so its
+// [[links]] resolve in Obsidian's graph. Mutations take write:memory (write family — readOnly
+// kill-switch applies, no execute HITL floor; spec hitl:never). Materialization funnels through
+// resolveVaultPath + enforcePathAcl; the write ACL is pre-checked before the SQLite insert so an
+// ACL denial leaves no orphan row. THE-567: the memory-note path is server-computed (folder +
+// type + name), not input-derivable, so it cannot be declared via a central pathAcl extractor —
+// ctx.grantedScopes is threaded into every handler-side enforcePathAcl call instead, so the
+// P1.4 rule-scope gate still applies here.
+import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
+import {
+  enforceMemoryDefense,
+  enforceMemoryDefenseOnTransformed,
+} from "../../experiential/memory-defense";
+import { redactSecrets } from "../../experiential/redact";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
   appendObservation,
-  bfsGraph,
   closeOpenInterval,
   deleteEntity,
   deleteRelation,
   type EntityRow,
-  findEntitiesByName,
   findEntity,
   getEntityById,
   insertEntity,
@@ -30,48 +34,16 @@ import {
   normalizeObservationKey,
   normalizeObservationText,
   type ObservationView,
-  observationsAsOf,
   observationViews,
   obsHash,
-  relationsForEntity,
   setEntityVaultPath,
 } from "../../memory/entities";
-import { entityNotePath } from "../../memory/materialize";
+import { entityNotePath, sanitizeSegment } from "../../memory/materialize";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { defineTool } from "../m1/define";
 import { materializeProjection, rematerialize } from "./memory-projection";
 import type { M5Deps } from "./shared";
-import { memoryFolderFor, parseIso } from "./shared";
-
-/** THE-833: an entity is visible unless it's retired and the caller didn't opt in. Shared by
- *  get_entity (single lookup + the by-name ambiguity candidates) and query_entity_graph (the BFS
- *  result set) so "filtered by default" means the same thing in both places. */
-function isVisible(e: Pick<EntityRow, "status">, includeRetired: boolean): boolean {
-  return includeRetired || e.status !== "retired";
-}
-
-// THE-1130: one observation, as returned to a caller — the wire shape every tool that exposes
-// observations (get_entity, query_entity_graph) emits, so "what a fact looks like on the wire"
-// has exactly one definition. zod's safeParse silently strips an undeclared field and reports
-// success (see reference_obsidian_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys) — every
-// field ObservationView carries is declared here, none silently dropped at the MCP boundary.
-const ObservationSchema = z.object({
-  text: z.string(),
-  key: z.string().nullable(),
-  valid_from: z.number(),
-  valid_to: z.number().nullable(),
-  superseded_by: z.string().nullable(),
-});
-
-function toObservationOutput(o: ObservationView): z.infer<typeof ObservationSchema> {
-  return {
-    text: o.text,
-    key: o.key,
-    valid_from: o.validFrom,
-    valid_to: o.validTo,
-    superseded_by: o.supersededBy,
-  };
-}
+import { memoryDefenseFor, memoryFolderFor, parseIso } from "./shared";
 
 // `^[a-z0-9][a-z0-9_.-]*$`, max 64 chars — see memory/entities.ts's OBSERVATION_KEY_RE. The zod
 // regex is kept in lockstep with (not derived from) that one: both must agree on what a legal key
@@ -119,29 +91,7 @@ const CreateEntityOutput = z.object({
   materialized: z.boolean(),
   vault_path: z.string().nullable(),
   created_at: z.number(),
-});
-
-const EntityRelation = z.object({
-  target_id: z.string(),
-  target_name: z.string(),
-  target_type: z.string(),
-  relation_type: z.string(),
-  direction: z.enum(["out", "in"]),
-});
-
-const GetEntityOutput = z.object({
-  entity_id: z.string(),
-  type: z.string(),
-  name: z.string(),
-  status: z.enum(["active", "retired"]),
-  // THE-1130: observations valid `as_of` the input (default: now) — see add_observation's own
-  // schema for what valid_from/valid_to/superseded_by mean on each one.
-  observations: z.array(ObservationSchema),
-  relations: z.array(EntityRelation),
-  vault_path: z.string().nullable(),
-  created_at: z.number(),
-  updated_at: z.number(),
-  as_of: z.number(),
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 const AddObservationOutput = z.object({
@@ -149,6 +99,7 @@ const AddObservationOutput = z.object({
   observation_count: z.number(),
   updated_at: z.number(),
   vault_path: z.string().nullable(),
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 const LinkEntitiesOutput = z.object({
@@ -158,29 +109,7 @@ const LinkEntitiesOutput = z.object({
   created_at: z.number(),
   existed_already: z.boolean(),
   source_vault_path: z.string().nullable(),
-});
-
-const GraphNodeItem = z.object({
-  entity_id: z.string(),
-  type: z.string(),
-  name: z.string(),
-  status: z.enum(["active", "retired"]),
-  distance: z.number(),
-  // bfsGraph's GraphNode.path: the hop-by-hop trail from the seed, not a vault path.
-  path: z.array(z.object({ via_entity_id: z.string(), via_relation: z.string() })),
-  // THE-1130: each node's own observations, valid `as_of` the query's as_of (default: now) — same
-  // shape and same filter get_entity applies, so "what did we believe as_of D" answers the same
-  // way whether reached by a direct get_entity or by a graph traversal that passes through it.
-  observations: z.array(ObservationSchema),
-});
-
-const QueryEntityGraphOutput = z.object({
-  vault: z.string(),
-  as_of: z.number(),
-  seed_entity_id: z.string(),
-  items: z.array(GraphNodeItem),
-  next_cursor: z.string().nullable(),
-  total_returned: z.number(),
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
@@ -204,8 +133,41 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       requiredScopes: ["write:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        if (findEntity(ctx.db, v.id, input.type, input.name))
-          throw err.invalidInput("entity already exists", { type: input.type, name: input.name });
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        const mdFields: Record<string, string> = { type: input.type, name: input.name };
+        input.observations?.forEach((o, i) => {
+          mdFields[`observations.${i}`] = o;
+        });
+        const scan = enforceMemoryDefense(mdConfig, mdFields, { metrics: deps.metrics });
+        const rawType = scan.fields.type as string;
+        const rawName = scan.fields.name as string;
+        const observations = input.observations?.map(
+          (_, i) => scan.fields[`observations.${i}`] as string,
+        );
+
+        // `type`/`name` also become the materialized note's PATH segments (entityNotePath ->
+        // sanitizeSegment) AFTER the scan above, which can turn a non-matching raw string into a
+        // secret-shaped one (`sk:...` -> `sk-...`) — re-scan the sanitized form too.
+        const typeScan = enforceMemoryDefenseOnTransformed(
+          mdConfig,
+          "type",
+          rawType,
+          sanitizeSegment(rawType),
+          { metrics: deps.metrics },
+        );
+        const nameScan = enforceMemoryDefenseOnTransformed(
+          mdConfig,
+          "name",
+          rawName,
+          sanitizeSegment(rawName),
+          { metrics: deps.metrics },
+        );
+        const type = typeScan.value;
+        const name = nameScan.value;
+        const pathSegmentRedactions = typeScan.redactions + nameScan.redactions;
+
+        if (findEntity(ctx.db, v.id, type, name))
+          throw err.invalidInput("entity already exists", { type, name });
         const now = (ctx.now ?? Date.now)();
         const folder = memoryFolderFor(deps, v.id);
         // Pre-check the materialization ACL so a denial leaves no orphan SQLite row.
@@ -213,7 +175,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           enforcePathAcl(
             ctx.acl,
             "write",
-            entityNotePath(folder, input.type, input.name),
+            entityNotePath(folder, type, name),
             v.root,
             ctx.grantedScopes,
           );
@@ -221,16 +183,16 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         try {
           e = insertEntity(ctx.db, {
             vaultId: v.id,
-            entityType: input.type,
-            name: input.name,
-            observations: input.observations,
+            entityType: type,
+            name,
+            observations,
             materialize: input.materialize,
             now,
           });
         } catch (caught) {
           // The UNIQUE natural-key index closes the findEntity read-then-insert race (F4).
           if (isUniqueViolation(caught))
-            throw err.invalidInput("entity already exists", { type: input.type, name: input.name });
+            throw err.invalidInput("entity already exists", { type, name });
           throw caught;
         }
         let vaultPath: string | null;
@@ -252,72 +214,9 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           materialized: input.materialize,
           vault_path: vaultPath,
           created_at: e.created_at,
-        };
-      },
-    }),
-
-    defineTool({
-      name: "get_entity",
-      domain: "knowledge",
-      description:
-        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set. Observations returned are filtered by as_of — a fact is included when valid_from <= as_of and (valid_to is unset or as_of < valid_to). Default as_of is now, so an as_of in the PAST excludes any observation added after that instant, even one that is still open today.",
-      inputSchema: z
-        .object({
-          vault: VaultId,
-          entity_id: z.string().optional(),
-          type: z.string().optional(),
-          name: z.string().optional(),
-          include_retired: z.boolean().default(false),
-          as_of: z.number().int().nonnegative().optional(),
-        })
-        .strict(),
-      outputSchema: GetEntityOutput,
-      requiredScopes: ["read:memory"],
-      handler: (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        let e: EntityRow | undefined;
-        if (input.entity_id) {
-          const found = getEntityById(ctx.db, input.entity_id);
-          e = found && found.vault_id === v.id ? found : undefined;
-        } else if (input.type && input.name) {
-          e = findEntity(ctx.db, v.id, input.type, input.name);
-        } else if (input.name) {
-          // THE-833: a retired entity sharing a name with an active one should not count toward
-          // ambiguity when the caller hasn't opted in to see retired entities at all — filter the
-          // candidate set FIRST, the same order get_entity applies the filter to a resolved `e`.
-          const hits = findEntitiesByName(ctx.db, v.id, input.name).filter((h) =>
-            isVisible(h, input.include_retired),
-          );
-          if (hits.length > 1)
-            throw err.invalidInput("entity name is ambiguous; provide type", {
-              name: input.name,
-              candidates: hits.map((h) => ({ entity_id: h.id, type: h.entity_type })),
-            });
-          e = hits[0];
-        } else {
-          throw err.invalidInput("provide entity_id, or type+name, or name");
-        }
-        if (!e || !isVisible(e, input.include_retired))
-          throw err.invalidInput("entity not found", { vault: v.id });
-        const relations = relationsForEntity(ctx.db, e.id).map((r) => ({
-          target_id: r.other_id,
-          target_name: r.other_name,
-          target_type: r.other_type,
-          relation_type: r.relation_type,
-          direction: r.direction,
-        }));
-        const asOf = input.as_of ?? (ctx.now ?? Date.now)();
-        return {
-          entity_id: e.id,
-          type: e.entity_type,
-          name: e.name,
-          status: e.status,
-          observations: observationsAsOf(ctx.db, e, asOf).map(toObservationOutput),
-          relations,
-          vault_path: e.vault_path,
-          created_at: e.created_at,
-          updated_at: e.updated_at,
-          as_of: asOf,
+          ...(scan.redactions + pathSegmentRedactions > 0
+            ? { redactions: scan.redactions + pathSegmentRedactions }
+            : {}),
         };
       },
     }),
@@ -361,18 +260,41 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const now = (ctx.now ?? Date.now)();
-        const key = input.key !== undefined ? normalizeObservationKey(input.key) : null;
-        if (input.key !== undefined && key === null)
-          throw err.invalidInput("key must match ^[a-z0-9][a-z0-9_.-]*$ once lowercased", {
-            key: input.key,
-          });
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        // `key` is scanned AFTER normalizeObservationKey lowercases it (below) — the raw
+        // (possibly mixed-case) key let `SK-...` dodge `\bsk-` while still landing on disk
+        // lowercased. `observation` has no such transform and stays scanned as-is.
+        const mdFields: Record<string, string> = {};
+        if (input.observation !== undefined) mdFields.observation = input.observation;
+        const scan = enforceMemoryDefense(mdConfig, mdFields, { metrics: deps.metrics });
+        const observationInput =
+          input.observation !== undefined ? (scan.fields.observation as string) : undefined;
+
+        let key: string | null = null;
+        let keyRedactions = 0;
+        if (input.key !== undefined) {
+          const normalized = normalizeObservationKey(input.key);
+          if (normalized === null)
+            // Throws on the RAW input.key, before the scan below runs — always redact the echo,
+            // independent of memoryDefense.mode, so an invalid key never leaks verbatim.
+            throw err.invalidInput("key must match ^[a-z0-9][a-z0-9_.-]*$ once lowercased", {
+              key: redactSecrets(input.key).text,
+            });
+          const keyScan = enforceMemoryDefense(
+            mdConfig,
+            { key: normalized },
+            { metrics: deps.metrics },
+          );
+          key = keyScan.fields.key as string;
+          keyRedactions = keyScan.redactions;
+        }
         const validFrom =
           input.valid_from !== undefined
             ? (parseIso(input.valid_from, "valid_from") as number)
             : now;
         const validTo =
           input.valid_to !== undefined ? (parseIso(input.valid_to, "valid_to") as number) : null;
-        const retireOnly = input.observation === undefined;
+        const retireOnly = observationInput === undefined;
         // Only checked against `validFrom` (now, or the caller's own backdate) when a NEW interval
         // is actually being opened — a retire-only call's `validTo` is checked below, inside the
         // transaction, against the interval it's ACTUALLY closing (found by key), not against
@@ -464,7 +386,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             // schema boundary (THE-1130 adversarial-review fix). Passed through unchanged, not
             // re-trimmed: the reserialize below (appendObservation) is then a no-op for every
             // EXISTING line, only the new one is added.
-            const text = input.observation as string;
+            const text = observationInput as string;
             newHash = obsHash(text);
             const closed =
               openIdx >= 0
@@ -484,7 +406,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           } else {
             if (openIdx >= 0)
               closeOpenInterval(ctx.db, existing.id, key as string, validFrom, newHash);
-            const r = appendObservation(ctx.db, existing.id, input.observation as string, now);
+            const r = appendObservation(ctx.db, existing.id, observationInput as string, now);
             if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
             insertObservationInterval(ctx.db, {
               entityId: existing.id,
@@ -510,6 +432,9 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             observation_count: nextViews.length,
             updated_at: now,
             vault_path: vaultPath,
+            ...(scan.redactions + keyRedactions > 0
+              ? { redactions: scan.redactions + keyRedactions }
+              : {}),
           };
         });
       },
@@ -552,8 +477,15 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             v.root,
             ctx.grantedScopes,
           );
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        const scan = enforceMemoryDefense(
+          mdConfig,
+          { relation_type: input.relation_type },
+          { metrics: deps.metrics },
+        );
+        const relationType = scan.fields.relation_type as string;
         const now = (ctx.now ?? Date.now)();
-        const { existedAlready } = insertRelation(ctx.db, src.id, tgt.id, input.relation_type, now);
+        const { existedAlready } = insertRelation(ctx.db, src.id, tgt.id, relationType, now);
         let sourceVaultPath: string | null;
         try {
           sourceVaultPath = rematerialize(deps, ctx, v, src, now);
@@ -561,77 +493,17 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           // Same orphan-avoidance as create_entity above: a materialization refusal must not
           // leave a relation row this call did not exist to have. Only roll back a relation THIS
           // call actually created — never delete an edge that already existed before it.
-          if (!existedAlready) deleteRelation(ctx.db, src.id, tgt.id, input.relation_type);
+          if (!existedAlready) deleteRelation(ctx.db, src.id, tgt.id, relationType);
           throw caught;
         }
         return {
           source_id: src.id,
           target_id: tgt.id,
-          relation_type: input.relation_type,
+          relation_type: relationType,
           created_at: now,
           existed_already: existedAlready,
           source_vault_path: sourceVaultPath,
-        };
-      },
-    }),
-
-    defineTool({
-      name: "query_entity_graph",
-      domain: "knowledge",
-      description:
-        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. Each returned node's observations are filtered by as_of (default now — see get_entity's own description for the exact rule), so a graph walk answers 'what did we believe as_of D' the same way a direct get_entity does. Domain: knowledge.",
-      inputSchema: z
-        .object({
-          vault: VaultId,
-          seed_entity_id: z.string().min(1),
-          depth: z.number().int().positive().max(5).optional(),
-          relation_types: z.array(z.string()).optional(),
-          entity_types: z.array(z.string()).optional(),
-          direction: z.enum(["out", "in", "both"]).default("both"),
-          include_retired: z.boolean().default(false),
-          as_of: z.number().int().nonnegative().optional(),
-        })
-        .merge(Pagination)
-        .strict(),
-      outputSchema: QueryEntityGraphOutput,
-      requiredScopes: ["read:memory"],
-      handler: (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        const seed = getEntityById(ctx.db, input.seed_entity_id);
-        if (!seed || seed.vault_id !== v.id || !isVisible(seed, input.include_retired))
-          throw err.invalidInput("seed entity not found", { seed_entity_id: input.seed_entity_id });
-        const allNodes = bfsGraph(ctx.db, seed.id, {
-          depth: input.depth,
-          direction: input.direction,
-          relationTypes: input.relation_types,
-          entityTypes: input.entity_types,
-        });
-        // THE-833: filter AFTER the walk, not during it (unlike bfsGraph's own entity_types/
-        // relation_types filters, which prune mid-traversal and so can make a downstream node
-        // unreachable through a filtered-out one). A retired node can still be a legitimate bridge
-        // — e.g. a deprecated tool [[link]]ing to its replacement — and excluding it mid-BFS would
-        // silently sever that path. Only which nodes are RETURNED is affected here.
-        const nodes = allNodes.filter((n) => isVisible(n.entity, input.include_retired));
-        const limit = input.limit ?? 100;
-        const start = input.cursor ? Number.parseInt(input.cursor, 10) || 0 : 0;
-        const page = nodes.slice(start, start + limit);
-        const next = start + limit < nodes.length ? String(start + limit) : null;
-        const asOf = input.as_of ?? (ctx.now ?? Date.now)();
-        return {
-          vault: v.id,
-          as_of: asOf,
-          seed_entity_id: seed.id,
-          items: page.map((n) => ({
-            entity_id: n.entity.id,
-            type: n.entity.entity_type,
-            name: n.entity.name,
-            status: n.entity.status,
-            distance: n.distance,
-            path: n.path,
-            observations: observationsAsOf(ctx.db, n.entity, asOf).map(toObservationOutput),
-          })),
-          next_cursor: next,
-          total_returned: page.length,
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
         };
       },
     }),

@@ -121,6 +121,28 @@ export const VaultWorkspaceConfigSchema = z.object({
     ),
 });
 
+// GH #994 — per-vault memory write scan ("Memory Defense"). The trace capture path
+// (mcp/registry/dispatch-observability.ts) and the episode log (experiential/episodes.ts) already
+// redact credential-shaped text; this is the SAME scanner (experiential/redact.ts's
+// redactSecrets/scanPii) applied to the tools whose output is replayed into a future session —
+// create_entity, add_observation, link_entities, rename_entity, enqueue_capture, commit_capture,
+// set_goal — which a trace/episode redaction never reaches. Off by default: a vault that never
+// opts in sees no behaviour change at all, not even the scan running.
+export const VaultMemoryDefenseConfigSchema = z.object({
+  mode: z
+    .enum(["off", "redact", "block"])
+    .default("off")
+    .describe(
+      'Memory write scan over create_entity/add_observation/link_entities/rename_entity/enqueue_capture/commit_capture/set_goal, before persistence. "off" (default) never scans. "redact" persists the argument with matches replaced by "[REDACTED]" and reports `redactions` in the tool result. "block" refuses the write with a `secret_detected` error naming the matched pattern ids and field names, never the value — except a LOW-CONFIDENCE `labeled_secret` hit (an ordinary `key: value` line whose value does not itself look secret-shaped), which is redacted rather than refused even in "block" mode.',
+    ),
+  pii: z
+    .boolean()
+    .default(false)
+    .describe(
+      'Also scan for PII: US SSN shape and Luhn-valid 13-19 digit numbers with a known card-issuer prefix. Emails and phone numbers are never flagged. Has no effect when mode is "off".',
+    ),
+});
+
 export const VaultConfigSchema = z.object({
   id: z
     .string()
@@ -192,8 +214,13 @@ export const VaultConfigSchema = z.object({
   workspace: VaultWorkspaceConfigSchema.optional().describe(
     "Per-vault workspace session-trace settings.",
   ),
+  memoryDefense: VaultMemoryDefenseConfigSchema.optional().describe(
+    'Per-vault memory write scan (GH #994). Absent means mode "off" — no behaviour change.',
+  ),
 });
 export type VaultConfig = z.infer<typeof VaultConfigSchema>;
+/** GH #994: a vault's fully-defaulted memoryDefense config. */
+export type VaultMemoryDefenseConfig = z.infer<typeof VaultMemoryDefenseConfigSchema>;
 /** The pre-parse shape (defaulted fields optional) — what VaultRegistry accepts, so a raw
  *  `{ id, path }` (kind/name/acl defaulted at use) is valid without a full schema parse. */
 export type VaultConfigInput = z.input<typeof VaultConfigSchema>;

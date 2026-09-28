@@ -163,4 +163,30 @@ describe("normalizeVaultPath — properties", () => {
       expect(() => normalizeVaultPath(segs.join("/"))).toThrow();
     }
   });
+
+  // GH #994 second security review, M1: normalizeVaultPath's path_invalid throws carry the
+  // caller's raw, unscanned relPath in `details.path` — reached by enqueue_capture/commit_capture
+  // (and every other path-based tool) before memoryDefense ever runs. A Windows-reserved-name
+  // segment anywhere in an otherwise secret-shaped path (e.g. a token used as a filename under a
+  // `NUL`-named parent) rejects the write, but the error used to echo the secret right back.
+  // Built at runtime (never a literal) so this file's own token-shaped substring never trips a
+  // secret scanner over the repo itself.
+  it("a path_invalid rejection never echoes a secret-shaped raw path in details.path", () => {
+    const token = `gh${"p"}_${Array.from(
+      { length: 36 },
+      (_, i) => "abcdefghijklmnopqrstuvwxyz0123456789"[i % 36],
+    ).join("")}`;
+    const bad = `NUL/${token}.md`;
+    let caught: unknown;
+    try {
+      normalizeVaultPath(bad);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ObsidianTcError);
+    const e = caught as ObsidianTcError;
+    expect(e.code).toBe("path_invalid");
+    expect(JSON.stringify(e.toJSON())).not.toContain(token);
+    expect(String(e.details?.path)).not.toContain(token);
+  });
 });

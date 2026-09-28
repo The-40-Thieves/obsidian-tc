@@ -388,10 +388,10 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (1.31.4) | 15 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (1.31.4) | 13 |
 | THE-1125 | Opt-in, anonymous usage telemetry (THE-1125, PR #982). | CHANGELOG.md (1.31.4) | 29 |
-| THE-1130 | Validity intervals on memory observations — supersede instead of overwrite, and "what did we believe as_of D" (THE-1130, PR #986). | CHANGELOG.md (1.31.4) | 14 |
+| THE-1130 | Validity intervals on memory observations — supersede instead of overwrite, and "what did we believe as_of D" (THE-1130, PR #986). | CHANGELOG.md (1.31.4) | 15 |
 | THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (1.31.4) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (1.31.4) | 1 |
 
-377 distinct ticket(s) across 547 source file(s) under
+377 distinct ticket(s) across 549 source file(s) under
 `packages/*/src`; 278 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

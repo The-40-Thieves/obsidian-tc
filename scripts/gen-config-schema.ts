@@ -391,7 +391,28 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // always wins over this key. See packages/shared/src/config/indexing-embeddings.schema.ts's
   // `onProviderChange` field and packages/server/src/embeddings/sticky-provider.ts for the full
   // resolution rule and description text. No existing key, type, default or constraint moved.
-  "f4838b2dc4f6c171a8db00849bf8966ecdb27e15566e4d7a474d9cf8d63cb63d";
+  //
+  // GH #994: rebaselined deliberately, on top of the GH #995 rebaseline above. Adds ONE new
+  // optional per-vault block, `vaults[].memoryDefense` — `{ mode: "off"|"redact"|"block" (default
+  // "off"), pii: boolean (default false) }`, the secret/PII scan on
+  // create_entity/add_observation/enqueue_capture/commit_capture/set_goal (and the two sibling
+  // memory writers, link_entities/rename_entity, the GH #994 sibling-writer audit found and
+  // closed) — see packages/shared/src/config/vault.schema.ts's VaultMemoryDefenseConfigSchema for
+  // the full description text. Absent means "off": zero behaviour change for a vault that never
+  // opts in. No existing key, type, default or constraint moved.
+  //
+  // GH #994 security review (994-verify.log): rebaselined deliberately, on top of the GH #994
+  // rebaseline above. Only `vaults[].memoryDefense.mode`'s `.describe()` text was rewritten — it
+  // now names ALL SEVEN guarded tools (was missing link_entities/rename_entity, which the
+  // original GH #994 pass wired but never updated this string for) and states the `block`-mode
+  // exception for a LOW-CONFIDENCE `labeled_secret` hit (review finding 6: an ordinary
+  // `key: value` line is redacted rather than refused, even in "block" mode). No key, type,
+  // default or constraint moved — text only.
+  //
+  // rebase onto GH #999 (fix/embeddings-sticky-provider merged as PR #999): no schema key moved by
+  // the rebase itself — the hash below is the byte-identical recompute of the emitted schema with
+  // both the GH #995-follow-up and GH #994 changes above applied together.
+  "6e0cdf112856a0b3a6ef87829059d02a798a5073cc07ab49fd9a91de4f2e1331";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

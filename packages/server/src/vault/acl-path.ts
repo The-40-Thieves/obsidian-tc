@@ -9,6 +9,13 @@ import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 // handler) AND here at the handler level as defense-in-depth. The M0 dispatch
 // read-only kill switch (forbidden) fires first for scope-mutating tools.
 import { type FolderAcl, isDefaultDenied } from "../acl";
+// GH #994 second security review, M1: `path` here is the caller-controlled (resolved but
+// unscanned) target of the op — memoryDefense has not run yet at this point in dispatch, and for
+// a hard-denied or whitelist-miss path this function is what throws. Sharing the same scanner
+// every other raw-value echo in this codebase already uses (episode log, trace capture, ambient
+// import, commit_capture's own defense-in-depth echoes) keeps this the ONE place a secret-shaped
+// path gets redacted, rather than a second copy that could drift.
+import { redactSecrets } from "../experiential/redact";
 import { recordAclCheck } from "./acl-audit";
 import { resolveVaultPathChecked } from "./paths";
 
@@ -98,18 +105,25 @@ export function enforcePathAcl(
   // the ACL. For a non-symlink path the canonical form equals the lexical one (a no-op there).
   const resolved = resolveVaultPathChecked(root, rel);
   const path = resolved.aclRel;
+  // GH #994 second security review, M1: every throw below carries `path` in its `details` for a
+  // caller/operator to read back — but this function runs BEFORE memoryDefense (it gates the
+  // write itself), so a secret-shaped `path` that also happens to be denied (hard-denied
+  // .obsidian/.git/.trash, a whitelist miss, an unscoped path) must never echo the raw value back
+  // through the error envelope. Redact once, reuse for every throw site in this function; `path`
+  // itself stays unredacted for the real ACL/audit logic below (recordAclCheck, scopesForPath).
+  const redactedPath = redactSecrets(path).text;
   const decision = evaluatePathAcl(acl, op, path);
   if (!decision.allowed) {
     if (decision.deniedBy === "read_only")
-      throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path, op });
-    throw err.aclDenied(`path is outside the ${op} whitelist`, { path, op });
+      throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path: redactedPath, op });
+    throw err.aclDenied(`path is outside the ${op} whitelist`, { path: redactedPath, op });
   }
   // P1.4: rule-scopes are load-bearing. Checked on the RESOLVED path (so an in-vault symlink cannot
   // reach a scope-gated target through an unscoped folder), and only when the caller's scopes were
   // threaded in (the central dispatch stage). fail-closed: caller must hold the path's scope(s).
   if (grantedScopes !== undefined && !pathScopesSatisfied(acl, path, grantedScopes)) {
     throw err.aclDenied("caller lacks the scope(s) required for this path", {
-      path,
+      path: redactedPath,
       op,
       required_scopes: acl?.scopesForPath(path) ?? [],
     });
@@ -130,6 +144,9 @@ export function enforcePathAcl(
       st = null;
     }
     if (st?.isFile() && st.nlink > 1)
-      throw err.aclDenied("refusing a hard-linked file (inode aliasing)", { path, op });
+      throw err.aclDenied("refusing a hard-linked file (inode aliasing)", {
+        path: redactedPath,
+        op,
+      });
   }
 }
