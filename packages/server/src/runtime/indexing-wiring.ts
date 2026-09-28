@@ -1,14 +1,12 @@
-// WP5.1 (issue 15): run_serve's index-on-write wiring, extracted verbatim out of cli.ts. Split into
-// TWO exported functions rather than one, because the source order they extract from is not
-// contiguous: `wireIndexResources` (the embedding provider, the vec0/FTS probes, and the mutable
-// indexHealth tracker) sits BEFORE cli.ts's job-queue/gateway construction and the inline
-// health/index_status tool registrations (WP5.2 territory, and per the map's trap list those two
-// `registry.register(` call sites must not move); `wireIndexCoordinator` (the coordinator, the
-// reindex/deindex hooks, and the vault watcher) sits AFTER them, because its write handler needs
-// `makeOnIndexed`, which depends on the job queue and gateway roles cli.ts still owns. Moving either
-// function to close that gap would reorder real side-effecting boot steps, which the map's WP5
-// acceptance criterion forbids ("startup order... unchanged"). See server-runtime.ts for why only
-// `wireIndexResources` is folded into the argv-free composition entry.
+// run_serve's index-on-write wiring, extracted verbatim out of cli.ts. Split into TWO exported
+// functions rather than one, because the source order they extract from is not contiguous:
+// `wireIndexResources` (the embedding provider, the vec0/FTS probes, the mutable indexHealth
+// tracker) sits BEFORE cli.ts's job-queue/gateway construction and the inline health/index_status
+// tool registrations; `wireIndexCoordinator` (the coordinator, the reindex/deindex hooks, the
+// vault watcher) sits AFTER them, because its write handler needs `makeOnIndexed`, which depends
+// on the job queue and gateway roles cli.ts still owns. Moving either to close that gap would
+// reorder real side-effecting boot steps. See server-runtime.ts for why only `wireIndexResources`
+// is folded into the argv-free composition entry.
 
 import { type FolderAcl, makeIndexReadable, makeReindexGate } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
@@ -43,10 +41,9 @@ export interface IndexResourcesDeps {
   db: Database;
   metrics: MetricsRecorder;
   /** config.embeddings. `onProviderChange` is required (not part of the narrower
-   *  `EmbeddingsConfigLike`) because GH #995 fix round 2 (item B) applies sticky resolution HERE —
-   *  see this function's own doc comment — and `resolveStickyEmbeddings` needs it. Every real
-   *  caller passes the actual `config.embeddings`, which always carries it (schema default
-   *  "keep"). */
+   *  `EmbeddingsConfigLike`) because sticky resolution applies HERE (see this function's own doc
+   *  comment) and `resolveStickyEmbeddings` needs it. Every real caller passes the actual
+   *  `config.embeddings`, which always carries it (schema default "keep"). */
   embeddings: EmbeddingsConfigLike & {
     batchSize: number;
     concurrency: number;
@@ -54,40 +51,33 @@ export interface IndexResourcesDeps {
     chunkContext: boolean;
     onProviderChange: "keep" | "switch";
   };
-  /** config.vaults, narrowed to the id every sticky-resolution query needs. GH #995 fix round 2
-   *  (item B): required so `wireIndexResources` can apply sticky resolution itself rather than
-   *  relying on every caller to have done so first — see this function's own doc comment. */
+  /** config.vaults, narrowed to the id every sticky-resolution query needs — required so
+   *  `wireIndexResources` can apply sticky resolution itself rather than relying on every caller
+   *  to have done so first. */
   vaults: ReadonlyArray<{ id: string }>;
-  /** THE-612: ensureVecChunks' onRebuild, routed to the metrics recorder by runtime/observability.ts. */
+  /** ensureVecChunks' onRebuild, routed to the metrics recorder by runtime/observability.ts. */
   onVecRebuild: (event: VecRebuildEvent) => void;
-  /** `dirname(configPath)` — the trust root for embeddings.modulePath. See
-   *  `ResolveContext.configDir`'s doc comment (providers/types.ts) for the exact undefined-vs-set
-   *  cases: it is NOT undefined in zero-config vault-path mode, only when `configPath` itself is
-   *  absent. Review round 2 (Minor 5): corrected from a false "undefined when derived from a vault
-   *  path" claim. */
+  /** `dirname(configPath)` — the trust root for embeddings.modulePath. NOT undefined in
+   *  zero-config vault-path mode, only when `configPath` itself is absent (providers/types.ts). */
   configDir?: string;
   securityProfile?: "hardened" | "trusted-local";
-  /** THE-1122: config.cacheDir. Threaded into createEmbeddingProviderAsync so the "local"
-   *  embeddings entry fetches its pinned model weights under `<cacheDir>/models/embedder-local/`
-   *  rather than falling back to a CWD-relative default — see ResolveContext.cacheDir's own
-   *  comment (providers/types.ts). Optional so a caller that predates this keeps working
-   *  (falls back to the relative default, same as before this field existed). */
+  /** config.cacheDir. Threaded into createEmbeddingProviderAsync so the "local" embeddings entry
+   *  fetches its pinned model weights under `<cacheDir>/models/embedder-local/` rather than
+   *  falling back to a CWD-relative default. Optional so a caller that predates this keeps working. */
   cacheDir?: string;
-  /** THE-424: config.indexing.chunkTokens. Lives on `indexing` rather than `embeddings`, so it is
-   *  threaded in beside the embeddings block rather than through it — but it must reach the
-   *  manifest, because this is the ONE place a representation identity is derived and chunk size
-   *  is part of that identity. Optional so a caller that predates it keeps the 512 default. */
+  /** config.indexing.chunkTokens. Lives on `indexing` rather than `embeddings`, so it is threaded
+   *  in beside the embeddings block — but must reach the manifest, since this is the ONE place a
+   *  representation identity is derived. Optional so a caller that predates it keeps the default. */
   chunkTokens?: number;
-  /** THE-934 fix round 1: config.egress.excludePaths, compiled. Threaded into
-   *  createEmbeddingProviderAsync -- the embedding PORT -- so the provider this returns is
-   *  guarded before ANY consumer sees it (indexVault, indexNote/the write path, the query
-   *  encoder, the advisory sweep, everything). Absent -> excludes nothing. */
+  /** config.egress.excludePaths, compiled. Threaded into createEmbeddingProviderAsync — the
+   *  embedding PORT — so the provider this returns is guarded before ANY consumer sees it. Absent
+   *  -> excludes nothing. */
   excludeFilter?: EgressFilter;
 }
 
-/** THE-288: mutable index-health tracker surfaced by server_health. reconcile flips pending ->
- *  ok/degraded when the boot reconcile settles; writeFailures counts swallowed index-on-write
- *  errors (reindex/deindex best-effort). The health tool reads a snapshot at call time. */
+/** Mutable index-health tracker surfaced by server_health. reconcile flips pending -> ok/degraded
+ *  when the boot reconcile settles; writeFailures counts swallowed index-on-write errors. The
+ *  health tool reads a snapshot at call time. */
 export interface IndexHealthState {
   reconcile: "pending" | "ok" | "degraded";
   reconcileAt: number | null;
@@ -100,16 +90,13 @@ export interface IndexHealthState {
   auditWriteFailures: number;
   /** THE-458 (audit #5): times the index-on-write queue depth crossed queueMax (backpressure edges). */
   indexQueueBackpressures: number;
-  /** THE-491: chunks_upserted from the most recent index_vault tool call; null until the first one
-   *  this process (get_index_status surfaces it verbatim). */
+  /** chunks_upserted from the most recent index_vault tool call; null until the first one this
+   *  process (get_index_status surfaces it verbatim). */
   lastChunksUpserted: number | null;
-  /** THE-645: set while an index_vault call is in flight, updated once per completed flush()
-   *  batch; cleared back to null in the tool's onIndexVaultComplete (success) and
-   *  onIndexVaultError (failure) hooks — both guarded on `inFlight?.vault === vaultId`, since
-   *  dispatch has no cross-call serialization and two index_vault calls on different vaults can
-   *  genuinely overlap. This is a SINGLE slot, not a per-vault map: while two runs overlap, it
-   *  reports "an" in-flight run (last onProgress wins), not "all" of them — see tool-wiring.ts's
-   *  wireDomainTools for the ownership-guard reasoning. Plain in-memory — never written to SQLite. */
+  /** Set while an index_vault call is in flight, cleared in the tool's onIndexVaultComplete/
+   *  onIndexVaultError hooks — both guarded on `inFlight?.vault === vaultId`, since two index_vault
+   *  calls on different vaults can genuinely overlap. A SINGLE slot, not a per-vault map: while two
+   *  runs overlap this reports "an" in-flight run, not "all" of them. Plain in-memory. */
   inFlight: {
     vault: string;
     notesSeen: number;
@@ -121,51 +108,44 @@ export interface IndexHealthState {
 
 export interface IndexResources {
   embeddingProvider: EmbeddingProvider;
-  /** THE-683: the representation identity this boot computed, published so every downstream
-   *  indexVault caller passes the SAME one instead of re-deriving it from loose config fields. */
+  /** The representation identity this boot computed, published so every downstream indexVault
+   *  caller passes the SAME one instead of re-deriving it from loose config fields. */
   representation: RepresentationManifest;
-  /** GH #171/#172: the embed-batch knobs, threaded into every reconcile so local runners are tunable. */
+  /** The embed-batch knobs, threaded into every reconcile so local runners are tunable. */
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
   hasVec: boolean;
   hasFts: boolean;
   indexHealth: IndexHealthState;
-  /** THE-507/THE-588: routes a real IndexStats pass to the Prometheus counters — importable and
-   *  testable directly (see metrics/ingest-stats.ts's module doc comment for why). */
+  /** Routes a real IndexStats pass to the Prometheus counters — importable and testable directly. */
   recordIngestStatsFor: (vaultId: string, s: IndexStats) => IndexStats;
-  /** THE-625 item 4: routes every direct indexVault(...) caller through the recorder instead of a
-   *  per-call-site reminder (THE-590 found one caller left uninstrumented). */
+  /** Routes every direct indexVault(...) caller through the recorder instead of a per-call-site
+   *  reminder. */
   indexVaultRecorded: (opts: IndexVaultArgs) => Promise<IndexStats>;
-  /** GH #995 fix round 2 (item B): the sticky-embeddings resolution this call applied, BEFORE
-   *  constructing `embeddingProvider` or probing vec_chunks below — see this function's own doc
-   *  comment. Every caller that used to compute its own (and has now had that call deleted as
-   *  redundant — server-runtime.ts, cli/commands/index.ts) reads it from here instead, so boot and
-   *  `index` cannot disagree about which resolution actually ran. */
+  /** The sticky-embeddings resolution this call applied, BEFORE constructing `embeddingProvider` or
+   *  probing vec_chunks below — every caller that used to compute its own reads it from here
+   *  instead, so boot and `index` cannot disagree about which resolution actually ran. */
   embeddingsSticky: StickyEmbeddingsResolution;
 }
 
 /**
  * Build the embedding provider, probe vec0/FTS5 availability, and construct the mutable index-health
- * tracker. THE-460: the vec0 fingerprint covers provider/model/dims + the fixed representation
- * constants + whether chunkContext enrichment is on, so a same-dimension model swap or an
- * enrichment/chunker change rebuilds vec_chunks instead of serving it stale. THE-291: the FTS5 probe
+ * tracker. The vec0 fingerprint covers provider/model/dims + the fixed representation constants +
+ * whether chunkContext enrichment is on, so a same-dimension model swap or an enrichment/chunker
+ * change rebuilds vec_chunks instead of serving it stale. The FTS5 probe
  * is false on adapters without FTS5 or when OBSIDIAN_TC_DISABLE_FTS=1.
  *
- * GH #995 fix round 2 (root cause, item B): this is the ONE construction choke point every
- * provider/index path goes through — boot (runtime/server-runtime.ts's wireRuntimeCore) AND
- * `obsidian-tc index` (cli/commands/index.ts) both call this, and nothing else in this codebase
- * calls `createEmbeddingProviderAsync` or `ensureVecChunks` directly. Applying sticky resolution
- * HERE, before either of those two calls, means a caller of THIS function can no longer forget to
- * resolve sticky first — the failure class the review found in `rerun.ts` (which reaches this
- * function transitively through `buildServerRuntime`, with no sticky call of its own) is closed by
+ * GH #995: this is the ONE construction choke point every provider/index path goes through —
+ * boot (server-runtime.ts's wireRuntimeCore) AND `obsidian-tc index` (cli/commands/index.ts) both
+ * call this, and nothing else in this codebase calls `createEmbeddingProviderAsync` or
+ * `ensureVecChunks` directly. Applying sticky resolution HERE, before either of those two calls,
+ * means a caller of THIS function can no longer forget to resolve sticky first — closed by
  * construction, not by a caller-discovery test enumerating who currently remembers to call it.
  */
 export async function wireIndexResources(deps: IndexResourcesDeps): Promise<IndexResources> {
   // Mutates `deps.embeddings` IN PLACE when it resolves to keep a different provider — the SAME
   // object reference the caller's `config.embeddings` is, so this is visible to every OTHER
-  // consumer of that config the caller reads afterward (reranker/gateway wiring, job handlers),
-  // exactly as it was when each caller applied this itself before this fix. Throws (never
-  // constructs a guessed provider) when the kept identity is unmappable — see
-  // embeddings/sticky-provider.ts's applyStickyEmbeddings, finding 4.
+  // consumer of that config the caller reads afterward. Throws (never constructs a guessed
+  // provider) when the kept identity is unmappable — see applyStickyEmbeddings.
   const embeddingsSticky = applyStickyEmbeddings(
     { embeddings: deps.embeddings, vaults: deps.vaults },
     deps.db,
@@ -181,12 +161,10 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     concurrency: deps.embeddings.concurrency,
     maxBatchTokens: deps.embeddings.maxBatchTokens,
   };
-  // THE-683: the ONE derivation. This manifest is also handed to indexVault (IndexVaultArgs
-  // .representation) rather than rebuilt there, so boot and the index_vault tool cannot compute
-  // different identities for the same table — the unbounded-rebuild-loop hazard the old
-  // hand-built pair carried, previously guarded only by a parity test.
-  // THE-424: chunkTokens rides in alongside the embeddings block — it belongs to config.indexing,
-  // but the manifest is one flat identity and this is its only derivation point.
+  // The ONE derivation. This manifest is also handed to indexVault (IndexVaultArgs.representation)
+  // rather than rebuilt there, so boot and the index_vault tool cannot compute different
+  // identities for the same table. chunkTokens rides in alongside the embeddings block — it
+  // belongs to config.indexing, but the manifest is one flat identity.
   const representation = buildRepresentationManifest(embeddingProvider, {
     ...deps.embeddings,
     ...(deps.chunkTokens !== undefined ? { chunkTokens: deps.chunkTokens } : {}),
@@ -241,58 +219,53 @@ export interface IndexCoordinatorDeps {
   chunkContext: boolean;
   /** config.indexing */
   indexing: { writeConcurrency: number; writeConcurrencyPerVault: number; queueMax: number };
-  /** The CANONICAL vault roots (vaultRegistry.list(), not raw config.vaults — see
-   *  server-runtime.ts's call site, THE-1081 review round), narrowed to what registerVaultWatch
-   *  needs. */
+  /** The CANONICAL vault roots (vaultRegistry.list(), not raw config.vaults), narrowed to what
+   *  registerVaultWatch needs. */
   vaults: readonly { id: string; path: string }[];
   /** config.watch */
   watch: { enabled: boolean; debounceMs: number };
   sqlHooksFor: (vault: string) => WriteTxnHooks;
-  /** THE-585 (#5)/THE-458 (audit #5): bump indexHealth's write-failure and backpressure counters —
-   *  the SAME indexHealth `wireIndexResources` constructed, threaded in as a value (this function
-   *  runs strictly after that one, so there is no forward-reference here). */
+  /** Bumps indexHealth's write-failure and backpressure counters — the SAME indexHealth
+   *  `wireIndexResources` constructed, threaded in as a value. */
   indexHealth: Pick<
     IndexHealthState,
     "writeFailures" | "lastWriteError" | "indexQueueBackpressures"
   >;
-  /** THE-295: root ACL + per-vault overrides, owned by governance. */
+  /** Root ACL + per-vault overrides, owned by governance. */
   acl: FolderAcl;
   aclByVault: Map<string, FolderAcl>;
-  /** W-INGEST onIndexed hook -> contradiction-check enqueue. Owned by cli.ts (needs the job queue +
-   *  gateway roles, WP5.2 territory) and passed in as a plain function — this module never
-   *  constructs a job queue or a gateway client. */
+  /** onIndexed hook -> contradiction-check enqueue. Owned by cli.ts (needs the job queue + gateway
+   *  roles) and passed in as a plain function — this module never constructs a job queue or a
+   *  gateway client. */
   makeOnIndexed: (vaultId: string) => IndexHook | undefined;
-  /** THE-934 fix round 1 (Blocking-1): egress.excludePaths, as a per-path predicate. Threaded
-   *  into indexNote for EVERY write through this coordinator — write_note/append_note/patch_note,
-   *  the vault watcher, and a move/rename INTO an excluded folder. Absent -> nothing excluded. */
+  /** egress.excludePaths, as a per-path predicate. Threaded into indexNote for EVERY write through
+   *  this coordinator. Absent -> nothing excluded. */
   isEgressExcluded?: (rel: string) => boolean;
-  /** GH #995: gates ONLY the vault WATCHER's onUpsert/onDelete callbacks below (see this
-   *  function's own doc comment) — never `reindexHook`/`deindexHook` themselves, which stay
-   *  reachable for explicit tool writes (write_note et al.) and this process's OWN writes on every
-   *  role. Absent (every caller that predates the leader lock, including every existing test of
-   *  this function) behaves as "always leader" — a single-process deployment never gates anything.
-   *  See src/runtime/vault-lock.ts for what elects the leader. */
+  /** GH #995: gates ONLY the vault WATCHER's onUpsert/onDelete callbacks below — never
+   *  `reindexHook`/`deindexHook` themselves, which stay reachable for explicit tool writes and
+   *  this process's OWN writes on every role. Absent behaves as "always leader" — a single-process
+   *  deployment never gates anything. See src/runtime/vault-lock.ts for what elects the leader. */
   isLeader?: () => boolean;
-  /** F1 (fix round 2): fires on every demote — drops pending watcher-originated coordinator ops. */
+  /** Fires on every demote — drops pending watcher-originated coordinator ops. */
   onDemote?: (cb: (reason: string) => void) => void;
 }
 
 export interface IndexCoordinatorWiring {
   indexCoordinator: IndexCoordinator;
-  /** THE-453 (runtime): per-vault ACL read-visibility filter shared by the boot reconcile, runtime
-   *  add_vault, AND the index-on-write hook below. */
+  /** Per-vault ACL read-visibility filter shared by the boot reconcile, runtime add_vault, AND the
+   *  index-on-write hook below. */
   indexReadableFor: (vaultId: string) => (rel: string) => boolean;
   reindexHook: (vaultId: string, path: string, content: string) => void;
   deindexHook: (vaultId: string, path: string) => void;
-  /** THE-649: stops the filesystem watch. Idempotent cleanup for this wiring step — the only
-   *  resource it owns that outlives its own construction. */
+  /** Stops the filesystem watch — idempotent, the only resource this wiring step owns that
+   *  outlives its own construction. */
   stopVaultWatch: () => void;
 }
 
 /**
- * THE-455: route every index-on-write mutation through a per-(vault,path) coordinator so same-path
- * writes/deletes serialize (newest wins) while different paths stay concurrent. THE-649: feed the
- * SAME reindexHook the write path uses into the vault watcher, so a watched change is read-ACL-gated
+ * Routes every index-on-write mutation through a per-(vault,path) coordinator so same-path
+ * writes/deletes serialize (newest wins) while different paths stay concurrent, and feeds the SAME
+ * reindexHook the write path uses into the vault watcher, so a watched change is read-ACL-gated
  * identically to a write_note.
  */
 export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinatorWiring {

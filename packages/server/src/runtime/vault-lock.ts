@@ -1,72 +1,47 @@
-// GH #995: per-vault (really per-cacheDir — the same granularity cache.db already uses; see
-// stores.ts's `openDatabase(join(deps.cacheDir, "cache.db"), ...)`) indexing LEADER LOCK. When
-// several MCP clients spawn separate stdio processes against the SAME vault config, every process
-// previously ran its own boot reconcile/embed pass AND its own watcher-driven index writes
-// concurrently — an N-times CPU storm and a genuine multi-writer race on one shared cache.db (the
-// Serena-class corruption risk; see
-// /home/ubuntu/src/research/obsidian-tc-shared-instance-2026-09-28/{00-recommendation,02-primitives}.md).
+// Per-vault (really per-cacheDir — the granularity cache.db already uses) indexing LEADER LOCK.
+// Several MCP stdio processes against the same vault config previously all ran boot reconcile/
+// embed and watcher-driven index writes concurrently — an N-times CPU storm and a real
+// multi-writer race on one shared cache.db.
 //
-// This module elects exactly ONE of those processes "leader": the one holding an UNCOMMITTED
-// `BEGIN EXCLUSIVE` transaction open on a small side SQLite file next to cache.db
-// (`vault-lock.db`). Followers retry on a jittered timer and promote the moment the leader's
-// transaction is released — which happens automatically on ANY holder exit, including SIGKILL,
-// because `BEGIN EXCLUSIVE` is a real OS-level lock under SQLite's own hood (POSIX advisory /
-// Win32 LockFileEx), not application state that needs a stale-timeout policy. `PRAGMA
-// busy_timeout=0` on the acquiring connection makes contention fail IMMEDIATELY — "busy" here
-// means "someone else is leader", never "wait your turn".
+// Exactly one process becomes "leader": the one holding an UNCOMMITTED `BEGIN EXCLUSIVE`
+// transaction on a side SQLite file next to cache.db (`vault-lock.db`). Followers retry on a
+// jittered timer and promote when the leader's transaction releases — automatic on ANY holder
+// exit, including SIGKILL, since `BEGIN EXCLUSIVE` is a real OS-level lock, never application
+// state needing a stale-timeout policy. `PRAGMA busy_timeout=0` makes contention fail immediately
+// — "busy" always means "someone else is leader".
 //
-// THE GC TRAP (read before touching this file). A `bun:sqlite` `Database` with no reachable JS
-// reference is finalized by Bun's GC — and the finalizer CLOSES the native connection, silently
-// releasing the lock out from under a still-running leader. Measured directly (Bun 1.4.2, SQLite
-// 3.53.2): a holder that keeps a STRONG reference to its `Database` (and a closure that actually
-// USES it, not merely captures it — JSC drops an unused capture) stays leader through repeated
-// forced `Bun.gc(true)`; a holder with no live reference lets a challenger ACQUIRE within one GC
-// cycle (~0.3s), no crash, no error, nothing to grep for. test/vault-lock-gc-trap.test.ts pins
-// this against the REAL module below (Bun only — the trap is Bun-specific).
-//
-// Why `openDatabase` (this repo's existing bun-sqlite.ts / node-better-sqlite3.ts /
-// node-node-sqlite.ts split) rather than a bespoke connection: its returned `Database` port's
-// `close`/`exec`/`prepare` methods are CLOSURES over the native handle, so holding the RETURNED
-// PORT OBJECT alive already keeps the native handle reachable through that closure — no separate
-// "pin" object is needed on top. This module stores that port on the `VaultLeaderElection` it
-// returns (see `lockDb` below), which the caller keeps referenced for the whole runtime's
-// lifetime, and additionally runs a keepalive tick that reads through the connection (not just
-// captures it) belt-and-braces against the trap above.
+// GC TRAP (read before touching this file): a `bun:sqlite` `Database` with no reachable JS
+// reference is finalized by Bun's GC, which CLOSES the native connection and silently releases
+// the lock. A holder must keep a STRONG reference to its `Database` AND a closure that actually
+// USES it (an unused capture is dropped by JSC); test/vault-lock-gc-trap.test.ts pins this
+// (Bun-only). Uses `openDatabase` rather than a bespoke connection so the returned port's own
+// closures (over the native handle) keep it reachable, plus a belt-and-braces keepalive tick.
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openDatabase } from "../db/open";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../db/pragmas";
 import type { Database } from "../db/types";
-// F1 (fix round 2): reuse the SAME bounded-join primitive close()'s own SHUTDOWN_RECONCILE_OVERLAP
-// fix uses, rather than re-implementing a second race-against-a-timer here.
+// Reuses close()'s own SHUTDOWN_RECONCILE_OVERLAP bounded-join primitive.
 import { joinInFlightReconcile } from "./shutdown-phase";
 
-// Exported (fix round, GH #995): tests assert against the literal path this module actually uses.
 export const LOCK_FILE_NAME = "vault-lock.db";
 const STATUS_FILE_NAME = "vault-lock.status.json";
-/** COLD_BOOT_PRELOCK (fix round): withBootstrapBarrier's OWN file, deliberately NOT vault-lock.db.
- *  The barrier's `BEGIN IMMEDIATE` is transient (released the instant `fn()` returns); the leader
- *  election's `BEGIN EXCLUSIVE` on vault-lock.db is held for the process's whole lifetime. Sharing
- *  one file was tried and DEADLOCKED: the moment the barrier's winner becomes leader, it holds
- *  vault-lock.db's EXCLUSIVE lock forever, and a loser still waiting on ITS OWN barrier acquire
- *  (busy-retrying a `BEGIN IMMEDIATE` on the SAME file) then blocks for the full busy_timeout with
- *  no way to ever succeed — a permanent lock defeating a transient one contending on one file. */
+/** COLD_BOOT_PRELOCK: withBootstrapBarrier's OWN file, deliberately NOT vault-lock.db. Sharing one
+ *  file DEADLOCKED: the barrier winner becomes leader and holds vault-lock.db's EXCLUSIVE lock
+ *  forever, permanently blocking a loser still busy-retrying its own transient barrier acquire on
+ *  that same file. */
 const BOOTSTRAP_BARRIER_FILE_NAME = "vault-lock-bootstrap.db";
 
 /** Follower retry jitter window per the design doc (5-15s). */
 export const DEFAULT_RETRY_MIN_MS = 5000;
 export const DEFAULT_RETRY_MAX_MS = 15000;
 
-/** How often a leader's keepalive tick reads through its own lock connection — see this file's GC
- *  trap header. Cheap (a single in-transaction `SELECT 1`), and only ever scheduled for a leader.
- *  Also where the fix-round LOCK_TXN_LOSS/LOCK_FILE_REPLACEMENT checks run (see `scheduleKeepalive`
- *  below) — overridable via `keepaliveMs` so a test can observe demotion without waiting out the
- *  production interval. */
+/** How often a leader's keepalive tick reads through its lock connection (GC trap header) and runs
+ *  the LOCK_TXN_LOSS/LOCK_FILE_REPLACEMENT checks — overridable for tests. */
 const KEEPALIVE_MS = 1000;
 
-/** Bounded wait for `withBootstrapBarrier`'s blocking `BEGIN IMMEDIATE` — long enough to sit behind
- *  a genuinely slow concurrent migration pass, short enough that a truly stuck holder still fails
- *  boot loudly rather than hanging forever. */
+/** Bounded wait for `withBootstrapBarrier`'s blocking `BEGIN IMMEDIATE` — long enough for a slow
+ *  concurrent migration, short enough that a truly stuck holder still fails boot loudly. */
 const BOOTSTRAP_BARRIER_TIMEOUT_MS = 60_000;
 
 /** dev+inode identity of a stat'd file — LOCK_FILE_REPLACEMENT's mismatch check compares this
@@ -81,13 +56,12 @@ function statIdentity(path: string): FileIdentity | undefined {
     const s = statSync(path);
     return { dev: s.dev, ino: s.ino };
   } catch {
-    return undefined; // gone entirely — also a mismatch, handled by the caller
+    return undefined;
   }
 }
 
-/** F4 (fix round 2): a follower's most recent NON-BUSY acquisition failure — busy (someone else is
- *  leader) is the expected steady state and never populates this. `count` is cumulative across the
- *  life of the election, so a caller can tell "still failing" from "failed once, long ago". */
+/** F4: a follower's most recent NON-BUSY acquisition failure (busy contention never populates
+ *  this); `count` is cumulative across the election's life. */
 export interface LockErrorInfo {
   message: string;
   code?: string;
@@ -95,66 +69,47 @@ export interface LockErrorInfo {
   lastAt: string;
 }
 
+// Every `on*`/`open*`/`statIdentity` option below is a TEST HOOK, never set by production — each
+// lets a test inject a race without touching a file another connection still has open (Windows).
 export interface VaultLeaderElectionOptions {
   /** Same directory cache.db lives in — the lock file sits beside it. */
   cacheDir: string;
-  /** Recorded in the (best-effort, diagnostics-ONLY — never the exclusion mechanism) status file. */
+  /** Recorded in the best-effort, diagnostics-only status file — never the exclusion mechanism. */
   pid?: number;
   version?: string;
   retryMinMs?: number;
   retryMaxMs?: number;
-  /** Test hook: fires after every acquisition attempt (leader or follower) with whether it
-   *  succeeded, before scheduling the next retry — lets a test observe retry cadence without
-   *  sleeping out the real jitter window. Never called by production callers. */
+  /** Fires after every acquisition attempt with whether it succeeded — observes retry cadence
+   *  without sleeping out the real jitter window. */
   onAttempt?: (acquired: boolean) => void;
-  /** Test hook (fix round, CLOSE_PROMOTION_RACE/LOCK_TXN_LOSS/LOCK_FILE_REPLACEMENT): fires with
-   *  the raw lock `Database` the instant an acquisition succeeds, before this module's own
-   *  bookkeeping (promote/keepalive) runs — lets a test race `close()` against promotion, or
-   *  simulate a lost transaction on the SAME connection the module holds. Never called by
-   *  production callers. */
+  /** CLOSE_PROMOTION_RACE/LOCK_TXN_LOSS/LOCK_FILE_REPLACEMENT: fires with the raw lock `Database`
+   *  the instant an acquisition succeeds, before promote/keepalive bookkeeping runs. */
   onAcquire?: (db: Database) => void;
-  /** Test hook (fix round, LOCK_TXN_LOSS/LOCK_FILE_REPLACEMENT): fires with the reason string every
-   *  time the keepalive tick demotes a leader. Never called by production callers — production
-   *  demotion is logged to stderr instead (see `demote` below). */
+  /** LOCK_TXN_LOSS/LOCK_FILE_REPLACEMENT: fires with the reason on every keepalive-detected
+   *  demotion. Production demotion is logged to stderr instead (see `demote` below). */
   onDemote?: (reason: string) => void;
-  /** Overrides `KEEPALIVE_MS` — production never sets this; tests use it to observe a demotion
-   *  without waiting out the real 1s interval. */
+  /** Overrides `KEEPALIVE_MS` for tests. */
   keepaliveMs?: number;
-  /** Test-only override for opening the lock connection (`tryAcquire`'s `openDatabase` call).
-   *  Lets a test inject a non-busy OPEN failure (ENOSPC/EACCES/corrupt file — F4) without touching
-   *  the cacheDir or lock file another connection in the SAME process still has open, which a real
-   *  unlink/rmdir cannot do on Windows (an open file/its parent directory cannot be removed there
-   *  — see vault-lock.test.ts's F4 case). Defaults to the real `openDatabase` against
-   *  `LOCK_FILE_NAME` under `cacheDir`. Never set by production callers. */
+  /** Overrides the lock connection open — injects a non-busy OPEN failure (ENOSPC/EACCES/corrupt
+   *  file, F4). */
   openLockDb?: (cacheDir: string) => Promise<Database>;
-  /** Test-only override for the dev+inode identity check both `promote()` (post-acquire, F5) and
-   *  the keepalive tick (LOCK_FILE_REPLACEMENT) use. Lets a test inject a stat failure or a
-   *  mismatched identity without unlinking/replacing a file this SAME process still has open,
-   *  which a real unlink/replace cannot do on Windows either (same constraint as `openLockDb`
-   *  above). Defaults to a real `statSync`-based dev+inode read. Never set by production callers. */
+  /** Overrides the dev+inode identity check both `promote()` (F5) and the keepalive tick
+   *  (LOCK_FILE_REPLACEMENT) use — injects a stat failure or a mismatched identity. */
   statIdentity?: (path: string) => FileIdentity | undefined;
 }
 
 export interface VaultLeaderElection {
   isLeader(): boolean;
-  /** Registers a callback that fires on EVERY promotion, first and every re-acquisition after a
-   *  demote (fix round 2, F2) — never spliced-off after one firing, so a promote→demote→re-promote
-   *  cycle still runs the catch-up reconcile (periodic reconcile is off by default). Never fires
-   *  for a process that started as leader. */
+  /** Fires on EVERY promotion, first and every re-acquisition after a demote (F2) — never
+   *  spliced-off, so a promote→demote→re-promote cycle still runs the catch-up reconcile. */
   onPromote(cb: () => void): void;
-  /** Registers a callback that fires on every keepalive-detected demotion (fix round 2, F1), never
-   *  on `close()` (its own abort→join→release sequence lives in server-runtime.ts). `demote()`
-   *  AWAITS every registered callback in order BEFORE releasing the lock, so a callback that stops
-   *  this process's own writes actually finishes before a challenger can start its own. A callback
-   *  that throws is logged and does not block the others or the release that follows. */
+  /** Fires on every keepalive-detected demotion (F1); AWAITED before the lock releases, so this
+   *  process's own writes stop before a challenger can start its own. */
   onDemote(cb: (reason: string) => Promise<void> | void): void;
-  /** F4 (fix round 2): the most recent NON-BUSY error a follower's retry hit (undefined if none
-   *  ever happened, or only busy contention so far) — health.ts's leader_role_detail reads this. */
+  /** F4: the most recent NON-BUSY error a follower's retry hit — health.ts reads this. */
   getLastFollowerError(): LockErrorInfo | undefined;
   /** Idempotent. Stops any pending retry timer and, if leader, rolls back + closes the lock
-   *  connection so the OS releases it immediately rather than waiting for process exit — the
-   *  bounded-shutdown deadline (#997, runtime/shutdown-phase.ts) this runs inside of does not
-   *  depend on it, but a prompt release lets a waiting follower promote sooner. */
+   *  connection so the OS releases it immediately rather than at process exit. */
   close(): Promise<void>;
 }
 
@@ -171,24 +126,14 @@ function isBusyError(err: unknown): boolean {
 
 /**
  * One acquisition attempt: opens a FRESH connection and tries to take + hold `BEGIN EXCLUSIVE`
- * non-blocking. Returns the open `Database` (transaction held) on success, `undefined` on
- * contention. Any OTHER error (disk full, corrupt lock file) propagates — a non-busy failure to
- * even open the lock file must not silently read as "just a follower".
+ * non-blocking. Returns the open `Database` on success, `undefined` on contention. Any OTHER error
+ * (disk full, corrupt lock file) propagates.
  *
- * COLD_BOOT_PRELOCK (fix round 2): the open itself is NOT `busy_timeout=0`. `openDatabase`'s own
- * connectionPragmas() convert a brand-new file to WAL as part of opening it (db/pragmas.ts — the
- * order is load-bearing, `busy_timeout` first), and that conversion needs a brief EXCLUSIVE lock.
- * Two processes racing the SAME fresh lock file previously both opened with `busy_timeout=0`, so
- * the loser's WAL-conversion pragma threw `SQLITE_BUSY`/"database is locked" straight out of
- * `openDatabase` — OUTSIDE this function's try/catch, unhandled, ~3/8 runs of the
- * COLD_BOOT_PRELOCK integration test. Opening with `DEFAULT_BUSY_TIMEOUT_MS` instead lets that
- * pragma wait out a concurrent converter exactly like every other connection in this repo; the
- * connection is then switched to non-blocking (`busy_timeout=0`) right before the actual election
- * attempt below, so lock CONTENTION (as opposed to the one-time WAL conversion) still fails
- * immediately — see this file's header on why "busy" here means "someone else is leader".
- *
- * `openLockDb` is production's real open (`opts.openLockDb ?? defaultOpenLockDb` below) unless a
- * test overrides it — see `VaultLeaderElectionOptions.openLockDb`'s own doc comment (F4).
+ * COLD_BOOT_PRELOCK: the open itself is NOT `busy_timeout=0`. `openDatabase` converts a brand-new
+ * file to WAL as part of opening it, which needs a brief EXCLUSIVE lock — two processes racing the
+ * same fresh file with `busy_timeout=0` threw `SQLITE_BUSY` straight out of `openDatabase`,
+ * unhandled. `DEFAULT_BUSY_TIMEOUT_MS` lets that pragma wait out a concurrent converter instead;
+ * the connection then switches to non-blocking right before the actual election attempt below.
  */
 async function tryAcquire(
   cacheDir: string,
@@ -198,9 +143,8 @@ async function tryAcquire(
   try {
     db = await openLockDb(cacheDir);
   } catch (err) {
-    // A busy-shaped failure at OPEN time is the WAL-conversion race above, not a lock-file
-    // problem — classify it the same as a busy BEGIN EXCLUSIVE so a follower retries instead of
-    // this election crashing outright on what is really contention.
+    // Busy-shaped failure at OPEN time is the WAL-conversion race above — classify like a busy
+    // BEGIN EXCLUSIVE so a follower retries instead of crashing on real contention.
     if (isBusyError(err)) return undefined;
     throw err;
   }
@@ -211,9 +155,7 @@ async function tryAcquire(
   } catch (err) {
     try {
       db.close?.();
-    } catch {
-      // best-effort: this connection never held the lock, nothing to release
-    }
+    } catch {}
     if (isBusyError(err)) return undefined;
     throw err;
   }
@@ -226,17 +168,13 @@ function writeStatusFile(
   try {
     writeFileSync(join(cacheDir, STATUS_FILE_NAME), `${JSON.stringify(info, null, 2)}\n`, "utf8");
   } catch {
-    // Diagnostics-only, best-effort — see this file's header on why status is never the exclusion
-    // mechanism (a real SQL row inside the held EXCLUSIVE transaction would be unreadable by any
-    // OTHER connection for the leader's entire lifetime, which would defeat the diagnostic point).
+    // Diagnostics-only, best-effort — never the exclusion mechanism.
   }
 }
 
 /**
  * Starts (or joins) this vault's leader election. Resolves once the FIRST acquisition attempt has
- * settled: either this process is leader immediately, or it is a follower with a retry timer
- * already scheduled (unref'd — it never keeps the process alive on its own, matching the repo's
- * other background timers, e.g. the scheduler).
+ * settled: leader immediately, or a follower with a retry timer already scheduled (unref'd).
  */
 export async function startVaultLeaderElection(
   opts: VaultLeaderElectionOptions,
@@ -252,59 +190,34 @@ export async function startVaultLeaderElection(
     ((dir: string) => openDatabase(join(dir, LOCK_FILE_NAME), DEFAULT_BUSY_TIMEOUT_MS));
   const statFn = opts.statIdentity ?? statIdentity;
 
-  // Strong references, held for the life of the returned VaultLeaderElection — see this file's GC
-  // trap header. `lockDb` is undefined for a follower and set exactly once, on promotion (and
-  // cleared again on close()/demotion).
-  let lockDb: Database | undefined;
-  // The dev+inode this leader's `lockDb` was actually opened against — LOCK_FILE_REPLACEMENT's
-  // keepalive check compares a fresh stat of `lockPath` to this on every tick.
-  let heldIdentity: FileIdentity | undefined;
+  let lockDb: Database | undefined; // strong ref for the GC trap (header); set on promotion
+  let heldIdentity: FileIdentity | undefined; // dev+inode `lockDb` opened against, for keepalive
   let leader = false;
   let closed = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let keepaliveTimer: ReturnType<typeof setTimeout> | undefined;
   const promoteCallbacks: Array<() => void> = [];
-  // F1 (fix round 2): fired and AWAITED by demote() before it releases the lock connection and
-  // retries — see the VaultLeaderElection.onDemote doc above.
   const demoteCallbacks: Array<(reason: string) => Promise<void> | void> = [];
-  // F5 (fix round 2): a mismatch/gone stat at ONE keepalive tick can be transient (a concurrent
-  // writer replacing the file in two steps, a momentarily-failed stat) — require it to reproduce
-  // on the NEXT tick too before demoting a leader that may still genuinely hold the lock.
-  let identityMismatchStreak = 0;
-  // F4 (fix round 2): a follower's retry previously swallowed EVERY non-busy error identically to
-  // a busy one — silent forever if the lock file becomes unopenable (ENOSPC/EACCES/corrupt).
-  // Tracked here so a caller (server-runtime.ts's health wiring) can surface it without this
-  // module depending on the metrics/health modules.
-  let lastFollowerError: LockErrorInfo | undefined;
+  let identityMismatchStreak = 0; // F5: a mismatch must reproduce on the NEXT tick too (see below)
+  let lastFollowerError: LockErrorInfo | undefined; // F4: surfaced via health.ts
 
-  /** Best-effort release of `lockDb` without assuming its transaction is still open — a plain
-   *  ROLLBACK against an already-autocommit connection (LOCK_TXN_LOSS) or a connection whose file
-   *  was replaced out from under it (LOCK_FILE_REPLACEMENT) is harmless either way. */
+  // Best-effort: a plain ROLLBACK against an already-autocommit or file-replaced connection is
+  // harmless either way.
   const releaseLockDb = (): void => {
     if (!lockDb) return;
     try {
       lockDb.exec("ROLLBACK");
-    } catch {
-      // best-effort: releasing promptly is the goal, not a clean ROLLBACK reply
-    }
+    } catch {}
     try {
       lockDb.close?.();
-    } catch {
-      // best-effort
-    }
+    } catch {}
     lockDb = undefined;
     heldIdentity = undefined;
   };
 
-  /** STALE_ROLE_AFTER_CLOSE / LOCK_TXN_LOSS / LOCK_FILE_REPLACEMENT (fix round): the ONE place
-   *  `leader` flips back to false once this process is no longer actually holding the OS-level
-   *  lock — from close() (an intentional release) or from the keepalive tick discovering the lock
-   *  was lost out from under it. `isLeader()` and `gateReconcileByLeader`'s live `election.isLeader()`
-   *  read both reflect this the instant it runs, never a stale cached true. */
-  /** F1 (fix round 2): async — awaits every `onDemote` callback (abort reconcile, cancel queued
-   *  watcher ops, join the run) BEFORE releasing the lock, so this process's own writes actually
-   *  stop before a challenger can start its own. `leader` still flips `false` SYNCHRONOUSLY first,
-   *  so every `isLeader()` read sees it before any callback has even started running. */
+  // STALE_ROLE_AFTER_CLOSE / LOCK_TXN_LOSS / LOCK_FILE_REPLACEMENT: the ONE place `leader` flips
+  // false once this process no longer holds the OS-level lock. F1: async — awaits every `onDemote`
+  // callback BEFORE releasing, so this process's own writes stop before a challenger can start.
   const demote = async (reason: string): Promise<void> => {
     const wasLeader = leader;
     leader = false;
@@ -329,15 +242,10 @@ export async function startVaultLeaderElection(
 
   const scheduleKeepalive = (): void => {
     keepaliveTimer = setTimeout(() => {
-      // Read THROUGH the connection (not just close over it) — a closure that only captures `db`
-      // without using it is dropped by JSC and does not prevent the GC trap (see header).
+      // Read THROUGH the connection, not just close over it — see GC trap header.
       if (lockDb) {
         // LOCK_TXN_LOSS: SQLite auto-rolls-back an open transaction on IOERR/FULL/NOMEM/BUSY/
-        // INTERRUPT (its own documented behavior), silently returning the connection to
-        // autocommit. `inTransaction` is each adapter's live probe (bun:sqlite/better-sqlite3's
-        // `.inTransaction`, node:sqlite's `.isTransaction` — see db/types.ts). Absent only on an
-        // adapter this repo doesn't ship; a missing probe is treated as "can't tell", never as
-        // "lost", so it stays best-effort exactly like the liveness poke below.
+        // INTERRUPT. Absent probe (unshipped adapter) reads "can't tell", never "lost".
         let stillInTransaction: boolean | undefined;
         try {
           stillInTransaction = lockDb.inTransaction?.();
@@ -345,20 +253,11 @@ export async function startVaultLeaderElection(
           stillInTransaction = undefined;
         }
         if (stillInTransaction === false) {
-          // A lost transaction is a hard, unambiguous signal (SQLite already rolled it back) —
-          // demote immediately, no streak needed.
           void demote("lock transaction is no longer open (SQLite auto-rollback)");
           return;
         }
-        // LOCK_FILE_REPLACEMENT: compare the PATH's current dev+inode to the one this connection
-        // was actually opened against. An external replace/restore (unlink+recreate, or an atomic
-        // rename over the same name) leaves this connection's fd pointing at the OLD file while a
-        // fresh open of the same path now reaches a DIFFERENT one — two disjoint lock namespaces,
-        // both readable as "the lock", which is exactly the two-leaders hazard this guards.
-        //
-        // F5 (fix round 2): a mismatch (including a transient stat() failure — `!current`) must
-        // reproduce on TWO CONSECUTIVE ticks before demoting. A single glitch here previously
-        // demoted a still-live leader outright.
+        // LOCK_FILE_REPLACEMENT: an external replace leaves this fd on the OLD file. F5: a mismatch
+        // must reproduce on TWO CONSECUTIVE ticks — a single glitch demoted a still-live leader.
         if (heldIdentity) {
           const current = statFn(lockPath);
           const mismatch =
@@ -375,9 +274,7 @@ export async function startVaultLeaderElection(
         }
         try {
           void lockDb.prepare("SELECT 1").get();
-        } catch {
-          // best-effort liveness poke; a real failure here surfaces via the next real operation
-        }
+        } catch {}
       }
       if (!closed) scheduleKeepalive();
     }, keepaliveMs);
@@ -385,23 +282,16 @@ export async function startVaultLeaderElection(
   };
 
   const promote = (db: Database): void => {
-    // F5 (fix round 2): if `stat` on the just-acquired lock file fails (ENOENT — raced against an
-    // external unlink between BEGIN EXCLUSIVE and this stat), the replacement check below would
-    // never run at all (`heldIdentity` stays undefined forever), so this process could hold the
-    // lock while a second process ALSO holds it against a different inode at the same path with
-    // no detection for the rest of its life. Release and retry rather than become leader blind.
+    // F5: if `stat` on the just-acquired lock file fails, `heldIdentity` would stay undefined
+    // forever and the replacement check could never detect a second holder. Release and retry.
     const identity = statFn(lockPath);
     if (!identity) {
       try {
         db.exec("ROLLBACK");
-      } catch {
-        // best-effort: this connection never became `lockDb`, nothing else references it
-      }
+      } catch {}
       try {
         db.close?.();
-      } catch {
-        // best-effort
-      }
+      } catch {}
       if (!closed) scheduleRetry();
       return;
     }
@@ -411,11 +301,7 @@ export async function startVaultLeaderElection(
     leader = true;
     writeStatusFile(opts.cacheDir, { pid, startedAt: new Date().toISOString(), version });
     scheduleKeepalive();
-    // F2 (fix round 2): iterate WITHOUT consuming — a callback registered once must fire on EVERY
-    // promotion (first AND every re-promotion after a demote), not just the first. Previously
-    // `splice(0)` drained the list, so a follower that promoted, demoted, and re-promoted ran its
-    // second promotion with an empty list — the catch-up reconcile this wires (see
-    // `gateReconcileByLeader` below) never ran for whatever the process missed while demoted.
+    // F2: iterate WITHOUT consuming — must fire on EVERY promotion, not just the first.
     for (const cb of promoteCallbacks) cb();
   };
 
@@ -429,12 +315,7 @@ export async function startVaultLeaderElection(
           try {
             acquired = await tryAcquire(opts.cacheDir, openLockDb);
           } catch (err) {
-            // F4 (fix round 2): classify rather than swallow. A busy-shaped failure is the
-            // expected steady state (someone else is leader) and stays silent, exactly as before.
-            // Anything else (ENOSPC, EACCES, a corrupt lock file) previously vanished identically
-            // — no log, no counter — so a follower could retry forever with zero visibility into
-            // WHY no leader was ever elected. Retry cadence is unchanged either way (the same
-            // jittered backoff below); this only adds observability.
+            // F4: classify rather than swallow. Non-busy errors are surfaced instead of vanishing.
             if (!isBusyError(err)) {
               const code = (err as { code?: string } | null)?.code;
               const message = err instanceof Error ? err.message : String(err);
@@ -450,24 +331,17 @@ export async function startVaultLeaderElection(
             }
           }
           if (acquired) opts.onAcquire?.(acquired);
-          // CLOSE_PROMOTION_RACE (fix round): recheck `closed` AFTER the await, not just before it
-          // — close() can run while this attempt is in flight. A stale check before the await let
-          // an already-closed follower promote anyway (leader=true with a lock nothing intends to
-          // hold), leaving the transaction open and every future challenger BLOCKED against a
-          // process that reports itself closed.
+          // CLOSE_PROMOTION_RACE: recheck `closed` AFTER the await — a stale pre-await check let an
+          // already-closed follower promote anyway, blocking every future challenger.
           opts.onAttempt?.(acquired !== undefined);
           if (closed) {
             if (acquired) {
               try {
                 acquired.exec("ROLLBACK");
-              } catch {
-                // best-effort: this connection never became `lockDb`, nothing else references it
-              }
+              } catch {}
               try {
                 acquired.close?.();
-              } catch {
-                // best-effort
-              }
+              } catch {}
             }
             return;
           }
@@ -504,11 +378,8 @@ export async function startVaultLeaderElection(
     close: async (): Promise<void> => {
       if (closed) return;
       closed = true;
-      // STALE_ROLE_AFTER_CLOSE (fix round): flip the reported role BEFORE releasing SQLite, not
-      // after — this function has no `await` before this point, so any caller reading
-      // `isLeader()` (directly, or through `gateReconcileByLeader`'s live check) the instant
-      // `close()` is invoked sees `false`, never a window where SQLite is already released but
-      // this election still claims leadership.
+      // STALE_ROLE_AFTER_CLOSE: flip the reported role BEFORE releasing SQLite — no `await`
+      // precedes this, so any `isLeader()` read the instant `close()` is invoked sees `false`.
       leader = false;
       if (retryTimer) clearTimeout(retryTimer);
       if (keepaliveTimer) clearTimeout(keepaliveTimer);
@@ -518,37 +389,21 @@ export async function startVaultLeaderElection(
 }
 
 /**
- * COLD_BOOT_PRELOCK (fix round): serializes `fn` (real callers: `wireStores`'s migration pass)
- * across every process racing the SAME `cacheDir` on a fresh boot, BEFORE the non-blocking leader
- * election below ever runs. Two real processes opening a brand-new `cache.db` at once previously
- * raced each other's migration runner directly (`migration 20260820_001 failed: duplicate column
- * name: scope_caller` — reproduced with two real built CLIs, see the PR description), because
- * nothing serialized that step ahead of election.
- *
- * Uses its OWN file (`BOOTSTRAP_BARRIER_FILE_NAME`), never `vault-lock.db` — see that constant's
- * doc comment for the deadlock sharing one file produced. A bounded BLOCKING acquire (`BEGIN
- * IMMEDIATE` under a real `busy_timeout`, not the election's `busy_timeout=0` fail-immediately
- * mode): SQLite's busy handler does the retry-until-timeout internally, no app-level poll loop
- * needed. The barrier connection is opened, used, and closed within this call; by the time
- * `startVaultLeaderElection` runs afterward there is nothing left for it to contend with beyond its
- * own peers' elections.
+ * COLD_BOOT_PRELOCK: serializes `fn` (real caller: `wireStores`'s migration pass) across every
+ * process racing the SAME `cacheDir` on a fresh boot, BEFORE the leader election below runs — two
+ * processes opening a brand-new `cache.db` at once previously raced each other's migration runner
+ * directly. Uses its OWN file (`BOOTSTRAP_BARRIER_FILE_NAME`), never `vault-lock.db` — see that
+ * constant's doc comment for the deadlock sharing one file produced.
  */
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Jittered backoff window for `openBarrierConnectionWithRetry`'s app-level retry — deliberately
- *  much tighter than the election's 5-15s (DEFAULT_RETRY_MIN_MS/MAX_MS): this loop only needs to
- *  survive a brand-new file's one-time WAL conversion, not steady-state leader contention. */
+/** Jittered backoff for `openBarrierConnectionWithRetry` — tighter than the election's 5-15s: this
+ *  loop only needs to survive a brand-new file's one-time WAL conversion. */
 const BARRIER_OPEN_RETRY_MIN_MS = 50;
 const BARRIER_OPEN_RETRY_MAX_MS = 150;
 
-/**
- * COLD_BOOT_PRELOCK (fix round 2): opens the barrier file itself with the same busy-shaped-open
- * retry `tryAcquire` needed — belt-and-braces alongside the non-zero `busy_timeout` already passed
- * to `openDatabase` below (which should make SQLite's own busy handler wait out the WAL-conversion
- * race on a brand-new barrier file). Bounded by the SAME `BOOTSTRAP_BARRIER_TIMEOUT_MS` deadline
- * the blocking `BEGIN IMMEDIATE` after this respects, so a genuinely stuck contender still fails
- * loudly rather than retrying forever.
- */
+/** COLD_BOOT_PRELOCK: opens the barrier file with the same busy-shaped-open retry `tryAcquire`
+ *  needs, bounded by `BOOTSTRAP_BARRIER_TIMEOUT_MS` so a stuck contender still fails loudly. */
 async function openBarrierConnectionWithRetry(cacheDir: string): Promise<Database> {
   const deadline = Date.now() + BOOTSTRAP_BARRIER_TIMEOUT_MS;
   for (;;) {
@@ -575,9 +430,7 @@ export async function withBootstrapBarrier<T>(cacheDir: string, fn: () => Promis
     } catch (err) {
       try {
         db.exec("ROLLBACK");
-      } catch {
-        // best-effort — the real error from fn() is what propagates below
-      }
+      } catch {}
       throw err;
     }
     db.exec("COMMIT");
@@ -585,33 +438,23 @@ export async function withBootstrapBarrier<T>(cacheDir: string, fn: () => Promis
   } finally {
     try {
       db.close?.();
-    } catch {
-      // best-effort
-    }
+    } catch {}
   }
 }
 
-/**
- * GH #995: wraps `runReconcileRaw` (createReconcileRunner's output, `runtime/plane-wiring.ts`) so
- * it only actually runs on the leader, and wires `election.onPromote` to fire ONE reconcile
- * immediately on promotion (through the SAME `AbortSignal` the caller's shutdown path aborts —
- * server-runtime.ts's `bootReconcileAbort`) rather than waiting for the scheduler's next periodic
- * tick. Returning ONE wrapped function, rather than gating each of the two real call sites
- * (server-runtime.ts's boot-time `start()` and scheduler-wiring.ts's periodic "vault-reconcile"
- * job) separately, means a caller cannot wire one and forget the other.
- */
-/** A gated reconcile function that ALSO exposes whether a run is currently in flight —
- *  SHUTDOWN_RECONCILE_OVERLAP (fix round): `close()` needs a way to JOIN a still-running reconcile
- *  before releasing the leader lock, rather than the fire-and-forget shape that let a successor
- *  promote and start writing while this process's own reconcile was still mid-walk. */
+// Wraps `runReconcileRaw` (`runtime/plane-wiring.ts`) so it only runs on the leader, and wires
+// `election.onPromote` to fire ONE reconcile immediately on promotion rather than waiting for the
+// scheduler's next tick. Returning ONE wrapped function (vs. gating boot's `start()` and
+// scheduler-wiring's periodic job separately) means a caller cannot wire one and forget the other.
+// SHUTDOWN_RECONCILE_OVERLAP: `currentRun()` lets `close()` JOIN a still-running reconcile before
+// releasing the leader lock.
 export interface GatedReconcile {
   (signal: AbortSignal): Promise<void>;
-  /** The in-flight run this gate is currently joining, or `undefined` when nothing is running. */
   currentRun(): Promise<void> | undefined;
 }
 
-/** F1 (fix round 2): bound for the onDemote join below — shorter than shutdown's
- *  SHUTDOWN_DRAIN_MS since this process is not exiting, just giving up leadership. */
+/** F1: bound for the onDemote join below — shorter than shutdown's SHUTDOWN_DRAIN_MS since this
+ *  process is not exiting, just giving up leadership. */
 const DEFAULT_DEMOTE_JOIN_DEADLINE_MS = 3_000;
 
 export function gateReconcileByLeader(
@@ -620,21 +463,12 @@ export function gateReconcileByLeader(
   abort: { signal: AbortSignal },
   opts: { demoteJoinDeadlineMs?: number } = {},
 ): GatedReconcile {
-  // Self-review (GH #995 follow-up): the promotion-triggered call below runs OUTSIDE the
-  // scheduler's own single-flight tracking — scheduler.ts dedupes only ticks IT dispatches for
-  // the "vault-reconcile" job slot, and has no visibility into a call this module fires directly
-  // off `onPromote`. Without a guard here, a follower promoting while the scheduler's periodic
-  // tick (or the boot pass — both routed through this SAME wrapper) is still mid-reconcile would
-  // start a SECOND, fully concurrent pass over every vault in ONE process: redundant walk/embed
-  // work, and two indexVaultRecorded runs racing each other's content-hash writes — exactly the
-  // multi-writer contention this lock exists to prevent, just relocated from cross-process to
-  // intra-process. One shared in-flight promise, joined by every caller of `gated` (boot,
-  // scheduler tick, promotion) regardless of which one started it, makes this single-flight the
-  // same way scheduler.ts's own per-job tracking already is.
+  // Runs OUTSIDE the scheduler's own single-flight tracking — without a guard, a follower
+  // promoting mid-reconcile would start a SECOND concurrent pass over every vault. One shared
+  // in-flight promise, joined by every caller regardless of who started it, closes that gap.
   let inFlight: Promise<void> | undefined;
-  // F1 (fix round 2): a running reconcile sees a per-run AbortController chained to the outer
-  // `abort.signal`, never that signal directly — `abort()` is one-shot, so a demote that aborted
-  // the shared shutdown controller would leave later re-promotions unable to ever reconcile again.
+  // F1: per-run AbortController chained to the outer signal, never that signal directly — it is
+  // one-shot and would leave later re-promotions unable to ever reconcile again.
   let runAbort: AbortController | undefined;
   const gated = (async (signal: AbortSignal): Promise<void> => {
     if (!election.isLeader()) return;
@@ -660,9 +494,7 @@ export function gateReconcileByLeader(
       );
     });
   });
-  // F1 (fix round 2): on demote, abort THIS run's signal (never the shared outer one) and join it
-  // bounded — `demote()` awaits this hook, so a challenger cannot start its own reconcile until it
-  // resolves.
+  // F1: on demote, abort THIS run's signal (never the shared outer one) and join it bounded.
   election.onDemote(async () => {
     if (!inFlight) return;
     runAbort?.abort();

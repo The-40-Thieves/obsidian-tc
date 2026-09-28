@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,455 tracked code files · 263,623 lines.
+**Scale:** 1,455 tracked code files · 263,386 lines.
 
-TypeScript 241,624 · JavaScript 16,326 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
+TypeScript 241,387 · JavaScript 16,326 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -91,7 +91,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `experiential/` | 29 | 7,630 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 28 | 6,712 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `cli/` | 45 | 6,522 | arg parsing + subcommands |
-| `runtime/` | 22 | 5,639 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 22 | 5,444 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 21 | 3,533 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 2,577 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 16 | 2,126 | provisioning, migrate runner, experiential store |
@@ -99,9 +99,9 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `providers/` | 8 | 1,749 |  |
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
-| `embeddings/` | 8 | 1,244 | providers incl. the deterministic fake used in tests |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `workspace/` | 3 | 1,215 | session tracking |
+| `embeddings/` | 8 | 1,202 | providers incl. the deterministic fake used in tests |
 | `memory-import/` | 7 | 1,132 |  |
 | `metrics/` | 4 | 930 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `memory/` | 2 | 915 | entity extraction and materialization for the memory folder |
@@ -150,7 +150,6 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 703 | `packages/server/src/cli/args.ts` |
 | 688 | `packages/server/src/metrics/registry.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
-| 675 | `packages/server/src/runtime/vault-lock.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 670 | `packages/server/src/workspace/sessions.ts` |
 | 655 | `packages/server/src/mcp/registry/dispatch.ts` |
@@ -177,6 +176,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 510 | `packages/server/src/experiential/note-quality.ts` |
 | 509 | `packages/server/src/tools/m6/bulk-tools.ts` |
 | 509 | `packages/server/src/tools/m8/experiential-tools.ts` |
+| 507 | `packages/server/src/runtime/vault-lock.ts` |
 | 504 | `packages/shared/src/config/observability.schema.ts` |
 | 502 | `packages/server/src/tools/m1/frontmatter-tools.ts` |
 
