@@ -85,13 +85,13 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-284 | Obsidian-fit fixes (THE-284). | CHANGELOG.md (1.3.0) | 2 |
 | THE-286 | Uniform symlink-canonical ACL enforcement (THE-286). | CHANGELOG.md (1.3.0) | 1 |
 | THE-287 | Semantic search no longer crowds out ACL-visible hits (THE-287). | CHANGELOG.md (1.3.0) | 7 |
-| THE-288 | `server_health` surfaces search-index degradation (THE-288). | CHANGELOG.md (1.3.0) | 8 |
+| THE-288 | `server_health` surfaces search-index degradation (THE-288). | CHANGELOG.md (1.3.0) | 7 |
 | THE-289 | `execute_template` honors `overwrite` — no more silent clobber (THE-289). | CHANGELOG.md (1.3.0) | 2 |
 | THE-291 | Metadata tools read the notes table (THE-291, part 3B-ii). | CHANGELOG.md (1.3.0) | 23 |
 | THE-292 | Periodic cache.db maintenance sweep (THE-292). | CHANGELOG.md (1.3.0) | 5 |
 | THE-293 | Compute-abuse budgets (THE-293). | CHANGELOG.md (1.3.0) | 11 |
 | THE-294 | Dropped one payload serialization per tool call (THE-294). | CHANGELOG.md (1.3.0) | 3 |
-| THE-295 | Per-vault ACL (THE-295). | CHANGELOG.md (1.3.0) | 9 |
+| THE-295 | Per-vault ACL (THE-295). | CHANGELOG.md (1.3.0) | 8 |
 | THE-296 | SleepTime plane scheduler wired (THE-296). | CHANGELOG.md (1.3.0) | 2 |
 | THE-297 | Asymmetric JWT verification — RS256/ES256/EdDSA + JWKS + kid rotation (THE-297). | CHANGELOG.md (1.3.0) | 4 |
 | THE-302 | `elicitTtlSeconds` now governs HITL token TTL (THE-302). | CHANGELOG.md (1.3.3) | 2 |
@@ -140,12 +140,12 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-452 | _internal planning reference — see repo history_ | — | 3 |
 | THE-453 | ACL: folder rules, glob matching, and the fingerprint cache key | docs/design/acl-folder-rules.md | 4 |
 | THE-454 | _internal planning reference — see repo history_ | — | 5 |
-| THE-455 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 7 |
+| THE-455 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 6 |
 | THE-456 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 6 |
 | THE-457 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 10 |
 | THE-458 | THE-458 remainders closed | CHANGELOG.md (1.12.0) | 11 |
 | THE-459 | THE-459 — Synthetic-vault perf harness + CI gates (design) | docs/superpowers/specs/2026-07-20-the-459-perf-harness-design.md | 3 |
-| THE-460 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 11 |
+| THE-460 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 9 |
 | THE-461 | Migration Manifest | docs/design/migration-manifest.md | 7 |
 | THE-462 | Wire the durable JobQueue to its workloads — THE-562 #14 (THE-517) | docs/superpowers/specs/2026-07-24-the-562-14-durable-job-queue-wiring-design.md | 10 |
 | THE-463 | _internal planning reference — see repo history_ | — | 3 |
@@ -157,7 +157,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-488 | _internal planning reference — see repo history_ | — | 5 |
 | THE-489 | _internal planning reference — see repo history_ | — | 2 |
 | THE-490 | _internal planning reference — see repo history_ | — | 8 |
-| THE-491 | _internal planning reference — see repo history_ | — | 7 |
+| THE-491 | _internal planning reference — see repo history_ | — | 6 |
 | THE-496 | ACL: folder rules, glob matching, and the fingerprint cache key | docs/design/acl-folder-rules.md | 11 |
 | THE-497 | Metrics Registry | docs/design/metrics-registry.md | 11 |
 | THE-499 | _internal planning reference — see repo history_ | — | 3 |
@@ -165,7 +165,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-501 | _internal planning reference — see repo history_ | — | 2 |
 | THE-502 | _internal planning reference — see repo history_ | — | 2 |
 | THE-504 | Citation inference | docs/design/experiential-citation-inference.md | 5 |
-| THE-507 | Metrics Registry | docs/design/metrics-registry.md | 7 |
+| THE-507 | Metrics Registry | docs/design/metrics-registry.md | 6 |
 | THE-509 | _internal planning reference — see repo history_ | — | 2 |
 | THE-510 | Contributor tooling and an MCP client compatibility matrix (THE-624, THE-510, #567). | CHANGELOG.md (1.14.0) | 1 |
 | THE-512 | _internal planning reference — see repo history_ | — | 1 |
@@ -182,7 +182,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-526 | _internal planning reference — see repo history_ | — | 4 |
 | THE-527 | _internal planning reference — see repo history_ | — | 4 |
 | THE-530 | _internal planning reference — see repo history_ | — | 7 |
-| THE-531 | _internal planning reference — see repo history_ | — | 8 |
+| THE-531 | _internal planning reference — see repo history_ | — | 7 |
 | THE-532 | _internal planning reference — see repo history_ | — | 2 |
 | THE-533 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 2 |
 | THE-535 | `experiential.activationRerank` now applies a ranking change (#762, THE-424 Part A, THE-535). | CHANGELOG.md (1.21.0) | 3 |
@@ -209,10 +209,10 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-579 | _internal planning reference — see repo history_ | — | 3 |
 | THE-582 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 4 |
 | THE-583 | Request bodies are parsed once, not twice (THE-583, #553). | CHANGELOG.md (1.13.0) | 18 |
-| THE-585 | Metrics Registry | docs/design/metrics-registry.md | 24 |
-| THE-588 | _internal planning reference — see repo history_ | — | 7 |
+| THE-585 | Metrics Registry | docs/design/metrics-registry.md | 23 |
+| THE-588 | _internal planning reference — see repo history_ | — | 6 |
 | THE-589 | `generate_uri`'s `vault` input is renamed `vault_name` (THE-589). | CHANGELOG.md (1.12.0) | 1 |
-| THE-590 | _internal planning reference — see repo history_ | — | 3 |
+| THE-590 | _internal planning reference — see repo history_ | — | 2 |
 | THE-591 | _internal planning reference — see repo history_ | — | 7 |
 | THE-600 | _internal planning reference — see repo history_ | — | 4 |
 | THE-603 | _internal planning reference — see repo history_ | — | 8 |
@@ -222,7 +222,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-609 | `forget` audit parity, including on a no-op (THE-609, #542). | CHANGELOG.md (1.13.0) | 1 |
 | THE-610 | Vault filesystem watcher | docs/design/vault-watcher.md | 7 |
 | THE-611 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 8 |
-| THE-612 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 5 |
+| THE-612 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 4 |
 | THE-613 | A judge that did not ANSWER is no longer counted as one that answered unparseably (#732, #734, THE-717, THE-613). | CHANGELOG.md (1.20.0) | 6 |
 | THE-615 | Gateway retry with backoff, and a liveness probe (THE-615, THE-617, #566). | CHANGELOG.md (1.14.0) | 2 |
 | THE-616 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 9 |
@@ -232,7 +232,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-620 | QueryCache expiry sweep, `via_edge` deep copy, and two smaller correctness fixes (THE-626, THE-620, THE-622, #565). | CHANGELOG.md (1.14.0) | 1 |
 | THE-621 | The stage-2 judge fan-out is bounded and the kill switch has a floor (#703, THE-621). | CHANGELOG.md (1.20.0) | 4 |
 | THE-622 | QueryCache expiry sweep, `via_edge` deep copy, and two smaller correctness fixes (THE-626, THE-620, THE-622, #565). | CHANGELOG.md (1.14.0) | 2 |
-| THE-625 | `bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown (THE-661, THE-606, THE-625, THE-614). | CHANGELOG.md (1.14.0) | 3 |
+| THE-625 | `bearer_methods_supported` in Protected Resource Metadata, and a per-vault audit breakdown (THE-661, THE-606, THE-625, THE-614). | CHANGELOG.md (1.14.0) | 2 |
 | THE-626 | QueryCache expiry sweep, `via_edge` deep copy, and two smaller correctness fixes (THE-626, THE-620, THE-622, #565). | CHANGELOG.md (1.14.0) | 1 |
 | THE-627 | _internal planning reference — see repo history_ | — | 9 |
 | THE-628 | Note-level and cluster-level summary tiers, dark by default (#817, #818, THE-628). | CHANGELOG.md (1.22.0) | 19 |
@@ -249,11 +249,11 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-642 | `work_search` gains an opt-in `semantic` mode (#820, THE-642). | CHANGELOG.md (1.22.0) | 5 |
 | THE-643 | Scheduled `note_quality` recompute (THE-643, THE-625 items 1-3). | CHANGELOG.md (1.14.0) | 14 |
 | THE-644 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 14 |
-| THE-645 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 20 |
+| THE-645 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 19 |
 | THE-646 | `explain_answer` — the retrieval → chunk → citation → episode lineage chain (#705, THE-646 item 2). | CHANGELOG.md (1.20.0) | 6 |
 | THE-647 | Differential `vault_context` and persona scoping (#811, THE-647). | CHANGELOG.md (1.22.0) | 17 |
 | THE-648 | `snapshots.enabled` now defaults to `true` (THE-648, #569). | CHANGELOG.md (1.14.0) | 7 |
-| THE-649 | Vault filesystem watcher | docs/design/vault-watcher.md | 5 |
+| THE-649 | Vault filesystem watcher | docs/design/vault-watcher.md | 4 |
 | THE-650 | Source-agnostic highlight-import format + Readwise adapter, staged via `capture_queue` (#839, THE-650). | CHANGELOG.md (1.23.0) | 14 |
 | THE-653 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 2 |
 | THE-654 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 1 |
@@ -275,7 +275,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-679 | `doctor` pre-detects an unbuildable reranker, and names the declared one (THE-679, THE-681, #632). | CHANGELOG.md (1.14.0) | 6 |
 | THE-680 | A credential error names the config block that actually holds the key (THE-680, THE-678, #633). | CHANGELOG.md (1.14.0) | 3 |
 | THE-681 | `doctor` pre-detects an unbuildable reranker, and names the declared one (THE-679, THE-681, #632). | CHANGELOG.md (1.14.0) | 1 |
-| THE-683 | `RepresentationManifest` has a production producer, and `embeddings.pooling` now moves the index identity (THE-683, #636). | CHANGELOG.md (1.14.0) | 9 |
+| THE-683 | `RepresentationManifest` has a production producer, and `embeddings.pooling` now moves the index identity (THE-683, #636). | CHANGELOG.md (1.14.0) | 8 |
 | THE-687 | _internal planning reference — see repo history_ | — | 2 |
 | THE-688 | `doctor` says "configured", not "ready", for the dense retrieval head (THE-688, #642). | CHANGELOG.md (1.14.0) | 11 |
 | THE-691 | The query router's rare-term signal no longer leaks term existence across the ACL (THE-691, #645). | CHANGELOG.md (1.14.0) | 1 |
@@ -357,7 +357,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-925 | A note edit during a full `index_vault` reconcile could silently revert that note's index to stale content (THE-925, #866). | CHANGELOG.md (1.23.4) | 6 |
 | THE-926 | Retrieval fan-out silently swallowed a deliberate index-integrity refusal, and a valid search regex could be rejected as a ReDoS (THE-926, #867). | CHANGELOG.md (1.23.4) | 10 |
 | THE-932 | A point-in-time (`as_of`) retrieval query no longer reads chunk content it discards (#874, THE-932). | CHANGELOG.md (1.23.6) | 1 |
-| THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 60 |
+| THE-934 | `egress.excludePaths` withholds vault-relative folders from every gateway and embedding call the server makes, plus `obsidian-tc consolidate --once [--dry-run]` (#886, THE-934; issue #880). | CHANGELOG.md (1.25.0) | 59 |
 | THE-935 | `db.busyTimeoutMs` reachable from config (#902, THE-935; issue #878). | CHANGELOG.md (1.27.0) | 14 |
 | THE-936 | `call_capability` now echoes the envelope keys it received on validation failure (#901, THE-936; issue #876). | CHANGELOG.md (1.27.0) | 1 |
 | THE-937 | Catalog discovery on the triad facade (#884, THE-937; issue #877). | CHANGELOG.md (1.25.0) | 5 |
@@ -377,14 +377,14 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1073 | `index_vault` no longer aborts a whole vault's reconcile over one note with unparseable YAML frontmatter (THE-1073, PR #968). | CHANGELOG.md (1.31.4) | 13 |
 | THE-1078 | TypeSafe Jev is now an opt-in judge provider for citation-inference's stage-2 verdict, beside the existing gateway chat judge (THE-1078, #950). | CHANGELOG.md (1.31.0) | 10 |
 | THE-1079 | The local reranker's source-checkout resolution never actually worked from the BUILT server bundle, so its own doctor remedy was a no-op for every stdio install (THE-1079, #947, #949, #956). | CHANGELOG.md (1.31.1) | 5 |
-| THE-1081 | A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` -> `/private/var`) made the native addon refuse every read/write in that vault, while the JS fallback accepted it (THE-1081, #946, #955). | CHANGELOG.md (1.31.1) | 11 |
+| THE-1081 | A vault root reached through a symlinked ancestor (e.g. macOS `$TMPDIR` under `/var` -> `/private/var`) made the native addon refuse every read/write in that vault, while the JS fallback accepted it (THE-1081, #946, #955). | CHANGELOG.md (1.31.1) | 10 |
 | THE-1082 | A client with no MCP elicitation support (Claude Code over stdio among them) had no way to clear an `elicit_required` gate at all (THE-1082, #945, #953). | CHANGELOG.md (1.31.1) | 5 |
 | THE-1084 | `experiential.citationInfer.judge.baseUrl` can now be a plain `http://` URL when the operator explicitly opts in (THE-1084, #959). | CHANGELOG.md (1.31.2) | 5 |
 | THE-1098 | Server instructions no longer name `record_retrieval_feedback` when the caller cannot call it (GH #964 part 1, THE-1098, PR #965). | CHANGELOG.md (1.31.4) | 6 |
 | THE-1099 | `experiential.allowFeedbackInReadOnly` lets `record_retrieval_feedback` update derived telemetry under a read-only vault (GH #964 part 2, THE-1099, PR #966). | CHANGELOG.md (1.31.4) | 5 |
 | THE-1106 | The `inputRequired` HITL round trip did nothing for the 16 handler-side-only conditionally-gated tools (`write_note` overwrite of a non-empty note, `move_note`/`copy_note`, `move_attachment`, `update_frontmatter` replace, `rewrite_link`, `prune_hub_links`, `restore_note`, `create_canvas`/`update_canvas`, `create_base`, `save_workspace`, `create_excalidraw`, `update_task`, `ocr_bulk`) — found in cross-vendor review of THE-1106 (GH #967), before it shipped. | CHANGELOG.md (1.31.4) | 11 |
 | THE-1108 | An open explicit `start_session` session no longer absorbs a principal's traffic forever (THE-1108, PR #988). | CHANGELOG.md (1.31.5) | 18 |
-| THE-1122 | Semantic search works out of the box: a bundled, fully offline local embedder is now the DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122, PR #980). | CHANGELOG.md (1.31.4) | 17 |
+| THE-1122 | Semantic search works out of the box: a bundled, fully offline local embedder is now the DEFAULT embeddings provider when the `embeddings` config block is absent (THE-1122, PR #980). | CHANGELOG.md (1.31.4) | 15 |
 | THE-1123 | `toolFacade.mode` gains `"auto"` — picks the advertised tool surface per connecting client (THE-1123, PR #976). | CHANGELOG.md (1.31.4) | 15 |
 | THE-1124 | `obsidian-tc memory import` and the "Memory you own" guide (THE-1124, PR #978). | CHANGELOG.md (1.31.4) | 13 |
 | THE-1125 | Opt-in, anonymous usage telemetry (THE-1125, PR #982). | CHANGELOG.md (1.31.4) | 29 |
