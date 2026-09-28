@@ -45,6 +45,7 @@ const MODE_OWNER_RW = 0o600;
 export function buildSetupConfig(
   decision: SetupDecision,
   existingRaw?: Record<string, unknown>,
+  extra?: Record<string, unknown>,
 ): Record<string, unknown> {
   const base: Record<string, unknown> = existingRaw ? { ...existingRaw } : {};
 
@@ -95,7 +96,7 @@ export function buildSetupConfig(
     base.embeddings = existingEmbeddings;
   }
 
-  return base;
+  return extra ? { ...base, ...extra } : base;
 }
 
 export interface SetupWriteResult {
@@ -278,16 +279,11 @@ function finalizeForceWrite(tmpPath: string, target: string, mode: number): void
   unlinkSync(tmpPath);
 }
 
-/** The no-`--force` finalization step, end-to-end exclusive: `linkSync` fails with `EEXIST` if the
- * target now exists, even if it appeared AFTER `writeSetupConfig`'s own earlier `existsSync` check
- * (two concurrent no-`--force` writers racing each other) — translated to the same CliError either
- * finalization primitive below would give.
- *
- * `linkSync`'s same-directory hard link is the right EXCLUSIVE primitive on a POSIX local disk,
- * but is not universally available — exFAT, SMB/CIFS home directories, some NAS mounts, and some
- * Windows volumes fail it with EPERM/EXDEV/ENOTSUP/ENOSYS. Falls back to an exclusive `wx`
- * create-and-copy, which keeps the SAME TOCTOU guarantee, just without rename/link's
- * cross-directory atomicity. */
+/** The no-`--force` finalization step, end-to-end exclusive: `linkSync` fails `EEXIST` if the
+ * target now exists, even if it appeared AFTER the caller's own earlier `existsSync` check (two
+ * concurrent no-`--force` writers racing). `linkSync`'s hard link is the right exclusive primitive
+ * on POSIX, but isn't universal (exFAT/SMB/some Windows volumes: EPERM/EXDEV/ENOTSUP/ENOSYS) — the
+ * fallback is an exclusive `wx` create-and-copy, same TOCTOU guarantee, not cross-dir atomic. */
 function finalizeExclusiveCreate(tmpPath: string, target: string, mode: number): void {
   try {
     linkSync(tmpPath, target);
@@ -304,12 +300,22 @@ function finalizeExclusiveCreate(tmpPath: string, target: string, mode: number):
     if ((e as NodeJS.ErrnoException).code === "EEXIST") throw exclusiveCreateRefused(target);
     throw e;
   }
+  // finding 1 (fix round): the `wx` open above claims `target`'s name, visible to a racing
+  // loser, before any bytes land — unlink it on a write failure so a poisoned half-written file
+  // never blocks the next attempt (safe: `wx` proved we're the only writer).
   try {
     writeSync(fd, readFileSync(tmpPath));
     fsyncSync(fd);
-  } finally {
+  } catch (e) {
     closeSync(fd);
+    try {
+      unlinkSync(target);
+    } catch {
+      /* best-effort */
+    }
+    throw e;
   }
+  closeSync(fd);
 }
 
 function exclusiveCreateRefused(target: string): CliError {
@@ -343,7 +349,11 @@ function exclusiveCreateRefused(target: string): CliError {
 export function writeSetupConfig(
   path: string,
   decision: SetupDecision,
-  opts: { force?: boolean; existingRaw?: Record<string, unknown> } = {},
+  opts: {
+    force?: boolean;
+    existingRaw?: Record<string, unknown>;
+    provenance?: Record<string, unknown>;
+  } = {},
 ): SetupWriteResult {
   if (/\.ya?ml$/i.test(path)) {
     throw new CliError(
@@ -358,7 +368,7 @@ export function writeSetupConfig(
       "obsidian-tc setup: refusing to write — no embeddings decision was made (see the printed refusal). Set embeddings explicitly and re-run, or edit the config by hand.",
     );
   }
-  const raw = buildSetupConfig(decision, opts.existingRaw);
+  const raw = buildSetupConfig(decision, opts.existingRaw, opts.provenance);
   // Validate BEFORE touching disk at all — a schema rejection must never leave a backup made or a
   // temp file behind.
   const config = ServerConfigSchema.parse(raw);
@@ -414,4 +424,50 @@ export function writeSetupConfig(
   chmodSync(target, mode);
 
   return { path: target, config, raw, ...(backupPath !== undefined ? { backupPath } : {}) };
+}
+
+export interface AtomicJsonWriteResult {
+  path: string;
+  backupPath?: string;
+}
+
+// PR B: reuses the backup/atomic-write primitives above for a non-ServerConfig JSON target.
+export function mergeJsonFileAtomic(
+  path: string,
+  raw: Record<string, unknown>,
+): AtomicJsonWriteResult {
+  const target = resolveWriteTarget(path);
+  const dir = dirname(target);
+  const targetExisted = existsSync(target);
+  mkdirSync(dir, { recursive: true });
+
+  let backupPath: string | undefined;
+  let preservedMode: number | undefined;
+  if (targetExisted) {
+    preservedMode = existingFileMode(target);
+    backupPath = backupExistingFile(target);
+  }
+  const mode =
+    preservedMode !== undefined && isStricterThanOwnerRW(preservedMode)
+      ? preservedMode
+      : MODE_OWNER_RW;
+
+  let tmpPath: string | undefined;
+  try {
+    tmpPath = writeTempFile(dir, raw, mode);
+    finalizeForceWrite(tmpPath, target, mode);
+    tmpPath = undefined;
+    fsyncDirBestEffort(dir);
+  } finally {
+    if (tmpPath !== undefined) {
+      try {
+        unlinkSync(tmpPath);
+      } catch {
+        /* best-effort cleanup on a failed write */
+      }
+    }
+  }
+  chmodSync(target, mode);
+
+  return { path: target, ...(backupPath !== undefined ? { backupPath } : {}) };
 }

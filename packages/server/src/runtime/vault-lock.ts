@@ -90,12 +90,13 @@ export interface VaultLeaderElectionOptions {
   onDemote?: (reason: string) => void;
   /** Overrides `KEEPALIVE_MS` for tests. */
   keepaliveMs?: number;
-  /** Overrides the lock connection open — injects a non-busy OPEN failure (ENOSPC/EACCES/corrupt
-   *  file, F4). */
+  /** Overrides the lock connection open — injects a non-busy OPEN failure (ENOSPC/EACCES/corrupt file, F4). */
   openLockDb?: (cacheDir: string) => Promise<Database>;
   /** Overrides the dev+inode identity check both `promote()` (F5) and the keepalive tick
    *  (LOCK_FILE_REPLACEMENT) use — injects a stat failure or a mismatched identity. */
   statIdentity?: (path: string) => FileIdentity | undefined;
+  /** CI fix: overrides the keepalive tick's scheduler (default: real unref'd `setTimeout`). */
+  keepaliveScheduler?: (fn: () => void, ms: number) => { clear: () => void };
 }
 
 export interface VaultLeaderElection {
@@ -189,13 +190,20 @@ export async function startVaultLeaderElection(
     opts.openLockDb ??
     ((dir: string) => openDatabase(join(dir, LOCK_FILE_NAME), DEFAULT_BUSY_TIMEOUT_MS));
   const statFn = opts.statIdentity ?? statIdentity;
+  const keepaliveScheduler: (fn: () => void, ms: number) => { clear: () => void } =
+    opts.keepaliveScheduler ??
+    ((fn, ms) => {
+      const t = setTimeout(fn, ms);
+      t.unref?.();
+      return { clear: () => clearTimeout(t) };
+    });
 
   let lockDb: Database | undefined; // strong ref for the GC trap (header); set on promotion
   let heldIdentity: FileIdentity | undefined; // dev+inode `lockDb` opened against, for keepalive
   let leader = false;
   let closed = false;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
-  let keepaliveTimer: ReturnType<typeof setTimeout> | undefined;
+  let keepaliveHandle: { clear: () => void } | undefined;
   const promoteCallbacks: Array<() => void> = [];
   const demoteCallbacks: Array<(reason: string) => Promise<void> | void> = [];
   let identityMismatchStreak = 0; // F5: a mismatch must reproduce on the NEXT tick too (see below)
@@ -222,7 +230,8 @@ export async function startVaultLeaderElection(
     const wasLeader = leader;
     leader = false;
     identityMismatchStreak = 0;
-    if (keepaliveTimer) clearTimeout(keepaliveTimer);
+    keepaliveHandle?.clear();
+    keepaliveHandle = undefined;
     if (wasLeader) {
       process.stderr.write(`[leader] demoted: ${reason}\n`);
       opts.onDemote?.(reason);
@@ -241,7 +250,7 @@ export async function startVaultLeaderElection(
   };
 
   const scheduleKeepalive = (): void => {
-    keepaliveTimer = setTimeout(() => {
+    keepaliveHandle = keepaliveScheduler(() => {
       // Read THROUGH the connection, not just close over it — see GC trap header.
       if (lockDb) {
         // LOCK_TXN_LOSS: SQLite auto-rolls-back an open transaction on IOERR/FULL/NOMEM/BUSY/
@@ -278,7 +287,6 @@ export async function startVaultLeaderElection(
       }
       if (!closed) scheduleKeepalive();
     }, keepaliveMs);
-    keepaliveTimer.unref?.();
   };
 
   const promote = (db: Database): void => {
@@ -382,7 +390,8 @@ export async function startVaultLeaderElection(
       // precedes this, so any `isLeader()` read the instant `close()` is invoked sees `false`.
       leader = false;
       if (retryTimer) clearTimeout(retryTimer);
-      if (keepaliveTimer) clearTimeout(keepaliveTimer);
+      keepaliveHandle?.clear();
+      keepaliveHandle = undefined;
       releaseLockDb();
     },
   };

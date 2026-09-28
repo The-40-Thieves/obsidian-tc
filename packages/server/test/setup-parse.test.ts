@@ -101,4 +101,28 @@ describe("parseCliArgs setup", () => {
     const c = parseCliArgs(["setup", "--config=", "--yes"]);
     expect(c.kind).toBe("error");
   });
+
+  // PR B of GH #995's two-part follow-up: --install-client <client>.
+  it("--install-client <client> is captured for each recognized client id", () => {
+    for (const client of ["claude-code", "claude-desktop", "cursor"]) {
+      const c = parseCliArgs(["setup", "--install-client", client]);
+      if (c.kind !== "setup") throw new Error("expected setup");
+      expect(c.installClient).toBe(client);
+    }
+  });
+
+  it("--install-client with an unrecognized value is a usage error", () => {
+    const c = parseCliArgs(["setup", "--install-client", "vscode"]);
+    expect(c.kind).toBe("error");
+  });
+
+  it("--install-client= (empty value) is a usage error", () => {
+    const c = parseCliArgs(["setup", "--install-client="]);
+    expect(c.kind).toBe("error");
+  });
+
+  it("--install-client with no value is a usage error", () => {
+    const c = parseCliArgs(["setup", "--install-client"]);
+    expect(c.kind).toBe("error");
+  });
 });

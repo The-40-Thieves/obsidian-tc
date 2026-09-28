@@ -341,6 +341,12 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `sessions.traceContent` | `boolean` | `true` |  | Also persist each dispatch's raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: "hardened"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface. |
 | `sessions.windowSeconds` | `number` | `1800` |  | How long a server-opened session keeps correlating before it becomes ELIGIBLE to be closed. This is a floor, not an exact lifetime: the closing is done by the maintenance sweep on ITS schedule (maintenance.intervalMinutes, default 60), so a session actually lives between windowSeconds and windowSeconds + that interval — with both defaults, between 30 and 90 minutes. A session is a bounded activity window, not an idle timeout: it is closed on age, never on inactivity, and the next request opens a fresh one. Explicit start_session sessions are never closed by the sweep on this window alone — only end_session closes those early — but the resolver uses this SAME number as its bound: once an explicit session is older than windowSeconds, dispatch stops attaching new traffic to it (the caller gets a fresh implicit session instead), and sessions.maxExplicitLifetimeSeconds is the separate, longer bound on how long the stale row itself may stay open. |
 
+### `setupOrigin`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `setupOrigin` | `enum(first-run-fallback)` | — |  | Set only by `obsidian-tc serve`'s own first-run fallback when it auto-wrote this config (exactly one vault found, no ambiguity) — never set by an interactive `obsidian-tc setup` run. `doctor` surfaces this so an auto-generated config is visibly distinct from a reviewed one. |
+
 ### `snapshots`
 
 | Key | Type | Default | Required | Description |
