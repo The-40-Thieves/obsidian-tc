@@ -95,3 +95,8 @@ transport and JWT auth — see [Authentication](/security/auth-model/) and
   [Inference gateway](/configuration/inference-gateway/).
 - **Every other option** — ACLs, throttles, snapshots, observability exporters,
   tool-surface shaping: the [complete configuration reference](/configuration/config-yaml/).
+- **One shared server for several local MCP clients** (Claude Desktop, Claude Code, Cursor, …) on
+  the same vault, instead of one stdio subprocess — and one embedding-model load — per client: see
+  [Run one shared server for several
+  clients](https://github.com/The-40-Thieves/obsidian-tc/wiki/Deployment-Modes#run-one-shared-server-for-several-clients)
+  in the wiki.
