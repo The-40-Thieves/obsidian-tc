@@ -14,9 +14,18 @@ const KNOWN_VALUE_FLAGS = ["--config", "--vault", "--install-client"];
 const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force"];
 
 /** PR B of GH #995's two-part follow-up: the MCP clients `setup --install-client` knows how to
- *  wire an `obsidian-tc` entry into — see cli/setup/client-install.ts for the per-client path/
- *  format logic (context7-verified against each client's own docs). */
-export const INSTALL_CLIENTS = ["claude-code", "claude-desktop", "cursor"] as const;
+ *  wire an `obsidian-tc` entry into — see cli/setup/client-registry.ts for the per-client
+ *  path/format/CLI logic (each entry's mechanism verified against that client's own current docs
+ *  or `--help` output before being added; see that file's header). */
+export const INSTALL_CLIENTS = [
+  "claude-code",
+  "claude-desktop",
+  "cursor",
+  "codex",
+  "chatgpt",
+  "antigravity",
+  "hermes",
+] as const;
 export type InstallClient = (typeof INSTALL_CLIENTS)[number];
 
 export interface SetupCommand {

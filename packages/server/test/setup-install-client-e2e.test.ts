@@ -1,6 +1,6 @@
 // PR B of GH #995's two-part follow-up: end-to-end tests for `obsidian-tc setup --install-client`
 // — the real filesystem writer (cli/commands/setup-install-client.ts's `runInstallClient`), with
-// platform/env/home injected (never the real host's) and `runClaudeMcpAdd` stubbed (never actually
+// platform/env/home injected (never the real host's) and `runCli` stubbed (never actually
 // shells out to a `claude` binary in CI). See test/setup-client-install.test.ts for the pure
 // path/merge logic these call into.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -51,14 +51,14 @@ afterEach(() => {
 describe("runInstallClient — claude-code", () => {
   it("prints and runs the documented `claude mcp add` command", async () => {
     captureOutput();
-    const runClaudeMcpAdd = vi.fn(() => "Added obsidian-tc\n");
+    const runCli = vi.fn(() => "Added obsidian-tc\n");
 
     await runInstallClient(
       { kind: "setup", installClient: "claude-code", yes: false, dryRun: false, force: false },
-      { platform: "linux", env: {}, home: "/home/op", runClaudeMcpAdd },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
     );
 
-    expect(runClaudeMcpAdd).toHaveBeenCalledWith([
+    expect(runCli).toHaveBeenCalledWith("claude", [
       "mcp",
       "add",
       "--scope",
@@ -76,26 +76,26 @@ describe("runInstallClient — claude-code", () => {
 
   it("--dry-run prints the command but never runs it", async () => {
     captureOutput();
-    const runClaudeMcpAdd = vi.fn(() => "should not run");
+    const runCli = vi.fn(() => "should not run");
 
     await runInstallClient(
       { kind: "setup", installClient: "claude-code", yes: false, dryRun: true, force: false },
-      { platform: "linux", env: {}, home: "/home/op", runClaudeMcpAdd },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
     );
 
-    expect(runClaudeMcpAdd).not.toHaveBeenCalled();
+    expect(runCli).not.toHaveBeenCalled();
     expect(stdout.join("")).toMatch(/dry-run/);
   });
 
   it("a failed/missing `claude` binary is reported, not thrown", async () => {
     captureOutput();
-    const runClaudeMcpAdd = vi.fn(() => {
+    const runCli = vi.fn(() => {
       throw new Error("ENOENT: no such file or directory, spawn claude");
     });
 
     await runInstallClient(
       { kind: "setup", installClient: "claude-code", yes: false, dryRun: false, force: false },
-      { platform: "linux", env: {}, home: "/home/op", runClaudeMcpAdd },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
     );
 
     expect(stderr.join("")).toMatch(/ENOENT/);
@@ -104,7 +104,7 @@ describe("runInstallClient — claude-code", () => {
 
   it("finding 6: the printed command quotes a config path containing a space", async () => {
     captureOutput();
-    const runClaudeMcpAdd = vi.fn(() => "Added obsidian-tc\n");
+    const runCli = vi.fn(() => "Added obsidian-tc\n");
     const configPath = "/home/op user/.obsidian-tc/config.json";
 
     await runInstallClient(
@@ -116,12 +116,12 @@ describe("runInstallClient — claude-code", () => {
         dryRun: false,
         force: false,
       },
-      { platform: "linux", env: {}, home: "/home/op", runClaudeMcpAdd },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
     );
 
     // execFileSync itself gets the unquoted argv array (argv-safe by construction — never a
     // shell) — only the printed, copy-pasteable line needs quoting.
-    expect(runClaudeMcpAdd).toHaveBeenCalledWith(expect.arrayContaining([configPath]));
+    expect(runCli).toHaveBeenCalledWith("claude", expect.arrayContaining([configPath]));
     expect(stdout.join("")).toContain(`'${configPath}'`);
   });
 });
@@ -141,7 +141,7 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
         dryRun: false,
         force: false,
       },
-      { platform: "linux", env: {}, home, runClaudeMcpAdd: () => "" },
+      { platform: "linux", env: {}, home, runCli: () => "" },
     );
 
     const target = join(home, ".config", "Claude", "claude_desktop_config.json");
@@ -174,7 +174,7 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
         dryRun: false,
         force: false,
       },
-      { platform: "linux", env: {}, home, runClaudeMcpAdd: () => "" },
+      { platform: "linux", env: {}, home, runCli: () => "" },
     );
 
     const onDisk = JSON.parse(readFileSync(cursorPath, "utf8"));
@@ -207,7 +207,7 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
         dryRun: false,
         force: false,
       },
-      { platform: "linux", env: {}, home, runClaudeMcpAdd: () => "" },
+      { platform: "linux", env: {}, home, runCli: () => "" },
     );
 
     expect(readFileSync(cursorPath, "utf8")).toBe(original);
@@ -238,7 +238,7 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
         dryRun: false,
         force: true,
       },
-      { platform: "linux", env: {}, home, runClaudeMcpAdd: () => "" },
+      { platform: "linux", env: {}, home, runCli: () => "" },
     );
 
     const onDisk = JSON.parse(readFileSync(cursorPath, "utf8"));
@@ -259,7 +259,7 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
         dryRun: true,
         force: false,
       },
-      { platform: "linux", env: {}, home, runClaudeMcpAdd: () => "" },
+      { platform: "linux", env: {}, home, runCli: () => "" },
     );
 
     const target = join(home, ".config", "Claude", "claude_desktop_config.json");
@@ -270,5 +270,108 @@ describe("runInstallClient — claude-desktop / cursor JSON merge", () => {
     // substring of that escaped output. Compare against the SAME escaping `JSON.stringify` would
     // produce (or parse the printed JSON back), not the raw path.
     expect(stdout.join("")).toContain(JSON.stringify(configPath));
+  });
+});
+
+// RED case: this change's own registry rewrite — before it, "codex"/"antigravity"/"hermes" were
+// not valid --install-client values at all, so runInstallClient threw a plain
+// "runInstallClient called without --install-client" (installClient stayed undefined at parse
+// time) rather than running that client's own CLI.
+describe.each([
+  { client: "codex" as const, binary: "codex", first: "mcp" },
+  { client: "antigravity" as const, binary: "agy", first: "mcp" },
+  { client: "hermes" as const, binary: "hermes", first: "mcp" },
+])("runInstallClient — $client (CLI)", ({ client, binary, first }) => {
+  it("prints and runs that client's own mcp-add command", async () => {
+    captureOutput();
+    const runCli = vi.fn((_binary: string, _args: string[]) => "ok\n");
+
+    await runInstallClient(
+      { kind: "setup", installClient: client, yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).toHaveBeenCalledTimes(1);
+    const [calledBinary, calledArgs] = runCli.mock.calls[0] ?? ["", []];
+    expect(calledBinary).toBe(binary);
+    expect(calledArgs[0]).toBe(first);
+    expect(calledArgs).toContain("obsidian-tc");
+    expect(stdout.join("")).toContain(binary);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("--dry-run prints the command but never runs it", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "should not run");
+
+    await runInstallClient(
+      { kind: "setup", installClient: client, yes: false, dryRun: true, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).not.toHaveBeenCalled();
+    expect(stdout.join("")).toMatch(/dry-run/);
+  });
+
+  it("a failed/missing binary is reported, not thrown", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => {
+      throw new Error(`ENOENT: no such file or directory, spawn ${binary}`);
+    });
+
+    await runInstallClient(
+      { kind: "setup", installClient: client, yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(stderr.join("")).toMatch(/ENOENT/);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("the printed command quotes a config path containing a space", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "ok\n");
+    const configPath = "/home/op user/.obsidian-tc/config.json";
+
+    await runInstallClient(
+      { kind: "setup", installClient: client, configPath, yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    // execFileSync itself gets the unquoted argv array (argv-safe by construction — never a
+    // shell) — only the printed, copy-pasteable line needs quoting.
+    expect(runCli).toHaveBeenCalledWith(binary, expect.arrayContaining([configPath]));
+    expect(stdout.join("")).toContain(`'${configPath}'`);
+  });
+});
+
+describe("runInstallClient — chatgpt (instructions-only)", () => {
+  it("prints instructions and writes nothing, exit 0", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "should never be called");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "chatgpt", yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).not.toHaveBeenCalled();
+    expect(stdout.join("")).toMatch(/remote|HTTPS/i);
+    expect(stdout.join("")).toMatch(/Deployment-Modes/);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("--dry-run and --force change nothing — still just prints instructions", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "should never be called");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "chatgpt", yes: false, dryRun: true, force: true },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).not.toHaveBeenCalled();
+    expect(stdout.join("")).toMatch(/remote|HTTPS/i);
+    expect(process.exitCode).toBeUndefined();
   });
 });
