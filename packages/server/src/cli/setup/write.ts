@@ -183,17 +183,16 @@ function backupExistingFile(path: string): string {
   }
 }
 
-/** Writes `raw` to a brand-new, exclusively-created temp file in `dir` (never touches an existing
- *  path) at `mode`, fsyncing before returning. On ANY failure the partial temp file is removed
- *  before rethrowing — no `.tmp-*` litter survives an interrupted write, on any error path. */
-function writeTempFile(dir: string, raw: Record<string, unknown>, mode: number): string {
+// Writes `content` (text) to a brand-new, exclusively-created temp file at `mode`, fsyncing before
+// returning; removes the partial file on failure. Text, so a JSONC writer can pass edited text through as-is.
+function writeTempFile(dir: string, content: string, mode: number): string {
   const tmpPath = join(
     dir,
     `.tmp-obsidian-tc-setup-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   );
   const fd = openSync(tmpPath, "wx", mode);
   try {
-    writeSync(fd, `${JSON.stringify(raw, null, 2)}\n`);
+    writeSync(fd, content);
     fsyncSync(fd);
   } catch (e) {
     closeSync(fd);
@@ -501,7 +500,7 @@ export function writeSetupConfig(
 
   let tmpPath: string | undefined;
   try {
-    tmpPath = writeTempFile(dir, raw, mode);
+    tmpPath = writeTempFile(dir, `${JSON.stringify(raw, null, 2)}\n`, mode);
     if (opts.force) {
       finalizeForceWriteNamingBackup(tmpPath, target, mode, backupPath);
       tmpPath = undefined; // renamed/copied away — nothing left for the finally block to clean up
@@ -536,11 +535,7 @@ export interface AtomicJsonWriteResult {
   backupPath?: string;
 }
 
-// PR B: reuses the backup/atomic-write primitives above for a non-ServerConfig JSON target.
-export function mergeJsonFileAtomic(
-  path: string,
-  raw: Record<string, unknown>,
-): AtomicJsonWriteResult {
+function writeTextFileAtomic(path: string, content: string): AtomicJsonWriteResult {
   const target = resolveWriteTarget(path);
   const dir = dirname(target);
   const targetExisted = existsSync(target);
@@ -559,7 +554,7 @@ export function mergeJsonFileAtomic(
 
   let tmpPath: string | undefined;
   try {
-    tmpPath = writeTempFile(dir, raw, mode);
+    tmpPath = writeTempFile(dir, content, mode);
     finalizeForceWriteNamingBackup(tmpPath, target, mode, backupPath);
     tmpPath = undefined;
     fsyncDirBestEffort(dir);
@@ -575,4 +570,17 @@ export function mergeJsonFileAtomic(
   chmodSync(target, mode);
 
   return { path: target, ...(backupPath !== undefined ? { backupPath } : {}) };
+}
+
+// PR B: reuses the backup/atomic-write primitives above for a non-ServerConfig JSON target.
+export function mergeJsonFileAtomic(
+  path: string,
+  raw: Record<string, unknown>,
+): AtomicJsonWriteResult {
+  return writeTextFileAtomic(path, `${JSON.stringify(raw, null, 2)}\n`);
+}
+
+// JSONC twin of mergeJsonFileAtomic — `text` is jsonc-parser's own edited output, written as-is.
+export function mergeJsoncFileAtomic(path: string, text: string): AtomicJsonWriteResult {
+  return writeTextFileAtomic(path, text.endsWith("\n") ? text : `${text}\n`);
 }

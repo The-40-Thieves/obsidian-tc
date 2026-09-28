@@ -14,9 +14,11 @@ const KNOWN_VALUE_FLAGS = ["--config", "--vault", "--install-client"];
 const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force"];
 
 /** PR B of GH #995's two-part follow-up: the MCP clients `setup --install-client` knows how to
- *  wire an `obsidian-tc` entry into — see cli/setup/client-registry.ts for the per-client
+ *  wire an `obsidian-tc` entry into — see cli/setup/client-install.ts for the per-client
  *  path/format/CLI logic (each entry's mechanism verified against that client's own current docs
- *  or `--help` output before being added; see that file's header). */
+ *  or `--help` output before being added; see that file's header). Extended with VS Code, opencode,
+ *  Windsurf/Devin Desktop, Gemini CLI, Zed, Devin, and Aider (which has no MCP support at all — see
+ *  cli/setup/client-install-editors.ts's own header for the split). */
 export const INSTALL_CLIENTS = [
   "claude-code",
   "claude-desktop",
@@ -25,8 +27,23 @@ export const INSTALL_CLIENTS = [
   "chatgpt",
   "antigravity",
   "hermes",
+  "vscode",
+  "opencode",
+  "windsurf",
+  "gemini",
+  "zed",
+  "devin",
+  "aider",
 ] as const;
 export type InstallClient = (typeof INSTALL_CLIENTS)[number];
+
+/** Aliases accepted on `--install-client` that resolve to one of `INSTALL_CLIENTS` above rather
+ *  than being a client of their own — today just Windsurf's rebranded product name. Applied BEFORE
+ *  validating against `INSTALL_CLIENTS`, so an unrecognized alias still gets the normal usage
+ *  error. */
+const INSTALL_CLIENT_ALIASES: Record<string, InstallClient> = {
+  "devin-desktop": "windsurf",
+};
 
 export interface SetupCommand {
   kind: "setup";
@@ -70,15 +87,19 @@ export function parseSetup(rest: string[]): SetupCommand {
   if (configPath === "") throw new CliError("--config requires a non-empty value");
   if (vaultPath === "") throw new CliError("--vault requires a non-empty value");
   if (installClientRaw === "") throw new CliError("--install-client requires a non-empty value");
+  const installClientNormalized =
+    installClientRaw !== undefined
+      ? (INSTALL_CLIENT_ALIASES[installClientRaw] ?? installClientRaw)
+      : undefined;
   if (
-    installClientRaw !== undefined &&
-    !(INSTALL_CLIENTS as readonly string[]).includes(installClientRaw)
+    installClientNormalized !== undefined &&
+    !(INSTALL_CLIENTS as readonly string[]).includes(installClientNormalized)
   ) {
     throw new CliError(
       `--install-client must be one of ${INSTALL_CLIENTS.join(", ")} (got "${installClientRaw}")`,
     );
   }
-  const installClient = installClientRaw as InstallClient | undefined;
+  const installClient = installClientNormalized as InstallClient | undefined;
 
   // Fix-round finding 4: reject anything unrecognized BEFORE returning a command this file's
   // caller (run_setup) will act on — a positional argument, or a flag/typo not in either known

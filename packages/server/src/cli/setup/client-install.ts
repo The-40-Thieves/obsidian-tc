@@ -18,9 +18,22 @@
 // Split pure (path resolvers, entry/command builders, the JSON merge, the registry) from I/O
 // (cli/commands/setup-install-client.ts) the same way cli/setup/decide.ts and write.ts split PR
 // A's own logic — every function here is unit-testable with an injected platform/env/home.
+//
+// Types (`ClientKind` and every registry-entry interface) and the six clients added after GH #1008
+// (VS Code, opencode, Windsurf/Devin Desktop, Gemini CLI, Zed, Devin, plus Aider's explicit
+// non-support) live in client-install-types.ts / client-install-editors.ts respectively — split out
+// once this file's own original seven clients plus the new ones would have pushed it past biome's
+// 700-line ceiling. This file keeps the ORIGINAL seven (Claude Code, Claude Desktop, Cursor, Codex,
+// ChatGPT, Antigravity, Hermes) plus the registry assembly, `clientLabel`, and the printed-snippet
+// formatting every kind shares.
 import { join } from "node:path";
-import { CliError } from "../cli-error";
 import { INSTALL_CLIENTS, type InstallClient } from "../parse-setup";
+import { EDITOR_CLIENT_REGISTRY } from "./client-install-editors";
+import {
+  type ClientRegistryEntry,
+  formatCliInstallLine,
+  obsidianTcServerEntry,
+} from "./client-install-types";
 
 /** Claude Desktop's config path is OS-specific and each OS reads a different env var for its base
  *  directory — verified via context7 against the client's own docs (macOS: `~/Library/Application
@@ -53,12 +66,6 @@ export function cursorMcpConfigPath(home: string): string {
   return join(home, ".cursor", "mcp.json");
 }
 
-/** The `obsidian-tc` MCP server entry both JSON-config clients (Claude Desktop, Cursor) share —
- *  ONE shape defined once, so a format difference between the two can never creep in unnoticed. */
-export function obsidianTcServerEntry(configPath: string): { command: string; args: string[] } {
-  return { command: "obsidian-tc", args: ["--config", configPath] };
-}
-
 /** The documented `claude mcp add` invocation (code.claude.com/docs/en/mcp, context7-verified) —
  *  `--scope user`: available in every project, matching what one shared, already-running
  *  obsidian-tc install is for (not a single project's own `.mcp.json`). The `--` separator is
@@ -80,25 +87,11 @@ export function obsidianTcServerEntry(configPath: string): { command: string; ar
  *  DOUBLE-quoted PowerShell argument still expands `$var` and backtick escapes inside it; `%VAR%`
  *  also still expands inside cmd.exe's own double quotes. Single-quoting is the one PowerShell
  *  literal form where none of `$`, backtick, or `%VAR%` expand — only an embedded `'` needs
- *  escaping, doubled, PowerShell's own rule for a literal quote inside a single-quoted string. */
-export function shellQuoteArg(arg: string, platform: NodeJS.Platform): string {
-  if (platform === "win32") {
-    if (!/[\s'"$`^&|<>()%!]/.test(arg)) return arg;
-    return `'${arg.replace(/'/g, "''")}'`;
-  }
-  // POSIX (bash/zsh/sh): single-quote whenever a shell-meaningful char appears, closing/re-opening
-  // around any embedded single quote (`'\''` is the standard POSIX idiom — a literal `'` outside
-  // the quoted string, escaped, then back inside a new quoted string).
-  if (!/[\s"'$`\\!*?[\]{}();&|<>~#]/.test(arg)) return arg;
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
-/** Quotes every arg per `shellQuoteArg` and joins with spaces — the exact text a human would type
- *  (or paste) into their own shell to run the same command `execFileSync` runs directly. */
-export function shellQuoteArgs(args: string[], platform: NodeJS.Platform): string {
-  return args.map((a) => shellQuoteArg(a, platform)).join(" ");
-}
-
+ *  escaping, doubled, PowerShell's own rule for a literal quote inside a single-quoted string.
+ *
+ *  `shellQuoteArg`/`shellQuoteArgs` themselves now live in client-install-types.ts (imported above)
+ *  — re-exported at the bottom of this file so every existing import of them from this module keeps
+ *  working unchanged. */
 export function claudeCodeAddCommand(configPath: string): string[] {
   return [
     "mcp",
@@ -158,68 +151,6 @@ export function chatgptInstructions(): string {
   ].join("\n");
 }
 
-/** Quotes a CLI-client's argv (binary + args) into a copy-pasteable line — shared by every
- *  `"cli"` registry entry ("claude-code", "codex", "antigravity", "hermes" today). */
-export function formatCliInstallLine(
-  binary: string,
-  args: string[],
-  platform: NodeJS.Platform,
-): string {
-  return shellQuoteArgs([binary, ...args], platform);
-}
-
-export interface McpClientMergeResult {
-  /** True when an `obsidian-tc` entry was ALREADY present and `force` was not set — `merged` is
-   *  then just `existingRaw` unchanged (or `{}` if there was no existing file at all — impossible
-   *  in practice since `alreadyExists` requires a prior entry, kept only for the type's honesty). */
-  alreadyExists: boolean;
-  merged: Record<string, unknown>;
-}
-
-/** Merge the obsidian-tc entry into an existing (or absent) JSON config file's raw object — pure,
- *  so "refuse a duplicate unless `force`" and "every other server survives untouched" are
- *  unit-testable without touching a filesystem. Shared by every `"json-merge"` registry entry;
- *  `serversKey` defaults to `"mcpServers"` (Claude Desktop, Cursor) — a future client naming its
- *  own key differently (`servers`, `context_servers`, ...) passes it explicitly instead. */
-export function mergeMcpServersEntry(
-  existingRaw: Record<string, unknown> | undefined,
-  configPath: string,
-  opts: { force?: boolean } = {},
-  serversKey = "mcpServers",
-): McpClientMergeResult {
-  const base: Record<string, unknown> = existingRaw ? { ...existingRaw } : {};
-  // Finding 5 (fix round, cross-vendor review): a `serversKey` that IS present but is not a plain
-  // object (an array, a string, ...) used to fall through the same `? existingServers : {}`
-  // ternary as "absent" and get silently REPLACED with `{ "obsidian-tc": ... }` — every server that
-  // client config actually had (in whatever shape it was in) was then gone, with no error and no
-  // trace beyond a diff of the file. That is a different failure than "no `serversKey` key at all"
-  // (which really is safe to create from scratch) and must be refused, not repaired.
-  if (
-    serversKey in base &&
-    (typeof base[serversKey] !== "object" ||
-      base[serversKey] === null ||
-      Array.isArray(base[serversKey]))
-  ) {
-    throw new CliError(
-      `this client's config has a "${serversKey}" key that is not a JSON object (found ` +
-        `${Array.isArray(base[serversKey]) ? "an array" : typeof base[serversKey]}) — refusing ` +
-        "to replace it. Fix the file by hand, then re-run.",
-    );
-  }
-  const existingServers =
-    typeof base[serversKey] === "object" &&
-    base[serversKey] !== null &&
-    !Array.isArray(base[serversKey])
-      ? (base[serversKey] as Record<string, unknown>)
-      : {};
-  const alreadyExists = "obsidian-tc" in existingServers;
-  if (alreadyExists && !opts.force) {
-    return { alreadyExists: true, merged: base };
-  }
-  base[serversKey] = { ...existingServers, "obsidian-tc": obsidianTcServerEntry(configPath) };
-  return { alreadyExists: false, merged: base };
-}
-
 function indent(text: string): string {
   return text
     .split("\n")
@@ -228,48 +159,13 @@ function indent(text: string): string {
 }
 
 /** One MCP client's whole install mechanism. `--install-client <id>` and the no-flag snippet block
- *  (`formatClientSnippets`) both drive off this one table — a future client (VS Code, opencode,
- *  Windsurf, Zed, Gemini CLI, Cline/Roo Code, Continue, Goose, Amazon Q / Kiro, JetBrains, Devin,
- *  ...) is one more entry here plus its own tests, not a new code path: `"cli"` for a client with
- *  its own `<binary> mcp add ...` command (claude-code/codex/antigravity/hermes today);
- *  `"json-merge"` for a `{ <serversKey>: { <name>: entry } }` file (claude-desktop/cursor);
- *  `"instructions-only"` when no local install mechanism exists (chatgpt). A future
- *  TOML/YAML-only client is an anticipated `"toml-merge"`/`"yaml-merge"` fourth kind, added the
- *  day one actually needs it — see this file's header comment for why none does yet. */
-export type ClientKind = "cli" | "json-merge" | "instructions-only";
-
-interface ClientRegistryBase {
-  /** Human label — used only in printed text, never parsed back. */
-  displayName: string;
-  /** Where this entry's mechanism was verified — see the file header for the exact commands. */
-  sourceNote: string;
-}
-
-export interface CliClientSpec extends ClientRegistryBase {
-  kind: "cli";
-  /** Invoked via `execFileSync(binary, args, ...)` — never a shell. */
-  binary: string;
-  buildArgs: (configPath: string) => string[];
-}
-
-export interface JsonMergeClientSpec extends ClientRegistryBase {
-  kind: "json-merge";
-  configPath: (
-    platform: NodeJS.Platform,
-    env: Record<string, string | undefined>,
-    home: string,
-  ) => string;
-  /** The top-level key server entries live under — passed to `mergeMcpServersEntry`'s own param. */
-  serversKey: string;
-}
-
-export interface InstructionsOnlyClientSpec extends ClientRegistryBase {
-  kind: "instructions-only";
-  instructions: () => string;
-}
-
-export type ClientRegistryEntry = CliClientSpec | JsonMergeClientSpec | InstructionsOnlyClientSpec;
-
+ *  (`formatClientSnippets`) both drive off this one table — a future client is one more entry (in
+ *  this file for the plain shapes, client-install-editors.ts for a JSONC/instructions/unsupported
+ *  one) plus its own tests, not a new code path. See client-install-types.ts's own `ClientKind` doc
+ *  comment for what each of the five kinds means; a future TOML/YAML-only client is an anticipated
+ *  sixth (`"yaml-merge"`, mirroring jsonc-merge.ts's own split), added the day one actually needs
+ *  it — Continue and Goose (both YAML-config, per this repo's own client research) are the known
+ *  next candidates, not built speculatively here with no consumer to test it against. */
 export const CLIENT_REGISTRY: Record<InstallClient, ClientRegistryEntry> = {
   "claude-code": {
     kind: "cli",
@@ -321,6 +217,7 @@ export const CLIENT_REGISTRY: Record<InstallClient, ClientRegistryEntry> = {
     buildArgs: hermesAddCommand,
     sourceNote: "`hermes mcp add --help`, verified against the installed hermes-agent checkout",
   },
+  ...EDITOR_CLIENT_REGISTRY,
 };
 
 /** Thin lookup into CLIENT_REGISTRY so a label can never drift from the table above. */
@@ -344,14 +241,22 @@ function formatRegistryBlock(
     const label = platform === "win32" ? "run (PowerShell)" : "run";
     return `  ${entry.displayName} — ${label}: ${cmd}`;
   }
-  if (entry.kind === "json-merge") {
+  if (entry.kind === "json-merge" || entry.kind === "jsonc-merge") {
     const targetPath = entry.configPath(platform, env, home);
+    const buildEntry =
+      entry.kind === "json-merge" ? (entry.buildEntry ?? obsidianTcServerEntry) : entry.buildEntry;
     const jsonEntry = JSON.stringify(
-      { [entry.serversKey]: { "obsidian-tc": obsidianTcServerEntry(configPath) } },
+      { [entry.serversKey]: { "obsidian-tc": buildEntry(configPath) } },
       null,
       2,
     );
-    return [`  ${entry.displayName} — merge into ${targetPath}:`, indent(jsonEntry)].join("\n");
+    const suffix = entry.kind === "jsonc-merge" ? " (comments preserved)" : "";
+    return [`  ${entry.displayName} — merge into ${targetPath}${suffix}:`, indent(jsonEntry)].join(
+      "\n",
+    );
+  }
+  if (entry.kind === "unsupported") {
+    return `  ${entry.displayName} — ${entry.reason()}`;
   }
   return `  ${entry.displayName} — ${entry.instructions()}`;
 }
@@ -376,6 +281,25 @@ export function formatClientSnippets(
   return lines.join("\n");
 }
 
+// Re-exported so every existing import of these from THIS module (tests included) keeps working
+// unchanged now that their definitions live in client-install-types.ts.
+export type {
+  CliClientSpec,
+  ClientKind,
+  ClientRegistryEntry,
+  InstructionsOnlyClientSpec,
+  JsoncMergeClientSpec,
+  JsonMergeClientSpec,
+  McpClientMergeResult,
+  UnsupportedClientSpec,
+} from "./client-install-types";
+export {
+  formatCliInstallLine,
+  mergeMcpServersEntry,
+  obsidianTcServerEntry,
+  shellQuoteArg,
+  shellQuoteArgs,
+} from "./client-install-types";
 export type { InstallClient };
 // Re-exported so callers that only need the client id list don't have to reach into parse-setup.ts
 // for it.

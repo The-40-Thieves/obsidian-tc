@@ -375,3 +375,320 @@ describe("runInstallClient — chatgpt (instructions-only)", () => {
     expect(process.exitCode).toBeUndefined();
   });
 });
+
+// RED case: before this change, "vscode"/"opencode"/"windsurf"/"gemini"/"zed"/"devin"/"aider" were
+// not valid --install-client values — parse-setup.ts refused them before runInstallClient was ever
+// reached.
+describe("runInstallClient — vscode (CLI, name embedded in JSON payload)", () => {
+  it("prints and runs `code --add-mcp '{...}'`", async () => {
+    captureOutput();
+    const runCli = vi.fn((_binary: string, _args: string[]) => "ok\n");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "vscode", yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).toHaveBeenCalledTimes(1);
+    const [calledBinary, calledArgs] = runCli.mock.calls[0] ?? ["", []];
+    expect(calledBinary).toBe("code");
+    expect(calledArgs[0]).toBe("--add-mcp");
+    expect(JSON.parse(calledArgs[1] as string)).toMatchObject({ name: "obsidian-tc" });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("a failed/missing `code` binary is reported, not thrown", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => {
+      throw new Error("ENOENT: no such file or directory, spawn code");
+    });
+
+    await runInstallClient(
+      { kind: "setup", installClient: "vscode", yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(stderr.join("")).toMatch(/ENOENT/);
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+describe("runInstallClient — gemini (CLI)", () => {
+  it("prints and runs `gemini mcp add`", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "ok\n");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "gemini", yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).toHaveBeenCalledWith(
+      "gemini",
+      expect.arrayContaining(["mcp", "add", "obsidian-tc"]),
+    );
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("--dry-run prints the command but never runs it", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "should not run");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "gemini", yes: false, dryRun: true, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).not.toHaveBeenCalled();
+    expect(stdout.join("")).toMatch(/dry-run/);
+  });
+});
+
+describe("runInstallClient — opencode (jsonc-merge)", () => {
+  it("writes a fresh opencode.json when none exists", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+
+    await runInstallClient(
+      {
+        kind: "setup",
+        installClient: "opencode",
+        configPath,
+        yes: false,
+        dryRun: false,
+        force: false,
+      },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    const target = join(home, ".config", "opencode", "opencode.json");
+    expect(existsSync(target)).toBe(true);
+    const onDisk = JSON.parse(readFileSync(target, "utf8"));
+    expect(onDisk.mcp["obsidian-tc"]).toEqual({
+      type: "local",
+      command: ["obsidian-tc", "--config", configPath],
+      enabled: true,
+      environment: {},
+    });
+  });
+
+  it("merges into an existing opencode.json WITHOUT dropping a comment or another server", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+    const dir = join(home, ".config", "opencode");
+    const target = join(dir, "opencode.json");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      target,
+      [
+        "{",
+        "  // keep this comment",
+        '  "mcp": {',
+        '    "fs": { "type": "local", "command": ["x"] }',
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+
+    await runInstallClient(
+      {
+        kind: "setup",
+        installClient: "opencode",
+        configPath,
+        yes: false,
+        dryRun: false,
+        force: false,
+      },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    const text = readFileSync(target, "utf8");
+    expect(text).toContain("// keep this comment");
+    const parsed = JSON.parse(text.replace(/\/\/.*$/gm, ""));
+    expect(parsed.mcp.fs).toEqual({ type: "local", command: ["x"] });
+    expect(parsed.mcp["obsidian-tc"].type).toBe("local");
+  });
+
+  it("refuses a duplicate obsidian-tc entry without --force", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+    const dir = join(home, ".config", "opencode");
+    const target = join(dir, "opencode.json");
+    mkdirSync(dir, { recursive: true });
+    const original = JSON.stringify({
+      mcp: { "obsidian-tc": { type: "local", command: ["old"] } },
+    });
+    writeFileSync(target, original);
+
+    await runInstallClient(
+      {
+        kind: "setup",
+        installClient: "opencode",
+        configPath,
+        yes: false,
+        dryRun: false,
+        force: false,
+      },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    expect(readFileSync(target, "utf8")).toBe(original);
+    expect(stderr.join("")).toMatch(/already has an "obsidian-tc"/);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("--dry-run writes nothing", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+
+    await runInstallClient(
+      {
+        kind: "setup",
+        installClient: "opencode",
+        configPath,
+        yes: false,
+        dryRun: true,
+        force: false,
+      },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    expect(existsSync(join(home, ".config", "opencode", "opencode.json"))).toBe(false);
+    expect(stdout.join("")).toMatch(/dry-run/);
+  });
+});
+
+describe("runInstallClient — windsurf (json-merge, legacy-path preference)", () => {
+  it("writes the CURRENT devin path when no legacy install exists", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+
+    await runInstallClient(
+      {
+        kind: "setup",
+        installClient: "windsurf",
+        configPath,
+        yes: false,
+        dryRun: false,
+        force: false,
+      },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    const target = join(home, ".config", "devin", "mcp_config.json");
+    expect(existsSync(target)).toBe(true);
+    const onDisk = JSON.parse(readFileSync(target, "utf8"));
+    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
+      command: "obsidian-tc",
+      args: ["--config", configPath],
+    });
+  });
+
+  it("prefers the LEGACY Codeium path when it already exists on disk", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+    const legacyDir = join(home, ".codeium", "windsurf");
+    const legacyPath = join(legacyDir, "mcp_config.json");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(legacyPath, JSON.stringify({ mcpServers: {} }));
+
+    await runInstallClient(
+      {
+        kind: "setup",
+        installClient: "windsurf",
+        configPath,
+        yes: false,
+        dryRun: false,
+        force: false,
+      },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    const onDisk = JSON.parse(readFileSync(legacyPath, "utf8"));
+    expect(onDisk.mcpServers["obsidian-tc"]).toEqual({
+      command: "obsidian-tc",
+      args: ["--config", configPath],
+    });
+    expect(existsSync(join(home, ".config", "devin", "mcp_config.json"))).toBe(false);
+  });
+
+  it("--install-client devin-desktop (the alias) writes to the same place as windsurf", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+
+    await runInstallClient(
+      {
+        kind: "setup",
+        installClient: "windsurf", // parse-setup.ts already normalized the alias before this layer
+        configPath,
+        yes: false,
+        dryRun: false,
+        force: false,
+      },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    expect(existsSync(join(home, ".config", "devin", "mcp_config.json"))).toBe(true);
+  });
+});
+
+describe("runInstallClient — zed (jsonc-merge, no source:custom field)", () => {
+  it("writes a fresh settings.json with the three-field entry", async () => {
+    captureOutput();
+    const home = tmpDir("otc-install-client-home-");
+    const configPath = join(home, ".obsidian-tc", "config.json");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "zed", configPath, yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home, runCli: () => "" },
+    );
+
+    const target = join(home, ".config", "zed", "settings.json");
+    const onDisk = JSON.parse(readFileSync(target, "utf8"));
+    expect(onDisk.context_servers["obsidian-tc"]).toEqual({
+      command: "obsidian-tc",
+      args: ["--config", configPath],
+      env: {},
+    });
+    expect(onDisk.context_servers["obsidian-tc"].source).toBeUndefined();
+  });
+});
+
+describe("runInstallClient — devin (instructions-only, distinct from windsurf)", () => {
+  it("prints instructions and writes nothing, exit 0", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "should never be called");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "devin", yes: false, dryRun: false, force: false },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).not.toHaveBeenCalled();
+    expect(stdout.join("")).toMatch(/no local-stdio reach|cloud/i);
+    expect(process.exitCode).toBeUndefined();
+  });
+});
+
+describe("runInstallClient — aider (unsupported: no MCP mechanism at all)", () => {
+  it("writes nothing and exits non-zero with a clear message, ignoring --dry-run/--force", async () => {
+    captureOutput();
+    const runCli = vi.fn(() => "should never be called");
+
+    await runInstallClient(
+      { kind: "setup", installClient: "aider", yes: false, dryRun: true, force: true },
+      { platform: "linux", env: {}, home: "/home/op", runCli },
+    );
+
+    expect(runCli).not.toHaveBeenCalled();
+    expect(stderr.join("")).toMatch(/no MCP support/i);
+    expect(process.exitCode).toBe(1);
+  });
+});

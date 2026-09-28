@@ -15,10 +15,12 @@ import {
   CLIENT_REGISTRY,
   clientLabel,
   formatCliInstallLine,
+  type JsonMergeClientSpec,
   mergeMcpServersEntry,
   obsidianTcServerEntry,
 } from "../setup/client-install";
-import { mergeJsonFileAtomic } from "../setup/write";
+import { mergeMcpServersEntryJsonc } from "../setup/jsonc-merge";
+import { mergeJsoncFileAtomic, mergeJsonFileAtomic } from "../setup/write";
 import type { Cmd } from "../shared";
 
 /** Everything `runInstallClient` reads from the ambient environment, as one injectable bag —
@@ -67,6 +69,27 @@ function loadExistingClientJson(path: string): Record<string, unknown> | undefin
   return parsed as Record<string, unknown>;
 }
 
+/** The `jsonc-merge` twin of `loadExistingClientJson` — returns the raw TEXT (or undefined if the
+ *  file does not exist yet), never parsed: `mergeMcpServersEntryJsonc` does its own parsing (and
+ *  its own "not valid JSON/JSONC" refusal) on the text directly, so a comment survives the whole
+ *  round trip instead of being dropped by an intermediate `JSON.parse`. */
+function loadExistingClientText(path: string): string | undefined {
+  if (!existsSync(path)) return undefined;
+  return readFileSync(path, "utf8");
+}
+
+/** Windsurf-only (PR B follow-up): an operator with a pre-rebrand install has their `obsidian-tc`
+ *  entry at the LEGACY Codeium path, not the current Devin Desktop one — writing a second,
+ *  disconnected file at the current path would leave the editor still reading the old one. Prefers
+ *  the legacy path only when it actually exists on disk today. */
+function resolveJsonMergeTargetPath(entry: JsonMergeClientSpec, deps: InstallClientDeps): string {
+  if (entry.legacyConfigPath !== undefined) {
+    const legacy = entry.legacyConfigPath(deps.home);
+    if (existsSync(legacy)) return legacy;
+  }
+  return entry.configPath(deps.platform, deps.env, deps.home);
+}
+
 /** `obsidian-tc setup --install-client <client>`'s whole action. Never runs the normal
  *  detect/decide/write flow (cli/commands/setup.ts's own `run_setup` branches BEFORE that) — the
  *  config path a client is pointed at need not exist yet at all; `serve`'s own first-run fallback
@@ -83,9 +106,17 @@ export async function runInstallClient(
   const entry = CLIENT_REGISTRY[client];
 
   if (entry.kind === "instructions-only") {
-    // ChatGPT (today's only entry of this kind): no local install mechanism exists at all — print
-    // guidance and write nothing, regardless of --dry-run/--force/--yes.
+    // ChatGPT/Devin (both cloud, no local install mechanism at all): print guidance and write
+    // nothing, regardless of --dry-run/--force/--yes.
     process.stdout.write(`${entry.instructions()}\n`);
+    return;
+  }
+
+  if (entry.kind === "unsupported") {
+    // Aider (no MCP support whatsoever): a real command, must still exit non-zero — unlike
+    // instructions-only, there is nothing useful to point an operator at.
+    process.stderr.write(`obsidian-tc setup: ${entry.reason()}\n`);
+    process.exitCode = 1;
     return;
   }
 
@@ -115,14 +146,50 @@ export async function runInstallClient(
     return;
   }
 
-  // entry.kind === "json-merge" (Claude Desktop, Cursor today).
-  const targetPath = entry.configPath(deps.platform, deps.env, deps.home);
+  if (entry.kind === "jsonc-merge") {
+    // opencode, Zed today — comments in the existing file must survive the edit, so the whole path
+    // below reads/writes TEXT, never an intermediate parsed object.
+    const targetPath = entry.configPath(deps.platform, deps.env, deps.home);
+    const existingText = loadExistingClientText(targetPath);
+    const result = mergeMcpServersEntryJsonc(
+      existingText,
+      entry.buildEntry(targetConfigPath),
+      { force: cmd.force },
+      entry.serversKey,
+    );
+    if (result.alreadyExists) {
+      process.stderr.write(
+        `obsidian-tc setup: ${clientLabel(client)} already has an "obsidian-tc" MCP server entry ` +
+          `at ${targetPath} — pass --force to overwrite it.\n`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (cmd.dryRun) {
+      process.stdout.write(
+        `${JSON.stringify({ [entry.serversKey]: { "obsidian-tc": entry.buildEntry(targetConfigPath) } }, null, 2)}\n`,
+      );
+      process.stdout.write("(--dry-run: nothing written)\n");
+      return;
+    }
+    const written = mergeJsoncFileAtomic(targetPath, result.text);
+    process.stdout.write(
+      `obsidian-tc setup: wrote ${clientLabel(client)}'s obsidian-tc entry to ${written.path}` +
+        (written.backupPath ? ` (existing file backed up to ${written.backupPath})` : "") +
+        "\n",
+    );
+    return;
+  }
+
+  // entry.kind === "json-merge" (Claude Desktop, Cursor, Windsurf/Devin Desktop today).
+  const targetPath = resolveJsonMergeTargetPath(entry, deps);
   const existingRaw = loadExistingClientJson(targetPath);
   const result = mergeMcpServersEntry(
     existingRaw,
     targetConfigPath,
     { force: cmd.force },
     entry.serversKey,
+    entry.buildEntry ?? obsidianTcServerEntry,
   );
   if (result.alreadyExists) {
     process.stderr.write(
@@ -134,8 +201,9 @@ export async function runInstallClient(
   }
 
   if (cmd.dryRun) {
+    const buildEntry = entry.buildEntry ?? obsidianTcServerEntry;
     process.stdout.write(
-      `${JSON.stringify({ [entry.serversKey]: { "obsidian-tc": obsidianTcServerEntry(targetConfigPath) } }, null, 2)}\n`,
+      `${JSON.stringify({ [entry.serversKey]: { "obsidian-tc": buildEntry(targetConfigPath) } }, null, 2)}\n`,
     );
     process.stdout.write("(--dry-run: nothing written)\n");
     return;

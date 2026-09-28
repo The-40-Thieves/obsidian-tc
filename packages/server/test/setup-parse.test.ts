@@ -104,15 +104,38 @@ describe("parseCliArgs setup", () => {
 
   // PR B of GH #995's two-part follow-up: --install-client <client>.
   it("--install-client <client> is captured for each recognized client id", () => {
-    for (const client of ["claude-code", "claude-desktop", "cursor"]) {
+    for (const client of [
+      "claude-code",
+      "claude-desktop",
+      "cursor",
+      "codex",
+      "chatgpt",
+      "antigravity",
+      "hermes",
+      "vscode",
+      "opencode",
+      "windsurf",
+      "gemini",
+      "zed",
+      "devin",
+      "aider",
+    ]) {
       const c = parseCliArgs(["setup", "--install-client", client]);
       if (c.kind !== "setup") throw new Error("expected setup");
       expect(c.installClient).toBe(client);
     }
   });
 
+  // RED case (this change): `devin-desktop` is the product's OWN rebranded name for Windsurf, and
+  // must resolve to the same registry entry as `windsurf` rather than being a separate client.
+  it("--install-client devin-desktop is an alias for windsurf", () => {
+    const c = parseCliArgs(["setup", "--install-client", "devin-desktop"]);
+    if (c.kind !== "setup") throw new Error("expected setup");
+    expect(c.installClient).toBe("windsurf");
+  });
+
   it("--install-client with an unrecognized value is a usage error", () => {
-    const c = parseCliArgs(["setup", "--install-client", "vscode"]);
+    const c = parseCliArgs(["setup", "--install-client", "notaclient"]);
     expect(c.kind).toBe("error");
   });
 
