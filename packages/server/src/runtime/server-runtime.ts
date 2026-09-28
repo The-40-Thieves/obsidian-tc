@@ -52,6 +52,7 @@ import {
   wireJobHandlers,
 } from "./plane-wiring";
 import { wireScheduler } from "./scheduler-wiring";
+import { raceShutdownPhase } from "./shutdown-phase";
 import { type Stores, wireStores } from "./stores";
 import { wireDomainTools, wireGatewaySeams, wireHealthTools, wireM1Tools } from "./tool-wiring";
 import { wireTransports } from "./transport-wiring";
@@ -655,13 +656,17 @@ export async function buildServerRuntime(
   } = requireBoot(postCore, "postCore");
 
   let closed = false;
+  // GH #995: a REAL controller (the old `new AbortController()` here was a throwaway nobody kept
+  // a reference to). close() aborts it FIRST, so a boot reconcile still running when
+  // SIGTERM/SIGINT/stdin-EOF fires stops embedding within one sub-batch's duration — see
+  // test/shutdown-boot-embed.test.ts.
+  const bootReconcileAbort = new AbortController();
 
   const start = async (): Promise<void> => {
     // Boot pass: backgrounded so it never blocks stdio, exactly as before. Runs before the
-    // scheduler (and its AbortController) exists, so there is nothing to abort it with yet — a
-    // fresh, never-aborted signal, the same stand-in plane-wiring.ts's createReconcileRunner uses
-    // for its own post-reconcile drainOnce call.
-    void runReconcile(new AbortController().signal);
+    // scheduler exists, so its OWN AbortController can't reach it — bootReconcileAbort is this
+    // pass's, held by close() (GH #995).
+    void runReconcile(bootReconcileAbort.signal);
 
     morgiana.emit(firstVault.id, "tc.server.start");
 
@@ -676,6 +681,12 @@ export async function buildServerRuntime(
     // neither transport is enabled there is nothing to serve, so exit with a clear message.
     if (config.transports.stdio) {
       await connectStdio(server);
+      // GH #995: a stdio client disconnecting closes stdin — the MCP SDK already forwards that
+      // to `server.onclose`, but nothing here was listening. Route it through the SAME bounded
+      // close() every signal uses; idempotent via close()'s own `closed` flag.
+      server.onclose = () => {
+        void close("transport:stdio-eof").finally(() => process.exit(0));
+      };
       process.stderr.write(
         `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
       );
@@ -697,29 +708,17 @@ export async function buildServerRuntime(
     if (closed) return;
     closed = true;
     process.stderr.write(`obsidian-tc: shutting down (${reason})\n`);
+    // GH #995: abort the boot reconcile FIRST — nothing else here holds a reference to it, so
+    // left running it keeps embedding with no deadline at all. flush()/embed-batches.ts's worker
+    // loop both check this between sub-batches.
+    bootReconcileAbort.abort();
     // THE-649: stop watching BEFORE draining. A late filesystem event would otherwise enqueue new
     // coordinator work while indexCoordinator.idle() below is waiting for the queue to empty.
     stopVaultWatch();
-    // THE-462: one bounded stop replaces the four stop functions — clears the timer, aborts the
-    // in-flight run's AbortSignal, and awaits settle under the scheduler's deadline.
-    await scheduler.stop();
+    // THE-462/THE-457/GH #995: scheduler.stop(), the index drain, and the durable-job drain all
+    // race ONE shared deadline now — see shutdown-phase.ts's own doc for why that used to stack.
+    await raceShutdownPhase({ scheduler, indexCoordinator, jobRunner, drainMs: SHUTDOWN_DRAIN_MS });
     morgiana.emit(firstVault.id, "tc.server.shutdown");
-    // THE-457: drain in-flight work under a bounded deadline before exit, so a write mid-index
-    // isn't lost and SQLite closes cleanly. Never hang — race the drain against a timeout.
-    await Promise.race([
-      (async () => {
-        await indexCoordinator.idle().catch(() => {});
-        // #14: durable jobs survive the process exiting mid-lease (claim()'s lease-expiry reclaim
-        // picks them up); this bounded best-effort pass just gives a live worker a chance to clear
-        // the queue before exit instead of always waiting out the lease. See docs/design/server-runtime.md.
-        const shutdownDrain = new AbortController();
-        setTimeout(() => shutdownDrain.abort(), SHUTDOWN_DRAIN_MS).unref();
-        await jobRunner.drainOnce(shutdownDrain.signal).catch(() => {});
-      })(),
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, SHUTDOWN_DRAIN_MS).unref();
-      }),
-    ]);
     // Every opened resource below gets a best-effort, independently-guarded close — one failing
     // must not skip the rest.
     try {

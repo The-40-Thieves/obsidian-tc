@@ -107,6 +107,10 @@ export async function embedPlans(
   batchSize: number,
   concurrency: number,
   maxBatchTokens: number = EMBED_MAX_BATCH_TOKENS,
+  /** GH #995: checked (and yielded to) between provider calls below — see the worker loop's own
+   *  comment for why this is the seam a shutdown needs, not a higher one. Absent -> unabortable,
+   *  matching every call site before this ticket (only the boot reconcile passes one). */
+  signal?: AbortSignal,
 ): Promise<EmbedReport> {
   const contents: string[] = [];
   // THE-934: parallel to `contents` — the vault path each text came from, one entry per pushed
@@ -158,6 +162,7 @@ export async function embedPlans(
   let next = 0;
   const worker = async (): Promise<void> => {
     for (let i = next++; i < subBatches.length; i = next++) {
+      if (signal?.aborted) return;
       results[i] = await embedSubBatch(
         provider,
         subBatches[i] as string[],
@@ -165,11 +170,37 @@ export async function embedPlans(
         hasFull,
         counters,
       );
+      // GH #995: a real embed call here (the in-process ONNX/native path, in particular) can run
+      // for its whole duration as SYNCHRONOUS JS-thread work that resolves via a microtask chain
+      // with no macrotask in between — `await`ing it alone does not hand control back to libuv,
+      // so a SIGTERM queued during the call is not even DELIVERED to the process's signal handler
+      // until every sub-batch across the whole reconcile has run (reproduced in
+      // test/shutdown-boot-embed.test.ts). `setImmediate` forces a real event-loop turn between
+      // sub-batches, bounding that delivery latency to one sub-batch's duration, and the abort
+      // check right after it lets a shutdown already in progress stop issuing further provider
+      // calls instead of running the rest of this batch to completion.
+      //
+      // Gated on `signal` being present: with no signal there is nothing to abort or deliver, and
+      // unconditionally forcing a macrotask turn here changed observable timing for every
+      // unsignaled caller (every call site except the boot reconcile) — a real regression caught
+      // by index-vault-in-flight.test.ts's `pollUntil`, which polls purely across microtask ticks
+      // (a real event-loop turn never resolves within its own bound). Absent -> byte-identical to
+      // before this ticket, matching every other `signal` check in this file.
+      if (signal) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        if (signal.aborted) return;
+      }
     }
   };
   await Promise.all(
     Array.from({ length: Math.min(concurrency, subBatches.length) }, () => worker()),
   );
+  // Aborted mid-flight: `results` may have holes (a worker returned before filling its slot).
+  // Quiet no-op, matching every other `signal.aborted` check in this codebase (e.g.
+  // plane-wiring.ts's createReconcileRunner) — the caller (index-vault.ts's flush()) re-checks the
+  // signal itself and drops the whole batch rather than writing a partial embed result; the next
+  // reconcile re-plans and re-embeds these same notes from scratch.
+  if (signal?.aborted) return { failed: [], rejections: counters.rejections };
   const flatDense = results.flatMap((r) => r.dense);
   const flatSparse = hasFull ? results.flatMap((r) => r.sparse ?? []) : null;
   const flatColbert = hasFull ? results.flatMap((r) => r.colbert ?? []) : null;
