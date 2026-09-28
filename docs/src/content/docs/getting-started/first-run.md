@@ -109,22 +109,42 @@ calls are authenticated with full local scope.
 Point any MCP client at the command. The config path can be an argument or the
 `OBSIDIAN_TC_CONFIG` env var — the env form keeps client entries uniform.
 
-`obsidian-tc setup` itself prints ready-to-paste snippets for Claude Code, Claude
-Desktop and Cursor at the end of every run. To have it wire one in for you instead
-of pasting by hand, add `--install-client <claude-code|claude-desktop|cursor>`:
+`obsidian-tc setup` itself prints ready-to-paste snippets for every known client at
+the end of every run. To have it wire one in for you instead of pasting by hand,
+add `--install-client <id>` (`claude-code`, `claude-desktop`, `cursor`, `codex`,
+`chatgpt`, `antigravity`, `hermes`):
 
 ```sh
 obsidian-tc setup --install-client claude-desktop
 ```
 
-For Claude Desktop and Cursor this merges an `obsidian-tc` entry into that client's
-own JSON config (`claude_desktop_config.json` / `~/.cursor/mcp.json`) without
-touching any other server already configured there, backing the existing file up
-first. It refuses to replace an existing `obsidian-tc` entry unless you also pass
-`--force`, and `--dry-run` prints the entry without writing anything. For Claude
-Code it prints (and, unless `--dry-run` is given, runs) the documented `claude mcp
-add` command — Claude Code owns its own `.mcp.json`/`~/.claude.json`, so this never
-hand-edits that file directly.
+**Claude Desktop and Cursor** — no CLI of their own — merge an `obsidian-tc` entry
+into that client's own JSON config (`claude_desktop_config.json` /
+`~/.cursor/mcp.json`) without touching any other server already configured there,
+backing the existing file up first. It refuses to replace an existing
+`obsidian-tc` entry unless you also pass `--force`, and `--dry-run` prints the
+entry without writing anything.
+
+**Claude Code, Codex CLI, Antigravity, and Hermes Agent** each ship their own
+`mcp add`-style command, so `--install-client` prints (and, unless `--dry-run` is
+given, runs) that documented command instead of hand-editing the client's own
+config file (`~/.claude.json`, `~/.codex/config.toml`,
+`~/.gemini/antigravity/mcp_config.json`, a Hermes profile's `config.yaml`
+respectively):
+
+```sh
+claude mcp add --scope user obsidian-tc -- obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
+codex mcp add obsidian-tc -- obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
+agy mcp add obsidian-tc obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
+hermes mcp add obsidian-tc --command obsidian-tc --args --config /ABSOLUTE/PATH/TO/config.json
+```
+
+**ChatGPT** has no local MCP client at all — Developer Mode's custom connectors
+only reach a remote, public HTTPS MCP server. `--install-client chatgpt` writes
+nothing; it prints instructions pointing at [Run one shared server for several
+clients](https://github.com/The-40-Thieves/obsidian-tc/wiki/Deployment-Modes#run-one-shared-server-for-several-clients)
+below, since that HTTP server is what a public HTTPS URL for ChatGPT to connect to
+would front.
 
 **Claude Desktop** (`claude_desktop_config.json`):
 

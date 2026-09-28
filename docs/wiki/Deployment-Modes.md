@@ -176,6 +176,12 @@ matches this server's `/mcp` endpoint with no `--transport` flag needed. Confirm
 flags against `mcp-remote`'s own README before relying on this verbatim — it is a moving target
 this project does not control.
 
+**ChatGPT** (Developer Mode custom connectors) speaks only to a **remote, public HTTPS** MCP
+server — there is no local/stdio option at all (OpenAI's current Developer Mode / Apps SDK docs).
+Put the HTTP server above behind a public HTTPS front (a tunnel, or a real deployment) with `jwt`
+auth, then add that URL as a Developer Mode connector — the same `token mint` step (2) applies,
+scoped to that connector's own `--sub`.
+
 #### Security notes
 
 - **Bind to `127.0.0.1`.** Every client above runs on the same machine as the server; nothing

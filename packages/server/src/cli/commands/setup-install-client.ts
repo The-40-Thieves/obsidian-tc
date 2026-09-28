@@ -1,35 +1,40 @@
-// PR B of GH #995's two-part follow-up: the I/O glue for `obsidian-tc setup --install-client
-// <client>` — cli/setup/client-install.ts owns every pure path-resolution/format/merge decision;
+// PR B of GH #995's two-part follow-up (extended to Codex/ChatGPT/Antigravity/Hermes by a later
+// change): the I/O glue for `obsidian-tc setup --install-client <client>` —
+// cli/setup/client-install.ts owns every pure path-resolution/format/merge/registry decision;
 // this file is only the filesystem/process boundary around it (reading an existing client config,
-// running `claude mcp add`, writing the merged file), same "I/O in the command file, pure logic in
-// cli/setup/*" split cli/commands/setup.ts's own header documents for PR A.
+// running a client's own `mcp add`-style command, writing the merged file), same "I/O in the
+// command file, pure logic in cli/setup/*" split cli/commands/setup.ts's own header documents for
+// PR A. Dispatches on CLIENT_REGISTRY's `kind` rather than the client id directly, so a future
+// registry entry (see that table's own header comment) needs no new branch here.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { CliError } from "../cli-error";
 import { defaultSetupConfigPath } from "../resolve-config";
 import {
-  claudeCodeAddCommand,
-  claudeDesktopConfigPath,
+  CLIENT_REGISTRY,
   clientLabel,
-  cursorMcpConfigPath,
+  formatCliInstallLine,
   mergeMcpServersEntry,
   obsidianTcServerEntry,
-  shellQuoteArgs,
 } from "../setup/client-install";
 import { mergeJsonFileAtomic } from "../setup/write";
 import type { Cmd } from "../shared";
 
 /** Everything `runInstallClient` reads from the ambient environment, as one injectable bag —
- *  tests supply a fake platform/env/home (never the real host's) and a stub `runClaudeMcpAdd` (so
- *  a test run never actually shells out to a `claude` binary that may not exist on the CI runner). */
+ *  tests supply a fake platform/env/home (never the real host's) and a stub `runCli` (so a test
+ *  run never actually shells out to a `claude`/`codex`/`agy`/`hermes` binary that may not exist,
+ *  or may not be safe to invoke for real, on the CI runner — see this repo's own note that `agy`
+ *  has no read-only mode). */
 export interface InstallClientDeps {
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
   home: string;
-  /** Runs `claude mcp add ...` and returns its captured stdout, or throws (ENOENT when `claude`
-   *  isn't on PATH, or the command's own non-zero exit — `execFileSync` throws for both). */
-  runClaudeMcpAdd: (args: string[]) => string;
+  /** Runs `<binary> mcp add ...` (or that client's equivalent) and returns its captured stdout, or
+   *  throws (ENOENT when the binary isn't on PATH, or the command's own non-zero exit —
+   *  `execFileSync` throws for both). One function for every `"cli"` registry entry, never a
+   *  shell — the binary and its argv are both fixed by CLIENT_REGISTRY, not user input. */
+  runCli: (binary: string, args: string[]) => string;
 }
 
 function defaultDeps(): InstallClientDeps {
@@ -37,8 +42,8 @@ function defaultDeps(): InstallClientDeps {
     platform: process.platform,
     env: process.env,
     home: homedir(),
-    runClaudeMcpAdd: (args) =>
-      execFileSync("claude", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
+    runCli: (binary, args) =>
+      execFileSync(binary, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
   };
 }
 
@@ -75,24 +80,34 @@ export async function runInstallClient(
     throw new Error("runInstallClient called without --install-client");
   }
   const targetConfigPath = cmd.configPath ?? defaultSetupConfigPath();
+  const entry = CLIENT_REGISTRY[client];
 
-  if (client === "claude-code") {
-    const args = claudeCodeAddCommand(targetConfigPath);
-    // Finding 6 (fix round, cross-vendor review): `execFileSync` below runs `args` directly (never
-    // a shell, so no quoting needed there) — this printed line is what a human copy-pastes into
-    // THEIR shell, and must be quoted for it.
-    process.stdout.write(`${shellQuoteArgs(["claude", ...args], deps.platform)}\n`);
+  if (entry.kind === "instructions-only") {
+    // ChatGPT (today's only entry of this kind): no local install mechanism exists at all — print
+    // guidance and write nothing, regardless of --dry-run/--force/--yes.
+    process.stdout.write(`${entry.instructions()}\n`);
+    return;
+  }
+
+  if (entry.kind === "cli") {
+    const args = entry.buildArgs(targetConfigPath);
+    // Finding 6 (fix round, cross-vendor review, originally Claude Code-only): `deps.runCli` below
+    // runs `args` directly (never a shell, so no quoting needed there) — this printed line is what
+    // a human copy-pastes into THEIR shell, and must be quoted for it.
+    process.stdout.write(`${formatCliInstallLine(entry.binary, args, deps.platform)}\n`);
     if (cmd.dryRun) {
       process.stdout.write("(--dry-run: not run)\n");
       return;
     }
     try {
-      const output = deps.runClaudeMcpAdd(args);
+      const output = deps.runCli(entry.binary, args);
       if (output.length > 0) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
-      process.stdout.write("obsidian-tc setup: ran the command above via the claude CLI.\n");
+      process.stdout.write(
+        `obsidian-tc setup: ran the command above via the ${entry.displayName} CLI.\n`,
+      );
     } catch (e) {
       process.stderr.write(
-        `obsidian-tc setup: could not run \`claude\` (${e instanceof Error ? e.message : String(e)}) ` +
+        `obsidian-tc setup: could not run \`${entry.binary}\` (${e instanceof Error ? e.message : String(e)}) ` +
           "— run the command printed above yourself.\n",
       );
       process.exitCode = 1;
@@ -100,13 +115,15 @@ export async function runInstallClient(
     return;
   }
 
-  const targetPath =
-    client === "claude-desktop"
-      ? claudeDesktopConfigPath(deps.platform, deps.env, deps.home)
-      : cursorMcpConfigPath(deps.home);
-
+  // entry.kind === "json-merge" (Claude Desktop, Cursor today).
+  const targetPath = entry.configPath(deps.platform, deps.env, deps.home);
   const existingRaw = loadExistingClientJson(targetPath);
-  const result = mergeMcpServersEntry(existingRaw, targetConfigPath, { force: cmd.force });
+  const result = mergeMcpServersEntry(
+    existingRaw,
+    targetConfigPath,
+    { force: cmd.force },
+    entry.serversKey,
+  );
   if (result.alreadyExists) {
     process.stderr.write(
       `obsidian-tc setup: ${clientLabel(client)} already has an "obsidian-tc" MCP server entry ` +
@@ -118,7 +135,7 @@ export async function runInstallClient(
 
   if (cmd.dryRun) {
     process.stdout.write(
-      `${JSON.stringify({ mcpServers: { "obsidian-tc": obsidianTcServerEntry(targetConfigPath) } }, null, 2)}\n`,
+      `${JSON.stringify({ [entry.serversKey]: { "obsidian-tc": obsidianTcServerEntry(targetConfigPath) } }, null, 2)}\n`,
     );
     process.stdout.write("(--dry-run: nothing written)\n");
     return;

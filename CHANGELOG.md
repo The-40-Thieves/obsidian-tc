@@ -6,6 +6,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`setup --install-client` now supports four more MCP clients: Codex CLI, ChatGPT, Antigravity,
+  and Hermes Agent** (previously Claude Code, Claude Desktop, and Cursor only). Codex CLI,
+  Antigravity, and Hermes Agent each ship their own `mcp add`-style command
+  (`codex mcp add`, `agy mcp add`, `hermes mcp add`), so — like Claude Code already did — this
+  prints (and, unless `--dry-run` is given, runs) that documented command rather than hand-editing
+  the client's own config file. ChatGPT has no local MCP client at all — Developer Mode's custom
+  connectors only reach a remote, public HTTPS MCP server — so `--install-client chatgpt` prints
+  instructions pointing at [running one shared HTTP
+  server](https://github.com/The-40-Thieves/obsidian-tc/wiki/Deployment-Modes#run-one-shared-server-for-several-clients)
+  and writes nothing. The per-client install mechanism (CLI / JSON-merge / instructions-only) now
+  lives in one `CLIENT_REGISTRY` table (`cli/setup/client-install.ts`) so a future client is one
+  more entry away rather than a new code path.
+
 ### Fixed
 
 - **First-run setup follow-ups (GH #1005 review round).** Six fixes to the first-run fallback and

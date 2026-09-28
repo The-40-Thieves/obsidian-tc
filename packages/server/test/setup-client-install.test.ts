@@ -3,12 +3,18 @@
 // test/setup-install-client-e2e.test.ts for the I/O glue (cli/commands/setup-install-client.ts).
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { INSTALL_CLIENTS } from "../src/cli/parse-setup";
 import {
+  antigravityAddCommand,
+  CLIENT_REGISTRY,
+  chatgptInstructions,
   claudeCodeAddCommand,
   claudeDesktopConfigPath,
   clientLabel,
+  codexAddCommand,
   cursorMcpConfigPath,
   formatClientSnippets,
+  hermesAddCommand,
   mergeMcpServersEntry,
   obsidianTcServerEntry,
   shellQuoteArg,
@@ -144,17 +150,102 @@ describe("clientLabel", () => {
     expect(clientLabel("claude-code")).toBe("Claude Code");
     expect(clientLabel("claude-desktop")).toBe("Claude Desktop");
     expect(clientLabel("cursor")).toBe("Cursor");
+    expect(clientLabel("codex")).toBe("Codex CLI");
+    expect(clientLabel("chatgpt")).toBe("ChatGPT");
+    expect(clientLabel("antigravity")).toBe("Antigravity");
+    expect(clientLabel("hermes")).toBe("Hermes Agent");
+  });
+});
+
+describe("codexAddCommand", () => {
+  it("uses the documented `codex mcp add <name> -- <command>...` shape", () => {
+    expect(codexAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+      "mcp",
+      "add",
+      "obsidian-tc",
+      "--",
+      "obsidian-tc",
+      "--config",
+      "/home/op/.obsidian-tc/config.json",
+    ]);
+  });
+});
+
+describe("antigravityAddCommand", () => {
+  it("uses the documented `agy mcp add <name> <commandOrUrl> [args...]` shape", () => {
+    expect(antigravityAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+      "mcp",
+      "add",
+      "obsidian-tc",
+      "obsidian-tc",
+      "--config",
+      "/home/op/.obsidian-tc/config.json",
+    ]);
+  });
+});
+
+describe("hermesAddCommand", () => {
+  it("uses the documented `hermes mcp add <name> --command <cmd> --args <args...>` shape, with --args LAST", () => {
+    expect(hermesAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+      "mcp",
+      "add",
+      "obsidian-tc",
+      "--command",
+      "obsidian-tc",
+      "--args",
+      "--config",
+      "/home/op/.obsidian-tc/config.json",
+    ]);
+  });
+});
+
+describe("chatgptInstructions", () => {
+  it("names the remote-HTTPS-only limitation and points at the shared-HTTP-server docs", () => {
+    const text = chatgptInstructions();
+    expect(text).toMatch(/remote|HTTPS/i);
+    expect(text).toMatch(/no local/i);
+    expect(text).toContain("docs/wiki/Deployment-Modes.md");
+    expect(text).toContain("run-one-shared-server-for-several-clients");
+  });
+});
+
+describe("CLIENT_REGISTRY", () => {
+  it("has exactly one entry per INSTALL_CLIENTS id, each with a non-empty displayName and sourceNote", () => {
+    for (const client of INSTALL_CLIENTS) {
+      const entry = CLIENT_REGISTRY[client];
+      expect(entry, `missing registry entry for "${client}"`).toBeDefined();
+      expect(entry.displayName.length).toBeGreaterThan(0);
+      expect(entry.sourceNote.length).toBeGreaterThan(0);
+    }
+    expect(Object.keys(CLIENT_REGISTRY).sort()).toEqual([...INSTALL_CLIENTS].sort());
+  });
+
+  it("every cli-kind entry's binary is invoked via buildArgs, never a shell", () => {
+    for (const client of INSTALL_CLIENTS) {
+      const entry = CLIENT_REGISTRY[client];
+      if (entry.kind !== "cli") continue;
+      expect(entry.binary.length).toBeGreaterThan(0);
+      expect(entry.buildArgs("/cfg.json")).toContain("obsidian-tc");
+    }
   });
 });
 
 describe("formatClientSnippets", () => {
-  it("names all three clients and the config path", () => {
+  it("names all seven clients and the config path", () => {
     const text = formatClientSnippets("/home/op/.obsidian-tc/config.json", "linux", {}, "/home/op");
     expect(text).toContain("Claude Code");
     expect(text).toContain("Claude Desktop");
     expect(text).toContain("Cursor");
+    expect(text).toContain("Codex CLI");
+    expect(text).toContain("ChatGPT");
+    expect(text).toContain("Antigravity");
+    expect(text).toContain("Hermes Agent");
     expect(text).toContain("/home/op/.obsidian-tc/config.json");
     expect(text).toContain("claude mcp add --scope user obsidian-tc -- obsidian-tc --config");
+    expect(text).toContain("codex mcp add obsidian-tc -- obsidian-tc --config");
+    expect(text).toContain("agy mcp add obsidian-tc obsidian-tc --config");
+    expect(text).toContain("hermes mcp add obsidian-tc --command obsidian-tc --args --config");
+    expect(text).toContain("docs/wiki/Deployment-Modes.md");
   });
 
   it("finding 3: labels the win32 snippet as PowerShell and single-quotes its config path", () => {
