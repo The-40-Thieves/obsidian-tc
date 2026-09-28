@@ -48,6 +48,8 @@ export function buildSetupConfig(
   extra?: Record<string, unknown>,
 ): Record<string, unknown> {
   const base: Record<string, unknown> = existingRaw ? { ...existingRaw } : {};
+  // Finding 1: `setupOrigin` is owned by `extra` below, not echoed through like other unowned keys.
+  delete base.setupOrigin;
 
   const existingVaults = Array.isArray(base.vaults)
     ? (base.vaults as Array<{ id?: unknown; path?: unknown }>).filter(
@@ -251,21 +253,21 @@ function copyOverInPlace(tmpPath: string, target: string, mode: number): void {
   }
 }
 
-/** `--force`'s finalization step. A `renameSync` over an EXISTING target can fail with EPERM on
- *  Windows when that target carries the read-only attribute (this writer's own restrictive mode,
+/** `--force`'s finalization step. A `renameSync` over an EXISTING target can fail with EPERM/EACCES
+ *  on Windows when that target carries the read-only attribute (this writer's own restrictive mode,
  *  or an operator's own chmod — reproduced in CI, windows-latest, the "STRICTER existing mode"
  *  test). EBUSY covers the sharing-violation case (an AV scanner or search indexer briefly has the
- *  file open). Clears the read-only bit and retries once; if that still fails (a genuine sharing
- *  violation), falls back to copying the new content over the target in place — the backup
- *  `writeSetupConfig` already made is the durability guarantee for this path. Any OTHER error is
- *  rethrown unchanged — see setup-write-crash.test.ts's "a failing renameSync" case. */
+ *  file open). Clears the read-only bit and retries once; if that still fails, falls back to
+ *  copying the new content over the target in place (finding 3: `finalizeForceWriteNamingBackup`
+ *  below names the pre-write backup if THIS fails too). Any OTHER error is rethrown unchanged —
+ *  see setup-write-crash.test.ts's "a failing renameSync" case. */
 function finalizeForceWrite(tmpPath: string, target: string, mode: number): void {
   try {
     renameSync(tmpPath, target);
     return;
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
-    if (code !== "EPERM" && code !== "EBUSY") throw e;
+    if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") throw e;
   }
   try {
     chmodSync(target, MODE_OWNER_RW);
@@ -279,12 +281,67 @@ function finalizeForceWrite(tmpPath: string, target: string, mode: number): void
   unlinkSync(tmpPath);
 }
 
-/** The no-`--force` finalization step, end-to-end exclusive: `linkSync` fails `EEXIST` if the
- * target now exists, even if it appeared AFTER the caller's own earlier `existsSync` check (two
- * concurrent no-`--force` writers racing). `linkSync`'s hard link is the right exclusive primitive
- * on POSIX, but isn't universal (exFAT/SMB/some Windows volumes: EPERM/EXDEV/ENOTSUP/ENOSYS) — the
- * fallback is an exclusive `wx` create-and-copy, same TOCTOU guarantee, not cross-dir atomic. */
-function finalizeExclusiveCreate(tmpPath: string, target: string, mode: number): void {
+// Finding 3: names the pre-write backup on a failure here (recovery path for the non-atomic copy).
+function finalizeForceWriteNamingBackup(
+  tmpPath: string,
+  target: string,
+  mode: number,
+  backupPath: string | undefined,
+): void {
+  try {
+    finalizeForceWrite(tmpPath, target, mode);
+  } catch (e) {
+    if (backupPath === undefined) throw e;
+    const message = e instanceof Error ? e.message : String(e);
+    throw new CliError(
+      `writing ${target} failed (${message}) after a backup of the previous config was already made at ${backupPath} — restore that backup if ${target} is now missing or incomplete.`,
+    );
+  }
+}
+
+// Finding 2: the marker is a TTL lock (holder pid + claim time), so a crashed holder self-heals.
+const MARKER_TTL_MS = 30_000;
+
+interface MarkerClaim {
+  pid: number;
+  ts: number;
+}
+
+// Undefined (unreadable/corrupt/vanished) reads as reclaimable, not still-live.
+function readMarkerClaim(marker: string): MarkerClaim | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(marker, "utf8")) as Partial<MarkerClaim>;
+    if (typeof parsed.pid === "number" && typeof parsed.ts === "number") {
+      return { pid: parsed.pid, ts: parsed.ts };
+    }
+  } catch {}
+  return undefined;
+}
+
+// `kill(pid, 0)` sends no signal; ESRCH means gone, any other error means alive-but-not-ours.
+function isPidAliveOnThisHost(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function isMarkerStale(marker: string): boolean {
+  const claim = readMarkerClaim(marker);
+  if (claim === undefined) return true;
+  if (!isPidAliveOnThisHost(claim.pid)) return true;
+  return Date.now() - claim.ts > MARKER_TTL_MS;
+}
+
+// No-`--force` finalization; `retriedStaleMarker` bounds the stale-marker self-heal to one retry.
+function finalizeExclusiveCreate(
+  tmpPath: string,
+  target: string,
+  mode: number,
+  retriedStaleMarker = false,
+): void {
   try {
     linkSync(tmpPath, target);
     return;
@@ -293,34 +350,82 @@ function finalizeExclusiveCreate(tmpPath: string, target: string, mode: number):
     if (code === "EEXIST") throw exclusiveCreateRefused(target);
     if (code !== "EPERM" && code !== "EXDEV" && code !== "ENOTSUP" && code !== "ENOSYS") throw e;
   }
-  let fd: number;
+  const marker = `${target}.wx-claim`;
+  let markerFd: number;
   try {
-    fd = openSync(target, "wx", mode);
+    markerFd = openSync(marker, "wx", mode);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST") throw exclusiveCreateRefused(target);
-    throw e;
-  }
-  // finding 1 (fix round): the `wx` open above claims `target`'s name, visible to a racing
-  // loser, before any bytes land — unlink it on a write failure so a poisoned half-written file
-  // never blocks the next attempt (safe: `wx` proved we're the only writer).
-  try {
-    writeSync(fd, readFileSync(tmpPath));
-    fsyncSync(fd);
-  } catch (e) {
-    closeSync(fd);
-    try {
-      unlinkSync(target);
-    } catch {
-      /* best-effort */
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+      // Finding 1: name the marker so the caller's race-read retry can wait, not fail outright.
+      if (existsSync(target)) throw exclusiveCreateRefused(target);
+      if (!retriedStaleMarker && isMarkerStale(marker)) {
+        try {
+          unlinkSync(marker);
+        } catch {}
+        finalizeExclusiveCreate(tmpPath, target, mode, true);
+        return;
+      }
+      throw markerHeldRefused(marker, target);
     }
     throw e;
   }
-  closeSync(fd);
+  try {
+    writeSync(markerFd, JSON.stringify({ pid: process.pid, ts: Date.now() }));
+  } catch (e) {
+    closeSync(markerFd);
+    try {
+      unlinkSync(marker);
+    } catch {}
+    throw e;
+  }
+  closeSync(markerFd);
+  try {
+    if (existsSync(target)) throw exclusiveCreateRefused(target);
+    // Finding 5: pid+timestamp+random, matching `writeTempFile` — pid alone can raw-EEXIST a retry.
+    const staged = `${target}.wx-stage-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const data = readFileSync(tmpPath);
+    const stagedFd = openSync(staged, "wx", mode);
+    try {
+      writeSync(stagedFd, data);
+      fsyncSync(stagedFd);
+    } catch (e) {
+      closeSync(stagedFd);
+      try {
+        unlinkSync(staged);
+      } catch {}
+      throw e;
+    }
+    closeSync(stagedFd);
+    let renamed = false;
+    try {
+      renameSync(staged, target);
+      renamed = true;
+    } finally {
+      if (!renamed) {
+        try {
+          unlinkSync(staged);
+        } catch {}
+      }
+    }
+  } finally {
+    try {
+      unlinkSync(marker);
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
 function exclusiveCreateRefused(target: string): CliError {
   return new CliError(
     `a config already exists at ${target} — pass --force to overwrite (a timestamped backup is made first), or --config <other-path> to write somewhere else.`,
+  );
+}
+
+// Finding 2: names the marker (target doesn't exist yet).
+function markerHeldRefused(marker: string, target: string): CliError {
+  return new CliError(
+    `a config write for ${target} is already in progress by another obsidian-tc process (marker held at ${marker}) — wait a moment and retry, or remove ${marker} yourself if you are certain no obsidian-tc process is currently writing there.`,
   );
 }
 
@@ -398,7 +503,7 @@ export function writeSetupConfig(
   try {
     tmpPath = writeTempFile(dir, raw, mode);
     if (opts.force) {
-      finalizeForceWrite(tmpPath, target, mode);
+      finalizeForceWriteNamingBackup(tmpPath, target, mode, backupPath);
       tmpPath = undefined; // renamed/copied away — nothing left for the finally block to clean up
     } else {
       finalizeExclusiveCreate(tmpPath, target, mode);
@@ -455,7 +560,7 @@ export function mergeJsonFileAtomic(
   let tmpPath: string | undefined;
   try {
     tmpPath = writeTempFile(dir, raw, mode);
-    finalizeForceWrite(tmpPath, target, mode);
+    finalizeForceWriteNamingBackup(tmpPath, target, mode, backupPath);
     tmpPath = undefined;
     fsyncDirBestEffort(dir);
   } finally {

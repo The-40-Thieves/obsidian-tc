@@ -193,6 +193,44 @@ describe("attemptFirstRunFallback — concurrency", () => {
   );
 });
 
+describe("attemptFirstRunFallback — race read retries past a genuinely-overlapping partial file", () => {
+  // Finding 4 (fix round, cross-vendor review): the in-process concurrency test above cannot
+  // actually overlap `writeSetupConfig`'s own synchronous write with a racing reader — this test
+  // does, directly, against `readRacedConfigFile`'s real code path: pre-create the target as an
+  // unparseable file (the exact shape a still-in-flight `wx`-fallback write, or a genuinely
+  // racing writer, leaves behind), let `attemptFirstRunFallback` hit its own "already exists ->
+  // race-read" branch, and complete the file to valid JSON from a REAL `setTimeout` running
+  // concurrently with the retry loop's `await sleep(...)` — genuine event-loop overlap, not a
+  // synchronous illusion of one. A retry loop that reads once and throws immediately on the
+  // initial `SyntaxError` (rather than retrying) fails this test: the valid content never lands
+  // before that first read.
+  it("succeeds once the racing writer's content lands mid-retry, not just when it was already there", async () => {
+    const { vaultPaths } = fakeObsidianEnv(["main"]);
+    const target = defaultSetupConfigPath();
+    mkdirSync(dirname(target), { recursive: true });
+    // An empty file: exactly what a crash between `openSync(target, "wx")` and a completed
+    // `writeSync` (write.ts's own "finding 1" comment) — or a genuinely racing writer mid-flight —
+    // leaves at this exact path. `JSON.parse("")` throws `SyntaxError`.
+    writeFileSync(target, "");
+    const validRaw = JSON.stringify({
+      vaults: [{ id: "main", path: vaultPaths.main }],
+      cacheDir: dirname(target),
+    });
+    // 500ms: comfortably longer than `detect()`'s own real async overhead (registry/hardware
+    // probes; the Ollama probe is stubbed to reject instantly via the module-level `fetch` mock
+    // above) reaching the first read, and comfortably inside the 2s/20ms retry budget — a
+    // non-retrying read throws on that first attempt, long before this timer fires.
+    setTimeout(() => writeFileSync(target, validRaw), 500);
+
+    const result = await attemptFirstRunFallback();
+
+    expect(result.outcome).toBe("raced");
+    if (result.outcome !== "raced") throw new Error("unreachable");
+    expect(result.path).toBe(target);
+    expect(result.config.vaults).toMatchObject([{ id: "main", path: vaultPaths.main }]);
+  });
+});
+
 describe("attemptFirstRunFallback — winner and loser boot through the same finalizeConfig path", () => {
   const ORIGINAL_JWT_SECRET = process.env.OBSIDIAN_TC_JWT_SECRET;
   afterEach(() => {

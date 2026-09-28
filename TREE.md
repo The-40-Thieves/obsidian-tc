@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,480 tracked code files · 268,923 lines.
+**Scale:** 1,481 tracked code files · 269,636 lines.
 
-TypeScript 246,924 · JavaScript 16,326 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
+TypeScript 247,637 · JavaScript 16,326 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -88,7 +88,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 |---|---:|---:|---|
 | `tools/` | 92 | 19,592 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 62 | 13,270 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `cli/` | 53 | 8,451 | arg parsing + subcommands |
+| `cli/` | 53 | 8,636 | arg parsing + subcommands |
 | `experiential/` | 29 | 7,630 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 28 | 6,718 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 22 | 5,519 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
@@ -150,8 +150,8 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 706 | `packages/server/src/runtime/tool-wiring.ts` |
 | 704 | `packages/server/src/metrics/registry.ts` |
 | 704 | `packages/server/src/runtime/plane-wiring.ts` |
+| 694 | `packages/server/src/cli/args.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
-| 671 | `packages/server/src/cli/args.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
 | 655 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
@@ -166,6 +166,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 597 | `packages/server/src/cli/commands/doctor.ts` |
 | 588 | `packages/server/src/vault/frontmatter.ts` |
 | 580 | `packages/server/src/memory-import/apply.ts` |
+| 578 | `packages/server/src/cli/setup/write.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 562 | `packages/server/src/memory/entities.ts` |
 | 559 | `packages/server/src/mcp/facade.ts` |
@@ -180,7 +181,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 504 | `packages/shared/src/config/observability.schema.ts` |
 | 502 | `packages/server/src/tools/m1/frontmatter-tools.ts` |
 
-39 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
+40 file(s) over 500 lines, from the same `git ls-files` source set as the module graph (`.ts` under packages/{server,shared,plugin}/src, tests excluded). The biome `noExcessiveLinesPerFile` cap of 700 counts CODE lines, so a file can appear here — raw `wc -l` — while sitting well under the cap.
 <!-- END GENERATED: tree-largest-files -->
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 

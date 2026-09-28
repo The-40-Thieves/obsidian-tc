@@ -149,6 +149,28 @@ describe("buildSetupConfig", () => {
         dimensions: 768,
       });
     });
+
+    // Finding 1 (fix round, cross-vendor review): `setupOrigin` is set ONLY by the first-run
+    // fallback (server.schema.ts's own doc comment on the field — "never set by an interactive
+    // `obsidian-tc setup` run"). Before this fix, a plain merge copied it through like any other
+    // key setup does not own, so `setup --force` re-reviewing an auto-generated config left the
+    // marker in place — every later `doctor` run kept reporting the config as unreviewed even
+    // after an operator had just reviewed and rewritten it.
+    it("drops setupOrigin from an existing raw config on a plain merge — only the fallback path sets it", () => {
+      const raw = buildSetupConfig(decision(), {
+        setupOrigin: "first-run-fallback",
+        auth: { jwtSecret: "keep-me" },
+      });
+      expect(raw.setupOrigin).toBeUndefined();
+      expect(raw.auth).toEqual({ jwtSecret: "keep-me" });
+    });
+
+    it("still sets setupOrigin when the CALLER passes it explicitly via `extra` (the fallback's own path)", () => {
+      const raw = buildSetupConfig(decision(), undefined, {
+        setupOrigin: "first-run-fallback",
+      });
+      expect(raw.setupOrigin).toBe("first-run-fallback");
+    });
   });
 });
 

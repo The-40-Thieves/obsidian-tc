@@ -157,6 +157,19 @@ describe("formatClientSnippets", () => {
     expect(text).toContain("claude mcp add --scope user obsidian-tc -- obsidian-tc --config");
   });
 
+  it("finding 3: labels the win32 snippet as PowerShell and single-quotes its config path", () => {
+    const text = formatClientSnippets(
+      "C:\\Users\\Op Name\\.obsidian-tc\\config.json",
+      "win32",
+      {},
+      "C:\\Users\\Op Name",
+    );
+    expect(text).toMatch(/Claude Code.*PowerShell/);
+    expect(text).toContain(
+      "claude mcp add --scope user obsidian-tc -- obsidian-tc --config 'C:\\Users\\Op Name\\.obsidian-tc\\config.json'",
+    );
+  });
+
   it("finding 6: quotes the printed claude mcp add line's config path when it has a space", () => {
     const text = formatClientSnippets(
       "/home/op user/.obsidian-tc/config.json",
@@ -181,13 +194,42 @@ describe("shellQuoteArg", () => {
     );
   });
 
-  it("double-quotes a win32 arg containing a space", () => {
+  // Finding 3 (fix round, cross-vendor review): the printed win32 line is documented as a
+  // PowerShell literal (PowerShell is the default Windows terminal). A DOUBLE-quoted win32 arg
+  // still expands `$var`/backtick escapes/`%VAR%` inside PowerShell and cmd.exe respectively —
+  // single-quoting is the one PowerShell literal form where NONE of those expand, only an
+  // embedded `'` needs escaping (doubled, PowerShell's own quoting rule).
+  it("single-quotes a win32 arg containing a space, PowerShell-style", () => {
     expect(shellQuoteArg("C:\\Users\\Op Name\\config.json", "win32")).toBe(
-      '"C:\\Users\\Op Name\\config.json"',
+      "'C:\\Users\\Op Name\\config.json'",
     );
   });
 
   it("leaves a plain token unquoted on win32", () => {
     expect(shellQuoteArg("--config", "win32")).toBe("--config");
+  });
+
+  it("finding 3: single-quotes and never expands a win32 path containing $", () => {
+    expect(shellQuoteArg("C:\\Users\\foo$bar\\config.json", "win32")).toBe(
+      "'C:\\Users\\foo$bar\\config.json'",
+    );
+  });
+
+  it("finding 3: single-quotes and never expands a win32 path containing a backtick", () => {
+    expect(shellQuoteArg("C:\\Users\\foo`bar\\config.json", "win32")).toBe(
+      "'C:\\Users\\foo`bar\\config.json'",
+    );
+  });
+
+  it("finding 3: single-quotes and never expands a win32 path containing %VAR%", () => {
+    expect(shellQuoteArg("C:\\Users\\%USERNAME%\\config.json", "win32")).toBe(
+      "'C:\\Users\\%USERNAME%\\config.json'",
+    );
+  });
+
+  it("finding 3: doubles an embedded single quote — PowerShell's own escape inside a single-quoted string", () => {
+    expect(shellQuoteArg("C:\\Users\\Op's Name\\config.json", "win32")).toBe(
+      "'C:\\Users\\Op''s Name\\config.json'",
+    );
   });
 });

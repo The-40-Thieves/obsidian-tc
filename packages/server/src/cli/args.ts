@@ -137,7 +137,30 @@ export function parseCliArgs(argv: string[]): CliCommand {
     if (first === "version" || first === "--version" || first === "-v") return { kind: "version" };
     if (first === "help" || first === "--help" || first === "-h") return { kind: "help" };
     if (first === "serve") {
-      return { kind: "serve", input: flagValue(rest, "--config") ?? positional(rest) };
+      // Finding 2 (fix round, cross-vendor review): `--help`/`-h` anywhere in `serve`'s own argv
+      // used to be silently dropped by `positional` (it only matches a non-dash token) — `serve
+      // --help` parsed as a PLAIN serve start with no input, which reaches the first-run fallback
+      // and auto-writes a config + boots the server instead of printing usage.
+      if (rest.includes("--help") || rest.includes("-h")) return { kind: "help" };
+      const configPath = flagValue(rest, "--config");
+      const scan = [...rest];
+      const ci = scan.indexOf("--config");
+      if (ci >= 0) scan.splice(ci, 2);
+      for (let j = scan.length - 1; j >= 0; j--) {
+        if (scan[j]?.startsWith("--config=")) scan.splice(j, 1);
+      }
+      const input = configPath ?? positional(scan);
+      // Finding 2: any flag `serve` does not recognize used to be silently ignored (never stripped,
+      // never rejected) — same class of bug `parse-setup.ts`'s own KNOWN_VALUE_FLAGS/
+      // KNOWN_BOOLEAN_FLAGS gate already closed for `setup`. An unrecognized flag must be a usage
+      // error, not a value the first-run fallback treats as "no input given" and silently acts on.
+      const unknownFlag = scan.find((a) => a.startsWith("-"));
+      if (unknownFlag !== undefined) {
+        throw new CliError(
+          `unknown option to serve: ${unknownFlag} (recognized: --config <path>, --help)`,
+        );
+      }
+      return { kind: "serve", input };
     }
     // THE-658: `token mint`. Parsed like `config <sub>` — a two-word command with the config path
     // as a positional after the subcommand. Every value-taking flag is stripped before the scan

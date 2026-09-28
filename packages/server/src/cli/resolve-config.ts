@@ -51,8 +51,13 @@ export function configFromVaultPath(dir: string): ServerConfig {
 const UNSUBSTITUTED_PLACEHOLDER_RE = /^\$\{user_config\.[^}]+\}$/;
 
 /** True for an empty string or an unresolved `${user_config.X}` placeholder -- both mean the
- *  host gave nothing usable, not a real vault/config path. */
-function isUnusableInput(value: string): boolean {
+ *  host gave nothing usable, not a real vault/config path. Exported (finding 6, fix round, cross-
+ *  vendor review) so `cli/setup/first-run-fallback.ts`'s own `shouldAttemptFirstRunFallback` can
+ *  apply the SAME "no usable input" rule this module's own `normalizeConfigPathInput` does --
+ *  without duplicating the placeholder regex, and without that gate's own pure/no-I/O contract
+ *  triggering `normalizeConfigPathInput`'s stderr side effect before the fallback has even decided
+ *  whether it will run. */
+export function isUnusableInput(value: string): boolean {
   return value === "" || UNSUBSTITUTED_PLACEHOLDER_RE.test(value);
 }
 
@@ -134,7 +139,28 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
       configFilePath: undefined,
     };
   }
-  const raw = readConfigFile(target);
+  // Finding 4 (fix round, cross-vendor review): "residual poison" — a crash between claiming the
+  // default-path config's NAME and completing its content (cli/setup/write.ts's own "finding 1"
+  // comment on `finalizeExclusiveCreate`) can leave an empty/unparseable file at EXACTLY the
+  // convention path `obsidian-tc setup`'s first-run fallback writes to. A raw `JSON.parse`
+  // `SyntaxError` there is useless to an operator who never passed `--config` at all and has no
+  // idea that path is even in play. Scoped to the default-path fallback specifically (never an
+  // operator's own EXPLICIT `--config`/positional/env target) — that failure's own parse error is
+  // already meaningful, since the operator named the file themselves.
+  let raw: Record<string, unknown>;
+  try {
+    raw = readConfigFile(target);
+  } catch (e) {
+    if (e instanceof SyntaxError && target === defaultSetupConfigPath()) {
+      throw new CliError(
+        `obsidian-tc: the config at ${target} could not be parsed as JSON (empty or ` +
+          "corrupted) — this is the default path obsidian-tc's first-run fallback writes to, " +
+          "and an interrupted write can leave it broken. Delete it and try again, or run " +
+          "`obsidian-tc setup` to write a fresh one.\n",
+      );
+    }
+    throw e;
+  }
   return {
     config: finalizeConfig(raw),
     planeEnabledExplicit: isPlaneEnabledExplicit(raw),

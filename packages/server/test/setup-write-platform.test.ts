@@ -20,6 +20,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupDecision } from "../src/cli/setup/decide";
 import { rmTemp } from "./tmp";
 
+// Fix round 2 (finding 4): the no-`--force` exclusive-create fallback now ALSO finalizes via
+// `renameSync` (moving an already-staged, complete file onto `target` — write.ts's own header on
+// `finalizeExclusiveCreate`), so a `renameSync` that fails UNCONDITIONALLY would now break that
+// fallback too, not just the `--force` path finding 5/Windows-CI originally targeted this mock
+// for. `renameShouldFail` lets each test opt in to the EPERM only where it means to exercise it.
+let renameShouldFail = true;
+
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
@@ -29,10 +36,13 @@ vi.mock("node:fs", async (importOriginal) => {
       e.code = "EXDEV";
       throw e;
     }),
-    renameSync: vi.fn(() => {
-      const e = new Error("EPERM: operation not permitted, rename") as NodeJS.ErrnoException;
-      e.code = "EPERM";
-      throw e;
+    renameSync: vi.fn((from: string, to: string) => {
+      if (renameShouldFail) {
+        const e = new Error("EPERM: operation not permitted, rename") as NodeJS.ErrnoException;
+        e.code = "EPERM";
+        throw e;
+      }
+      return actual.renameSync(from, to);
     }),
     fchmodSync: vi.fn(actual.fchmodSync),
   };
@@ -45,6 +55,7 @@ const tmpDir = (prefix: string): string => {
   return d;
 };
 afterEach(() => {
+  renameShouldFail = true;
   for (const d of tmpDirs.splice(0)) {
     try {
       rmTemp(d);
@@ -73,6 +84,9 @@ describe("writeSetupConfig — cross-filesystem/platform finalization fallbacks"
     const { writeSetupConfig } = await import("../src/cli/setup/write");
     const dir = tmpDir("otc-setup-write-linkfallback-");
     const target = join(dir, "config.json");
+    // This fallback's own finalization step (marker + staged file + `renameSync`) is real here —
+    // only the SECOND test below means to exercise a renameSync failure.
+    renameShouldFail = false;
 
     const result = writeSetupConfig(target, decision());
 
