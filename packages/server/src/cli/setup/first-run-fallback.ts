@@ -25,7 +25,7 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { finalizeConfig, readConfigFile } from "../../config/load";
 import { CliError } from "../cli-error";
 import { detect } from "../commands/setup";
-import { defaultSetupConfigPath } from "../resolve-config";
+import { defaultSetupConfigPath, isUnusableInput } from "../resolve-config";
 import { writeSetupConfig } from "./write";
 
 /** Finding 1 (fix round, cross-vendor review): the loser of the race sees `target` exist the
@@ -47,15 +47,27 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function readRacedConfigFile(path: string): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + RACE_READ_RETRY_DEADLINE_MS;
+  // Finding 4 (fix round, cross-vendor review): `Date.now()` reads the wall clock, which an NTP
+  // step-back can move backwards (or jump forward) mid-loop — `performance.now()` is monotonic,
+  // so the 2s budget this retries against can never run short or long because the SYSTEM clock
+  // moved, only because real time actually elapsed.
+  const deadline = performance.now() + RACE_READ_RETRY_DEADLINE_MS;
   let lastError: unknown;
-  while (Date.now() < deadline) {
+  while (performance.now() < deadline) {
     try {
       return readConfigFile(path);
     } catch (e) {
       lastError = e;
       await sleep(RACE_READ_RETRY_INTERVAL_MS);
     }
+  }
+  // Finding 4: one LAST read after the deadline, before giving up — without this, a winner's write
+  // that lands during the final `sleep` above (the loop condition is checked BEFORE that sleep
+  // returns) fails this process even though the file is valid by the time control returns here.
+  try {
+    return readConfigFile(path);
+  } catch (e) {
+    lastError = e;
   }
   // The deadline elapsed and the file STILL doesn't parse — this is no longer "the winner hasn't
   // finished writing yet", it's a genuinely stuck/corrupt file. Surface the real read error rather
@@ -87,7 +99,13 @@ export function shouldAttemptFirstRunFallback(deps: {
   input: string | undefined;
   env: Record<string, string | undefined>;
 }): boolean {
-  if (deps.input !== undefined) return false;
+  // Finding 6 (fix round, cross-vendor review): an unsubstituted MCPB `${user_config.X}`
+  // placeholder or an empty string is a DEFINED `input`, but names nothing usable — the same "no
+  // real input was given" shape `resolve-config.ts`'s own `normalizeConfigPathInput` already
+  // treats as absent for the REST of config resolution. A gate that only checked `!== undefined`
+  // read either shape as "input WAS given" and never even attempted the fallback for the exact
+  // first-run shape (a Claude Desktop MCPB launch with a blank field) this feature is for.
+  if (deps.input !== undefined && !isUnusableInput(deps.input)) return false;
   if ((deps.env.OBSIDIAN_TC_CONFIG?.length ?? 0) > 0) return false;
   if (deps.env[NO_AUTO_SETUP_ENV_VAR] === "1") return false;
   return !existsSync(defaultSetupConfigPath());
@@ -161,11 +179,15 @@ export async function attemptFirstRunFallback(): Promise<FirstRunFallbackResult>
     // Race: another process (a second MCP client starting at the same moment) already won the
     // exclusive create between `shouldAttemptFirstRunFallback`'s own `!existsSync` check and this
     // write. `writeSetupConfig`'s no-`--force` path is exclusive by construction, but on the
-    // `linkSync`-unavailable fallback the target's NAME can become visible before its CONTENT is
-    // complete (write.ts's own comment) — `readRacedConfigFile` retries the read for a bounded
-    // window rather than trusting the first `existsSync` moment, and only a still-unparseable file
-    // past that window is treated as a real failure.
-    if (e instanceof CliError && existsSync(decision.targetPath)) {
+    // `linkSync`-unavailable fallback the target's NAME never becomes visible until the winner's
+    // OWN `renameSync` — a LOSER can land here via `write.ts`'s marker-held refusal while `target`
+    // still does not exist at all (finding 1, cross-vendor review: the old `existsSync(target)`
+    // gate here read that as "not a race, a real failure" and rethrew immediately, instead of
+    // waiting). Any `CliError` out of `writeSetupConfig`'s no-`--force` path means SOME other
+    // claimant — real conflict or in-flight winner — was there first; `readRacedConfigFile`
+    // retries the read for a bounded window regardless of whether `target` exists THIS moment,
+    // and only a file that still doesn't parse past that window is treated as a real failure.
+    if (e instanceof CliError) {
       const raw = await readRacedConfigFile(decision.targetPath);
       return { outcome: "raced", path: decision.targetPath, config: finalizeConfig(raw) };
     }

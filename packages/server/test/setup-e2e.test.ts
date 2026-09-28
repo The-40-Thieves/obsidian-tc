@@ -172,6 +172,29 @@ describe("obsidian-tc setup — end to end", () => {
     expect(onDisk.vaults).toBeDefined();
   });
 
+  // Finding 1 (fix round, cross-vendor review): the review's own scenario — first-run's fallback
+  // auto-wrote this config (setupOrigin: "first-run-fallback"); an operator follows doctor's own
+  // hint and runs `setup --force` to review it. That is a real, operator-reviewed write, and must
+  // drop the marker — `doctor` must stop calling it unreviewed the moment this run completes.
+  it("--force re-run over a first-run-fallback config drops setupOrigin (an operator-reviewed write)", async () => {
+    const { home, vaultPath } = fakeObsidianEnv();
+    const configDir = join(home, ".obsidian-tc");
+    const configPath = join(configDir, "config.json");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        vaults: [{ id: "main", path: vaultPath }],
+        setupOrigin: "first-run-fallback",
+      }),
+    );
+
+    await run_setup({ kind: "setup", yes: true, dryRun: false, force: true });
+
+    const onDisk = JSON.parse(readFileSync(configPath, "utf8"));
+    expect(onDisk.setupOrigin).toBeUndefined();
+  });
+
   // Fix round (Codex review 1001-verify), finding 2 (HIGH): an existing config's OWN cacheDir and
   // keys setup does not own must survive a re-run, and detection must probe against ITS cacheDir.
   it("--force re-run against an existing config preserves its cacheDir and keys setup does not own", async () => {

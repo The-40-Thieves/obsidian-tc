@@ -64,7 +64,10 @@ yourself. A stderr line always names what was written and where; run
 `obsidian-tc setup` afterwards any time to review or change it — `obsidian-tc
 doctor` also flags a config that was auto-written this way. Set
 `OBSIDIAN_TC_NO_AUTO_SETUP=1` to disable this fallback and get the plain "no vault
-or config given" error back.
+or config given" error back. It only ever runs for a **plain** `obsidian-tc serve`
+start with no other argument: `obsidian-tc serve --help`/`-h` always prints usage
+instead, and any other flag `serve` does not recognize is a usage error rather than
+something the fallback could silently act on.
 
 ### Hand-write it
 

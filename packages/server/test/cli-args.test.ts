@@ -113,6 +113,28 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["config", "bogus"]).kind).toBe("error");
     expect(parseCliArgs(["--bogus"]).kind).toBe("error");
   });
+
+  // Finding 2 (fix round, cross-vendor review): `obsidian-tc serve --help`/`-h` used to parse as
+  // `{ kind: "serve", input: undefined }` — the flag was silently dropped (`positional` only
+  // matches a non-dash token), so the first-run fallback read "no input" and auto-wrote a config
+  // + started the server, when the operator just wanted usage text.
+  it("finding 2: `serve --help`/`-h` (anywhere in the argv) prints usage, never falls through to a serve start", () => {
+    expect(parseCliArgs(["serve", "--help"]).kind).toBe("help");
+    expect(parseCliArgs(["serve", "-h"]).kind).toBe("help");
+    expect(parseCliArgs(["serve", "/vault", "--help"]).kind).toBe("help");
+  });
+
+  it("finding 2: an unrecognized serve flag is a usage error, not a silently-ignored auto-write trigger", () => {
+    const cmd = parseCliArgs(["serve", "--bogus"]);
+    expect(cmd.kind).toBe("error");
+    if (cmd.kind !== "error") throw new Error("unreachable");
+    expect(cmd.message).toMatch(/--bogus/);
+  });
+
+  it("finding 2: serve with no flags at all still resolves to a plain serve start", () => {
+    expect(parseCliArgs(["serve"])).toEqual({ kind: "serve", input: undefined });
+    expect(parseCliArgs(["serve", "/vault"])).toEqual({ kind: "serve", input: "/vault" });
+  });
   it("--config with no value is a usage error, not a silent positional/env fallback", () => {
     expect(parseCliArgs(["serve", "--config"])).toEqual({
       kind: "error",
@@ -371,6 +393,44 @@ describe("resolveServeConfigWithProvenance (THE-825)", () => {
     const { config, planeEnabledExplicit } = resolveServeConfigWithProvenance(file);
     expect(config.plane.enabled).toBe(true);
     expect(planeEnabledExplicit).toBe(true);
+  });
+});
+
+// Finding 4 (fix round, cross-vendor review): "residual poison" — a crash between claiming the
+// default-path config's NAME and completing its content (write.ts's own "finding 1" comment on
+// `finalizeExclusiveCreate`) can leave an empty/unparseable file at exactly the path `setup`'s own
+// first-run fallback writes to. Without a targeted hint, `resolveServeConfigWithProvenance`'s own
+// `readConfigFile` call surfaces a raw `SyntaxError` — useless to an operator who has no idea that
+// path is even in play, since they never passed `--config` at all.
+describe("resolveServeConfigWithProvenance — unparseable default-path config (fix round, finding 4)", () => {
+  const home = mkdtempSync(join(tmpdir(), "otc-default-poison-home-"));
+  let restoreHome: (() => void) | undefined;
+  beforeEach(() => {
+    restoreHome = stubHomedir(home);
+  });
+  afterEach(() => {
+    restoreHome?.();
+    restoreHome = undefined;
+    rmTemp(home);
+  });
+
+  it("gives a clear hint instead of a raw JSON parse error for an empty default-path config", () => {
+    const target = join(home, ".obsidian-tc", "config.json");
+    mkdirSync(join(home, ".obsidian-tc"), { recursive: true });
+    writeFileSync(target, "");
+
+    expect(() => resolveServeConfigWithProvenance(undefined)).toThrow(
+      /could not be parsed.*obsidian-tc setup/is,
+    );
+  });
+
+  it("leaves an EXPLICIT --config path's own parse error unchanged (not the default-path hint)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "otc-explicit-poison-"));
+    tmpDirs.push(dir);
+    const file = join(dir, "c.json");
+    writeFileSync(file, "");
+
+    expect(() => resolveServeConfigWithProvenance(file)).toThrow(SyntaxError);
   });
 });
 

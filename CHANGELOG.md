@@ -8,6 +8,38 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **First-run setup follow-ups (GH #1005 review round).** Six fixes to the first-run fallback and
+  `--install-client` opt-in installer from PR #1005: (1) an interactive `obsidian-tc setup --force`
+  re-review of an auto-generated config now drops its `setupOrigin: "first-run-fallback"` marker,
+  so `doctor` stops calling a just-reviewed config unreviewed; (2) `obsidian-tc serve --help`/`-h`
+  (anywhere in the argv) now prints usage and exits instead of silently falling through to the
+  first-run fallback, and any other flag `serve` does not recognize is now a usage error rather
+  than something the fallback could act on unnoticed; (3) the printed win32 `claude mcp add` line
+  is now a single-quoted PowerShell literal (PowerShell is the default Windows terminal) and
+  labeled as such — the previous double-quoted form still let `$var`/backtick expand inside
+  PowerShell and `%VAR%` still expand inside cmd.exe; (4) the first-run fallback's race-read retry
+  now uses a monotonic clock and always takes one final read past its deadline before giving up,
+  and its exclusive-create fallback (for filesystems where `linkSync` is unavailable) no longer
+  ever creates the target config's own name before its content is complete — a crash mid-write can
+  no longer leave a poisoned empty/partial `config.json` at the default path, and `serve` now gives
+  a clear hint instead of a raw JSON parse error if one is ever found there anyway. A second fix
+  round hardened that same exclusive-create fallback further: a concurrent loser that reaches the
+  fallback's marker before the winner has renamed its file into place now waits and boots from the
+  winner's config instead of failing with a misleading "a config already exists"; the marker itself
+  is now a TTL'd lock carrying its holder's pid and claim time, so a crash that leaves it behind no
+  longer blocks every later first run forever — a live holder still refuses, but names the marker
+  file, and a stale one (dead pid, or past the TTL) is reclaimed and the create retried once,
+  automatically; `--force`'s last-resort in-place copy (used only when a `renameSync` genuinely
+  cannot land, e.g. a Windows sharing violation) now names the pre-write backup in its error if that
+  copy itself fails partway through, since that backup is the actual recovery path; and the
+  fallback's staged temp file name now carries a timestamp and random suffix in addition to the
+  writer's pid, so a retry can never collide with a leftover from an earlier attempt by the same
+  process. (5) every
+  `shouldAttemptFirstRunFallback` unit test now stubs the home directory, so a developer box with
+  its own `~/.obsidian-tc/config.json` can no longer change those tests' outcomes; (6) an
+  unsubstituted MCPB `${user_config.X}` placeholder or a blank `config_path` (the shape a Claude
+  Desktop MCPB launch leaves when that optional field is unset) is now treated as no input for the
+  first-run fallback gate, the same way it already was for the rest of config resolution.
 - **An unconfigured install no longer gets silently switched to the local embedder and
   re-embedded on upgrade (GH #995).** PR #980 (1.31.4) changed `embeddings.provider`'s default from
   `"ollama"` to `"local"` (the in-process ONNX embedder) whenever the `embeddings` block was absent.

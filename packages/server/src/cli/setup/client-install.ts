@@ -68,13 +68,19 @@ export function obsidianTcServerEntry(configPath: string): { command: string; ar
  *  config.json`) pastes into the operator's own shell as two broken arguments. Quotes only the
  *  arguments that actually need it (a bare token with no special characters is left unquoted — see
  *  the existing test asserting the literal substring `claude mcp add --scope user obsidian-tc`),
- *  so an ordinary install stays exactly as readable as before. */
+ *  so an ordinary install stays exactly as readable as before.
+ *
+ *  Finding 3 (fix round 2, cross-vendor review): the win32 branch used to double-quote, which is
+ *  wrong for the shell this snippet is actually printed for. PowerShell is the default Windows
+ *  terminal (and `formatClientSnippets` below now labels the snippet as such), and a
+ *  DOUBLE-quoted PowerShell argument still expands `$var` and backtick escapes inside it; `%VAR%`
+ *  also still expands inside cmd.exe's own double quotes. Single-quoting is the one PowerShell
+ *  literal form where none of `$`, backtick, or `%VAR%` expand — only an embedded `'` needs
+ *  escaping, doubled, PowerShell's own rule for a literal quote inside a single-quoted string. */
 export function shellQuoteArg(arg: string, platform: NodeJS.Platform): string {
   if (platform === "win32") {
-    // cmd.exe / PowerShell-compatible: quote whenever the char set below appears, doubling any
-    // embedded double quote (the one escape both shells agree on for a double-quoted argument).
-    if (!/[\s"^&|<>()%!]/.test(arg)) return arg;
-    return `"${arg.replace(/"/g, '""')}"`;
+    if (!/[\s'"$`^&|<>()%!]/.test(arg)) return arg;
+    return `'${arg.replace(/'/g, "''")}'`;
   }
   // POSIX (bash/zsh/sh): single-quote whenever a shell-meaningful char appears, closing/re-opening
   // around any embedded single quote (`'\''` is the standard POSIX idiom — a literal `'` outside
@@ -179,13 +185,16 @@ export function formatClientSnippets(
   const desktopPath = claudeDesktopConfigPath(platform, env, home);
   const cursorPath = cursorMcpConfigPath(home);
   const codeCmd = shellQuoteArgs(["claude", ...claudeCodeAddCommand(configPath)], platform);
+  // Finding 3: the win32 quoting `shellQuoteArg` applies is a PowerShell literal specifically
+  // (not cmd.exe) — label the snippet so an operator pasting it knows which shell it targets.
+  const codeCmdLabel = platform === "win32" ? "run (PowerShell)" : "run";
   const jsonEntry = JSON.stringify({ mcpServers: { "obsidian-tc": entry } }, null, 2);
   return [
     "",
     "Connect an MCP client to this config (or run `obsidian-tc setup --install-client <client>`",
     "to have setup wire one in for you):",
     "",
-    `  Claude Code — run: ${codeCmd}`,
+    `  Claude Code — ${codeCmdLabel}: ${codeCmd}`,
     "",
     `  Claude Desktop — merge into ${desktopPath}:`,
     indent(jsonEntry),
