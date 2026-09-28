@@ -134,6 +134,9 @@ export class MetricsRecorder {
   private readonly retrievalContentBytesOut: Counter<string>;
   // THE-891 item 3: the graph-walk ACL filter's (THE-695/THE-852) recall cost, made measurable.
   private readonly aclWalkPruned: Counter<string>;
+  // GH #994: memoryDefense hits, by matched pattern id ONLY — no vault/tool/content — so an
+  // operator sees the policy firing without the label set itself ever carrying anything sensitive.
+  private readonly memoryDefenseHits: Counter<string>;
   private readonly toolDuration: Histogram<string>;
   private readonly responseBytes: Histogram<string>;
   private readonly sqlLockWait: Histogram<string>;
@@ -386,6 +389,12 @@ export class MetricsRecorder {
       labelNames: ["vault"],
       registers,
     });
+    this.memoryDefenseHits = new Counter({
+      name: "obsidian_tc_memory_defense_hits_total",
+      help: "memoryDefense (GH #994) redact/block matches, by pattern id only — no vault, tool, or content — so an operator sees the policy firing without reading what was matched.",
+      labelNames: ["pattern"],
+      registers,
+    });
     this.sqlLockWait = new Histogram({
       name: "obsidian_tc_sql_lock_wait_seconds",
       help: "Seconds spent acquiring SQLite's write lock (BEGIN IMMEDIATE), by vault and transaction. Only writers contend under WAL, so a rising tail here is the direct evidence for splitting the shared database per vault. Failed acquisitions are observed too, and land just ABOVE busy_timeout (5s) rather than at it — count the 5..10s band to find transactions that waited out the timeout and then threw.",
@@ -550,6 +559,11 @@ export class MetricsRecorder {
    *  never moves. */
   incAclWalkPruned(vault: string, n: number): void {
     if (n > 0) this.aclWalkPruned.inc({ vault }, n);
+  }
+  /** GH #994: one call per matched pattern id, guarded on n > 0 for the same reason every other
+   *  counter here is — a clean vault must not create a label series that never moves. */
+  incMemoryDefenseHits(pattern: string, n: number): void {
+    if (n > 0) this.memoryDefenseHits.inc({ pattern }, n);
   }
   incHitlElicited(vault: string, tool: string): void {
     this.hitlElicited.inc({ vault, tool });

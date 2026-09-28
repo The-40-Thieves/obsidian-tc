@@ -7,8 +7,18 @@
 //
 // ONE scanner, deliberately. A pattern added because it leaked through an episode must protect a
 // trace too — two copies would drift, and the drift would be silent in the direction that matters.
+//
+// GH #994: every pattern carries a stable `id` now, so a caller (memory-defense.ts's `block` mode,
+// and the `obsidian_tc_memory_defense_hits_total` counter) can name WHICH pattern matched without a
+// second, hand-kept list of pattern names — the exhaustiveness that keeps this "the ONE scanner"
+// would be lost the moment a second enum of pattern identifiers existed beside this one.
 
-const SECRET_PATTERNS: RegExp[] = [
+interface SecretPattern {
+  id: string;
+  pattern: RegExp;
+}
+
+const SECRET_PATTERNS: SecretPattern[] = [
   // BOUNDED on purpose (CodeQL js/polynomial-redos, high). The unbounded form
   //   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
   // backtracks polynomially on input that repeats the BEGIN marker without ever supplying an
@@ -20,21 +30,39 @@ const SECRET_PATTERNS: RegExp[] = [
   // Both quantifiers are bounded. 64 covers every real PEM label ("ENCRYPTED ", "RSA ", "EC ");
   // 16384 covers a 4096-bit key's base64 body with room to spare, and a body longer than that is
   // not a key this scanner was written to catch.
-  /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----[\s\S]{0,16384}?-----END [A-Z ]{0,64}PRIVATE KEY-----/g,
-  /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, // GitHub fine/classic tokens
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
-  /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, // Slack tokens
-  /\bsk-[A-Za-z0-9_-]{20,}\b/g, // OpenAI-style secret keys
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g, // JWT
-  /\bBearer\s+[A-Za-z0-9._-]{16,}\b/g,
-  /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret|token)\s*[=:]\s*["']?[^\s"',;]{8,}/gi,
+  {
+    id: "private_key",
+    pattern:
+      /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----[\s\S]{0,16384}?-----END [A-Z ]{0,64}PRIVATE KEY-----/g,
+  },
+  { id: "aws_access_key_id", pattern: /\bAKIA[0-9A-Z]{16}\b/g },
+  { id: "github_token", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g }, // fine/classic tokens
+  { id: "github_pat", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
+  { id: "slack_token", pattern: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g },
+  { id: "openai_key", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/g },
+  {
+    id: "jwt",
+    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g,
+  },
+  { id: "bearer_token", pattern: /\bBearer\s+[A-Za-z0-9._-]{16,}\b/g },
+  {
+    id: "labeled_secret",
+    pattern:
+      /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|passwd|secret|token)\s*[=:]\s*["']?[^\s"',;]{8,}/gi,
+  },
   // DB/service connection string with embedded user:pass — common schemes only (not a generic
   // `scheme://user:pass@host` catch-all, which would over-match arbitrary URLs unrelated to
   // credential storage).
-  /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps|mssql):\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/gi,
-  /\bAIza[0-9A-Za-z_-]{35}\b/g, // Google API key (fixed 39-char shape)
-  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, // Stripe secret/restricted key (not pk_ — publishable is not a secret)
+  {
+    id: "db_connection_string",
+    pattern:
+      /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|amqps|mssql):\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/gi,
+  },
+  { id: "google_api_key", pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g }, // fixed 39-char shape
+  {
+    id: "stripe_key",
+    pattern: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, // not pk_ — publishable is not a secret
+  },
   // Hugging Face token: `hf_` + 30+ alphanumeric. Boundaries are lookaround on the token's own
   // alphabet, not `\b` — `_` is a word character, so a trailing/leading `_` (env-style
   // `hf_...token..._`, or markdown emphasis `_hf_..._`) would silently defeat a `\b`-anchored
@@ -42,7 +70,7 @@ const SECRET_PATTERNS: RegExp[] = [
   // shape Gitleaks models upstream — HF has not published a stable length, and for a redactor a
   // false negative (leaked live credential) is far worse than a false positive (one redacted
   // string) (THE-619 defect 4).
-  /(?<![A-Za-z0-9])hf_[A-Za-z0-9]{30,}(?![A-Za-z0-9])/g,
+  { id: "huggingface_token", pattern: /(?<![A-Za-z0-9])hf_[A-Za-z0-9]{30,}(?![A-Za-z0-9])/g },
   // Azure SAS token: a `sig=` (or percent-encoded `sig%3D`) query parameter, anchored on real
   // query-string context (`?`/`&`, or their percent-encoded forms `%3F`/`%26` for a SAS URL
   // that has itself been percent-encoded whole — a realistic shape when it arrives inside a
@@ -54,20 +82,109 @@ const SECRET_PATTERNS: RegExp[] = [
   // HMAC-SHA256 digest, a fixed 44 chars (32 bytes -> 11 base64 groups + one `=` pad); 40 sits
   // just under that to tolerate percent-encoding of the value itself without hardcoding the
   // exact literal count.
-  /(?:[?&]|%3F|%26)sig(?:=|%3D)(?:[A-Za-z0-9+/_-]|%2B|%2F|%3D){40,}/gi,
+  {
+    id: "azure_sas_token",
+    pattern: /(?:[?&]|%3F|%26)sig(?:=|%3D)(?:[A-Za-z0-9+/_-]|%2B|%2F|%3D){40,}/gi,
+  },
 ];
 
 const REDACTED = "[REDACTED]";
 
-/** Redact credential-shaped substrings. Returns the scrubbed text + how many hits. */
-export function redactSecrets(text: string): { text: string; redactions: number } {
+/** The result of a scan: the (possibly redacted) text, how many total hits, and hits broken down
+ *  by pattern id — GH #994 needs the id breakdown to name a matched pattern (block mode's error
+ *  details) and to tag `obsidian_tc_memory_defense_hits_total` without a content-bearing label. */
+export interface RedactScanResult {
+  text: string;
+  redactions: number;
+  matches: Record<string, number>;
+}
+
+/** Redact credential-shaped substrings. Returns the scrubbed text, how many hits, and which
+ *  pattern ids matched. `matches` is additive (GH #994) — every existing caller destructures only
+ *  `{ text, redactions }`, so this stays backward compatible. */
+export function redactSecrets(text: string): RedactScanResult {
   let out = text;
   let redactions = 0;
-  for (const pat of SECRET_PATTERNS) {
-    out = out.replace(pat, () => {
+  const matches: Record<string, number> = {};
+  for (const { id, pattern } of SECRET_PATTERNS) {
+    out = out.replace(pattern, () => {
       redactions += 1;
+      matches[id] = (matches[id] ?? 0) + 1;
       return REDACTED;
     });
   }
-  return { text: out, redactions };
+  return { text: out, redactions, matches };
+}
+
+// GH #994 — optional PII scan for memory-defense's `pii: true`. Deliberately narrow: US SSN SHAPE
+// and Luhn-valid 13-19 digit numbers with a known card-issuer prefix. Emails and phone numbers are
+// never flagged — a personal memory store legitimately holds the owner's own contact details, and
+// flagging them would make `pii: true` unusable. Kept in this file (not a second pattern list
+// elsewhere) so "the ONE scanner" still describes the whole credential+PII surface memory-defense
+// scans, not two files that could drift apart.
+
+// 3-2-4 digit groups, which is what keeps this from ever matching a phone number (3-3-4) or an
+// ISO date (4-2-2, and its first group is 4 digits so \d{3}- never even starts matching one). The
+// negative lookaheads exclude the SSA's own reserved/invalid area (000, 666, 900-999), group
+// (00), and serial (0000) ranges — a shape check, not full SSA validity, but enough to skip the
+// obviously-fake examples a redaction test suite reaches for.
+const SSN_PATTERN = /\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g;
+
+// A candidate digit run, 13-19 digits after separators are stripped, allowing a single space or
+// dash between digits (the common human-typed/grouped shape). Bounded quantifier — no ReDoS risk.
+const CARD_CANDIDATE_PATTERN = /\b\d(?:[ -]?\d){12,18}\b/g;
+
+// Issuer prefixes checked against the separator-stripped digit string. Deliberately rough (not a
+// full BIN range table) — false negatives here just mean scanPii misses an exotic issuer, which is
+// no worse than not having this check at all; false positives are bounded separately by the Luhn
+// checksum below.
+const ISSUER_PREFIXES: RegExp[] = [
+  /^4/, // Visa
+  /^(?:5[1-5]|222[1-9]|22[3-9]\d|2[3-6]\d{2}|270\d|271\d|2720)/, // Mastercard
+  /^3[47]/, // American Express
+  /^(?:6011|65|64[4-9]|622)/, // Discover
+];
+
+function hasKnownIssuerPrefix(digits: string): boolean {
+  return ISSUER_PREFIXES.some((p) => p.test(digits));
+}
+
+/** Standard Luhn checksum over a digit string (no separators). */
+function luhnValid(digits: string): boolean {
+  let sum = 0;
+  let alt = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = (digits.charCodeAt(i) as number) - 48;
+    if (alt) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+    alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+/** Scan for PII: US SSN shape + Luhn-valid card numbers with a known issuer prefix. Same result
+ *  shape as redactSecrets, with pattern ids `ssn` and `credit_card`. Never scans anything but the
+ *  text handed to it — callers are responsible for only ever calling this over tool-arg strings,
+ *  never over vectors or caches (a long digit run there can pass Luhn by chance). */
+export function scanPii(text: string): RedactScanResult {
+  let out = text;
+  let redactions = 0;
+  const matches: Record<string, number> = {};
+  out = out.replace(SSN_PATTERN, () => {
+    redactions += 1;
+    matches.ssn = (matches.ssn ?? 0) + 1;
+    return REDACTED;
+  });
+  out = out.replace(CARD_CANDIDATE_PATTERN, (m) => {
+    const digits = m.replace(/[ -]/g, "");
+    if (digits.length < 13 || digits.length > 19) return m;
+    if (!hasKnownIssuerPrefix(digits) || !luhnValid(digits)) return m;
+    redactions += 1;
+    matches.credit_card = (matches.credit_card ?? 0) + 1;
+    return REDACTED;
+  });
+  return { text: out, redactions, matches };
 }

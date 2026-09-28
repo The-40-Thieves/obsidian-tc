@@ -64,7 +64,14 @@ export type ErrorCode =
   // declared no sourcePaths at all, or one of its declared paths matches egress.excludePaths.
   // Never retryable — the same request re-refuses identically until the caller fixes the
   // declaration or the excluded path is genuinely no longer excluded.
-  | "egress_excluded";
+  | "egress_excluded"
+  // GH #994 — memoryDefense's `block` mode (experiential/memory-defense.ts) refused a memory
+  // write (create_entity/add_observation/enqueue_capture/commit_capture/set_goal) whose args
+  // matched a credential or PII pattern, OR the scanner itself threw on an in-scope write
+  // (fail-closed). Never retryable — same shape as content_rejected: the caller must revise the
+  // argument, not blindly resend it. details names pattern ids and field NAMES only, never the
+  // matched value or the name/path that carried it.
+  | "secret_detected";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -198,6 +205,9 @@ const RECOVERY: Record<ErrorCode, string | null> = {
   // THE-934 fix round 3 (H) — the egress port guard refused a content-bearing request.
   egress_excluded:
     "A gateway/embedding/reranker request either declared no sourcePaths or named one under egress.excludePaths. Declare the real vault paths the text came from (an empty array is fine when there genuinely are none), or leave the excluded path out of the request.",
+  // GH #994 — memoryDefense block mode / fail-closed scanner error.
+  secret_detected:
+    'details.pattern_ids and details.fields name what matched, never the value. Remove the secret-shaped text from those fields and retry, or set memoryDefense.mode to "redact" to scrub silently instead of refusing.',
 };
 
 /** THE-512: the recovery hint for a code, or undefined when none is useful. */
@@ -343,4 +353,6 @@ export const err = {
   aborted: mk("aborted", "operation aborted by caller"),
   // THE-639 — assessPoison gate on write_note/append_note's provenance: "agent_synthesis" path.
   contentRejected: mk("content_rejected", "content rejected by poison scan"),
+  // GH #994 — memoryDefense block mode / fail-closed scanner error.
+  secretDetected: mk("secret_detected", "secret-shaped content refused"),
 } as const;

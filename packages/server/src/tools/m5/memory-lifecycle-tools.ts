@@ -23,6 +23,10 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
+import {
+  enforceMemoryDefense,
+  enforceMemoryDefenseOnTransformed,
+} from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
   deleteEntity,
@@ -32,13 +36,13 @@ import {
   relationsForEntity,
   updateEntity,
 } from "../../memory/entities";
-import { assertNoteOwnership, entityNotePath } from "../../memory/materialize";
+import { assertNoteOwnership, entityNotePath, sanitizeSegment } from "../../memory/materialize";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { currentNotePath, rematerialize } from "./memory-projection";
-import { type M5Deps, memoryFolderFor } from "./shared";
+import { type M5Deps, memoryDefenseFor, memoryFolderFor } from "./shared";
 
 const EntityStatusSchema = z.enum(["active", "retired"]);
 
@@ -53,6 +57,8 @@ const RenameEntityOutput = z.object({
   // re-materialized so their [[link]] text follows a rename. 0 when the name didn't change, or
   // when none of the incoming-relation sources are materialized.
   neighbors_rematerialized: z.number(),
+  // GH #994: present only when memoryDefense.mode is "redact" and new_name matched.
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 const UnlinkEntitiesOutput = z.object({
@@ -98,7 +104,39 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         if (!e || e.vault_id !== v.id)
           throw err.invalidInput("entity not found", { entity_id: input.entity_id });
 
-        const nextName = input.new_name ?? e.name;
+        // GH #994: new_name is caller-controlled free text that becomes the entity's persisted
+        // identity — the SQLite `name` column, the materialized note's filename AND its H1, and
+        // every OTHER materialized entity's [[link]] text once neighbors are re-materialized
+        // below. Scanned/enforced BEFORE the uniqueness check or any path is computed from it, so
+        // a `block` refusal leaves the entity exactly as it was (mirrors create_entity's own
+        // "before anything is persisted" placement).
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        const nameScan =
+          input.new_name !== undefined
+            ? enforceMemoryDefense(
+                mdConfig,
+                { new_name: input.new_name },
+                { metrics: deps.metrics },
+              )
+            : undefined;
+        const rawNextName =
+          (nameScan ? (nameScan.fields.new_name as string) : input.new_name) ?? e.name;
+        // GH #994 review finding 1: `nextName` also becomes the renamed note's PATH segment
+        // (entityNotePath -> sanitizeSegment) — a transform that runs AFTER the scan above and
+        // can turn a non-matching raw string into a secret-shaped one. Re-scan the sanitized form
+        // too (no-op when `new_name` was not provided at all, or when nothing matches either
+        // form).
+        const pathSegmentScan =
+          input.new_name !== undefined
+            ? enforceMemoryDefenseOnTransformed(
+                mdConfig,
+                "new_name",
+                rawNextName,
+                sanitizeSegment(rawNextName),
+                { metrics: deps.metrics },
+              )
+            : { value: rawNextName, redactions: 0 };
+        const nextName = pathSegmentScan.value;
         const renaming = nextName !== e.name;
         if (renaming && findEntity(ctx.db, v.id, e.entity_type, nextName))
           throw err.invalidInput("entity already exists", { type: e.entity_type, name: nextName });
@@ -204,6 +242,9 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
             vault_path: vaultPath,
             updated_at: updated.updated_at,
             neighbors_rematerialized: neighborsRematerialized,
+            ...((nameScan?.redactions ?? 0) + pathSegmentScan.redactions > 0
+              ? { redactions: (nameScan?.redactions ?? 0) + pathSegmentScan.redactions }
+              : {}),
           };
         });
       },

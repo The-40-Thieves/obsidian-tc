@@ -9,7 +9,9 @@ import {
   BootstrapConfigSchema,
   DEFAULT_MEMORY_FOLDER,
   err,
+  type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
+import type { MetricsRecorder } from "../../metrics/registry";
 import type { PlurClient } from "../../plur/client";
 import type { VaultRegistry } from "../../vault/registry";
 import { type ActiveSessionTracker, DEFAULT_TRACE_FOLDER } from "../../workspace/sessions";
@@ -44,6 +46,10 @@ export interface M5Deps {
   memoryFolder?: (vaultId: string) => string;
   /** Per-vault workspace trace folder; defaults to ".obsidian-tc/traces". */
   traceFolder?: (vaultId: string) => string;
+  /** GH #994: per-vault memoryDefense policy; absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
+  metrics?: MetricsRecorder;
 }
 
 export function memoryFolderFor(deps: M5Deps, vaultId: string): string {
@@ -53,6 +59,11 @@ export function memoryFolderFor(deps: M5Deps, vaultId: string): string {
 export function traceFolderFor(deps: M5Deps, vaultId: string): string {
   return deps.traceFolder?.(vaultId) ?? DEFAULT_TRACE_FOLDER;
 }
+
+// GH #994 fix (check:duplicate-exports): memoryDefenseFor moved to experiential/memory-defense.ts
+// — it and tools/m8/shared.ts's own copy were byte-identical. Re-exported here so every existing
+// `import { memoryDefenseFor } from "./shared"` in this domain keeps working unchanged.
+export { memoryDefenseFor } from "../../experiential/memory-defense";
 
 /** Fully-defaulted bootstrap config (empty routing table + generic catch-up phrases), parsed once. */
 const DEFAULT_BOOTSTRAP: BootstrapConfig = BootstrapConfigSchema.parse(undefined);

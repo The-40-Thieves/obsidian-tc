@@ -6,6 +6,14 @@ import { createHash } from "node:crypto";
 import { type Dirent, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+// GH #994 second security review, M1: every path_invalid throw below carries the caller's raw,
+// unscanned relPath in `details.path` — reached before memoryDefense ever runs (this is the
+// traversal/containment guard every path-based tool funnels through first). A caller-supplied
+// path can itself be secret-shaped (e.g. a token used as a filename), and normalizeVaultPath's own
+// normalization does not scrub content, only slashes/segments — so the invalid-path rejection
+// must redact separately. Same scanner every other raw-value echo in this codebase already shares
+// (episode log, trace capture, ambient import, acl-path.ts's aclDenied).
+import { redactSecrets } from "../experiential/redact";
 import { recordPathUse } from "./acl-audit";
 
 /** Full SHA-256 hex of UTF-8 content. Used for content_hash / CAS (prev_hash). */
@@ -20,12 +28,14 @@ export function contentHash(content: string): string {
  */
 export function normalizeVaultPath(relPath: string): string {
   if (relPath.startsWith("/") || relPath.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(relPath))
-    throw err.pathInvalid("absolute paths are not allowed", { path: relPath });
+    throw err.pathInvalid("absolute paths are not allowed", { path: redactSecrets(relPath).text });
   const parts = relPath.split(/[\\/]+/);
   if (parts.some((p) => p === ".."))
-    throw err.pathInvalid("path traversal is not allowed", { path: relPath });
+    throw err.pathInvalid("path traversal is not allowed", { path: redactSecrets(relPath).text });
   if (parts.some((p) => /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i.test(p)))
-    throw err.pathInvalid("Windows reserved names are not allowed", { path: relPath });
+    throw err.pathInvalid("Windows reserved names are not allowed", {
+      path: redactSecrets(relPath).text,
+    });
   return parts.filter((p) => p !== "" && p !== ".").join("/");
 }
 
@@ -106,7 +116,9 @@ function assertRootNotPlantedSymlink(root: string, relPath: string): void {
     rootLstat = null;
   }
   if (rootLstat?.isSymbolicLink())
-    throw err.vaultNotFound("vault root resolved to a symlink", { path: relPath });
+    throw err.vaultNotFound("vault root resolved to a symlink", {
+      path: redactSecrets(relPath).text,
+    });
 }
 
 export function resolveVaultPathChecked(vaultRoot: string, relPath: string): ResolvedVaultPath {
@@ -114,8 +126,11 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   const root = resolve(vaultRoot);
   const abs = clean === "" ? root : resolve(root, clean);
   const rel = relative(root, abs);
+  // GH #994 second security review, M1: same raw-echo risk as normalizeVaultPath above — redact
+  // once, reuse for every throw in this function.
+  const redactedRelPath = redactSecrets(relPath).text;
   if (rel.startsWith("..") || isAbsolute(rel))
-    throw err.pathInvalid("path escapes the vault root", { path: relPath });
+    throw err.pathInvalid("path escapes the vault root", { path: redactedRelPath });
   assertRootNotPlantedSymlink(root, relPath);
   // The real-path containment guarantee hinges on canonicalizing the root. If the
   // vault root can't be resolved (deleted / transiently unavailable), fail closed
@@ -124,10 +139,10 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   // terminating on a resolvable ancestor rather than returning an un-canonical abs.
   const realRoot = realpathOrNull(root);
   if (realRoot === null)
-    throw err.vaultNotFound("vault root could not be resolved", { path: relPath });
+    throw err.vaultNotFound("vault root could not be resolved", { path: redactedRelPath });
   const realRel = relative(realRoot, realpathDeepest(abs));
   if (realRel.startsWith("..") || isAbsolute(realRel))
-    throw err.pathInvalid("path escapes the vault root", { path: relPath });
+    throw err.pathInvalid("path escapes the vault root", { path: redactedRelPath });
   return { abs, aclRel: realRel.split(sep).join("/") };
 }
 

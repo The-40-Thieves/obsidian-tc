@@ -20,14 +20,16 @@ import {
   markCommitted,
 } from "../../capture/queue";
 import { inTransaction } from "../../db/txn";
+import { enforceMemoryDefense } from "../../experiential/memory-defense";
 import { assessPoison } from "../../experiential/poison";
+import { redactSecrets, scanPii } from "../../experiential/redact";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { type Frontmatter, serializeNote } from "../../vault/frontmatter";
 import { noteExists, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import type { M5Deps } from "./shared";
+import { type M5Deps, memoryDefenseFor } from "./shared";
 
 function splitTags(tags: string | null): string[] {
   return tags
@@ -66,6 +68,8 @@ const EnqueueCaptureOutput = z.object({
   capture_id: z.string(),
   captured_at: z.number(),
   vault: z.string(),
+  // GH #994: present only when memoryDefense.mode is "redact" and something in this call matched.
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 // THE-855: assessPoison's verdict, stamped at enqueue time (queue.ts's enqueueCapture) on every
@@ -106,6 +110,8 @@ const CommitCaptureOutput = z.object({
   committed_at: z.number(),
   content_hash: z.string(),
   removed_from_queue: z.boolean(),
+  // GH #994: present only when memoryDefense.mode is "redact" and something in this call matched.
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 /** Build a note's frontmatter for commit: capture-derived title/tags, then any
@@ -172,6 +178,35 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const now = (ctx.now ?? Date.now)();
+        // The hint is normalized for path-safety but never written here.
+        const targetPathHint = input.target_path_hint
+          ? normalizeVaultPath(input.target_path_hint)
+          : undefined;
+        // GH #994: scan/enforce BEFORE anything is persisted — the hint is scanned AFTER
+        // vault-relative normalization. `tags` is walked element-by-element (and `title`/`content`
+        // as whole strings) by enforceMemoryDefense's own recursive walker, so a secret hiding in
+        // one array element is caught exactly like a top-level string field. GH #994 review
+        // finding 3: `source` used to be persisted as `input.source` directly, never included in
+        // the scanned field set — `list_capture_queue` returns it verbatim to a later session.
+        // Scanned here like every other field.
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        const scan = enforceMemoryDefense(
+          mdConfig,
+          {
+            content: input.content,
+            title: input.title,
+            tags: input.tags,
+            source: input.source,
+            target_path_hint: targetPathHint,
+          },
+          { metrics: deps.metrics },
+        );
+        const content = scan.fields.content as string;
+        const title = scan.fields.title as string | undefined;
+        const tags = scan.fields.tags as string[] | undefined;
+        const source = scan.fields.source as string | undefined;
+        const hint = scan.fields.target_path_hint as string | undefined;
+
         // THE-572: enqueueCapture is not the single statement it looks like — it INSERTs, then
         // does a separate SELECT to read the row back. Auto-committed, those are two steps: if the
         // read-back threw, the INSERT stood, the claim was released, and a retry enqueued the same
@@ -181,18 +216,20 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           ctx.markEffectCommitted?.();
           return enqueueCapture(ctx.db, {
             vaultId: v.id,
-            content: input.content,
-            title: input.title,
-            tags: input.tags,
-            source: input.source,
-            // The hint is normalized for path-safety but never written here.
-            targetPathHint: input.target_path_hint
-              ? normalizeVaultPath(input.target_path_hint)
-              : undefined,
+            content,
+            title,
+            tags,
+            source,
+            targetPathHint: hint,
             now,
           });
         });
-        return { capture_id: row.id, captured_at: row.captured_at, vault: v.id };
+        return {
+          capture_id: row.id,
+          captured_at: row.captured_at,
+          vault: v.id,
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+        };
       },
     }),
 
@@ -275,12 +312,52 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.target_path);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root);
-        if (noteExists(abs).exists) throw err.noteExists("target already exists", { path: rel });
+        // GH #994 review finding (addendum): this throws BEFORE the memoryDefense scan below runs
+        // — echoing the raw, unscanned `rel` would leak a secret-shaped target_path straight
+        // through the error response/logs the moment a note already sits there. Always redact the
+        // echo, independent of `memoryDefense.mode`.
+        if (noteExists(abs).exists)
+          throw err.noteExists("target already exists", { path: redactSecrets(rel).text });
 
-        const content = serializeNote(
-          commitFrontmatter(cap, input.frontmatter_overrides),
-          cap.content,
+        // GH #994: scan/enforce the FINAL note contents before anything is written — the
+        // frontmatter object (title/tags/override keys+values, WHEREVER they came from: the
+        // queued item itself or a commit-time override) plus the body, plus `target_path` scanned
+        // AFTER vault-relative normalization (the `rel` above). Scanning the assembled document
+        // rather than each input field separately is what catches a secret in the queued item's
+        // own title/tags — never scanned at enqueue if memoryDefense was off then, or the row
+        // predates this feature — not just a fresh override.
+        const fm = commitFrontmatter(cap, input.frontmatter_overrides);
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        const scan = enforceMemoryDefense(
+          mdConfig,
+          { target_path: rel, frontmatter: fm, content: cap.content },
+          { metrics: deps.metrics },
         );
+        const scannedFm = scan.fields.frontmatter as Frontmatter | null;
+        const scannedContent = scan.fields.content as string;
+
+        // GH #994 review finding 2: the FINAL write below always used the pre-scan `rel`/`abs`
+        // for both the filesystem write and the reindex call, no matter what `scan.fields.target_
+        // path` came back as — so `redact` mode could report `redactions > 0` while the vault note
+        // still landed at the raw, secret-shaped path. A redacted FILENAME is also a worse outcome
+        // than a redacted frontmatter value (it reads as garbled text, not as "this was refused"),
+        // so rather than switch the write over to the redacted path, commit_capture refuses
+        // outright whenever `target_path` itself matched anything, in every mode except "off" —
+        // exactly like `block` mode's own path-match refusal already does for a high-confidence
+        // hit. The capture stays queued, uncommitted; retrying with a clean `target_path` (or a
+        // fresh `commit_capture` call once memoryDefense is "off") succeeds.
+        if (mdConfig.mode !== "off" && scan.fields.target_path !== rel) {
+          const pathHits = redactSecrets(rel);
+          const patternIds = new Set(Object.keys(pathHits.matches));
+          if (mdConfig.pii)
+            for (const id of Object.keys(scanPii(pathHits.text).matches)) patternIds.add(id);
+          throw err.secretDetected(
+            "target_path is secret-shaped; commit_capture refuses to persist a secret-shaped path, even in redact mode",
+            { pattern_ids: [...patternIds], fields: ["target_path"] },
+          );
+        }
+
+        const content = serializeNote(scannedFm, scannedContent);
 
         // THE-858: close every channel that reaches the vault, in three separate scans so the
         // 64 KiB assessPoison truncation can't let one channel hide another. Mirrors THE-639's
@@ -317,6 +394,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           committed_at: now,
           content_hash: contentHash(content),
           removed_from_queue: input.delete_from_queue,
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
         };
       },
     }),

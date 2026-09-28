@@ -252,6 +252,27 @@
                 "minLength": 1
               }
             }
+          },
+          "memoryDefense": {
+            "description": "Per-vault memory write scan (GH #994). Absent means mode \"off\" — no behaviour change.",
+            "type": "object",
+            "properties": {
+              "mode": {
+                "default": "off",
+                "description": "Memory write scan over create_entity/add_observation/link_entities/rename_entity/enqueue_capture/commit_capture/set_goal, before persistence. \"off\" (default) never scans. \"redact\" persists the argument with matches replaced by \"[REDACTED]\" and reports `redactions` in the tool result. \"block\" refuses the write with a `secret_detected` error naming the matched pattern ids and field names, never the value — except a LOW-CONFIDENCE `labeled_secret` hit (an ordinary `key: value` line whose value does not itself look secret-shaped), which is redacted rather than refused even in \"block\" mode.",
+                "type": "string",
+                "enum": [
+                  "off",
+                  "redact",
+                  "block"
+                ]
+              },
+              "pii": {
+                "default": false,
+                "description": "Also scan for PII: US SSN shape and Luhn-valid 13-19 digit numbers with a known card-issuer prefix. Emails and phone numbers are never flagged. Has no effect when mode is \"off\".",
+                "type": "boolean"
+              }
+            }
           }
         },
         "required": [

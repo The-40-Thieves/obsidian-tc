@@ -4,11 +4,13 @@
 // M8Deps and the `available` discriminated-union helpers, and having the second import them from
 // the first created a circular dependency. The repo's no-circular baseline is 0 and the boundary
 // gate enforces it, so the shared surface gets its own module rather than a cycle.
-import { grantsAll } from "@the-40-thieves/obsidian-tc-shared";
+import { grantsAll, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings/provider";
 import type { CallerContext } from "../../mcp/registry";
+import type { MetricsRecorder } from "../../metrics/registry";
+import type { VaultRegistry } from "../../vault/registry";
 
 // P1.7 (audit THE-562): the experiential per-principal partition is an AUTHORIZATION boundary, not
 // a default filter. Crossing it — reading other principals' episodes (any_caller), forgetting an
@@ -40,7 +42,25 @@ export interface M8Deps {
    *  composition root, not a second config read. Absent -> `activeSessionFor` there falls back to
    *  its pre-THE-1108 behaviour (a bare unit test of this module that hand-builds M8Deps). */
   sessions?: { windowSeconds: number };
+  /** GH #994: per-vault memoryDefense policy for set_goal; absent -> MEMORY_DEFENSE_OFF. */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
+  metrics?: MetricsRecorder;
+  /** GH #994 review finding 7: `set_goal` looked up `memoryDefense` by the RAW `input.vault`
+   *  (omitted -> `undefined`, an unknown id -> that unknown string), never through
+   *  `vaultRegistry.resolve` the way every M5 writer does — so an omitted `vault` silently missed
+   *  the DEFAULT vault's own memoryDefense config (keyed by its resolved id, not `undefined`),
+   *  and an unrecognized `vault` string got `MEMORY_DEFENSE_OFF` instead of the `vault_not_found`
+   *  every other tool would raise for the same input. Optional so a bare unit test that hand-
+   *  builds M8Deps (this module's own header comment) still compiles unchanged; absent -> set_goal
+   *  falls back to its pre-fix behaviour of resolving against `input.vault` directly. */
+  vaultRegistry?: VaultRegistry;
 }
+
+// GH #994 fix (check:duplicate-exports): memoryDefenseFor moved to experiential/memory-defense.ts
+// — it and tools/m5/shared.ts's own copy were byte-identical. Re-exported here so every existing
+// `import { memoryDefenseFor } from "./shared"` in this domain keeps working unchanged.
+export { memoryDefenseFor } from "../../experiential/memory-defense";
 
 // Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no
 // longer matches `Unavailable`'s `z.literal(false)` once a handler's return union is checked

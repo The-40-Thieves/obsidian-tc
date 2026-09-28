@@ -7,9 +7,10 @@ import { randomUUID } from "node:crypto";
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { closeGoal, listGoals, setGoal } from "../../experiential/goals";
+import { enforceMemoryDefense } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
-import { availableWith, type M8Deps, UNAVAILABLE } from "./shared";
+import { availableWith, type M8Deps, memoryDefenseFor, UNAVAILABLE } from "./shared";
 
 export function buildGoalTools(deps: M8Deps): ToolDefinition[] {
   return [
@@ -40,16 +41,38 @@ export function buildGoalTools(deps: M8Deps): ToolDefinition[] {
         status: z.string(),
         created_at: z.number(),
         target_date: z.number().nullable(),
+        // GH #994: present only when memoryDefense.mode is "redact" and something matched.
+        redactions: z.number().int().nonnegative().optional(),
       }),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
       handler: (input) => {
         if (!deps.edb) return UNAVAILABLE;
         const now = Date.now();
+        // GH #994 review finding 7: every M5 writer resolves `input.vault` through
+        // `vaultRegistry.resolve` BEFORE looking up its memoryDefense policy (raising
+        // `vault_not_found` for an id nothing registered, canonicalizing whatever id the config
+        // actually keys `memoryDefense` under); set_goal used to skip straight to
+        // `memoryDefenseFor(deps, input.vault)` on the caller's raw string, so an unrecognized
+        // vault id silently got `MEMORY_DEFENSE_OFF` and still inserted a goal row instead of
+        // refusing like every other m5/m8 writer would for the same bad id. `vaultRegistry` is
+        // optional on M8Deps (see shared.ts) — absent, this falls back to the raw string,
+        // preserving a hand-built M8Deps test harness that wires no registry at all.
+        const vaultId = deps.vaultRegistry
+          ? deps.vaultRegistry.resolve(input.vault).id
+          : input.vault;
+        // GH #994: scan/enforce BEFORE the goal is persisted.
+        const mdConfig = memoryDefenseFor(deps, vaultId);
+        const scan = enforceMemoryDefense(
+          mdConfig,
+          { text: input.text },
+          { metrics: deps.metrics },
+        );
+        const text = scan.fields.text as string;
         const row = setGoal(deps.edb, {
           id: randomUUID(),
-          vaultId: input.vault,
-          text: input.text,
+          vaultId,
+          text,
           createdAt: now,
           ...(input.target_date !== undefined ? { targetDate: input.target_date } : {}),
         });
@@ -60,6 +83,7 @@ export function buildGoalTools(deps: M8Deps): ToolDefinition[] {
           text: row.text,
           status: row.status,
           created_at: row.created_at,
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
           target_date: row.target_date,
         };
       },

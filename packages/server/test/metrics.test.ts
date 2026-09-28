@@ -65,6 +65,8 @@ const COUNTERS = [
   // THE-891 item 3: the graph-walk ACL filter's (THE-695/THE-852) recall cost. Zero for an
   // unrestricted caller by construction — see the counter's own help text.
   "obsidian_tc_acl_walk_pruned_total",
+  // GH #994: memoryDefense redact/block matches, by pattern id only.
+  "obsidian_tc_memory_defense_hits_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
@@ -104,14 +106,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 29 counters, 4 histograms, 16 gauges", async () => {
+  it("registers the full catalog: 30 counters, 4 histograms, 16 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(49);
+    expect(new Set(declared).size).toBe(50);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -293,6 +295,16 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     const text = await r.metrics();
     expect(text).toContain('obsidian_tc_acl_walk_pruned_total{vault="main"} 3');
     expect(text).not.toContain('obsidian_tc_acl_walk_pruned_total{vault="other"}');
+  });
+
+  it("counts memoryDefense hits, by pattern id only, and never creates a zero series (GH #994)", async () => {
+    const r = new MetricsRecorder();
+    r.incMemoryDefenseHits("openai_key", 1);
+    r.incMemoryDefenseHits("openai_key", 1);
+    r.incMemoryDefenseHits("ssn", 0); // a clean scan — must not move the series
+    const text = await r.metrics();
+    expect(text).toContain('obsidian_tc_memory_defense_hits_total{pattern="openai_key"} 2');
+    expect(text).not.toContain('obsidian_tc_memory_defense_hits_total{pattern="ssn"}');
   });
 
   // THE-507: the gauge must reflect the CACHE's own counters, not a value the recorder invented.

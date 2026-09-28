@@ -30,7 +30,11 @@ const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.met
 // header comment above already claims.
 const doctor = read("../src/cli/commands/doctor-probes.ts");
 const entities = read("../src/memory/entities.ts");
-const memoryTools = read("../src/tools/m5/memory-tools.ts");
+// memoryDefense split get_entity/query_entity_graph out into memory-read-tools.ts (read-only
+// tools, no secret-scan surface) — read both files so this assertion keeps testing the CODE
+// wherever the five tools actually live, not a stale path.
+const memoryTools =
+  read("../src/tools/m5/memory-tools.ts") + read("../src/tools/m5/memory-read-tools.ts");
 
 describe("THE-629: the entity tables have a writer, and doctor must not claim otherwise", () => {
   it("the writers actually exist — the premise this classification rested on is false", () => {

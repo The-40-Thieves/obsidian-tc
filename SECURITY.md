@@ -229,6 +229,124 @@ by content it retrieves.
   single-use, and bound to the exact vault + tool + argument hash + issuing caller, and scope/ACL verdicts
   come from server config the agent cannot write to (`.obsidian/**` is hard-denied).
 
+## Memory defense (secret / PII scanning on memory writers)
+
+**GH #994**: agent memory writers (`create_entity`, `add_observation`, `link_entities`,
+`rename_entity`, `enqueue_capture`, `commit_capture`, `set_goal`) persist caller-controlled
+free text an agent later reads back — an entity's name, its observations, a capture's content
+or frontmatter, a relation's type, a goal's text. Before this feature, a secret pasted into any
+of those fields (an API key an agent was debugging, a token from a log excerpt) was stored
+verbatim, with no different treatment than any other memory content.
+
+**Off by default (`memoryDefense: { mode: "off" }`, or the block omitted entirely) — zero
+behaviour change for an existing install.** Opt in per vault in `obsidian-tc.config.json`:
+
+```json
+{ "vaults": [{ "id": "main", "path": "...", "memoryDefense": { "mode": "block", "pii": false } }] }
+```
+
+- **`mode: "off"`** (default): no scan runs at all.
+- **`mode: "redact"`**: every matched string leaf and matched object key is replaced with
+  `"[REDACTED]"` before persistence; the tool's response reports a `redactions` count.
+- **`mode: "block"`**: the write is refused with `secret_detected` (never retryable) if anything
+  matches; nothing is persisted. The error names the matched pattern ids and field PATHS
+  (e.g. `observations[1]`, `frontmatter_overrides.meta.inner`) — **never the value itself**, and
+  never a key's own raw text when the key is what matched.
+- **`pii: true`** (either mode, opt-in, off by default) additionally scans for a US SSN shape and
+  a Luhn-valid card number with a known issuer prefix. Emails and phone numbers are deliberately
+  never flagged — a personal memory store legitimately holds the owner's own contact details.
+
+**What is scanned**: every string AND number/bigint field passed to a guarded tool, recursively —
+array elements, nested object values, and object KEYS (so a secret used *as* a key, e.g.
+`{"<token>": "value"}`, is caught the same as one used as a value). A number or bigint leaf is
+stringified and scanned exactly like a string leaf, so a Luhn-valid card number typed as a JSON
+numeric literal (not a quoted string) is caught the same as a quoted one; a leaf with no match
+keeps its original numeric type. Booleans and null still pass through unscanned — neither can
+carry a credential or PII shape. Patterns are the same `redactSecrets`/`scanPii` scanner already
+shared by the episode log, trace capture, and ambient import — one pattern list, so a pattern
+added because it leaked through any one of those surfaces protects memory too. A queued capture's
+title/tags/frontmatter are scanned at `commit_capture` time from the fully assembled record, not
+only fresh overrides — a row enqueued *before* `memoryDefense` was turned on is still scanned on
+commit.
+
+**Labeled-secret confidence tiers**: the shared `labeled_secret` pattern (`token: ...`,
+`password: ...`, `api_key: ...`) is deliberately permissive — any label followed by 8+ non-space
+characters — because a false negative there is a leaked credential in a debug log. Left alone,
+that permissiveness would make `block` mode refuse ordinary memory prose like
+`"token: deployment-id-12345"`. `memoryDefense` instead splits a `labeled_secret` hit into two
+confidence tiers, evaluated on the labeled *value* only: **high confidence** — the value is
+secret-shaped (length >= 16 AND >= 3 of {lowercase, uppercase, digit, other}, OR length >= 20
+regardless of class mix; a canonical UUID never counts as secret-shaped even when it meets either
+test) — still refuses the write in `block` mode, same as any other pattern. **Low confidence** —
+everything else — is always redacted (never stored verbatim, in either mode) but is never on its
+own grounds for a `block`-mode refusal, and is counted under the distinct
+`labeled_secret_low_confidence` metric id so the false-positive rate is separately observable. A
+leaf where a low-confidence `labeled_secret` hit co-occurs with any OTHER pattern match (a real
+`sk-...` sitting after "token:") is unaffected by any of this — that leaf is fully block-worthy
+regardless of the labeled-value's own confidence.
+
+**Path-sanitisation order**: `create_entity`/`rename_entity`'s `type`/`name`/`new_name` are
+scanned twice — once as the caller passed them, and again AFTER path sanitisation (the same
+normalization that turns the string into the materialized note's path segment, which can turn a
+non-matching raw value into a secret-shaped one, e.g. `sk:...` -> `sk-...`). In `block` mode
+either scan matching is enough to refuse the write; in `redact` mode, whichever scan matched
+determines the persisted canonical name — the entity's SQLite `name`/`type` columns (and the
+materialized note's filename and H1) hold the *redacted* form whenever either pass matched, never
+a value with a secret still in it, even though the note path is server-computed from that same
+name.
+
+**`commit_capture`'s `target_path`**: scanned after vault-relative normalization, alongside the
+assembled frontmatter and content. A match on `target_path` itself refuses the commit in *every*
+mode except `off` — including `redact` — rather than writing the note to a redacted filename,
+because a garbled path reads as corrupted data, not as "this was refused". The capture stays
+queued; retrying with a clean `target_path` succeeds.
+
+**Error messages never echo a raw caller value.** Every `memoryDefense` refusal, and every
+adjacent error path a guarded tool can hit before or after its own scan runs (e.g.
+`commit_capture`'s "target already exists" when a note already sits at the target path), reports
+pattern ids and field paths, or a redacted echo of the offending value — never the raw text a
+caller supplied.
+
+**Fails closed**: a scanner exception on an in-scope write (mode != `off`) refuses the write
+(`secret_detected`, pattern id `scanner_error`) rather than silently persisting an unscanned
+value — a miss here persists forever into a store later sessions read back, while a refused
+write can simply be retried.
+
+**Metric**: `obsidian_tc_memory_defense_hits_total{pattern}` — one counter per matched pattern
+id (never a content-bearing label), incremented in both `redact` and `block` modes, including
+`scanner_error` on a fail-closed refusal.
+
+**Limits — read before relying on this as the only control**:
+
+- **It guards seven named tools, not every writer.** Generic note-mutation tools
+  (`write_note`, `append_note`, `patch_note`, `replace_text`) are not routed through
+  `memoryDefense` at all — a caller with `write` access can write a secret straight into a
+  vault's memory folder through one of those and bypass this scan entirely. `memoryDefense`
+  is a control on the *structured* memory-graph/goal/capture tools, not a vault-wide content
+  filter. Deployments that need a vault-wide guarantee must not rely on this feature alone.
+- **Workspace session metadata is not scanned.** `start_session`'s `session_metadata` and
+  `end_session`'s `end_metadata` (both caller-supplied, arbitrary JSON) are written to the
+  session's SQLite row and its JSONL trace file unscanned, regardless of `memoryDefense`. This
+  is a distinct writer surface from the memory graph (consumed by citation inference and
+  session replay, not `query_entity_graph`) and is not guarded by this pass.
+- **Same pattern-coverage caveat as `redactSecrets`/`scanPii` everywhere else in this
+  document**: a deterministic pattern list catches known-shaped secrets; it is not a general
+  secret classifier, and a novel or obfuscated credential shape can pass through unmatched.
+- **Leaf-scanner ceiling.** Every pattern matches against ONE scanned leaf (a string/number
+  field, an array element, an object key) in isolation — a secret split across multiple fields
+  or array elements (e.g. half a token in `observations[0]`, the other half in
+  `observations[1]`), or obfuscated with zero-width characters / other invisible Unicode
+  interleaved into an otherwise-matching run, will not assemble into a match at any single leaf
+  and passes through unscanned. This is a property of scanning leaves independently, not a gap
+  in any one pattern.
+- **Importers write the same stores without going through this scan.** Capture's ambient/
+  highlight import path (`capture/ambient-import.ts`) and the memory-import adapters write
+  directly into the same entity/capture/goal tables `memoryDefense` guards, but neither calls
+  `enforceMemoryDefense` — only the interactive MCP tool surface (`create_entity`,
+  `add_observation`, `link_entities`, `rename_entity`, `enqueue_capture`, `commit_capture`,
+  `set_goal`) is wired. A secret imported through one of those paths lands in the same store an
+  agent later reads back, unscanned, regardless of the vault's `memoryDefense` config.
+
 ## Telemetry
 
 Opt-in, anonymous usage telemetry. **Off by default, with no default endpoint** —

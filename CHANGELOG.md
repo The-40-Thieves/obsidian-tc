@@ -74,6 +74,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   reranker (`packages/reranker-local`, which had no `session_options` at all) gets the same
   capped/no-spin/no-prepack default.
 
+### Added
+
+- **Opt-in secret/PII scan on memory writers — `memoryDefense` (GH #994).** `create_entity`,
+  `add_observation`, `link_entities`, `rename_entity`, `enqueue_capture`, `commit_capture`, and
+  `set_goal` now scan every caller-controlled string field (recursively — array elements, nested
+  object values, and object keys) against the same secret-pattern scanner the episode log and
+  trace capture already share, plus an opt-in PII check (US SSN shape, Luhn-valid card numbers).
+  Per-vault `memoryDefense: { mode: "off" | "redact" | "block", pii: boolean }`, defaulting to
+  `off` — zero behaviour change for an existing install. `redact` persists `"[REDACTED]"` in
+  place of a match and reports a `redactions` count; `block` refuses the write with
+  `secret_detected`, naming the matched pattern ids and field paths but never the value. Fails
+  closed: a scanner exception on an in-scope write refuses rather than silently persists.
+  New metric `obsidian_tc_memory_defense_hits_total{pattern}`. See SECURITY.md's "Memory defense"
+  section for scan scope and known limits (generic note-write tools and workspace session
+  metadata are not covered by this pass).
+
 ## [1.31.5] - 2026-09-26
 
 ### Fixed

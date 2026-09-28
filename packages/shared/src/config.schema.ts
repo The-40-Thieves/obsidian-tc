@@ -58,13 +58,19 @@ import {
   type ToolVisibilityConfig,
   ToolVisibilityConfigSchema,
 } from "./config/tools.schema";
-import type { VaultConfig, VaultConfigInput, VaultKind } from "./config/vault.schema";
+import type {
+  VaultConfig,
+  VaultConfigInput,
+  VaultKind,
+  VaultMemoryDefenseConfig,
+} from "./config/vault.schema";
 import {
   DEFAULT_MEMORY_FOLDER,
   VaultBridgesConfigSchema,
   VaultCommandsConfigSchema,
   VaultConfigSchema,
   VaultMemoryConfigSchema,
+  VaultMemoryDefenseConfigSchema,
   VaultPluginsConfigSchema,
   VaultWorkspaceConfigSchema,
 } from "./config/vault.schema";
@@ -84,6 +90,7 @@ export type {
   VaultConfig,
   VaultConfigInput,
   VaultKind,
+  VaultMemoryDefenseConfig,
 };
 // WP1.1: auth+ACL schemas now live in ./config/auth-acl.schema.ts.
 // WP1.2: vault schemas now live in ./config/vault.schema.ts.
@@ -141,6 +148,7 @@ export {
   VaultCommandsConfigSchema,
   VaultConfigSchema,
   VaultMemoryConfigSchema,
+  VaultMemoryDefenseConfigSchema,
   VaultPluginsConfigSchema,
   VaultWorkspaceConfigSchema,
   WatchConfigSchema,

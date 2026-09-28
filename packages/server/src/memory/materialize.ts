@@ -82,8 +82,15 @@ export function parseObservationBullet(line: string): ParsedObservationBullet {
 }
 
 /** Make one path segment filesystem-safe: drop separators, wikilink/heading sigils,
- *  and reserved characters. Never yields an empty segment. */
-function sanitizeSegment(s: string): string {
+ *  and reserved characters. Never yields an empty segment.
+ *
+ *  GH #994 review finding 1: exported (was module-private) so a caller can scan the SANITIZED
+ *  form of a value before it becomes a path segment — sanitization can turn a raw string that
+ *  doesn't match a secret pattern (`sk:...`) into one that does (`sk-...`) by normalizing
+ *  separator characters, and a scan of the raw value alone runs BEFORE that transform. See
+ *  `enforceMemoryDefenseOnTransformed` (experiential/memory-defense.ts) and its call sites in
+ *  create_entity/rename_entity. */
+export function sanitizeSegment(s: string): string {
   const cleaned = s
     .replace(/[\\/:*?"<>|#^[\]]/g, "-")
     .replace(/\s+/g, " ")

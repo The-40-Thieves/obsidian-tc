@@ -7,16 +7,18 @@
 // dependency); `wireDomainTools` (M2-M8) runs AFTER it, because M2's dataviewBridge / M3's
 // templaterBridge / M4 itself all read the composed M4Deps object bridge-wiring.ts returns.
 // See docs/design/runtime-gateway-seams.md for the extraction background.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { DEFAULT_MEMORY_FOLDER, err } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import type { RetrievalLogger } from "../experiential/log";
+import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import { createGatewayClient, type GatewayClient } from "../gateway";
 import { toolFacadeHealthView } from "../mcp/facade-auto";
 import type { ToolRegistry } from "../mcp/registry";
+import type { MetricsRecorder } from "../metrics/registry";
 import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
@@ -476,6 +478,10 @@ export interface DomainToolsDeps {
   activeSessions: ActiveSessionTracker;
   memoryFolderByVault: Map<string, string>;
   traceFolderByVault: Map<string, string>;
+  /** GH #994: per-vault memoryDefense config, present only for a vault that configured one. */
+  memoryDefenseByVault: Map<string, VaultMemoryDefenseConfig>;
+  /** GH #994: threaded to M5/M8 so their handlers can tag obsidian_tc_memory_defense_hits_total. */
+  metrics?: MetricsRecorder;
   rateLimiter: RateLimiter;
   version: string;
   startedAt: number;
@@ -512,6 +518,10 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     deps.memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER;
   const traceFolder = (vaultId: string): string =>
     deps.traceFolderByVault.get(vaultId) ?? DEFAULT_TRACE_FOLDER;
+  // GH #994: absent -> MEMORY_DEFENSE_OFF (mode "off", no scan) — same "closure, defaulted at the
+  // read site" shape as memoryFolder/traceFolder above.
+  const memoryDefense = (vaultId: string): VaultMemoryDefenseConfig =>
+    deps.memoryDefenseByVault.get(vaultId) ?? MEMORY_DEFENSE_OFF;
 
   registerM2Tools(registry, {
     vaultRegistry: deps.vaultRegistry,
@@ -594,6 +604,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     bootstrap: config.bootstrap,
     memoryFolder,
     traceFolder,
+    memoryDefense,
+    metrics: deps.metrics,
   });
 
   // M6 bulk + URI + admin: one shared RateLimiter (G2.4 tiers from config) is consumed by the
@@ -675,5 +687,11 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-1108: same windowSeconds config.sessions already carries for the HTTP transport and the
     // maintenance sweep — not a second config read.
     sessions: { windowSeconds: config.sessions.windowSeconds },
+    // GH #994: set_goal's memoryDefense enforcement — the SAME accessor/metrics M5 gets above.
+    memoryDefense,
+    metrics: deps.metrics,
+    // GH #994 review finding 7: set_goal resolves `vault` through the SAME registry M5 writers
+    // use, rather than looking up memoryDefense by the caller's raw string.
+    vaultRegistry: deps.vaultRegistry,
   });
 }

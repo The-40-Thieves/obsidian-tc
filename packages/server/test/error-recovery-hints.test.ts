@@ -61,6 +61,7 @@ const ALL_CODES: readonly ErrorCode[] = [
   "indeterminate_outcome",
   "aborted",
   "content_rejected",
+  "secret_detected",
 ];
 
 /** Hints ride on every error response, so they are a per-call token cost. Keep them one or two
