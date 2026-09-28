@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,432 tracked code files · 255,988 lines.
+**Scale:** 1,443 tracked code files · 258,390 lines.
 
-TypeScript 233,989 · JavaScript 16,326 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
+TypeScript 236,391 · JavaScript 16,326 · Python 2,406 · SQL 2,031 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -90,22 +90,22 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `search/` | 61 | 13,052 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `experiential/` | 28 | 7,210 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 28 | 6,712 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `cli/` | 45 | 6,284 | arg parsing + subcommands |
-| `runtime/` | 20 | 4,702 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
-| `doctor/` | 21 | 3,512 | `obsidian-tc doctor` — checks, report rendering, runner |
+| `cli/` | 45 | 6,522 | arg parsing + subcommands |
+| `runtime/` | 21 | 4,776 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `doctor/` | 21 | 3,533 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 17 | 2,545 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 16 | 2,106 | provisioning, migrate runner, experiential store |
 | `migrations/` | 55 | 2,031 | hand-registered SQL. **Two chains** — see below |
 | `providers/` | 8 | 1,749 |  |
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
 | `scheduler/` | 4 | 1,374 | unified background scheduler + durable job queue (THE-517) |
+| `embeddings/` | 8 | 1,244 | providers incl. the deterministic fake used in tests |
 | `formats/` | 6 | 1,241 | canvas, base, dataview, kanban parsing |
 | `workspace/` | 3 | 1,215 | session tracking |
 | `memory-import/` | 7 | 1,132 |  |
 | `metrics/` | 4 | 916 | Prometheus catalog + `/metrics` endpoint, gauge sources, ingest stats |
 | `memory/` | 2 | 908 | entity extraction and materialization for the memory folder |
 | `bridge/` | 8 | 822 | Obsidian plugin bridge clients |
-| `embeddings/` | 6 | 775 | providers incl. the deterministic fake used in tests |
 | `capture/` | 5 | 768 | the capture queue |
 | `telemetry/` | 6 | 758 |  |
 | `transports/` | 3 | 745 | stdio, HTTP and the shared serve loop |
@@ -113,14 +113,14 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `model/` | 7 | 646 | model-service clients |
 | `capability/` | 6 | 610 | `defineTool` and the capability registry |
 | `auth/` | 4 | 485 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
-| `config/` | 3 | 461 | config load, `explain`, and the security-profile resolver |
+| `config/` | 3 | 484 | config load, `explain`, and the security-profile resolver |
 | `graph/` | 1 | 381 | graph analytics (centrality, components) behind the health tools |
 | `plur/` | 2 | 214 | PLUR client (local + remote) for the experiential plane |
 | `otel/` | 3 | 190 | OpenTelemetry tracing, attributes, context propagation |
 | `util/` | 4 | 123 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 495 files across 33 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 498 files across 33 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -144,7 +144,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 835 | `packages/server/src/experiential/reflect.ts` |
 | 823 | `packages/server/src/doctor/checks.ts` |
 | 806 | `packages/server/src/mcp/server.ts` |
-| 742 | `packages/server/src/runtime/server-runtime.ts` |
+| 720 | `packages/server/src/runtime/server-runtime.ts` |
 | 710 | `packages/server/src/providers/registry.ts` |
 | 703 | `packages/server/src/cli/args.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
@@ -159,17 +159,17 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 639 | `packages/server/src/tools/m5/memory-tools.ts` |
 | 625 | `packages/server/src/transports/http.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
+| 616 | `packages/server/src/cli/commands/doctor-probes.ts` |
 | 612 | `packages/server/src/experiential/citation.ts` |
 | 612 | `packages/server/src/search/indexing/index-vault.ts` |
 | 611 | `packages/server/src/search/graph_search.ts` |
 | 599 | `packages/server/src/tools/m3/base-tools.ts` |
 | 588 | `packages/server/src/vault/frontmatter.ts` |
+| 584 | `packages/server/src/cli/commands/doctor.ts` |
 | 580 | `packages/server/src/memory-import/apply.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 562 | `packages/server/src/memory/entities.ts` |
-| 560 | `packages/server/src/cli/commands/doctor.ts` |
 | 559 | `packages/server/src/mcp/facade.ts` |
-| 556 | `packages/server/src/cli/commands/doctor-probes.ts` |
 | 535 | `packages/server/src/tools/m7/knowledge/retrieval-runtime.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
@@ -298,7 +298,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**496 modules · 2293 dependencies · 146 distinct subsystem pairs · 1039 cross-subsystem imports.**
+**499 modules · 2311 dependencies · 149 distinct subsystem pairs · 1052 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -316,7 +316,7 @@ edge exists", never as "these two are unrelated" — the companion-plugin bridge
 
 <!-- BEGIN GENERATED: tree-subsystem-graph -->
 Edge labels are import counts. Only edges with weight ≥ 5 are shown; the full
-set is 146 pairs.
+set is 149 pairs.
 
 ```mermaid
 flowchart LR
@@ -326,15 +326,15 @@ flowchart LR
   experiential[experiential<br/>28 files]
   mcp[mcp<br/>28 files]
   doctor[doctor<br/>21 files]
-  runtime[runtime<br/>20 files]
+  runtime[runtime<br/>21 files]
   vault[vault<br/>17 files]
   db[(db<br/>16 files)]
   plane[plane<br/>9 files]
   bridge[bridge<br/>8 files]
+  embeddings[embeddings<br/>8 files]
   providers[providers<br/>8 files]
   memory-import[memory-import<br/>7 files]
   model[model<br/>7 files]
-  embeddings[embeddings<br/>6 files]
   formats[formats<br/>6 files]
   telemetry[telemetry<br/>6 files]
   metrics[metrics<br/>4 files]
@@ -364,9 +364,11 @@ flowchart LR
   runtime -->|14| plane
   cli -->|13| plane
   runtime -->|13| scheduler
+  cli -->|12| embeddings
   runtime -->|11| tools
   cli -->|9| search
   mcp -->|9| vault
+  runtime -->|9| embeddings
   cli -->|8| vault
   formats -->|8| vault
   model -->|8| embeddings
@@ -379,11 +381,9 @@ flowchart LR
   cli -->|7| doctor
   cli -->|7| telemetry
   memory-import -->|7| vault
-  runtime -->|7| embeddings
   search -->|7| embeddings
   tools -->|7| util
   tools -->|7| bridge
-  cli -->|6| embeddings
   cli -->|6| gateway
   runtime -->|6| util
   runtime -->|6| workspace
@@ -407,8 +407,8 @@ flowchart LR
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
 | `vault` | 249 | `tools` | 401 |
-| `db` | 202 | `runtime` | 173 |
-| `mcp` | 114 | `cli` | 156 |
+| `db` | 204 | `runtime` | 175 |
+| `mcp` | 114 | `cli` | 163 |
 | `search` | 112 | `search` | 94 |
 | `experiential` | 53 | `experiential` | 40 |
 <!-- END GENERATED: tree-fan -->

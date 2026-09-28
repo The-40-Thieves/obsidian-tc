@@ -2,6 +2,10 @@ import { mkdirSync } from "node:fs";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
+import {
+  applyStickyEmbeddings,
+  formatStickyEmbeddingsNotice,
+} from "../../embeddings/sticky-provider";
 import { ToolRegistry } from "../../mcp/registry";
 import { compileEgressFilter } from "../../plane/egress-filter";
 import { readGeneration } from "../../search/generation";
@@ -14,6 +18,12 @@ export async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
   mkdirSync(cfg.cacheDir, { recursive: true });
   const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
+  // GH #995 fix round 2 (High 1): same sticky resolution boot/index/doctor apply — a query embedded
+  // with the wrong (post-980-default) provider against vec_chunks written under the vault's REAL
+  // (pre-1.31.4) provider returns garbage, silently, since a query never re-embeds anything.
+  const embeddingsSticky = applyStickyEmbeddings(cfg, cacheDb);
+  const stickyNotice = formatStickyEmbeddingsNotice(embeddingsSticky);
+  if (stickyNotice) process.stdout.write(stickyNotice);
   // THE-934 fix round 2 (N2): threaded for consistency — vault_context's own retrieval only ever
   // embeds the QUERY side here (reranker/roles are both null, so neither the generative nor
   // rerank egress legs are reachable at all), but the provider itself is real and this keeps the

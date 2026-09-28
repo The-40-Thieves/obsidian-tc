@@ -15,6 +15,10 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { createEmbeddingProviderAsync, type EmbeddingsConfigLike } from "../embeddings";
+import {
+  applyStickyEmbeddings,
+  type StickyEmbeddingsResolution,
+} from "../embeddings/sticky-provider";
 import { recordIngestStats } from "../metrics/ingest-stats";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { EgressFilter } from "../plane/egress-filter";
@@ -38,13 +42,22 @@ import { registerVaultWatch } from "../vault/watcher";
 export interface IndexResourcesDeps {
   db: Database;
   metrics: MetricsRecorder;
-  /** config.embeddings */
+  /** config.embeddings. `onProviderChange` is required (not part of the narrower
+   *  `EmbeddingsConfigLike`) because GH #995 fix round 2 (item B) applies sticky resolution HERE —
+   *  see this function's own doc comment — and `resolveStickyEmbeddings` needs it. Every real
+   *  caller passes the actual `config.embeddings`, which always carries it (schema default
+   *  "keep"). */
   embeddings: EmbeddingsConfigLike & {
     batchSize: number;
     concurrency: number;
     maxBatchTokens: number;
     chunkContext: boolean;
+    onProviderChange: "keep" | "switch";
   };
+  /** config.vaults, narrowed to the id every sticky-resolution query needs. GH #995 fix round 2
+   *  (item B): required so `wireIndexResources` can apply sticky resolution itself rather than
+   *  relying on every caller to have done so first — see this function's own doc comment. */
+  vaults: ReadonlyArray<{ id: string }>;
   /** THE-612: ensureVecChunks' onRebuild, routed to the metrics recorder by runtime/observability.ts. */
   onVecRebuild: (event: VecRebuildEvent) => void;
   /** `dirname(configPath)` — the trust root for embeddings.modulePath. See
@@ -122,6 +135,12 @@ export interface IndexResources {
   /** THE-625 item 4: routes every direct indexVault(...) caller through the recorder instead of a
    *  per-call-site reminder (THE-590 found one caller left uninstrumented). */
   indexVaultRecorded: (opts: IndexVaultArgs) => Promise<IndexStats>;
+  /** GH #995 fix round 2 (item B): the sticky-embeddings resolution this call applied, BEFORE
+   *  constructing `embeddingProvider` or probing vec_chunks below — see this function's own doc
+   *  comment. Every caller that used to compute its own (and has now had that call deleted as
+   *  redundant — server-runtime.ts, cli/commands/index.ts) reads it from here instead, so boot and
+   *  `index` cannot disagree about which resolution actually ran. */
+  embeddingsSticky: StickyEmbeddingsResolution;
 }
 
 /**
@@ -130,8 +149,27 @@ export interface IndexResources {
  * constants + whether chunkContext enrichment is on, so a same-dimension model swap or an
  * enrichment/chunker change rebuilds vec_chunks instead of serving it stale. THE-291: the FTS5 probe
  * is false on adapters without FTS5 or when OBSIDIAN_TC_DISABLE_FTS=1.
+ *
+ * GH #995 fix round 2 (root cause, item B): this is the ONE construction choke point every
+ * provider/index path goes through — boot (runtime/server-runtime.ts's wireRuntimeCore) AND
+ * `obsidian-tc index` (cli/commands/index.ts) both call this, and nothing else in this codebase
+ * calls `createEmbeddingProviderAsync` or `ensureVecChunks` directly. Applying sticky resolution
+ * HERE, before either of those two calls, means a caller of THIS function can no longer forget to
+ * resolve sticky first — the failure class the review found in `rerun.ts` (which reaches this
+ * function transitively through `buildServerRuntime`, with no sticky call of its own) is closed by
+ * construction, not by a caller-discovery test enumerating who currently remembers to call it.
  */
 export async function wireIndexResources(deps: IndexResourcesDeps): Promise<IndexResources> {
+  // Mutates `deps.embeddings` IN PLACE when it resolves to keep a different provider — the SAME
+  // object reference the caller's `config.embeddings` is, so this is visible to every OTHER
+  // consumer of that config the caller reads afterward (reranker/gateway wiring, job handlers),
+  // exactly as it was when each caller applied this itself before this fix. Throws (never
+  // constructs a guessed provider) when the kept identity is unmappable — see
+  // embeddings/sticky-provider.ts's applyStickyEmbeddings, finding 4.
+  const embeddingsSticky = applyStickyEmbeddings(
+    { embeddings: deps.embeddings, vaults: deps.vaults },
+    deps.db,
+  );
   const embeddingProvider = await createEmbeddingProviderAsync(deps.embeddings, {
     configDir: deps.configDir,
     securityProfile: deps.securityProfile,
@@ -187,6 +225,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     indexHealth,
     recordIngestStatsFor,
     indexVaultRecorded,
+    embeddingsSticky,
   };
 }
 

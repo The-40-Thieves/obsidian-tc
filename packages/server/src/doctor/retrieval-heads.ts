@@ -7,6 +7,7 @@
 // by construction. run.ts and index.ts import from here directly rather than through a re-export,
 // which would have given `check:duplicate-exports` two modules exporting the same names.
 
+import type { EmbeddingsProviderSource } from "../embeddings/sticky-provider";
 import type { Check, CheckStatus } from "./types";
 
 /** #16 (audit THE-562): the readiness inputs for the four retrieval heads, derived from
@@ -42,13 +43,16 @@ export interface RetrievalHeadsView {
    *  just because someone ran it. When present, the check reports what it OBSERVED instead of what
    *  the config claims, and `ready` becomes a statement the check can actually support. */
   probe?: () => Promise<DenseProbeResult>;
-  /** THE-1122 review: the provider half of a STORED `vec_index_fingerprint` row, read
-   *  unconditionally (cli/commands/doctor.ts's probeStoredEmbeddingsProvider — cheap, read-only,
-   *  same posture as probeDbSpace), when it disagrees with `denseProvider` (the currently
-   *  CONFIGURED/resolved provider). Set ONLY on disagreement — the common case (a fresh install,
-   *  or an index the automatic rebuild has already caught up to) leaves this undefined, so the
-   *  upgrade note below appears only while a real mismatch is live, not on every run forever. */
+  /** The provider half of a STORED `vec_index_fingerprint` row (cli/commands/doctor.ts's
+   *  probeStoredEmbeddingsProvider), when it disagrees with `denseProvider` (the currently
+   *  CONFIGURED/resolved provider). Set ONLY on disagreement, so the upgrade note below appears
+   *  only while a real mismatch is live, not on every run forever. */
   storedProviderMismatch?: string;
+  /** GH #995: where `denseProvider`/`denseModel`/`denseDimensions` above actually came from —
+   *  cli/commands/doctor.ts's probeEmbeddingsProviderSource, the SAME resolver server-runtime.ts
+   *  applies at boot (embeddings/sticky-provider.ts). Undefined only when the cache db does not
+   *  exist yet (a fresh install with nothing to resolve). */
+  denseProviderSource?: EmbeddingsProviderSource;
 }
 
 /** Outcome of the opt-in dense probe. `ms` exists so an operator can distinguish "reachable" from
@@ -86,6 +90,8 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
       const denseId = `${view.denseProvider}, ${view.denseModel}, dim ${view.denseDimensions}`;
       const details: Record<string, string> = {
         dense: `configured (${denseId}) — not probed`,
+        // GH #995 (finding 5): source, named, for all four cases — undefined reads as "default".
+        denseSource: view.denseProviderSource ?? "default",
       };
       const issues: string[] = [];
       const notes: string[] = [];
@@ -96,16 +102,31 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
       if (view.denseDeprecated)
         notes.push(`embeddings.provider '${view.denseProvider}': ${view.denseDeprecated}`);
 
-      // THE-1122 review: the upgrade note. Fires only while the STORED index's provider disagrees
-      // with the CONFIGURED one — most commonly, an upgrade that moved the zero-config default
-      // from "ollama" to "local" and this deployment hasn't re-embedded since. The automatic
-      // fingerprint-mismatch rebuild (search/vec.ts) already started that re-embed at boot; this
-      // note just explains WHY it's happening, once, rather than leaving an operator to notice an
-      // unexplained full reindex. It disappears on its own once the rebuild's fingerprint write
-      // catches up — no separate "seen it once" flag to maintain.
+      // The upgrade note. Fires only while the STORED index's provider disagrees with the
+      // CONFIGURED one. The automatic fingerprint-mismatch rebuild (search/vec.ts) already started
+      // that re-embed at boot; this note just explains WHY, rather than leaving an operator to
+      // notice an unexplained full reindex. Disappears once the rebuild's fingerprint write catches up.
       if (view.storedProviderMismatch && view.storedProviderMismatch !== view.denseProvider) {
         notes.push(
           `embeddings: the stored index was built with provider '${view.storedProviderMismatch}', but the configured/resolved provider is now '${view.denseProvider}' — a full re-embed is in progress (or already ran) from the automatic fingerprint-mismatch rebuild. If this is unexpected, see "Upgrading from a pre-local-embedder config" in the embeddings docs.`,
+        );
+      }
+
+      // GH #995: names the SOURCE of denseProvider/denseModel/denseDimensions above — an operator
+      // reading "configured (ollama, ...)" must be able to tell "I set this" apart from "the server
+      // kept this from my existing index" apart from "this is just the zero-config default".
+      if (view.denseProviderSource === "kept-from-index") {
+        notes.push(
+          `embeddings: provider '${view.denseProvider}' was KEPT from this vault's existing index — embeddings.provider is not set in config. Set embeddings.provider explicitly (or embeddings.onProviderChange: "switch") to change this.`,
+        );
+      }
+      // Ambiguity-policy branch — no active vectors matched this vault's own id, but the cache db
+      // holds active vectors under a DIFFERENT one (a rename, or a fresh vault sharing a cache
+      // directory). obsidian-tc refused to guess and uses `denseProvider` as-is; this makes that
+      // refusal visible instead of indistinguishable from a fresh install.
+      if (view.denseProviderSource === "ambiguous-orphaned-index") {
+        notes.push(
+          `embeddings: could not confirm this vault's existing provider — no active vectors matched this vault's configured id, but this cache directory holds active vectors under a DIFFERENT vault id. Using '${view.denseProvider}' rather than guessing; see "Upgrading from a pre-local-embedder config" in the embeddings docs if this vault was renamed.`,
         );
       }
 

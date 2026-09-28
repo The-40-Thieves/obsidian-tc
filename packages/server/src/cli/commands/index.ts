@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { version as VERSION } from "../../../package.json";
 import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
+import { formatStickyEmbeddingsNotice } from "../../embeddings/sticky-provider";
 import { createGatewayClient } from "../../gateway";
 import { MetricsRecorder } from "../../metrics/registry";
 import {
@@ -77,10 +78,16 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
     // the start, not only the indexVault call below.
     const egressFilter = compileEgressFilter(cfg.egress.excludePaths);
     const isEgressExcluded = (rel: string): boolean => isExcludedPath(egressFilter, rel);
+    // GH #995 fix round 2 (root cause, item B): `wireIndexResources` itself now applies sticky
+    // resolution before constructing anything — see that function's own doc comment. `index` used
+    // to call `applyStickyEmbeddings` here separately; that call is deleted as redundant (and, per
+    // the review, this is the one call site where "redundant" mattered least — `rerun` had NO call
+    // at all, which this same choke point also closes).
     const resources = await wireIndexResources({
       db,
       metrics: new MetricsRecorder(),
       embeddings: cfg.embeddings,
+      vaults: cfg.vaults,
       onVecRebuild: (event) =>
         process.stdout.write(`index: vec_chunks rebuilt (${event.reason ?? "representation"})\n`),
       ...(configPath !== undefined ? { configDir: dirname(configPath) } : {}),
@@ -94,6 +101,8 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
       cacheDir: cfg.cacheDir,
       excludeFilter: egressFilter,
     });
+    const stickyNotice = formatStickyEmbeddingsNotice(resources.embeddingsSticky);
+    if (stickyNotice) process.stdout.write(stickyNotice);
 
     const sub = cmd.folder ? normalizeVaultPath(cmd.folder) : undefined;
     let totalChunks = 0;

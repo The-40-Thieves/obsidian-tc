@@ -281,6 +281,17 @@ export const EmbeddingsConfigSchema = z.object({
         "disables intra-/inter-op spinning. An explicit value overrides that default outright for " +
         "both intra- and inter-op.",
     ),
+  onProviderChange: z
+    .enum(["keep", "switch"])
+    .default("keep")
+    .describe(
+      "When embeddings.provider is NOT set and this vault's cache already holds active " +
+        'embeddings from a different provider than the current default, "keep" (default) continues ' +
+        "using that existing provider/model instead of silently switching and forcing a full " +
+        're-embed (GH #995). "switch" adopts the current default ("local") outright, same as a ' +
+        "fresh install. An explicit embeddings.provider always wins over this key — setting " +
+        'embeddings.provider: "local" explicitly is itself the opt-in to switch.',
+    ),
 });
 
 // THE-458 (audit #5): index-on-write coordinator concurrency + backpressure. Fully defaulted so a

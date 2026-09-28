@@ -1,6 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
+import {
+  applyStickyEmbeddings,
+  formatStickyEmbeddingsNotice,
+} from "../../embeddings/sticky-provider";
 import { createGatewayClient } from "../../gateway";
 import { compileEgressFilter, EgressViolationError } from "../../plane/egress-filter";
 import { assignClusters } from "../../search/cluster";
@@ -11,6 +15,12 @@ export async function run_cluster(cmd: Cmd<"cluster">): Promise<void> {
   const clusterConfig = resolveOrUsageExit(cmd.input);
   mkdirSync(clusterConfig.cacheDir, { recursive: true });
   const clusterDb = await openConfiguredDatabase(clusterConfig, "cache.db");
+  // GH #995 fix round 2 (High 1): sticky-resolve before any embedProvider below is constructed —
+  // cluster-summary embeds are written back into note_summaries' own vector representation, which
+  // must match whatever the vault's chunks already used.
+  const embeddingsSticky = applyStickyEmbeddings(clusterConfig, clusterDb);
+  const stickyNotice = formatStickyEmbeddingsNotice(embeddingsSticky);
+  if (stickyNotice) process.stdout.write(stickyNotice);
   // THE-934 fix round 1: egress.excludePaths — a cluster with an excluded-path member is never
   // summarised (see summarize-clusters.ts), and both the gateway and the embedding provider
   // constructed below are guarded at the port.

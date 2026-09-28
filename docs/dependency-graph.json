@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 496,
-    "dependencies": 2293,
-    "subsystemPairs": 146,
-    "crossSubsystemImports": 1039
+    "modules": 499,
+    "dependencies": 2311,
+    "subsystemPairs": 149,
+    "crossSubsystemImports": 1052
   },
   "subsystems": {
     "auth": 4,
@@ -16,7 +16,7 @@
     "config": 14,
     "db": 16,
     "doctor": 21,
-    "embeddings": 6,
+    "embeddings": 8,
     "experiential": 28,
     "formats": 6,
     "gateway": 3,
@@ -32,7 +32,7 @@
     "plugin": 20,
     "plur": 2,
     "providers": 8,
-    "runtime": 20,
+    "runtime": 21,
     "scheduler": 4,
     "schemas": 1,
     "search": 61,
@@ -130,6 +130,11 @@
       "weight": 13
     },
     {
+      "from": "cli",
+      "to": "embeddings",
+      "weight": 12
+    },
+    {
       "from": "runtime",
       "to": "tools",
       "weight": 11
@@ -142,6 +147,11 @@
     {
       "from": "mcp",
       "to": "vault",
+      "weight": 9
+    },
+    {
+      "from": "runtime",
+      "to": "embeddings",
       "weight": 9
     },
     {
@@ -205,11 +215,6 @@
       "weight": 7
     },
     {
-      "from": "runtime",
-      "to": "embeddings",
-      "weight": 7
-    },
-    {
       "from": "search",
       "to": "embeddings",
       "weight": 7
@@ -223,11 +228,6 @@
       "from": "tools",
       "to": "bridge",
       "weight": 7
-    },
-    {
-      "from": "cli",
-      "to": "embeddings",
-      "weight": 6
     },
     {
       "from": "cli",
@@ -301,6 +301,11 @@
     },
     {
       "from": "cli",
+      "to": "config",
+      "weight": 4
+    },
+    {
+      "from": "cli",
       "to": "workspace",
       "weight": 4
     },
@@ -332,11 +337,6 @@
     {
       "from": "capture",
       "to": "db",
-      "weight": 3
-    },
-    {
-      "from": "cli",
-      "to": "config",
       "weight": 3
     },
     {
@@ -470,6 +470,11 @@
       "weight": 2
     },
     {
+      "from": "embeddings",
+      "to": "db",
+      "weight": 2
+    },
+    {
       "from": "experiential",
       "to": "scheduler",
       "weight": 2
@@ -560,6 +565,11 @@
       "weight": 1
     },
     {
+      "from": "config",
+      "to": "embeddings",
+      "weight": 1
+    },
+    {
       "from": "db",
       "to": "memory",
       "weight": 1
@@ -587,6 +597,11 @@
     {
       "from": "doctor",
       "to": "vault",
+      "weight": 1
+    },
+    {
+      "from": "doctor",
+      "to": "embeddings",
       "weight": 1
     },
     {

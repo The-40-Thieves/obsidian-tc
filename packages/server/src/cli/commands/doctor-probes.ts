@@ -21,6 +21,12 @@ import type {
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
 import { experientialTableSpec } from "../../doctor/table-spec";
+import {
+  queryActiveEmbeddingModels,
+  queryOrphanedActiveEmbeddingModels,
+  resolveStickyEmbeddings,
+  type StickyEmbeddingsResolution,
+} from "../../embeddings/sticky-provider";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { readTelemetryState } from "../../telemetry/state";
 import { staleExplicitSessionSummary } from "../../workspace/sessions";
@@ -62,8 +68,7 @@ export async function probeNotesFts(
  * classification is load-bearing: a row count alone can't distinguish "switched off" from "on and
  * never worked" — only the second is a finding. `writer: "none"` means no code path writes the
  * table at all, distinct from "disabled". See `table-spec.ts` for the current classification per
- * table (THE-629 corrected an earlier misclassification here — docs/design/cli-doctor.md). Never
- * throws: a missing store degrades to an empty list, not a wall of false warnings.
+ * table. Never throws: a missing store degrades to an empty list, not a wall of false warnings.
  */
 export async function probeDerivedTables(
   cacheDir: string,
@@ -189,11 +194,11 @@ export async function probeDerivedTables(
 }
 
 /**
- * Sample the signal-bearing columns for `derived.column-liveness` (THE-720): total rows, non-NULL
- * rows, distinct non-NULL values, one aggregate per column. Re-read per column rather than cached
- * per table — a missing column must degrade to "skip this entry", not "table has no rows" (which
- * would mark every OTHER column on that table inconclusive too). Never throws, same contract as
- * probeDerivedTables. See docs/design/cli-doctor.md.
+ * Sample the signal-bearing columns for `derived.column-liveness`: total rows, non-NULL rows,
+ * distinct non-NULL values, one aggregate per column. Re-read per column rather than cached per
+ * table — a missing column must degrade to "skip this entry", not "table has no rows" (which would
+ * mark every OTHER column on that table inconclusive too). Never throws, same contract as
+ * probeDerivedTables.
  */
 export async function probeDerivedColumns(
   cacheDir: string,
@@ -273,8 +278,7 @@ export async function probeKbHealth(
         "SELECT created_at, has_issues, summary, report FROM audit_reports ORDER BY created_at DESC LIMIT 1",
       )
       .get() as { created_at: number; has_issues: number; summary: string; report: string };
-    // The JSON column is the job's own AuditReport. Parsed defensively: a malformed row must not
-    // take doctor down, and the counts degrade to 0 rather than to a false alarm.
+    // Parsed defensively: a malformed row must not take doctor down; counts degrade to 0.
     let parsed: {
       vault_null_embeddings?: number;
       duplicate_chunk_positions?: number;
@@ -553,4 +557,60 @@ export async function probeStoredEmbeddingsProvider(
       db?.close?.();
     } catch {}
   }
+}
+
+/** GH #995: doctor's counterpart of server-runtime.ts's boot-time sticky-embeddings resolution —
+ *  SAME resolver, so doctor and boot never disagree. Undefined only when cache.db doesn't exist
+ *  yet (fresh install; caller falls back to the schema-resolved "default" answer). */
+export async function probeEmbeddingsProviderSource(
+  cacheDir: string,
+  busyTimeoutMs: number,
+  opts: {
+    providerExplicit: boolean;
+    onProviderChange: "keep" | "switch";
+    configured: { provider: string; model: string; dimensions: number };
+    vaultIds: readonly string[];
+  },
+): Promise<StickyEmbeddingsResolution | undefined> {
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return undefined;
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path, busyTimeoutMs, { readonly: true });
+    const activeModels = queryActiveEmbeddingModels(db, opts.vaultIds);
+    return resolveStickyEmbeddings({
+      providerExplicit: opts.providerExplicit,
+      onProviderChange: opts.onProviderChange,
+      configured: opts.configured,
+      activeModels,
+      // Mirrors applyStickyEmbeddings' own gate — doctor and boot must not disagree on ambiguous
+      // vs. genuinely fresh.
+      orphanedActiveModels:
+        activeModels.length === 0 ? queryOrphanedActiveEmbeddingModels(db, opts.vaultIds) : [],
+    });
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      db?.close?.();
+    } catch {}
+  }
+}
+
+export async function resolveEffectiveEmbeddings(
+  cacheDir: string,
+  busyTimeoutMs: number,
+  opts: {
+    providerExplicit: boolean;
+    onProviderChange: "keep" | "switch";
+    configured: { provider: string; model: string; dimensions: number };
+    vaultIds: readonly string[];
+  },
+): Promise<StickyEmbeddingsResolution> {
+  const probed = await probeEmbeddingsProviderSource(cacheDir, busyTimeoutMs, opts);
+  if (probed) return probed;
+  return {
+    ...opts.configured,
+    source: opts.providerExplicit ? "configured" : "default",
+  };
 }

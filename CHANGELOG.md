@@ -8,6 +8,41 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **An unconfigured install no longer gets silently switched to the local embedder and
+  re-embedded on upgrade (GH #995).** PR #980 (1.31.4) changed `embeddings.provider`'s default from
+  `"ollama"` to `"local"` (the in-process ONNX embedder) whenever the `embeddings` block was absent.
+  Since `chunk_embeddings` is keyed `PRIMARY KEY (chunk_id, model)`, an existing install that had
+  never configured `embeddings` was silently switched to a different provider on upgrading to
+  1.31.4 or 1.31.5 and fully re-embedded in-process — the behavior this changelog's own "no longer
+  spin up an uncapped ONNX Runtime thread pool" entry above was masking the symptom of. 1.31.6 keeps
+  an unconfigured install's existing index's provider instead: a new `embeddings.onProviderChange`
+  key (`"keep"` default, or `"switch"`) governs this, an explicit `embeddings.provider` (including
+  `provider: "local"` itself) always wins and is itself the opt-in to switch, and `obsidian-tc
+  doctor`, the boot notice, and `obsidian-tc config show`/`config explain` all report the effective
+  provider's source (`configured` / `kept-from-index` / `default` / `ambiguous-orphaned-index`) so
+  an operator can tell which one applied — `config show`'s plain `embeddings` block always stays the
+  schema-resolved value (never a kept one) so re-saving its own dump can never silently pin a
+  provider the operator never actually configured. The kept identity honors the STORED vector width
+  and model revision rather than an assumed historical one (a pre-1.31.4 config could set
+  `model`/`dimensions` explicitly without ever naming `provider`), and an unmappable stored provider
+  id (a custom `openai-compatible:...`/`module:...` identity obsidian-tc cannot reconstruct)
+  refuses to guess: it fails construction closed, before any vector-index DDL runs, with the
+  unmappable id named and the exact config keys to set. Sticky resolution now runs at the ONE
+  construction choke point every provider-constructing command goes through — `index`, `prefetch`,
+  `gaps`, `citation-infer`, `cluster`, `rerun`, and `doctor` all resolve it the same way `serve`
+  does, before constructing their own embedding provider, including `rerun` (which reaches that
+  choke point transitively through the same runtime construction `serve` uses, and was found in
+  review still bypassing it in an earlier draft of this fix) — a query command or a replayed session
+  run against an unconfigured install can no longer silently embed under, or rebuild the vector
+  index under, a different provider than the one its vectors were written with (`index` was the
+  original regression: it re-embedded a vault before `serve` ever ran). When no active vectors match
+  the currently configured vault ids, but the cache directory holds active vectors under some OTHER
+  vault id (a renamed vault, or a new vault sharing a `cacheDir`), obsidian-tc keeps THOSE orphaned
+  rows' provider (the same rule applied to a vault's own rows) rather than silently adopting the
+  current default over real existing vectors, reporting this distinctly as `ambiguous-orphaned-index`
+  with a notice — falling back to the default only when every orphaned row already belongs to that
+  default's own provider family (nothing left to keep). See "Upgrading from a pre-local-embedder
+  config" in [docs/configuration/embeddings.md](docs/src/content/docs/configuration/embeddings.md).
 - **A stdio server no longer ignores SIGTERM while the boot-time embed is running (GH #995).**
   The boot reconcile's embed calls used to chain purely through `await`, and a synchronous-JS-thread
   embed call (the in-process ONNX/native path, in particular) never hands control back to libuv

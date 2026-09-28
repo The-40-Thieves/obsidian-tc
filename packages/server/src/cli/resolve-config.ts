@@ -6,7 +6,12 @@
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { finalizeConfig, isPlaneEnabledExplicit, readConfigFile } from "../config/load";
+import {
+  finalizeConfig,
+  isEmbeddingsProviderExplicit,
+  isPlaneEnabledExplicit,
+  readConfigFile,
+} from "../config/load";
 import { CliError } from "./cli-error";
 
 /** Build a single-vault config from a vault directory, applying every schema default.
@@ -59,6 +64,10 @@ export function normalizeConfigPathInput(input: string | undefined): string | un
 export interface ResolvedServeConfig {
   config: ServerConfig;
   planeEnabledExplicit: boolean;
+  /** GH #995: whether the raw (pre-default) config explicitly set `embeddings.provider` — see
+   *  config/load.ts's `isEmbeddingsProviderExplicit`. Zero-config (a vault directory) has no file,
+   *  so is never explicit, same as `planeEnabledExplicit`. */
+  embeddingsProviderExplicit: boolean;
 }
 
 /**
@@ -85,10 +94,18 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
     throw new CliError(`no such vault folder or config file: ${target}`);
   }
   if (stat.isDirectory()) {
-    return { config: configFromVaultPath(target), planeEnabledExplicit: false };
+    return {
+      config: configFromVaultPath(target),
+      planeEnabledExplicit: false,
+      embeddingsProviderExplicit: false,
+    };
   }
   const raw = readConfigFile(target);
-  return { config: finalizeConfig(raw), planeEnabledExplicit: isPlaneEnabledExplicit(raw) };
+  return {
+    config: finalizeConfig(raw),
+    planeEnabledExplicit: isPlaneEnabledExplicit(raw),
+    embeddingsProviderExplicit: isEmbeddingsProviderExplicit(raw),
+  };
 }
 
 /**

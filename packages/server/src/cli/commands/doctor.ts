@@ -35,11 +35,12 @@ import type { NotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { redactEndpoint } from "../../telemetry/redact-endpoint";
 import { canonicalizeVaultRoot } from "../../vault/registry";
-import { type Cmd, resolveOrUsageExit } from "../shared";
+import { type Cmd, resolveOrUsageExitWithProvenance } from "../shared";
 import {
   probeDbSpace,
   probeDerivedColumns,
   probeDerivedTables,
+  probeEmbeddingsProviderSource,
   probeEntryPoints,
   probeKbHealth,
   probeNotesFts,
@@ -84,14 +85,11 @@ async function probeDenseProvider(
     );
     const vector = await encoder.dense("obsidian-tc doctor probe");
     const ms = Date.now() - started;
-    // `dense()` DEGRADES an absent vector to [] rather than throwing (deliberate, so a retrieval
-    // path stays alive). For a liveness probe that degradation is the failure being looked for, so
-    // length 0 must be read as "no answer" and never as a successful probe of a 0-dim model.
+    // `dense()` DEGRADES an absent vector to [] rather than throwing; for a liveness probe that
+    // degradation IS the failure, so length 0 reads as "no answer", never a 0-dim success.
     const dim = vector.length;
     if (dim === 0) return { ok: false, reason: "provider returned no vector" };
-    // A dimension mismatch is a silent corruption, not a nicety: the vec index is built at the
-    // configured width, so a provider answering at a different one indexes garbage while every
-    // reachability signal stays green.
+    // A dimension mismatch is silent corruption: the vec index is built at the configured width.
     if (dim !== embeddings.dimensions)
       return {
         ok: false,
@@ -200,8 +198,38 @@ function hasAclRules(acl: { rules?: unknown[]; readPaths?: unknown[] } | undefin
 // check set, and emits either the versioned JSON envelope or human text rendered from it. Exits
 // non-zero when any check fails, so scripts and CI can gate on health — a warning does not fail.
 export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
-  const config = resolveOrUsageExit(cmd.configPath);
+  const { config, embeddingsProviderExplicit } = resolveOrUsageExitWithProvenance(cmd.configPath);
   const busyTimeoutMs = config.db.busyTimeoutMs; // THE-935: short alias for every probe call below
+
+  // Resolved and APPLIED before any other probe reads config.embeddings.provider, so derivedTables
+  // and retrieval.multiVector cannot disagree on the resolved value.
+  const storedEmbeddingsProvider = await probeStoredEmbeddingsProvider(
+    config.cacheDir,
+    busyTimeoutMs,
+  );
+  const embeddingsStickyResolution = await probeEmbeddingsProviderSource(
+    config.cacheDir,
+    busyTimeoutMs,
+    {
+      providerExplicit: embeddingsProviderExplicit,
+      onProviderChange: config.embeddings.onProviderChange,
+      configured: {
+        provider: config.embeddings.provider,
+        model: config.embeddings.model,
+        dimensions: config.embeddings.dimensions,
+      },
+      vaultIds: config.vaults.map((v) => v.id),
+    },
+  );
+  if (embeddingsStickyResolution?.source === "kept-from-index") {
+    config.embeddings.provider = embeddingsStickyResolution.provider;
+    config.embeddings.model = embeddingsStickyResolution.model;
+    config.embeddings.dimensions = embeddingsStickyResolution.dimensions;
+    if (embeddingsStickyResolution.revision !== undefined) {
+      config.embeddings.revision = embeddingsStickyResolution.revision;
+    }
+  }
+
   // THE-705 round 2: the same configDir convention server-runtime.ts uses for wireGatewaySeams —
   // the trust root for reranker.localModulePath when it's given relative. Needed here so doctor's
   // "local" probe resolves a relative override exactly the way boot would.
@@ -330,11 +358,6 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     enabled: config.telemetry.enabled,
     ...(telemetryEndpointRedacted !== undefined ? { endpointHost: telemetryEndpointRedacted } : {}),
   });
-  const storedEmbeddingsProvider = await probeStoredEmbeddingsProvider(
-    config.cacheDir,
-    busyTimeoutMs,
-  );
-
   // THE-1079 (GH #949): resolved ONCE, up front — retrieval.heads and rerankerBuildable below both
   // read this SAME outcome, so the two checks cannot disagree.
   const rerankerDoctorProbes = buildRerankerDoctorProbes({
@@ -380,6 +403,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         // exempts spreads from excess-property checking, so a misspelled key in a spread is
         // silently dropped and the field just never arrives.
         denseDeprecated: embeddingsDeprecation(config.embeddings.provider),
+        denseProviderSource: embeddingsStickyResolution?.source,
         autoSelectLocalRerankerResolved: autoSelectLocalRerankerOutcome?.ok,
         sparseEnabled: config.retrieval.sparse,
         colbertEnabled: config.retrieval.colbert,

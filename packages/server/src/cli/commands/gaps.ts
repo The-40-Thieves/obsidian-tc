@@ -4,6 +4,10 @@ import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
+import {
+  applyStickyEmbeddings,
+  formatStickyEmbeddingsNotice,
+} from "../../embeddings/sticky-provider";
 import { persistCalibration } from "../../experiential/calibration";
 import {
   DEFAULT_GAP_THRESHOLD,
@@ -26,6 +30,12 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
   }
   mkdirSync(cfg.cacheDir, { recursive: true });
   const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
+  // GH #995 fix round 2 (High 1): sticky-resolve before anything reads cfg.embeddings — a golden
+  // query embedded under the schema-defaulted provider scores every stored (pre-1.31.4) vector as
+  // a mismatch, silently.
+  const embeddingsSticky = applyStickyEmbeddings(cfg, cacheDb);
+  const stickyNotice = formatStickyEmbeddingsNotice(embeddingsSticky);
+  if (stickyNotice) process.stdout.write(stickyNotice);
   // THE-644 item 1: persist detectGaps' report here so it can be read back (the THE-611 MCP tool)
   // instead of recomputed. Provisioned unconditionally, same as `note-quality`'s CLI handler.
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
