@@ -303,4 +303,52 @@ describe("IndexCoordinator (THE-455)", () => {
     expect(applied).toContainEqual({ vaultId: "A", path: "B note.md", content: "first" });
     expect(applied).toContainEqual({ vaultId: "A B", path: "note.md", content: "second" });
   });
+
+  // GH #995 fix round 2, F1: a demote must be able to drop pending WATCHER-originated writes
+  // before they run, without touching an explicit tool write queued for a different path.
+  describe("cancelOrigin (fix round 2, F1)", () => {
+    it("cancels a still-pending watcher write but never one a drain already claimed", async () => {
+      const applied: string[] = [];
+      const gate = deferred();
+      const c = new IndexCoordinator({
+        write: async (_v, path, content) => {
+          if (path === "in-flight.md") await gate.promise; // park this one mid-handler
+          applied.push(content);
+        },
+        delete: () => {},
+      });
+      c.submitWrite("v", "in-flight.md", "running", "watcher");
+      // Let the first drain's SYNCHRONOUS claim (latest.delete(k), before its own first await) run
+      // — it fires as a microtask off the enqueue chain, not synchronously with submitWrite itself.
+      await Promise.resolve();
+      await Promise.resolve();
+      // A SECOND, different key — still sitting in `latest` (never claimed) when cancelOrigin runs.
+      c.submitWrite("v", "pending.md", "should-be-dropped", "watcher");
+      const dropped = c.cancelOrigin("watcher");
+      expect(dropped).toBe(1); // only "pending.md" -- "in-flight.md" already left `latest`
+      gate.resolve();
+      await c.idle();
+      expect(applied).toEqual(["running"]);
+    });
+
+    it("never touches a pending op with no origin tag (explicit tool write)", async () => {
+      const applied: string[] = [];
+      const c = new IndexCoordinator({
+        write: (_v, _p, content) => {
+          applied.push(content);
+        },
+        delete: () => {},
+      });
+      c.submitWrite("v", "explicit.md", "kept"); // no origin -- an explicit tool write
+      const dropped = c.cancelOrigin("watcher");
+      expect(dropped).toBe(0);
+      await c.idle();
+      expect(applied).toEqual(["kept"]);
+    });
+
+    it("is a no-op when nothing is queued", () => {
+      const c = new IndexCoordinator({ write: () => {}, delete: () => {} });
+      expect(c.cancelOrigin("watcher")).toBe(0);
+    });
+  });
 });

@@ -88,6 +88,13 @@ export interface HealthToolsDeps {
    *  omitted, same as every other optional health accessor above. */
   db?: Database;
   sessions?: { windowSeconds: number };
+  /** GH #995: read live at call time — role can flip mid-process-lifetime on promotion. Absent ->
+   *  server_health omits `leader_role` entirely (single-process harnesses/tests). */
+  getLeaderRole?: () => "leader" | "follower";
+  /** F4 (fix round 2): election.getLastFollowerError() — see health.ts's own doc. */
+  getLeaderRoleDetail?: () =>
+    | { message: string; code?: string; count: number; lastAt: string }
+    | undefined;
 }
 
 /**
@@ -143,6 +150,8 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
               }),
           }
         : {}),
+      ...(deps.getLeaderRole ? { getLeaderRole: deps.getLeaderRole } : {}),
+      ...(deps.getLeaderRoleDetail ? { getLeaderRoleDetail: deps.getLeaderRoleDetail } : {}),
     }),
   );
   deps.registry.register(

@@ -53,10 +53,11 @@ import {
   wireJobHandlers,
 } from "./plane-wiring";
 import { wireScheduler } from "./scheduler-wiring";
-import { raceShutdownPhase } from "./shutdown-phase";
-import { type Stores, wireStores } from "./stores";
+import { joinReconcileOrExit, logShutdownError, raceShutdownPhaseOrExit } from "./shutdown-phase";
+import { type Stores, wireStoresBehindBootstrapBarrier } from "./stores";
 import { wireDomainTools, wireGatewaySeams, wireHealthTools, wireM1Tools } from "./tool-wiring";
 import { wireTransports } from "./transport-wiring";
+import { type GatedReconcile, gateReconcileByLeader, startVaultLeaderElection } from "./vault-lock";
 
 /** Public runtime surface: `registry` is what every caller of a fully-composed runtime needs;
  *  `start`/`close` are the only lifecycle verbs. No other runtime state is exposed. */
@@ -230,13 +231,11 @@ export async function buildServerRuntime(
   const egressFilter = compileEgressFilter(config.egress.excludePaths);
   const isEgressExcluded = (rel: string): boolean => isExcludedPath(egressFilter, rel);
 
-  const stores = await wireStores({
+  // GH #995 (COLD_BOOT_PRELOCK): serializes migrations across racing processes on a fresh boot — see wireStoresBehindBootstrapBarrier's doc comment.
+  const stores = await wireStoresBehindBootstrapBarrier({
     cacheDir: config.cacheDir,
     version: VERSION,
-    // THE-935: reaches every connectionPragmas() call site via wireStores -> openDatabase /
-    // provisionExperientialDb, so an operator's db.busyTimeoutMs actually governs the server's
-    // cache.db and experiential.db connections rather than only validating in the schema.
-    busyTimeoutMs: config.db.busyTimeoutMs,
+    busyTimeoutMs: config.db.busyTimeoutMs, // THE-935: reaches every connectionPragmas() call site via wireStores -> openDatabase / provisionExperientialDb
     experiential: config.experiential,
     experientialMigrations,
   });
@@ -337,7 +336,7 @@ export async function buildServerRuntime(
   // every post-core step succeeds; the catch below always rethrows.
   let postCore:
     | {
-        runReconcile: (signal: AbortSignal) => Promise<void>;
+        runReconcile: GatedReconcile;
         scheduler: Scheduler;
         server: ReturnType<typeof createMcpServer>;
         transports: Awaited<ReturnType<typeof wireTransports>>;
@@ -348,8 +347,16 @@ export async function buildServerRuntime(
     | undefined;
   // THE-825: gateway resolved (roles !== null)? Read by start()'s plane opt-in boot notice.
   let gatewayConfigured = false;
+  const bootReconcileAbort = new AbortController(); // GH #995: shared with the leader election's onPromote
+  let leaderElection!: Awaited<ReturnType<typeof startVaultLeaderElection>>; // GH #995: hoisted for close()
 
   try {
+    leaderElection = await startVaultLeaderElection({
+      cacheDir: config.cacheDir, // GH #995 (vault-lock.ts)
+      pid: process.pid,
+      version: VERSION,
+    });
+    postCoreLayers.push({ name: "leaderElection", close: () => leaderElection.close() });
     // #14: durable contradiction jobs. Constructed here (ahead of its natural "plane" home) so
     // server_health's getJobQueueStats accessor below can close over it.
     const jobQueue = createJobQueue(db, sqlHooksFor);
@@ -365,6 +372,8 @@ export async function buildServerRuntime(
       indexHealth,
       getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
       getJobQueueStats: () => jobQueue.stats(),
+      getLeaderRole: () => (leaderElection.isLeader() ? "leader" : "follower"), // GH #995
+      getLeaderRoleDetail: () => leaderElection.getLastFollowerError(),
     });
 
     const { reranker, roles } = await wireGatewaySeams(
@@ -427,6 +436,8 @@ export async function buildServerRuntime(
         aclByVault,
         makeOnIndexed,
         isEgressExcluded, // THE-934 fix round 1 (Blocking-1)
+        isLeader: leaderElection.isLeader, // GH #995
+        onDemote: leaderElection.onDemote,
       });
     // THE-466 slice 2: hand the live coordinator to the observability module's lazy gauge sources.
     indexCoordinatorRef = indexCoordinator;
@@ -551,7 +562,7 @@ export async function buildServerRuntime(
 
     // THE-458 item 6: re-sync the search index with the vault, both at boot (fire-and-forget, see
     // start() below) and on the scheduler.
-    const runReconcile = createReconcileRunner({
+    const runReconcileRaw = createReconcileRunner({
       vaults: config.vaults,
       db,
       embeddingProvider,
@@ -572,6 +583,7 @@ export async function buildServerRuntime(
       roles,
       jobRunner,
     });
+    const runReconcile = gateReconcileByLeader(leaderElection, runReconcileRaw, bootReconcileAbort); // GH #995
 
     const scheduler = wireScheduler({
       config,
@@ -630,17 +642,8 @@ export async function buildServerRuntime(
   } = requireBoot(postCore, "postCore");
 
   let closed = false;
-  // GH #995: a REAL controller (the old `new AbortController()` here was a throwaway nobody kept
-  // a reference to). close() aborts it FIRST, so a boot reconcile still running when
-  // SIGTERM/SIGINT/stdin-EOF fires stops embedding within one sub-batch's duration — see
-  // test/shutdown-boot-embed.test.ts.
-  const bootReconcileAbort = new AbortController();
-
   const start = async (): Promise<void> => {
-    // Boot pass: backgrounded so it never blocks stdio, exactly as before. Runs before the
-    // scheduler exists, so its OWN AbortController can't reach it — bootReconcileAbort is this
-    // pass's, held by close() (GH #995).
-    void runReconcile(bootReconcileAbort.signal);
+    void runReconcile(bootReconcileAbort.signal); // Boot pass, backgrounded; leader-gated (GH #995)
 
     morgiana.emit(firstVault.id, "tc.server.start");
 
@@ -665,7 +668,9 @@ export async function buildServerRuntime(
       // to `server.onclose`, but nothing here was listening. Route it through the SAME bounded
       // close() every signal uses; idempotent via close()'s own `closed` flag.
       server.onclose = () => {
-        void close("transport:stdio-eof").finally(() => process.exit(0));
+        void close("transport:stdio-eof") // F3: close() can REJECT — mirrors shutdown.ts's guard
+          .catch(logShutdownError)
+          .finally(() => process.exit(0));
       };
       process.stderr.write(
         `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
@@ -688,24 +693,22 @@ export async function buildServerRuntime(
     if (closed) return;
     closed = true;
     process.stderr.write(`obsidian-tc: shutting down (${reason})\n`);
-    // GH #995: abort the boot reconcile FIRST — nothing else here holds a reference to it, so
-    // left running it keeps embedding with no deadline at all. flush()/embed-batches.ts's worker
-    // loop both check this between sub-batches.
+    await transports.close().catch(() => {}); // F3: no more requests FIRST (was LAST, after release)
+    // GH #995: abort the boot reconcile — left running it embeds with no deadline; both
+    // flush() and embed-batches.ts's worker loop check this signal between sub-batches.
     bootReconcileAbort.abort();
     // THE-649: stop watching BEFORE draining. A late filesystem event would otherwise enqueue new
     // coordinator work while indexCoordinator.idle() below is waiting for the queue to empty.
     stopVaultWatch();
-    // THE-462/THE-457/GH #995: scheduler.stop(), the index drain, and the durable-job drain all
-    // race ONE shared deadline now — see shutdown-phase.ts's own doc for why that used to stack.
-    await raceShutdownPhase({ scheduler, indexCoordinator, jobRunner, drainMs: SHUTDOWN_DRAIN_MS });
+    // F3: JOIN the reconcile BEFORE draining below (was the other way round) — see shutdown-phase.ts.
+    await joinReconcileOrExit(runReconcile.currentRun(), SHUTDOWN_DRAIN_MS);
+    // THE-462/THE-457/GH #995/F3: scheduler/index/job drain race one deadline, same exit-then-throw.
+    const drainOpts = { scheduler, indexCoordinator, jobRunner, drainMs: SHUTDOWN_DRAIN_MS };
+    await raceShutdownPhaseOrExit(drainOpts);
+    await leaderElection.close(); // F3: release the lock LAST, once every writer above has stopped
     morgiana.emit(firstVault.id, "tc.server.shutdown");
     // Every opened resource below gets a best-effort, independently-guarded close — one failing
     // must not skip the rest.
-    try {
-      await transports.close();
-    } catch {
-      /* best-effort: closing the HTTP/metrics sockets on the way out */
-    }
     try {
       await otel.shutdown();
     } catch {

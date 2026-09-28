@@ -203,4 +203,42 @@ describe("server_health (F3)", () => {
     };
     expect(unboundAuthed.sessions?.oldest_principal).toBe("alice");
   });
+
+  it("F4 (fix round 2): withholds the lock-error message (can carry a filesystem path) from an unauthenticated or vaultBound caller, but always surfaces code/count/last_at", () => {
+    const t = createHealthTool({
+      version: "1.0.0",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getLeaderRoleDetail: () => ({
+        message:
+          "ENOENT: no such file or directory, open '/private/vaults/v1/.cache/vault-lock.db'",
+        code: "ENOENT",
+        count: 3,
+        lastAt: "2026-09-28T00:00:00.000Z",
+      }),
+    });
+    type Detail = {
+      leader_role_detail?: { lock_error: { message?: string; code?: string; count: number } };
+    };
+
+    const anon = t.handler({}, { ...base, authenticated: false } as CallerContext) as Detail;
+    expect(anon.leader_role_detail?.lock_error.message).toBeUndefined();
+    expect(anon.leader_role_detail?.lock_error.code).toBe("ENOENT");
+    expect(anon.leader_role_detail?.lock_error.count).toBe(3);
+
+    const bound = t.handler({}, {
+      ...base,
+      authenticated: true,
+      vaultBound: true,
+    } as CallerContext) as Detail;
+    expect(bound.leader_role_detail?.lock_error.message).toBeUndefined();
+
+    const unboundAuthed = t.handler({}, {
+      ...base,
+      authenticated: true,
+    } as CallerContext) as Detail;
+    expect(unboundAuthed.leader_role_detail?.lock_error.message).toContain("vault-lock.db");
+  });
 });

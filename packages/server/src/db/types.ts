@@ -33,6 +33,17 @@ export interface Database {
    *  being asked to. Exposed so a test can assert which path a given fixture took, rather than
    *  inferring it from side effects. `undefined` under a non-readonly open. */
   readonlyMode?: "native" | "fallback";
+  /** GH #995 fix round (LOCK_TXN_LOSS) — live transaction-state probe: true iff this connection
+   *  currently holds an open transaction. SQLite auto-rolls-back on IOERR/FULL/NOMEM/BUSY/
+   *  INTERRUPT (its own documented behavior), silently returning the connection to autocommit; a
+   *  caller relying on its OWN one-way "I started a transaction" boolean (runtime/vault-lock.ts's
+   *  leader-lock keepalive) needs this LIVE read instead. Backed by each adapter's native
+   *  equivalent: bun:sqlite and better-sqlite3 both expose `.inTransaction` (a boolean property,
+   *  wrapped here as a method so this port stays call-shaped like everything else on `Database`);
+   *  node:sqlite's `DatabaseSync` exposes the same fact under a different name, `.isTransaction`.
+   *  Optional so a minimal test double can omit it — every caller must treat a missing probe as
+   *  "unknown", never as "lost" (see vault-lock.ts's own use for the exact fallback). */
+  inTransaction?(): boolean;
 }
 
 /**

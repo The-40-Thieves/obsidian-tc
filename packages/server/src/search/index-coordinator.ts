@@ -17,6 +17,12 @@
 // semaphore now bounds how many paths run their handler at once (per-key ordering/coalescing is
 // unchanged), plus a queue-depth stats() snapshot and an edge-triggered backpressure signal.
 
+/** F1 (fix round 2, GH #995): `origin` distinguishes a WATCHER-driven op (leader-gated at the
+ *  callback in runtime/indexing-wiring.ts, but already queued here by the time a demote fires)
+ *  from an explicit tool write (write_note et al.) or this process's own reconcile — those stay
+ *  ungated per the PR's own FOLLOWER_EXPLICIT_WRITES deferral. Absent (every pre-existing caller)
+ *  means "not cancellable on demote" — unchanged default behavior. */
+export type IndexOpOrigin = "watcher";
 export type IndexOp = { kind: "write"; content: string } | { kind: "delete" };
 
 export interface IndexCoordinatorHandlers {
@@ -82,6 +88,11 @@ class Semaphore {
 export class IndexCoordinator {
   // Latest desired state per key (coalescing target); cleared when a drain claims it.
   private readonly latest = new Map<string, IndexOp>();
+  // F1 (fix round 2): the origin of the currently-coalesced `latest` entry for a key, kept in
+  // lockstep with `latest` (set/cleared at the same points) — `cancelOrigin` below reads this to
+  // drop only WATCHER-originated pending ops without touching an explicit tool write that happens
+  // to share the same (vault, path) key.
+  private readonly latestOrigin = new Map<string, IndexOpOrigin>();
   // Serialization chain per key; a key's next op awaits its previous op.
   private readonly chain = new Map<string, Promise<void>>();
   private readonly globalSem: Semaphore;
@@ -129,17 +140,19 @@ export class IndexCoordinator {
     return s;
   }
 
-  /** Queue a (re)index of `path`. Fire-and-forget: returns immediately; ordering is guaranteed. */
-  submitWrite(vaultId: string, path: string, content: string): void {
-    this.enqueue(vaultId, path, { kind: "write", content });
+  /** Queue a (re)index of `path`. Fire-and-forget: returns immediately; ordering is guaranteed.
+   *  `origin` (fix round 2, F1): tag as `"watcher"` so a demote's `cancelOrigin("watcher")` can
+   *  drop it before it runs; omitted for explicit tool writes, which stay uncancellable. */
+  submitWrite(vaultId: string, path: string, content: string, origin?: IndexOpOrigin): void {
+    this.enqueue(vaultId, path, { kind: "write", content }, origin);
   }
 
   /** Queue a deindex of `path`. Serialized with writes for the same path (no resurrection). */
-  submitDelete(vaultId: string, path: string): void {
-    this.enqueue(vaultId, path, { kind: "delete" });
+  submitDelete(vaultId: string, path: string, origin?: IndexOpOrigin): void {
+    this.enqueue(vaultId, path, { kind: "delete" }, origin);
   }
 
-  private enqueue(vaultId: string, path: string, op: IndexOp): void {
+  private enqueue(vaultId: string, path: string, op: IndexOp, origin?: IndexOpOrigin): void {
     const k = this.key(vaultId, path);
     // THE-585 (#2): a pending op being REPLACED is a write this process will never perform — the
     // coalescing THE-455 exists to do. Counted here, at the only place it happens, rather than
@@ -147,6 +160,8 @@ export class IndexCoordinator {
     // GOOD (work avoided); a fall to zero under a bursty writer means coalescing stopped working.
     if (this.latest.has(k)) this.coalesced += 1;
     this.latest.set(k, op); // coalesce: the newest desired state wins
+    if (origin) this.latestOrigin.set(k, origin);
+    else this.latestOrigin.delete(k);
     const prev = this.chain.get(k) ?? Promise.resolve();
     const next = prev.then(() => this.drain(vaultId, path, k));
     this.chain.set(k, next);
@@ -176,6 +191,7 @@ export class IndexCoordinator {
     const op = this.latest.get(k);
     if (op === undefined) return; // an earlier chained drain already applied the coalesced state
     this.latest.delete(k);
+    this.latestOrigin.delete(k);
     // Gate only the HANDLER execution: acquire per-vault THEN global (consistent order across all
     // drains -> no deadlock). Holding the vault slot while waiting for a global slot only blocks
     // same-vault drains, which are already capped, so it cannot starve other vaults.
@@ -197,6 +213,23 @@ export class IndexCoordinator {
       this.globalSem.release();
       vaultSem.release();
     }
+  }
+
+  /** F1 (fix round 2): drop every PENDING (not yet claimed by a drain) op tagged with `origin`,
+   *  without touching an op already past its drain's synchronous claim point (the write is short
+   *  and already committing; there is nothing safe to cancel mid-handler) or one with no origin
+   *  tag at all (explicit tool writes — deferred follow-up, FOLLOWER_EXPLICIT_WRITES). Returns the
+   *  number of keys actually dropped, for callers that want to log/count it. Safe to call with
+   *  nothing queued. */
+  cancelOrigin(origin: IndexOpOrigin): number {
+    let dropped = 0;
+    for (const [k, o] of this.latestOrigin) {
+      if (o !== origin) continue;
+      this.latest.delete(k);
+      this.latestOrigin.delete(k);
+      dropped += 1;
+    }
+    return dropped;
   }
 
   /** True while any path has queued or in-flight work. */

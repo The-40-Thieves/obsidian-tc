@@ -12,6 +12,9 @@ interface NsDatabase {
   exec(sql: string): void;
   prepare(sql: string): NsStatement;
   close(): void;
+  // GH #995 fix round (LOCK_TXN_LOSS): node:sqlite's own name for what bun:sqlite/better-sqlite3
+  // call `.inTransaction` — see db/types.ts's Database.inTransaction doc comment.
+  readonly isTransaction: boolean;
 }
 interface NsDatabaseOptions {
   readOnly?: boolean;
@@ -106,6 +109,8 @@ export async function openNodeSqlite(
     close: (): void => {
       db.close();
     },
+    // GH #995 fix round (LOCK_TXN_LOSS) — see db/types.ts's Database.inTransaction doc comment.
+    inTransaction: (): boolean => db.isTransaction,
     ...(readonlyMode !== undefined ? { readonlyMode } : {}),
   };
 }
