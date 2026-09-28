@@ -68,7 +68,12 @@ until this generator existed, by which point five entire defaulted blocks had go
     "writeConcurrencyPerVault": 4,
     "queueMax": 1000,
     "streamingWalk": false,
-    "chunkTokens": 512
+    "chunkTokens": 512,
+    "backgroundEmbed": {
+      "mode": "idle",
+      "idleMs": 2000,
+      "maxDeferMs": 30000
+    }
   },
   "retrieval": {
     "rrfK": 10,

@@ -681,6 +681,57 @@ describe("retrieval.gatedRerank / indexing.streamingWalk (THE-591)", () => {
   });
 });
 
+// GH #995 follow-up: indexing.backgroundEmbed paces the boot/promotion/periodic reconcile's embed
+// pass against live dispatch activity so it stops starving interactive tool calls. "idle"/2000/
+// 30000 are the shipped defaults — see runtime/plane-wiring.ts's createReconcileRunner for the
+// consumer half. Fix round (Codex review on #1003, finding 3): renamed from `bootEmbed` — this key
+// was never released before the rename, so there is no back-compat alias to test.
+describe("indexing.backgroundEmbed (GH #995 follow-up, fix round)", () => {
+  it('defaults to mode "idle", idleMs 2000, maxDeferMs 30000 on a minimal config', () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.indexing.backgroundEmbed).toEqual({ mode: "idle", idleMs: 2000, maxDeferMs: 30000 });
+  });
+
+  it("is settable to immediate mode / a custom idleMs / maxDeferMs and round-trips through ServerConfigSchema", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      indexing: { backgroundEmbed: { mode: "immediate", idleMs: 500, maxDeferMs: 5000 } },
+    });
+    expect(c.indexing.backgroundEmbed).toEqual({
+      mode: "immediate",
+      idleMs: 500,
+      maxDeferMs: 5000,
+    });
+  });
+
+  it("rejects a mode outside the idle/immediate enum", () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        indexing: { backgroundEmbed: { mode: "fast" } },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a non-positive maxDeferMs", () => {
+    expect(() =>
+      ServerConfigSchema.parse({
+        ...base,
+        indexing: { backgroundEmbed: { maxDeferMs: 0 } },
+      }),
+    ).toThrow();
+  });
+
+  it("no longer accepts the pre-rename bootEmbed key — it is simply unknown, ignored like any other stray key would be under this schema's own permissiveness", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      indexing: { bootEmbed: { mode: "immediate", idleMs: 999 } },
+    });
+    // The stray key is dropped; backgroundEmbed still gets its own defaults, not the stray value.
+    expect(c.indexing.backgroundEmbed).toEqual({ mode: "idle", idleMs: 2000, maxDeferMs: 30000 });
+  });
+});
+
 // Task 2 follow-up (pluggable-provider-slots): the commit that opened `embeddings.provider`
 // from `z.enum([...six...])` to `z.string().min(1)` shipped with no test that ever called
 // EmbeddingsConfigSchema.parse() — its own new test file only exercises createEmbeddingProvider,

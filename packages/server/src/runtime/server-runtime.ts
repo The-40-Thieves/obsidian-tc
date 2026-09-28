@@ -579,6 +579,7 @@ export async function buildServerRuntime(
       makeOnIndexed,
       indexHealth,
       streamingWalk: config.indexing.streamingWalk,
+      backgroundEmbed: config.indexing.backgroundEmbed, // GH #995 follow-up; renamed fix round (Codex review)
       indexVaultRecorded,
       roles,
       jobRunner,

@@ -198,6 +198,11 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
 
   // THE-458 item 6: the periodic reconcile. The scheduler's single-flight guard matters more here
   // than for any other job — a reconcile walks the whole vault and can outlast its own interval.
+  // `deps.runReconcile` is `createReconcileRunner`'s return value (runtime/plane-wiring.ts) — the
+  // SAME function boot and promotion catch-up call, so `config.indexing.backgroundEmbed` paces
+  // this periodic pass's embed sub-batches identically to boot/promotion. Deliberate: a scheduled
+  // repair pass is background work too, and the config key is named `backgroundEmbed` (not
+  // `bootEmbed`) for exactly this reason — see plane-wiring.ts's ReconcileRunnerDeps.backgroundEmbed.
   if (config.maintenance.reconcileIntervalMinutes !== undefined) {
     scheduler.register({
       name: "vault-reconcile",

@@ -51,6 +51,13 @@ export interface GaugeSources {
   queryCacheMisses?: () => Array<{ vault: string; value: number }>;
   queryCacheEvictions?: () => Array<{ vault: string; value: number }>;
   queryCacheExpirations?: () => Array<{ vault: string; value: number }>;
+  /** GH #995 follow-up: 1 while the boot/promotion/periodic reconcile's embed pass is genuinely
+   *  paused waiting for the server to go idle (indexing.backgroundEmbed mode "idle"), 0 otherwise
+   *  — including while it is actively embedding, mode "immediate", or nothing is reconciling at
+   *  all. `vault` carries the bounded subsystem name, same as indexQueueDepth/indexCoalesced above
+   *  (this is a process-wide state, not per-vault). Renamed from `bootEmbedPaused` in the #1003 fix
+   *  round (Codex review, finding 3) alongside the config key. */
+  backgroundEmbedPaused?: () => Array<{ vault: string; value: number }>;
 }
 
 /** Terminal call status for `obsidian_tc_tool_calls_total` (matches the OTEL status attribute). */
@@ -487,6 +494,15 @@ export class MetricsRecorder {
       "obsidian_tc_http_construct_seconds",
       "Seconds spent constructing the HTTP app/transport at boot, by subsystem. One sample per process.",
       sources.httpConstructSeconds,
+    );
+    // GH #995 follow-up: 1 while indexing.backgroundEmbed's "idle" mode is actively holding the
+    // next embed sub-batch back because a tool call is in flight or finished too recently; 0 the
+    // rest of the time (running, "immediate" mode, or no reconcile in progress). Renamed from
+    // obsidian_tc_boot_embed_paused in the #1003 fix round (Codex review, finding 3).
+    gauge(
+      "obsidian_tc_background_embed_paused",
+      '1 while the boot/promotion/periodic reconcile\'s embed pass is paused waiting for the server to go idle (indexing.backgroundEmbed mode "idle"), 0 otherwise.',
+      sources.backgroundEmbedPaused,
     );
     // THE-585 (#13): an INFO metric — value always 1, the label is the datum. The standard
     // Prometheus shape for "what configuration is this process running under". Registered

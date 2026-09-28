@@ -127,6 +127,37 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   257 MB, session load from 1164 to 516 ms, and embedding throughput ~29% faster. The bundled local
   reranker (`packages/reranker-local`, which had no `session_options` at all) gets the same
   capped/no-spin/no-prepack default.
+- **The boot/promotion/periodic reconcile's embed pass no longer starves interactive tool calls
+  (GH #995).** Thread caps (#996), abortability (#997), one leader per vault (#998), and sticky
+  provider (#999) fixed the multi-process and shutdown parts of GH #995, but the leader's own
+  reconcile still ran its embed pass at full speed the instant it started — competing with
+  whatever tool calls the client was already making for the CPU-bound in-process embed step. A new
+  `indexing.backgroundEmbed` config key (`{ mode: "idle" | "immediate", idleMs, maxDeferMs }`,
+  default `{ mode: "idle", idleMs: 2000, maxDeferMs: 30000 }`) paces it: before each embed
+  sub-batch, the reconcile waits until the server has had no dispatch activity — no tool call in
+  flight, and none finished more recently than `idleMs` — reusing the SAME process-wide dispatch
+  counter `mcp/registry.ts`'s `ToolRegistry.dispatch` already marks/releases around every call, not
+  a second one. `"immediate"` restores the pre-existing unpaced behavior. Explicit `index_vault`
+  calls and index-on-write are never paced, regardless of this setting — those are calls the user
+  asked for directly. The same runner backs boot, promotion catch-up, AND the periodic scheduled
+  `vault-reconcile` job, so pacing (and the key's name) covers all three, not only boot. A new
+  `obsidian_tc_background_embed_paused` Prometheus gauge reports whether a background embed pass
+  is currently paused for idle. See [Pacing the background re-embed against interactive
+  use](docs/src/content/docs/configuration/embeddings.md#pacing-the-background-re-embed-against-interactive-use).
+
+  **Fix round (cross-vendor review):** the initial `idle`-only gate had no progress floor — ordinary
+  polling traffic faster than `idleMs` (an entirely normal client pattern) could defer every
+  remaining sub-batch forever, since every dispatch call resets the quiet window; a hung handler
+  made this worse. `maxDeferMs` bounds it: past that many milliseconds of continuous deferral, the
+  next sub-batch is admitted as soon as nothing is currently in flight, and a second, harder cap at
+  2x `maxDeferMs` admits it unconditionally if nothing ever clears. Separately, each of
+  `embeddings.concurrency`'s workers and each vault's reconcile could pass the idle check
+  independently within the same microtask, bursting up to `concurrency * vaultCount` sub-batches
+  before a newly arrived request was even counted — admission for the paced path is now serialized
+  process-wide, one sub-batch per event-loop turn. The config key was also renamed from `bootEmbed`
+  to `backgroundEmbed` (unreleased before this rename) to reflect that it paces the periodic
+  reconcile too, and the gauge from `obsidian_tc_boot_embed_paused` to
+  `obsidian_tc_background_embed_paused` to match.
 
 ### Added
 

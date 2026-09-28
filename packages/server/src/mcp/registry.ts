@@ -12,7 +12,7 @@ import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
 import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
-import { markInFlight } from "../workspace/sessions";
+import { markDispatchActive, markInFlight } from "../workspace/sessions";
 import { type DispatchDeps, runDispatch as runDispatchPipeline } from "./registry/dispatch";
 import {
   annotateSpanResult,
@@ -326,6 +326,11 @@ export class ToolRegistry {
     // know never to close a session a call is still running against. `finally` below so a throw
     // from runDispatch (or from the tracer branch) still releases.
     const release = ctx.sessionId !== undefined ? markInFlight(ctx.sessionId) : undefined;
+    // GH #995 follow-up: unconditional, unlike the sessionId-gated release above — this is the
+    // process-wide signal the boot/promotion reconcile's idle-paced embed reads (see
+    // workspace/sessions.ts's own doc comment on markDispatchActive for why it cannot be derived
+    // from the sessionId-scoped counter alone).
+    const releaseGlobal = markDispatchActive();
     try {
       const tracer = this.tracer;
       if (!tracer) {
@@ -358,6 +363,7 @@ export class ToolRegistry {
       );
     } finally {
       release?.();
+      releaseGlobal();
     }
   }
 
