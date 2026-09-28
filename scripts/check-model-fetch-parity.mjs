@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * THE-1122 review — model-fetch parity gate between packages/embedder-local/src/model-fetch.ts
- * and packages/reranker-local/src/model-fetch.ts.
+ * THE-1122 review — parity gate over every embedder-local/reranker-local mirror pair
+ * (PR #996 generalized this beyond the original model-fetch.ts pair to also cover
+ * ort-session-options.ts — see FILE_PAIRS below). Originally: model-fetch parity gate between
+ * packages/embedder-local/src/model-fetch.ts and packages/reranker-local/src/model-fetch.ts.
  *
  * embedder-local/src/model-fetch.ts is a DELIBERATE MIRROR of reranker-local's own file (see that
  * file's header comment for why it is a mirror and not an import: reranker-local is a pre-existing,
@@ -134,9 +136,16 @@ export function normalizeBody(text) {
  * Pure comparison over two already-read source strings — no filesystem access, so directly
  * unit-testable with fabricated fixtures (mirrors compareFacade's shape in check-facade-parity.mjs).
  */
-export function compareModelFetchFiles({ embedderSource, rerankerSource }) {
+export function compareModelFetchFiles({
+  embedderSource,
+  rerankerSource,
+  symbols = PARITY_SYMBOLS,
+  deltas = DOCUMENTED_DELTAS,
+  embedderFile = EMBEDDER_FILE,
+  rerankerFile = RERANKER_FILE,
+}) {
   const results = [];
-  for (const name of PARITY_SYMBOLS) {
+  for (const name of symbols) {
     const embedderBody = extractSymbol(embedderSource, name);
     const rerankerBody = extractSymbol(rerankerSource, name);
     if (embedderBody === undefined || rerankerBody === undefined) {
@@ -144,14 +153,14 @@ export function compareModelFetchFiles({ embedderSource, rerankerSource }) {
         name,
         status: "missing",
         missingIn: [
-          embedderBody === undefined ? EMBEDDER_FILE : null,
-          rerankerBody === undefined ? RERANKER_FILE : null,
+          embedderBody === undefined ? embedderFile : null,
+          rerankerBody === undefined ? rerankerFile : null,
         ].filter(Boolean),
       });
       continue;
     }
-    if (DOCUMENTED_DELTAS.has(name)) {
-      results.push({ name, status: "documented-delta", reason: DOCUMENTED_DELTAS.get(name) });
+    if (deltas.has(name)) {
+      results.push({ name, status: "documented-delta", reason: deltas.get(name) });
       continue;
     }
     const match = normalizeBody(embedderBody) === normalizeBody(rerankerBody);
@@ -160,33 +169,52 @@ export function compareModelFetchFiles({ embedderSource, rerankerSource }) {
   return results;
 }
 
-function main() {
-  const embedderSource = readFileSync(join(ROOT, EMBEDDER_FILE), "utf8");
-  const rerankerSource = readFileSync(join(ROOT, RERANKER_FILE), "utf8");
-  const results = compareModelFetchFiles({ embedderSource, rerankerSource });
+/** Every parity-gated mirror pair. Each entry's `symbols`/`deltas` follow the same convention as
+ *  PARITY_SYMBOLS/DOCUMENTED_DELTAS above — a fixed list of pure, no-model-specific-logic symbols
+ *  that must stay byte-identical (modulo comments) between the two package copies. */
+export const FILE_PAIRS = [
+  {
+    embedderFile: EMBEDDER_FILE,
+    rerankerFile: RERANKER_FILE,
+    symbols: PARITY_SYMBOLS,
+    deltas: DOCUMENTED_DELTAS,
+  },
+  {
+    embedderFile: "packages/embedder-local/src/ort-session-options.ts",
+    rerankerFile: "packages/reranker-local/src/ort-session-options.ts",
+    symbols: ["ortSessionOptions"],
+    deltas: new Map(),
+  },
+];
 
+function main() {
   let failed = false;
-  for (const result of results) {
-    if (result.status === "match") {
-      console.log(`model-fetch-parity: ${result.name} — matches.`);
-    } else if (result.status === "documented-delta") {
-      console.log(`model-fetch-parity: ${result.name} — documented delta (${result.reason}).`);
-    } else if (result.status === "missing") {
-      console.error(
-        `model-fetch-parity: ${result.name} — expected in both files, missing from: ` +
-          `${result.missingIn.join(", ")}. Either it was renamed/removed (update this gate's ` +
-          "PARITY_SYMBOLS to match) or a real symbol was dropped.",
-      );
-      failed = true;
-    } else {
-      console.error(
-        `model-fetch-parity: ${result.name} — DRIFTED between ${EMBEDDER_FILE} and ` +
-          `${RERANKER_FILE}. This symbol is pure download/lock/checksum infrastructure with no ` +
-          "model-specific logic, so the two copies are expected to match exactly (modulo comments). " +
-          "If this divergence is intentional, add it to DOCUMENTED_DELTAS in " +
-          "scripts/check-model-fetch-parity.mjs with a reason; otherwise apply the same fix to both files.",
-      );
-      failed = true;
+  for (const pair of FILE_PAIRS) {
+    const embedderSource = readFileSync(join(ROOT, pair.embedderFile), "utf8");
+    const rerankerSource = readFileSync(join(ROOT, pair.rerankerFile), "utf8");
+    const results = compareModelFetchFiles({ embedderSource, rerankerSource, ...pair });
+    for (const result of results) {
+      if (result.status === "match") {
+        console.log(`model-fetch-parity: ${result.name} — matches.`);
+      } else if (result.status === "documented-delta") {
+        console.log(`model-fetch-parity: ${result.name} — documented delta (${result.reason}).`);
+      } else if (result.status === "missing") {
+        console.error(
+          `model-fetch-parity: ${result.name} — expected in both files, missing from: ` +
+            `${result.missingIn.join(", ")}. Either it was renamed/removed (update this gate's ` +
+            "symbol list to match) or a real symbol was dropped.",
+        );
+        failed = true;
+      } else {
+        console.error(
+          `model-fetch-parity: ${result.name} — DRIFTED between ${pair.embedderFile} and ` +
+            `${pair.rerankerFile}. This symbol is pure infrastructure with no model-specific ` +
+            "logic, so the two copies are expected to match exactly (modulo comments). If this " +
+            "divergence is intentional, add it to that pair's deltas map in " +
+            "scripts/check-model-fetch-parity.mjs with a reason; otherwise apply the same fix to both files.",
+        );
+        failed = true;
+      }
     }
   }
 

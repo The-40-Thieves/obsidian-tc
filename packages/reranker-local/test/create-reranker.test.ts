@@ -1,7 +1,8 @@
 // Stubbed-inference-fn tests — exercise createReranker's tokenize -> model -> rank wiring with a
 // fake Session, so this always runs (no @huggingface/transformers, no model weights needed).
+import { availableParallelism } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { createReranker, type Session } from "../src/index.js";
+import { createReranker, rerankModelOptions, type Session } from "../src/index.js";
 
 function stubSession(logitsByDoc: number[]): Session {
   const tokenizer = vi.fn((_queries: string[], _opts: unknown) => ({ input_ids: [] }));
@@ -68,5 +69,18 @@ describe("createReranker (stubbed session)", () => {
     const reranker = createReranker({ localModelPath: "/custom/models" }, loadSessionFn);
     await reranker("q", ["doc"], 0);
     expect(loadSessionFn).toHaveBeenCalledWith("/custom/models");
+  });
+});
+
+describe("rerankModelOptions (GH #995 — the ACTUAL options loadSession hands to from_pretrained())", () => {
+  it("caps intraOpNumThreads, sets interOpNumThreads:1, and disables spinning — no config knob here", () => {
+    const opts = rerankModelOptions();
+    expect(opts.session_options.intraOpNumThreads).toBe(
+      Math.max(1, Math.floor(availableParallelism() / 4)),
+    );
+    expect(opts.session_options.interOpNumThreads).toBe(1);
+    expect(opts.session_options.extra.session.intra_op.allow_spinning).toBe("0");
+    expect(opts.session_options.extra.session.inter_op.allow_spinning).toBe("0");
+    expect(opts.session_options.extra.session.disable_prepacking).toBe("1");
   });
 });

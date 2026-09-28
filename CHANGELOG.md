@@ -20,6 +20,24 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   drain under one deadline instead of two stacked ones, and installs an unref'd hard-exit fallback
   armed the moment a signal is actually being handled. A closed stdin (the MCP client disconnecting)
   now also routes through the same bounded `close()`.
+- **Zero-config `embeddings.provider: "local"` (and the local reranker) no longer spin up an
+  uncapped ONNX Runtime thread pool per process (#995).** PR #980 (1.31.4) only passed
+  `session_options` to the ONNX pipeline when `embeddings.threads` was explicitly set, so the
+  zero-config default left onnxruntime-node to size its intra-op pool from the physical core count
+  with no cap and worker threads busy-spinning between batches. Every stdio MCP client spawns its
+  own server process, so N clients meant N full-core thread pools during boot reconcile alone
+  (measured on a 12-core M3 Pro: 1 instance ~550% CPU / 2.4GB RSS; 4 instances -> load avg 211;
+  1.31.3 drew 4-17% CPU for the same work). Unset `embeddings.threads` now caps the intra-op pool
+  to a quarter of the host's available CPU cores (minimum 1), sets inter-op threads to 1, disables
+  intra-/inter-op spinning, and disables ONNX Runtime's `session.disable_prepacking` initializer
+  repacking (a one-time session-Initialize() cost this process pays on every boot for no benefit,
+  since these servers reuse their session across a long process lifetime either way); an explicit
+  `embeddings.threads` still overrides the thread counts outright, but spinning and prepacking stay
+  disabled regardless — neither is an opt-out of either fix. Measured on Cave (ARM64, Bun 1.4.2,
+  transformers.js 4.3.0, nomic-embed-text-v1.5 q8): disabling prepacking alone took RSS from 337 to
+  257 MB, session load from 1164 to 516 ms, and embedding throughput ~29% faster. The bundled local
+  reranker (`packages/reranker-local`, which had no `session_options` at all) gets the same
+  capped/no-spin/no-prepack default.
 
 ## [1.31.5] - 2026-09-26
 

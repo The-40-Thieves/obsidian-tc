@@ -9,6 +9,7 @@ import {
   compareModelFetchFiles,
   DOCUMENTED_DELTAS,
   extractSymbol,
+  FILE_PAIRS,
   normalizeBody,
   PARITY_SYMBOLS,
 } from "./check-model-fetch-parity.mjs";
@@ -91,6 +92,26 @@ test("compareModelFetchFiles: a name in DOCUMENTED_DELTAS is reported, not diffe
   } finally {
     DOCUMENTED_DELTAS.delete("DEFAULT_LOCK_STALE_MS");
   }
+});
+
+test("FILE_PAIRS: covers the ort-session-options.ts mirror in addition to model-fetch.ts (THE-1122 gap closed by PR #996)", () => {
+  const pair = FILE_PAIRS.find((p) => p.embedderFile.endsWith("ort-session-options.ts"));
+  assert.ok(pair, "expected a FILE_PAIRS entry for ort-session-options.ts");
+  assert.equal(pair.rerankerFile, "packages/reranker-local/src/ort-session-options.ts");
+  assert.ok(pair.symbols.includes("ortSessionOptions"));
+});
+
+test("FILE_PAIRS: RED case — a diverged ortSessionOptions body between the two copies is reported as drift, not silently passed", () => {
+  const embedderSource = `export function ortSessionOptions(threads, cpuCount) {\n  return { disable_prepacking: "1" };\n}`;
+  // A regressed copy that silently drops the prepacking fix in ONE file only — exactly the class
+  // of split-brain this generalized gate exists to catch (mirrors the existing
+  // ALLOWED_DOWNLOAD_HOST_SUFFIXES drift case above, applied to the new pair).
+  const rerankerSource = `export function ortSessionOptions(threads, cpuCount) {\n  return {};\n}`;
+  const pair = FILE_PAIRS.find((p) => p.embedderFile.endsWith("ort-session-options.ts"));
+  const results = compareModelFetchFiles({ embedderSource, rerankerSource, ...pair }).filter(
+    (r) => r.name === "ortSessionOptions",
+  );
+  assert.equal(results[0].status, "drift");
 });
 
 test("compareModelFetchFiles: every real DOCUMENTED_DELTAS entry carries a non-empty reason", () => {

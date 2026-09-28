@@ -1,8 +1,9 @@
 // THE-1122 — createEmbeddingProvider's orchestration (dims, batching, mean-pooling/normalize
 // wiring, memoization), exercised with an injected `loadSessionFn` stub — never
 // @huggingface/transformers, never real weights.
+import { availableParallelism } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import { createEmbeddingProvider, DEFAULT_MODEL_NAME } from "../src/index.js";
+import { createEmbeddingProvider, DEFAULT_MODEL_NAME, embedPipelineOptions } from "../src/index.js";
 import { modelInfoByName } from "../src/model-info.js";
 
 function stubExtractor(dims: number, expectedPooling: "mean" | "cls" = "mean") {
@@ -104,5 +105,33 @@ describe("createEmbeddingProvider", () => {
       2,
     );
     expect(provider.id).toContain("fp32");
+  });
+});
+
+describe("embedPipelineOptions (GH #995 — the ACTUAL options loadSession hands to pipeline())", () => {
+  const info = modelInfoByName(DEFAULT_MODEL_NAME);
+  if (!info) throw new Error("DEFAULT_MODEL_NAME missing from the catalog");
+
+  it("caps intraOpNumThreads, sets interOpNumThreads:1, and disables spinning when threads is unset", () => {
+    const opts = embedPipelineOptions(info, true, undefined);
+    expect(opts.session_options.intraOpNumThreads).toBe(
+      Math.max(1, Math.floor(availableParallelism() / 4)),
+    );
+    expect(opts.session_options.interOpNumThreads).toBe(1);
+    expect(opts.session_options.extra.session.intra_op.allow_spinning).toBe("0");
+    expect(opts.session_options.extra.session.inter_op.allow_spinning).toBe("0");
+    expect(opts.session_options.extra.session.disable_prepacking).toBe("1");
+  });
+
+  it("an explicit threads: 3 sets both intra- and inter-op to 3", () => {
+    const opts = embedPipelineOptions(info, true, 3);
+    expect(opts.session_options.intraOpNumThreads).toBe(3);
+    expect(opts.session_options.interOpNumThreads).toBe(3);
+  });
+
+  it("always includes session_options (unconditionally, not only when threads is set)", () => {
+    const opts = embedPipelineOptions(info, true, undefined);
+    expect(opts.session_options).toBeDefined();
+    expect(opts.local_files_only).toBe(true);
   });
 });
