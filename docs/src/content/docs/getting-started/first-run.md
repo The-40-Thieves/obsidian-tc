@@ -50,6 +50,22 @@ config below (as an argument, or via `OBSIDIAN_TC_CONFIG`) if you passed `--conf
 to write somewhere else. `setup` does not itself register the config with any MCP
 client; see [step 3](#3-connect-a-client) for that.
 
+### First-run fallback (running `setup` yourself is still recommended)
+
+If an MCP client launches `obsidian-tc` with **no arguments at all** — the common
+shape, since most clients only know the command, not a vault — and no config exists
+yet at `~/.obsidian-tc/config.json`, the server runs `setup`'s own detection once,
+non-interactively, on your behalf. It only writes a config when the result is
+unambiguous: **exactly one** vault found in your local Obsidian install, and no
+refusal (the same "never guess an embeddings provider" rule `setup` itself
+applies). If zero or several vaults are found, or the decision would need a guess,
+nothing is written and the server exits with a hint to run `obsidian-tc setup`
+yourself. A stderr line always names what was written and where; run
+`obsidian-tc setup` afterwards any time to review or change it — `obsidian-tc
+doctor` also flags a config that was auto-written this way. Set
+`OBSIDIAN_TC_NO_AUTO_SETUP=1` to disable this fallback and get the plain "no vault
+or config given" error back.
+
 ### Hand-write it
 
 A minimal single-vault config:
@@ -89,6 +105,23 @@ calls are authenticated with full local scope.
 
 Point any MCP client at the command. The config path can be an argument or the
 `OBSIDIAN_TC_CONFIG` env var — the env form keeps client entries uniform.
+
+`obsidian-tc setup` itself prints ready-to-paste snippets for Claude Code, Claude
+Desktop and Cursor at the end of every run. To have it wire one in for you instead
+of pasting by hand, add `--install-client <claude-code|claude-desktop|cursor>`:
+
+```sh
+obsidian-tc setup --install-client claude-desktop
+```
+
+For Claude Desktop and Cursor this merges an `obsidian-tc` entry into that client's
+own JSON config (`claude_desktop_config.json` / `~/.cursor/mcp.json`) without
+touching any other server already configured there, backing the existing file up
+first. It refuses to replace an existing `obsidian-tc` entry unless you also pass
+`--force`, and `--dry-run` prints the entry without writing anything. For Claude
+Code it prints (and, unless `--dry-run` is given, runs) the documented `claude mcp
+add` command — Claude Code owns its own `.mcp.json`/`~/.claude.json`, so this never
+hand-edits that file directly.
 
 **Claude Desktop** (`claude_desktop_config.json`):
 

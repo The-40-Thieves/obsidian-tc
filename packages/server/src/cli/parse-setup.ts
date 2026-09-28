@@ -10,8 +10,14 @@ import { flagValue } from "./flag-value";
  *  consumed by a value-taking flag must be a usage error, not silently ignored — a misspelled
  *  safety flag (`--dryrun` for `--dry-run`) must never be read as "flag absent" and fall through
  *  to a REAL write. */
-const KNOWN_VALUE_FLAGS = ["--config", "--vault"];
+const KNOWN_VALUE_FLAGS = ["--config", "--vault", "--install-client"];
 const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force"];
+
+/** PR B of GH #995's two-part follow-up: the MCP clients `setup --install-client` knows how to
+ *  wire an `obsidian-tc` entry into — see cli/setup/client-install.ts for the per-client path/
+ *  format logic (context7-verified against each client's own docs). */
+export const INSTALL_CLIENTS = ["claude-code", "claude-desktop", "cursor"] as const;
+export type InstallClient = (typeof INSTALL_CLIENTS)[number];
 
 export interface SetupCommand {
   kind: "setup";
@@ -30,8 +36,14 @@ export interface SetupCommand {
   yes: boolean;
   /** Print the config that WOULD be written and exit — writes nothing. */
   dryRun: boolean;
-  /** Overwrite an existing config at the target path (after backing it up) instead of refusing. */
+  /** Overwrite an existing config at the target path (after backing it up) instead of refusing;
+   *  ALSO reused by `--install-client` (PR B) to allow replacing an existing `obsidian-tc` entry
+   *  in that client's own MCP config, rather than introduce a second `--force`-shaped flag. */
   force: boolean;
+  /** PR B of GH #995's two-part follow-up: wire an `obsidian-tc` entry into one MCP client's own
+   *  config INSTEAD of running setup's normal detect/decide/write flow. See
+   *  cli/setup/client-install.ts. */
+  installClient?: InstallClient;
 }
 
 /** No positional at all — unlike every other command here, `setup` takes only named flags. A bare
@@ -40,6 +52,7 @@ export interface SetupCommand {
 export function parseSetup(rest: string[]): SetupCommand {
   const configPath = flagValue(rest, "--config");
   const vaultPath = flagValue(rest, "--vault");
+  const installClientRaw = flagValue(rest, "--install-client");
   // Finding 6 (MEDIUM, fix round 2): an empty `--config=`/`--vault=` value is defined (flagValue
   // only throws on a MISSING value), so it would otherwise flow straight through to `resolve("")`
   // downstream — which is cwd, silently. cwd may be anything a GUI launcher chose (Claude Desktop
@@ -47,6 +60,16 @@ export function parseSetup(rest: string[]): SetupCommand {
   // it here, before any I/O, the same way a missing value already is.
   if (configPath === "") throw new CliError("--config requires a non-empty value");
   if (vaultPath === "") throw new CliError("--vault requires a non-empty value");
+  if (installClientRaw === "") throw new CliError("--install-client requires a non-empty value");
+  if (
+    installClientRaw !== undefined &&
+    !(INSTALL_CLIENTS as readonly string[]).includes(installClientRaw)
+  ) {
+    throw new CliError(
+      `--install-client must be one of ${INSTALL_CLIENTS.join(", ")} (got "${installClientRaw}")`,
+    );
+  }
+  const installClient = installClientRaw as InstallClient | undefined;
 
   // Fix-round finding 4: reject anything unrecognized BEFORE returning a command this file's
   // caller (run_setup) will act on — a positional argument, or a flag/typo not in either known
@@ -88,6 +111,7 @@ export function parseSetup(rest: string[]): SetupCommand {
     kind: "setup",
     ...(configPath !== undefined ? { configPath } : {}),
     ...(vaultPath !== undefined ? { vaultPath } : {}),
+    ...(installClient !== undefined ? { installClient } : {}),
     yes: rest.includes("--yes"),
     dryRun: rest.includes("--dry-run"),
     force: rest.includes("--force"),

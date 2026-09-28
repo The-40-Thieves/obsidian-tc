@@ -10,6 +10,7 @@ Usage:
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
   obsidian-tc setup [--yes] [--dry-run] [--force] [--config <path>] [--vault <path>]
+                     [--install-client claude-code|claude-desktop|cursor]
                                           Detect the environment ONCE and write an explicit config
                                           (GH #995's fix): Obsidian vaults, an existing index's
                                           embeddings provider (kept, never silently switched), the
@@ -25,8 +26,21 @@ Usage:
                                           unless --yes is given. Refuses to overwrite an existing
                                           config unless --force, which backs it up first
                                           (<path>.bak-<timestamp>). Point obsidian-tc at the result
-                                          with --config or OBSIDIAN_TC_CONFIG — this command does
-                                          not itself install any MCP client's config.
+                                          with --config or OBSIDIAN_TC_CONFIG. Without
+                                          --install-client, prints ready-to-paste MCP client
+                                          snippets for Claude Code, Claude Desktop and Cursor; with
+                                          it, wires an obsidian-tc entry into that ONE client's own
+                                          MCP config instead of running the detect/write flow above
+                                          (merges into claude_desktop_config.json/~/.cursor/mcp.json
+                                          without dropping other servers, backing the file up first,
+                                          and refuses an existing obsidian-tc entry unless --force;
+                                          for claude-code it prints/runs the documented
+                                          \`claude mcp add\` command instead of editing JSON).
+                                          If \`serve\`/a bare \`obsidian-tc\` runs with no config, no
+                                          path, and none at ~/.obsidian-tc/config.json yet, it runs
+                                          this SAME detection once on its own and boots off what it
+                                          writes when exactly one vault is found — set
+                                          OBSIDIAN_TC_NO_AUTO_SETUP=1 to disable that fallback.
   obsidian-tc doctor [path] [--json] [--token <jwt>] [--probe]
                                           Probe runtime health: runtime, native module, auth policy,
                                           token max-age vs expiry, detected Obsidian vaults/plugins.

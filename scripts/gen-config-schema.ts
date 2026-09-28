@@ -431,7 +431,13 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // that key). Every `mode`/`idleMs` description string was also reworded to say
   // "boot/promotion/periodic" instead of "boot/promotion" and to reference the new key. No
   // existing key's type, default or constraint moved.
-  "88392b6b7872f958b24637cc8247d2eeb86b8a1a4232199e9cbc7dd76964bb94";
+  // PR B of GH #995's two-part follow-up (PR A: #1001): rebaselined deliberately. Adds ONE new
+  // top-level key, `setupOrigin` (enum `["first-run-fallback"]`, optional) — set only by `serve`'s
+  // own first-run fallback (cli/setup/first-run-fallback.ts) when it auto-writes a config because
+  // none existed and exactly one vault was found; never set by an interactive `obsidian-tc setup`
+  // run. See server.schema.ts's own comment on the field for the full description text. No
+  // existing key, type, default or constraint moved.
+  "f488e4a18a56c24849b2935c8eeb987b0ff858d46a019caa59c4713bca04936e";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

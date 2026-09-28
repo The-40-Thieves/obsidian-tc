@@ -45,11 +45,39 @@ import { run_setup } from "./cli/commands/setup";
 import { run_telemetry } from "./cli/commands/telemetry";
 import { run_token_mint } from "./cli/commands/token-mint";
 import { run_version } from "./cli/commands/version";
+import {
+  attemptFirstRunFallback,
+  formatFirstRunFallbackDeclinedHint,
+  formatFirstRunSetupNotice,
+  shouldAttemptFirstRunFallback,
+} from "./cli/setup/first-run-fallback";
 import { type Cmd, resolveOrUsageExitWithProvenance } from "./cli/shared";
 import { buildServerRuntime } from "./runtime/server-runtime";
 import { installShutdownSignals } from "./runtime/shutdown";
 
 async function run_serve(cmd: Cmd<"serve">): Promise<void> {
+  // PR B of GH #995's two-part follow-up: when there is NOTHING to boot from at all (no
+  // `--config`/positional, no OBSIDIAN_TC_CONFIG, no default config on disk yet), run PR A's own
+  // setup detection once, non-interactively, and boot straight off what it writes — the common
+  // first-run shape of an MCP client launching `obsidian-tc` with no arguments. See
+  // cli/setup/first-run-fallback.ts's own header for the safety rules and race handling. This
+  // check is deliberately BEFORE `resolveOrUsageExitWithProvenance` runs any of its own
+  // input/env/default-path resolution, and applies the identical input/env rule that resolver
+  // does, so the two can never disagree about whether a fallback is even in play.
+  let declinedHint: string | undefined;
+  if (shouldAttemptFirstRunFallback({ input: cmd.input, env: process.env })) {
+    const fallback = await attemptFirstRunFallback();
+    if (fallback.outcome === "declined") {
+      declinedHint = formatFirstRunFallbackDeclinedHint(fallback.reason);
+    } else {
+      process.stderr.write(formatFirstRunSetupNotice(fallback));
+      const runtime = await buildServerRuntime(fallback.config, fallback.path, undefined, false);
+      installShutdownSignals(runtime);
+      await runtime.start();
+      return;
+    }
+  }
+
   // THE-825: planeEnabledExplicit gates the boot-time opt-in notice (server-runtime.ts's start()) —
   // whether the raw config file stated `plane.enabled` at all, not merely its resolved value.
   //
@@ -62,6 +90,7 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // fallback loaded a real config while the module hatch's trust root stayed `undefined`.
   const { config, planeEnabledExplicit, configFilePath } = resolveOrUsageExitWithProvenance(
     cmd.input,
+    declinedHint,
   );
   const runtime = await buildServerRuntime(config, configFilePath, undefined, planeEnabledExplicit);
   installShutdownSignals(runtime);

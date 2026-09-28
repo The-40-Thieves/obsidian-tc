@@ -221,6 +221,31 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   exclusive-create and `--force` rename finalization steps each gained a same-filesystem/platform
   fallback (exclusive create-and-copy; clear-read-only-and-retry, then copy-in-place) for
   filesystems/platforms where hard links or a rename-over-read-only file are refused.
+- **First-run fallback + opt-in MCP client install (GH #995 PR B).** `serve`/a bare `obsidian-tc`
+  launched with no `--config`/positional path, no `OBSIDIAN_TC_CONFIG`, and no config yet at
+  `~/.obsidian-tc/config.json` used to just error. It now runs `setup`'s own detection once,
+  non-interactively, and boots off what it writes — the common shape of an MCP client launching
+  `obsidian-tc` with no arguments at all. It writes ONLY when the result is unambiguous and safe:
+  exactly one vault found in the local Obsidian registry, and no refusal (the same guessing-refusal
+  rule `setup` itself applies); 0 or >=2 vaults, or a refusal, writes nothing and the original "no
+  vault or config given" error gains a hint naming why and pointing at `obsidian-tc setup`. A
+  stderr line always names what was auto-written and where. Race-safe: several MCP clients
+  launching at the same instant converge on ONE file via `setup`'s own exclusive create — the
+  loser re-reads the winner's file through the real loader and boots with that, rather than
+  erroring. Set `OBSIDIAN_TC_NO_AUTO_SETUP=1` to disable the fallback entirely. A config the
+  fallback wrote carries `setupOrigin: "first-run-fallback"` (never set by an interactive `setup`
+  run); `obsidian-tc doctor` reports it so an auto-generated config is visibly distinct from a
+  reviewed one.
+
+  `obsidian-tc setup` also gained `--install-client <claude-code|claude-desktop|cursor>`, wiring an
+  `obsidian-tc` MCP server entry into that ONE client's own config ONLY when asked. For Claude
+  Desktop and Cursor this merges into `claude_desktop_config.json` (per-OS path) /
+  `~/.cursor/mcp.json` without dropping any other server already there, backs the existing file up
+  first, and refuses an existing `obsidian-tc` entry unless `--force`; `--dry-run` prints the entry
+  without writing. For Claude Code — which owns its own `.mcp.json`/`~/.claude.json` — it
+  prints, and unless `--dry-run` runs, the documented `claude mcp add --scope user obsidian-tc --
+  obsidian-tc --config <path>` command instead of hand-editing JSON. Without `--install-client`,
+  `setup` prints ready-to-paste snippets for all three clients at the end of its normal run.
 
 ## [1.31.5] - 2026-09-26
 

@@ -188,6 +188,18 @@ export const ServerConfigObject = z.object({
     .describe(
       "Seconds a pending elicitation (human-in-the-loop prompt) stays valid before it expires.",
     ),
+  // PR B of GH #995's two-part follow-up (PR A: #1001, `obsidian-tc setup`): set ONLY by `serve`'s
+  // own first-run fallback (cli/setup/first-run-fallback.ts) when it auto-wrote this exact file
+  // because no config existed and exactly one vault was found — never set by an interactive
+  // `obsidian-tc setup` run, and never re-derived at boot. `doctor` reads it to tell an operator
+  // the config was auto-generated (not hand-reviewed) and point them at `obsidian-tc setup` to
+  // review or change it.
+  setupOrigin: z
+    .enum(["first-run-fallback"])
+    .optional()
+    .describe(
+      "Set only by `obsidian-tc serve`'s own first-run fallback when it auto-wrote this config (exactly one vault found, no ambiguity) — never set by an interactive `obsidian-tc setup` run. `doctor` surfaces this so an auto-generated config is visibly distinct from a reviewed one.",
+    ),
 });
 
 // F2 fail-closed interlock: never run an unauthenticated server on a routable host. When the

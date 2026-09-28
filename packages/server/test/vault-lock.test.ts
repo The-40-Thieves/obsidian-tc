@@ -49,6 +49,29 @@ function realStatIdentity(path: string): { dev: number; ino: number } | undefine
   }
 }
 
+// CI fix round (fix round, cross-vendor review — windows-latest load-sensitivity, same class GH
+// #998 fixed for file I/O): LOCK_FILE_REPLACEMENT and F5's "two consecutive mismatches" case each
+// need MULTIPLE consecutive keepalive ticks to fire before they can assert a demotion. A real,
+// small `keepaliveMs` timer needing several back-to-back deliveries is exactly the wall-clock
+// dependency this repo's other test hooks (`statIdentity`/`openLockDb`) already exist to remove —
+// these two tests used to pass real `keepaliveMs` and wait on `setTimeout` delivery, which flaked
+// on a CPU-loaded windows-latest runner even with a generous 10s test timeout (GH #998's own fix
+// covered the file-I/O half of this same class, not the timer-delivery half). `setImmediate` fires
+// on the next macrotask turn regardless of real elapsed time, so a tick fires as fast as the event
+// loop allows rather than after `ms` of real wall-clock time.
+function deterministicKeepaliveScheduler(fn: () => void, _ms: number): { clear: () => void } {
+  let cancelled = false;
+  const handle = setImmediate(() => {
+    if (!cancelled) fn();
+  });
+  return {
+    clear: () => {
+      cancelled = true;
+      clearImmediate(handle);
+    },
+  };
+}
+
 const tmpDirs: string[] = [];
 function tmpDir(): string {
   const d = mkdtempSync(join(tmpdir(), "otc-vault-lock-"));
@@ -223,7 +246,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     const a = track(
       await startVaultLeaderElection({
         cacheDir,
-        keepaliveMs: 20,
+        keepaliveScheduler: deterministicKeepaliveScheduler,
         statIdentity: (path) => {
           statCalls += 1;
           const real = realStatIdentity(path);
@@ -237,9 +260,8 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     );
     expect(a.isLeader()).toBe(true);
     a.onDemote(() => resolveDemoted());
-    // Waits for the REAL demote event rather than a fixed wall-clock sleep -- a shared, CPU-loaded
-    // Windows CI runner (this file's own suite runs ~6000 tests) delays queued setTimeout callbacks
-    // unpredictably; a fixed 150ms budget flaked there even after the rm/EPERM fix (GH #998).
+    // Waits for the REAL demote event, driven by a DETERMINISTIC keepalive scheduler (CI fix round
+    // above) rather than real `setTimeout` delivery -- see that helper's own comment for why.
     await demoted;
     expect(a.isLeader()).toBe(false);
     const challenger = track(await startVaultLeaderElection({ cacheDir }));
@@ -358,7 +380,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     const a = track(
       await startVaultLeaderElection({
         cacheDir,
-        keepaliveMs: 30,
+        keepaliveScheduler: deterministicKeepaliveScheduler,
         statIdentity: (path) => {
           statCalls += 1;
           const real = realStatIdentity(path);
@@ -369,9 +391,8 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     );
     expect(a.isLeader()).toBe(true);
     a.onDemote(() => resolveDemoted());
-    // Waits for the REAL demote event rather than a fixed wall-clock sleep -- see
-    // LOCK_FILE_REPLACEMENT's own note above (GH #998: a fixed sub-200ms budget flaked on a
-    // CPU-loaded Windows CI runner even after the rm/EPERM fix). The "survives a single glitch"
+    // Waits for the REAL demote event, driven by the DETERMINISTIC keepalive scheduler defined
+    // above (CI fix round) rather than real `setTimeout` delivery. The "survives a single glitch"
     // invariant is pinned by the statCalls FLOOR below instead of a racy mid-flight isLeader()
     // check: call #1 is promote()'s own stat, call #2 is the FIRST mismatched keepalive tick
     // (streak=1, survives -- if the code demoted on a single mismatch instead of requiring two

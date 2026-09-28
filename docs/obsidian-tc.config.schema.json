@@ -2178,6 +2178,13 @@
       "type": "integer",
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991
+    },
+    "setupOrigin": {
+      "description": "Set only by `obsidian-tc serve`'s own first-run fallback when it auto-wrote this config (exactly one vault found, no ambiguity) — never set by an interactive `obsidian-tc setup` run. `doctor` surfaces this so an auto-generated config is visibly distinct from a reviewed one.",
+      "type": "string",
+      "enum": [
+        "first-run-fallback"
+      ]
     }
   },
   "required": [

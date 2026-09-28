@@ -31,12 +31,21 @@ export function resolveOrUsageExit(input?: string): ServerConfig {
 }
 
 /** THE-825: same as `resolveOrUsageExit`, but also reports whether `plane.enabled` was explicit
- *  in the raw config — `run_serve` (cli.ts) needs this to gate the boot opt-in notice. */
-export function resolveOrUsageExitWithProvenance(input?: string): ResolvedServeConfig {
+ *  in the raw config — `run_serve` (cli.ts) needs this to gate the boot opt-in notice.
+ *
+ *  PR B of GH #995's two-part follow-up: `extraHint`, appended to the error before it's printed,
+ *  is how `run_serve` surfaces WHY its own first-run fallback declined to auto-write a config
+ *  (cli/setup/first-run-fallback.ts's `formatFirstRunFallbackDeclinedHint`) without printing a
+ *  second, separate message ahead of the one this function already owns. */
+export function resolveOrUsageExitWithProvenance(
+  input?: string,
+  extraHint?: string,
+): ResolvedServeConfig {
   try {
     return resolveServeConfigWithProvenance(input);
   } catch (e) {
-    process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
+    const message = e instanceof Error ? e.message : String(e);
+    process.stderr.write(`${message}\n${extraHint ?? ""}\n${USAGE}`);
     process.exit(2);
   }
 }

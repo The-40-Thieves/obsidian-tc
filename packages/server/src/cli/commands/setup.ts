@@ -22,6 +22,7 @@ import { probeLocalEmbedderResolution } from "../../providers/local-embedder-reg
 import { onnxNativePrebuildStatus } from "../../providers/reranker-preflight";
 import { redactConfig } from "../redact-config";
 import { defaultSetupConfigPath } from "../resolve-config";
+import { formatClientSnippets } from "../setup/client-install";
 import {
   decideSetup,
   type SetupDecision,
@@ -32,6 +33,7 @@ import {
 import { buildSetupConfig, writeSetupConfig } from "../setup/write";
 import type { Cmd } from "../shared";
 import { probeEmbeddingsProviderSource } from "./doctor-probes";
+import { runInstallClient } from "./setup-install-client";
 
 // Ollama's own documented local API (github.com/ollama/ollama/blob/main/docs/api.md, `GET
 // /api/tags`, confirmed via context7 before writing this): "127.0.0.1", never "localhost" — this
@@ -141,9 +143,22 @@ function rawCacheDirFallback(raw: Record<string, unknown> | undefined): string {
   return join(homedir(), ".obsidian-tc");
 }
 
-async function detect(
-  cmd: Cmd<"setup">,
-): Promise<SetupDecision & { targetPath: string; existingRaw?: Record<string, unknown> }> {
+/** Exported for cli/setup/first-run-fallback.ts (PR B of GH #995's two-part follow-up): `serve`'s
+ *  own first-run fallback reuses this SAME detection pass — never a second, drifting
+ *  re-implementation — non-interactively, when there is no config to boot from at all. See that
+ *  module's own header for the safety conditions it applies to the result. */
+export async function detect(cmd: Cmd<"setup">): Promise<
+  SetupDecision & {
+    targetPath: string;
+    existingRaw?: Record<string, unknown>;
+    /** Finding 4 (fix round, cross-vendor review): the RAW Obsidian registry count, before
+     *  `isExistingDirectory` drops entries whose vault path no longer stats (unplugged USB/NFS
+     *  mount, a transient `stat` throw). Exported so first-run-fallback.ts can decline on ambiguity
+     *  even when only ONE vault happened to survive filtering — see that module's own comment on
+     *  why `decision.vaults.length` alone is not a safe signal for the no-operator-watching case. */
+    registryVaultCount: number;
+  }
+> {
   const targetPath = cmd.configPath ?? defaultSetupConfigPath();
   const existing = loadExistingConfig(targetPath);
   const cacheDir = existing?.config?.cacheDir ?? rawCacheDirFallback(existing?.raw);
@@ -212,6 +227,7 @@ async function detect(
   return {
     ...decideSetup(inputs),
     targetPath,
+    registryVaultCount: profile.obsidian.vaults.length,
     ...(existing ? { existingRaw: existing.raw } : {}),
   };
 }
@@ -267,6 +283,20 @@ async function confirmWrite(targetPath: string): Promise<boolean> {
 }
 
 export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
+  // PR B of GH #995's two-part follow-up: `--install-client` is a SEPARATE action from the normal
+  // detect/decide/write flow below — it never runs vault detection at all, only wires an
+  // `obsidian-tc` entry into the named client's own MCP config. See
+  // cli/commands/setup-install-client.ts.
+  if (cmd.installClient !== undefined) {
+    try {
+      await runInstallClient(cmd);
+    } catch (e) {
+      process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   // Finding 7: validate --vault BEFORE any other I/O — a typo'd or removed path must never reach
   // resolveCapabilityProfile (which would happily fold it in as a "detected" vault) or produce a
   // schema-valid config whose vault path only turns out to be wrong at serve/indexing time.
@@ -280,6 +310,13 @@ export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
 
   const decision = await detect(cmd);
   printDecisions(decision);
+  // PR B: without --install-client, `setup` prints ready-to-paste snippets for all three known
+  // clients — the manual alternative to the opt-in installer. Shown regardless of outcome below
+  // (even a refusal or a 0-vault run): the config path is known either way, and `serve`'s own
+  // first-run fallback can fill it in later even if this run wrote nothing.
+  process.stdout.write(
+    formatClientSnippets(decision.targetPath, process.platform, process.env, homedir()),
+  );
 
   if (decision.vaults.length === 0) {
     process.stderr.write(
