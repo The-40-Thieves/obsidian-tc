@@ -3,6 +3,10 @@ import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openConfiguredDatabase } from "../../db/open";
 import { createEmbeddingProvider } from "../../embeddings";
+import {
+  applyStickyEmbeddings,
+  formatStickyEmbeddingsNotice,
+} from "../../embeddings/sticky-provider";
 import { type InferCitationsOptions, inferCitations } from "../../experiential/citation";
 import { runCitationIndexPasses } from "../../experiential/citation-index";
 import { buildCitationJudge } from "../../experiential/citation-judge";
@@ -36,6 +40,12 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
   const transcript = cmd.transcript ? readFileSync(cmd.transcript, "utf8") : "";
   mkdirSync(cfg.cacheDir, { recursive: true });
   const cacheDb = await openConfiguredDatabase(cfg, "cache.db");
+  // GH #995 fix round 2 (High 1): sticky-resolve before the embedding provider below is built —
+  // citation candidates are embedded query-role against the vault's STORED vectors; the wrong
+  // provider scores every candidate against a representation it was never written under.
+  const embeddingsSticky = applyStickyEmbeddings(cfg, cacheDb);
+  const stickyNotice = formatStickyEmbeddingsNotice(embeddingsSticky);
+  if (stickyNotice) process.stdout.write(stickyNotice);
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });

@@ -60,7 +60,8 @@ until this generator existed, by which point five entire defaulted blocks had go
     "chunkContext": true,
     "queryPrefix": "",
     "documentPrefix": "",
-    "quantized": true
+    "quantized": true,
+    "onProviderChange": "keep"
   },
   "indexing": {
     "writeConcurrency": 8,

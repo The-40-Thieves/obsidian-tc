@@ -213,16 +213,92 @@ re-embed, which the migration page walks through.
 
 ## Upgrading from a pre-local-embedder config
 
-If your config had no `embeddings` block at all before this default changed: **it previously meant
-Ollama** (`provider: "ollama"`, model `nomic-embed-text`); **it now means the in-process embedder**
-(`provider: "local"`, model `nomic-embed-text-v1.5`). The server detects the mismatch automatically
-on first boot after upgrading (the representation fingerprint folds in provider and model) and
-rebuilds the vector index from a full re-embed — `obsidian-tc doctor` and the boot log both name
-this explicitly the first time they see a stored fingerprint from a different provider than the one
-your config now resolves to. To keep using Ollama unchanged, add `"embeddings": { "provider":
-"ollama" }` to your config explicitly — the implicit model (`nomic-embed-text`) is preserved for
-that one case; see [`ollama` (deprecated, still supported)](#ollama-deprecated-still-supported)
-above.
+If your config has no `embeddings.provider` set at all, the schema's own default resolves to the
+in-process embedder (`provider: "local"`, model `nomic-embed-text-v1.5`). **obsidian-tc 1.31.4 and
+1.31.5 applied that default unconditionally**, so an existing install that had never configured
+`embeddings` was silently switched away from whatever it was already using (for most installs,
+Ollama) and fully re-embedded in-process on the next boot — see
+[GH #995](https://github.com/The-40-Thieves/obsidian-tc/issues/995).
+
+**1.31.6 and later keep an existing index's provider instead.** When `embeddings.provider` is
+unset and your vault's cache already holds active vectors from a different provider than the
+current default, the server keeps using that provider/model rather than switching — no re-embed,
+no config change required. This is controlled by `embeddings.onProviderChange` (default `"keep"`):
+
+- `"keep"` (default): an unconfigured install keeps its existing index's provider. A fresh install
+  (nothing indexed yet) still takes the current default — there is nothing to keep.
+- `"switch"`: adopts the current default (`local`) outright, same as a fresh install — this
+  re-embeds the whole vault once.
+
+Setting `embeddings.provider` explicitly — including `provider: "local"` itself — always wins over
+`onProviderChange` and is itself the opt-in to switch; that also re-embeds the whole vault once
+(the server detects the stored-vs-configured mismatch automatically, the same way any other
+provider/model change does — see [Changing providers or models on a live
+index](#changing-providers-or-models-on-a-live-index) above).
+
+`obsidian-tc doctor`, the boot log, and `obsidian-tc config show`/`config explain` all report which
+of these ways the effective provider was decided — `configured` (you set it), `kept-from-index`
+(kept from your existing vault, GH #995), `default` (nothing configured, nothing to keep), or
+`ambiguous-orphaned-index` (see below) — so you can always tell which one applied. To keep using
+Ollama explicitly rather than relying on `"keep"`, add `"embeddings": { "provider": "ollama" }` to
+your config — the implicit model (`nomic-embed-text`) is preserved for that one case; see
+[`ollama` (deprecated, still supported)](#ollama-deprecated-still-supported) above.
+
+**`obsidian-tc config show` never lets a kept value masquerade as something you configured.** Its
+plain `embeddings` block always shows the SCHEMA-resolved value (what your config file/env/profile
+actually produce) — never a value merely kept from your existing index — and a separate
+`embeddingsEffective` field reports the effective provider/model/dimensions plus `source` and an
+explicit note when it differs from what you wrote. Do not copy `embeddingsEffective` back into
+`embeddings.provider` unless you actually intend to pin it — writing `embeddings.provider`
+explicitly (even to the same value it was already using) IS the opt-in to switch, disables `"keep"`
+on the next boot, and re-embeds if the value differs from what was actually stored.
+`obsidian-tc config explain` likewise adds an `embeddings.effective` row <!-- config-path:ignore -->
+(source `derived`, since it comes from reading `cacheDir`, not your config file — a synthetic
+output row, not a real config path) alongside its normal per-key attribution.
+
+**Every command that can construct an embedding provider honors this, not just `serve`** — never
+silently, not even for a command reached indirectly. `index`, `prefetch`, `gaps`,
+`citation-infer`, `cluster`, `rerun`, and `doctor` each resolve `onProviderChange` against their own
+cache db before constructing an embedding provider — a query command (or a replayed session) run
+against an unconfigured install never silently embeds under a different provider than the one its
+vectors were written with. This resolution runs at the ONE construction choke point every one of
+these commands goes through (directly, or transitively through `serve`'s own runtime construction),
+so a new command that constructs a provider is covered by the same rule without having to remember
+to call it — never-silently-switch is the rule, not a per-command opt-in.
+
+**The kept identity carries the stored vector width and model revision, not an assumed historical
+one.** A pre-1.31.4 config could set `model`/`dimensions` explicitly (e.g. a 1024-dim
+`mxbai-embed-large`) without ever setting `provider`; keeping now honors the width actually written
+to `chunk_embeddings` rather than a fixed 768. Likewise, if the stored `chunk_embeddings.model` value
+carries a revision suffix (`provider:model@revision`), the kept config carries that same
+`embeddings.revision` rather than dropping or doubling it.
+
+**Ambiguous vault identity — a renamed vault id, or a fresh vault sharing a cache directory.**
+`onProviderChange: "keep"` scopes its lookup to the vault ids currently in your config. If no active
+vectors match any of them, but the cache db (`cacheDir`) still holds active vectors under some
+*other* vault id — most commonly because a vault's `id` was renamed, or a new vault was pointed at a
+`cacheDir` an existing vault already uses — obsidian-tc cannot tell which case this is, so it does
+not silently adopt this vault's OWN default identity over those rows either: it **keeps the
+orphaned rows' provider/model/width**, the same rule it applies to this vault's own rows, and
+reports the source as `ambiguous-orphaned-index` (never `default` or `kept-from-index`) with a
+notice naming the situation, both in `obsidian-tc doctor` and the boot log — so this reads as
+"provisionally kept, but unconfirmed" rather than either "yours" or "the default". If every
+orphaned row already belongs to the current default's own provider family (nothing to keep), this
+falls back to the current default and says so in the same notice. Either way: if the vault was
+renamed, restore its original `id` (or point `cacheDir` at the original location) so its rows match
+again; otherwise, set `embeddings.provider` explicitly (or `embeddings.onProviderChange: "switch"`)
+to make the choice yourself instead of relying on `"keep"`.
+
+**An unmappable stored provider fails closed, before any vector-index rebuild.** The active
+`chunk_embeddings.model` id obsidian-tc would otherwise keep must be reconstructable back into a
+real provider config (`provider:model`, or `provider:model@revision`, for `ollama`, `openai`,
+`voyage`, `cohere`, and `bge-m3`). A stored id outside that set — a custom `openai-compatible:...`
+or `module:...` identity, or anything else obsidian-tc cannot rebuild on its own — is refused rather
+than guessed: obsidian-tc exits with a config error naming the unmappable stored id and telling you
+exactly what to set instead — `embeddings.provider` (plus `embeddings.model` / `embeddings.dimensions`
+if needed) to match whatever that id was actually embedded with. Run `obsidian-tc doctor` first if
+you are not sure which model/width that is. Guessing here would rebuild `vec_chunks` at the wrong
+width and silently drop every real vector — refusing is the smaller-safe-option.
 
 **Config files must set `cacheDir` when the embeddings provider is `local` (the default)** — the
 bare `obsidian-tc <vault>` form (no config file) sets it for you, so this only affects a config

@@ -18,11 +18,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { experientialMigrations } from "../src/cli/shared";
 import { MetricsRecorder } from "../src/metrics/registry";
+import { nativeReadyToken, unwindReversed } from "../src/runtime/boot-helpers";
 import {
   buildServerRuntime,
-  nativeReadyToken,
   type RuntimeCoreDeps,
-  unwindReversed,
   wireRuntimeCore,
 } from "../src/runtime/server-runtime";
 import { type Stores, wireStores } from "../src/runtime/stores";
@@ -229,6 +228,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
         concurrency: 1,
         maxBatchTokens: 1000,
         chunkContext: false,
+        onProviderChange: "keep",
       },
     });
     expect(core.governance.registry).toBeDefined();
@@ -252,6 +252,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
           concurrency: 1,
           maxBatchTokens: 1000,
           chunkContext: false,
+          onProviderChange: "keep",
         },
         onCleanup: (name) => cleanedUp.push(name),
       }),
@@ -290,6 +291,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
           concurrency: 1,
           maxBatchTokens: 1000,
           chunkContext: false,
+          onProviderChange: "keep",
         },
         onCleanup: (name) => cleanedUp.push(name),
       }),
@@ -320,6 +322,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
           concurrency: 1,
           maxBatchTokens: 1000,
           chunkContext: false,
+          onProviderChange: "keep",
         },
       }),
     ).rejects.toThrow(/unknown embeddings provider/);

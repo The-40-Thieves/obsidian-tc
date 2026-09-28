@@ -35,6 +35,7 @@ import type { VecRebuildEvent } from "../search/vec";
 import { wireTelemetry } from "../telemetry/wiring";
 import type { ThrottleTiers } from "../throttle";
 import { connectStdio } from "../transports/stdio";
+import { nativeReadyToken, type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
 import { emitBootNotices } from "./boot-notices";
 import { wireBridges } from "./bridge-wiring";
 import { type Governance, wireGovernance } from "./governance";
@@ -65,45 +66,8 @@ export interface ServerRuntime {
   close(reason: string): Promise<void>;
 }
 
-/** Guards a boot resource captured by a closure before its own `const`/`let` has run: throws (never
- *  a non-null assertion — forbidden by lint) if the closure is ever invoked early. THE-466. Shared
- *  by `wireRuntimeCore`'s `indexHealth` forward-reference and cli.ts's
- *  `indexCoordinatorRef`/`schedulerRef`. See docs/design/server-runtime.md. */
-export function requireBoot<T>(value: T | undefined, what: string): T {
-  if (value === undefined) throw new Error(`${what} read before boot completed`);
-  return value;
-}
-
-/** THE-906: the boot ready line's `native=` token. `active` MUST be `nativeBindingActive` (the
- *  real napi binding serving), never `nativeResolved` — the latter stays true even when
- *  `packages/native/index.js` silently substituted its own JS fallback.js (#857), which would
- *  print `native=on` on a process that is, in fact, running pure JS. */
-export function nativeReadyToken(active: boolean): "on" | "js-fallback" {
-  return active ? "on" : "js-fallback";
-}
-
-/** `name` is a plain `string`, not a closed union — `wireRuntimeCore` and `buildServerRuntime` each
- *  push their own fixed set of layer names onto the same `OwnedLayer`/`unwindReversed` machinery. */
-interface OwnedLayer {
-  name: string;
-  close(): void | Promise<void>;
-}
-
-/**
- * Runs each already-built layer's cleanup in REVERSE (most-recently-opened-first) order — the
- * resource-acquisition-is-cleanup pattern used when a later wiring step throws. A layer that was
- * never built never contributes a cleanup call. Exported and independently tested; see
- * server-runtime.test.ts.
- */
-export async function unwindReversed(
-  layers: readonly OwnedLayer[],
-  onCleanup?: (name: OwnedLayer["name"]) => void,
-): Promise<void> {
-  for (const layer of [...layers].reverse()) {
-    await layer.close();
-    onCleanup?.(layer.name);
-  }
-}
+// requireBoot/nativeReadyToken/OwnedLayer/unwindReversed moved to boot-helpers.ts (biome's 700-line
+// cap) — imported above, see server-runtime.test.ts for their own import path.
 
 export interface RuntimeCoreDeps {
   /** Already-open stores. Ownership of its cleanup transfers to this call for its duration — see
@@ -141,6 +105,7 @@ export interface RuntimeCoreDeps {
     concurrency: number;
     maxBatchTokens: number;
     chunkContext: boolean;
+    onProviderChange: "keep" | "switch";
   };
   onVecRebuild: (event: VecRebuildEvent) => void;
   /** `dirname(configPath)` — the trust root for embeddings.modulePath (the module hatch). Undefined
@@ -207,6 +172,9 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
       db: deps.stores.db,
       metrics: deps.metrics,
       embeddings: deps.embeddings,
+      // GH #995 fix round 2 (item B): the SAME `deps.vaults` governance is built from — sticky
+      // resolution must scope its cache-db query to the exact vault ids this boot registers.
+      vaults: deps.vaults,
       onVecRebuild: deps.onVecRebuild,
       configDir: deps.configDir,
       securityProfile: deps.securityProfile,
@@ -351,6 +319,10 @@ export async function buildServerRuntime(
     indexHealth,
     recordIngestStatsFor,
     indexVaultRecorded,
+    // GH #995 fix round 2 (item B): computed INSIDE wireIndexResources now (via wireRuntimeCore),
+    // not by this function itself — see that function's doc comment. Still read here, unchanged,
+    // for the boot notice below.
+    embeddingsSticky,
   } = indexResources;
 
   // A later construction failure (e.g. wireTransports below) must still close what this function
@@ -674,7 +646,13 @@ export async function buildServerRuntime(
 
     // Security posture, THE-825 plane opt-in, THE-891 capture, THE-1108 stale-session notices —
     // folded into one call; see boot-notices.ts's header for why they moved out of here.
-    emitBootNotices({ config, gatewayConfigured, planeEnabledExplicit, db });
+    emitBootNotices({
+      config,
+      gatewayConfigured,
+      planeEnabledExplicit,
+      db,
+      embeddingsSticky,
+    });
 
     // THE-288: honor transports.stdio. Default (true) connects the stdio MCP transport; when
     // false the server serves HTTP-only (the listening socket keeps the process alive), and if

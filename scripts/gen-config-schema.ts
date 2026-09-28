@@ -383,7 +383,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // the actual default (a quarter of the host's available CPU cores, minimum 1, spinning disabled)
   // and that an explicit value overrides it outright — see packages/embedder-local's
   // ort-session-options.ts. No key, type, default or constraint moved.
-  "2b36196106731683b11ebe74d0ecc17466e25193d98c77594b7f16b46c02d71b";
+  // GH #995 follow-up: rebaselined deliberately. Adds ONE new key, `embeddings.onProviderChange`
+  // (enum "keep"|"switch", default "keep") — whether an UNCONFIGURED install (no explicit
+  // `embeddings.provider`) keeps using whatever provider its existing index's active embeddings
+  // already belong to instead of silently adopting the current default, undoing PR #980's silent
+  // switch/re-embed (GH #995). An explicit `embeddings.provider` (including `"local"` itself)
+  // always wins over this key. See packages/shared/src/config/indexing-embeddings.schema.ts's
+  // `onProviderChange` field and packages/server/src/embeddings/sticky-provider.ts for the full
+  // resolution rule and description text. No existing key, type, default or constraint moved.
+  "f4838b2dc4f6c171a8db00849bf8966ecdb27e15566e4d7a474d9cf8d63cb63d";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

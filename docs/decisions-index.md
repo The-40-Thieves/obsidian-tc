@@ -145,12 +145,12 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-457 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 10 |
 | THE-458 | THE-458 remainders closed | CHANGELOG.md (1.12.0) | 11 |
 | THE-459 | THE-459 — Synthetic-vault perf harness + CI gates (design) | docs/superpowers/specs/2026-07-20-the-459-perf-harness-design.md | 3 |
-| THE-460 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 10 |
+| THE-460 | Retrieval: dense (vec0) index and brute-force fallback | docs/design/retrieval-dense-index.md | 11 |
 | THE-461 | Migration Manifest | docs/design/migration-manifest.md | 7 |
 | THE-462 | Wire the durable JobQueue to its workloads — THE-562 #14 (THE-517) | docs/superpowers/specs/2026-07-24-the-562-14-durable-job-queue-wiring-design.md | 10 |
 | THE-463 | _internal planning reference — see repo history_ | — | 3 |
 | THE-465 | Metrics Registry | docs/design/metrics-registry.md | 13 |
-| THE-466 | Server Runtime — Composition Root | docs/design/server-runtime.md | 8 |
+| THE-466 | Server Runtime — Composition Root | docs/design/server-runtime.md | 9 |
 | THE-467 | Metrics Registry | docs/design/metrics-registry.md | 3 |
 | THE-486 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 3 |
 | THE-487 | _internal planning reference — see repo history_ | — | 1 |
@@ -182,7 +182,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-526 | _internal planning reference — see repo history_ | — | 4 |
 | THE-527 | _internal planning reference — see repo history_ | — | 4 |
 | THE-530 | _internal planning reference — see repo history_ | — | 7 |
-| THE-531 | _internal planning reference — see repo history_ | — | 7 |
+| THE-531 | _internal planning reference — see repo history_ | — | 8 |
 | THE-532 | _internal planning reference — see repo history_ | — | 2 |
 | THE-533 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 2 |
 | THE-535 | `experiential.activationRerank` now applies a ranking change (#762, THE-424 Part A, THE-535). | CHANGELOG.md (1.21.0) | 3 |
@@ -301,7 +301,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-717 | A judge that did not ANSWER is no longer counted as one that answered unparseably (#732, #734, THE-717, THE-613). | CHANGELOG.md (1.20.0) | 26 |
 | THE-718 | `record_retrieval_feedback` says when to call it (#678, THE-718). | CHANGELOG.md (1.17.0) | 16 |
 | THE-719 | The coverage-gap sweep can be scheduled (#675, THE-719). | CHANGELOG.md (1.17.0) | 7 |
-| THE-720 | CLI Doctor | docs/design/cli-doctor.md | 10 |
+| THE-720 | CLI Doctor | docs/design/cli-doctor.md | 9 |
 | THE-721 | Experiential Reflection — Evaluator & Preference Extraction | docs/design/experiential-reflection.md | 1 |
 | THE-722 | `check:table-readers` — a CI gate for write-only tables (#683, THE-722). | CHANGELOG.md (1.17.1) | 5 |
 | THE-723 | The plane re-ran its own completed once-per-period work on every tick (#687, THE-723). | CHANGELOG.md (1.18.0) | 3 |
@@ -392,6 +392,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (1.31.4) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (1.31.4) | 1 |
 
-377 distinct ticket(s) across 544 source file(s) under
+377 distinct ticket(s) across 547 source file(s) under
 `packages/*/src`; 278 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

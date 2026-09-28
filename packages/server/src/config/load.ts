@@ -7,6 +7,7 @@ import {
   type ServerConfig,
   ServerConfigSchema,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { markEmbeddingsProviderExplicit } from "../embeddings/provider-explicit";
 import { applySecurityProfile } from "./security-profile";
 
 /**
@@ -81,6 +82,22 @@ export function isEmbeddingsModelExplicit(raw: Record<string, unknown>): boolean
   );
 }
 
+/** GH #995: same "read the RAW pre-parse object" pattern as isEmbeddingsModelExplicit above —
+ *  `embeddings.provider` has a schema default ("local"), so an absent field and an explicit
+ *  `"local"` are indistinguishable once `ServerConfigSchema.parse` has run. Sticky-provider
+ *  resolution (embeddings/sticky-provider.ts) needs the real answer: an install that never
+ *  configured `provider` at all is eligible to keep its existing index's provider on upgrade, but
+ *  one that explicitly wrote `"local"` is not — that IS the opt-in to switch. */
+export function isEmbeddingsProviderExplicit(raw: Record<string, unknown>): boolean {
+  const embeddings = raw.embeddings;
+  return (
+    typeof embeddings === "object" &&
+    embeddings !== null &&
+    !Array.isArray(embeddings) &&
+    "provider" in embeddings
+  );
+}
+
 /** THE-1122 review (item 7): same "read the RAW pre-parse object" pattern as
  *  isEmbeddingsModelExplicit above, so a config that omits `dimensions` (letting the schema's own
  *  provider-agnostic 768 default apply) is distinguishable from one that explicitly asked for 768
@@ -124,9 +141,15 @@ export function finalizeConfig(
   const embeddingsModelWasExplicit = isEmbeddingsModelExplicit(raw);
   const embeddingsDimensionsWasExplicit = isEmbeddingsDimensionsExplicit(raw);
   const cacheDirWasExplicit = isCacheDirExplicit(raw);
+  // GH #995 fix round 2 (root cause): captured from the SAME raw object, at the SAME point, as the
+  // three checks above — see embeddings/provider-explicit.ts's header for why this is attached to
+  // the config object itself (`config.embeddings`, set just below) rather than threaded as a
+  // parameter through every caller that can construct an embedding provider.
+  const embeddingsProviderWasExplicit = isEmbeddingsProviderExplicit(raw);
   // THE-526: expand a named security profile into its field set BEFORE validation, so explicit fields
   // still override it and the result validates as a normal config.
   const config = ServerConfigSchema.parse(applySecurityProfile(raw));
+  markEmbeddingsProviderExplicit(config.embeddings, embeddingsProviderWasExplicit);
   // THE-1122 review: `provider: "ollama"` with no explicit `model` restores the HISTORICAL pairing
   // (schema-level defaults are provider-agnostic now — see isEmbeddingsModelExplicit's own doc
   // comment for why). Every other provider is unaffected, and an explicit `model` is never

@@ -12,6 +12,10 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import { hiddenNamesInAllowlist } from "../doctor/tool-facade";
+import {
+  formatStickyEmbeddingsNotice,
+  type StickyEmbeddingsResolution,
+} from "../embeddings/sticky-provider";
 import { redactEndpoint } from "../telemetry/redact-endpoint";
 import {
   type StaleExplicitSessionSummary,
@@ -68,8 +72,16 @@ export function emitBootNotices(deps: {
   /** THE-1108: cache.db handle, so the stale-explicit-session notice below can read
    *  workspace_sessions. */
   db: Database;
+  /** GH #995: the sticky-embeddings-provider resolution server-runtime.ts computed before
+   *  constructing the embedding provider — see embeddings/sticky-provider.ts. */
+  embeddingsSticky: StickyEmbeddingsResolution;
 }): void {
   const { config } = deps;
+
+  // GH #995: kept-from-index is the ONE case an operator must hear about unprompted — every other
+  // source (configured / default) is silent, same as this file's other opt-in-only notices.
+  const stickyNotice = formatStickyEmbeddingsNotice(deps.embeddingsSticky);
+  if (stickyNotice) process.stderr.write(stickyNotice);
 
   // Security posture summary (audit #268 P1): make the active profile obvious at startup, and
   // warn when the permissive trusted-local defaults are active — governed by default is not
