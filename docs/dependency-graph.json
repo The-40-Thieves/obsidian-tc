@@ -2,17 +2,17 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 503,
-    "dependencies": 2347,
+    "modules": 509,
+    "dependencies": 2379,
     "subsystemPairs": 152,
-    "crossSubsystemImports": 1076
+    "crossSubsystemImports": 1083
   },
   "subsystems": {
     "auth": 4,
     "bridge": 8,
     "capability": 6,
     "capture": 5,
-    "cli": 45,
+    "cli": 50,
     "config": 14,
     "db": 16,
     "doctor": 21,
@@ -57,7 +57,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 54
+      "weight": 55
     },
     {
       "from": "search",
@@ -115,6 +115,11 @@
       "weight": 16
     },
     {
+      "from": "cli",
+      "to": "embeddings",
+      "weight": 14
+    },
+    {
       "from": "runtime",
       "to": "plane",
       "weight": 14
@@ -128,11 +133,6 @@
       "from": "runtime",
       "to": "scheduler",
       "weight": 13
-    },
-    {
-      "from": "cli",
-      "to": "embeddings",
-      "weight": 12
     },
     {
       "from": "runtime",
@@ -256,6 +256,11 @@
     },
     {
       "from": "cli",
+      "to": "config",
+      "weight": 5
+    },
+    {
+      "from": "cli",
       "to": "runtime",
       "weight": 5
     },
@@ -301,12 +306,12 @@
     },
     {
       "from": "cli",
-      "to": "config",
+      "to": "workspace",
       "weight": 4
     },
     {
       "from": "cli",
-      "to": "workspace",
+      "to": "providers",
       "weight": 4
     },
     {
@@ -441,7 +446,7 @@
     },
     {
       "from": "cli",
-      "to": "providers",
+      "to": "capability",
       "weight": 2
     },
     {
@@ -557,11 +562,6 @@
     {
       "from": "cli",
       "to": "bridge",
-      "weight": 1
-    },
-    {
-      "from": "cli",
-      "to": "capability",
       "weight": 1
     },
     {

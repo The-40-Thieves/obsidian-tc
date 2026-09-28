@@ -13,7 +13,7 @@
 // config, build the runtime, install the shutdown signal handlers, start. cli.ts's job is argument
 // dispatch and process exit — nothing else.
 
-import { normalizeConfigPathInput, parseCliArgs } from "./cli/args";
+import { parseCliArgs } from "./cli/args";
 import { run_activation_recompute } from "./cli/commands/activation-recompute";
 import { run_citation_infer } from "./cli/commands/citation-infer";
 import { run_cluster } from "./cli/commands/cluster";
@@ -41,6 +41,7 @@ import { run_plugin_install } from "./cli/commands/plugin-install";
 import { run_prefetch } from "./cli/commands/prefetch";
 import { run_reflect } from "./cli/commands/reflect";
 import { run_rerun } from "./cli/commands/rerun";
+import { run_setup } from "./cli/commands/setup";
 import { run_telemetry } from "./cli/commands/telemetry";
 import { run_token_mint } from "./cli/commands/token-mint";
 import { run_version } from "./cli/commands/version";
@@ -51,14 +52,18 @@ import { installShutdownSignals } from "./runtime/shutdown";
 async function run_serve(cmd: Cmd<"serve">): Promise<void> {
   // THE-825: planeEnabledExplicit gates the boot-time opt-in notice (server-runtime.ts's start()) —
   // whether the raw config file stated `plane.enabled` at all, not merely its resolved value.
-  const { config, planeEnabledExplicit } = resolveOrUsageExitWithProvenance(cmd.input);
-  // normalizeConfigPathInput (not a bare `cmd.input ?? env`): an empty string or an unresolved
-  // MCPB `${user_config.config_path}` placeholder must fall through to OBSIDIAN_TC_CONFIG the
-  // same way resolveOrUsageExitWithProvenance above already does for `config`, or this SEPARATE
-  // derivation of `configPath` -- the module-loader's trust root (server-runtime.ts) -- would pin
-  // to placeholder/empty text that `config` itself never saw.
-  const configPath = normalizeConfigPathInput(cmd.input) || process.env.OBSIDIAN_TC_CONFIG;
-  const runtime = await buildServerRuntime(config, configPath, undefined, planeEnabledExplicit);
+  //
+  // Fix round 2 (Codex review 1001-verify-r2, finding 7): `configFilePath` — the module-loader's
+  // trust root (server-runtime.ts's `configPath`) — comes from the SAME resolution `config` did,
+  // not a second independent re-derivation of input/env/default. A separate derivation (the
+  // pre-fix shape: `normalizeConfigPathInput(cmd.input) || process.env.OBSIDIAN_TC_CONFIG`) never
+  // saw `resolveServeConfigWithProvenance`'s own default-path fallback (`~/.obsidian-tc/config.json`,
+  // what `obsidian-tc setup` writes by convention) — so a bare `obsidian-tc` relying on that
+  // fallback loaded a real config while the module hatch's trust root stayed `undefined`.
+  const { config, planeEnabledExplicit, configFilePath } = resolveOrUsageExitWithProvenance(
+    cmd.input,
+  );
+  const runtime = await buildServerRuntime(config, configFilePath, undefined, planeEnabledExplicit);
   installShutdownSignals(runtime);
   await runtime.start();
 }
@@ -160,6 +165,8 @@ async function main(): Promise<void> {
       return run_rerun(cmd);
     case "telemetry":
       return run_telemetry(cmd);
+    case "setup":
+      return run_setup(cmd);
     default:
       return run_serve(cmd);
   }

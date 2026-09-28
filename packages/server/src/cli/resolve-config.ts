@@ -3,8 +3,9 @@
 // OBSIDIAN_TC_CONFIG) has no coupling to argv parsing; it depends only on CliError (moved to
 // ./cli-error.ts for the same reason, breaking what would otherwise be a circular import back
 // into args.ts).
-import { statSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import {
   finalizeConfig,
@@ -13,6 +14,16 @@ import {
   readConfigFile,
 } from "../config/load";
 import { CliError } from "./cli-error";
+
+/** `obsidian-tc setup`'s own CONVENTION for where to write a config when `--config` is not given
+ *  (cli/commands/setup.ts's own header comment has the full "why" — the `cacheDir` schema
+ *  default's own home-anchored name). Lives here, not in cli/commands/setup.ts, because
+ *  `resolveServeConfigWithProvenance` below now needs the SAME path as its own last-resort
+ *  fallback (fix round: `serve` never found `setup`'s output otherwise — see that function's own
+ *  comment) — one definition, not two that could drift apart. */
+export function defaultSetupConfigPath(): string {
+  return join(homedir(), ".obsidian-tc", "config.json");
+}
 
 /** Build a single-vault config from a vault directory, applying every schema default.
  *
@@ -68,6 +79,18 @@ export interface ResolvedServeConfig {
    *  config/load.ts's `isEmbeddingsProviderExplicit`. Zero-config (a vault directory) has no file,
    *  so is never explicit, same as `planeEnabledExplicit`. */
   embeddingsProviderExplicit: boolean;
+  /** Fix round 2 (Codex review 1001-verify-r2, finding 7): the ACTUAL config file path this
+   *  resolution used — including the `defaultSetupConfigPath()` last-resort fallback below —
+   *  undefined for zero-config (a vault directory has no config file at all). `cli.ts`'s
+   *  `run_serve` needs this exact value, not a second independent re-derivation of
+   *  input/env/default, for the module-loader trust root (`buildServerRuntime`'s `configPath`):
+   *  before this field existed, `run_serve` recomputed `configPath` from ONLY `cmd.input` and
+   *  `OBSIDIAN_TC_CONFIG`, so a bare `obsidian-tc` relying on the default-file fallback loaded a
+   *  real config (`config` above) while the module hatch's trust root stayed `undefined` — a
+   *  config with `embeddings.modulePath` set (setup preserves keys it does not own, so a merged
+   *  config CAN carry one) would then refuse to load its own module. One resolution, one path,
+   *  used everywhere it matters — not two derivations that could drift apart. */
+  configFilePath: string | undefined;
 }
 
 /**
@@ -81,7 +104,17 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
   // `undefined`, but `||` here is the second line of defense -- a defined-but-falsy `input` must
   // fall through to OBSIDIAN_TC_CONFIG rather than pin `target` to that falsy value and mask it
   // (the exact bug `??` had: `"" ?? env` returns "" because "" is not nullish).
-  const target = normalizeConfigPathInput(input) || process.env.OBSIDIAN_TC_CONFIG;
+  //
+  // Fix round (Codex review 1001-verify, "default output is not auto-loaded"): `obsidian-tc
+  // setup` writes to `defaultSetupConfigPath()` by convention, but this loader had no matching
+  // fallback -- a bare `obsidian-tc` (no argument, no OBSIDIAN_TC_CONFIG) never found what setup
+  // just wrote. This is the LAST resort, after both real inputs are exhausted, and only when that
+  // exact file exists -- it changes nothing for zero-config (a vault directory) or an explicit
+  // config/env, and does not fabricate a path that isn't actually there.
+  const target =
+    normalizeConfigPathInput(input) ||
+    process.env.OBSIDIAN_TC_CONFIG ||
+    (existsSync(defaultSetupConfigPath()) ? defaultSetupConfigPath() : undefined);
   if (!target) {
     throw new CliError(
       "no vault or config given: pass a vault folder or a config.json (or set OBSIDIAN_TC_CONFIG).",
@@ -98,6 +131,7 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
       config: configFromVaultPath(target),
       planeEnabledExplicit: false,
       embeddingsProviderExplicit: false,
+      configFilePath: undefined,
     };
   }
   const raw = readConfigFile(target);
@@ -105,6 +139,7 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
     config: finalizeConfig(raw),
     planeEnabledExplicit: isPlaneEnabledExplicit(raw),
     embeddingsProviderExplicit: isEmbeddingsProviderExplicit(raw),
+    configFilePath: target,
   };
 }
 

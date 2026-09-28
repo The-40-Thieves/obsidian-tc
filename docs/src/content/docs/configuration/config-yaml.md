@@ -530,4 +530,4 @@ non-loopback host with `auth.mode: "none"` is refused by the fail-closed interlo
 
 - [Inference gateway setup](/configuration/inference-gateway/) — the generative tier.
 - [Embedding model migration](/configuration/embedding-model-migration/) — changing models safely.
-- The CLI: `obsidian-tc help` lists the full offline command family (`serve`, `config show|validate`, `plugin install`, `cluster`, `activation-recompute`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`, `version`); each command takes the same config path.
+- The CLI: `obsidian-tc help` lists the full offline command family (`setup`, `serve`, `config show|validate`, `plugin install`, `cluster`, `activation-recompute`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`, `version`); each command takes the same config path. `setup` is the odd one out — it takes no config path at all (it WRITES one); see [First Run](/getting-started/first-run/#1-write-a-config).

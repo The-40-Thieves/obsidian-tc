@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ import {
   resolveServeConfig,
   resolveServeConfigWithProvenance,
 } from "../src/cli/args";
-import { rmTemp } from "./tmp";
+import { rmTemp, stubHomedir } from "./tmp";
 
 // THE-685: every temp dir this suite creates is tracked and removed. These calls previously had NO
 // teardown at all - a leak on every OS, invisible on POSIX (where /tmp is reaped) and unbounded on
@@ -1356,5 +1356,116 @@ describe("THE-1039 (GH #930) — parseCliArgs compact", () => {
       kind: "error",
       message: "--into requires a value",
     });
+  });
+});
+
+// Fix round (Codex review 1001-verify, "DEFAULT PATH"): `obsidian-tc setup` writes to
+// `defaultSetupConfigPath()` (~/.obsidian-tc/config.json) by convention, but `serve` never had a
+// matching fallback — a bare `obsidian-tc` with no argument, no OBSIDIAN_TC_CONFIG, never found
+// what setup just wrote. Own describe block: stubs `os.homedir()` via `stubHomedir` (fix round 2 —
+// HOME alone has no effect on windows-latest, see tmp.ts's own header) so `defaultSetupConfigPath()`
+// resolves under a real temp dir this suite controls, never the box's real home directory.
+describe("resolveServeConfigWithProvenance — default-path fallback to ~/.obsidian-tc/config.json", () => {
+  const ORIGINAL_OBSIDIAN_TC_CONFIG = process.env.OBSIDIAN_TC_CONFIG;
+  let restoreHome: (() => void) | undefined;
+
+  afterEach(() => {
+    restoreHome?.();
+    restoreHome = undefined;
+    if (ORIGINAL_OBSIDIAN_TC_CONFIG === undefined) delete process.env.OBSIDIAN_TC_CONFIG;
+    else process.env.OBSIDIAN_TC_CONFIG = ORIGINAL_OBSIDIAN_TC_CONFIG;
+  });
+
+  it("no --config/positional/env AND no default file -> the ordinary 'no vault or config given' error", () => {
+    restoreHome = stubHomedir(tmpDir("otc-default-path-none-"));
+    delete process.env.OBSIDIAN_TC_CONFIG;
+    expect(() => resolveServeConfig(undefined)).toThrow(/no vault or config given/i);
+  });
+
+  it("no --config/positional/env, but the default file EXISTS -> it is loaded", () => {
+    const home = tmpDir("otc-default-path-hit-");
+    const configDir = join(home, ".obsidian-tc");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, "config.json"),
+      JSON.stringify({ vaults: [{ id: "from-default", path: home }], cacheDir: configDir }),
+    );
+    restoreHome = stubHomedir(home);
+    delete process.env.OBSIDIAN_TC_CONFIG;
+    expect(resolveServeConfig(undefined).vaults[0]?.id).toBe("from-default");
+  });
+
+  it("an explicit input still wins over an existing default file", () => {
+    const home = tmpDir("otc-default-path-explicit-wins-");
+    const configDir = join(home, ".obsidian-tc");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, "config.json"),
+      JSON.stringify({ vaults: [{ id: "from-default", path: home }], cacheDir: configDir }),
+    );
+    const otherDir = tmpDir("otc-default-path-explicit-vault-");
+    restoreHome = stubHomedir(home);
+    delete process.env.OBSIDIAN_TC_CONFIG;
+    expect(resolveServeConfig(otherDir).vaults[0]?.id).toBe("main");
+  });
+
+  it("OBSIDIAN_TC_CONFIG still wins over an existing default file", () => {
+    const home = tmpDir("otc-default-path-env-wins-");
+    const configDir = join(home, ".obsidian-tc");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, "config.json"),
+      JSON.stringify({ vaults: [{ id: "from-default", path: home }], cacheDir: configDir }),
+    );
+    const envDir = tmpDir("otc-default-path-env-vault-");
+    const envFile = join(envDir, "env-config.json");
+    writeFileSync(
+      envFile,
+      JSON.stringify({ vaults: [{ id: "from-env", path: envDir }], cacheDir: ".otc-test-cache" }),
+    );
+    restoreHome = stubHomedir(home);
+    process.env.OBSIDIAN_TC_CONFIG = envFile;
+    expect(resolveServeConfig(undefined).vaults[0]?.id).toBe("from-env");
+  });
+
+  // Fix round 2 (Codex review 1001-verify-r2), finding 7 (MEDIUM): `run_serve` (cli.ts) used to
+  // re-derive its OWN `configPath` (the module-loader trust root) from ONLY `cmd.input` +
+  // `OBSIDIAN_TC_CONFIG`, never consulting this default-path fallback — so a bare `obsidian-tc`
+  // relying on it loaded a real config here while the trust root stayed `undefined` two lines away
+  // in cli.ts. `configFilePath` is the ONE resolution `run_serve` must now reuse instead.
+  it("configFilePath reports the default-file fallback path when that's what resolved", () => {
+    const home = tmpDir("otc-default-path-provenance-");
+    const configDir = join(home, ".obsidian-tc");
+    mkdirSync(configDir, { recursive: true });
+    const defaultFile = join(configDir, "config.json");
+    writeFileSync(
+      defaultFile,
+      JSON.stringify({ vaults: [{ id: "from-default", path: home }], cacheDir: configDir }),
+    );
+    restoreHome = stubHomedir(home);
+    delete process.env.OBSIDIAN_TC_CONFIG;
+    expect(resolveServeConfigWithProvenance(undefined).configFilePath).toBe(defaultFile);
+  });
+
+  it("configFilePath is undefined for zero-config (a vault directory)", () => {
+    const home = tmpDir("otc-default-path-provenance-dir-");
+    restoreHome = stubHomedir(home);
+    delete process.env.OBSIDIAN_TC_CONFIG;
+    const vaultDir = tmpDir("otc-default-path-provenance-vault-");
+    expect(resolveServeConfigWithProvenance(vaultDir).configFilePath).toBeUndefined();
+  });
+
+  it("a directory (zero-config) is unaffected by an existing default file", () => {
+    const home = tmpDir("otc-default-path-zero-config-");
+    const configDir = join(home, ".obsidian-tc");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, "config.json"),
+      JSON.stringify({ vaults: [{ id: "from-default", path: home }], cacheDir: configDir }),
+    );
+    const vaultDir = tmpDir("otc-default-path-zero-config-vault-");
+    restoreHome = stubHomedir(home);
+    delete process.env.OBSIDIAN_TC_CONFIG;
+    expect(resolveServeConfig(vaultDir).vaults[0]?.id).toBe("main");
   });
 });

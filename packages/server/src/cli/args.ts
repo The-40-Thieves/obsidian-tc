@@ -5,6 +5,8 @@ import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
 import { type MemoryImportCommand, parseMemoryImport } from "./parse-memory-import";
+import { type NoteQualityCommand, parseNoteQuality } from "./parse-note-quality";
+import { parseSetup, type SetupCommand } from "./parse-setup";
 import { parseTelemetry, type TelemetryCommand } from "./parse-telemetry";
 
 export type CliCommand =
@@ -57,14 +59,7 @@ export type CliCommand =
       allowUncertain?: boolean;
     }
   | { kind: "contribution-report"; input?: string; since?: number; until?: number; json?: string }
-  | {
-      kind: "note-quality";
-      input?: string;
-      vault?: string;
-      flags?: string[];
-      limit?: number;
-      suggest?: boolean;
-    }
+  | NoteQualityCommand // THE-537/THE-643: `note-quality`. Parser: ./parse-note-quality.ts
   | { kind: "prefetch"; input?: string; vault?: string; ttlHours?: number }
   | {
       kind: "rerun";
@@ -122,6 +117,7 @@ export type CliCommand =
   | ConsolidateCommand // THE-934: one ambient consolidation pass, unscheduled. ./parse-consolidate.ts.
   | CompactCommand // THE-1039 (GH #930): compaction. Parser: ./parse-compact.ts.
   | TelemetryCommand // THE-1125: `telemetry preview|status|reset-id`. Parser: ./parse-telemetry.ts.
+  | SetupCommand // GH #995 PR A: `setup` — detect the environment once, write an explicit config.
   | { kind: "error"; message: string };
 
 // Re-exported so `import { CliError } from "../args"` keeps working — see cli-error.ts's header.
@@ -242,6 +238,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
       return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
     }
     if (first === "telemetry") return parseTelemetry(rest); // parser: ./parse-telemetry.ts
+    if (first === "setup") return parseSetup(rest); // GH #995 PR A: parser: ./parse-setup.ts
     if (first === "doctor") {
       // --json and --token are dropped before resolving the positional config path so neither is
       // mistaken for it. --token takes a raw JWT whose iat/exp are read (not verified) by auth.maxAge.
@@ -447,37 +444,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(json !== undefined ? { json } : {}),
       };
     }
-    // THE-537: recompute the note_quality rollup and print the flagged notes.
-    // THE-643 item 2: --suggest additionally prints a remediation line per flag. A boolean flag
-    // (no value token), so it is filtered out of `scan` by presence, not by the pair-splice loop
-    // below (mirrors --erase/--verify on `forget`).
-    if (first === "note-quality") {
-      const scan = [...rest].filter((a) => a !== "--suggest");
-      for (const f of ["--vault", "--flags", "--limit", "--config"]) {
-        const i = scan.indexOf(f);
-        if (i >= 0) scan.splice(i, 2);
-      }
-      const limitRaw = flagValue(rest, "--limit");
-      const limit = limitRaw === undefined ? undefined : Number(limitRaw);
-      if (limit !== undefined && (!Number.isFinite(limit) || limit <= 0)) {
-        throw new CliError("--limit must be a positive number");
-      }
-      const flagsRaw = flagValue(rest, "--flags");
-      const flags = flagsRaw
-        ?.split(",")
-        .map((f) => f.trim())
-        .filter(Boolean);
-      const vault = flagValue(rest, "--vault");
-      const suggest = rest.includes("--suggest");
-      return {
-        kind: "note-quality",
-        input: flagValue(rest, "--config") ?? positional(scan),
-        ...(vault !== undefined ? { vault } : {}),
-        ...(flags && flags.length > 0 ? { flags } : {}),
-        ...(limit !== undefined ? { limit } : {}),
-        ...(suggest ? { suggest } : {}),
-      };
-    }
+    // THE-537/THE-643: `note-quality`. Parser: ./parse-note-quality.ts
+    if (first === "note-quality") return parseNoteQuality(rest);
     // THE-239: dependency-aware deletion — forget an episode or propagate a note deletion.
     if (first === "forget") {
       const scan = [...rest].filter((a) => a !== "--erase" && a !== "--verify");
