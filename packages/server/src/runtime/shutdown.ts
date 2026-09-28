@@ -6,6 +6,7 @@
 // SECOND signal arriving while the first is still draining does not race a second `close()` call
 // and a second `process.exit(0)` into the same shutdown.
 import type { ServerRuntime } from "./server-runtime";
+import { logShutdownError } from "./shutdown-phase";
 
 // GH #995: `close()` is bounded internally (its own SHUTDOWN_DRAIN_MS race and
 // scheduler.stop()'s own deadline), but "every piece we wrote is bounded" is not the same
@@ -38,11 +39,7 @@ export function installShutdownSignals(runtime: ServerRuntime): () => void {
       }, HARD_EXIT_MS).unref();
       void runtime
         .close(`signal:${signal}`)
-        .catch((e) => {
-          process.stderr.write(
-            `shutdown: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}\n`,
-          );
-        })
+        .catch(logShutdownError)
         .finally(() => {
           clearTimeout(hardExit);
           process.exit(0);

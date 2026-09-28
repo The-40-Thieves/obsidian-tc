@@ -43,6 +43,60 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   with a notice — falling back to the default only when every orphaned row already belongs to that
   default's own provider family (nothing left to keep). See "Upgrading from a pre-local-embedder
   config" in [docs/configuration/embeddings.md](docs/src/content/docs/configuration/embeddings.md).
+- **Several MCP clients on one vault no longer race each other's boot embed and index writes
+  (multi-process part of GH #995).** Each stdio process previously ran its own boot
+  reconcile/embed pass and its own watcher-driven index writes independently — an N-times CPU
+  storm and a genuine multi-writer race on one shared `cache.db`. A new per-cacheDir leader
+  election (`src/runtime/vault-lock.ts`) holds an uncommitted `BEGIN EXCLUSIVE` transaction open
+  on a small side SQLite file (`vault-lock.db`) next to `cache.db`; the OS releases it
+  automatically on ANY holder exit, including `kill -9`, with no stale-detection code needed.
+  Only the leader runs the boot/periodic reconcile and the vault watcher's write callbacks;
+  followers retry acquisition on an unref'd 5-15s jittered timer and promote (running an
+  immediate reconcile) the moment the leader releases. Explicit tool writes (`write_note` et
+  al.) and a follower's own writes stay ungated — SQLite already serializes those. `server_health`
+  gains a `leader_role` field. See `src/runtime/vault-lock.ts`'s own header comment for the design
+  and the Bun `bun:sqlite` GC-finalizer trap this required guarding against.
+
+  **Fix round (cross-vendor review).** A leader now demotes itself, rather than staying
+  self-reported "leader" with nobody actually holding the lock, on either of two ways SQLite can
+  drop the held transaction out from under a live connection: a lost `BEGIN EXCLUSIVE` transaction
+  (SQLite auto-rolling-back on IOERR/FULL/NOMEM/BUSY/INTERRUPT, detected via each adapter's
+  `inTransaction()` probe) and the lock file itself being replaced on disk (an external
+  unlink+recreate or atomic rename, detected by comparing the held connection's dev+inode against
+  a fresh `stat` of the same path on every keepalive tick). `close()` also now flips the reported
+  role to follower *before* releasing SQLite rather than after, closing a window where a caller
+  could observe a stale "leader" read between release and role update, and races itself against a
+  promotion attempt that started just before `close()` ran so an already-closing follower can no
+  longer acquire the lock and leave it held forever. Two real processes cold-starting against the
+  SAME brand-new `cacheDir` together previously raced each other's `cache.db`/`experiential.db`
+  migration runner directly (`migration 20260820_001 failed: duplicate column name:
+  scope_caller`, reproduced with two real built CLIs) — a new bootstrap barrier
+  (`withBootstrapBarrier`, its own side SQLite file so it cannot deadlock against the leader
+  election's lock) now serializes that step across every process contending for the same
+  `cacheDir` before the election ever runs.
+
+  **Fix round 2 (second cross-vendor review).** Demoting used to flip the reported role and
+  release the lock while the ex-leader's own boot/periodic reconcile and watcher-driven index
+  writes kept running — a successor could promote and start writing before the loser had actually
+  stopped, reopening the dual-writer race the lock exists to prevent. `demote()` now runs and
+  AWAITS every registered `onDemote` hook first: it aborts the in-flight reconcile's own signal
+  (never the shared outer one, so a later re-promotion can still reconcile), joins it under a
+  short bounded deadline, and drops the vault watcher's own pending writer-queue entries for that
+  vault — only *after* every hook settles does the connection actually release and a challenger
+  become eligible to promote. A follower that promotes, demotes, and is re-promoted now also runs
+  a fresh catch-up reconcile on *every* promotion, not just the first — the one-shot callback
+  previously left a `promote → demote → re-promote` cycle with nothing to catch up whatever the
+  watcher missed while demoted, and periodic reconcile is off by default. `close()`'s own shutdown
+  sequence is now closes transports first (no more inbound requests), then aborts and joins the
+  reconcile, then races the scheduler/index/job drain, and only then releases the leader lock —
+  and any of those bounded phases timing out now exits the process rather than silently falling
+  through to a lock release with a writer still possibly mid-flight, including when the timeout
+  path is a test double or a genuinely delayed real `process.exit`. A follower's retry loop now
+  classifies and logs (and counts, surfaced via a new `server_health.leader_role_detail`) any
+  non-busy acquisition failure instead of silently swallowing it forever, and a lock-file identity
+  mismatch at the keepalive check must reproduce on two consecutive ticks before demoting — a
+  single transient `stat` glitch no longer demotes a leader that still holds the lock.
+
 - **A stdio server no longer ignores SIGTERM while the boot-time embed is running (GH #995).**
   The boot reconcile's embed calls used to chain purely through `await`, and a synchronous-JS-thread
   embed call (the in-process ONNX/native path, in particular) never hands control back to libuv

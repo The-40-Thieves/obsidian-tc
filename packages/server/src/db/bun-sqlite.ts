@@ -161,6 +161,8 @@ export async function openBunSqlite(
     close: (): void => {
       db.close();
     },
+    // GH #995 fix round (LOCK_TXN_LOSS) — see db/types.ts's Database.inTransaction doc comment.
+    inTransaction: (): boolean => db.inTransaction,
     ...(readonlyMode !== undefined ? { readonlyMode } : {}),
   };
 }

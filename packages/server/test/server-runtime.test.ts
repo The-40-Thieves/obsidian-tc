@@ -385,9 +385,12 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
     await expect(
       buildServerRuntime(config, undefined, (name) => cleanedUp.push(name)),
     ).rejects.toThrow(/refuses a non-localhost bind/);
-    // watcher (opened third, after stores+governance) closes first; then governance; then stores.
-    // "transports" never appears — wireTransports itself is what threw, so it never finished.
-    expect(cleanedUp).toEqual(["watcher", "governance", "stores"]);
+    // watcher (opened after stores+governance+leaderElection) closes first; then GH #995's
+    // leaderElection (pushed right after stores+governance, ahead of watcher — see
+    // server-runtime.ts's own comment on why it's constructed first in the try block); then
+    // governance; then stores. "transports" never appears — wireTransports itself is what threw,
+    // so it never finished.
+    expect(cleanedUp).toEqual(["watcher", "leaderElection", "governance", "stores"]);
   });
 });
 

@@ -266,6 +266,15 @@ export interface IndexCoordinatorDeps {
    *  into indexNote for EVERY write through this coordinator — write_note/append_note/patch_note,
    *  the vault watcher, and a move/rename INTO an excluded folder. Absent -> nothing excluded. */
   isEgressExcluded?: (rel: string) => boolean;
+  /** GH #995: gates ONLY the vault WATCHER's onUpsert/onDelete callbacks below (see this
+   *  function's own doc comment) — never `reindexHook`/`deindexHook` themselves, which stay
+   *  reachable for explicit tool writes (write_note et al.) and this process's OWN writes on every
+   *  role. Absent (every caller that predates the leader lock, including every existing test of
+   *  this function) behaves as "always leader" — a single-process deployment never gates anything.
+   *  See src/runtime/vault-lock.ts for what elects the leader. */
+  isLeader?: () => boolean;
+  /** F1 (fix round 2): fires on every demote — drops pending watcher-originated coordinator ops. */
+  onDemote?: (cb: (reason: string) => void) => void;
 }
 
 export interface IndexCoordinatorWiring {
@@ -342,10 +351,34 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
   });
   const deindexHook = (vaultId: string, path: string): void =>
     indexCoordinator.submitDelete(vaultId, path);
-  const stopVaultWatch = registerVaultWatch(deps.vaults, deps.watch, {
-    onUpsert: reindexHook,
-    onDelete: deindexHook,
+  // F1 (fix round 2): a SEPARATE ACL-gated hook pair tagged "watcher" so a demote can cancel only
+  // these pending ops (cancelOrigin), leaving an explicit tool write on the same key untouched.
+  const watcherReindexHook = makeReindexGate(indexReadableFor, {
+    write: (vaultId, path, content) =>
+      indexCoordinator.submitWrite(vaultId, path, content, "watcher"),
+    delete: (vaultId, path) => indexCoordinator.submitDelete(vaultId, path, "watcher"),
   });
+  const watcherDeindexHook = (vaultId: string, path: string): void =>
+    indexCoordinator.submitDelete(vaultId, path, "watcher");
+  // GH #995: the watcher itself keeps running in EVERY process (leader and follower alike — a
+  // follower still needs to serve reads off a live index once it eventually promotes, and
+  // stopping/restarting the underlying fs watch on every role flip would be strictly more moving
+  // parts than gating the two callbacks it drives). Only the WRITE side is gated: a follower's
+  // onUpsert/onDelete for a change it sees is a deliberate no-op, never queued for later replay —
+  // the promotion-triggered reconcile pass (server-runtime.ts) is what catches up anything a
+  // follower's watcher window missed while it wasn't leader, via a fresh content-hash walk.
+  const isLeader = deps.isLeader ?? (() => true);
+  const stopVaultWatch = registerVaultWatch(deps.vaults, deps.watch, {
+    onUpsert: (vaultId, path, content) => {
+      if (isLeader()) watcherReindexHook(vaultId, path, content);
+    },
+    onDelete: (vaultId, path) => {
+      if (isLeader()) watcherDeindexHook(vaultId, path);
+    },
+  });
+
+  // F1 (fix round 2): drop pending watcher ops on demote (explicit tool writes stay untouched).
+  deps.onDemote?.(() => indexCoordinator.cancelOrigin("watcher"));
 
   return { indexCoordinator, indexReadableFor, reindexHook, deindexHook, stopVaultWatch };
 }

@@ -27,6 +27,36 @@ For Claude Desktop / Claude Code / Cursor. The client launches the server as a s
 
 Zero-config variant: pass a vault folder as the argument instead of a config (`"args": ["-y", "obsidian-tc", "/path/to/vault"]`).
 
+### Several stdio clients on the same vault
+
+"1 per process" above means every MCP client that launches obsidian-tc gets its own subprocess —
+so running Claude Desktop, Claude Code, and Cursor against the **same vault config** (same
+`cacheDir`) starts several independent processes that all share one `cache.db`. Each process still
+elects a per-vault indexing **leader**: exactly one holds the boot/periodic reconcile and the
+vault watcher's index writes; the rest are **followers** that skip both and serve reads off the
+shared index. Explicit tool calls (`write_note` et al.) go through on every process regardless of
+role — SQLite already serializes those writers, so gating them would add nothing.
+
+- `server_health` reports which role a given process holds in its `leader_role` field
+  (`"leader"` or `"follower"`).
+- If the leader process exits — closed cleanly, crashed, or killed — a follower promotes and takes
+  over within its retry window (jittered, 5-15s by default) and immediately runs its own reconcile
+  to catch up anything missed in between. No client-visible action is needed; a follower already
+  serves reads from the same index throughout.
+- This applies within one config's `cacheDir`, not across separate vaults — two different vault
+  configs never contend with each other.
+- A leader that loses its lock out from under it — the held transaction gets rolled back by SQLite
+  itself, or the lock file on disk gets replaced — demotes immediately rather than continuing to
+  act as leader with nothing actually held; a follower promotes in its place on the next retry.
+  Demotion stops this process's own writes (aborts its in-flight reconcile, drops queued
+  watcher-originated index writes) before the lock actually releases, so a successor cannot start
+  writing while the loser is still mid-write. A process that promotes, demotes, and is
+  re-promoted runs a fresh catch-up reconcile on *every* promotion, not just the first, so nothing
+  missed while it was demoted goes unindexed. Several processes cold-starting against the **same
+  brand-new `cacheDir`** together (first boot, or a wiped cache) serialize their schema migrations
+  through a short bootstrap barrier before election runs, so they cannot race each other's
+  migration pass.
+
 ## HTTP local
 
 Enable in config:

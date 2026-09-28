@@ -14,6 +14,7 @@ import { makeActivationLookup } from "../experiential/activation";
 import { createEpisodeCapture, type EpisodeSink } from "../experiential/episodes";
 import { createRetrievalLogger, type RetrievalLogger } from "../experiential/log";
 import { stderrOnError } from "../util/errors";
+import { withBootstrapBarrier } from "./vault-lock";
 
 export interface StoresDeps {
   cacheDir: string;
@@ -96,4 +97,14 @@ export async function wireStores(deps: StoresDeps): Promise<Stores> {
       db.close?.();
     },
   };
+}
+
+/**
+ * GH #995 fix round (COLD_BOOT_PRELOCK): `wireStores` behind `withBootstrapBarrier`, extracted
+ * out of server-runtime.ts (which was pushing biome's 700-line noExcessiveLinesPerFile ceiling —
+ * same reason shutdown-phase.ts's helpers were extracted) rather than left as an inline wrap. See
+ * `withBootstrapBarrier`'s own doc comment (vault-lock.ts) for the migration race this closes.
+ */
+export async function wireStoresBehindBootstrapBarrier(deps: StoresDeps): Promise<Stores> {
+  return withBootstrapBarrier(deps.cacheDir, () => wireStores(deps));
 }

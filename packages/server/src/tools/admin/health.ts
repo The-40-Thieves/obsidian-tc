@@ -120,14 +120,18 @@ export interface HealthInfo {
     oldest_age_ms: number | null;
     oldest_principal?: string | null;
   };
+  /** GH #995: this process's role in the per-vault leader election (runtime/vault-lock.ts); absent when unwired. */
+  leader_role?: "leader" | "follower";
+  leader_role_detail?: {
+    lock_error: { message?: string; code?: string; count: number; last_at: string };
+  };
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
- *  "can I trust the search index right now, before I pay for an expensive search?" — plus
- *  chunks_upserted from the most recent index_vault call (absent -> null, never indexed this
- *  process lifetime). No `detail`: that sub-object is authenticated-only on server_health because
- *  its messages may name paths; this tool stays scope-free like server_health itself, so it
- *  carries only the non-identifying fields already exposed unauthenticated there. */
+ *  "can I trust the search index right now?" — plus chunks_upserted from the most recent
+ *  index_vault call (absent -> null, never indexed this process lifetime). No `detail`: that
+ *  sub-object is authenticated-only on server_health (its messages may name paths); this tool
+ *  stays scope-free like server_health, carrying only its non-identifying fields. */
 /** THE-645: in-flight progress for a currently-running index_vault call, updated once per
  *  completed flush() batch (never per-chunk — see IndexVaultArgs.onProgress's perf-gate note). */
 export interface IndexInFlightInfo {
@@ -244,6 +248,17 @@ const HealthInfoOutput = z.object({
       oldest_principal: z.string().nullable().optional(),
     })
     .optional(),
+  leader_role: z.enum(["leader", "follower"]).optional(),
+  leader_role_detail: z
+    .object({
+      lock_error: z.object({
+        message: z.string().optional(),
+        code: z.string().optional(),
+        count: z.number(),
+        last_at: z.string(),
+      }),
+    })
+    .optional(),
 });
 
 export function createIndexStatusTool(opts: {
@@ -326,6 +341,16 @@ export function createHealthTool(opts: {
     oldestAgeMs: number | null;
     oldestPrincipal: string | null;
   };
+  /** GH #995: read live — role can flip on promotion. Absent omits the field entirely. */
+  getLeaderRole?: () => "leader" | "follower";
+  getLeaderRoleDetail?: () =>
+    | {
+        message: string;
+        code?: string;
+        count: number;
+        lastAt: string;
+      }
+    | undefined;
 }): ToolDefinition<Record<string, never>, HealthInfo> {
   return {
     name: "server_health",
@@ -406,6 +431,23 @@ export function createHealthTool(opts: {
                   oldest_age_ms: s.oldestAgeMs,
                   // THE-924: a principal is caller identity, withheld the same as `vaults`.
                   ...(authedUnbound ? { oldest_principal: s.oldestPrincipal } : {}),
+                },
+              };
+            })()
+          : {}),
+        ...(opts.getLeaderRole ? { leader_role: opts.getLeaderRole() } : {}),
+        ...(opts.getLeaderRoleDetail
+          ? (() => {
+              const e = opts.getLeaderRoleDetail?.();
+              if (!e) return {};
+              return {
+                leader_role_detail: {
+                  lock_error: {
+                    ...(authedUnbound ? { message: e.message } : {}),
+                    code: e.code,
+                    count: e.count,
+                    last_at: e.lastAt,
+                  },
                 },
               };
             })()
