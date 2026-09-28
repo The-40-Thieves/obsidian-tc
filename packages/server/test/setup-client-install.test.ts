@@ -19,6 +19,19 @@ import {
   obsidianTcServerEntry,
   shellQuoteArg,
 } from "../src/cli/setup/client-install";
+import {
+  aiderUnsupportedReason,
+  devinInstructions,
+  geminiAddCommand,
+  opencodeConfigPath,
+  opencodeServerEntry,
+  vscodeAddCommand,
+  vscodeAddMcpPayload,
+  windsurfConfigPath,
+  windsurfLegacyConfigPath,
+  zedServerEntry,
+  zedSettingsPath,
+} from "../src/cli/setup/client-install-editors";
 
 describe("claudeDesktopConfigPath", () => {
   it("uses %APPDATA%\\Claude on win32", () => {
@@ -154,6 +167,127 @@ describe("clientLabel", () => {
     expect(clientLabel("chatgpt")).toBe("ChatGPT");
     expect(clientLabel("antigravity")).toBe("Antigravity");
     expect(clientLabel("hermes")).toBe("Hermes Agent");
+    expect(clientLabel("vscode")).toBe("VS Code (Copilot)");
+    expect(clientLabel("opencode")).toBe("opencode");
+    expect(clientLabel("windsurf")).toBe("Windsurf / Devin Desktop");
+    expect(clientLabel("gemini")).toBe("Gemini CLI");
+    expect(clientLabel("zed")).toBe("Zed");
+    expect(clientLabel("devin")).toBe("Devin (cloud)");
+    expect(clientLabel("aider")).toBe("Aider");
+  });
+});
+
+describe("vscodeAddCommand / vscodeAddMcpPayload", () => {
+  it("embeds name/command/args in the JSON payload code --add-mcp expects", () => {
+    expect(vscodeAddMcpPayload("/cfg.json")).toEqual({
+      name: "obsidian-tc",
+      command: "obsidian-tc",
+      args: ["--config", "/cfg.json"],
+    });
+    expect(vscodeAddCommand("/cfg.json")).toEqual([
+      "--add-mcp",
+      JSON.stringify({
+        name: "obsidian-tc",
+        command: "obsidian-tc",
+        args: ["--config", "/cfg.json"],
+      }),
+    ]);
+  });
+});
+
+describe("opencodeConfigPath / opencodeServerEntry", () => {
+  it("uses ~/.config/opencode/opencode.json on macOS AND Linux (not Application Support)", () => {
+    expect(opencodeConfigPath("linux", {}, "/home/op")).toBe(
+      join("/home/op", ".config", "opencode", "opencode.json"),
+    );
+    expect(opencodeConfigPath("darwin", {}, "/Users/op")).toBe(
+      join("/Users/op", ".config", "opencode", "opencode.json"),
+    );
+  });
+
+  it("uses %APPDATA%\\opencode\\opencode.json on win32", () => {
+    expect(
+      opencodeConfigPath("win32", { APPDATA: "C:\\Users\\op\\AppData\\Roaming" }, "C:\\Users\\op"),
+    ).toBe(join("C:\\Users\\op\\AppData\\Roaming", "opencode", "opencode.json"));
+  });
+
+  it("builds opencode's own type:local, array-command entry shape", () => {
+    expect(opencodeServerEntry("/cfg.json")).toEqual({
+      type: "local",
+      command: ["obsidian-tc", "--config", "/cfg.json"],
+      enabled: true,
+      environment: {},
+    });
+  });
+});
+
+describe("windsurfConfigPath / windsurfLegacyConfigPath", () => {
+  it("uses ~/.config/devin/mcp_config.json on linux/darwin (post-rebrand)", () => {
+    expect(windsurfConfigPath("linux", {}, "/home/op")).toBe(
+      join("/home/op", ".config", "devin", "mcp_config.json"),
+    );
+  });
+
+  it("uses %APPDATA%\\devin\\mcp_config.json on win32", () => {
+    expect(
+      windsurfConfigPath("win32", { APPDATA: "C:\\Users\\op\\AppData\\Roaming" }, "C:\\Users\\op"),
+    ).toBe(join("C:\\Users\\op\\AppData\\Roaming", "devin", "mcp_config.json"));
+  });
+
+  it("the legacy path is the pre-rebrand Codeium dotfolder, same on every OS", () => {
+    expect(windsurfLegacyConfigPath("/home/op")).toBe(
+      join("/home/op", ".codeium", "windsurf", "mcp_config.json"),
+    );
+  });
+});
+
+describe("geminiAddCommand", () => {
+  it("uses the documented `gemini mcp add <name> <commandOrUrl> [args...]` shape", () => {
+    expect(geminiAddCommand("/cfg.json")).toEqual([
+      "mcp",
+      "add",
+      "obsidian-tc",
+      "obsidian-tc",
+      "--config",
+      "/cfg.json",
+    ]);
+  });
+});
+
+describe("zedSettingsPath / zedServerEntry", () => {
+  it("uses ~/.config/zed/settings.json on linux/darwin, respecting XDG_CONFIG_HOME", () => {
+    expect(zedSettingsPath("linux", { XDG_CONFIG_HOME: "/home/op/.config" }, "/home/op")).toBe(
+      join("/home/op/.config", "zed", "settings.json"),
+    );
+  });
+
+  it("uses %APPDATA%\\Zed\\settings.json on win32", () => {
+    expect(
+      zedSettingsPath("win32", { APPDATA: "C:\\Users\\op\\AppData\\Roaming" }, "C:\\Users\\op"),
+    ).toBe(join("C:\\Users\\op\\AppData\\Roaming", "Zed", "settings.json"));
+  });
+
+  it("builds the three-field entry shown in Zed's own current docs — no source:custom field", () => {
+    expect(zedServerEntry("/cfg.json")).toEqual({
+      command: "obsidian-tc",
+      args: ["--config", "/cfg.json"],
+      env: {},
+    });
+  });
+});
+
+describe("devinInstructions", () => {
+  it("names the cloud-only limitation and distinguishes Devin from Devin Desktop/Windsurf", () => {
+    const text = devinInstructions();
+    expect(text).toMatch(/no local-stdio reach|cloud/i);
+    expect(text).toContain("windsurf");
+    expect(text).toContain("docs/wiki/Deployment-Modes.md");
+  });
+});
+
+describe("aiderUnsupportedReason", () => {
+  it("names the lack of MCP support", () => {
+    expect(aiderUnsupportedReason()).toMatch(/no MCP support/i);
   });
 });
 
@@ -225,8 +359,39 @@ describe("CLIENT_REGISTRY", () => {
       const entry = CLIENT_REGISTRY[client];
       if (entry.kind !== "cli") continue;
       expect(entry.binary.length).toBeGreaterThan(0);
-      expect(entry.buildArgs("/cfg.json")).toContain("obsidian-tc");
+      // VS Code embeds the name INSIDE a JSON payload arg rather than as its own argv token (see
+      // vscodeAddMcpPayload's own test) — `.some(...includes)` covers both shapes.
+      expect(entry.buildArgs("/cfg.json").some((a) => a.includes("obsidian-tc"))).toBe(true);
     }
+  });
+
+  it("every jsonc-merge entry's buildEntry produces a plain object", () => {
+    for (const client of INSTALL_CLIENTS) {
+      const entry = CLIENT_REGISTRY[client];
+      if (entry.kind !== "jsonc-merge") continue;
+      expect(entry.serversKey.length).toBeGreaterThan(0);
+      expect(typeof entry.buildEntry("/cfg.json")).toBe("object");
+    }
+  });
+
+  it("windsurf is the only json-merge entry with a legacyConfigPath", () => {
+    for (const client of INSTALL_CLIENTS) {
+      const entry = CLIENT_REGISTRY[client];
+      if (entry.kind !== "json-merge") continue;
+      if (client === "windsurf") {
+        expect(entry.legacyConfigPath).toBeDefined();
+      } else {
+        expect(entry.legacyConfigPath).toBeUndefined();
+      }
+    }
+  });
+
+  it("aider is the only unsupported-kind entry, and its reason is non-empty", () => {
+    const unsupported = INSTALL_CLIENTS.filter((c) => CLIENT_REGISTRY[c].kind === "unsupported");
+    expect(unsupported).toEqual(["aider"]);
+    const entry = CLIENT_REGISTRY.aider;
+    if (entry.kind !== "unsupported") throw new Error("expected unsupported");
+    expect(entry.reason().length).toBeGreaterThan(0);
   });
 });
 
@@ -246,6 +411,15 @@ describe("formatClientSnippets", () => {
     expect(text).toContain("agy mcp add obsidian-tc obsidian-tc --config");
     expect(text).toContain("hermes mcp add obsidian-tc --command obsidian-tc --args --config");
     expect(text).toContain("docs/wiki/Deployment-Modes.md");
+    expect(text).toContain("VS Code (Copilot)");
+    expect(text).toContain("opencode");
+    expect(text).toContain("Windsurf / Devin Desktop");
+    expect(text).toContain("Gemini CLI");
+    expect(text).toContain("Zed");
+    expect(text).toContain("Devin (cloud)");
+    expect(text).toContain("Aider");
+    expect(text).toContain("gemini mcp add obsidian-tc obsidian-tc --config");
+    expect(text).toContain("comments preserved");
   });
 
   it("finding 3: labels the win32 snippet as PowerShell and single-quotes its config path", () => {

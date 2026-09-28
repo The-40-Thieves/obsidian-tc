@@ -8,6 +8,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`setup --install-client` now supports seven more MCP clients: VS Code, opencode, Windsurf/Devin
+  Desktop (alias `devin-desktop`), Gemini CLI, Zed, Devin, and Aider** (previously Claude Code,
+  Claude Desktop, Cursor, Codex CLI, ChatGPT, Antigravity, and Hermes Agent). VS Code and Gemini CLI
+  each ship their own add-server command (`code --add-mcp`, `gemini mcp add`); Windsurf/Devin
+  Desktop merges a JSON `mcp_config.json` the same way Claude Desktop/Cursor already do, preferring
+  a pre-rebrand `~/.codeium/windsurf/mcp_config.json` when one already exists on disk; opencode and
+  Zed merge `opencode.json`/`settings.json` respectively, but both may carry `//` comments in real
+  configs, so the merge is done on the file's TEXT via the `jsonc-parser` package (new dependency —
+  zero transitive deps, 100/100 vulnerability score, Microsoft's own JSON-with-comments scanner/
+  editor) rather than `JSON.parse`-then-`JSON.stringify`, which would silently drop every comment.
+  Devin (the cloud agent, distinct from Devin Desktop above) has no local-stdio reach, so
+  `--install-client devin` prints instructions only, same shape as `chatgpt`. Aider has no MCP
+  support at all, so `--install-client aider` writes nothing and exits non-zero with that
+  explanation rather than pretending there is somewhere to install into. The registry
+  (`cli/setup/client-install.ts`, now split across `client-install-types.ts`/
+  `client-install-editors.ts`/`jsonc-merge.ts` to stay under the file-length lint ceiling) gained a
+  fourth `"jsonc-merge"` kind and a fifth `"unsupported"` kind alongside the existing `"cli"`/
+  `"json-merge"`/`"instructions-only"`.
+
 - **`setup --install-client` now supports four more MCP clients: Codex CLI, ChatGPT, Antigravity,
   and Hermes Agent** (previously Claude Code, Claude Desktop, and Cursor only). Codex CLI,
   Antigravity, and Hermes Agent each ship their own `mcp add`-style command

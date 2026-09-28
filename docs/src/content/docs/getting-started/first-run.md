@@ -112,39 +112,70 @@ Point any MCP client at the command. The config path can be an argument or the
 `obsidian-tc setup` itself prints ready-to-paste snippets for every known client at
 the end of every run. To have it wire one in for you instead of pasting by hand,
 add `--install-client <id>` (`claude-code`, `claude-desktop`, `cursor`, `codex`,
-`chatgpt`, `antigravity`, `hermes`):
+`chatgpt`, `antigravity`, `hermes`, `vscode`, `opencode`, `windsurf` — alias
+`devin-desktop` — `gemini`, `zed`, `devin`, `aider`):
 
 ```sh
 obsidian-tc setup --install-client claude-desktop
 ```
 
-**Claude Desktop and Cursor** — no CLI of their own — merge an `obsidian-tc` entry
-into that client's own JSON config (`claude_desktop_config.json` /
-`~/.cursor/mcp.json`) without touching any other server already configured there,
-backing the existing file up first. It refuses to replace an existing
+**Claude Desktop, Cursor, and Windsurf/Devin Desktop** — no CLI of their own —
+merge an `obsidian-tc` entry into that client's own JSON config
+(`claude_desktop_config.json` / `~/.cursor/mcp.json` / `~/.config/devin/
+mcp_config.json`, or the pre-rebrand `~/.codeium/windsurf/mcp_config.json` when
+that one already exists) without touching any other server already configured
+there, backing the existing file up first. It refuses to replace an existing
 `obsidian-tc` entry unless you also pass `--force`, and `--dry-run` prints the
 entry without writing anything.
 
-**Claude Code, Codex CLI, Antigravity, and Hermes Agent** each ship their own
-`mcp add`-style command, so `--install-client` prints (and, unless `--dry-run` is
-given, runs) that documented command instead of hand-editing the client's own
-config file (`~/.claude.json`, `~/.codex/config.toml`,
-`~/.gemini/antigravity/mcp_config.json`, a Hermes profile's `config.yaml`
-respectively):
+**opencode and Zed** merge the same way, into `opencode.json`'s `mcp` key and
+`settings.json`'s `context_servers` key respectively — but both files may carry
+`//` comments in real configs, so the merge edits the file's TEXT in place
+(preserving every comment and every other key) instead of parsing and
+re-serializing it.
+
+**Claude Code, Codex CLI, Antigravity, Hermes Agent, VS Code, and Gemini CLI** each
+ship their own `mcp add`-style command, so `--install-client` prints (and, unless
+`--dry-run` is given, runs) that documented command instead of hand-editing the
+client's own config file:
 
 ```sh
 claude mcp add --scope user obsidian-tc -- obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 codex mcp add obsidian-tc -- obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 agy mcp add obsidian-tc obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 hermes mcp add obsidian-tc --command obsidian-tc --args --config /ABSOLUTE/PATH/TO/config.json
+code --add-mcp '{"name":"obsidian-tc","command":"obsidian-tc","args":["--config","/ABSOLUTE/PATH/TO/config.json"]}'
+gemini mcp add obsidian-tc obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 ```
 
-**ChatGPT** has no local MCP client at all — Developer Mode's custom connectors
-only reach a remote, public HTTPS MCP server. `--install-client chatgpt` writes
-nothing; it prints instructions pointing at [Run one shared server for several
+**ChatGPT and Devin** (the cloud agent — not Devin Desktop, the rebranded
+Windsurf editor above) have no local MCP client at all: both reach only a
+remote, public HTTPS MCP server. `--install-client chatgpt`/`devin` write
+nothing; they print instructions pointing at [Run one shared server for several
 clients](https://github.com/The-40-Thieves/obsidian-tc/wiki/Deployment-Modes#run-one-shared-server-for-several-clients)
-below, since that HTTP server is what a public HTTPS URL for ChatGPT to connect to
-would front.
+below, since that HTTP server is what a public HTTPS URL for either to connect
+to would front.
+
+**Aider has no MCP support at all** — `--install-client aider` writes nothing
+and exits non-zero with that explanation, rather than pretending there is
+somewhere to install into.
+
+| `--install-client <id>` | Mechanism |
+|---|---|
+| `claude-code` | `claude mcp add` |
+| `claude-desktop` | merge `claude_desktop_config.json` |
+| `cursor` | merge `~/.cursor/mcp.json` |
+| `codex` | `codex mcp add` |
+| `chatgpt` | instructions only (remote HTTPS) |
+| `antigravity` | `agy mcp add` |
+| `hermes` | `hermes mcp add` |
+| `vscode` | `code --add-mcp` |
+| `opencode` | merge `opencode.json` (comments preserved) |
+| `windsurf` (alias `devin-desktop`) | merge `mcp_config.json` |
+| `gemini` | `gemini mcp add` |
+| `zed` | merge `settings.json` (comments preserved) |
+| `devin` | instructions only (remote HTTPS) |
+| `aider` | unsupported — exits non-zero |
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
