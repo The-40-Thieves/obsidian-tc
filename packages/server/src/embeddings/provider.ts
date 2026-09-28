@@ -33,7 +33,11 @@ export interface EmbeddingProvider {
    *  RRF stream + ColBERT rerank have data. Absent -> dense-only indexing, unchanged. */
   embedFull?(texts: string[], opts?: EmbedOptions): Promise<MultiVectorEmbedding[]>;
 }
-const ENV_KEY: Record<string, string> = {
+// Exported (not just module-local) so `cli/setup/decide.ts` can detect a hosted key present in the
+// environment for the "suggest, never auto-choose" notice (obsidian-tc setup) without hand-keeping
+// a second copy of this map — see that module's own comment for why setup must never read a key's
+// mere presence as consent to send note content to a third party.
+export const ENV_KEY: Record<string, string> = {
   openai: "OPENAI_API_KEY",
   voyage: "VOYAGE_API_KEY",
   cohere: "COHERE_API_KEY",

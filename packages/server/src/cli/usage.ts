@@ -9,6 +9,24 @@ Usage:
   obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
+  obsidian-tc setup [--yes] [--dry-run] [--force] [--config <path>] [--vault <path>]
+                                          Detect the environment ONCE and write an explicit config
+                                          (GH #995's fix): Obsidian vaults, an existing index's
+                                          embeddings provider (kept, never silently switched), the
+                                          bundled local embedder's availability, or a running
+                                          Ollama with an embedding model pulled — printing every
+                                          decision with its reason. A hosted provider's API key
+                                          being present in the environment is only ever SUGGESTED,
+                                          never chosen automatically (it would send note content to
+                                          a third party). Defaults to ~/.obsidian-tc/config.json;
+                                          --config writes elsewhere. --dry-run prints the config and
+                                          writes nothing. With a TTY and no --yes, asks to confirm
+                                          before writing; without a TTY, behaves like --dry-run
+                                          unless --yes is given. Refuses to overwrite an existing
+                                          config unless --force, which backs it up first
+                                          (<path>.bak-<timestamp>). Point obsidian-tc at the result
+                                          with --config or OBSIDIAN_TC_CONFIG — this command does
+                                          not itself install any MCP client's config.
   obsidian-tc doctor [path] [--json] [--token <jwt>] [--probe]
                                           Probe runtime health: runtime, native module, auth policy,
                                           token max-age vs expiry, detected Obsidian vaults/plugins.

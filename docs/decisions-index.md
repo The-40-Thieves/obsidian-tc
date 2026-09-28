@@ -177,7 +177,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-518 | _internal planning reference — see repo history_ | — | 5 |
 | THE-520 | THE-1111 — an authorization server for obsidian-tc (design, G1) | docs/superpowers/specs/2026-09-24-the-1111-authorization-server-design.md | 5 |
 | THE-521 | _internal planning reference — see repo history_ | — | 9 |
-| THE-522 | _internal planning reference — see repo history_ | — | 9 |
+| THE-522 | _internal planning reference — see repo history_ | — | 10 |
 | THE-523 | _internal planning reference — see repo history_ | — | 6 |
 | THE-526 | _internal planning reference — see repo history_ | — | 4 |
 | THE-527 | _internal planning reference — see repo history_ | — | 4 |
@@ -187,7 +187,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-533 | Search Indexing & Query Cache | docs/design/search-indexing-and-cache.md | 2 |
 | THE-535 | `experiential.activationRerank` now applies a ranking change (#762, THE-424 Part A, THE-535). | CHANGELOG.md (1.21.0) | 3 |
 | THE-536 | _internal planning reference — see repo history_ | — | 2 |
-| THE-537 | _internal planning reference — see repo history_ | — | 8 |
+| THE-537 | _internal planning reference — see repo history_ | — | 9 |
 | THE-538 | _internal planning reference — see repo history_ | — | 11 |
 | THE-543 | `vault_context`: prewarm cache, differential mode, write-through | docs/design/knowledge-vault-context-tool.md | 5 |
 | THE-545 | _internal planning reference — see repo history_ | — | 1 |
@@ -247,7 +247,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-639 | A sanctioned, poison-scanned path for agent-synthesised notes (#814, THE-639). | CHANGELOG.md (1.22.0) | 7 |
 | THE-641 | _internal planning reference — see repo history_ | — | 1 |
 | THE-642 | `work_search` gains an opt-in `semantic` mode (#820, THE-642). | CHANGELOG.md (1.22.0) | 5 |
-| THE-643 | Scheduled `note_quality` recompute (THE-643, THE-625 items 1-3). | CHANGELOG.md (1.14.0) | 14 |
+| THE-643 | Scheduled `note_quality` recompute (THE-643, THE-625 items 1-3). | CHANGELOG.md (1.14.0) | 15 |
 | THE-644 | `gap_report` — a read-only MCP view over the gap-detector's last pass (THE-611, THE-616, THE-644 item 1). | CHANGELOG.md (1.14.0) | 14 |
 | THE-645 | Durable episode amendment chain and two silent-failure signals (THE-654, THE-653, THE-645, THE-612, #563). | CHANGELOG.md (1.14.0) | 19 |
 | THE-646 | `explain_answer` — the retrieval → chunk → citation → episode lineage chain (#705, THE-646 item 2). | CHANGELOG.md (1.20.0) | 6 |
@@ -392,6 +392,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (1.31.4) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (1.31.4) | 1 |
 
-377 distinct ticket(s) across 551 source file(s) under
+377 distinct ticket(s) across 556 source file(s) under
 `packages/*/src`; 278 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

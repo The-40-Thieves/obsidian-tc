@@ -19,8 +19,40 @@ provider — the rest of this page walks through that path.
 
 ## 1. Write a config
 
-obsidian-tc is launched with a path to a **JSON** config file. A minimal
-single-vault config:
+obsidian-tc is launched with a path to a **JSON** config file (there is no YAML
+support — the loader reads JSON only). Two ways to get one:
+
+### Setup command (recommended)
+
+```sh
+obsidian-tc setup
+```
+
+`setup` detects your environment **once** and writes an explicit config, rather than
+leaving obsidian-tc to detect it again — silently, and possibly differently — every
+time it boots. It finds your Obsidian vaults (from the local Obsidian install, or
+`--vault <path>` if you'd rather point it at one directly), decides an embeddings
+provider (an existing index's provider is always kept; otherwise the bundled local
+embedder if it can run here, then a running Ollama with an embedding model already
+pulled, else the local embedder anyway with a notice), and prints each decision with
+its reason before writing anything. A hosted provider (OpenAI, Voyage, Cohere) is
+only ever **suggested** when its API key is present in your environment — `setup`
+never picks one automatically, since that would send note content to a third party
+without you having said so.
+
+By default it writes `~/.obsidian-tc/config.json` and asks for confirmation before
+writing (skip the prompt with `--yes`; preview without writing at all with
+`--dry-run`). It refuses to overwrite an existing config unless you pass `--force`,
+which backs the old one up first. See `obsidian-tc help` for the full flag list.
+A bare `obsidian-tc` with no arguments finds that default path automatically — see
+[step 2](#2-start-it) — or point it there explicitly the same way as a hand-written
+config below (as an argument, or via `OBSIDIAN_TC_CONFIG`) if you passed `--config`
+to write somewhere else. `setup` does not itself register the config with any MCP
+client; see [step 3](#3-connect-a-client) for that.
+
+### Hand-write it
+
+A minimal single-vault config:
 
 ```json
 {
@@ -32,8 +64,20 @@ single-vault config:
 
 ## 2. Start it
 
+If you used `setup` and kept its default output path (`~/.obsidian-tc/config.json`), a bare
+`obsidian-tc` with no arguments finds it — the same fallback `OBSIDIAN_TC_CONFIG` and a
+`--config`/positional path both still take priority over:
+
 ```sh
-obsidian-tc ./config.json
+obsidian-tc
+# obsidian-tc 1.31.5 ready on stdio (vault primary)
+```
+
+Otherwise — a hand-written config, or `setup --config <other-path>` — pass the file's actual
+path:
+
+```sh
+obsidian-tc /path/to/config.json
 # obsidian-tc 1.31.5 ready on stdio (vault primary)
 ```
 

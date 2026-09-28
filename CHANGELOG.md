@@ -174,6 +174,53 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   New metric `obsidian_tc_memory_defense_hits_total{pattern}`. See SECURITY.md's "Memory defense"
   section for scan scope and known limits (generic note-write tools and workspace session
   metadata are not covered by this pass).
+- **`obsidian-tc setup` — detect the environment once, write an explicit config (GH #995 PR A).**
+  Finds Obsidian vaults (the local registry, or `--vault <path>` — a nonexistent or non-directory
+  path is refused up front, and a stale registry entry whose vault was since moved/deleted is
+  skipped with a warning, never silently written), decides an embeddings provider (an existing
+  index's provider always wins — the same `resolveStickyEmbeddings` boot uses, including its
+  stored model **revision** so the written config reconstructs the identical provider id; else the
+  bundled local embedder when it can actually run here, model picked by available RAM; else a
+  running Ollama with a recognized embedding model already pulled; else the local embedder anyway
+  with a notice), and writes `vaults`, `cacheDir`, and `embeddings.provider/model/dimensions`
+  explicitly — never `embeddings.threads`, which stays on the #996 default cap. An existing index
+  whose stored provider id cannot be reconstructed (a custom `openai-compatible:...`/`module:...`
+  identity), or whose only match is an **ambiguous** orphaned vault id in the same cache directory,
+  is never guessed at: `setup` refuses to write an embeddings decision at all, printing the stored
+  identity/width (or the same ambiguity notice boot itself shows) and exiting non-zero instead.
+  When a config already exists at the target, it is loaded through the real loader FIRST — the
+  index is probed against **that config's own** `cacheDir`/vaults, never a hard-coded
+  `~/.obsidian-tc` guess, and every key `setup` does not own (and any `vaults`/`cacheDir`/
+  `embeddings` the file already set explicitly) is preserved rather than replaced. Prints every
+  decision with its reason before writing anything. A hosted provider (OpenAI, Voyage, Cohere) is
+  only ever **suggested** when its API key is present in the environment, never chosen
+  automatically — that would send note content to a third party without an explicit opt-in. Any
+  unrecognized flag or positional argument (e.g. a `--dryrun` typo, or a stray path) is a usage
+  error before any I/O runs, never silently ignored. `--dry-run` prints the config and writes
+  nothing; with a TTY and no `--yes` it asks to confirm; without a TTY it behaves like `--dry-run`
+  unless `--yes` is given — neither path leaves any backup, temp file, or directory behind.
+  Refuses to overwrite an existing config unless `--force`, which backs it up first
+  (`<path>.bak-<timestamp>[-N]` on a name collision, written exclusively). The no-`--force` create
+  path is exclusive end-to-end (temp file + `linkSync`, refusing on `EEXIST` even when the target
+  appeared after setup's own existence check) and validates through `ServerConfigSchema` before
+  ever touching disk; every file it creates lands at mode `0600` (`--force` keeps an existing
+  file's mode when it was already stricter), and a `--config` path that is itself a symlink is
+  resolved to, and rewrites, its referent rather than replacing the link. Defaults to
+  `~/.obsidian-tc/config.json`, which `obsidian-tc`/`obsidian-tc serve` (with no `--config`,
+  positional, or `OBSIDIAN_TC_CONFIG`) now finds automatically — an explicit path or
+  `OBSIDIAN_TC_CONFIG` still takes priority over it; `setup` does not install anything into an MCP
+  client's own config (planned as a follow-up). Fix round 2 (second cross-vendor review): a
+  boolean flag given as `--force=true`/`--yes=true`/`--dry-run=true` is now a usage error rather
+  than silently read as false; an existing config that only fails validation on the
+  local-provider-needs-`cacheDir` rule still merges via its raw object on `--force` instead of
+  losing `auth`/`acl`; an `existingIndex.source === "default"` or an ambiguous orphaned index now
+  always refuses to guess an embeddings provider, never falling through to Ollama; an empty
+  `--vault=`/`--config=` value is a usage error instead of silently resolving to the cwd; the
+  printed config (including `--dry-run`) now runs through the same redaction `config show` uses,
+  so an inline secret in an existing config never reaches stdout; and the no-`--force`
+  exclusive-create and `--force` rename finalization steps each gained a same-filesystem/platform
+  fallback (exclusive create-and-copy; clear-read-only-and-retry, then copy-in-place) for
+  filesystems/platforms where hard links or a rename-over-read-only file are refused.
 
 ## [1.31.5] - 2026-09-26
 
