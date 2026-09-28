@@ -376,7 +376,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // behavior (activeSessionFor stops attaching new dispatches to an explicit session past this
   // age) rather than only the sweep-eligibility text it already had. No existing key, type,
   // default or constraint moved.
-  "c1c1f9c38795fbf891c13e7793ece5881bc88f329ae3df7bcaafd6d6433da50a";
+  // GH #995: rebaselined deliberately, DESCRIPTION TEXT ONLY. `embeddings.threads`'s `.describe()`
+  // string said absent "lets the runtime pick its own default" — no longer true: onnxruntime-node's
+  // own default sizes the intra-op pool from the uncapped physical core count with spinning left
+  // on, which is what regressed 1.31.4's zero-config CPU/RSS (PR #980). The description now states
+  // the actual default (a quarter of the host's available CPU cores, minimum 1, spinning disabled)
+  // and that an explicit value overrides it outright — see packages/embedder-local's
+  // ort-session-options.ts. No key, type, default or constraint moved.
+  "2b36196106731683b11ebe74d0ecc17466e25193d98c77594b7f16b46c02d71b";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

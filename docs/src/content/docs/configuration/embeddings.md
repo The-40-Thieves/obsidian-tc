@@ -54,7 +54,7 @@ To choose explicitly, or to pick a different catalog model:
 | --- | --- | --- |
 | `model` | string, `nomic-embed-text-v1.5` | One of the pinned catalog names: `all-MiniLM-L6-v2`, `bge-small-en-v1.5`, `nomic-embed-text-v1.5`. Only these three are supported under `provider: "local"` — the download is checksum-verified against a pinned manifest, which requires knowing the exact bytes ahead of time. An unrecognized name is refused with the supported list. |
 | `quantized` | boolean, `true` | `true` loads the pinned q8 (int8) ONNX export; `false` loads the pinned fp32 export — larger, slower, marginally more precise. Both variants are separately checksummed. |
-| `threads` | int, unset | onnxruntime-node intra-/inter-op thread count. Unset lets the runtime pick its own default (usually the CPU core count). |
+| `threads` | int, unset | onnxruntime-node intra-/inter-op thread count override. Unset does NOT leave this to the runtime's own default (GH #995) — it caps the intra-op pool to a quarter of the host's available CPU cores (minimum 1), sets inter-op threads to 1, and disables ORT thread spinning. An explicit value overrides that default outright for both intra- and inter-op. |
 | `dimensions` | int, model-native | Set automatically from `model` (768 for nomic-embed-text-v1.5, 384 for the smaller MiniLM/bge-small entries) — only override this if you also set `truncate` (see [Embedding model migration](/configuration/embedding-model-migration/)). |
 
 ### Model choice: measured, not assumed

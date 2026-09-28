@@ -37,8 +37,12 @@ export interface EmbeddingsConfigLike {
   /** THE-1122: only read by provider "local" — Transformers.js `dtype` selection (quantized q8
    *  ONNX vs full fp32). See packages/embedder-local's model-info.ts catalog. */
   quantized?: boolean;
-  /** THE-1122: only read by provider "local" — onnxruntime-node intra-op thread count. Undefined
-   *  lets the runtime pick its own default. */
+  /** THE-1122: only read by provider "local" — onnxruntime-node intra-/inter-op thread count
+   *  override. GH #995: undefined does NOT leave this to the runtime's own default — it caps
+   *  intraOpNumThreads to a quarter of the host's available CPU cores (minimum 1), sets
+   *  interOpNumThreads to 1, and disables intra-/inter-op spinning (see embedder-local's
+   *  ort-session-options.ts). An explicit value overrides that default outright for both intra-
+   *  and inter-op. */
   threads?: number;
   /** THE-1122: not a schema-exposed config key today (see registry.ts's
    *  resolveLocalEmbedderModule doc comment) — present so a test can drive the "local" embedder's

@@ -275,7 +275,11 @@ export const EmbeddingsConfigSchema = z.object({
     .positive()
     .optional()
     .describe(
-      'provider "local" only. onnxruntime-node intra-/inter-op thread count. Absent lets the runtime pick its own default (usually the CPU core count).',
+      'provider "local" only. onnxruntime-node intra-/inter-op thread count override. GH #995: ' +
+        "absent does NOT leave this to the runtime's own default — it caps intraOpNumThreads to a " +
+        "quarter of the host's available CPU cores (minimum 1), sets interOpNumThreads to 1, and " +
+        "disables intra-/inter-op spinning. An explicit value overrides that default outright for " +
+        "both intra- and inter-op.",
     ),
 });
 

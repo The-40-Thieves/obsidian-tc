@@ -22,6 +22,7 @@ import {
   type EmbeddingModelInfo,
   modelInfoByName,
 } from "./model-info.js";
+import { availableParallelism, ortSessionOptions } from "./ort-session-options.js";
 
 export interface EmbedOptions {
   input?: "query" | "document";
@@ -46,7 +47,14 @@ export interface CreateEmbeddingProviderOpts {
   /** Transformers.js dtype selection: true (default) -> the pinned q8 ONNX export, false -> the
    *  pinned fp32 export. Both variants are separately checksummed (model-info.ts). */
   quantized?: boolean;
-  /** onnxruntime-node intra-op thread count. Undefined lets the runtime pick its own default. */
+  /** onnxruntime-node intra-/inter-op thread count override. Undefined (the common case) does NOT
+   *  leave this to the runtime's own default — GH #995: onnxruntime-node's own default sizes the
+   *  intra-op pool from the PHYSICAL CORE COUNT with no cap, which is fine for one process but not
+   *  for N (one per stdio MCP client). Undefined instead caps intraOpNumThreads to a quarter of the
+   *  host's available CPU cores (minimum 1), sets interOpNumThreads to 1, and disables intra-/
+   *  inter-op spinning — see ort-session-options.ts. Setting this explicitly overrides that default
+   *  outright for both intra- and inter-op (the pre-#995 behavior), though spinning stays disabled
+   *  either way. */
   threads?: number;
   /** Root directory the pinned weights are fetched/verified under
    *  (`<modelsRoot>/<modelId>/<revision>/`). Defaults to this package's own `models/` directory —
@@ -103,6 +111,29 @@ function sessionKey(
   return `${opts.modelsRoot}::${opts.info.name}::${opts.quantized}::${opts.threads ?? ""}`;
 }
 
+/** The exact options object `loadSession` hands to `pipeline("feature-extraction", modelDir,
+ *  ...)` — exported so GH #995's thread-cap/no-spin wiring is assertable directly, with no
+ *  @huggingface/transformers import, no network, and no model weights: this function does no I/O
+ *  at all, it just builds the plain object. `loadSession`'s own `loadSessionFn` injection seam
+ *  (see `createEmbeddingProvider` below) stubs out the ENTIRE session, including this call, so it
+ *  cannot see what gets passed to `pipeline()` — this narrower seam is what a test asserts against
+ *  instead. */
+export function embedPipelineOptions(
+  info: EmbeddingModelInfo,
+  quantized: boolean,
+  threads: number | undefined,
+): {
+  dtype: string;
+  local_files_only: true;
+  session_options: ReturnType<typeof ortSessionOptions>;
+} {
+  return {
+    dtype: dtypeFor(info, quantized),
+    local_files_only: true,
+    session_options: ortSessionOptions(threads, availableParallelism()),
+  };
+}
+
 async function loadSession(
   info: EmbeddingModelInfo,
   modelsRoot: string,
@@ -124,18 +155,14 @@ async function loadSession(
       // eslint-disable-next-line no-unsanitized/method -- transformersPackage is a variable, not a literal, so tsc need not resolve this optional dependency.
       const { pipeline, env } = (await import(transformersPackage)) as TransformersModule;
       env.allowRemoteModels = false;
-      const sessionOptions =
-        threads !== undefined
-          ? { intraOpNumThreads: threads, interOpNumThreads: threads }
-          : undefined;
       // `modelDir` is passed as `path_or_repo_id` directly, NOT env.localModelPath + a bare model
       // id — same reasoning as reranker-local's index.ts: Transformers.js treats a multi-slash
       // path_or_repo_id as a literal directory, which is what keeps this REVISION-scoped.
-      const extractor = await pipeline("feature-extraction", modelDir, {
-        dtype: dtypeFor(info, quantized),
-        local_files_only: true,
-        ...(sessionOptions ? { session_options: sessionOptions } : {}),
-      });
+      const extractor = await pipeline(
+        "feature-extraction",
+        modelDir,
+        embedPipelineOptions(info, quantized, threads),
+      );
       return { extractor };
     })();
     sessions.set(key, pending);

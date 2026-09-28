@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertVerified, fetchAndVerifyModel, modelDirFor } from "./model-fetch.js";
 import { MODEL_DTYPE, PINNED_FILES } from "./model-info.js";
+import { availableParallelism, ortSessionOptions } from "./ort-session-options.js";
 
 export interface RerankHit {
   index: number;
@@ -103,6 +104,28 @@ const MAX_PAIR_TOKENS = 256;
  *  process restart. */
 const sessions = new Map<string, Promise<Session>>();
 
+/** The exact options object `loadSession` hands to `AutoModelForSequenceClassification
+ *  .from_pretrained(modelDir, ...)` — exported so GH #995's thread-cap/no-spin wiring is assertable
+ *  directly, with no @huggingface/transformers import, no network, and no model weights: this
+ *  function does no I/O at all, it just builds the plain object. `loadSession`'s own
+ *  `loadSessionFn` injection seam (see `createReranker` below) stubs out the ENTIRE session,
+ *  including this call, so it cannot see what gets passed to `from_pretrained()` — this narrower
+ *  seam is what a test asserts against instead.
+ *
+ *  No `threads` parameter: unlike embedder-local's `embeddings.threads`, this package has no
+ *  config knob for it today (`LocalRerankerOptions` carries no such field, and this ticket does
+ *  not add one — see ort-session-options.ts's header comment) — always the capped/no-spin
+ *  default. */
+export function rerankModelOptions(): {
+  dtype: string;
+  session_options: ReturnType<typeof ortSessionOptions>;
+} {
+  return {
+    dtype: MODEL_DTYPE,
+    session_options: ortSessionOptions(undefined, availableParallelism()),
+  };
+}
+
 async function loadSession(localModelPath: string): Promise<Session> {
   let pending = sessions.get(localModelPath);
   if (!pending) {
@@ -142,7 +165,7 @@ async function loadSession(localModelPath: string): Promise<Session> {
       // `<root>/<MODEL_ID>/<filename>` join getting in the way.
       const [tokenizer, model] = await Promise.all([
         AutoTokenizer.from_pretrained(modelDir),
-        AutoModelForSequenceClassification.from_pretrained(modelDir, { dtype: MODEL_DTYPE }),
+        AutoModelForSequenceClassification.from_pretrained(modelDir, rerankModelOptions()),
       ]);
       return { tokenizer, model };
     })();
