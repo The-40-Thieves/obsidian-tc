@@ -43,11 +43,9 @@ export interface IndexStats {
   embed_batch_rejections: number;
   /** THE-925 (additive): notes whose batched plan was skipped this pass because a concurrent
    *  index-on-write commit (write_note / the vault watcher, via IndexCoordinator -> indexNote on
-   *  the same cache.db connection) changed the path's chunks after the plan was computed —
-   *  see index-vault.ts's freshness guard. Already reported on stderr (sampled); surfaced here so
-   *  the caller can emit it as a counter, matching notes_embed_failed/embed_batch_rejections above.
-   *  Non-zero is rare and expected under concurrent write traffic; the skipped note is re-planned
-   *  against current content on the next index_vault pass, never silently lost. */
+   *  the same cache.db connection) changed the path's chunks after the plan was computed — see
+   *  index-vault.ts's freshness guard. Already reported on stderr (sampled) and surfaced here as a
+   *  counter; non-zero is rare and expected under concurrent write traffic — re-planned next pass. */
   notes_stale_skipped: number;
   notes_frontmatter_failed: number;
   frontmatter_failures: Array<{ path: string; error: string }>;
@@ -240,4 +238,6 @@ export interface IndexVaultArgs {
     /** epoch ms this indexVault call started, for an elapsed/ETA computation by the reader. */
     startedAt: number;
   }) => void;
+  /** GH #995: checked between embed sub-batches and by flush(); absent -> unabortable. */
+  signal?: AbortSignal;
 }

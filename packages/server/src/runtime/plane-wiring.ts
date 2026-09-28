@@ -415,9 +415,16 @@ export function createReconcileRunner(
   return async (signal: AbortSignal): Promise<void> => {
     // THE-926: cooperate with graceful shutdown. The per-vault passes below still run concurrently
     // (Promise.all, unchanged — reconcile has no cheap intra-vault checkpoint to bail at without
-    // threading the signal into indexVaultRecorded's own walk, out of scope here), so this can only
-    // stop a reconcile from STARTING once shutdown has begun; a reconcile already in flight when the
-    // signal fires still runs to completion, same as before this ticket.
+    // threading the signal into indexVaultRecorded's own walk), so this can only stop a reconcile
+    // from STARTING once shutdown has begun.
+    //
+    // GH #995 fix: `signal` IS now threaded into indexVaultRecorded (below) — index-vault.ts's own
+    // flush() and embed-batches.ts's worker loop check it between embed sub-batches, so a reconcile
+    // already in flight when the signal fires stops issuing further provider calls within one
+    // sub-batch's duration instead of running to completion. The comment above is no longer true
+    // for the embed-dominated cost of a pass; it stays true only for the (comparatively cheap) walk
+    // /parse/plan work between flushes, which this signal does not interrupt — see index-vault.ts's
+    // own IndexVaultArgs.signal doc for why that gap is deliberate (walkedSet completeness).
     if (signal.aborted) return;
     await Promise.all(
       deps.vaults.map((v) =>
@@ -438,6 +445,7 @@ export function createReconcileRunner(
             now: Date.now,
             sql: deps.sqlHooksFor(v.id),
             onVecRebuild: deps.onVecRebuild,
+            signal,
             onIndexed: deps.makeOnIndexed(v.id),
             // THE-291: metadata/FTS readiness is independent of embed success.
             onNotesPass: () => {

@@ -191,6 +191,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     const applied = batch;
     batch = [];
     batchBytes = 0;
+    // GH #995: a shutdown already in progress when this flush was ABOUT to start — drop this
+    // batch's plans without even attempting an embed call. Idempotent: the next reconcile re-plans
+    // and re-embeds the same notes from scratch (same self-heal every other stale/aborted-batch
+    // path in this file relies on).
+    if (args.signal?.aborted) return;
     // THE-277: batch the embed() calls across the whole batch BEFORE opening the write txn, so the
     // reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in flight instead of one serial
     // round-trip per note. The write lock is never held across a network call.
@@ -200,7 +205,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.embed?.batchSize ?? EMBED_BATCH,
       args.embed?.concurrency ?? EMBED_CONCURRENCY,
       args.embed?.maxBatchTokens ?? EMBED_MAX_BATCH_TOKENS,
+      args.signal,
     );
+    // GH #995: the embed pass above was cut short mid-batch — `report` is a quiet no-op stand-in
+    // (embed-batches.ts), not a real result. Writing it would commit chunks with no vectors for
+    // whatever sub-batches never ran. Drop the whole batch instead; the next reconcile re-plans it.
+    if (args.signal?.aborted) return;
     stats.embed_batch_rejections += report.rejections;
     if (report.rejections > 0) {
       process.stderr.write(

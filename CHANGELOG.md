@@ -6,6 +6,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **A stdio server no longer ignores SIGTERM while the boot-time embed is running (GH #995).**
+  The boot reconcile's embed calls used to chain purely through `await`, and a synchronous-JS-thread
+  embed call (the in-process ONNX/native path, in particular) never hands control back to libuv
+  between calls — a queued SIGTERM was not even delivered to the process's signal handler until the
+  whole pass finished, needing `kill -9` in practice. `embedPlans` now threads an `AbortSignal` all
+  the way from `close()`'s own controller, yields a real event-loop turn between embed sub-batches
+  so a queued signal is actually delivered, and `index-vault.ts`'s `flush()` drops (rather than
+  partially writes) a batch once aborted — self-healing, since the next reconcile re-plans and
+  re-embeds the same notes. `close()` now also races `scheduler.stop()` together with the existing
+  drain under one deadline instead of two stacked ones, and installs an unref'd hard-exit fallback
+  armed the moment a signal is actually being handled. A closed stdin (the MCP client disconnecting)
+  now also routes through the same bounded `close()`.
+
 ## [1.31.5] - 2026-09-26
 
 ### Fixed
