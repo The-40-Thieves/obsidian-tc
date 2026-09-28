@@ -206,6 +206,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.embed?.concurrency ?? EMBED_CONCURRENCY,
       args.embed?.maxBatchTokens ?? EMBED_MAX_BATCH_TOKENS,
       args.signal,
+      args.embedPace,
     );
     // GH #995: the embed pass above was cut short mid-batch — `report` is a quiet no-op stand-in
     // (embed-batches.ts), not a real result. Writing it would commit chunks with no vectors for

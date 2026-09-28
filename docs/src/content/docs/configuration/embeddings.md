@@ -305,3 +305,41 @@ bare `obsidian-tc <vault>` form (no config file) sets it for you, so this only a
 file that never named `cacheDir`. The old `.obsidian-tc`-under-the-working-directory default is
 gone because it wrote model weights wherever the server happened to be started; config load now
 fails at startup, naming `cacheDir`, rather than that surprising at first embed instead.
+
+## Pacing the background re-embed against interactive use
+
+After an upgrade that re-embeds a whole vault (see above), the leader's boot/promotion/periodic
+reconcile used to run that embed pass at full speed the instant it started — competing with
+whatever tool calls the client was already making for the CPU-bound in-process embed step (the
+`local` provider's ONNX runtime occupies the JS thread for the whole duration of a call).
+`indexing.backgroundEmbed` paces every one of those passes instead — boot, promotion catch-up, and
+the periodic scheduled `vault-reconcile` job (`maintenance.reconcileIntervalMinutes`) all share it,
+since a periodic repair pass is background work too:
+
+```json
+{
+  "indexing": {
+    "backgroundEmbed": { "mode": "idle", "idleMs": 2000, "maxDeferMs": 30000 }
+  }
+}
+```
+
+- `"idle"` (default): before each embed sub-batch, the reconcile waits until the server has had no
+  dispatch activity — no tool call in flight, and none finished more recently than `idleMs`
+  (default 2000) — before issuing the next provider call. A quiet server (nothing else calling in)
+  pays nothing: the wait only ever engages while there is real contention to defer to.
+- `"immediate"`: runs the embed pass at full speed with no pacing at all — the behavior before this
+  key existed.
+- `maxDeferMs` (default 30000): a floor under the deferral above. Ordinary polling traffic faster
+  than `idleMs` (or a handler that stops observing its own abort signal) would otherwise defer a
+  sub-batch forever, since every dispatch resets the quiet window. Past `maxDeferMs` of continuous
+  deferral, the next sub-batch is admitted as soon as no call is currently in flight — not waiting
+  for a full quiet window — and if no call ever clears at all, a second cap at 2x `maxDeferMs`
+  admits it unconditionally.
+
+**Explicit `index_vault` calls and index-on-write (a note saved through the client) are never
+paced, regardless of this setting** — those are calls the user asked for directly, not a background
+catch-up pass, and pacing them would make an intentional reindex feel slower for no benefit.
+The `obsidian_tc_background_embed_paused` Prometheus gauge (see
+[Observability](/observability/prometheus/)) reports whether a background embed pass is currently
+paused for idle (1) or actively running / not reconciling at all (0).

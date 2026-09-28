@@ -412,7 +412,26 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // rebase onto GH #999 (fix/embeddings-sticky-provider merged as PR #999): no schema key moved by
   // the rebase itself — the hash below is the byte-identical recompute of the emitted schema with
   // both the GH #995-follow-up and GH #994 changes above applied together.
-  "6e0cdf112856a0b3a6ef87829059d02a798a5073cc07ab49fd9a91de4f2e1331";
+  //
+  // GH #995 follow-up (idle-reembed-pacing): rebaselined deliberately, on top of the GH #999
+  // rebase above. Adds ONE new optional block, `indexing.bootEmbed` — `{ mode: "idle"|"immediate"
+  // (default "idle"), idleMs: number (default 2000) }` — pacing the boot/promotion reconcile's
+  // embed pass against live dispatch activity so it stops starving interactive tool calls; see
+  // packages/shared/src/config/indexing-embeddings.schema.ts's IndexingConfigSchema for the full
+  // description text and runtime/plane-wiring.ts's createReconcileRunner for the consumer.
+  // Explicit index_vault calls and index-on-write are never paced regardless of this key. No
+  // existing key, type, default or constraint moved.
+  //
+  // Fix round (Codex review on #1003, idle-reembed-pacing): rebaselined deliberately, on top of
+  // the GH #995-follow-up rebase directly above. `indexing.bootEmbed` is RENAMED to
+  // `indexing.backgroundEmbed` (finding 3 — the same runner also paces the periodic scheduled
+  // `vault-reconcile` job, not only boot/promotion; unreleased before this rename, so no
+  // back-compat key was kept) and gains ONE new key, `maxDeferMs: number (default 30000)`
+  // (finding 1 — a bounded-fairness floor under the idle-quiet-window wait, described in full on
+  // that key). Every `mode`/`idleMs` description string was also reworded to say
+  // "boot/promotion/periodic" instead of "boot/promotion" and to reference the new key. No
+  // existing key's type, default or constraint moved.
+  "88392b6b7872f958b24637cc8247d2eeb86b8a1a4232199e9cbc7dd76964bb94";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

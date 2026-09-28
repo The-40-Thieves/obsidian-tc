@@ -7,9 +7,13 @@
 // frontmatter failure, plus the existing embed-failure summary when present — and, folded through
 // applyReconcileOutcome, that a later clean pass still clears health back to "ok".
 import { describe, expect, it } from "vitest";
-import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
+import {
+  createReconcileRunner,
+  type ReconcileRunnerDeps,
+  reconcileResultsForVault,
+} from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
-import type { IndexStats } from "../src/search/indexer";
+import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
 
 const NOW = 1_800_000_000_000;
 
@@ -194,5 +198,78 @@ describe("reconcileResultsForVault (THE-1073)", () => {
     applyReconcileOutcome(cleanPass, h, deps);
     expect(h.reconcile).toBe("ok");
     expect(h.reconcileErrors).toEqual([]);
+  });
+});
+
+// GH #995 follow-up: createReconcileRunner's own construction of the `embedPace` it threads into
+// indexVaultRecorded — the composition-boundary half of the pacing feature (embed-pace.ts's
+// waitForIdle is tested directly in embed-pace.test.ts; the end-to-end responsiveness bound is
+// boot-embed-pacing-integration.test.ts). What matters here is purely: does `indexing.backgroundEmbed`
+// reach IndexVaultArgs.embedPace, and in the shape the mode promises — never whether waitForIdle
+// itself behaves correctly, which is out of scope for a construction test.
+function minimalReconcileDeps(
+  backgroundEmbed: ReconcileRunnerDeps["backgroundEmbed"],
+  capture: (opts: IndexVaultArgs) => void,
+): ReconcileRunnerDeps {
+  return {
+    vaults: [{ id: "v1", path: "/tmp/v1" }] as never,
+    db: {} as never,
+    embeddingProvider: {} as never,
+    embedConfig: { batchSize: 8, concurrency: 1, maxBatchTokens: 2048 },
+    chunkContext: false,
+    representation: {} as never,
+    densify: {} as never,
+    vaultRegistry: { resolve: (id: string) => ({ id, root: "/tmp/v1" }) } as never,
+    indexReadableFor: () => () => true,
+    sqlHooksFor: () => ({}) as never,
+    onVecRebuild: () => {},
+    makeOnIndexed: () => undefined,
+    indexHealth: { reconcile: "pending", reconcileAt: null, reconcileErrors: [] } as never,
+    streamingWalk: false,
+    backgroundEmbed,
+    indexVaultRecorded: async (opts: IndexVaultArgs) => {
+      capture(opts);
+      return stats();
+    },
+    roles: null,
+    jobRunner: {} as never,
+  };
+}
+
+describe("createReconcileRunner — indexing.backgroundEmbed wiring (GH #995 follow-up)", () => {
+  it('mode "immediate" threads NO embedPace at all — byte-identical to before this key existed', async () => {
+    let captured: IndexVaultArgs | undefined;
+    const runner = createReconcileRunner(
+      minimalReconcileDeps({ mode: "immediate", idleMs: 2000, maxDeferMs: 30000 }, (opts) => {
+        captured = opts;
+      }),
+    );
+    await runner(new AbortController().signal);
+    expect(captured).toBeDefined();
+    expect(captured?.embedPace).toBeUndefined();
+  });
+
+  it('mode "idle" threads an embedPace function into IndexVaultArgs', async () => {
+    let captured: IndexVaultArgs | undefined;
+    const runner = createReconcileRunner(
+      minimalReconcileDeps({ mode: "idle", idleMs: 2000, maxDeferMs: 30000 }, (opts) => {
+        captured = opts;
+      }),
+    );
+    await runner(new AbortController().signal);
+    expect(typeof captured?.embedPace).toBe("function");
+  });
+
+  it("never starts a pass at all on an already-aborted signal, regardless of mode", async () => {
+    let called = false;
+    const runner = createReconcileRunner(
+      minimalReconcileDeps({ mode: "idle", idleMs: 2000, maxDeferMs: 30000 }, () => {
+        called = true;
+      }),
+    );
+    const controller = new AbortController();
+    controller.abort();
+    await runner(controller.signal);
+    expect(called).toBe(false);
   });
 });

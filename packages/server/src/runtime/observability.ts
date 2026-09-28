@@ -29,6 +29,7 @@ import { MorgianaEmitter } from "../morgiana/emitter";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexCoordinatorStats } from "../search/index-coordinator";
+import { isBackgroundEmbedPaused } from "../search/indexing/embed-pace";
 import type { RetrievalCaches } from "../search/query_cache";
 import type { RerankOutcome } from "../search/rerank";
 import type { VecRebuildEvent } from "../search/vec";
@@ -36,6 +37,8 @@ import type { VecRebuildEvent } from "../search/vec";
 /** Bounded subsystem name used in the `vault` label where a metric is process-wide rather than
  *  per-vault — the precedent the query-cache gauges set ("results"/"vectors"). */
 const SUBSYSTEM_COORDINATOR = "coordinator";
+/** GH #995 follow-up: same bounded-subsystem-label precedent as SUBSYSTEM_COORDINATOR above. */
+const SUBSYSTEM_RECONCILE = "reconcile";
 
 export interface ObservabilityDeps {
   db: Database;
@@ -143,6 +146,12 @@ export function createObservability(deps: ObservabilityDeps): Observability {
         const seconds = deps.getHttpConstructSeconds();
         return seconds === null ? [] : [{ vault: "http", value: seconds }];
       },
+      // GH #995 follow-up: read straight from embed-pace.ts's own module-level flag (like the
+      // coordinator sources above read the coordinator's OWN stats()) — there is nothing per-vault
+      // or per-test-double to inject here, see plane-wiring.ts's dispatchIdleGate comment.
+      backgroundEmbedPaused: () => [
+        { vault: SUBSYSTEM_RECONCILE, value: isBackgroundEmbedPaused() ? 1 : 0 },
+      ],
       queryCacheHits: cacheStat((s) => s.hits),
       queryCacheMisses: cacheStat((s) => s.misses),
       queryCacheEvictions: cacheStat((s) => s.evictions),

@@ -175,3 +175,49 @@ describe("THE-390 reconcile survives a quarantined note (index_vault)", () => {
     v.cleanup();
   });
 });
+
+// GH #995 follow-up: embedPlans' new (final, optional) `pace` parameter — the seam the
+// boot/promotion reconcile's idle-paced embed hooks into (search/indexing/embed-pace.ts's own
+// waitForIdle). See plane-wiring-reconcile-mapping.test.ts for the construction-level tests
+// (immediate mode threads no pace at all; idle mode threads one built from the real dispatch
+// counter) and boot-embed-pacing-integration.test.ts for the end-to-end responsiveness bound.
+describe("GH #995 follow-up — embedPlans' pace parameter", () => {
+  it("is called once per sub-batch, before that sub-batch's provider call", async () => {
+    const { provider, batches } = recordingProvider();
+    const calls: number[] = [];
+    const pace = async (): Promise<void> => {
+      calls.push(batches.length); // how many provider calls have landed SO FAR
+    };
+    const chunks = Array.from({ length: 6 }, (_, i) => `c${i}`);
+    await embedPlans(provider, [planOf(chunks)], 2, 1, 8192, undefined, pace);
+    // 6 chunks / batchSize 2 -> 3 sub-batches -> pace called 3 times, each BEFORE that batch's
+    // call landed (0, 1, 2 provider calls already done, never 3 -- pace never runs "after the
+    // last one").
+    expect(calls).toEqual([0, 1, 2]);
+    expect(batches.length).toBe(3);
+  });
+
+  it("omitted -> no wait at all, byte-identical to every call site before this ticket", async () => {
+    const { provider, batches } = recordingProvider();
+    const chunks = Array.from({ length: 4 }, (_, i) => `c${i}`);
+    // No pace argument passed (explicit index_vault / index-on-write's shape) — must behave
+    // exactly as embed-batching's other describes above, which never pass one either.
+    const report = await embedPlans(provider, [planOf(chunks)], 1, 1, 8192);
+    expect(report.failed).toEqual([]);
+    expect(batches.flat()).toEqual(chunks);
+  });
+
+  it("an aborted signal stops the pass without running any further pace/provider calls", async () => {
+    const { provider, batches } = recordingProvider();
+    const controller = new AbortController();
+    let paceCalls = 0;
+    const pace = async (): Promise<void> => {
+      paceCalls += 1;
+      controller.abort(); // abort on the FIRST pace call, before its provider call ever fires
+    };
+    const chunks = Array.from({ length: 6 }, (_, i) => `c${i}`);
+    await embedPlans(provider, [planOf(chunks)], 1, 1, 8192, controller.signal, pace);
+    expect(paceCalls).toBe(1);
+    expect(batches.length).toBe(0); // aborted before the first provider call ever ran
+  });
+});

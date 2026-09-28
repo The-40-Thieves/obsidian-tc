@@ -360,6 +360,32 @@ export const IndexingConfigSchema = z
       .describe(
         "Chunker token budget: a note section over this many estimated tokens is sub-split on paragraph boundaries. Participates in the representation fingerprint, and unlike the other axes a change here requires a full re-index — different budget means different chunk boundaries, so stored vectors no longer describe any chunk that exists.",
       ),
+    backgroundEmbed: z
+      .object({
+        mode: z
+          .enum(["idle", "immediate"])
+          .default("idle")
+          .describe(
+            '"idle" pauses the boot/promotion/periodic reconcile\'s embed pass between sub-batches while a tool call is in flight or finished less than idleMs ago; "immediate" runs it at full speed with no pacing (the behavior before this key existed). Explicit index_vault calls and index-on-write are never paced, regardless of this setting.',
+          ),
+        idleMs: z
+          .number()
+          .int()
+          .nonnegative()
+          .default(2000)
+          .describe(
+            'In "idle" mode, how many milliseconds the server must have had no dispatch activity (no tool call in flight, and none finished more recently than this) before the reconcile\'s next embed sub-batch is allowed to run.',
+          ),
+        maxDeferMs: z
+          .number()
+          .int()
+          .positive()
+          .default(30000)
+          .describe(
+            'In "idle" mode, the ceiling on how long continuous dispatch activity may defer the reconcile\'s next embed sub-batch. Past this many milliseconds of continuous deferral, the next sub-batch is admitted as soon as no call is currently in flight (not waiting for a full quiet window); if no call ever clears, a second cap at 2x this value admits it unconditionally. Bounds indefinite starvation from ordinary polling traffic or a hung handler.',
+          ),
+      })
+      .prefault({}),
   })
   .prefault({});
 export type IndexingConfig = z.infer<typeof IndexingConfigSchema>;

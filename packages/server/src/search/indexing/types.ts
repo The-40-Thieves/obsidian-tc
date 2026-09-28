@@ -240,4 +240,6 @@ export interface IndexVaultArgs {
   }) => void;
   /** GH #995: checked between embed sub-batches and by flush(); absent -> unabortable. */
   signal?: AbortSignal;
+  // GH #995 follow-up: paced embed-pace.ts waitForIdle; boot, promotion, and periodic reconcile all set this, not boot-only (#1003 nit 5).
+  embedPace?: (signal?: AbortSignal) => Promise<void>;
 }

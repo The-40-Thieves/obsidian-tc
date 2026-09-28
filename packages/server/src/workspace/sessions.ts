@@ -352,6 +352,52 @@ export function markInFlight(sessionId: string): () => void {
   };
 }
 
+/**
+ * GH #995 follow-up: process-wide "is any dispatch in flight, or did one just finish" signal for
+ * the boot/promotion reconcile's idle-paced embed (search/indexing/embed-pace.ts's `waitForIdle`).
+ *
+ * Deliberately NOT derived from `inFlightCounts` above: that map is only populated `if
+ * (ctx.sessionId !== undefined)` (mcp/registry.ts's `dispatch()`), and `sessionId` is absent on
+ * the common stdio call with no explicit `start_session` — the boot reconcile would see an
+ * empty map and never pace at all against the overwhelming majority of real traffic. This is a
+ * SEPARATE counter for that reason, incremented/decremented at the SAME one shared attach point
+ * (`ToolRegistry.dispatch`, unconditionally — see mcp/registry.ts) rather than inferred from a
+ * session-scoped structure that does not cover every call.
+ */
+let globalDispatchInFlight = 0;
+/** Epoch ms of the last dispatch activity (a call starting OR finishing), process-wide. 0 means
+ *  "no dispatch has happened yet this process" — `msSinceLastDispatchActivity` reads that as
+ *  infinitely idle rather than as a recent event at the epoch. */
+let lastDispatchActivityAt = 0;
+
+/** Mark one more dispatch call in flight, process-wide. Returns a release function — call it
+ *  exactly once when that call finishes, success or throw; a duplicate call is a no-op. Mirrors
+ *  `markInFlight`'s shape (reference-counted, idempotent release) but is unconditional: called for
+ *  EVERY dispatch, not only ones with a `sessionId`. */
+export function markDispatchActive(): () => void {
+  globalDispatchInFlight += 1;
+  lastDispatchActivityAt = Date.now();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    globalDispatchInFlight = Math.max(0, globalDispatchInFlight - 1);
+    lastDispatchActivityAt = Date.now();
+  };
+}
+
+/** True while at least one dispatch call is in flight, process-wide. */
+export function dispatchInFlightCount(): number {
+  return globalDispatchInFlight;
+}
+
+/** Milliseconds since the last dispatch activity (a call starting or finishing), process-wide.
+ *  `Number.POSITIVE_INFINITY` before this process has dispatched its first call — never busy, so
+ *  immediately idle rather than "just active at epoch 0". */
+export function msSinceLastDispatchActivity(now: number = Date.now()): number {
+  return lastDispatchActivityAt === 0 ? Number.POSITIVE_INFINITY : now - lastDispatchActivityAt;
+}
+
 /** How many calls currently have `sessionId` attached. 0 — the common case — means nothing is
  *  calling through it right now, not that the session is invalid. */
 export function inFlightCount(sessionId: string): number {

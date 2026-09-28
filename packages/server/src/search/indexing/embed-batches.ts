@@ -111,6 +111,11 @@ export async function embedPlans(
    *  comment for why this is the seam a shutdown needs, not a higher one. Absent -> unabortable,
    *  matching every call site before this ticket (only the boot reconcile passes one). */
   signal?: AbortSignal,
+  /** GH #995 follow-up: awaited before each sub-batch's provider call, when set. Only threaded by
+   *  the boot/promotion reconcile (runtime/plane-wiring.ts's createReconcileRunner) — explicit
+   *  index_vault and index-on-write never pass one, so they stay unpaced (absent -> no wait,
+   *  byte-identical to before this ticket). See search/indexing/embed-pace.ts's `waitForIdle`. */
+  pace?: (signal?: AbortSignal) => Promise<void>,
 ): Promise<EmbedReport> {
   const contents: string[] = [];
   // THE-934: parallel to `contents` — the vault path each text came from, one entry per pushed
@@ -163,6 +168,13 @@ export async function embedPlans(
   const worker = async (): Promise<void> => {
     for (let i = next++; i < subBatches.length; i = next++) {
       if (signal?.aborted) return;
+      // GH #995 follow-up: pace BEFORE issuing this sub-batch's provider call, not after — the
+      // point is to never START the next batch while a tool call is in flight, not to interrupt
+      // one already running (embedSubBatch itself is not abortable mid-call).
+      if (pace) {
+        await pace(signal);
+        if (signal?.aborted) return;
+      }
       results[i] = await embedSubBatch(
         provider,
         subBatches[i] as string[],

@@ -33,15 +33,30 @@ import { type JobHandler, makeJobRunner } from "../scheduler/job-runner";
 import type { Scheduler } from "../scheduler/scheduler";
 import { makeTaskCallHandler } from "../scheduler/task-call-runner";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
+import { type IdleGate, serializeAdmission, waitForIdle } from "../search/indexing/embed-pace";
 import type { RepresentationManifest } from "../search/representation";
 import type { VecRebuildEvent } from "../search/vec";
 import { errorMessage, stderrOnError } from "../util/errors";
 import { contentHash } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
+import { dispatchInFlightCount, msSinceLastDispatchActivity } from "../workspace/sessions";
 import type { IndexHealthState } from "./indexing-wiring";
 import { type Observability, wireActivationRecompute } from "./observability";
 import { applyReconcileOutcome, type ReconcileResult } from "./reconcile-outcome";
 import { planeRoles } from "./tool-wiring";
+
+// GH #995 follow-up: the ONE IdleGate the boot/promotion reconcile paces against — backed by
+// workspace/sessions.ts's process-wide dispatch counter (the same one-shared-attach-point
+// primitive mcp/registry.ts's ToolRegistry.dispatch marks/releases around EVERY dispatch call).
+// Module-level (not threaded through deps) because it has no per-vault or per-test-double shape of
+// its own to inject: a caller that wants a different gate for a test constructs its own embedPace
+// directly against search/indexing/embed-pace.ts's waitForIdle instead of going through
+// createReconcileRunner at all — see plane-wiring-reconcile-mapping.test.ts's sibling for that
+// pattern (pure functions tested directly, composition tested at the wiring boundary).
+const dispatchIdleGate: IdleGate = {
+  isBusy: () => dispatchInFlightCount() > 0,
+  idleForMs: (now) => msSinceLastDispatchActivity(now),
+};
 
 // Content-derived key, deliberately: a completed/dead-lettered job for a given key must not
 // permanently block re-judging recurring identical content — see EnqueueOptions.replaceIfTerminal.
@@ -356,6 +371,14 @@ export interface ReconcileRunnerDeps {
   indexHealth: IndexHealthState;
   /** config.indexing.streamingWalk */
   streamingWalk: boolean;
+  /** Fix round (Codex review, finding 3): renamed from `bootEmbed` — config.indexing.backgroundEmbed
+   *  paces every reconcile this runner drives, not only boot/promotion. `createReconcileRunner`'s
+   *  return value is ALSO registered as the periodic `vault-reconcile` scheduled job
+   *  (runtime/scheduler-wiring.ts), so a name that said only "boot" undersold what it paced — that
+   *  periodic pass paces identically to boot/promotion, on purpose (a periodic repair pass is
+   *  background work too). Never threaded to explicit index_vault or index-on-write, which never
+   *  construct a ReconcileRunnerDeps at all. */
+  backgroundEmbed: { mode: "idle" | "immediate"; idleMs: number; maxDeferMs: number };
   indexVaultRecorded: (opts: IndexVaultArgs) => Promise<IndexStats>;
   roles: GatewayRoles | null;
   jobRunner: ReturnType<typeof makeJobRunner>;
@@ -426,6 +449,33 @@ export function createReconcileRunner(
     // /parse/plan work between flushes, which this signal does not interrupt — see index-vault.ts's
     // own IndexVaultArgs.signal doc for why that gap is deliberate (walkedSet completeness).
     if (signal.aborted) return;
+    // GH #995 follow-up: "immediate" (an explicit opt-out) threads no embedPace at all, so
+    // embedPlans' worker loop takes the exact same branch as every pre-existing caller — not a
+    // pace() that happens to return instantly, an ACTUAL absence, matching this file's own
+    // absent-signal precedent everywhere else. "idle" (default) builds ONE closure shared across
+    // every vault in this pass, over the SAME process-wide dispatchIdleGate — pacing is a
+    // property of the whole server's dispatch activity, not of any one vault's reconcile.
+    //
+    // Fix round (Codex review, finding 2): that ONE closure is also wrapped in `serializeAdmission`
+    // — every worker (embed-batches.ts's `concurrency` loop) and every vault's Promise.all'd pass
+    // above shares it, so admission is serialized process-wide with a forced macrotask yield
+    // between grants, instead of every caller racing the same idle check in one microtask. Finding
+    // 1: `deps.backgroundEmbed.maxDeferMs` bounds how long any one admission can be deferred before
+    // `waitForIdle` itself falls back to the busy/hard-cap floor — see embed-pace.ts's own doc.
+    const embedPace =
+      deps.backgroundEmbed.mode === "immediate"
+        ? undefined
+        : (paceSignal?: AbortSignal): Promise<void> =>
+            serializeAdmission(() =>
+              waitForIdle(
+                dispatchIdleGate,
+                deps.backgroundEmbed.idleMs,
+                paceSignal,
+                undefined,
+                undefined,
+                deps.backgroundEmbed.maxDeferMs,
+              ),
+            );
     await Promise.all(
       deps.vaults.map((v) =>
         deps
@@ -446,6 +496,7 @@ export function createReconcileRunner(
             sql: deps.sqlHooksFor(v.id),
             onVecRebuild: deps.onVecRebuild,
             signal,
+            ...(embedPace ? { embedPace } : {}),
             onIndexed: deps.makeOnIndexed(v.id),
             // THE-291: metadata/FTS readiness is independent of embed success.
             onNotesPass: () => {

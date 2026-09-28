@@ -807,6 +807,35 @@
           "type": "integer",
           "minimum": 64,
           "maximum": 8192
+        },
+        "backgroundEmbed": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "mode": {
+              "default": "idle",
+              "description": "\"idle\" pauses the boot/promotion/periodic reconcile's embed pass between sub-batches while a tool call is in flight or finished less than idleMs ago; \"immediate\" runs it at full speed with no pacing (the behavior before this key existed). Explicit index_vault calls and index-on-write are never paced, regardless of this setting.",
+              "type": "string",
+              "enum": [
+                "idle",
+                "immediate"
+              ]
+            },
+            "idleMs": {
+              "default": 2000,
+              "description": "In \"idle\" mode, how many milliseconds the server must have had no dispatch activity (no tool call in flight, and none finished more recently than this) before the reconcile's next embed sub-batch is allowed to run.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "maxDeferMs": {
+              "default": 30000,
+              "description": "In \"idle\" mode, the ceiling on how long continuous dispatch activity may defer the reconcile's next embed sub-batch. Past this many milliseconds of continuous deferral, the next sub-batch is admitted as soon as no call is currently in flight (not waiting for a full quiet window); if no call ever clears, a second cap at 2x this value admits it unconditionally. Bounds indefinite starvation from ordinary polling traffic or a hung handler.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
         }
       }
     },
