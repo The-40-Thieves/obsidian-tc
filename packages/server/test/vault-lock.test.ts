@@ -85,6 +85,22 @@ function track(e: VaultLeaderElection): VaultLeaderElection {
   return e;
 }
 
+// GH #1011 Windows flake: `demote()` intentionally notifies `onDemote` callbacks BEFORE releasing
+// the OS-level lock (F1 in vault-lock.ts -- this process's own writes must stop before a
+// challenger's can start), so there is a real, platform-timing-dependent gap between "the demote
+// callback fired" and "a fresh election can actually acquire." A challenger started the instant a
+// demote callback fires can lose that race by a few milliseconds; proven on a real windows-latest
+// run (a challenger's own tryAcquire began 1ms before the demoted leader's releaseLockDb() call
+// returned). Losing it once is harmless -- but a challenger with no retryMinMs/retryMaxMs override
+// then sits on the DEFAULT 5-15s jittered retry, which is what turned that race into a 10s test
+// timeout. Waiting on promotion (like "a follower promotes..." below already does) rather than
+// asserting synchronous leadership makes the assertion race-free without touching production's
+// intentional ordering.
+async function waitUntilLeader(election: VaultLeaderElection): Promise<void> {
+  if (election.isLeader()) return;
+  await new Promise<void>((resolve) => election.onPromote(resolve));
+}
+
 afterEach(async () => {
   for (const e of elections.splice(0)) {
     try {
@@ -211,6 +227,12 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
       await startVaultLeaderElection({
         cacheDir,
         keepaliveMs: 20,
+        // GH #1011: a tight retry window so `a`'s own post-demote follower retry (it keeps
+        // contending for this cacheDir after demoting itself) settles well inside this test's own
+        // budget instead of sitting on the default 5-15s jittered retry -- see waitUntilLeader's
+        // comment above for the full Windows-CI rationale.
+        retryMinMs: 20,
+        retryMaxMs: 40,
         onAcquire: (db) => {
           held = db;
         },
@@ -227,7 +249,10 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     // queued setTimeout callbacks unpredictably, and this test has the identical fixed-sleep shape.
     await demoted;
     expect(a.isLeader()).toBe(false);
-    const challenger = track(await startVaultLeaderElection({ cacheDir }));
+    const challenger = track(
+      await startVaultLeaderElection({ cacheDir, retryMinMs: 20, retryMaxMs: 40 }),
+    );
+    await waitUntilLeader(challenger); // GH #1011 -- see waitUntilLeader's own comment
     expect(challenger.isLeader()).toBe(true);
   }, 10_000);
 
@@ -247,6 +272,10 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
       await startVaultLeaderElection({
         cacheDir,
         keepaliveScheduler: deterministicKeepaliveScheduler,
+        // GH #1011: see waitUntilLeader's comment -- keeps `a`'s own post-demote follower retry
+        // from sitting on the default 5-15s jittered window.
+        retryMinMs: 20,
+        retryMaxMs: 40,
         statIdentity: (path) => {
           statCalls += 1;
           const real = realStatIdentity(path);
@@ -264,7 +293,10 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     // above) rather than real `setTimeout` delivery -- see that helper's own comment for why.
     await demoted;
     expect(a.isLeader()).toBe(false);
-    const challenger = track(await startVaultLeaderElection({ cacheDir }));
+    const challenger = track(
+      await startVaultLeaderElection({ cacheDir, retryMinMs: 20, retryMaxMs: 40 }),
+    );
+    await waitUntilLeader(challenger); // GH #1011 -- see waitUntilLeader's own comment
     expect(challenger.isLeader()).toBe(true);
   }, 10_000);
 
@@ -381,6 +413,11 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
       await startVaultLeaderElection({
         cacheDir,
         keepaliveScheduler: deterministicKeepaliveScheduler,
+        // GH #1011: see waitUntilLeader's comment -- keeps `a`'s own post-demote follower retry
+        // from sitting on the default 5-15s jittered window (this test never re-acquires `a`, so
+        // that lingering retry would otherwise still be running, unref'd, during LATER tests).
+        retryMinMs: 20,
+        retryMaxMs: 40,
         statIdentity: (path) => {
           statCalls += 1;
           const real = realStatIdentity(path);
