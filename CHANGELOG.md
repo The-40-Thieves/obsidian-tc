@@ -6,6 +6,14 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`obsidian-tc setup --install-client grok`** — wires an `obsidian-tc` entry into xAI's Grok CLI
+  the same way Claude Code/Codex CLI/Antigravity/Hermes Agent are: `grok mcp add`, run directly
+  (never a shell), with the command also printed for a human to copy-paste. Verified end-to-end
+  against the installed `grok` CLI (project-scoped registration, `grok mcp doctor`/`mcp list`, and
+  a headless run that called the vault tools through it).
+
 ## [1.31.7] - 2026-09-29
 
 ### Fixed

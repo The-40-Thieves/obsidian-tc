@@ -112,9 +112,10 @@ Point any MCP client at the command. The config path can be an argument or the
 `obsidian-tc setup` itself prints ready-to-paste snippets for every known client at
 the end of every run. To have it wire one in for you instead of pasting by hand,
 add `--install-client <id>` (`claude-code`, `claude-desktop`, `cursor`, `codex`,
-`chatgpt`, `antigravity`, `hermes`, `vscode`, `opencode`, `windsurf` — alias
-`devin-desktop` — `gemini`, `zed`, `devin`, `aider`, `cline`, `roo`, `continue`,
-`goose`, `amazonq`, `kiro`, `jetbrains`, `warp`, `augment` — alias `auggie`):
+`chatgpt`, `antigravity`, `hermes`, `grok`, `vscode`, `opencode`, `windsurf` —
+alias `devin-desktop` — `gemini`, `zed`, `devin`, `aider`, `cline`, `roo`,
+`continue`, `goose`, `amazonq`, `kiro`, `jetbrains`, `warp`, `augment` — alias
+`auggie`):
 
 ```sh
 obsidian-tc setup --install-client claude-desktop
@@ -157,8 +158,8 @@ at a write.
 `auggie` also resolves here), added the same way as Claude Code/Codex/Gemini
 CLI below.
 
-**Claude Code, Codex CLI, Antigravity, Hermes Agent, VS Code, Gemini CLI, and
-Augment's Auggie CLI** each ship their own `mcp add`-style command, so
+**Claude Code, Codex CLI, Antigravity, Hermes Agent, Grok CLI, VS Code, Gemini
+CLI, and Augment's Auggie CLI** each ship their own `mcp add`-style command, so
 `--install-client` prints (and, unless `--dry-run` is given, runs) that
 documented command instead of hand-editing the client's own config file:
 
@@ -167,6 +168,7 @@ claude mcp add --scope user obsidian-tc -- obsidian-tc --config /ABSOLUTE/PATH/T
 codex mcp add obsidian-tc -- obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 agy mcp add obsidian-tc obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 hermes mcp add obsidian-tc --command obsidian-tc --args --config /ABSOLUTE/PATH/TO/config.json
+grok mcp add -s user obsidian-tc obsidian-tc -- --config /ABSOLUTE/PATH/TO/config.json
 code --add-mcp '{"name":"obsidian-tc","command":"obsidian-tc","args":["--config","/ABSOLUTE/PATH/TO/config.json"]}'
 gemini mcp add obsidian-tc obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 auggie mcp add obsidian-tc --command obsidian-tc --args '--config /ABSOLUTE/PATH/TO/config.json'
@@ -193,6 +195,7 @@ somewhere to install into.
 | `chatgpt` | instructions only (remote HTTPS) |
 | `antigravity` | `agy mcp add` |
 | `hermes` | `hermes mcp add` |
+| `grok` | `grok mcp add` |
 | `vscode` | `code --add-mcp` |
 | `opencode` | merge `opencode.json` (comments preserved) |
 | `windsurf` (alias `devin-desktop`) | merge `mcp_config.json` |

@@ -20,7 +20,8 @@ const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force"];
  *  Windsurf/Devin Desktop, Gemini CLI, Zed, Devin, and Aider (which has no MCP support at all — see
  *  cli/setup/client-install-editors.ts's own header for the split), then PR C's follow-up: Cline,
  *  Roo Code, Continue, Goose, Amazon Q Developer CLI, Kiro, JetBrains, Warp, and Augment (see
- *  cli/setup/client-install-agents.ts's own header). */
+ *  cli/setup/client-install-agents.ts's own header), then xAI's Grok CLI (`grok mcp add`, same
+ *  `"cli"`-kind shape as Claude Code/Codex — see `grokAddCommand` in client-install.ts). */
 export const INSTALL_CLIENTS = [
   "claude-code",
   "claude-desktop",
@@ -29,6 +30,7 @@ export const INSTALL_CLIENTS = [
   "chatgpt",
   "antigravity",
   "hermes",
+  "grok",
   "vscode",
   "opencode",
   "windsurf",

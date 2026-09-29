@@ -14,6 +14,7 @@ import {
   codexAddCommand,
   cursorMcpConfigPath,
   formatClientSnippets,
+  grokAddCommand,
   hermesAddCommand,
   mergeMcpServersEntry,
   obsidianTcServerEntry,
@@ -333,6 +334,22 @@ describe("hermesAddCommand", () => {
   });
 });
 
+describe("grokAddCommand", () => {
+  it("uses the documented `grok mcp add -s user <name> <cmd> -- <args>...` shape", () => {
+    expect(grokAddCommand("/home/op/.obsidian-tc/config.json")).toEqual([
+      "mcp",
+      "add",
+      "-s",
+      "user",
+      "obsidian-tc",
+      "obsidian-tc",
+      "--",
+      "--config",
+      "/home/op/.obsidian-tc/config.json",
+    ]);
+  });
+});
+
 describe("chatgptInstructions", () => {
   it("names the remote-HTTPS-only limitation and points at the shared-HTTP-server docs", () => {
     const text = chatgptInstructions();
@@ -410,6 +427,8 @@ describe("formatClientSnippets", () => {
     expect(text).toContain("codex mcp add obsidian-tc -- obsidian-tc --config");
     expect(text).toContain("agy mcp add obsidian-tc obsidian-tc --config");
     expect(text).toContain("hermes mcp add obsidian-tc --command obsidian-tc --args --config");
+    expect(text).toContain("Grok CLI");
+    expect(text).toContain("grok mcp add -s user obsidian-tc obsidian-tc -- --config");
     expect(text).toContain("docs/wiki/Deployment-Modes.md");
     expect(text).toContain("VS Code (Copilot)");
     expect(text).toContain("opencode");
