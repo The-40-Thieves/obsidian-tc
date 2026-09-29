@@ -24,8 +24,9 @@
 // non-support) live in client-install-types.ts / client-install-editors.ts respectively — split out
 // once this file's own original seven clients plus the new ones would have pushed it past biome's
 // 700-line ceiling. This file keeps the ORIGINAL seven (Claude Code, Claude Desktop, Cursor, Codex,
-// ChatGPT, Antigravity, Hermes) plus the registry assembly, `clientLabel`, and the printed-snippet
-// formatting every kind shares.
+// ChatGPT, Antigravity, Hermes) plus a later addition (Grok CLI, xAI's `grok mcp add` — same
+// `"cli"`-kind shape as Claude Code/Codex) plus the registry assembly, `clientLabel`, and the
+// printed-snippet formatting every kind shares.
 import { join } from "node:path";
 import { INSTALL_CLIENTS, type InstallClient } from "../parse-setup";
 import { AGENT_CLIENT_REGISTRY } from "./client-install-agents";
@@ -135,6 +136,17 @@ export function hermesAddCommand(configPath: string): string[] {
   ];
 }
 
+/** xAI's Grok CLI — `grok mcp add [-t stdio|http|sse] [-s user|project] [-e KEY=val]
+ *  [-H 'Name: value'] <NAME> [COMMAND_OR_URL] [ARGS]...` (`grok mcp add --help`, verified against
+ *  installed grok-cli 1.0.41, matching ~/.grok/docs/user-guide/07-mcp-servers.md's own "CLI
+ *  Management" section). `-s user` writes to `~/.grok/config.toml` (the default scope, made
+ *  explicit here the same way Claude Code's `--scope user` is — one shared install, available in
+ *  every project, not a single project's own `.grok/config.toml`). Everything after `--` is passed
+ *  to the server command untouched, same reasoning as `codexAddCommand`'s own `--` separator. */
+export function grokAddCommand(configPath: string): string[] {
+  return ["mcp", "add", "-s", "user", "obsidian-tc", "obsidian-tc", "--", "--config", configPath];
+}
+
 /** ChatGPT ships no local-server MCP client: Developer Mode's connectors speak only to a remote,
  *  public HTTPS MCP server (OpenAI's current Developer Mode / Apps SDK docs, web-verified
  *  2026-09-28) — no CLI or config file here to install into, so this prints instructions only. */
@@ -218,6 +230,13 @@ export const CLIENT_REGISTRY: Record<InstallClient, ClientRegistryEntry> = {
     binary: "hermes",
     buildArgs: hermesAddCommand,
     sourceNote: "`hermes mcp add --help`, verified against the installed hermes-agent checkout",
+  },
+  grok: {
+    kind: "cli",
+    displayName: "Grok CLI",
+    binary: "grok",
+    buildArgs: grokAddCommand,
+    sourceNote: "`grok mcp add --help`, verified against installed grok-cli 1.0.41",
   },
   ...EDITOR_CLIENT_REGISTRY,
   ...AGENT_CLIENT_REGISTRY,

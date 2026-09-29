@@ -281,6 +281,7 @@ describe.each([
   { client: "codex" as const, binary: "codex", first: "mcp" },
   { client: "antigravity" as const, binary: "agy", first: "mcp" },
   { client: "hermes" as const, binary: "hermes", first: "mcp" },
+  { client: "grok" as const, binary: "grok", first: "mcp" },
 ])("runInstallClient — $client (CLI)", ({ client, binary, first }) => {
   it("prints and runs that client's own mcp-add command", async () => {
     captureOutput();
