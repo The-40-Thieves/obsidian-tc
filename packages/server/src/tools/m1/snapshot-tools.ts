@@ -4,10 +4,11 @@
 // these tools are always available (list/read/restore operate on whatever snapshots exist).
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { requireConfirmation } from "../../vault/hitl";
-import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
+import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { captureSnapshot, listSnapshots, readSnapshot } from "../../vault/snapshots";
 import { defineTool } from "./define";
@@ -61,6 +62,9 @@ const RestoreNoteOutput = z.object({
   restored_from: z.number(),
   content_hash: z.string(),
   prev_hash: z.string().nullable(),
+  // present only when memoryDefense.mode is "redact" and the restored snapshot content
+  // matched — same convention as write_note/move_note's own `redactions` field.
+  redactions: z.number().optional(),
 });
 
 export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
@@ -203,15 +207,22 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
           if (!deps.snapshots?.enabled) deps.onSnapshotSkipped?.(v.id, rel, "restore_note");
           captureSnapshot(ctx.db, deps.snapshots, v.id, rel, prevRaw, "restore_note", ctx.now);
         }
-        writeNoteAtomic(abs, snap.content, true);
-        deps.reindex?.(v.id, rel, snap.content);
+        // a snapshot can predate the vault's memoryDefense config (or predate a secret
+        // being pasted into an earlier version of the note) — restoring it is itself a write of
+        // caller-influenced content and must be scanned the same way write_note's own body is.
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const scan = writeNoteAtomicGuarded(abs, rel, snap.content, true, mdConfig, {
+          metrics: deps.metrics,
+        });
+        deps.reindex?.(v.id, rel, scan.content);
         return {
           vault: v.id,
           path: rel,
           restored: true,
           restored_from: input.snapshot_id,
-          content_hash: contentHash(snap.content),
+          content_hash: contentHash(scan.content),
           prev_hash: prevHash,
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
         };
       },
     }),

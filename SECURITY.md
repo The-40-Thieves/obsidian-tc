@@ -337,13 +337,48 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
   the persisted row — `app`/`window_title`/`url`/`machine` for ambient, `title`/`author`/`url`/
   `tags` for highlights — not just the primary text field).
 
-  **Not covered, tracked separately, not this feature's scope today**: `bulk_create_notes`,
-  `bulk_set_property`, `bulk_move_notes` (M6 bulk tools), `restore_note` (M1 snapshot restore),
-  `update_task` (M4), the table-mutation tools (`insert_table_row`/`insert_table_column`/
-  `sort_table_by_column`, M3), `reflect`'s persist path (M7 knowledge), and `create_periodic_note`
-  (M3). None of these route through `enforceMemoryDefense`/`enforceMemoryDefenseOnNoteWrite`
-  today — a vault relying on `memoryDefense` for its ONLY control still has a secret pasted into
-  any of these land unscanned.
+  **Extended in a follow-up round** to every remaining note-content writer that shares
+  `writeNoteAtomic` with the writers above, via a new `writeNoteAtomicGuarded` primitive
+  (`vault/notes-io.ts`) that scans/refuses before persisting: the M6 bulk tools
+  (`bulk_create_notes`/`bulk_set_property`/`bulk_move_notes` — a secret-shaped bulk-move
+  *destination* is refused per item, before any file is touched, the same way `move_note`'s own
+  destination is); `restore_note` (M1 snapshot restore — a snapshot can predate the guard, or
+  predate a secret being pasted into an earlier version of the note, so a restore is scanned the
+  same as any other write); `update_task` (M4 — the RESULTING task line is scanned, so a
+  secret-shaped `set.description` or any other field is caught); the four GFM table tools
+  (`format_table`/`insert_table_row`/`insert_table_column`/`sort_table_by_column`, M3);
+  `create_periodic_note`/`find_or_create_periodic_note`/`append_to_periodic_note` (M3 — a
+  secret-shaped template, default or overridden, is caught the same as freshly-typed content); and
+  `reflect`'s persist path (M7 knowledge — a model-synthesized note is scanned at the shared
+  governed-write chokepoint, `vault/persist-note.ts`'s `persistGovernedNote`, since nothing
+  upstream of that call has scanned it). `commit_capture` additionally now scans the note's FINAL
+  YAML-serialized bytes (frontmatter + content together, after `serializeNote`) rather than the
+  pre-serialization object pair, and its `target_path` refusal reuses the same helper
+  `move_note`/`copy_note` use (`refusePathIfSecretShaped`), which rescans the NORMALIZED path for
+  the refusal's pattern ids — a match found only after NFKC/zero-width normalization no longer
+  reports an empty pattern-id list. `move_attachment`'s note-link rewrite is covered the same
+  two-pass way `bulk_move_notes`' own backlink rewrite is: every referencing note's rewritten body
+  is scanned BEFORE any of them is written, so a block-worthy match refuses the whole rewrite
+  rather than leaving some notes repointed and others still pointing at the old location.
+  `create_periodic_note`/`find_or_create_periodic_note`'s `expand_template=true` path hands the
+  actual write to the Templater bridge, which writes the expanded note itself — nothing upstream
+  had scanned that content, so a template that rendered a secret persisted it unscanned; the bytes
+  Templater wrote are now read back and scanned after the fact (block mode unlinks the just-created
+  note and refuses; redact mode rewrites it in place). A bulk item refused for a secret-shaped
+  identity field (e.g. a secret-shaped `bulk_move_notes`/`bulk_create_notes` destination `path`)
+  now redacts that field in the reported result, instead of echoing the very value that triggered
+  the refusal back in the same response. `update_task`'s redact-mode `new_state` no longer falls
+  back to the raw caller-supplied fields when the persisted (redacted) line fails to re-parse — a
+  fallback that could otherwise echo the secret the write had just redacted on disk; it now falls
+  back to the caller's fields only when nothing was redacted.
+
+  **Not covered, tracked separately, not this feature's scope today**: the structured-document
+  formats that share `writeNoteAtomic` but were not in this round's named scope —
+  `create_canvas`/`update_canvas`, `create_base`/`update_base`,
+  `create_excalidraw`/`update_excalidraw` (all JSON), and `add_kanban_card`/`move_kanban_card`
+  (a Markdown board). None of these route through `enforceMemoryDefense`/
+  `enforceMemoryDefenseOnNoteWrite` today — a vault relying on `memoryDefense` for its ONLY
+  control still has a secret pasted into any of these land unscanned.
 
   **`templates`, QuickAdd, and `execute_command` are bridge-mediated and out of scope by
   construction, not by omission**: those run Obsidian's own command/template engine inside the
@@ -353,16 +388,12 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
 - **Same pattern-coverage caveat as `redactSecrets`/`scanPii` everywhere else in this
   document**: a deterministic pattern list catches known-shaped secrets; it is not a general
   secret classifier, and a novel or obfuscated credential shape can pass through unmatched.
-- **`commit_capture`'s frontmatter is scanned as a structured object, then serialized to YAML
-  afterward — the serialization step itself is not re-scanned.** `enforceMemoryDefense` redacts
-  `frontmatter`'s KEYS and VALUES while it is still a plain object; `serializeNote` then turns
-  that already-redacted object into YAML text (block/flow scalar choice, key quoting, list
-  layout) with no second pass. Every case exercised so far persists `"[REDACTED]"` — an ordinary
-  scalar with no YAML-special characters — so no exploit is known against this path today, but it
-  is structurally the same shape as `create_entity`'s `type`/`name` -> `sanitizeSegment` gap
-  (SECURITY.md's own "Path-sanitisation order" above), which DID need a dedicated second scan
-  (`enforceMemoryDefenseOnTransformed`) once a post-scan transform could change what a value looks
-  like. `commit_capture`'s frontmatter has no equivalent second pass yet.
+- **Fixed**: `commit_capture` used to scan `frontmatter` as a structured object and `content` as
+  its own string, separately, before `serializeNote` combined them into YAML — the serialization
+  step itself was not re-scanned, structurally the same shape as `create_entity`'s `type`/`name`
+  -> `sanitizeSegment` gap (SECURITY.md's own "Path-sanitisation order" above). `commit_capture`
+  now scans the note's FINAL serialized bytes (post-`serializeNote`) instead, matching every other
+  note-content writer in this section.
 - **Leaf-scanner ceiling.** Normalisation (NFKC + zero-width-codepoint stripping) and same-array
   reassembly are both handled, each within its own narrow scope:
   - **NFKC is a compatibility fold, not homoglyph/confusable folding.** It reliably normalizes

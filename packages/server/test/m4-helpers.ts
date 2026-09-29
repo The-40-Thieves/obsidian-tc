@@ -9,7 +9,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import {
   CapabilityCache,
@@ -45,6 +45,9 @@ export interface M4VaultOptions {
   /** Per-vault command-palette execution policy (deny-by-default when omitted). */
   commandPolicy?: (vaultId: string) => { enabled: boolean; allowlist: string[] };
   vaultId?: string;
+  /** Per-vault memoryDefense policy for update_task's note rewrite — same config every vault
+   *  ID resolves to. Omit to leave memoryDefense unwired (MEMORY_DEFENSE_OFF). */
+  memoryDefense?: VaultMemoryDefenseConfig;
 }
 
 export interface M4EventRow {
@@ -119,6 +122,9 @@ export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
     capabilities,
     bridgeFor: () => client,
     ...(opts.commandPolicy ? { commandPolicy: opts.commandPolicy } : {}),
+    ...(opts.memoryDefense
+      ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
+      : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

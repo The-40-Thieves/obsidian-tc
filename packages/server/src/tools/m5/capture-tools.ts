@@ -20,9 +20,13 @@ import {
   markCommitted,
 } from "../../capture/queue";
 import { inTransaction } from "../../db/txn";
-import { enforceMemoryDefense } from "../../experiential/memory-defense";
+import {
+  enforceMemoryDefense,
+  enforceMemoryDefenseOnNoteWrite,
+  refusePathIfSecretShaped,
+} from "../../experiential/memory-defense";
 import { assessPoison } from "../../experiential/poison";
-import { redactSecrets, scanPii } from "../../experiential/redact";
+import { redactSecrets } from "../../experiential/redact";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { type Frontmatter, serializeNote } from "../../vault/frontmatter";
@@ -319,45 +323,27 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
         if (noteExists(abs).exists)
           throw err.noteExists("target already exists", { path: redactSecrets(rel).text });
 
-        // GH #994: scan/enforce the FINAL note contents before anything is written — the
-        // frontmatter object (title/tags/override keys+values, WHEREVER they came from: the
-        // queued item itself or a commit-time override) plus the body, plus `target_path` scanned
-        // AFTER vault-relative normalization (the `rel` above). Scanning the assembled document
-        // rather than each input field separately is what catches a secret in the queued item's
-        // own title/tags — never scanned at enqueue if memoryDefense was off then, or the row
-        // predates this feature — not just a fresh override.
         const fm = commitFrontmatter(cap, input.frontmatter_overrides);
         const mdConfig = memoryDefenseFor(deps, v.id);
-        const scan = enforceMemoryDefense(
-          mdConfig,
-          { target_path: rel, frontmatter: fm, content: cap.content },
-          { metrics: deps.metrics },
-        );
-        const scannedFm = scan.fields.frontmatter as Frontmatter | null;
-        const scannedContent = scan.fields.content as string;
+        // GH #994 review round 2 residual: `target_path` refused BEFORE anything else,
+        // via the SAME helper move_note/copy_note use — reusing it (rather than the hand-rolled
+        // match-then-rescan this replaced) also fixes a bug in that hand-rolled version: it rescanned
+        // the RAW `rel` for the thrown error's pattern_ids, not the NORMALIZED form the walk above
+        // actually matched, so a match found only after NFKC/zero-width normalization rescanned
+        // clean and reported `pattern_ids: []`. refusePathIfSecretShaped rescans the normalized path.
+        refusePathIfSecretShaped(mdConfig, "target_path", rel, { metrics: deps.metrics });
 
-        // GH #994 review finding 2: the FINAL write below always used the pre-scan `rel`/`abs`
-        // for both the filesystem write and the reindex call, no matter what `scan.fields.target_
-        // path` came back as — so `redact` mode could report `redactions > 0` while the vault note
-        // still landed at the raw, secret-shaped path. A redacted FILENAME is also a worse outcome
-        // than a redacted frontmatter value (it reads as garbled text, not as "this was refused"),
-        // so rather than switch the write over to the redacted path, commit_capture refuses
-        // outright whenever `target_path` itself matched anything, in every mode except "off" —
-        // exactly like `block` mode's own path-match refusal already does for a high-confidence
-        // hit. The capture stays queued, uncommitted; retrying with a clean `target_path` (or a
-        // fresh `commit_capture` call once memoryDefense is "off") succeeds.
-        if (mdConfig.mode !== "off" && scan.fields.target_path !== rel) {
-          const pathHits = redactSecrets(rel);
-          const patternIds = new Set(Object.keys(pathHits.matches));
-          if (mdConfig.pii)
-            for (const id of Object.keys(scanPii(pathHits.text).matches)) patternIds.add(id);
-          throw err.secretDetected(
-            "target_path is secret-shaped; commit_capture refuses to persist a secret-shaped path, even in redact mode",
-            { pattern_ids: [...patternIds], fields: ["target_path"] },
-          );
-        }
-
-        const content = serializeNote(scannedFm, scannedContent);
+        // GH #994 review round 2 residual: scan the note's FINAL SERIALIZED bytes, not
+        // the pre-serialization { frontmatter, content } object pair. `serializeNote` YAML-encodes
+        // `fm` — folding, quoting, or escaping can reassemble a secret that a scan of the raw object
+        // fields (frontmatter walked key-by-key, content as its own string) would not see as one
+        // contiguous match. Every other note-content writer already scans the persisted form; this
+        // was the one exception the earlier field-by-field scan here missed.
+        const rawContent = serializeNote(fm, cap.content);
+        const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, rawContent, {
+          metrics: deps.metrics,
+        });
+        const content = scan.content;
 
         // THE-858: close every channel that reaches the vault, in three separate scans so the
         // 64 KiB assessPoison truncation can't let one channel hide another. Mirrors THE-639's

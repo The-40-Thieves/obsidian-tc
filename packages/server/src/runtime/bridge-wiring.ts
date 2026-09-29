@@ -16,6 +16,8 @@ import {
   formatCompatWarning,
 } from "../bridge";
 import type { CapabilitySnapshot } from "../bridge/capabilities";
+import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
+import type { MetricsRecorder } from "../metrics/registry";
 import { type BridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, type M4Deps } from "../tools/m4";
 import { resolveMode, type VaultMode } from "../vault/mode";
 import type { VaultRegistry } from "../vault/registry";
@@ -28,6 +30,10 @@ export interface BridgeWiringDeps {
   /** THE-455: the index-on-write hook M4's update_task write path shares with M1 — owned by
    *  indexing-wiring.ts's wireIndexCoordinator, constructed just before this call. */
   reindex: (vaultId: string, path: string, content: string) => void;
+  /** update_task's memoryDefense guard, the same recorder every other memoryDefense
+   *  seam gets. Absent -> no hit-counter tagging (the scan itself still runs off the vault's own
+   *  memoryDefenseByVault entry below). */
+  metrics?: MetricsRecorder;
 }
 
 export interface BridgeWiring {
@@ -130,6 +136,10 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     commandPolicy: (vaultId) => commandsByVault.get(vaultId) ?? { enabled: false, allowlist: [] },
     mode: (vaultId) => modeByVault.get(vaultId) ?? "headless",
     reprobe: reprobeVault,
+    // update_task's memoryDefense guard — same "closure, defaulted at the read site"
+    // shape every other memoryDefense seam uses.
+    memoryDefense: (vaultId) => memoryDefenseByVault.get(vaultId) ?? MEMORY_DEFENSE_OFF,
+    metrics: deps.metrics,
   };
 
   return {

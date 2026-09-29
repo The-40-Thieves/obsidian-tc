@@ -238,7 +238,16 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         ].join("\n");
         persistGovernedNote(
           ctx.db,
-          { snapshots: deps.snapshots, reindex: deps.reindex, now: ctx.now ?? Date.now },
+          {
+            snapshots: deps.snapshots,
+            reindex: deps.reindex,
+            now: ctx.now ?? Date.now,
+            // reflect.persist writes a model-synthesized note — nothing upstream of this
+            // call has scanned it — so unlike write_note (which pre-scans before calling this same
+            // primitive) this is the FIRST and only scan point for this write.
+            memoryDefense: deps.memoryDefense?.(v.id),
+            metrics: deps.metrics,
+          },
           { vaultId: v.id, root: v.root, rel, content, op: "reflect_persist", createDirs: true },
         );
         persisted = { path: rel };

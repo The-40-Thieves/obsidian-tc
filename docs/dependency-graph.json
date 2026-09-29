@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 520,
-    "dependencies": 2450,
-    "subsystemPairs": 153,
-    "crossSubsystemImports": 1111
+    "modules": 521,
+    "dependencies": 2483,
+    "subsystemPairs": 156,
+    "crossSubsystemImports": 1134
   },
   "subsystems": {
     "auth": 4,
@@ -32,7 +32,7 @@
     "plugin": 20,
     "plur": 2,
     "providers": 8,
-    "runtime": 22,
+    "runtime": 23,
     "scheduler": 4,
     "schemas": 1,
     "search": 64,
@@ -70,13 +70,13 @@
       "weight": 50
     },
     {
-      "from": "runtime",
-      "to": "search",
-      "weight": 30
-    },
-    {
       "from": "tools",
       "to": "experiential",
+      "weight": 36
+    },
+    {
+      "from": "runtime",
+      "to": "search",
       "weight": 30
     },
     {
@@ -95,12 +95,12 @@
       "weight": 20
     },
     {
-      "from": "cli",
+      "from": "runtime",
       "to": "experiential",
-      "weight": 17
+      "weight": 18
     },
     {
-      "from": "runtime",
+      "from": "cli",
       "to": "experiential",
       "weight": 17
     },
@@ -115,13 +115,13 @@
       "weight": 16
     },
     {
-      "from": "cli",
-      "to": "embeddings",
-      "weight": 14
-    },
-    {
       "from": "runtime",
       "to": "plane",
+      "weight": 15
+    },
+    {
+      "from": "cli",
+      "to": "embeddings",
       "weight": 14
     },
     {
@@ -138,6 +138,16 @@
       "from": "runtime",
       "to": "tools",
       "weight": 11
+    },
+    {
+      "from": "runtime",
+      "to": "metrics",
+      "weight": 10
+    },
+    {
+      "from": "tools",
+      "to": "metrics",
+      "weight": 10
     },
     {
       "from": "cli",
@@ -157,11 +167,6 @@
     {
       "from": "runtime",
       "to": "embeddings",
-      "weight": 9
-    },
-    {
-      "from": "runtime",
-      "to": "metrics",
       "weight": 9
     },
     {
@@ -310,6 +315,11 @@
       "weight": 5
     },
     {
+      "from": "vault",
+      "to": "experiential",
+      "weight": 5
+    },
+    {
       "from": "capture",
       "to": "experiential",
       "weight": 4
@@ -337,11 +347,6 @@
     {
       "from": "search",
       "to": "gateway",
-      "weight": 4
-    },
-    {
-      "from": "tools",
-      "to": "metrics",
       "weight": 4
     },
     {
@@ -531,6 +536,11 @@
     },
     {
       "from": "runtime",
+      "to": "otel",
+      "weight": 2
+    },
+    {
+      "from": "runtime",
       "to": "transports",
       "weight": 2
     },
@@ -556,7 +566,7 @@
     },
     {
       "from": "vault",
-      "to": "experiential",
+      "to": "metrics",
       "weight": 2
     },
     {
@@ -646,6 +656,16 @@
     },
     {
       "from": "formats",
+      "to": "experiential",
+      "weight": 1
+    },
+    {
+      "from": "formats",
+      "to": "metrics",
+      "weight": 1
+    },
+    {
+      "from": "formats",
       "to": "util",
       "weight": 1
     },
@@ -712,11 +732,6 @@
     {
       "from": "runtime",
       "to": "cli",
-      "weight": 1
-    },
-    {
-      "from": "runtime",
-      "to": "otel",
       "weight": 1
     },
     {

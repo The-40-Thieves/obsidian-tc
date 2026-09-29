@@ -9,44 +9,31 @@
 // arbitrary deps callback would reintroduce the service-locator this file avoids (docs/design/server-runtime.md).
 
 import { dirname } from "node:path";
-import type { Tracer } from "@opentelemetry/api";
-import type { ServerConfig, VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { isFeedbackExemptFromReadOnly } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../package.json";
-import type { FolderAcl } from "../acl";
 import { experientialMigrations } from "../cli/shared";
 import { createStdioElicitCodec } from "../elicit";
-import type { EmbeddingsConfigLike } from "../embeddings";
 import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
-import type { RegistryOptions } from "../mcp/registry/types";
 import { createMcpServer } from "../mcp/server";
 import { disabledByProfileFor } from "../mcp/tool-profiles";
 import { ALLOW_ALL } from "../mcp/visibility";
-import type { MetricsRecorder } from "../metrics/registry";
-import type { MorgianaEmitter } from "../morgiana/emitter";
-import { initOtel, type OtelHandle } from "../otel/tracing";
-import { compileEgressFilter, type EgressFilter, isExcludedPath } from "../plane/egress-filter";
+import { initOtel } from "../otel/tracing";
+import { compileEgressFilter, isExcludedPath } from "../plane/egress-filter";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { IndexCoordinator } from "../search/index-coordinator";
 import { wireLeaderEpoch } from "../search/indexing/leader-epoch";
 import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
-import type { VecRebuildEvent } from "../search/vec";
 import { wireTelemetry } from "../telemetry/wiring";
-import type { ThrottleTiers } from "../throttle";
 import { connectStdio } from "../transports/stdio";
 import { nativeReadyToken, type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
 import { emitBootNotices } from "./boot-notices";
 import { wireBridges } from "./bridge-wiring";
-import { type Governance, wireGovernance } from "./governance";
-import {
-  type IndexHealthState,
-  type IndexResources,
-  wireIndexCoordinator,
-  wireIndexResources,
-} from "./indexing-wiring";
+import { wireGovernance } from "./governance";
+import { type IndexHealthState, wireIndexCoordinator, wireIndexResources } from "./indexing-wiring";
 import { createObservability } from "./observability";
 import {
   createJobQueue,
@@ -54,9 +41,10 @@ import {
   createReconcileRunner,
   wireJobHandlers,
 } from "./plane-wiring";
+import type { RuntimeCore, RuntimeCoreDeps } from "./runtime-core-types";
 import { wireScheduler } from "./scheduler-wiring";
 import { joinReconcileOrExit, logShutdownError, raceShutdownPhaseOrExit } from "./shutdown-phase";
-import { type Stores, wireStoresBehindBootstrapBarrier } from "./stores";
+import { wireStoresBehindBootstrapBarrier } from "./stores";
 import { wireDomainTools, wireGatewaySeams, wireHealthTools, wireM1Tools } from "./tool-wiring";
 import { wireTransports } from "./transport-wiring";
 import { type GatedReconcile, gateReconcileByLeader, startVaultLeaderElection } from "./vault-lock";
@@ -72,64 +60,10 @@ export interface ServerRuntime {
 // requireBoot/nativeReadyToken/OwnedLayer/unwindReversed moved to boot-helpers.ts (biome's 700-line
 // cap) — imported above, see server-runtime.test.ts for their own import path.
 
-export interface RuntimeCoreDeps {
-  /** Already-open stores. Ownership of its cleanup transfers to this call for its duration — see
-   *  this file's header comment for why stores is built outside and handed in rather than here. */
-  stores: Stores;
-  /** THE-737: trace storage root (config.cacheDir) — governance's sessionTracer resolves a
-   *  cache-store session's trace against it instead of the vault root. */
-  cacheDir: string;
-  /** THE-736: `sessions.traceContent` — capture dispatch arguments onto the trace. */
-  traceContent?: boolean;
-  /** Already-initialized OTEL handle, opened between `stores` and this call in real boot. Optional
-   *  (unit tests of `wireRuntimeCore` omit it). When present, `shutdown()` runs best-effort on
-   *  unwind — its rejection is swallowed so it can never replace the real construction error that
-   *  is propagating. See docs/design/server-runtime.md. */
-  otel?: Pick<OtelHandle, "shutdown">;
-  // governance
-  vaults: VaultConfigInput[];
-  /** config.acl — root ACL, inherited by any vault without its own. */
-  acl: ConstructorParameters<typeof FolderAcl>[0];
-  /** OBSIDIAN_TC_DEFAULT_VAULT */
-  defaultVaultId: string | undefined;
-  elicitTtlSeconds: number;
-  throttle: { enabled: boolean; tiers: ThrottleTiers };
-  maxResponseBytes: number;
-  idempotencyTtlSeconds: number;
-  idempotencyReclaimSeconds: number;
-  toolVisibility: RegistryOptions["toolVisibility"];
-  tracer: Tracer | undefined;
-  morgiana: Pick<MorgianaEmitter, "emit">;
-  // shared
-  metrics: MetricsRecorder;
-  // index resources
-  embeddings: EmbeddingsConfigLike & {
-    batchSize: number;
-    concurrency: number;
-    maxBatchTokens: number;
-    chunkContext: boolean;
-    onProviderChange: "keep" | "switch";
-  };
-  onVecRebuild: (event: VecRebuildEvent) => void;
-  /** `dirname(configPath)` — the trust root for embeddings.modulePath (the module hatch). Undefined
-   *  only when `configPath` itself is absent, NOT in zero-config vault-path mode. See
-   *  `ResolveContext.configDir`'s doc comment (providers/types.ts) and docs/design/server-runtime.md. */
-  configDir?: string;
-  securityProfile?: "hardened" | "trusted-local";
-  /** THE-934 fix round 1: config.egress.excludePaths, compiled. Threaded into
-   *  wireIndexResources -> createEmbeddingProviderAsync -- the embedding PORT -- so the provider
-   *  every downstream consumer shares (indexVault, indexNote, the query encoder, the advisory
-   *  sweep, everything) is guarded before construction completes. */
-  excludeFilter?: EgressFilter;
-  /** Test-only: fires with each layer's name, in the order its cleanup ran. Only invoked when a
-   *  later step throws during construction — never on the happy path, never by production callers. */
-  onCleanup?: (name: OwnedLayer["name"]) => void;
-}
-
-export interface RuntimeCore {
-  governance: Governance;
-  indexResources: IndexResources;
-}
+// RuntimeCoreDeps/RuntimeCore (wireRuntimeCore's input/output contract) moved to
+// runtime-core-types.ts, same 700-line cap — re-exported so every existing import path keeps
+// working.
+export type { RuntimeCore, RuntimeCoreDeps } from "./runtime-core-types";
 
 /**
  * Composes governance -> index resources on top of already-open stores, with no process-argument
@@ -485,6 +419,7 @@ export async function buildServerRuntime(
       vaults: config.vaults,
       vaultRegistry,
       reindex: reindexHook,
+      metrics,
     });
 
     wireDomainTools({

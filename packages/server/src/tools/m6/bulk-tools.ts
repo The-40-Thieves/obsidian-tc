@@ -21,16 +21,29 @@ import {
   err,
   ObsidianTcError,
   VaultId,
+  type VaultMemoryDefenseConfig,
   VaultPath,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import {
+  MEMORY_DEFENSE_OFF,
+  redactedEcho,
+  refusePathIfSecretShaped,
+} from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
+import type { MetricsRecorder } from "../../metrics/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
-import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
+import {
+  hardDelete,
+  noteExists,
+  readNote,
+  trashNote,
+  writeNoteAtomicGuarded,
+} from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { rewriteLinks } from "../../vault/rewrite";
 import { defineTool } from "../m1/define";
@@ -66,6 +79,8 @@ function rewriteForMoves(
   moveMap: Map<string, string>,
   prePaths: string[],
   apply: boolean,
+  mdConfig: VaultMemoryDefenseConfig,
+  metrics: MetricsRecorder | undefined,
 ): { perMove: Map<string, number>; total: number } {
   const oldIndex = buildVaultIndex(prePaths);
   const postPaths = apply
@@ -95,7 +110,10 @@ function rewriteForMoves(
     });
     if (count > 0) {
       total += count;
-      if (apply) writeNoteAtomic(abs, text, false);
+      // scan the final rewritten body before persisting — same guard move_note's own
+      // updateBacklinks pattern applies (memory-defense.ts's enforceMemoryDefenseOnNoteWrite): the
+      // note being rewritten here can carry a pre-existing secret that predates memoryDefense.
+      if (apply) writeNoteAtomicGuarded(abs, p, text, false, mdConfig, { metrics });
     }
   }
   return { perMove, total };
@@ -175,6 +193,9 @@ const BulkCreateResultItem = z.object({
   // Present only on success (out spread after ok:true); absent alongside `error` on failure.
   mode_used: z.enum(["create", "overwrite"]).optional(),
   content_hash: z.string().optional(),
+  // present only when memoryDefense.mode is "redact" and this item's content/
+  // frontmatter matched — same convention as write_note's own `redactions` field.
+  redactions: z.number().optional(),
   error: ErrorJson.optional(),
 });
 
@@ -193,6 +214,8 @@ const BulkSetPropertyResultItem = z.object({
   // `prev ?? null` is always assigned on success, so an explicit stored null is distinguished from
   // "never had this key" via presence — absent only alongside `error` on failure.
   prev_value: z.unknown().optional(),
+  // same convention as BulkCreateResultItem's own `redactions` field above.
+  redactions: z.number().optional(),
   error: ErrorJson.optional(),
 });
 
@@ -246,6 +269,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["write:notes", "bulk:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         // THE-572: keyed via `bulk_idempotency_key`. runBulk catches each item's own throw, so an
         // in-process item failure never escapes — but a CRASH after a worker has completed an
         // `overwrite`/`upsert` write and before runBulk returns leaves the claim `in_flight`, and
@@ -273,11 +297,16 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             if (item.mode === "overwrite" && !ex.exists)
               throw err.noteNotFound("note does not exist; use create or upsert", { path: rel });
             const body = serializeNote(item.frontmatter ?? null, item.content);
-            writeNoteAtomic(abs, body, true);
-            deps.reindex?.(v.id, rel, body);
+            // same write_note guard, applied per bulk item — nothing upstream of this
+            // batch tool has scanned an item's content/frontmatter.
+            const scan = writeNoteAtomicGuarded(abs, rel, body, true, mdConfig, {
+              metrics: deps.metrics,
+            });
+            deps.reindex?.(v.id, rel, scan.content);
             return {
               mode_used: ex.exists ? "overwrite" : "create",
-              content_hash: contentHash(body),
+              content_hash: contentHash(scan.content),
+              ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
             };
           },
         );
@@ -301,6 +330,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["write:notes", "bulk:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         const report = await runBulk(
           input.paths,
           {
@@ -328,9 +358,16 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
               path: rel,
               onFallback: frontmatterFallbackSink,
             });
-            writeNoteAtomic(abs, body, false);
-            deps.reindex?.(v.id, rel, body);
-            return { prev_value: prev ?? null };
+            // a caller-supplied `value` can itself be secret-shaped; scan the final
+            // serialized body (frontmatter + existing content) before it reaches disk.
+            const scan = writeNoteAtomicGuarded(abs, rel, body, false, mdConfig, {
+              metrics: deps.metrics,
+            });
+            deps.reindex?.(v.id, rel, scan.content);
+            return {
+              prev_value: prev ?? null,
+              ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+            };
           },
         );
         // Same runBulk generic-erasure cast as bulk_create_notes above — restates the concrete
@@ -357,6 +394,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       requiredScopes: ["write:notes", "delete:notes", "bulk:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         interface MoveRow {
           from: string;
           to: string;
@@ -367,6 +405,14 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           error?: ReturnType<ObsidianTcError["toJSON"]>;
         }
 
+        // Review finding: a refused row (secret_detected on `to`) must not echo the raw
+        // secret-shaped from/to back in `results[]` — same no-echo guarantee `add_tag`/
+        // `rewrite_link` already give their own caller-supplied field.
+        const rowIdentity = (r: MoveRow): { from: string; to: string } =>
+          r.ok
+            ? { from: r.from, to: r.to }
+            : { from: redactedEcho(mdConfig, r.from), to: redactedEcho(mdConfig, r.to) };
+
         const rows: MoveRow[] = input.moves.map((m) => {
           try {
             const fromRel = normalizeVaultPath(m.from);
@@ -375,6 +421,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
               throw err.invalidInput("from and to are identical", { path: fromRel });
             enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
             enforcePathAcl(ctx.acl, "write", toRel, v.root);
+            // same as move_note's own destination-path refusal — a caller-chosen
+            // destination can itself be secret-shaped, before anything else touches the filesystem.
+            refusePathIfSecretShaped(mdConfig, "to", toRel, { metrics: deps.metrics });
             const fromEx = noteExists(resolveVaultPath(v.root, fromRel));
             if (!fromEx.exists || fromEx.type === "folder")
               throw err.noteNotFound("source note not found", { path: fromRel });
@@ -435,7 +484,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
         if (input.dry_run) {
           const { perMove, total } = input.update_backlinks
-            ? rewriteForMoves(v.root, moveMap, prePaths, false)
+            ? rewriteForMoves(v.root, moveMap, prePaths, false, mdConfig, deps.metrics)
             : { perMove: new Map<string, number>(), total: 0 };
           return {
             vault: v.id,
@@ -443,8 +492,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             dry_run: true,
             total_backlinks_updated: total,
             results: rows.map((r) => ({
-              from: r.from,
-              to: r.to,
+              ...rowIdentity(r),
               ok: r.ok,
               ...(r.ok
                 ? { backlinks_updated: perMove.get(r.fromRel ?? "") ?? 0 }
@@ -469,10 +517,14 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             // On overwrite, soft-delete the clobbered destination first (recoverable).
             if (r.destExists && input.overwrite) trashNote(v.root, r.toRel);
             const { raw } = readNote(fromAbs);
-            writeNoteAtomic(toAbs, raw, true);
+            // the relocated content can carry a pre-existing secret that predates
+            // memoryDefense — same guard move_note's own relocation write applies.
+            const scan = writeNoteAtomicGuarded(toAbs, r.toRel, raw, true, mdConfig, {
+              metrics: deps.metrics,
+            });
             hardDelete(fromAbs);
             deps.deindex?.(v.id, r.fromRel);
-            deps.reindex?.(v.id, r.toRel, raw);
+            deps.reindex?.(v.id, r.toRel, scan.content);
           } catch (e) {
             r.ok = false;
             r.error = (
@@ -486,7 +538,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
         // Phase 2: all-or-nothing rewrite over the whole graph for the moved set.
         const { perMove, total } = input.update_backlinks
-          ? rewriteForMoves(v.root, moveMap, prePaths, true)
+          ? rewriteForMoves(v.root, moveMap, prePaths, true, mdConfig, deps.metrics)
           : { perMove: new Map<string, number>(), total: 0 };
 
         return {
@@ -495,8 +547,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           dry_run: false,
           total_backlinks_updated: total,
           results: rows.map((r) => ({
-            from: r.from,
-            to: r.to,
+            ...rowIdentity(r),
             ok: r.ok,
             ...(r.ok
               ? { backlinks_updated: perMove.get(r.fromRel ?? "") ?? 0 }

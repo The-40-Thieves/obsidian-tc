@@ -13,10 +13,15 @@ import {
   ObsidianTcError,
   Pagination,
   VaultId,
+  type VaultMemoryDefenseConfig,
   VaultPath,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
+import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+} from "../../experiential/memory-defense";
 import {
   formatMoment,
   type Period,
@@ -26,10 +31,18 @@ import {
   toISODate,
 } from "../../formats/periodic";
 import type { ToolDefinition } from "../../mcp/registry";
+import type { MetricsRecorder } from "../../metrics/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
-import { noteExists, readNote, statNote, writeNoteAtomic } from "../../vault/notes-io";
+import {
+  hardDelete,
+  noteExists,
+  readNote,
+  statNote,
+  writeNoteAtomic,
+  writeNoteAtomicGuarded,
+} from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./shared";
@@ -150,6 +163,39 @@ async function expandViaTemplater(
   }
 }
 
+/**
+ * Templater writes the expanded note itself (expandViaTemplater), so nothing upstream has
+ * scanned its content. Review finding: create_periodic_note/find_or_create_periodic_note are
+ * both listed MEMORY_DEFENSE_COVERED, but the expand_template=true path returned without ever
+ * calling the guard — a template that renders a secret persisted it unscanned. Reads the bytes
+ * Templater just wrote and applies the same policy every other writer here gets: block -> unlink
+ * the just-created note and refuse (no echo of its content in the thrown error); redact ->
+ * rewrite the file with the redacted form, so the bytes on disk (and anything read back from
+ * them, e.g. find_or_create_periodic_note's own `content` field) are never the raw secret.
+ *
+ * Returns null when the bridge reported success but nothing actually landed at `abs` — a bare
+ * HTTP-layer test double (periodic.test.ts's stubBridge) rather than a real companion, or a
+ * genuinely inert plugin response. Nothing was persisted, so there is nothing to scan or index.
+ */
+function scanExpandedTemplaterWrite(
+  abs: string,
+  path: string,
+  mdConfig: VaultMemoryDefenseConfig,
+  metrics: MetricsRecorder | undefined,
+): { content: string; redactions: number } | null {
+  if (!noteExists(abs).exists) return null;
+  const { raw } = readNote(abs);
+  let scan: { content: string; redactions: number };
+  try {
+    scan = enforceMemoryDefenseOnNoteWrite(mdConfig, path, raw, { metrics });
+  } catch (e) {
+    hardDelete(abs);
+    throw e;
+  }
+  if (scan.redactions > 0) writeNoteAtomic(abs, scan.content, false);
+  return scan;
+}
+
 // ---------------------------------------------------------------------------------------------
 // THE-417 Phase 1: declared output contracts, written from the RETURN STATEMENTS below.
 //
@@ -176,6 +222,10 @@ const GetPeriodicNoteOutput = z.object({
   ...PeriodicContentFields,
 });
 
+// present only when memoryDefense.mode is "redact" and something matched — same
+// convention as write_note's own `redactions` field.
+const RedactionsField = { redactions: z.number().optional() };
+
 const CreatePeriodicNoteOutput = z.object({
   period: PeriodEnum,
   date: z.string(),
@@ -183,6 +233,7 @@ const CreatePeriodicNoteOutput = z.object({
   created_at: z.string(),
   template_used: z.string().nullable(),
   template_expanded: z.boolean(),
+  ...RedactionsField,
 });
 
 const FindOrCreatePeriodicNoteOutput = z.object({
@@ -191,6 +242,7 @@ const FindOrCreatePeriodicNoteOutput = z.object({
   path: z.string(),
   created: z.boolean(),
   ...PeriodicContentFields,
+  ...RedactionsField,
 });
 
 const AppendToPeriodicNoteOutput = z.object({
@@ -200,6 +252,7 @@ const AppendToPeriodicNoteOutput = z.object({
   updated_at: z.string(),
   appended_bytes: z.number().int(),
   created: z.boolean(),
+  ...RedactionsField,
 });
 
 const ListPeriodicNotesOutput = z.object({
@@ -310,6 +363,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
             templateUsed = normalizeVaultPath(resolved.template);
           }
         }
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         // THE-207: optionally expand via Templater (which writes the note itself). Gated on
         // write:templater; degrades to a verbatim copy when the bridge/plugin is unavailable.
         let expanded = false;
@@ -331,9 +385,31 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           // prior attempt created it. Marking here makes that retry the accurate
           // `indeterminate_outcome` instead.
           ctx.markEffectCommitted?.();
-          writeNoteAtomic(abs, content, true);
-          deps.reindex?.(v.id, resolved.path, content);
+          // a template (default or override) can carry a pre-existing secret — scan the
+          // content actually about to be persisted, same guard every note-content writer gets.
+          const scan = writeNoteAtomicGuarded(abs, resolved.path, content, true, mdConfig, {
+            metrics: deps.metrics,
+          });
+          deps.reindex?.(v.id, resolved.path, scan.content);
+          return {
+            period: input.period,
+            date: toISODate(date),
+            path: resolved.path,
+            created_at: new Date().toISOString(),
+            template_used: templateUsed,
+            template_expanded: expanded,
+            ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+          };
         }
+        // Review finding: Templater's own write above skipped the guard entirely — scan what it
+        // actually wrote before this tool reports success.
+        const templaterScan = scanExpandedTemplaterWrite(
+          abs,
+          resolved.path,
+          mdConfig,
+          deps.metrics,
+        );
+        if (templaterScan) deps.reindex?.(v.id, resolved.path, templaterScan.content);
         return {
           period: input.period,
           date: toISODate(date),
@@ -341,6 +417,9 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           created_at: new Date().toISOString(),
           template_used: templateUsed,
           template_expanded: expanded,
+          ...(templaterScan && templaterScan.redactions > 0
+            ? { redactions: templaterScan.redactions }
+            : {}),
         };
       },
     }),
@@ -368,6 +447,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const resolved = resolvePeriodicPath(v.root, input.period, date);
         const abs = resolveVaultPath(v.root, resolved.path);
         let created = false;
+        let redactions = 0;
         if (!noteExists(abs).exists) {
           enforcePathAcl(ctx.acl, "write", resolved.path, v.root, ctx.grantedScopes);
           let content = "";
@@ -390,9 +470,27 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
               );
             expanded = await expandViaTemplater(deps, v.id, templateUsed, resolved.path);
           }
+          // same template-can-carry-a-secret guard as create_periodic_note above.
+          const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
           if (!expanded) {
-            writeNoteAtomic(abs, content, true);
-            deps.reindex?.(v.id, resolved.path, content);
+            const scan = writeNoteAtomicGuarded(abs, resolved.path, content, true, mdConfig, {
+              metrics: deps.metrics,
+            });
+            deps.reindex?.(v.id, resolved.path, scan.content);
+            redactions = scan.redactions;
+          } else {
+            // Review finding: Templater's own write above skipped the guard entirely — scan
+            // what it actually wrote before this tool reports success or echoes it back below.
+            const templaterScan = scanExpandedTemplaterWrite(
+              abs,
+              resolved.path,
+              mdConfig,
+              deps.metrics,
+            );
+            if (templaterScan) {
+              deps.reindex?.(v.id, resolved.path, templaterScan.content);
+              redactions = templaterScan.redactions;
+            }
           }
           created = true;
         } else {
@@ -406,6 +504,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           path: resolved.path,
           created,
           ...(input.include_content ? { content: raw, frontmatter: parsed.frontmatter } : {}),
+          ...(redactions > 0 ? { redactions } : {}),
         };
       },
     }),
@@ -447,15 +546,22 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         // claim and a retry duplicated the appended block. Marked write-ahead, so the worst case is
         // a caller told to verify state when the write never landed, never a silent double-append.
         ctx.markEffectCommitted?.();
-        writeNoteAtomic(abs, next, true);
-        deps.reindex?.(v.id, resolved.path, next);
+        // scan the RESULTING note body (existing bytes + appended content) — same guard
+        // append_note applies — before it reaches disk.
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const scan = writeNoteAtomicGuarded(abs, resolved.path, next, true, mdConfig, {
+          metrics: deps.metrics,
+        });
+        deps.reindex?.(v.id, resolved.path, scan.content);
         return {
           period: input.period,
           date: toISODate(date),
           path: resolved.path,
           updated_at: new Date().toISOString(),
-          appended_bytes: Buffer.byteLength(next, "utf8") - Buffer.byteLength(existing, "utf8"),
+          appended_bytes:
+            Buffer.byteLength(scan.content, "utf8") - Buffer.byteLength(existing, "utf8"),
           created: !ex.exists,
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
         };
       },
     }),
