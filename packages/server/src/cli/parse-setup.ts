@@ -18,7 +18,9 @@ const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force"];
  *  path/format/CLI logic (each entry's mechanism verified against that client's own current docs
  *  or `--help` output before being added; see that file's header). Extended with VS Code, opencode,
  *  Windsurf/Devin Desktop, Gemini CLI, Zed, Devin, and Aider (which has no MCP support at all — see
- *  cli/setup/client-install-editors.ts's own header for the split). */
+ *  cli/setup/client-install-editors.ts's own header for the split), then PR C's follow-up: Cline,
+ *  Roo Code, Continue, Goose, Amazon Q Developer CLI, Kiro, JetBrains, Warp, and Augment (see
+ *  cli/setup/client-install-agents.ts's own header). */
 export const INSTALL_CLIENTS = [
   "claude-code",
   "claude-desktop",
@@ -34,15 +36,26 @@ export const INSTALL_CLIENTS = [
   "zed",
   "devin",
   "aider",
+  "cline",
+  "roo",
+  "continue",
+  "goose",
+  "amazonq",
+  "kiro",
+  "jetbrains",
+  "warp",
+  "augment",
 ] as const;
 export type InstallClient = (typeof INSTALL_CLIENTS)[number];
 
 /** Aliases accepted on `--install-client` that resolve to one of `INSTALL_CLIENTS` above rather
- *  than being a client of their own — today just Windsurf's rebranded product name. Applied BEFORE
- *  validating against `INSTALL_CLIENTS`, so an unrecognized alias still gets the normal usage
- *  error. */
+ *  than being a client of their own — Windsurf's rebranded product name, and Augment's own CLI
+ *  binary/product name (`auggie`), which operators are at least as likely to type as "augment"
+ *  itself. Applied BEFORE validating against `INSTALL_CLIENTS`, so an unrecognized alias still gets
+ *  the normal usage error. */
 const INSTALL_CLIENT_ALIASES: Record<string, InstallClient> = {
   "devin-desktop": "windsurf",
+  auggie: "augment",
 };
 
 export interface SetupCommand {

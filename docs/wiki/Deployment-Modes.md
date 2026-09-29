@@ -75,7 +75,8 @@ One warm process; many local clients connect to `http://127.0.0.1:8765` (Streama
 ### Run one shared server for several clients
 
 **When to use it:** two or more MCP clients (Claude Desktop, Claude Code, Cursor, VS Code, Zed,
-opencode, Windsurf/Devin Desktop, Gemini CLI, ChatGPT, Devin, …) pointed at the *same vault*. The
+opencode, Windsurf/Devin Desktop, Gemini CLI, ChatGPT, Devin, Cline, Roo Code, Continue, Goose,
+Amazon Q Developer CLI, Kiro, JetBrains, Warp, Augment, …) pointed at the *same vault*. The
 [several-stdio-clients](#several-stdio-clients-on-the-same-vault) mode above
 already collapses several processes onto one `cache.db` and one indexing leader, but each process
 still loads its own copy of the embedding model and ONNX runtime — see the install-footprint and

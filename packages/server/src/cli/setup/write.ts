@@ -584,3 +584,7 @@ export function mergeJsonFileAtomic(
 export function mergeJsoncFileAtomic(path: string, text: string): AtomicJsonWriteResult {
   return writeTextFileAtomic(path, text.endsWith("\n") ? text : `${text}\n`);
 }
+
+export function mergeYamlFileAtomic(path: string, text: string): AtomicJsonWriteResult {
+  return writeTextFileAtomic(path, text.endsWith("\n") ? text : `${text}\n`);
+}

@@ -113,7 +113,8 @@ Point any MCP client at the command. The config path can be an argument or the
 the end of every run. To have it wire one in for you instead of pasting by hand,
 add `--install-client <id>` (`claude-code`, `claude-desktop`, `cursor`, `codex`,
 `chatgpt`, `antigravity`, `hermes`, `vscode`, `opencode`, `windsurf` — alias
-`devin-desktop` — `gemini`, `zed`, `devin`, `aider`):
+`devin-desktop` — `gemini`, `zed`, `devin`, `aider`, `cline`, `roo`, `continue`,
+`goose`, `amazonq`, `kiro`, `jetbrains`, `warp`, `augment` — alias `auggie`):
 
 ```sh
 obsidian-tc setup --install-client claude-desktop
@@ -134,10 +135,32 @@ entry without writing anything.
 (preserving every comment and every other key) instead of parsing and
 re-serializing it.
 
-**Claude Code, Codex CLI, Antigravity, Hermes Agent, VS Code, and Gemini CLI** each
-ship their own `mcp add`-style command, so `--install-client` prints (and, unless
-`--dry-run` is given, runs) that documented command instead of hand-editing the
-client's own config file:
+**Cline, Roo Code, Kiro, and Warp** merge the same JSON way, into each editor's
+own settings file (Cline/Roo Code under VS Code's per-extension
+`globalStorage`, Kiro's `~/.kiro/settings/mcp.json`, Warp's `~/.warp/.mcp.json`
+— the one client here with NO wrapping `"mcpServers"` key; entries sit at the
+file's own top level).
+
+**Continue and Goose** merge into a YAML config the same careful way opencode
+and Zed do for JSON — Goose's `~/.config/goose/config.yaml` (`extensions` key)
+edited in place with comments preserved, and Continue's own standalone
+`.continue/mcpServers/obsidian-tc.yaml` (a dedicated per-server file, so a
+second run is a duplicate of the whole file, not a merge).
+
+**Amazon Q Developer CLI and JetBrains AI Assistant** have no single
+confirmed-stable install path (Amazon Q's mechanism depends on which agent is
+active; JetBrains AI Assistant is UI-only with no disclosed on-disk config) —
+`--install-client amazonq`/`jetbrains` print instructions instead of guessing
+at a write.
+
+**Augment's Auggie CLI** ships its own `auggie mcp add` command (alias
+`auggie` also resolves here), added the same way as Claude Code/Codex/Gemini
+CLI below.
+
+**Claude Code, Codex CLI, Antigravity, Hermes Agent, VS Code, Gemini CLI, and
+Augment's Auggie CLI** each ship their own `mcp add`-style command, so
+`--install-client` prints (and, unless `--dry-run` is given, runs) that
+documented command instead of hand-editing the client's own config file:
 
 ```sh
 claude mcp add --scope user obsidian-tc -- obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
@@ -146,6 +169,7 @@ agy mcp add obsidian-tc obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
 hermes mcp add obsidian-tc --command obsidian-tc --args --config /ABSOLUTE/PATH/TO/config.json
 code --add-mcp '{"name":"obsidian-tc","command":"obsidian-tc","args":["--config","/ABSOLUTE/PATH/TO/config.json"]}'
 gemini mcp add obsidian-tc obsidian-tc --config /ABSOLUTE/PATH/TO/config.json
+auggie mcp add obsidian-tc --command obsidian-tc --args '--config /ABSOLUTE/PATH/TO/config.json'
 ```
 
 **ChatGPT and Devin** (the cloud agent — not Devin Desktop, the rebranded
@@ -176,6 +200,15 @@ somewhere to install into.
 | `zed` | merge `settings.json` (comments preserved) |
 | `devin` | instructions only (remote HTTPS) |
 | `aider` | unsupported — exits non-zero |
+| `cline` | merge VS Code globalStorage `cline_mcp_settings.json` |
+| `roo` | merge VS Code globalStorage `mcp_settings.json` |
+| `continue` | write `.continue/mcpServers/obsidian-tc.yaml` (comments preserved) |
+| `goose` | merge `~/.config/goose/config.yaml` (comments preserved) |
+| `amazonq` | instructions only (no single stable path) |
+| `kiro` | merge `~/.kiro/settings/mcp.json` |
+| `jetbrains` | instructions only (UI dialog, no disclosed path) |
+| `warp` | merge `~/.warp/.mcp.json` (root-level, no wrapping key) |
+| `augment` (alias `auggie`) | `auggie mcp add` |
 
 **Claude Desktop** (`claude_desktop_config.json`):
 

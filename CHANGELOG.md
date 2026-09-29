@@ -8,6 +8,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`setup --install-client` now supports nine more MCP clients: Cline, Roo Code, Continue, Goose,
+  Amazon Q Developer CLI, Kiro, JetBrains AI Assistant, Warp, and Augment (alias `auggie`)**
+  (previously Claude Code, Claude Desktop, Cursor, Codex CLI, ChatGPT, Antigravity, Hermes Agent,
+  VS Code, opencode, Windsurf/Devin Desktop, Gemini CLI, Zed, Devin, and Aider). Cline, Roo Code,
+  Kiro, and Warp merge a JSON config the same way Claude Desktop/Cursor already do — Warp's own
+  `~/.warp/.mcp.json` is the first client here with entries at the file's own top level, no wrapping
+  `"mcpServers"` key. Continue and Goose introduce a new `"yaml-merge"` registry kind
+  (`cli/setup/yaml-merge.ts`, using the `yaml` package's own Document API — already a dependency —
+  so comments/formatting survive a merge the same way `jsonc-merge.ts` already protects JSON
+  configs): Goose merges `~/.config/goose/config.yaml`'s `extensions` key, and Continue writes a
+  dedicated standalone `.continue/mcpServers/obsidian-tc.yaml` file (its own documented per-server
+  mechanism, sidestepping the fact that Continue's shared `config.yaml` `mcpServers` key is a LIST
+  with no name-keyed slot to merge into safely). Amazon Q Developer CLI and JetBrains AI Assistant
+  print instructions only — Amazon Q's current mechanism is per-agent JSON with no single stable
+  path, and JetBrains AI Assistant is UI-only with no disclosed on-disk config. Augment's Auggie CLI
+  ships its own `auggie mcp add --command --args` command, added the same way Claude Code/Codex/
+  Gemini CLI already are. The nine new clients live in a fourth registry module
+  (`cli/setup/client-install-agents.ts`) to stay under the file-length lint ceiling.
+
 - **`setup --install-client` now supports seven more MCP clients: VS Code, opencode, Windsurf/Devin
   Desktop (alias `devin-desktop`), Gemini CLI, Zed, Devin, and Aider** (previously Claude Code,
   Claude Desktop, Cursor, Codex CLI, ChatGPT, Antigravity, and Hermes Agent). VS Code and Gemini CLI

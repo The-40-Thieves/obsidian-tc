@@ -28,12 +28,14 @@
 // formatting every kind shares.
 import { join } from "node:path";
 import { INSTALL_CLIENTS, type InstallClient } from "../parse-setup";
+import { AGENT_CLIENT_REGISTRY } from "./client-install-agents";
 import { EDITOR_CLIENT_REGISTRY } from "./client-install-editors";
 import {
   type ClientRegistryEntry,
   formatCliInstallLine,
   obsidianTcServerEntry,
 } from "./client-install-types";
+import { mergeMcpServersEntryYaml } from "./yaml-merge";
 
 /** Claude Desktop's config path is OS-specific and each OS reads a different env var for its base
  *  directory — verified via context7 against the client's own docs (macOS: `~/Library/Application
@@ -218,6 +220,7 @@ export const CLIENT_REGISTRY: Record<InstallClient, ClientRegistryEntry> = {
     sourceNote: "`hermes mcp add --help`, verified against the installed hermes-agent checkout",
   },
   ...EDITOR_CLIENT_REGISTRY,
+  ...AGENT_CLIENT_REGISTRY,
 };
 
 /** Thin lookup into CLIENT_REGISTRY so a label can never drift from the table above. */
@@ -245,8 +248,12 @@ function formatRegistryBlock(
     const targetPath = entry.configPath(platform, env, home);
     const buildEntry =
       entry.kind === "json-merge" ? (entry.buildEntry ?? obsidianTcServerEntry) : entry.buildEntry;
+    // Warp's `serversKey === ""` (root-level, no wrapping key — see `mergeMcpServersEntry`'s own
+    // handling) prints the entry directly rather than nested under an empty-string JSON key.
     const jsonEntry = JSON.stringify(
-      { [entry.serversKey]: { "obsidian-tc": buildEntry(configPath) } },
+      entry.serversKey === ""
+        ? { "obsidian-tc": buildEntry(configPath) }
+        : { [entry.serversKey]: { "obsidian-tc": buildEntry(configPath) } },
       null,
       2,
     );
@@ -254,6 +261,19 @@ function formatRegistryBlock(
     return [`  ${entry.displayName} — merge into ${targetPath}${suffix}:`, indent(jsonEntry)].join(
       "\n",
     );
+  }
+  if (entry.kind === "yaml-merge") {
+    const targetPath = entry.configPath(platform, env, home);
+    const yamlEntry = mergeMcpServersEntryYaml(
+      undefined,
+      entry.buildEntry(configPath),
+      {},
+      entry.serversPath,
+    ).text;
+    return [
+      `  ${entry.displayName} — merge into ${targetPath} (comments preserved):`,
+      indent(yamlEntry.trimEnd()),
+    ].join("\n");
   }
   if (entry.kind === "unsupported") {
     return `  ${entry.displayName} — ${entry.reason()}`;

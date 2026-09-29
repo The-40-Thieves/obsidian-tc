@@ -20,7 +20,8 @@ import {
   obsidianTcServerEntry,
 } from "../setup/client-install";
 import { mergeMcpServersEntryJsonc } from "../setup/jsonc-merge";
-import { mergeJsoncFileAtomic, mergeJsonFileAtomic } from "../setup/write";
+import { mergeJsoncFileAtomic, mergeJsonFileAtomic, mergeYamlFileAtomic } from "../setup/write";
+import { mergeMcpServersEntryYaml } from "../setup/yaml-merge";
 import type { Cmd } from "../shared";
 
 /** Everything `runInstallClient` reads from the ambient environment, as one injectable bag —
@@ -181,7 +182,43 @@ export async function runInstallClient(
     return;
   }
 
-  // entry.kind === "json-merge" (Claude Desktop, Cursor, Windsurf/Devin Desktop today).
+  if (entry.kind === "yaml-merge") {
+    // Continue, Goose (PR C follow-up) — same "edit TEXT, never an intermediate parsed object"
+    // shape as jsonc-merge above, via the `yaml` package's own Document API instead.
+    const targetPath = entry.configPath(deps.platform, deps.env, deps.home);
+    const existingText = loadExistingClientText(targetPath);
+    const result = mergeMcpServersEntryYaml(
+      existingText,
+      entry.buildEntry(targetConfigPath),
+      { force: cmd.force },
+      entry.serversPath,
+    );
+    if (result.alreadyExists) {
+      process.stderr.write(
+        `obsidian-tc setup: ${clientLabel(client)} already has an "obsidian-tc" MCP server entry ` +
+          `at ${targetPath} — pass --force to overwrite it.\n`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (cmd.dryRun) {
+      process.stdout.write(
+        `${mergeMcpServersEntryYaml(undefined, entry.buildEntry(targetConfigPath), {}, entry.serversPath).text}\n`,
+      );
+      process.stdout.write("(--dry-run: nothing written)\n");
+      return;
+    }
+    const written = mergeYamlFileAtomic(targetPath, result.text);
+    process.stdout.write(
+      `obsidian-tc setup: wrote ${clientLabel(client)}'s obsidian-tc entry to ${written.path}` +
+        (written.backupPath ? ` (existing file backed up to ${written.backupPath})` : "") +
+        "\n",
+    );
+    return;
+  }
+
+  // entry.kind === "json-merge" (Claude Desktop, Cursor, Windsurf/Devin Desktop, Cline, Roo Code,
+  // Kiro, Warp today).
   const targetPath = resolveJsonMergeTargetPath(entry, deps);
   const existingRaw = loadExistingClientJson(targetPath);
   const result = mergeMcpServersEntry(
@@ -202,9 +239,13 @@ export async function runInstallClient(
 
   if (cmd.dryRun) {
     const buildEntry = entry.buildEntry ?? obsidianTcServerEntry;
-    process.stdout.write(
-      `${JSON.stringify({ [entry.serversKey]: { "obsidian-tc": buildEntry(targetConfigPath) } }, null, 2)}\n`,
-    );
+    // Warp's `serversKey === ""` (root-level — see `mergeMcpServersEntry`'s own handling) prints
+    // the entry directly rather than nested under an empty-string JSON key.
+    const preview =
+      entry.serversKey === ""
+        ? { "obsidian-tc": buildEntry(targetConfigPath) }
+        : { [entry.serversKey]: { "obsidian-tc": buildEntry(targetConfigPath) } };
+    process.stdout.write(`${JSON.stringify(preview, null, 2)}\n`);
     process.stdout.write("(--dry-run: nothing written)\n");
     return;
   }
