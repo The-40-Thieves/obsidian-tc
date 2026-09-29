@@ -369,7 +369,7 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
     fullwidth/halfwidth forms, ligatures, and similar *compatibility* variants of the SAME
     character (e.g. fullwidth "Ａ" (U+FF21) folds to ASCII "A") — real coverage, exercised above.
     It does **not** fold a genuine cross-script homoglyph: Cyrillic "а" (U+0430) has no NFKC
-    relationship to Latin "a" (U+0061) at all, so a secret spelled with Cyrillic look-alikes
+    relationship to Latin "a" (U+0061) at all, so a secret spelled with Cyrillic lookalikes
     passes through unmatched exactly as it would with no normalization step.
   - **Array-join reassembly only reassembles splits within the SAME array** (a string array's
     "\n"-joined persisted form, a numeric array's no-separator concatenation — matching
