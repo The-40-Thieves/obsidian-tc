@@ -11,11 +11,14 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { grantsScope, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { FolderAcl } from "../acl";
+import { tableExists } from "../db/introspect";
 import { openDatabase } from "../db/open";
 import type { Database } from "../db/types";
 import { READ_ONLY_DENIAL_MESSAGE, type ToolRegistry } from "../mcp/registry";
 
+import { RERUN_TMP_PREFIX, scheduleDeferredCleanup } from "./rerun-sandbox-cleanup";
 import {
   classifyRecord,
   type RerunRecord,
@@ -53,6 +56,28 @@ export const RERUN_SCOPES: readonly string[] = [
   "execute:*",
 ];
 
+/**
+ * Narrow RERUN_SCOPES to what `granted` actually covers, family-wildcard for family-wildcard.
+ *
+ * RERUN_SCOPES alone is the CEILING every runner is bound by; it is not, on its own, safe to hand
+ * to every caller of `rerunSession`. The CLI runner is fine passing it unconditionally — an
+ * operator invoking it locally already holds full local scope (`grantedScopes: new
+ * Set(["*"])`, see runtime/server-runtime.ts's stdio context). A caller of the sandbox-only MCP
+ * tool is a much weaker bar (`admin:rerun` plus HITL, nothing about what THAT caller may mutate),
+ * so a mutating record must never be replayed as successful just because RERUN_SCOPES says so —
+ * only because the CALLER'S OWN grant covers it too.
+ *
+ * `grantsScope` (not a raw set intersection) so a caller holding the global `"*"` still unlocks
+ * every family, and a caller holding an EXACT family wildcard (`"write:*"`) unlocks that one. The
+ * intersection is deliberately family-wildcard, not per-resource: a caller holding only
+ * `"write:notes"` does not unlock `"write:*"` here, because a replayed session can re-issue any
+ * resource within that family, which is authority `write:notes` alone does not carry.
+ */
+export function intersectReplayScopes(granted: Iterable<string>): string[] {
+  const set = granted instanceof Set ? granted : new Set(granted);
+  return RERUN_SCOPES.filter((s) => grantsScope(set, s));
+}
+
 export interface RerunOptions {
   db: Database;
   registry: ToolRegistry;
@@ -77,6 +102,31 @@ export interface RerunOptions {
   /** `--vault`. Checked against the session row and thrown on mismatch — the flag exists to fail
    *  loudly rather than let an operator re-run against a vault they did not mean. */
   expectVaultId?: string;
+  /**
+   * The scopes granted to each re-issued call. Required, not defaulted to RERUN_SCOPES — a
+   * default would be the exact silent-widening bug this field exists to rule out for a caller
+   * that forgets to narrow it. The CLI passes RERUN_SCOPES verbatim; session_rerun's MCP tool
+   * passes `intersectReplayScopes(ctx.grantedScopes)`. See intersectReplayScopes above.
+   */
+  replayScopes: readonly string[];
+  /**
+   * Polled once per record, right after the per-record `setImmediate` yield above — a caller
+   * racing this whole call against a timeout (session_rerun's MCP tool; see
+   * session-rerun-sandbox.ts) flips this true the instant its own timer fires, so the loop stops
+   * within one macrotask instead of running every remaining record to completion. The CLI passes
+   * none: `rerun --sandbox`/observe mode has no timeout to race, so there is nothing to poll.
+   *
+   * This exists because a lost race alone is not enough to actually stop the loop — the timeout
+   * only rejects the OUTER promise a caller is awaiting; nothing about that changes what an
+   * already-in-flight `rerunSession` call keeps doing. Without a way to ask it to stop, a
+   * "timed out" replay of a long session kept dispatching every remaining record in the
+   * background, each one a real handle into the sandbox's staged files, for however long the
+   * whole trace took to finish — directly the reason a staged directory could still be locked long
+   * after the caller had already been told the run timed out. See
+   * `makeSandboxRerun`'s own `finally` for the (much shorter, now near-instant) bounded wait this
+   * still keeps as a safety margin.
+   */
+  cancelled?: () => boolean;
 }
 
 export interface RerunResult {
@@ -102,14 +152,16 @@ interface DispatchLike {
   meta?: { idempotent_replay?: boolean };
 }
 
-/** True when a required scope falls outside what THIS RUNNER grants — i.e. the refusal is rerun's
- *  own policy, not the vault disagreeing. RERUN_SCOPES is family wildcards minus `admin`, so in
- *  practice this is the admin: family. Computed from the runner's own grant set rather than from a
- *  message, so it cannot drift when a gate's wording changes. */
-function refusedByRerunScope(err: DispatchLike["error"]): boolean {
+/** True when a required scope falls outside what THIS RUN's `replayScopes` grants — i.e. the
+ *  refusal is rerun's own policy, not the vault disagreeing. For the CLI (replayScopes ===
+ *  RERUN_SCOPES) that is family wildcards minus `admin`, so in practice the admin: family. For
+ *  session_rerun's MCP tool, `replayScopes` may be narrower still (see intersectReplayScopes), so
+ *  a family the CALLER never unlocked refuses here too. Computed from the run's own grant set
+ *  rather than from a message, so it cannot drift when a gate's wording changes. */
+function refusedByRerunScope(err: DispatchLike["error"], replayScopes: readonly string[]): boolean {
   const required = err?.details?.required;
   if (!Array.isArray(required)) return false;
-  const families = new Set(RERUN_SCOPES.map((s) => s.split(":")[0]));
+  const families = new Set(replayScopes.map((s) => s.split(":")[0]));
   return required.some((r) => typeof r === "string" && !families.has(r.split(":")[0] as string));
 }
 
@@ -138,6 +190,25 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
 
   const records: RerunRecord[] = [];
   for (const [seq, rec] of invocations.entries()) {
+    // Every store this loop touches (better-sqlite3/bun:sqlite, node:fs) is fully SYNCHRONOUS, so
+    // `await opts.registry.dispatch(...)` below settles through nothing but already-resolved
+    // microtasks — it never yields to a macrotask. A caller racing this whole call against a
+    // timeout (session_rerun's MCP tool; see session-rerun-sandbox.ts) schedules that timeout via
+    // `setTimeout`, a MACROTASK — and Node does not run a due macrotask until the current
+    // microtask queue drains. A long enough session's records would otherwise chain microtask to
+    // microtask without a single gap, starving that timer indefinitely REGARDLESS of how much real
+    // wall-clock time has elapsed, which is exactly the runaway-replay case
+    // DEFAULT_SESSION_RERUN_TIMEOUT_MS's own doc comment (admin-tools.ts) promises this loop cannot
+    // cause. `setImmediate` forces one macrotask-queue round-trip per record, giving an
+    // already-elapsed timeout its turn between them.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    // See `cancelled`'s own doc comment (RerunOptions) — stop dispatching further records the
+    // instant a caller's own timeout has fired, rather than running the rest of the trace in the
+    // background. `records`/`summarizeRerun` below still see whatever was already collected; a
+    // cancelled run's RETURN VALUE is never read by session_rerun's MCP tool (the timeout already
+    // rejected the caller), so a partial summary here is fine — the only thing that matters is that
+    // this function itself stops promptly.
+    if (opts.cancelled?.()) break;
     const classified = classifyRecord(rec);
     const recorded = {
       status: rec.status as string | undefined,
@@ -172,8 +243,8 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
       // byte-indistinguishable from live traffic. See docs/design/workspace-rerun.md.
       caller: rerunCaller(row.caller),
       authenticated: true,
-      // Family wildcards minus `admin` — see RERUN_SCOPES.
-      grantedScopes: new Set(RERUN_SCOPES),
+      // Family wildcards minus `admin`, narrowed to what THIS RUN grants — see RerunOptions.replayScopes.
+      grantedScopes: new Set(opts.replayScopes),
       vaultId: row.vault_id,
       // The session's vault is the only vault this run may touch. `enforceVaultBinding`
       // (mcp/registry/input-binding.ts) returns immediately unless `vaultBound === true`; without
@@ -210,16 +281,20 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
     // THE-738: refusals this runner itself caused are not divergence. `plugin_unreachable` is the
     // sandbox correctly stripping the plugin bridge (a filesystem copy cannot bound a network
     // write), which also catches read-only m4 tools that never touched anything. The scope case is
-    // an `admin:` call refused because RERUN_SCOPES omits that family. See
+    // a call refused because `opts.replayScopes` (RERUN_SCOPES, or a caller-narrowed subset of it
+    // — see intersectReplayScopes) does not cover the family it requires. See
     // docs/design/workspace-rerun.md.
-    if (!res.ok && (code === "plugin_unreachable" || refusedByRerunScope(res.error))) {
+    if (
+      !res.ok &&
+      (code === "plugin_unreachable" || refusedByRerunScope(res.error, opts.replayScopes))
+    ) {
       records.push({
         ...common,
         verdict: "refused_by_policy",
         reason:
           code === "plugin_unreachable"
             ? "the sandbox stripped the plugin bridge, so this tool could not reach the Obsidian app — rerun's own refusal, not a vault change"
-            : "this runner does not grant the scope this tool requires (RERUN_SCOPES omits admin) — rerun's own refusal, not a vault change",
+            : "this run does not grant the scope this tool requires — rerun's own refusal, not a vault change",
         replayed: null,
         divergence: "none",
       });
@@ -313,19 +388,47 @@ function quoteSqlString(s: string): string {
   return `'${s.replace(/'/g, "''")}'`;
 }
 
+/** Drop `vaultId`'s row from a just-staged `cache.db`'s `vault_identity` table, when the table
+ *  exists (a copy of a cache.db from before the 20260928_001 migration has none — nothing to
+ *  drop). See `stageSandbox`'s own doc comment for why this row is stale the instant it is copied,
+ *  and safe to remove: `resolveAndApplyVaultIdentity` (runtime/stores.ts) reinserts it, correctly
+ *  pointed at the staged root, the moment the sandbox's own runtime boots. */
+async function dropStaleVaultIdentity(
+  stagedCacheDbPath: string,
+  vaultId: string,
+  busyTimeoutMs: number,
+): Promise<void> {
+  const db = await openDatabase(stagedCacheDbPath, busyTimeoutMs);
+  try {
+    if (tableExists(db, "vault_identity")) {
+      db.prepare("DELETE FROM vault_identity WHERE vault_id = ?").run(vaultId);
+    }
+  } finally {
+    db.close?.();
+  }
+}
+
 /** Best-effort removal of a staged sandbox directory. Never throws: `dispose()` runs in
  *  `cli/commands/rerun.ts`'s outermost `finally`, and this command's exit code (0/1/2) is its
  *  entire output, so a cleanup failure must never corrupt it — warn to stderr and carry on instead.
  *  `maxRetries`/`retryDelay` absorb the Windows EBUSY/EPERM/ENOTEMPTY a directory removal can raise
  *  right after a file inside it (the staged cache.db) was closed. See
- *  docs/design/workspace-rerun.md. */
+ *  docs/design/workspace-rerun.md.
+ *
+ *  A handle that outlives even those retries (a still-settling background operation — see
+ *  session-rerun-sandbox.ts's own wait before calling this) hands off to
+ *  `rerun-sandbox-cleanup.ts`'s `scheduleDeferredCleanup`: an unref'd background retry, so this
+ *  synchronous call still returns immediately either way and the directory is not simply
+ *  abandoned. */
 function safeDispose(base: string): void {
   try {
     rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch (e) {
     process.stderr.write(
-      `rerun: warning: failed to remove staged sandbox directory ${base}: ${(e as Error).message}\n`,
+      `rerun: warning: failed to remove staged sandbox directory ${base}: ${(e as Error).message} ` +
+        "— retrying in the background\n",
     );
+    scheduleDeferredCleanup(base);
   }
 }
 
@@ -334,14 +437,26 @@ function safeDispose(base: string): void {
  *
  * COPY, never symlink — a symlinked database is the live one, and the whole guarantee of sandbox
  * mode is that everything it touches is throwaway.
+ *
+ * `vaultId` — the config id the staged copy will be booted under (session_rerun's own vault, or
+ * `--vault`'s). Stable vault identity (20260928_001_vault_identity.sql) records, per id, the ONE
+ * canonical root path a live boot has already seen it at; `cache.db` is copied byte-for-byte
+ * (`stageDatabase`'s `VACUUM INTO`), so the staged copy inherits that SAME row even though the
+ * sandbox always boots this id against a DIFFERENT path (the staged copy, never the real root).
+ * Left as-is, the second `buildServerRuntime` this stages for reads "known id, different path" and
+ * refuses to boot at all (`vault/identity.ts`'s isolate rule) — every `--sandbox`/`session_rerun`
+ * run against an already-booted cache.db would fail this way. The staged copy is disposable and
+ * reread from `deps.vaults` on its own next boot regardless, so dropping just this one id's row
+ * before that boot is safe: it comes back immediately, now correctly pointed at the staged root.
  */
 export async function stageSandbox(
+  vaultId: string,
   vaultRoot: string,
   cacheDir: string,
   // THE-935 fix round 1: required — see stageDatabase above.
   busyTimeoutMs: number,
 ): Promise<{ root: string; cacheDir: string; dispose(): void }> {
-  const base = mkdtempSync(join(tmpdir(), "obtc-rerun-"));
+  const base = mkdtempSync(join(tmpdir(), RERUN_TMP_PREFIX));
   // A mid-copy failure must not leave `base` behind — nothing downstream calls `dispose()` for a
   // staging call that never returned. Every throwing path from here on cleans up before
   // rethrowing. See docs/design/workspace-rerun.md.
@@ -353,6 +468,9 @@ export async function stageSandbox(
       const src = join(cacheDir, name);
       if (existsSync(src)) await stageDatabase(src, join(cache, name), busyTimeoutMs);
     }
+    const stagedCacheDb = join(cache, "cache.db");
+    if (existsSync(stagedCacheDb))
+      await dropStaleVaultIdentity(stagedCacheDb, vaultId, busyTimeoutMs);
     // THE-737: a session minted today writes trace_store='cache' — its JSONL lives under
     // <cacheDir>/traces/, not under the vault. Skipping this copy makes --sandbox find
     // `no_capture` for every record on the only generation of session this server writes now. See
@@ -371,4 +489,78 @@ export async function stageSandbox(
     safeDispose(base);
     throw e;
   }
+}
+
+/**
+ * Strip the plugin-bridge transport from a vault.
+ *
+ * A sandbox staging copy bounds FILESYSTEM writes and nothing else. `wireBridges`
+ * (runtime/bridge-wiring.ts) builds a Local REST API client per vault from `restApiUrl`/
+ * `restApiKey`, and a bridge tool then POSTs to the LIVE Obsidian app, which is operating on the
+ * REAL vault: `git_stage` checks `enforcePathAcl` against the STAGED root and then stages files in
+ * the real repo; `remotely_save` triggers a real sync. None of `write:git`, `write:tasks`,
+ * `write:excalidraw`, `write:remotely-save` is in `HITL_FLOOR_FAMILIES`, so nothing else stops
+ * them. A filesystem copy cannot bound a network-mediated write — so the sandbox removes the
+ * transport instead, and every bridge tool degrades loudly (`plugin_unreachable` from
+ * `openBridge`'s `if (!client)`) rather than silently reaching the live app.
+ *
+ * Shared by `cli/commands/rerun.ts`'s `--sandbox` path and `session_rerun`'s (m6/admin-tools.ts)
+ * per-call sandbox runtime — one definition, so the two never drift on what "stripped" means.
+ */
+export function withoutBridgeTransport(
+  v: ServerConfig["vaults"][number],
+): ServerConfig["vaults"][number] {
+  const { restApiUrl: _url, restApiKey: _key, ...rest } = v;
+  return rest;
+}
+
+/**
+ * Build the config a sandbox's second `buildServerRuntime` boots against — the staged cache dir,
+ * ONLY the session's own vault (bridge-stripped, remapped to the staged root), and every
+ * transport/watch/telemetry surface that could otherwise reach past the staged copy forced off.
+ *
+ * `stageSandbox`'s own doc comment is the "disposable copy" guarantee this exists to keep true.
+ * That guarantee held for FILESYSTEM writes but not for what construction alone brings up: with
+ * every OTHER configured vault left at its live path, `wireIndexCoordinator` registers a second
+ * watcher on each one (leader on the staged `cacheDir`, so its writes reindex live changes into a
+ * throwaway copy), `wireTransports` binds a live HTTP listener when `transports.http.enabled` is
+ * true — a second MCP server, exposing every live vault path this config knows about, up for as
+ * long as the sandbox runtime stays open — and `initOtel`/Prometheus export to the live collector.
+ * None of that is reachable through `start()`, which neither caller below ever calls, but all of
+ * it runs during construction regardless.
+ *
+ * Dropping every vault but the one being replayed removes the sibling-vault leak at the root
+ * rather than papering over its symptoms: neither caller ever dispatches against any vault but
+ * this one (`rerunSession`'s own `vaultBound: true` already refuses a record naming a different
+ * one), so no sibling vault needs to be reachable from the sandbox runtime at all. A single-vault
+ * config is an already-supported shape — it's the default `npx obsidian-tc /path/to/vault` mode —
+ * not a novel one this introduces.
+ *
+ * Shared by `cli/commands/rerun.ts`'s `--sandbox` path and `session_rerun`'s
+ * (runtime/session-rerun-sandbox.ts) per-call sandbox runtime — one definition, so the two cannot
+ * drift on what "isolated" means, same reasoning `withoutBridgeTransport` above documents for the
+ * bridge-transport slice alone.
+ */
+export function sandboxRuntimeConfig(
+  cfg: ServerConfig,
+  vaultId: string,
+  staged: { root: string; cacheDir: string },
+): ServerConfig {
+  const vault = cfg.vaults.find((v) => v.id === vaultId);
+  if (!vault) throw new Error(`sandboxRuntimeConfig: vault is no longer in config: ${vaultId}`);
+  return {
+    ...cfg,
+    cacheDir: staged.cacheDir,
+    vaults: [{ ...withoutBridgeTransport(vault), path: staged.root }],
+    watch: { ...cfg.watch, enabled: false },
+    transports: {
+      stdio: false,
+      http: { ...cfg.transports.http, enabled: false },
+    },
+    observability: {
+      ...cfg.observability,
+      prometheus: { ...cfg.observability.prometheus, enabled: false },
+      otel: { ...cfg.observability.otel, endpoint: undefined },
+    },
+  };
 }

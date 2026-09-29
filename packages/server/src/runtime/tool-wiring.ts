@@ -44,7 +44,7 @@ import { registerM2Tools } from "../tools/m2";
 import { registerM3Tools } from "../tools/m3";
 import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../tools/m4";
 import { DEFAULT_TRACE_FOLDER, registerM5Tools } from "../tools/m5";
-import { type M6Deps, registerM6Tools } from "../tools/m6";
+import { type M6Deps, registerM6Tools, type SandboxRerunFn } from "../tools/m6";
 import { registerM7Tools } from "../tools/m7";
 import { registerM8Tools } from "../tools/m8";
 import type { VaultRegistry } from "../vault/registry";
@@ -516,6 +516,9 @@ export interface DomainToolsDeps {
   activationFor?: (chunkId: string) => number | null;
   experientialOpen: boolean;
   experientialDb: Database;
+  /** `session_rerun`'s (m6/admin-tools.ts) per-call sandbox runtime — see server-runtime.ts's
+   *  `runSandboxSessionRerun` for why this arrives as a closure rather than an import. */
+  sandboxRerun: SandboxRerunFn;
 }
 
 /** M2 (index/search) through M8 (experiential) tool registration — everything downstream of the
@@ -650,6 +653,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-645 item 2. Lazy for the same reason registeredTools is: M6 is registered onto this
     // registry, so the surface is incomplete at the moment this object is built.
     toolSurface: () => ({ config: registry.visibilityConfig(), tools: registry.list() }),
+    rerun: deps.sandboxRerun,
   };
   registerM6Tools(registry, {
     ...m6Deps,

@@ -1,18 +1,21 @@
-// Domain 28 — Server admin, remaining surface (G2.1 / THE-182). Three read-only
-// inspection tools that complete the admin family beyond M1's registry tools
-// (list_vaults/get_vault/reload_vault/reset_vault_cache) and M2's index_vault:
-// get_server_config, inspect_acl, get_metrics. All take an `admin:*` scope, which
-// is neither a HITL floor nor a mutating family, so they need no elicit token and
-// run under a read-only ACL. They are non-secret by construction: this module only
-// ever reads counts, booleans, names, and config limits — never the JWT secret,
-// REST API keys, or embedding API keys (those are not even in M6Deps).
-import { parseScope, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+// Domain 28 — Server admin, remaining surface (G2.1). Four tools that complete the admin family
+// beyond M1's registry tools (list_vaults/get_vault/reload_vault/reset_vault_cache) and M2's
+// index_vault: get_server_config, inspect_acl, get_metrics — all read-only, taking an `admin:*`
+// scope that is neither a HITL floor nor a mutating family, run under a read-only ACL, and never
+// return a secret (this module only ever reads counts, booleans, names, and config limits, never
+// the JWT secret, REST API keys, or embedding API keys — those are not even in M6Deps) — and
+// session_rerun, which IS destructive (admin:rerun + a HITL confirmation, mirroring
+// reset_vault_cache) even though everything it re-issues lands only in a disposable sandbox copy
+// of the session's own vault, never the live one.
+import { err, parseScope, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import type { ToolDefinition } from "../../mcp/registry";
 import { explainVisibility } from "../../mcp/visibility";
 import { evaluatePathAcl, pathScopesSatisfied } from "../../vault/acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
+import { intersectReplayScopes } from "../../workspace/rerun";
+import { getSession } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
 import type { M6Deps } from "./shared";
 
@@ -217,6 +220,72 @@ const MetricSchema = z.object({
 });
 
 const GetMetricsOutput = z.object({ metrics: z.array(MetricSchema) });
+
+// ── session_rerun ────────────────────────────────────────────────────────────
+
+/** Sane default for a sandbox re-run's wall-clock budget: generous enough for a normal recorded
+ *  session (a staged copy plus a second in-process ServerRuntime build is the dominant cost, not
+ *  the re-issued calls themselves), short enough that a caller who forgets `timeout_ms` cannot
+ *  pin a worker on a runaway replay indefinitely. */
+const DEFAULT_SESSION_RERUN_TIMEOUT_MS = 60_000;
+const MAX_SESSION_RERUN_TIMEOUT_MS = 300_000;
+
+const SessionRerunInput = z
+  .object({
+    vault: VaultId,
+    session_id: z.string().min(1),
+    /** Wall-clock budget for the WHOLE sandbox re-run (staging + the second runtime build + every
+     *  re-issued call), not per-call. Defaults to DEFAULT_SESSION_RERUN_TIMEOUT_MS. `.strict()` on
+     *  this schema is itself the "reject any parameter that would select observe/live mode" gate:
+     *  session_rerun has no `sandbox`/`observe` field to accept in the first place — the live-vault
+     *  observe path stays CLI-only (`obsidian-tc rerun`) — so an unrecognized key here, including
+     *  an attempt to pass one, is refused by Zod before the handler ever runs. */
+    timeout_ms: z.number().int().positive().max(MAX_SESSION_RERUN_TIMEOUT_MS).optional(),
+  })
+  .strict();
+
+const CallOutcomeSchema = z.object({
+  status: z.string().optional(),
+  result_size: z.number().optional(),
+  duration_ms: z.number().optional(),
+  error_code: z.string().optional(),
+});
+
+const RerunVerdictSchema = z.enum([
+  "runnable",
+  "no_capture",
+  "redacted",
+  "truncated",
+  "skipped_mutating",
+  "unparseable",
+  "refused_by_policy",
+  "served_from_cache",
+]);
+
+const RerunRecordSchema = z.object({
+  seq: z.number(),
+  ts: z.number(),
+  tool: z.string(),
+  caller: z.string().nullable(),
+  verdict: RerunVerdictSchema,
+  reason: z.string(),
+  recorded: CallOutcomeSchema,
+  /** Null for every verdict except `runnable` — a refused record was never dispatched. */
+  replayed: CallOutcomeSchema.nullable(),
+  divergence: z.enum(["none", "status", "error_code"]),
+});
+
+const SessionRerunOutput = z.object({
+  session_id: z.string(),
+  vault: z.string(),
+  records: z.array(RerunRecordSchema),
+  summary: z.object({
+    total: z.number(),
+    runnable: z.number(),
+    diverged: z.number(),
+    byVerdict: z.record(RerunVerdictSchema, z.number()),
+  }),
+});
 
 export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
   return [
@@ -487,6 +556,53 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
         );
 
         return { metrics };
+      },
+    }),
+
+    defineTool({
+      name: "session_rerun",
+      domain: "admin",
+      vaultArg: "vault",
+      destructive: true,
+      description:
+        "Re-issue a recorded session's captured tool calls against a DISPOSABLE SANDBOX COPY of its vault (never the live one) and report divergence per call. Sandbox-only: there is no parameter that selects the live-vault observe mode obsidian-tc's `rerun` CLI command offers — that path stays operator-only. Replayed calls run with the caller's own granted scopes intersected against the fixed replay ceiling (read/write/delete/bulk/execute, never admin), so a caller who cannot themselves mutate cannot get a mutating call replayed as successful. Requires admin:rerun plus a human confirmation (destructive). Domain: admin.",
+      inputSchema: SessionRerunInput,
+      outputSchema: SessionRerunOutput,
+      requiredScopes: ["admin:rerun"],
+      handler: async (input, ctx) => {
+        const rerun = deps.rerun;
+        // Unwired dep must FAIL, not silently degrade — same discipline inspect_visibility's
+        // toolSurface guard above follows. There is no live-vault fallback to reach for: sandbox
+        // staging is session_rerun's ENTIRE safety guarantee, so "not configured" must never read
+        // as "ran, nothing to report."
+        if (!rerun)
+          throw new Error(
+            "session_rerun: sandbox runtime builder not wired (M6Deps.rerun); cannot rerun",
+          );
+        const v = deps.vaultRegistry.resolve(input.vault); // vault_not_found if unknown
+        // Looked up from ctx.db (the LIVE cache.db) — the same table get_session_traces reads —
+        // never from inside the sandbox: the sandbox does not exist yet, and the vault this call
+        // is even ALLOWED to touch is exactly what this row's own vault_id says, same discipline
+        // as `end_session`'s session-belongs-to-this-vault check above.
+        const s = getSession(ctx.db, input.session_id);
+        if (!s || s.vault_id !== v.id)
+          throw err.invalidInput("session not found", { session_id: input.session_id });
+        const result = await rerun({
+          vaultId: s.vault_id,
+          sessionId: s.id,
+          // No scope escalation: RERUN_SCOPES is a ceiling, not a grant. A caller whose OWN
+          // grantedScopes does not cover a whole family (write:*, execute:*, ...) never gets a
+          // call in that family replayed as successful, no matter what the recorded session
+          // contains — see intersectReplayScopes (workspace/rerun.ts).
+          replayScopes: intersectReplayScopes(ctx.grantedScopes),
+          timeoutMs: input.timeout_ms ?? DEFAULT_SESSION_RERUN_TIMEOUT_MS,
+        });
+        return {
+          session_id: s.id,
+          vault: v.id,
+          records: result.records,
+          summary: result.summary,
+        };
       },
     }),
   ];

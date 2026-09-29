@@ -23,7 +23,7 @@ import type { Database } from "../src/db/types";
 import { ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
-import { rerunSession } from "../src/workspace/rerun";
+import { RERUN_SCOPES, rerunSession } from "../src/workspace/rerun";
 import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
@@ -99,6 +99,7 @@ describe("THE-645 item 3 fix round 1 — rerun against a registry with a wired a
     } as never);
 
     await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: h.db,
       registry: h.registry,
       sessionId: id,

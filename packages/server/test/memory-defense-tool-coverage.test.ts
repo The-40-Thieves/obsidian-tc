@@ -123,6 +123,10 @@ const MEMORY_DEFENSE_EXEMPT = new Map<string, string>([
     "stamps a feedback flag on an experiential retrieval-log row; no free-text field",
   ],
   ["reset_vault_cache", "drops cache rows; no vault write"],
+  [
+    "session_rerun",
+    "replays only into a disposable sandbox copy (never the live vault); each replayed write runs through the sandbox runtime's own memoryDefense-guarded writers with the vault's config carried over",
+  ],
   // --- Bridge dispatch into a running Obsidian: the PLUGIN performs the write; no server-side
   //     writeNoteAtomic call for this process's memoryDefense guard to sit in front of.
   ["execute_command", "plugin-side action via the companion bridge; no server-side vault write"],

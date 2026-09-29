@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 521,
-    "dependencies": 2483,
+    "modules": 524,
+    "dependencies": 2504,
     "subsystemPairs": 155,
-    "crossSubsystemImports": 1133
+    "crossSubsystemImports": 1144
   },
   "subsystems": {
     "auth": 4,
@@ -32,7 +32,7 @@
     "plugin": 20,
     "plur": 2,
     "providers": 8,
-    "runtime": 23,
+    "runtime": 25,
     "scheduler": 4,
     "schemas": 1,
     "search": 64,
@@ -41,7 +41,7 @@
     "transports": 3,
     "util": 4,
     "vault": 18,
-    "workspace": 3
+    "workspace": 4
   },
   "edges": [
     {
@@ -80,14 +80,14 @@
       "weight": 30
     },
     {
+      "from": "runtime",
+      "to": "db",
+      "weight": 26
+    },
+    {
       "from": "experiential",
       "to": "db",
       "weight": 25
-    },
-    {
-      "from": "runtime",
-      "to": "db",
-      "weight": 24
     },
     {
       "from": "tools",
@@ -107,7 +107,7 @@
     {
       "from": "runtime",
       "to": "mcp",
-      "weight": 16
+      "weight": 17
     },
     {
       "from": "search",
@@ -145,6 +145,11 @@
       "weight": 10
     },
     {
+      "from": "runtime",
+      "to": "vault",
+      "weight": 10
+    },
+    {
       "from": "tools",
       "to": "metrics",
       "weight": 10
@@ -171,7 +176,7 @@
     },
     {
       "from": "runtime",
-      "to": "vault",
+      "to": "workspace",
       "weight": 9
     },
     {
@@ -220,11 +225,6 @@
       "weight": 7
     },
     {
-      "from": "runtime",
-      "to": "workspace",
-      "weight": 7
-    },
-    {
       "from": "search",
       "to": "embeddings",
       "weight": 7
@@ -260,9 +260,19 @@
       "weight": 6
     },
     {
+      "from": "tools",
+      "to": "workspace",
+      "weight": 6
+    },
+    {
       "from": "transports",
       "to": "mcp",
       "weight": 6
+    },
+    {
+      "from": "cli",
+      "to": "workspace",
+      "weight": 5
     },
     {
       "from": "cli",
@@ -326,11 +336,6 @@
     },
     {
       "from": "cli",
-      "to": "workspace",
-      "weight": 4
-    },
-    {
-      "from": "cli",
       "to": "providers",
       "weight": 4
     },
@@ -357,6 +362,11 @@
     {
       "from": "transports",
       "to": "auth",
+      "weight": 4
+    },
+    {
+      "from": "workspace",
+      "to": "db",
       "weight": 4
     },
     {
@@ -446,17 +456,7 @@
     },
     {
       "from": "tools",
-      "to": "workspace",
-      "weight": 3
-    },
-    {
-      "from": "tools",
       "to": "capture",
-      "weight": 3
-    },
-    {
-      "from": "workspace",
-      "to": "db",
       "weight": 3
     },
     {

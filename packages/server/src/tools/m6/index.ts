@@ -10,7 +10,7 @@ import { buildBulkTools } from "./bulk-tools";
 import type { M6Deps } from "./shared";
 import { buildUriTools } from "./uri-tools";
 
-export type { M6Deps } from "./shared";
+export type { M6Deps, SandboxRerunFn } from "./shared";
 
 export function registerM6Tools(registry: ToolRegistry, deps: M6Deps): void {
   for (const tool of buildBulkTools(deps)) registry.register(tool);

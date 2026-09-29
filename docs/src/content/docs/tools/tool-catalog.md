@@ -15,7 +15,7 @@ between the markers — change the tool and regenerate.
 :::
 
 <!-- BEGIN GENERATED: tools -->
-_163 tools. Access is a coarse hint; the required scopes are authoritative. Profile is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._
+_164 tools. Access is a coarse hint; the required scopes are authoritative. Profile is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._
 
 | Tool | Access | Profile | Scopes | Description |
 |---|---|---|---|---|
@@ -159,6 +159,7 @@ _163 tools. Access is a coarse hint; the required scopes are authoritative. Prof
 | `search_vault` | read | core, full | `read:notes` | Unified search dispatch. mode=auto routes a string query text->semantic (fallback on zero hits) and an object query to jsonlogic; or force text/regex/semantic/jsonlogic/dql. Set verbosity=terse to compact each hit to path/score/snippet. |
 | `server_health` | read | core, full | — | Liveness + build info. Round-trips the full transport -> auth -> acl -> audit path. Domain: admin. |
 | `session_bootstrap` | read | core, full | `read:notes` | Triage an opening session message (auto -> lightweight \| standard \| deep) and preload the matching vault context notes, so any MCP client gets session bootstrap, not only skill-enabled ones. Deep loads the configured deepPaths; standard loads the paths of every domain whose signals appear in the message; lightweight loads nothing. The routing table comes from server config (bootstrap.*); with none configured the tool degrades to lightweight. Read-only. |
+| `session_rerun` | destructive | core, full | `admin:rerun` | Re-issue a recorded session's captured tool calls against a DISPOSABLE SANDBOX COPY of its vault (never the live one) and report divergence per call. Sandbox-only: there is no parameter that selects the live-vault observe mode obsidian-tc's `rerun` CLI command offers — that path stays operator-only. Replayed calls run with the caller's own granted scopes intersected against the fixed replay ceiling (read/write/delete/bulk/execute, never admin), so a caller who cannot themselves mutate cannot get a mutating call replayed as successful. Requires admin:rerun plus a human confirmation (destructive). Domain: admin. |
 | `set_goal` | write | core, full | `write:workspace` | Record a STATED goal for a vault — what the user is trying to accomplish, as distinct from a learned preference (a preference is 'you tend to X' and never resolves; a goal is 'you intend to X' and ends in completed/abandoned/expired). Goals are stated by the user and never inferred: nothing in the reflect/extract path can write one. An optional target_date lets the expiry sweep mark it 'expired' rather than leaving stale intent to bias later reads. |
 | `snapshot_note` | read | core, full | `read:notes` | Capture the current content of a note as a restorable point-in-time snapshot (retained per config.snapshots.retention). Returns the snapshot id and content hash. |
 | `sort_table_by_column` | write | full only | `write:notes` | Sort a GFM table's data rows by a column (index or header name), ascending or descending, optionally numeric. |

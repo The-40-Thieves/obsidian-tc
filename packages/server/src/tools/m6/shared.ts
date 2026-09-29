@@ -11,6 +11,23 @@ import type { EffectiveToolVisibilityConfig } from "../../mcp/visibility";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { RateLimiter } from "../../throttle";
 import type { VaultRegistry } from "../../vault/registry";
+import type { RerunResult } from "../../workspace/rerun";
+
+/**
+ * `session_rerun`'s per-call sandbox runtime: stage a disposable copy of `vaultId`'s vault, build
+ * a SECOND, scoped `ServerRuntime` against it, re-issue `sessionId`'s recorded calls under
+ * `replayScopes` (never wider — see `intersectReplayScopes`, workspace/rerun.ts), then dispose
+ * it, aborting and disposing if `timeoutMs` elapses first. Defined as a closure and threaded in
+ * from `runtime/server-runtime.ts` (its `runSandboxSessionRerun`) rather than imported here: no
+ * module reachable from THIS domain's own wiring can import `buildServerRuntime` without a cycle
+ * back to the composition root.
+ */
+export type SandboxRerunFn = (params: {
+  vaultId: string;
+  sessionId: string;
+  replayScopes: readonly string[];
+  timeoutMs: number;
+}) => Promise<RerunResult>;
 
 export interface M6Deps {
   vaultRegistry: VaultRegistry;
@@ -56,6 +73,10 @@ export interface M6Deps {
     config: EffectiveToolVisibilityConfig;
     tools: readonly ToolSurfaceEntry[];
   };
+  /** `session_rerun`'s per-call sandbox runtime — see SandboxRerunFn. Optional so a test wiring
+   *  only a subset of M6Deps is unaffected; `session_rerun` degrades to a clear "not configured"
+   *  error rather than reaching for the live vault as a fallback (mirrors `toolSurface` above). */
+  rerun?: SandboxRerunFn;
 }
 
 /** The slice of a ToolDefinition that visibility classification needs, plus `domain` for grouping. */
