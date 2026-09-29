@@ -14,6 +14,7 @@ import { makeActivationLookup } from "../experiential/activation";
 import { createEpisodeCapture, type EpisodeSink } from "../experiential/episodes";
 import { createRetrievalLogger, type RetrievalLogger } from "../experiential/log";
 import { stderrOnError } from "../util/errors";
+import { formatVaultRenameNotice, resolveAndApplyVaultIdentity } from "../vault/identity";
 import { withBootstrapBarrier } from "./vault-lock";
 
 export interface StoresDeps {
@@ -33,6 +34,12 @@ export interface StoresDeps {
    *  imported so this module never depends on cli/shared.ts (a dependency-direction leaf rule, not
    *  a functional one — the migrations themselves are unchanged). */
   experientialMigrations: Migration[];
+  /** Stable vault identity (20260928_001): `{ id, path }` for every configured vault, resolved
+   *  against `vault_identity` right after both stores provision — see vault/identity.ts's
+   *  `resolveAndApplyVaultIdentity` doc comment for why this must run here (post-migration,
+   *  pre-experientialDb-close, inside the same bootstrap barrier that serializes migrations
+   *  across racing processes). */
+  vaults: readonly { id: string; path: string }[];
 }
 
 export interface Stores {
@@ -71,6 +78,13 @@ export async function wireStores(deps: StoresDeps): Promise<Stores> {
     version: deps.version,
     busyTimeoutMs: deps.busyTimeoutMs,
   });
+  // Stable vault identity (20260928_001): must run AFTER both stores are migrated (vault_identity
+  // exists, and experiential.db's tables are there to re-key) and BEFORE experientialDb is
+  // possibly closed below (experientialOpen === false) — a rename needs a live handle on both.
+  // See vault/identity.ts's `resolveAndApplyVaultIdentity` for the full rationale.
+  for (const notice of resolveAndApplyVaultIdentity(db, experientialDb, deps.vaults)) {
+    process.stderr.write(formatVaultRenameNotice(notice));
+  }
   const retrievalLog = deps.experiential.logRetrievals
     ? createRetrievalLogger(experientialDb, { onError: stderrOnError("retrieval-log") })
     : undefined;

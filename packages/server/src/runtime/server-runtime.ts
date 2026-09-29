@@ -238,6 +238,10 @@ export async function buildServerRuntime(
     busyTimeoutMs: config.db.busyTimeoutMs, // THE-935: reaches every connectionPragmas() call site via wireStores -> openDatabase / provisionExperientialDb
     experiential: config.experiential,
     experientialMigrations,
+    // Stable vault identity (20260928_001): the SAME config.vaults governance/sticky-provider
+    // resolution reads (line ~284/~178 below) — a rename must be resolved against the exact ids
+    // this boot registers, same reasoning as GH #995 fix round 2's sticky-embeddings vaults wiring.
+    vaults: config.vaults.map((v) => ({ id: v.id, path: v.path })),
   });
   const { db, experientialDb, retrievalLog, activationFor, experientialOpen } = stores;
 

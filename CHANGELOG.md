@@ -23,6 +23,33 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   ever reached via the hard-link path; the `--force` backup test now asserts byte-exact content, and
   the backup-collision test freezes the clock to force the counter-suffix path deterministically.
 
+- **Stable vault identity: renaming a vault's `id` no longer orphans its index, and two vaults can
+  no longer silently share rows under one id.** `chunks.vault_id` (and every other table keyed on
+  `vault_id`, across both `cache.db` and the experiential store) used to key on the config's
+  `vaults[].id`, a mutable string with no path identity behind it — renaming that id orphaned every
+  row written under the old one, and the zero-config path (no `id` set) always assigns `"main"` with
+  a shared default `cacheDir`, so two different vaults opened that way silently shared rows under
+  one id. obsidian-tc now records each vault's canonical root path in `cache.db` the first time it
+  sees it; at boot, a configured vault whose root path matches a path already recorded under a
+  different id has every vault-scoped row re-keyed to the new id automatically, in one pass, before
+  anything else reads them — no re-embed, no manual `cacheDir` juggling. Two vaults resolving to the
+  SAME id but DIFFERENT root paths (including two vaults both left at the zero-config default) are
+  refused at boot instead, with an error naming both paths, rather than served or silently
+  overwritten. The sticky-embeddings resolver's `ambiguous-orphaned-index` source is narrower as a
+  result: it no longer fires for a rename (resolved upstream now), only for a genuinely unrecognized
+  vault id. Re-keying covers `vec_chunks` and `chunk_sparse` (both runtime-provisioned, like the
+  migration-declared tables) as well as every migration-declared table — `vec_chunks`'s `vault_id`
+  is a sqlite-vec0 partition key, which cannot be `UPDATE`d in place, so it is re-keyed by
+  delete-then-reinsert instead, inside the same transaction as everything else. `index`,
+  `consolidate`, and `memory-import --apply` resolve identity the same way `serve`'s boot does, so
+  a rename followed directly by one of those (no `serve` in between) re-keys rather than writing a
+  second, orphaned set of rows under the new id. A vault whose canonical root couldn't be resolved
+  yet (missing directory, transient lock) is recorded as PROVISIONAL rather than authoritative, and
+  upgraded in place — never refused against itself — the first time a later boot resolves it for
+  real. See "Upgrading from a pre-local-embedder config" in
+  [docs/configuration/embeddings.md](docs/src/content/docs/configuration/embeddings.md#upgrading-from-a-pre-local-embedder-config)
+  for the full behavior.
+
 ## [1.31.6] - 2026-09-29
 
 ### Added

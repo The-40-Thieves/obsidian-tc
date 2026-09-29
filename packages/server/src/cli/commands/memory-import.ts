@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { version as VERSION } from "../../../package.json";
+import { provisionExperientialDb } from "../../db/experiential";
 import { openConfiguredDatabase, openDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import type { CallerContext } from "../../mcp/registry";
@@ -17,7 +18,12 @@ import { buildAcls } from "../../runtime/acl-build";
 import { registerM1Tools } from "../../tools/m1";
 import { registerM5Tools } from "../../tools/m5";
 import { VaultRegistry } from "../../vault/registry";
-import { type Cmd, resolveOrUsageExit } from "../shared";
+import {
+  type Cmd,
+  experientialMigrations,
+  resolveCliVaultIdentity,
+  resolveOrUsageExit,
+} from "../shared";
 
 export async function run_memory_import(cmd: Cmd<"memory-import">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.configPath);
@@ -71,6 +77,19 @@ export async function run_memory_import(cmd: Cmd<"memory-import">): Promise<void
     // `serve`/`--apply` run created it. Only the write path provisions from scratch here.
     if (cmd.apply) {
       provisionCacheDb(cacheDb, { version: VERSION });
+      // GH #1014 fix round (Medium 4): `memory import --apply` writes vault-scoped rows
+      // (memory_entities et al.) without ever going through `serve` first — resolve a config `id`
+      // rename for the one vault this run targets, at the same choke point every other writer CLI
+      // command now shares (cli/shared.ts). Scoped to `[vault]`, not `cfg.vaults`, matching
+      // `--vault` already being required above — this run only ever writes under that one id.
+      const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+        version: VERSION,
+      });
+      try {
+        resolveCliVaultIdentity(cacheDb, edb, [vault]);
+      } finally {
+        edb.close?.();
+      }
     } else {
       // Review finding: since dry-run deliberately never provisions (that would be a write), a
       // cache.db that predates the M5 memory schema (or is otherwise mid-migration) makes every

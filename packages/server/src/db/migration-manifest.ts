@@ -79,6 +79,13 @@ export const CACHE_MIGRATION_FILES = [
   // memory_entities (its FK target) is created by 20260519_001_initial.sql, in cache.db. Bumped
   // to _002 at rebase time — _001 was already claimed by telemetry_state above.
   "20260925_002_memory_observation_intervals.sql",
+  // Stable vault identity: 20260928_001 adds vault_identity(vault_id, root_realpath), the table
+  // the boot-time resolver (vault/identity.ts) uses to tell a renamed vault id apart from a
+  // different vault colliding on a reused id (including the zero-config "main" default). CACHE
+  // chain because it is read/written during cache.db's own boot-time rekey pass, before the
+  // experiential-side rekey (which reuses the SAME decision, not its own table). See the
+  // migration header for the full rationale.
+  "20260928_001_vault_identity.sql",
 ] as const;
 
 /**

@@ -80,13 +80,14 @@ export function queryActiveEmbeddingModels(
 }
 
 /**
- * `queryActiveEmbeddingModels` scopes strictly to the CURRENT `config.vaults[].id`s, a mutable
- * string with no path identity behind it in cache.db. A renamed vault id orphans its own rows
- * (that query returns [] and resolution would silently adopt the new default); this function
- * instead answers a narrower question — "does this cache db hold ACTIVE vectors under some vault
- * id this config does not currently name" — so resolveStickyEmbeddings can refuse to resolve
- * silently ("ambiguous-orphaned-index") instead of guessing. Only meaningful when the
- * vaultIds-scoped `queryActiveEmbeddingModels` result is already empty.
+ * `queryActiveEmbeddingModels` scopes strictly to the CURRENT `config.vaults[].id`s. Before stable
+ * vault identity (vault/identity.ts), a renamed vault id orphaned its own rows here — that case is
+ * now resolved BEFORE this ever runs (`resolveAndApplyVaultIdentity` re-keys a renamed vault to
+ * its new id at boot), so this function now answers a narrower, residual question — "does this
+ * cache db hold ACTIVE vectors under a vault id that matches no configured id AND no recorded root
+ * path either" (a vault removed from config, or a pre-upgrade cache db not yet recorded) — so
+ * resolveStickyEmbeddings can refuse silently ("ambiguous-orphaned-index") instead of guessing.
+ * Only meaningful when the vaultIds-scoped `queryActiveEmbeddingModels` result is already empty.
  */
 export function hasOrphanedActiveEmbeddings(
   db: Database,
@@ -264,18 +265,20 @@ export function formatStickyEmbeddingsNotice(
     const base =
       "embeddings: could not confirm this vault's existing provider — embeddings.provider was not " +
       "set in config, no active vectors matched any currently configured vault id, but this cache " +
-      "directory DOES hold active vectors under a DIFFERENT vault id. This can happen when a vault " +
-      'was renamed (its old vault id\'s rows are now "orphaned"), or when a new vault reuses a ' +
-      "shared cache directory.\n";
+      "directory DOES hold active vectors under a DIFFERENT vault id that stable vault identity " +
+      "(vault/identity.ts) does not recognize either. A renamed vault id is now re-keyed " +
+      "automatically at boot and never reaches this notice — this means the vault those rows " +
+      "belong to was removed from config outright, or this is a pre-upgrade cache directory whose " +
+      "identity has not been recorded yet.\n";
     // The orphaned rows are already the current default's own family (or there were none) —
     // nothing to keep, so this reads like a fresh install except the ambiguity is still named.
     if (resolution.keptFromStoredModel === undefined) {
       return (
         base +
         "obsidian-tc found nothing to keep — the orphaned rows already belong to the default " +
-        `provider's own family. Using "${resolution.provider}" for this run. If this vault was ` +
-        "renamed, restore its original `id` (or point it at its original `cacheDir`) before " +
-        "re-indexing; run `obsidian-tc doctor` to inspect the cache directory's stored providers.\n"
+        `provider's own family. Using "${resolution.provider}" for this run. If this vault ` +
+        "belongs in this config, add it back; run `obsidian-tc doctor` to inspect the cache " +
+        "directory's stored providers.\n"
       );
     }
     const identity = resolution.unmappableFallback
@@ -287,12 +290,11 @@ export function formatStickyEmbeddingsNotice(
     return (
       base +
       `obsidian-tc kept ${identity} from those orphaned rows rather than silently switching this ` +
-      "vault to the current default — this vault's OWN id matched nothing, so unless this vault " +
-      "was renamed (in which case this is very likely correct), this may be the WRONG provider. " +
-      "Resolve the ambiguity: restore this vault's original `id` (or `cacheDir`) if it was " +
-      'renamed, or set embeddings.provider explicitly (or embeddings.onProviderChange: "switch") ' +
-      "to take the current default outright. Run `obsidian-tc doctor` to inspect the cache " +
-      "directory's stored providers.\n"
+      "vault to the current default — this vault's OWN id matched nothing, so this may be the " +
+      "WRONG provider. Resolve the ambiguity: add the missing vault back to config if it should " +
+      "still be here, or set embeddings.provider explicitly (or embeddings.onProviderChange: " +
+      '"switch") to take the current default outright. Run `obsidian-tc doctor` to inspect the ' +
+      "cache directory's stored providers.\n"
     );
   }
   if (resolution.source !== "kept-from-index") return undefined;
