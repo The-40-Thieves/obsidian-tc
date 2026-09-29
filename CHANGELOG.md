@@ -6,10 +6,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.6] - 2026-09-29
+
 ### Added
 
 - **`setup --install-client` now supports nine more MCP clients: Cline, Roo Code, Continue, Goose,
-  Amazon Q Developer CLI, Kiro, JetBrains AI Assistant, Warp, and Augment (alias `auggie`)**
+  Amazon Q Developer CLI, Kiro, JetBrains AI Assistant, Warp, and Augment (alias `auggie`) (#1010)**
   (previously Claude Code, Claude Desktop, Cursor, Codex CLI, ChatGPT, Antigravity, Hermes Agent,
   VS Code, opencode, Windsurf/Devin Desktop, Gemini CLI, Zed, Devin, and Aider). Cline, Roo Code,
   Kiro, and Warp merge a JSON config the same way Claude Desktop/Cursor already do — Warp's own
@@ -28,7 +30,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`cli/setup/client-install-agents.ts`) to stay under the file-length lint ceiling.
 
 - **`setup --install-client` now supports seven more MCP clients: VS Code, opencode, Windsurf/Devin
-  Desktop (alias `devin-desktop`), Gemini CLI, Zed, Devin, and Aider** (previously Claude Code,
+  Desktop (alias `devin-desktop`), Gemini CLI, Zed, Devin, and Aider (#1009)** (previously Claude Code,
   Claude Desktop, Cursor, Codex CLI, ChatGPT, Antigravity, and Hermes Agent). VS Code and Gemini CLI
   each ship their own add-server command (`code --add-mcp`, `gemini mcp add`); Windsurf/Devin
   Desktop merges a JSON `mcp_config.json` the same way Claude Desktop/Cursor already do, preferring
@@ -47,7 +49,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `"json-merge"`/`"instructions-only"`.
 
 - **`setup --install-client` now supports four more MCP clients: Codex CLI, ChatGPT, Antigravity,
-  and Hermes Agent** (previously Claude Code, Claude Desktop, and Cursor only). Codex CLI,
+  and Hermes Agent (#1008)** (previously Claude Code, Claude Desktop, and Cursor only). Codex CLI,
   Antigravity, and Hermes Agent each ship their own `mcp add`-style command
   (`codex mcp add`, `agy mcp add`, `hermes mcp add`), so — like Claude Code already did — this
   prints (and, unless `--dry-run` is given, runs) that documented command rather than hand-editing
@@ -59,9 +61,96 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   lives in one `CLIENT_REGISTRY` table (`cli/setup/client-install.ts`) so a future client is one
   more entry away rather than a new code path.
 
+
+- **Opt-in secret/PII scan on memory writers — `memoryDefense` (GH #994) (#1000).** `create_entity`,
+  `add_observation`, `link_entities`, `rename_entity`, `enqueue_capture`, `commit_capture`, and
+  `set_goal` now scan every caller-controlled string field (recursively — array elements, nested
+  object values, and object keys) against the same secret-pattern scanner the episode log and
+  trace capture already share, plus an opt-in PII check (US SSN shape, Luhn-valid card numbers).
+  Per-vault `memoryDefense: { mode: "off" | "redact" | "block", pii: boolean }`, defaulting to
+  `off` — zero behaviour change for an existing install. `redact` persists `"[REDACTED]"` in
+  place of a match and reports a `redactions` count; `block` refuses the write with
+  `secret_detected`, naming the matched pattern ids and field paths but never the value. Fails
+  closed: a scanner exception on an in-scope write refuses rather than silently persists.
+  New metric `obsidian_tc_memory_defense_hits_total{pattern}`. See SECURITY.md's "Memory defense"
+  section for scan scope and known limits (generic note-write tools and workspace session
+  metadata are not covered by this pass).
+- **`obsidian-tc setup` — detect the environment once, write an explicit config (GH #995 PR A) (#1001).**
+  Finds Obsidian vaults (the local registry, or `--vault <path>` — a nonexistent or non-directory
+  path is refused up front, and a stale registry entry whose vault was since moved/deleted is
+  skipped with a warning, never silently written), decides an embeddings provider (an existing
+  index's provider always wins — the same `resolveStickyEmbeddings` boot uses, including its
+  stored model **revision** so the written config reconstructs the identical provider id; else the
+  bundled local embedder when it can actually run here, model picked by available RAM; else a
+  running Ollama with a recognized embedding model already pulled; else the local embedder anyway
+  with a notice), and writes `vaults`, `cacheDir`, and `embeddings.provider/model/dimensions`
+  explicitly — never `embeddings.threads`, which stays on the #996 default cap. An existing index
+  whose stored provider id cannot be reconstructed (a custom `openai-compatible:...`/`module:...`
+  identity), or whose only match is an **ambiguous** orphaned vault id in the same cache directory,
+  is never guessed at: `setup` refuses to write an embeddings decision at all, printing the stored
+  identity/width (or the same ambiguity notice boot itself shows) and exiting non-zero instead.
+  When a config already exists at the target, it is loaded through the real loader FIRST — the
+  index is probed against **that config's own** `cacheDir`/vaults, never a hard-coded
+  `~/.obsidian-tc` guess, and every key `setup` does not own (and any `vaults`/`cacheDir`/
+  `embeddings` the file already set explicitly) is preserved rather than replaced. Prints every
+  decision with its reason before writing anything. A hosted provider (OpenAI, Voyage, Cohere) is
+  only ever **suggested** when its API key is present in the environment, never chosen
+  automatically — that would send note content to a third party without an explicit opt-in. Any
+  unrecognized flag or positional argument (e.g. a `--dryrun` typo, or a stray path) is a usage
+  error before any I/O runs, never silently ignored. `--dry-run` prints the config and writes
+  nothing; with a TTY and no `--yes` it asks to confirm; without a TTY it behaves like `--dry-run`
+  unless `--yes` is given — neither path leaves any backup, temp file, or directory behind.
+  Refuses to overwrite an existing config unless `--force`, which backs it up first
+  (`<path>.bak-<timestamp>[-N]` on a name collision, written exclusively). The no-`--force` create
+  path is exclusive end-to-end (temp file + `linkSync`, refusing on `EEXIST` even when the target
+  appeared after setup's own existence check) and validates through `ServerConfigSchema` before
+  ever touching disk; every file it creates lands at mode `0600` (`--force` keeps an existing
+  file's mode when it was already stricter), and a `--config` path that is itself a symlink is
+  resolved to, and rewrites, its referent rather than replacing the link. Defaults to
+  `~/.obsidian-tc/config.json`, which `obsidian-tc`/`obsidian-tc serve` (with no `--config`,
+  positional, or `OBSIDIAN_TC_CONFIG`) now finds automatically — an explicit path or
+  `OBSIDIAN_TC_CONFIG` still takes priority over it; `setup` does not install anything into an MCP
+  client's own config (planned as a follow-up). Fix round 2 (second cross-vendor review): a
+  boolean flag given as `--force=true`/`--yes=true`/`--dry-run=true` is now a usage error rather
+  than silently read as false; an existing config that only fails validation on the
+  local-provider-needs-`cacheDir` rule still merges via its raw object on `--force` instead of
+  losing `auth`/`acl`; an `existingIndex.source === "default"` or an ambiguous orphaned index now
+  always refuses to guess an embeddings provider, never falling through to Ollama; an empty
+  `--vault=`/`--config=` value is a usage error instead of silently resolving to the cwd; the
+  printed config (including `--dry-run`) now runs through the same redaction `config show` uses,
+  so an inline secret in an existing config never reaches stdout; and the no-`--force`
+  exclusive-create and `--force` rename finalization steps each gained a same-filesystem/platform
+  fallback (exclusive create-and-copy; clear-read-only-and-retry, then copy-in-place) for
+  filesystems/platforms where hard links or a rename-over-read-only file are refused.
+- **First-run fallback + opt-in MCP client install (GH #995 PR B).** `serve`/a bare `obsidian-tc`
+  launched with no `--config`/positional path, no `OBSIDIAN_TC_CONFIG`, and no config yet at
+  `~/.obsidian-tc/config.json` used to just error. It now runs `setup`'s own detection once,
+  non-interactively, and boots off what it writes — the common shape of an MCP client launching
+  `obsidian-tc` with no arguments at all. It writes ONLY when the result is unambiguous and safe:
+  exactly one vault found in the local Obsidian registry, and no refusal (the same guessing-refusal
+  rule `setup` itself applies); 0 or >=2 vaults, or a refusal, writes nothing and the original "no
+  vault or config given" error gains a hint naming why and pointing at `obsidian-tc setup`. A
+  stderr line always names what was auto-written and where. Race-safe: several MCP clients
+  launching at the same instant converge on ONE file via `setup`'s own exclusive create — the
+  loser re-reads the winner's file through the real loader and boots with that, rather than
+  erroring. Set `OBSIDIAN_TC_NO_AUTO_SETUP=1` to disable the fallback entirely. A config the
+  fallback wrote carries `setupOrigin: "first-run-fallback"` (never set by an interactive `setup`
+  run); `obsidian-tc doctor` reports it so an auto-generated config is visibly distinct from a
+  reviewed one.
+
+  `obsidian-tc setup` also gained `--install-client <claude-code|claude-desktop|cursor>`, wiring an
+  `obsidian-tc` MCP server entry into that ONE client's own config ONLY when asked. For Claude
+  Desktop and Cursor this merges into `claude_desktop_config.json` (per-OS path) /
+  `~/.cursor/mcp.json` without dropping any other server already there, backs the existing file up
+  first, and refuses an existing `obsidian-tc` entry unless `--force`; `--dry-run` prints the entry
+  without writing. For Claude Code — which owns its own `.mcp.json`/`~/.claude.json` — it
+  prints, and unless `--dry-run` runs, the documented `claude mcp add --scope user obsidian-tc --
+  obsidian-tc --config <path>` command instead of hand-editing JSON. Without `--install-client`,
+  `setup` prints ready-to-paste snippets for all three clients at the end of its normal run.
+
 ### Fixed
 
-- **First-run setup follow-ups (GH #1005 review round).** Six fixes to the first-run fallback and
+- **First-run setup follow-ups (GH #1005 review round) (#1007).** Six fixes to the first-run fallback and
   `--install-client` opt-in installer from PR #1005: (1) an interactive `obsidian-tc setup --force`
   re-review of an auto-generated config now drops its `setupOrigin: "first-run-fallback"` marker,
   so `doctor` stops calling a just-reviewed config unreviewed; (2) `obsidian-tc serve --help`/`-h`
@@ -213,7 +302,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   reranker (`packages/reranker-local`, which had no `session_options` at all) gets the same
   capped/no-spin/no-prepack default.
 - **The boot/promotion/periodic reconcile's embed pass no longer starves interactive tool calls
-  (GH #995).** Thread caps (#996), abortability (#997), one leader per vault (#998), and sticky
+  (GH #995) (#1003).** Thread caps (#996), abortability (#997), one leader per vault (#998), and sticky
   provider (#999) fixed the multi-process and shutdown parts of GH #995, but the leader's own
   reconcile still ran its embed pass at full speed the instant it started — competing with
   whatever tool calls the client was already making for the CPU-bound in-process embed step. A new
@@ -244,93 +333,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   reconcile too, and the gauge from `obsidian_tc_boot_embed_paused` to
   `obsidian_tc_background_embed_paused` to match.
 
-### Added
+- **Session resolver breaks `started_at` ties deterministically (#993).**
+- **The comment-style ratchet names the offending files when it fails (#991).**
+- **`repository.url` normalised in the embedder-local and reranker-local package.json files (#990)**.
 
-- **Opt-in secret/PII scan on memory writers — `memoryDefense` (GH #994).** `create_entity`,
-  `add_observation`, `link_entities`, `rename_entity`, `enqueue_capture`, `commit_capture`, and
-  `set_goal` now scan every caller-controlled string field (recursively — array elements, nested
-  object values, and object keys) against the same secret-pattern scanner the episode log and
-  trace capture already share, plus an opt-in PII check (US SSN shape, Luhn-valid card numbers).
-  Per-vault `memoryDefense: { mode: "off" | "redact" | "block", pii: boolean }`, defaulting to
-  `off` — zero behaviour change for an existing install. `redact` persists `"[REDACTED]"` in
-  place of a match and reports a `redactions` count; `block` refuses the write with
-  `secret_detected`, naming the matched pattern ids and field paths but never the value. Fails
-  closed: a scanner exception on an in-scope write refuses rather than silently persists.
-  New metric `obsidian_tc_memory_defense_hits_total{pattern}`. See SECURITY.md's "Memory defense"
-  section for scan scope and known limits (generic note-write tools and workspace session
-  metadata are not covered by this pass).
-- **`obsidian-tc setup` — detect the environment once, write an explicit config (GH #995 PR A).**
-  Finds Obsidian vaults (the local registry, or `--vault <path>` — a nonexistent or non-directory
-  path is refused up front, and a stale registry entry whose vault was since moved/deleted is
-  skipped with a warning, never silently written), decides an embeddings provider (an existing
-  index's provider always wins — the same `resolveStickyEmbeddings` boot uses, including its
-  stored model **revision** so the written config reconstructs the identical provider id; else the
-  bundled local embedder when it can actually run here, model picked by available RAM; else a
-  running Ollama with a recognized embedding model already pulled; else the local embedder anyway
-  with a notice), and writes `vaults`, `cacheDir`, and `embeddings.provider/model/dimensions`
-  explicitly — never `embeddings.threads`, which stays on the #996 default cap. An existing index
-  whose stored provider id cannot be reconstructed (a custom `openai-compatible:...`/`module:...`
-  identity), or whose only match is an **ambiguous** orphaned vault id in the same cache directory,
-  is never guessed at: `setup` refuses to write an embeddings decision at all, printing the stored
-  identity/width (or the same ambiguity notice boot itself shows) and exiting non-zero instead.
-  When a config already exists at the target, it is loaded through the real loader FIRST — the
-  index is probed against **that config's own** `cacheDir`/vaults, never a hard-coded
-  `~/.obsidian-tc` guess, and every key `setup` does not own (and any `vaults`/`cacheDir`/
-  `embeddings` the file already set explicitly) is preserved rather than replaced. Prints every
-  decision with its reason before writing anything. A hosted provider (OpenAI, Voyage, Cohere) is
-  only ever **suggested** when its API key is present in the environment, never chosen
-  automatically — that would send note content to a third party without an explicit opt-in. Any
-  unrecognized flag or positional argument (e.g. a `--dryrun` typo, or a stray path) is a usage
-  error before any I/O runs, never silently ignored. `--dry-run` prints the config and writes
-  nothing; with a TTY and no `--yes` it asks to confirm; without a TTY it behaves like `--dry-run`
-  unless `--yes` is given — neither path leaves any backup, temp file, or directory behind.
-  Refuses to overwrite an existing config unless `--force`, which backs it up first
-  (`<path>.bak-<timestamp>[-N]` on a name collision, written exclusively). The no-`--force` create
-  path is exclusive end-to-end (temp file + `linkSync`, refusing on `EEXIST` even when the target
-  appeared after setup's own existence check) and validates through `ServerConfigSchema` before
-  ever touching disk; every file it creates lands at mode `0600` (`--force` keeps an existing
-  file's mode when it was already stricter), and a `--config` path that is itself a symlink is
-  resolved to, and rewrites, its referent rather than replacing the link. Defaults to
-  `~/.obsidian-tc/config.json`, which `obsidian-tc`/`obsidian-tc serve` (with no `--config`,
-  positional, or `OBSIDIAN_TC_CONFIG`) now finds automatically — an explicit path or
-  `OBSIDIAN_TC_CONFIG` still takes priority over it; `setup` does not install anything into an MCP
-  client's own config (planned as a follow-up). Fix round 2 (second cross-vendor review): a
-  boolean flag given as `--force=true`/`--yes=true`/`--dry-run=true` is now a usage error rather
-  than silently read as false; an existing config that only fails validation on the
-  local-provider-needs-`cacheDir` rule still merges via its raw object on `--force` instead of
-  losing `auth`/`acl`; an `existingIndex.source === "default"` or an ambiguous orphaned index now
-  always refuses to guess an embeddings provider, never falling through to Ollama; an empty
-  `--vault=`/`--config=` value is a usage error instead of silently resolving to the cwd; the
-  printed config (including `--dry-run`) now runs through the same redaction `config show` uses,
-  so an inline secret in an existing config never reaches stdout; and the no-`--force`
-  exclusive-create and `--force` rename finalization steps each gained a same-filesystem/platform
-  fallback (exclusive create-and-copy; clear-read-only-and-retry, then copy-in-place) for
-  filesystems/platforms where hard links or a rename-over-read-only file are refused.
-- **First-run fallback + opt-in MCP client install (GH #995 PR B).** `serve`/a bare `obsidian-tc`
-  launched with no `--config`/positional path, no `OBSIDIAN_TC_CONFIG`, and no config yet at
-  `~/.obsidian-tc/config.json` used to just error. It now runs `setup`'s own detection once,
-  non-interactively, and boots off what it writes — the common shape of an MCP client launching
-  `obsidian-tc` with no arguments at all. It writes ONLY when the result is unambiguous and safe:
-  exactly one vault found in the local Obsidian registry, and no refusal (the same guessing-refusal
-  rule `setup` itself applies); 0 or >=2 vaults, or a refusal, writes nothing and the original "no
-  vault or config given" error gains a hint naming why and pointing at `obsidian-tc setup`. A
-  stderr line always names what was auto-written and where. Race-safe: several MCP clients
-  launching at the same instant converge on ONE file via `setup`'s own exclusive create — the
-  loser re-reads the winner's file through the real loader and boots with that, rather than
-  erroring. Set `OBSIDIAN_TC_NO_AUTO_SETUP=1` to disable the fallback entirely. A config the
-  fallback wrote carries `setupOrigin: "first-run-fallback"` (never set by an interactive `setup`
-  run); `obsidian-tc doctor` reports it so an auto-generated config is visibly distinct from a
-  reviewed one.
+### Security
 
-  `obsidian-tc setup` also gained `--install-client <claude-code|claude-desktop|cursor>`, wiring an
-  `obsidian-tc` MCP server entry into that ONE client's own config ONLY when asked. For Claude
-  Desktop and Cursor this merges into `claude_desktop_config.json` (per-OS path) /
-  `~/.cursor/mcp.json` without dropping any other server already there, backs the existing file up
-  first, and refuses an existing `obsidian-tc` entry unless `--force`; `--dry-run` prints the entry
-  without writing. For Claude Code — which owns its own `.mcp.json`/`~/.claude.json` — it
-  prints, and unless `--dry-run` runs, the documented `claude mcp add --scope user obsidian-tc --
-  obsidian-tc --config <path>` command instead of hand-editing JSON. Without `--install-client`,
-  `setup` prints ready-to-paste snippets for all three clients at the end of its normal run.
+- **`ip-address` raised to `>=10.5.1` (#1006)** — the transitive `ip-address@10.4.0` had two medium advisories (GHSA-2vr4-cq9g-pvrc, GHSA-rpw4-54j3-4h4q).
 
 ## [1.31.5] - 2026-09-26
 
