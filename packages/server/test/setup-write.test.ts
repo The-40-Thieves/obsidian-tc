@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupDecision } from "../src/cli/setup/decide";
 import { buildSetupConfig, writeSetupConfig } from "../src/cli/setup/write";
 import { rmTemp } from "./tmp";
@@ -205,14 +205,19 @@ describe("writeSetupConfig", () => {
   it("--force backs up the existing file first, with a timestamped name", () => {
     const dir = tmpDir("otc-setup-write-force-");
     const target = join(dir, "config.json");
-    writeFileSync(target, JSON.stringify({ existing: true }));
+    // Deliberately NOT the canonical `JSON.stringify(x, null, 2)` shape (extra spacing, a trailing
+    // marker) — a byte-exact comparison against the ORIGINAL bytes is the only way to prove the
+    // backup copied the file, rather than merely a JSON-equivalent re-serialization of it (which
+    // would pass even if the backup ran the content through JSON.parse/stringify and lost the
+    // original formatting/whitespace).
+    const originalContent = '{  "existing":   true, "note": "keep my odd spacing"}';
+    writeFileSync(target, originalContent);
+    const originalBytes = readFileSync(target);
     const result = writeSetupConfig(target, decision(), { force: true });
     expect(result.backupPath).toBeDefined();
     expect(result.backupPath).toMatch(/\.bak-/);
     expect(existsSync(result.backupPath as string)).toBe(true);
-    expect(JSON.parse(readFileSync(result.backupPath as string, "utf8"))).toEqual({
-      existing: true,
-    });
+    expect(readFileSync(result.backupPath as string).equals(originalBytes)).toBe(true);
     // The real path now holds the NEW config, not the backed-up one.
     expect(JSON.parse(readFileSync(target, "utf8")).existing).toBeUndefined();
   });
@@ -298,19 +303,32 @@ describe("writeSetupConfig", () => {
     expect(JSON.parse(readFileSync(target, "utf8"))).toEqual({ raced: true });
   });
 
-  // Low: backup collisions — exclusive create with a counter suffix.
-  it("two --force overwrites in the same run never clobber each other's backup", () => {
+  // Low: backup collisions — exclusive create with a counter suffix. The clock is FROZEN (fake
+  // timers) so both writes below compute the exact same `timestamp()` base name — without that,
+  // two real-clock writes usually land in different ISO-millisecond buckets anyway, and the test
+  // would pass whether or not the counter-suffix retry path actually works. Freezing forces the
+  // `EEXIST` collision every run, proving the suffix path rather than merely not disproving it.
+  it("two --force overwrites with the SAME frozen timestamp never clobber each other's backup", () => {
     const dir = tmpDir("otc-setup-write-backup-collision-");
     const target = join(dir, "config.json");
-    writeFileSync(target, JSON.stringify({ n: 1 }));
-    const first = writeSetupConfig(target, decision(), { force: true });
-    writeFileSync(target, JSON.stringify({ n: 2 }));
-    const second = writeSetupConfig(target, decision(), { force: true });
-    expect(first.backupPath).not.toBe(second.backupPath);
-    expect(existsSync(first.backupPath as string)).toBe(true);
-    expect(existsSync(second.backupPath as string)).toBe(true);
-    expect(JSON.parse(readFileSync(first.backupPath as string, "utf8"))).toEqual({ n: 1 });
-    expect(JSON.parse(readFileSync(second.backupPath as string, "utf8"))).toEqual({ n: 2 });
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      writeFileSync(target, JSON.stringify({ n: 1 }));
+      const first = writeSetupConfig(target, decision(), { force: true });
+      writeFileSync(target, JSON.stringify({ n: 2 }));
+      const second = writeSetupConfig(target, decision(), { force: true });
+      expect(first.backupPath).not.toBe(second.backupPath);
+      // The frozen-clock base name is identical for both — proves the counter suffix, not just
+      // "different somehow" (real time moving would also satisfy a plain inequality check).
+      expect(second.backupPath).toBe(`${first.backupPath}-1`);
+      expect(existsSync(first.backupPath as string)).toBe(true);
+      expect(existsSync(second.backupPath as string)).toBe(true);
+      expect(JSON.parse(readFileSync(first.backupPath as string, "utf8"))).toEqual({ n: 1 });
+      expect(JSON.parse(readFileSync(second.backupPath as string, "utf8"))).toEqual({ n: 2 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // Low: symlink target — resolved and the write lands on the referent, backing it up, never

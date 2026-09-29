@@ -31,6 +31,15 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
+/** Setup hardening item 3: `renameSync` above always throws ENOSPC unconditionally — good enough
+ *  to crash the `--force` path (which never calls `linkSync`) but useless for reaching the
+ *  `.wx-claim` marker path's OWN `renameSync(staged, target)` call, since `linkSync` throwing
+ *  ENOSPC is NOT one of the codes `finalizeExclusiveCreate` treats as "hard links unavailable,
+ *  fall back to the marker" (only EPERM/EXDEV/ENOTSUP/ENOSYS are) — it just propagates immediately
+ *  from the direct `linkSync` call, same as the existing "no --force" test below already proves.
+ *  ENOTSUP does trigger that fallback, so a SECOND crash test overrides `linkSync` to throw that
+ *  instead, reaching the marker path's own staged-rename crash for the first time. */
+
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
   const d = mkdtempSync(join(tmpdir(), prefix));
@@ -103,5 +112,40 @@ describe("writeSetupConfig — crash mid-write leaves the old file intact", () =
 
     const { linkSync } = await import("node:fs");
     expect(vi.mocked(linkSync)).toHaveBeenCalled();
+  });
+
+  it("no --force, linkSync unavailable: a failing rename during marker-path staging leaves no config, marker, or temp litter", async () => {
+    const { writeSetupConfig } = await import("../src/cli/setup/write");
+    const { linkSync } = await import("node:fs");
+    // `Once`: only this call sees ENOTSUP (routing into the `.wx-claim` marker fallback); the
+    // module-level mock's ENOSPC default is restored for every later call, including the marker
+    // path's own subsequent `renameSync(staged, target)` — which is where THIS test's crash lands,
+    // via the always-ENOSPC `renameSync` mock already installed above.
+    vi.mocked(linkSync).mockImplementationOnce(() => {
+      const e = new Error("ENOTSUP: hard links not supported") as NodeJS.ErrnoException;
+      e.code = "ENOTSUP";
+      throw e;
+    });
+    const dir = tmpDir("otc-setup-write-crash-marker-");
+    const target = join(dir, "config.json");
+
+    const decision = {
+      vaults: [{ id: "main", path: "/vault" }],
+      cacheDir: dir,
+      embeddings: {
+        provider: "local" as const,
+        model: "nomic-embed-text-v1.5",
+        dimensions: 768,
+        reason: "test",
+      },
+      hostedSuggestions: [],
+    };
+
+    expect(() => writeSetupConfig(target, decision)).toThrow(/ENOSPC/);
+    expect(existsSync(target)).toBe(false);
+    const leftovers = readdirSync(dir).filter(
+      (f) => f.includes(".tmp-") || f.includes(".wx-stage-") || f.includes(".wx-claim"),
+    );
+    expect(leftovers).toEqual([]);
   });
 });

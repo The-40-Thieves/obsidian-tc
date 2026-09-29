@@ -6,6 +6,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **`setup` hardening: existing vault paths are re-validated, id collisions are surfaced instead of
+  silently resolved, and `--force`'s Windows finalization is more resilient to transient file
+  locks.** An existing config's own vault paths were never existence-checked (only freshly detected
+  registry vaults were) — a moved/deleted path is now warned about, and kept, never silently
+  dropped. A vault id present in both the existing config and a live Obsidian registry entry, at two
+  different paths, is now surfaced as a collision and refuses to write even with `--yes`/`--force`
+  together, rather than let the existing (possibly stale) path win with no signal at all. `--force`
+  on Windows now retries a failing `renameSync` with a short bounded backoff (clearing a stale
+  read-only bit each time) before falling back to the non-atomic copy-over-in-place, riding out a
+  brief AV/indexer lock instead of degrading immediately; the pre-write backup is still named in the
+  error if every fallback exhausts. Test coverage: the `.wx-claim` marker path (used when `linkSync`
+  is unavailable) is now exercised for both the TOCTOU and crash-mid-write proofs, previously only
+  ever reached via the hard-link path; the `--force` backup test now asserts byte-exact content, and
+  the backup-collision test freezes the clock to force the counter-suffix path deterministically.
+
 ## [1.31.6] - 2026-09-29
 
 ### Added

@@ -312,6 +312,61 @@ describe("obsidian-tc setup — end to end", () => {
     stderrSpy.mockRestore();
   });
 
+  // Setup hardening item 1: an EXISTING config's own vault paths were never existence-checked —
+  // only fresh registry vaults were. A moved/deleted path must be WARNED about, never silently
+  // dropped from the config (an operator's own prior entry is not setup's to delete).
+  it("an existing config's own vault whose path no longer exists is kept, not silently deleted, and warned about", async () => {
+    const { home, vaultPath } = fakeObsidianEnv();
+    const configDir = join(home, ".obsidian-tc");
+    const configPath = join(configDir, "config.json");
+    const ghostPath = join(home, "ghost-existing-vault");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        vaults: [
+          { id: "ghost", path: ghostPath },
+          { id: "main", path: vaultPath },
+        ],
+      }),
+    );
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await run_setup({ kind: "setup", yes: true, dryRun: false, force: true });
+
+    const onDisk = JSON.parse(readFileSync(configPath, "utf8"));
+    expect(onDisk.vaults).toEqual(expect.arrayContaining([{ id: "ghost", path: ghostPath }]));
+    const warned = stderrSpy.mock.calls.some(
+      (c) => String(c[0]).includes(ghostPath) && String(c[0]).includes("no longer exists"),
+    );
+    expect(warned).toBe(true);
+    stderrSpy.mockRestore();
+  });
+
+  // Setup hardening item 1: on an id collision, the existing config's path previously won
+  // SILENTLY over a live Obsidian-registry entry at a different path for the same id. That must be
+  // surfaced instead, and --force/--yes together must NOT auto-resolve it — the operator resolves
+  // by hand.
+  it("surfaces a vault id collision between the existing config and a live registry entry, and refuses to write even with --yes --force", async () => {
+    const { home, vaultPath } = fakeObsidianEnv(); // registers "main" -> vaultPath live
+    const configDir = join(home, ".obsidian-tc");
+    const configPath = join(configDir, "config.json");
+    const staleVaultPath = tmpDir("otc-setup-e2e-stale-vault-"); // exists, but a DIFFERENT path
+    mkdirSync(configDir, { recursive: true });
+    const before = JSON.stringify({ vaults: [{ id: "main", path: staleVaultPath }] });
+    writeFileSync(configPath, before);
+
+    await run_setup({ kind: "setup", yes: true, dryRun: false, force: true });
+
+    // Refused before any write — the file on disk is byte-for-byte untouched.
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+    const printed = stdout.join("");
+    expect(printed).toContain(staleVaultPath);
+    expect(printed).toContain(vaultPath);
+  });
+
   // Low: dry-run / no-TTY leave ZERO filesystem side effects — not just "the target is absent".
   it("--dry-run creates no backup, no temp file, and no directory", async () => {
     const { home } = fakeObsidianEnv();
