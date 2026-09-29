@@ -56,6 +56,13 @@ role — SQLite already serializes those writers, so gating them would add nothi
   brand-new `cacheDir`** together (first boot, or a wiped cache) serialize their schema migrations
   through a short bootstrap barrier before election runs, so they cannot race each other's
   migration pass.
+- SQLite serializes concurrent commits, but ordering alone doesn't stop a *stale* one from
+  landing: a write planned before a fresher commit (or a deindex) could previously still apply if
+  its own commit happened to land second. Every write now re-checks a per-`(vault, path)` fence
+  generation inside its own commit transaction and is dropped, not applied, if a fresher commit or
+  delete already moved that generation past its own — this is enforced per path across every
+  process sharing the `cacheDir`, leader and followers alike, not just within one process's own
+  writes.
 
 The leader lock above removes the double-*indexing* cost of several stdio processes on one vault,
 but each process still pays its own **model-load** cost — every subprocess loads its own copy of

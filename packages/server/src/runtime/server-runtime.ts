@@ -30,6 +30,7 @@ import { initOtel, type OtelHandle } from "../otel/tracing";
 import { compileEgressFilter, type EgressFilter, isExcludedPath } from "../plane/egress-filter";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { IndexCoordinator } from "../search/index-coordinator";
+import { wireLeaderEpoch } from "../search/indexing/leader-epoch";
 import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
 import type { VecRebuildEvent } from "../search/vec";
@@ -362,6 +363,7 @@ export async function buildServerRuntime(
       version: VERSION,
     });
     postCoreLayers.push({ name: "leaderElection", close: () => leaderElection.close() });
+    const currentLeaderEpoch = wireLeaderEpoch(leaderElection, db); // GH #995: see leader-epoch.ts
     // #14: durable contradiction jobs. Constructed here (ahead of its natural "plane" home) so
     // server_health's getJobQueueStats accessor below can close over it.
     const jobQueue = createJobQueue(db, sqlHooksFor);
@@ -391,9 +393,7 @@ export async function buildServerRuntime(
     );
     gatewayConfigured = roles !== null;
 
-    // W-INGEST onIndexed hook -> contradiction-check enqueue.
-    // THE-822: plane.enabled gates this alongside roles — a disabled plane must not enqueue
-    // per-chunk contradiction jobs on every index write.
+    // W-INGEST onIndexed hook -> contradiction enqueue; THE-822: plane.enabled also gates this.
     const makeOnIndexed = createOnIndexedHook({ jobQueue, roles, plane: config.plane });
 
     const { jobRunner } = wireJobHandlers({
@@ -593,6 +593,7 @@ export async function buildServerRuntime(
       indexVaultRecorded,
       roles,
       jobRunner,
+      leaderEpoch: currentLeaderEpoch, // GH #995 follow-up
     });
     const runReconcile = gateReconcileByLeader(leaderElection, runReconcileRaw, bootReconcileAbort); // GH #995
 

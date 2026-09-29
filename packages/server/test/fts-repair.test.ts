@@ -24,6 +24,8 @@ const rec = (p: string) => ({
   mtime: 1,
   size: 1,
   ftsContent: "body text",
+  fenceGeneration: 0,
+  fenceCheckRequired: false,
 });
 
 const count = (db: any, sql: string): number =>

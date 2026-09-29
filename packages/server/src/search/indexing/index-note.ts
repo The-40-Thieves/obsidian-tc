@@ -29,6 +29,7 @@ import { EMBED_BATCH, EMBED_CONCURRENCY, embedPlans } from "./embed-batches";
 import { computeNotePlan, hasBodyShaColumn } from "./note-plan";
 import { applyNoteWrites, DELETE_CONTRADICTIONS_SQL, fireIndexHook } from "./persist-note-plan";
 import type { IndexHook, PlanResult } from "./types";
+import { bumpFenceUnconditional, commitFence } from "./write-fence";
 
 // Single-note plan + embed (indexNote / index-on-write path). indexVault batches embeds instead.
 async function planNoteWrites(
@@ -97,8 +98,18 @@ export async function indexNote(
   /** THE-934 fix round 1 (Blocking-1): egress.excludePaths, as a per-path predicate. Threaded
    *  through to planNoteWrites/computeNotePlan — see that function's doc comment. */
   isExcluded?: (rel: string) => boolean,
-): Promise<{ upserted: number; deleted: number; unchanged: number; secretsSkipped: number }> {
-  const { plan, unchanged, secretsSkipped, flagged } = await planNoteWrites(
+): Promise<{
+  upserted: number;
+  deleted: number;
+  unchanged: number;
+  secretsSkipped: number;
+  /** GH #995 follow-up: true when this write was dropped by the commit-time fence (write-fence.ts)
+   *  — a fresher write or deindex committed for this path between this call's plan and its apply.
+   *  No row was touched; the caller's coalescing (index-coordinator.ts) or the next reconcile will
+   *  naturally re-settle the path to its actual current content. */
+  staleSkipped: boolean;
+}> {
+  const { plan, unchanged, secretsSkipped, flagged, fenceGeneration } = await planNoteWrites(
     db,
     provider,
     vaultId,
@@ -122,14 +133,27 @@ export async function indexNote(
   if (!plan) {
     // Chunks unchanged; refresh the notes row only when missing/stale (backfill path).
     if (note && noteRowHash(db, vaultId, path) !== note.contentHash) {
-      inWriteTransaction(
+      // Fix round (cross-vendor review): this backfill previously wrote unconditionally — no
+      // fence check at all — so a demoted leader's stale metadata could overwrite fresher content,
+      // or resurrect a note's search-visible row after a successor's deindex tombstone, between
+      // this plan's read (fenceGeneration, captured above by planNoteWrites) and this write. Same
+      // commit-time re-check applyNoteWrites already does for a real chunk plan, inside the SAME
+      // transaction.
+      const landed = inWriteTransaction(
         db,
         "index_note",
-        () => upsertNoteRow(db, vaultId, note, hasFts, now()),
+        () => {
+          const fence = commitFence(db, vaultId, path, fenceGeneration, now());
+          if (!fence.ok) return false;
+          upsertNoteRow(db, vaultId, note, hasFts, now());
+          return true;
+        },
         sql,
       );
+      if (!landed)
+        return { upserted: 0, deleted: 0, unchanged, secretsSkipped, staleSkipped: true };
     }
-    return { upserted: 0, deleted: 0, unchanged, secretsSkipped };
+    return { upserted: 0, deleted: 0, unchanged, secretsSkipped, staleSkipped: false };
   }
   const result = inWriteTransaction(
     db,
@@ -147,6 +171,10 @@ export async function indexNote(
         hasBodySha,
         new Map(), // THE-488: single-note path — a fresh (effectively empty) dedup cache
       );
+      // GH #995 follow-up: a stale-fenced write touched NO rows (applyNoteWrites returned before
+      // writing anything) — the notes/FTS row and the vault_generation bump must stay untouched
+      // too, or a dropped chunk write would still be reported as a content change.
+      if (r.staleSkipped) return r;
       if (note) upsertNoteRow(db, vaultId, note, hasFts, now());
       // THE-496: this note's chunks/embeddings changed (the plan-null early return above skips a
       // no-op), so bump the vault generation inside the SAME transaction — the query cache must not
@@ -156,7 +184,10 @@ export async function indexNote(
     },
     sql,
   );
-  fireIndexHook(onIndexed, plan);
+  // GH #995 follow-up: never fire the (re)embedded-chunk hook for a write the fence dropped — its
+  // chunks were never committed (persist-note-plan.ts's own header: "a consumer never observes an
+  // uncommitted (possibly rolled-back) chunk", and a fenced-out write is the same case).
+  if (!result.staleSkipped) fireIndexHook(onIndexed, plan);
   return { ...result, unchanged, secretsSkipped };
 }
 
@@ -176,6 +207,9 @@ export function deindexNote(
   enrich = false,
   /** THE-585 (#5): write-lock observability hooks; see indexNote. */
   sql?: WriteTxnHooks,
+  /** GH #995 follow-up: stamps the tombstone bump below (write-fence.ts's bumpFenceUnconditional).
+   *  Defaults to Date.now, matching indexNote's own `now` default shape. */
+  now: () => number = Date.now,
 ): void {
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db);
@@ -217,6 +251,12 @@ export function deindexNote(
       // THE-496: a removed path drops chunks/edges from the searchable set, so bump the generation in
       // the same transaction when anything was actually deleted.
       if (rows.length > 0) bumpGeneration(db, vaultId);
+      // GH #995 follow-up: the tombstone — bumped UNCONDITIONALLY, even when rows.length === 0 (a
+      // path never yet indexed). A delete is always the fresher signal: any write plan read BEFORE
+      // this transaction commits, for this same path, carries a generation this bump moves past, so
+      // its eventual commit (persist-note-plan.ts's applyNoteWrites) is fenced out regardless of
+      // whether this delete actually removed rows. See the migration's own header.
+      bumpFenceUnconditional(db, vaultId, path, now());
     },
     sql,
   );

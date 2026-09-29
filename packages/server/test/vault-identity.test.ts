@@ -17,6 +17,11 @@ import {
 } from "../src/embeddings/sticky-provider";
 import { ensureChunkColbert } from "../src/search/chunk_colbert";
 import { ensureNotesFts } from "../src/search/fts";
+import {
+  bumpFenceUnconditional,
+  commitFence,
+  readFenceGeneration,
+} from "../src/search/indexing/write-fence";
 import { ensureChunkSparse } from "../src/search/sparse";
 import {
   CACHE_VAULT_ID_TABLES,
@@ -215,6 +220,40 @@ describe("resolveAndApplyVaultIdentity — rename (same realpath, different id)"
           .get() as any
       ).root_realpath,
     ).toBe(normalizeRealpathForIdentity(root));
+  });
+
+  it("re-keys note_write_fence rows on rename, and a plan read AFTER the rename commits cleanly instead of being wrongly rejected as stale", () => {
+    const { cacheDb, edb } = stores();
+    const root = tmpVaultRoot();
+
+    // First boot under the OLD id, then a note is indexed a few times so its fence generation is
+    // non-zero — a zero generation would pass by coincidence even if the rekey silently dropped
+    // the row instead of moving it.
+    resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "old-id", path: root }]);
+    bumpFenceUnconditional(cacheDb, "old-id", "a.md", Date.now());
+    bumpFenceUnconditional(cacheDb, "old-id", "a.md", Date.now());
+    const preRenameGeneration = bumpFenceUnconditional(cacheDb, "old-id", "a.md", Date.now());
+    expect(preRenameGeneration).toBe(3);
+
+    // Second boot: SAME path, NEW id — a rename.
+    resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "new-id", path: root }]);
+
+    // The row moved, not vanished or duplicated: old id has nothing, new id carries the SAME
+    // generation the old id last committed (a reset to 0 would let a stale pre-rename write race
+    // back in under the new id).
+    expect(
+      cacheDb.prepare("SELECT 1 FROM note_write_fence WHERE vault_id = 'old-id'").get(),
+    ).toBeUndefined();
+    expect(readFenceGeneration(cacheDb, "new-id", "a.md")).toBe(preRenameGeneration);
+
+    // A plan computed AFTER the rename (reading the re-keyed generation under the new id, exactly
+    // as note-plan.ts's computeNotePlan does at plan time) must commit cleanly — this is the
+    // failure mode a broken/omitted rekey produces: the plan's baseline (read under the new id)
+    // would disagree with whatever commitFence sees, and a legitimate write would be dropped as
+    // stale immediately after every rename.
+    const planned = readFenceGeneration(cacheDb, "new-id", "a.md");
+    const result = commitFence(cacheDb, "new-id", "a.md", planned, Date.now());
+    expect(result).toEqual({ ok: true, generation: preRenameGeneration + 1 });
   });
 
   it("sticky-provider resolution no longer reports ambiguous-orphaned-index after a rename — queryActiveEmbeddingModels finds the rows directly under the new id", () => {

@@ -9,6 +9,7 @@ import { contentHash } from "../../vault/paths";
 import { chunkNote, enrichChunkText } from "../chunk";
 import { scanSecrets } from "../secrets";
 import type { ExistingRow, PlannedChunk, PlanResult } from "./types";
+import { readFenceGeneration } from "./write-fence";
 
 // Stable, content-independent id for a chunk slot. Re-chunking the same note
 // reproduces these ids, so content_hash alone decides re-embed vs. skip.
@@ -163,6 +164,7 @@ export function computeNotePlan(
    *  of an excluded folder lands on the next pass even when content_hash is unchanged. */
   isExcluded?: (rel: string) => boolean,
   precomputedBody?: string,
+  preloadedFenceGenerations?: Map<string, number>,
 ): PlanResult {
   // THE-823: `path` is already this function's own parameter — pass it through so a malformed note
   // reached via computeNotePlan (rather than index-vault.ts's earlier parseNote call) still names
@@ -209,6 +211,8 @@ export function computeNotePlan(
   // passes this note's slice, so computeNotePlan issues no per-note chunk query (N queries -> 1). The
   // single-note path passes no preload and keeps the targeted per-note query.
   const existing = preloadedExisting?.get(path) ?? readExistingChunkRows(db, vaultId, path);
+  const fenceGeneration =
+    preloadedFenceGenerations?.get(path) ?? readFenceGeneration(db, vaultId, path);
   const existingById = new Map(existing.map((e) => [e.id, e]));
   // THE-934: this note's CURRENT exclusion status (a note's chunks share one path). Re-embed below
   // also fires when the STORED embedding_excluded disagrees with it — without that, a chunk
@@ -257,14 +261,24 @@ export function computeNotePlan(
     }
   }
   if (toEmbed.length === 0 && !willPrune) {
-    return { plan: null, unchanged, secretsSkipped, flagged, dedupSkipped };
+    return { plan: null, unchanged, secretsSkipped, flagged, dedupSkipped, fenceGeneration };
   }
   return {
-    plan: { path, existing, desiredIds, toEmbed, excluded: excludedNow, vectors: [], ts },
+    plan: {
+      path,
+      existing,
+      desiredIds,
+      toEmbed,
+      excluded: excludedNow,
+      vectors: [],
+      ts,
+      fenceGeneration,
+    },
     unchanged,
     secretsSkipped,
     flagged,
     dedupSkipped,
+    fenceGeneration,
   };
 }
 
