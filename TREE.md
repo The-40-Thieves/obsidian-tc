@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,499 tracked code files · 276,208 lines.
+**Scale:** 1,499 tracked code files · 276,356 lines.
 
-TypeScript 254,164 · JavaScript 16,326 · Python 2,406 · SQL 2,076 · Rust 753 · Shell 483.
+TypeScript 254,312 · JavaScript 16,326 · Python 2,406 · SQL 2,076 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,7 +86,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 92 | 19,796 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 92 | 19,814 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 62 | 13,270 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `cli/` | 58 | 10,060 | arg parsing + subcommands |
 | `experiential/` | 29 | 7,728 | work-memory tier: activation, retrieval log, forget, citations |
@@ -172,11 +172,11 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 559 | `packages/server/src/mcp/facade.ts` |
 | 535 | `packages/server/src/tools/m7/knowledge/retrieval-runtime.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
+| 529 | `packages/server/src/tools/m5/memory-tools.ts` |
 | 525 | `packages/server/src/tools/m1/links-tools.ts` |
 | 525 | `packages/server/src/tools/m3/periodic-tools.ts` |
 | 523 | `packages/server/src/tools/m1/frontmatter-tools.ts` |
 | 516 | `packages/server/src/runtime/vault-lock.ts` |
-| 511 | `packages/server/src/tools/m5/memory-tools.ts` |
 | 510 | `packages/server/src/experiential/note-quality.ts` |
 | 509 | `packages/server/src/tools/m6/bulk-tools.ts` |
 | 509 | `packages/server/src/tools/m8/experiential-tools.ts` |

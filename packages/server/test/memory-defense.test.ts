@@ -1724,3 +1724,133 @@ describe("review finding (addendum) — an invalid guarded field never echoes it
     }
   });
 });
+
+// Security review round 2: the array-join scan (memory-defense.ts's walk()) closes a split
+// secret ONLY when it is handed a real array. create_entity/add_observation flattened
+// `observations` to indexed string FIELDS (`observations.0`, `observations.1`, ...) or scanned
+// only the new fact in isolation — the join scan never ran, so a PEM/token split across two
+// observation elements (or across an earlier append and this one) reassembled unmatched on disk.
+describe("security review round 2 — array-join scan reaches create_entity/add_observation for real", () => {
+  let v: M5Vault | undefined;
+  afterEach(() => {
+    v?.cleanup();
+    v = undefined;
+  });
+
+  // Same fixture shape as leaf-scan-normalization.test.ts's array-join tests: no element alone
+  // matches the private_key pattern, only the "\n"-joined reassembly does.
+  const beginLine = "-----BEGIN PRIVATE KEY-----";
+  const bodyLine = [
+    "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAy8Dbv8prpJ",
+    "/0kKhlGeJYozo2lTiPz2u1UZVMV8HeLB2rzDsEwCcOZv3nGm14zN4qzFpF",
+  ].join("");
+  const endLine = "-----END PRIVATE KEY-----";
+
+  it("create_entity: a PEM split across 3 observation array elements is caught (block mode)", async () => {
+    v = makeM5Vault({ memoryDefense: { mode: "block", pii: false } });
+    const r = await v.call("create_entity", {
+      vault: "test",
+      type: "person",
+      name: "create-entity-join-probe",
+      observations: [beginLine, bodyLine, endLine],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe("secret_detected");
+      const fields = (r.error.details?.fields ?? []) as string[];
+      expect(fields.some((f) => f.includes("observations"))).toBe(true);
+    }
+    // Nothing persisted: a clean retry with the same (type, name) succeeds.
+    const retry = await v.call("create_entity", {
+      vault: "test",
+      type: "person",
+      name: "create-entity-join-probe",
+      observations: ["clean fact"],
+    });
+    expect(retry.ok).toBe(true);
+  });
+
+  it("create_entity: redact mode severs every element of the reassembled array, not just the matching half", async () => {
+    v = makeM5Vault({ memoryDefense: { mode: "redact", pii: false } });
+    const r = un<{ entity_id: string; redactions: number }>(
+      await v.call("create_entity", {
+        vault: "test",
+        type: "person",
+        name: "create-entity-join-redact-probe",
+        observations: [beginLine, bodyLine, endLine],
+      }),
+    );
+    expect(r.redactions).toBeGreaterThan(0);
+    const get = un<{ observations: Array<{ text: string }> }>(
+      await v.call("get_entity", { vault: "test", entity_id: r.entity_id }),
+    );
+    expect(get.observations.map((o) => o.text)).toStrictEqual([
+      "[REDACTED]",
+      "[REDACTED]",
+      "[REDACTED]",
+    ]);
+  });
+
+  it("add_observation: a PEM split across an earlier append and this new fact is caught at the reassembled boundary (block mode)", async () => {
+    v = makeM5Vault({ memoryDefense: { mode: "block", pii: false } });
+    // Two individually-clean facts land first — split across TWO separate calls, mirroring how
+    // an adversary would spread a secret over time rather than in one create_entity payload.
+    const created = un<{ entity_id: string }>(
+      await v.call("create_entity", {
+        vault: "test",
+        type: "person",
+        name: "add-observation-join-probe",
+        observations: [beginLine],
+        materialize: false,
+      }),
+    );
+    const first = await v.call("add_observation", {
+      vault: "test",
+      entity_id: created.entity_id,
+      observation: bodyLine,
+    });
+    expect(first.ok).toBe(true);
+    // The THIRD fact (the END marker) only completes the PEM once joined with what is already
+    // stored — neither `bodyLine` nor `endLine` alone matches.
+    const r = await v.call("add_observation", {
+      vault: "test",
+      entity_id: created.entity_id,
+      observation: endLine,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("secret_detected");
+    // Refused: the entity still has exactly the two facts written before the refused call.
+    const get = un<{ observations: unknown[] }>(
+      await v.call("get_entity", { vault: "test", entity_id: created.entity_id }),
+    );
+    expect(get.observations).toHaveLength(2);
+  });
+
+  it("add_observation: redact mode severs only the NEW fact, leaving already-persisted observations untouched", async () => {
+    v = makeM5Vault({ memoryDefense: { mode: "redact", pii: false } });
+    const created = un<{ entity_id: string }>(
+      await v.call("create_entity", {
+        vault: "test",
+        type: "person",
+        name: "add-observation-join-redact-probe",
+        observations: [beginLine],
+        materialize: false,
+      }),
+    );
+    const r = un<{ redactions: number }>(
+      await v.call("add_observation", {
+        vault: "test",
+        entity_id: created.entity_id,
+        observation: `${bodyLine}${endLine}`,
+      }),
+    );
+    expect(r.redactions).toBeGreaterThan(0);
+    const get = un<{ observations: Array<{ text: string }> }>(
+      await v.call("get_entity", { vault: "test", entity_id: created.entity_id }),
+    );
+    // The first (already-persisted) observation is unchanged; only the newly-appended one, which
+    // completed the reassembled secret, is severed.
+    expect(get.observations[0]?.text).toBe(beginLine);
+    expect(get.observations[1]?.text).toBe("[REDACTED]");
+  });
+});
