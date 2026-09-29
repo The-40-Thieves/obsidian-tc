@@ -197,7 +197,12 @@ describe("THE-175 ingestAmbient -> capture_queue", () => {
     expect(items).toHaveLength(2);
 
     const first = ingestAmbient(db, "main", items, 1000);
-    expect(first).toStrictEqual({ enqueued: 2, skipped_duplicate: 0, redacted: 1 });
+    expect(first).toStrictEqual({
+      enqueued: 2,
+      skipped_duplicate: 0,
+      redacted: 1,
+      skipped_secret: 0,
+    });
 
     const rows = listCaptures(db, "main", { source: "ambient" });
     expect(rows).toHaveLength(2);
@@ -220,7 +225,12 @@ describe("THE-175 ingestAmbient -> capture_queue", () => {
 
     // Re-run over the SAME fetched items (simulating a re-poll): nothing new enqueued.
     const second = ingestAmbient(db, "main", items, 2000);
-    expect(second).toStrictEqual({ enqueued: 0, skipped_duplicate: 2, redacted: 0 });
+    expect(second).toStrictEqual({
+      enqueued: 0,
+      skipped_duplicate: 2,
+      redacted: 0,
+      skipped_secret: 0,
+    });
     expect(listCaptures(db, "main", { source: "ambient" })).toHaveLength(2);
   });
 
@@ -253,7 +263,12 @@ describe("THE-175 ingestAmbient -> capture_queue", () => {
       fetchFn,
     });
     const result = ingestAmbient(db, "main", items, 1000, { dryRun: true });
-    expect(result).toStrictEqual({ enqueued: 2, skipped_duplicate: 0, redacted: 1 });
+    expect(result).toStrictEqual({
+      enqueued: 2,
+      skipped_duplicate: 0,
+      redacted: 1,
+      skipped_secret: 0,
+    });
     expect(listCaptures(db, "main", { source: "ambient" })).toHaveLength(0);
   });
 
@@ -273,7 +288,12 @@ describe("THE-175 ingestAmbient -> capture_queue", () => {
       [{ ...base, window_title: "zsh", captured_at: "2026-08-10T09:00:00Z" }],
       now,
     );
-    expect(first).toStrictEqual({ enqueued: 1, skipped_duplicate: 0, redacted: 0 });
+    expect(first).toStrictEqual({
+      enqueued: 1,
+      skipped_duplicate: 0,
+      redacted: 0,
+      skipped_secret: 0,
+    });
 
     // Same (source, machine, app, text) but a DIFFERENT window_title and captured_at — still dedups.
     const second = ingestAmbient(
@@ -282,7 +302,12 @@ describe("THE-175 ingestAmbient -> capture_queue", () => {
       [{ ...base, window_title: "bash", captured_at: "2026-08-10T09:05:00Z" }],
       now + 1000,
     );
-    expect(second).toStrictEqual({ enqueued: 0, skipped_duplicate: 1, redacted: 0 });
+    expect(second).toStrictEqual({
+      enqueued: 0,
+      skipped_duplicate: 1,
+      redacted: 0,
+      skipped_secret: 0,
+    });
 
     // A different app on the same machine, same text -> a distinct key.
     const differentApp = ambientDedupeKey({ ...base, app: "iTerm" });
@@ -295,6 +320,59 @@ describe("THE-175 ingestAmbient -> capture_queue", () => {
 // must never reach a human reviewer or a committed note's frontmatter, mirroring THE-650's
 // import-dedupe check. Exercised end-to-end through the real MCP tools, not just the filter
 // function directly.
+// item 4 audit finding: ingestAmbient runs a two-pass redaction — the unconditional baseline
+// `redactSecrets` pass, THEN (when memoryDefense is configured) `enforceMemoryDefense` over the
+// already-baseline-redacted text. A match the baseline pass already caught cannot double-count
+// (its bytes are already "[REDACTED]" by the time the second pass runs), but a match ONLY the
+// memoryDefense layer catches — a PII hit, since `redactSecrets` never scans PII — was silently
+// dropped from the reported `redacted` total: `enforceMemoryDefense`'s own `scan.redactions` was
+// computed but never added to the running total. Net effect: undercounting, not double-counting,
+// but still wrong — an operator's redaction count understated how much memoryDefense actually
+// caught on top of the baseline.
+describe("THE-175 ingestAmbient redaction counting (item 4 audit)", () => {
+  it("a PII-only hit (caught by memoryDefense, not the baseline redactSecrets pass) is still counted in `redacted`", () => {
+    const db = cacheDb();
+    // A Luhn-valid Visa PAN, assembled at runtime from digit pieces — never a literal secret-shaped
+    // substring in source. Not matched by ANY baseline SECRET_PATTERNS entry (scanPii only, memoryDefense-only).
+    // Luhn-validity of this exact digit string confirmed with codecalc (not eyeballed).
+    const pan = [
+      "4",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+    ].join("");
+    const items = [
+      {
+        source: "pensieve",
+        machine: "workstation-1",
+        app: "Terminal",
+        text: `card on file: ${pan}`,
+        captured_at: "2026-08-10T09:00:00Z",
+      },
+    ];
+    const result = ingestAmbient(db, "main", items, 1000, {
+      memoryDefense: { mode: "redact", pii: true },
+    });
+    expect(result.enqueued).toBe(1);
+    expect(result.redacted).toBeGreaterThan(0);
+    const rows = listCaptures(db, "main", { source: "ambient" });
+    expect(rows[0]?.content).not.toContain(pan);
+    expect(rows[0]?.content).toContain("[REDACTED]");
+  });
+});
+
 describe("THE-175 the ambient dedupe tag stays internal (never surfaces via the MCP tools)", () => {
   it("list_capture_queue hides it, and commit_capture never writes it into frontmatter", async () => {
     const v = makeM5Vault();

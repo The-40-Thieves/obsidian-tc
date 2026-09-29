@@ -414,6 +414,11 @@ export interface M1WiringDeps {
    *  write-time guardrail's point read into note_quality. */
   experientialOpen: boolean;
   experientialDb: Database;
+  /** GH #994 follow-up: per-vault memoryDefense config for write_note/append_note/patch_note,
+   *  same shape as wireDomainTools' own `memoryDefense` closure (built from the same
+   *  config.vaults, ahead of wireBridges — M1 registers before bridge-wiring.ts runs). */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  metrics?: MetricsRecorder;
 }
 
 /** Registry/metadata/frontmatter/tags/links/graph-analytics/graph-health/snapshot tools (THE-XXX
@@ -440,6 +445,9 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     // THE-643 item 1: write_note/append_note/patch_note's quality_warning point read, same gate
     // as M7/M8's edb use below (wireDomainTools).
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
+    // GH #994 follow-up: write_note/append_note/patch_note's memoryDefense guard.
+    ...(deps.memoryDefense ? { memoryDefense: deps.memoryDefense } : {}),
+    ...(deps.metrics ? { metrics: deps.metrics } : {}),
     // THE-376: runtime add_vault triggers a full index of the newly registered vault (mirrors the
     // boot reconcile).
     indexVault: async (vaultId) => {

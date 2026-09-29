@@ -114,11 +114,16 @@ export async function run_import_ambient(cmd: Cmd<"import-ambient">): Promise<vo
     // Provisioned defensively, like `import-highlights` (cli/commands/import-highlights.ts): an
     // operator may reach for this before ever running `serve`.
     provisionCacheDb(cacheDb, { version: VERSION });
-    const result = ingestAmbient(cacheDb, vault.id, items, t0, { dryRun: !!cmd.dryRun });
+    const result = ingestAmbient(cacheDb, vault.id, items, t0, {
+      dryRun: !!cmd.dryRun,
+      // GH #994 follow-up: same per-vault policy the MCP capture tools already honor.
+      ...(vault.memoryDefense ? { memoryDefense: vault.memoryDefense } : {}),
+    });
     const label = cmd.dryRun ? "would enqueue" : "enqueued";
     process.stdout.write(
       `import-ambient${cmd.dryRun ? " --dry-run" : ""} [${vault.id}] from ${machine}: ${result.enqueued} ${label}, ` +
-        `${result.skipped_duplicate} already staged (deduplicated), ${result.redacted} secret(s) redacted\n`,
+        `${result.skipped_duplicate} already staged (deduplicated), ${result.redacted} secret(s) redacted, ` +
+        `${result.skipped_secret} skipped (memoryDefense block)\n`,
     );
     if (!cmd.dryRun && result.enqueued > 0) {
       auditImportAmbientEvent(cacheDb, vault.id, Date.now() - t0, result.enqueued);

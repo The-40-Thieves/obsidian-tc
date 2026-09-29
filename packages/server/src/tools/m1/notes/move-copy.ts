@@ -4,8 +4,14 @@
 // writing over it, so overwritten content stays recoverable). move_note additionally rewrites
 // backlinks in every other note that pointed at the old path — updateBacklinks below is private
 // to move_note; copy_note does not rewrite links (see its description).
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+  refusePathIfSecretShaped,
+} from "../../../experiential/memory-defense";
 import type { ToolDefinition } from "../../../mcp/registry";
+import type { MetricsRecorder } from "../../../metrics/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { requireConfirmation } from "../../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
@@ -16,7 +22,7 @@ import {
   trashNote,
   writeNoteAtomic,
 } from "../../../vault/notes-io";
-import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
+import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
 import { rewriteLinks } from "../../../vault/rewrite";
 import { captureSnapshot } from "../../../vault/snapshots";
 import { defineTool } from "../define";
@@ -45,6 +51,8 @@ function updateBacklinks(
   root: string,
   fromRel: string,
   toRel: string,
+  mdConfig: VaultMemoryDefenseConfig,
+  metrics: MetricsRecorder | undefined,
 ): { notes: number; links: number; rewritten: Array<{ rel: string; text: string }> } {
   const postPaths = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
   const oldPaths = postPaths.filter((p) => p !== toRel).concat(fromRel);
@@ -66,8 +74,14 @@ function updateBacklinks(
       return r.resolved && r.target_path === fromRel ? newTarget : null;
     });
     if (count > 0) {
-      writeNoteAtomic(abs, text, false);
-      rewritten.push({ rel: p, text });
+      // Security review round (GH #994 follow-up): scan the final rewritten body before writing
+      // it back — same "every note-mutation write scans its final persisted bytes" guard
+      // write_note/append_note/patch_note/remove_tag already get. The note being rewritten here
+      // can carry a pre-existing secret that predates memoryDefense; a link-text-only edit must
+      // not silently re-persist it unscanned.
+      const scanned = enforceMemoryDefenseOnNoteWrite(mdConfig, p, text, { metrics }).content;
+      writeNoteAtomic(abs, scanned, false);
+      rewritten.push({ rel: p, text: scanned });
       notes++;
       links += count;
     }
@@ -107,6 +121,11 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       const toAbs = resolveVaultPath(v.root, toRel);
       enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
       enforcePathAcl(ctx.acl, "write", toRel, v.root);
+      const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+      // item 1 sibling writer (GH #994 follow-up): a caller-chosen destination path can itself be
+      // secret-shaped — mirrors commit_capture's own target_path refusal, before anything else
+      // reads or touches the filesystem.
+      refusePathIfSecretShaped(mdConfig, "to", toRel, { metrics: deps.metrics });
 
       const fromEx = noteExists(fromAbs);
       if (!fromEx.exists || fromEx.type === "folder")
@@ -154,14 +173,20 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         );
         trashedDestTo = trashNote(v.root, toRel);
       }
-      writeNoteAtomic(toAbs, raw, input.options.create_dirs);
+      // item 1 sibling writer: the relocated CONTENT can also carry a pre-existing secret that
+      // predates memoryDefense (the note may have been written before the vault opted in) — scan
+      // the bytes about to land at the new path, same guard write_note/append_note/patch_note get.
+      const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
+        metrics: deps.metrics,
+      }).content;
+      writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs);
       hardDelete(fromAbs);
       // THE-291: keep the search index coherent across the move — drop the source path,
       // index the destination, and reindex every backlink-rewritten note below.
       deps.deindex?.(v.id, fromRel);
-      deps.reindex?.(v.id, toRel, raw);
+      deps.reindex?.(v.id, toRel, scannedRaw);
       const backlinks = input.update_backlinks
-        ? updateBacklinks(v.root, fromRel, toRel)
+        ? updateBacklinks(v.root, fromRel, toRel, mdConfig, deps.metrics)
         : { notes: 0, links: 0, rewritten: [] };
       for (const rw of backlinks.rewritten) deps.reindex?.(v.id, rw.rel, rw.text);
       return {
@@ -171,7 +196,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         moved: true,
         overwritten: toEx.exists,
         trashed_dest_to: trashedDestTo,
-        content_hash: hash,
+        content_hash: contentHash(scannedRaw),
         backlinks_updated: { notes: backlinks.notes, links: backlinks.links },
       };
     },
@@ -202,6 +227,9 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
       const toAbs = resolveVaultPath(v.root, toRel);
       enforcePathAcl(ctx.acl, "read", fromRel, v.root);
       enforcePathAcl(ctx.acl, "write", toRel, v.root);
+      const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+      // item 1 sibling writer: see move_note's identical comment above.
+      refusePathIfSecretShaped(mdConfig, "to", toRel, { metrics: deps.metrics });
 
       const fromEx = noteExists(fromAbs);
       if (!fromEx.exists || fromEx.type === "folder")
@@ -221,7 +249,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
         overwrite: overwriteExisting,
       });
 
-      const { raw, hash } = readNote(fromAbs);
+      const { raw } = readNote(fromAbs);
       // THE-572: unlike move_note this leaves the source in place, so a retry re-runs the WHOLE
       // sequence — under overwrite that means a second .trash entry and a second snapshot row for
       // content that never changed. Signal before the first of those effects.
@@ -239,8 +267,12 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
         );
         trashedDestTo = trashNote(v.root, toRel);
       }
-      writeNoteAtomic(toAbs, raw, input.options.create_dirs);
-      deps.reindex?.(v.id, toRel, raw);
+      // item 1 sibling writer: see move_note's identical comment above.
+      const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
+        metrics: deps.metrics,
+      }).content;
+      writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs);
+      deps.reindex?.(v.id, toRel, scannedRaw);
       return {
         vault: v.id,
         from: fromRel,
@@ -248,7 +280,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
         copied: true,
         overwritten: toEx.exists,
         trashed_dest_to: trashedDestTo,
-        content_hash: hash,
+        content_hash: contentHash(scannedRaw),
       };
     },
   });

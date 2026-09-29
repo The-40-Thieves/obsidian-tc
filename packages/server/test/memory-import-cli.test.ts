@@ -55,14 +55,34 @@ function writeOneNote(srcDir: string): void {
   );
 }
 
-function writeConfig(configPath: string, vaultPath: string, cacheDir: string, acl?: unknown): void {
+function writeConfig(
+  configPath: string,
+  vaultPath: string,
+  cacheDir: string,
+  acl?: unknown,
+  memoryDefense?: unknown,
+): void {
   writeFileSync(
     configPath,
     JSON.stringify({
-      vaults: [{ id: "main", path: vaultPath }],
+      vaults: [{ id: "main", path: vaultPath, ...(memoryDefense ? { memoryDefense } : {}) }],
       cacheDir,
       ...(acl !== undefined ? { acl } : {}),
     }),
+  );
+}
+
+// A fake OpenAI-shaped key, assembled at runtime — same no-literal-secret convention as
+// memory-defense.test.ts.
+function fakeOpenAiKey(): string {
+  return ["sk", "-", "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+}
+
+function writeOneNoteWithSecret(srcDir: string, secret: string): void {
+  mkdirSync(srcDir, { recursive: true });
+  writeFileSync(
+    join(srcDir, "note.md"),
+    `---\ntitle: CLI Test Note\ntype: note\n---\n## Observations\n- [fact] ${secret}\n`,
   );
 }
 
@@ -200,5 +220,59 @@ describe("obsidian-tc memory import — CLI", () => {
     ]);
     expect(r.code).not.toBe(0);
     expect(existsSync(join(vaultDir, "memory"))).toBe(false);
+  });
+
+  // GH #994 follow-up: `registerM5Tools` here used to be wired with NO memoryDefense accessor at
+  // all, so create_entity's own scan defaulted to "off" for every vault regardless of the vault's
+  // configured policy — a batch import through the "sanctioned" create_entity/add_observation
+  // dispatch path (this file's own header) that silently bypassed memoryDefense anyway.
+  it("memoryDefense block on the target vault refuses a secret-shaped observation (exit non-zero)", () => {
+    const vaultDir = scratch("obtc-mi-cli-vault-");
+    const cacheDir = scratch("obtc-mi-cli-cache-");
+    const configPath = join(scratch("obtc-mi-cli-cfg-"), "config.json");
+    writeConfig(configPath, vaultDir, cacheDir, undefined, { mode: "block", pii: false });
+    const srcDir = scratch("obtc-mi-cli-src-");
+    const secret = fakeOpenAiKey();
+    writeOneNoteWithSecret(srcDir, secret);
+
+    const r = runCli([
+      "memory",
+      "import",
+      "--from",
+      "basic-memory",
+      srcDir,
+      "--config",
+      configPath,
+      "--vault",
+      "main",
+      "--apply",
+    ]);
+    expect(r.code).not.toBe(0);
+    expect(r.stdout).not.toContain(secret);
+    expect(r.stderr).not.toContain(secret);
+  });
+
+  it("memoryDefense off (default) still imports a secret-shaped observation verbatim — unchanged baseline", () => {
+    const vaultDir = scratch("obtc-mi-cli-vault-");
+    const cacheDir = scratch("obtc-mi-cli-cache-");
+    const configPath = join(scratch("obtc-mi-cli-cfg-"), "config.json");
+    writeConfig(configPath, vaultDir, cacheDir);
+    const srcDir = scratch("obtc-mi-cli-src-");
+    const secret = fakeOpenAiKey();
+    writeOneNoteWithSecret(srcDir, secret);
+
+    const r = runCli([
+      "memory",
+      "import",
+      "--from",
+      "basic-memory",
+      srcDir,
+      "--config",
+      configPath,
+      "--vault",
+      "main",
+      "--apply",
+    ]);
+    expect(r.code).toBe(0);
   });
 });

@@ -275,10 +275,12 @@ characters — because a false negative there is a leaked credential in a debug 
 that permissiveness would make `block` mode refuse ordinary memory prose like
 `"token: deployment-id-12345"`. `memoryDefense` instead splits a `labeled_secret` hit into two
 confidence tiers, evaluated on the labeled *value* only: **high confidence** — the value is
-secret-shaped (length >= 16 AND >= 3 of {lowercase, uppercase, digit, other}, OR length >= 20
-regardless of class mix; a canonical UUID never counts as secret-shaped even when it meets either
-test) — still refuses the write in `block` mode, same as any other pattern. **Low confidence** —
-everything else — is always redacted (never stored verbatim, in either mode) but is never on its
+secret-shaped (length >= 16 AND >= 3 of {lowercase, uppercase, digit, other}, OR length >= 20 AND
+its own Shannon entropy is >= 3.8 bits/char — a floor that separates a genuinely random-looking
+token from a long but readable dash-joined identifier; a canonical UUID or ULID never counts as
+secret-shaped even when it meets either test, since either shape is routinely a correlation id, not
+a credential) — still refuses the write in `block` mode, same as any other pattern. **Low
+confidence** — everything else — is always redacted (never stored verbatim, in either mode) but is never on its
 own grounds for a `block`-mode refusal, and is counted under the distinct
 `labeled_secret_low_confidence` metric id so the false-positive rate is separately observable. A
 leaf where a low-confidence `labeled_secret` hit co-occurs with any OTHER pattern match (a real
@@ -318,34 +320,68 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
 
 **Limits — read before relying on this as the only control**:
 
-- **It guards seven named tools, not every writer.** Generic note-mutation tools
-  (`write_note`, `append_note`, `patch_note`, `replace_text`) are not routed through
-  `memoryDefense` at all — a caller with `write` access can write a secret straight into a
-  vault's memory folder through one of those and bypass this scan entirely. `memoryDefense`
-  is a control on the *structured* memory-graph/goal/capture tools, not a vault-wide content
-  filter. Deployments that need a vault-wide guarantee must not rely on this feature alone.
-- **Workspace session metadata is not scanned.** `start_session`'s `session_metadata` and
-  `end_session`'s `end_metadata` (both caller-supplied, arbitrary JSON) are written to the
-  session's SQLite row and its JSONL trace file unscanned, regardless of `memoryDefense`. This
-  is a distinct writer surface from the memory graph (consumed by citation inference and
-  session replay, not `query_entity_graph`) and is not guarded by this pass.
+- **Scope: name exactly what is covered, not "every writer".** As of GH #994's security-review
+  round, this guards: the 7 structured memory/capture tools (`create_entity`, `add_observation`,
+  `link_entities`, `rename_entity`, `enqueue_capture`, `commit_capture`, `set_goal`); the generic
+  note-mutation tools `write_note`/`append_note`/`patch_note` (including its `replace_text`
+  operation — the FINAL persisted body is scanned, after every transform, so a patch that
+  assembles a secret from two clean halves is still caught, and a secret-shaped `path` itself is
+  refused before the content scan even runs); `move_note`/`copy_note` (a secret-shaped
+  *destination path* is refused before any content is written, AND the backlink rewrite this
+  triggers in every OTHER note that linked to the moved note is scanned before it is written
+  back); `update_frontmatter`; `add_tag`/`remove_tag` (a redact-mode `tag` that the scan actually
+  redacted is echoed back redacted, not raw); `rewrite_link`/`prune_hub_links` (a redact-mode
+  `to_target` is echoed back redacted even in a `dry_run` preview; `prune_hub_links`'
+  `content_hash` reflects the bytes actually written, never a pre-scan preview); `start_session`/
+  `end_session` metadata; and the ambient/highlight/memory importers (every field that lands in
+  the persisted row — `app`/`window_title`/`url`/`machine` for ambient, `title`/`author`/`url`/
+  `tags` for highlights — not just the primary text field).
+
+  **Not covered, tracked separately, not this feature's scope today**: `bulk_create_notes`,
+  `bulk_set_property`, `bulk_move_notes` (M6 bulk tools), `restore_note` (M1 snapshot restore),
+  `update_task` (M4), the table-mutation tools (`insert_table_row`/`insert_table_column`/
+  `sort_table_by_column`, M3), `reflect`'s persist path (M7 knowledge), and `create_periodic_note`
+  (M3). None of these route through `enforceMemoryDefense`/`enforceMemoryDefenseOnNoteWrite`
+  today — a vault relying on `memoryDefense` for its ONLY control still has a secret pasted into
+  any of these land unscanned.
+
+  **`templates`, QuickAdd, and `execute_command` are bridge-mediated and out of scope by
+  construction, not by omission**: those run Obsidian's own command/template engine inside the
+  Obsidian process over the companion bridge, so content they produce is written by Obsidian
+  itself and never passes through any of this server's writer code paths for `memoryDefense` to
+  see. A vault that needs those covered needs a client-side guard, not this one.
 - **Same pattern-coverage caveat as `redactSecrets`/`scanPii` everywhere else in this
   document**: a deterministic pattern list catches known-shaped secrets; it is not a general
   secret classifier, and a novel or obfuscated credential shape can pass through unmatched.
-- **Leaf-scanner ceiling.** Every pattern matches against ONE scanned leaf (a string/number
-  field, an array element, an object key) in isolation — a secret split across multiple fields
-  or array elements (e.g. half a token in `observations[0]`, the other half in
-  `observations[1]`), or obfuscated with zero-width characters / other invisible Unicode
-  interleaved into an otherwise-matching run, will not assemble into a match at any single leaf
-  and passes through unscanned. This is a property of scanning leaves independently, not a gap
-  in any one pattern.
-- **Importers write the same stores without going through this scan.** Capture's ambient/
-  highlight import path (`capture/ambient-import.ts`) and the memory-import adapters write
-  directly into the same entity/capture/goal tables `memoryDefense` guards, but neither calls
-  `enforceMemoryDefense` — only the interactive MCP tool surface (`create_entity`,
-  `add_observation`, `link_entities`, `rename_entity`, `enqueue_capture`, `commit_capture`,
-  `set_goal`) is wired. A secret imported through one of those paths lands in the same store an
-  agent later reads back, unscanned, regardless of the vault's `memoryDefense` config.
+- **`commit_capture`'s frontmatter is scanned as a structured object, then serialized to YAML
+  afterward — the serialization step itself is not re-scanned.** `enforceMemoryDefense` redacts
+  `frontmatter`'s KEYS and VALUES while it is still a plain object; `serializeNote` then turns
+  that already-redacted object into YAML text (block/flow scalar choice, key quoting, list
+  layout) with no second pass. Every case exercised so far persists `"[REDACTED]"` — an ordinary
+  scalar with no YAML-special characters — so no exploit is known against this path today, but it
+  is structurally the same shape as `create_entity`'s `type`/`name` -> `sanitizeSegment` gap
+  (SECURITY.md's own "Path-sanitisation order" above), which DID need a dedicated second scan
+  (`enforceMemoryDefenseOnTransformed`) once a post-scan transform could change what a value looks
+  like. `commit_capture`'s frontmatter has no equivalent second pass yet.
+- **Leaf-scanner ceiling.** Normalisation (NFKC + zero-width-codepoint stripping) and same-array
+  reassembly are both handled, each within its own narrow scope:
+  - **NFKC is a compatibility fold, not homoglyph/confusable folding.** It reliably normalizes
+    fullwidth/halfwidth forms, ligatures, and similar *compatibility* variants of the SAME
+    character (e.g. fullwidth "Ａ" (U+FF21) folds to ASCII "A") — real coverage, exercised above.
+    It does **not** fold a genuine cross-script homoglyph: Cyrillic "а" (U+0430) has no NFKC
+    relationship to Latin "a" (U+0061) at all, so a secret spelled with Cyrillic lookalikes
+    passes through unmatched exactly as it would with no normalization step.
+  - **Array-join reassembly only reassembles splits within the SAME array** (a string array's
+    "\n"-joined persisted form, a numeric array's no-separator concatenation — matching
+    `entities.ts`'s own `serializeObservations` join convention) — the PEM-across-three-elements
+    and PAN-across-four-elements cases this closes. It is not a general secret-reassembly engine:
+    a secret split across **unrelated fields** (half in `observations[0]`, the other half in a
+    separate `frontmatter_overrides` value) is still not reassembled, because nothing ties two
+    independently-scanned fields together, and an API-key-shaped pattern split across array
+    elements in a way that does not reduce to one of the two join conventions above (e.g. two
+    elements concatenated with a separator neither convention produces) is equally unreassembled.
+    This is a property of scanning fields (and array-join conventions) independently, not a gap
+    in any one pattern.
 
 ## Telemetry
 

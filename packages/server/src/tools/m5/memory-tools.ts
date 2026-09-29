@@ -36,6 +36,7 @@ import {
   type ObservationView,
   observationViews,
   obsHash,
+  parseObservations,
   setEntityVaultPath,
 } from "../../memory/entities";
 import { entityNotePath, sanitizeSegment } from "../../memory/materialize";
@@ -134,16 +135,16 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const mdConfig = memoryDefenseFor(deps, v.id);
-        const mdFields: Record<string, string> = { type: input.type, name: input.name };
-        input.observations?.forEach((o, i) => {
-          mdFields[`observations.${i}`] = o;
-        });
+        // Security review round: `observations` is passed through as a REAL array (not flattened
+        // to `observations.0`/`observations.1` fields) so it goes through the same array-join
+        // scan `walk()` applies to any array — a secret split across two observation elements,
+        // each half innocuous alone, is caught at the reassembled ("\n"-joined) boundary.
+        const mdFields: Record<string, unknown> = { type: input.type, name: input.name };
+        if (input.observations !== undefined) mdFields.observations = input.observations;
         const scan = enforceMemoryDefense(mdConfig, mdFields, { metrics: deps.metrics });
         const rawType = scan.fields.type as string;
         const rawName = scan.fields.name as string;
-        const observations = input.observations?.map(
-          (_, i) => scan.fields[`observations.${i}`] as string,
-        );
+        const observations = scan.fields.observations as string[] | undefined;
 
         // `type`/`name` also become the materialized note's PATH segments (entityNotePath ->
         // sanitizeSegment) AFTER the scan above, which can turn a non-matching raw string into a
@@ -263,12 +264,12 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const mdConfig = memoryDefenseFor(deps, v.id);
         // `key` is scanned AFTER normalizeObservationKey lowercases it (below) — the raw
         // (possibly mixed-case) key let `SK-...` dodge `\bsk-` while still landing on disk
-        // lowercased. `observation` has no such transform and stays scanned as-is.
-        const mdFields: Record<string, string> = {};
-        if (input.observation !== undefined) mdFields.observation = input.observation;
-        const scan = enforceMemoryDefense(mdConfig, mdFields, { metrics: deps.metrics });
-        const observationInput =
-          input.observation !== undefined ? (scan.fields.observation as string) : undefined;
+        // lowercased. The new `observation` text is scanned further down, JOINED with the
+        // entity's existing observations (security review round: a secret split across an
+        // earlier append and this new one must be caught at the reassembled boundary, not just
+        // scanned in isolation) — see the `!retireOnly` branch inside the write transaction.
+        let observationInput: string | undefined;
+        let observationRedactions = 0;
 
         let key: string | null = null;
         let keyRedactions = 0;
@@ -294,7 +295,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             : now;
         const validTo =
           input.valid_to !== undefined ? (parseIso(input.valid_to, "valid_to") as number) : null;
-        const retireOnly = observationInput === undefined;
+        const retireOnly = input.observation === undefined;
         // Only checked against `validFrom` (now, or the caller's own backdate) when a NEW interval
         // is actually being opened — a retire-only call's `validTo` is checked below, inside the
         // transaction, against the interval it's ACTUALLY closing (found by key), not against
@@ -373,6 +374,23 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
               valid_to: validTo,
             });
 
+          // Security review round: scan the JOINED text (existing observations + this new one),
+          // not just the new one in isolation — a secret split across an earlier append and this
+          // call would otherwise reassemble unmatched on disk. Reuses the same array-join path
+          // `walk()` already applies to any real array field; only the LAST (new) element is used
+          // below, so an existing observation's own already-persisted text is never rewritten.
+          if (!retireOnly) {
+            const existingObs = parseObservations(existing.observations);
+            const joinScan = enforceMemoryDefense(
+              mdConfig,
+              { observations: [...existingObs, input.observation as string] },
+              { metrics: deps.metrics },
+            );
+            const scannedObs = joinScan.fields.observations as string[];
+            observationInput = scannedObs[scannedObs.length - 1] as string;
+            observationRedactions = joinScan.redactions;
+          }
+
           ctx.markEffectCommitted?.();
 
           let nextViews: ObservationView[];
@@ -432,8 +450,8 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
             observation_count: nextViews.length,
             updated_at: now,
             vault_path: vaultPath,
-            ...(scan.redactions + keyRedactions > 0
-              ? { redactions: scan.redactions + keyRedactions }
+            ...(observationRedactions + keyRedactions > 0
+              ? { redactions: observationRedactions + keyRedactions }
               : {}),
           };
         });

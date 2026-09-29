@@ -17,6 +17,7 @@ import type { FolderAcl } from "../acl";
 import { experientialMigrations } from "../cli/shared";
 import { createStdioElicitCodec } from "../elicit";
 import type { EmbeddingsConfigLike } from "../embeddings";
+import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import type { RegistryOptions } from "../mcp/registry/types";
@@ -448,6 +449,9 @@ export async function buildServerRuntime(
     // THE-649: pushed immediately (first layer after wireRuntimeCore) so a later throw stops it too.
     postCoreLayers.push({ name: "watcher", close: () => stopVaultWatch() });
 
+    // GH #994 follow-up: M1's memoryDefense guard — M1 wires before wireBridges builds its own map.
+    const memoryDefenseForM1 = buildMemoryDefenseLookup(config.vaults);
+
     wireM1Tools({
       registry,
       config,
@@ -472,6 +476,8 @@ export async function buildServerRuntime(
       indexVaultRecorded,
       experientialOpen,
       experientialDb,
+      memoryDefense: memoryDefenseForM1,
+      metrics,
     });
 
     // M4 plugin bridges (THE-180): per-vault client + probed capability snapshot, built before M2 so search_dql can share the same Dataview bridge.
@@ -593,14 +599,10 @@ export async function buildServerRuntime(
     const scheduler = wireScheduler({
       config,
       db,
-      // THE-1081 review round 2 (Medium 1): the CANONICAL root, under the `root` field
-      // resolveTraceDirs (workspace/sessions.ts) now requires by name — `workspace` preserved,
-      // everything else configureMaintenance/resolveTraceDirs never read is dropped. Before this,
-      // wireScheduler -> configureMaintenance -> resolveTraceDirs called
-      // resolveVaultPathChecked(v.path, rel) with the RAW config path, which made that throw
-      // vault_not_found at boot for the common case of a vault root that is ITSELF a symlink
-      // (iCloud/Dropbox/NAS sync targets — see vault/watcher.ts's own comment on why that is
-      // legitimate), with maintenance.enabled defaulting to true.
+      // THE-1081 review round 2 (Medium 1): the CANONICAL root, under `root` (the field
+      // resolveTraceDirs requires by name) — previously the RAW config path, which threw
+      // vault_not_found at boot for a vault root that is itself a symlink (iCloud/Dropbox/NAS
+      // sync targets; see vault/watcher.ts), with maintenance.enabled defaulting to true.
       vaults: config.vaults.map((v) => ({
         id: v.id,
         root: vaultRegistry.resolve(v.id).root,

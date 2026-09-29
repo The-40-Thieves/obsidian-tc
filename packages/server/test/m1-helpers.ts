@@ -6,12 +6,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier } from "../src/elicit";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import type { MetricsRecorder } from "../src/metrics/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -31,6 +32,10 @@ export interface TestVaultOptions {
   /** THE-643 item 1: open experiential.db handle for write_note/append_note/patch_note's
    *  quality_warning point read. Unwired by default -> quality_warning is always null. */
   edb?: Database;
+  /** GH #994 follow-up: memoryDefense config for write_note/append_note/patch_note. Unwired by
+   *  default -> the tools scan nothing (MEMORY_DEFENSE_OFF), matching a vault with no config. */
+  memoryDefense?: VaultMemoryDefenseConfig;
+  metrics?: MetricsRecorder;
 }
 
 export interface EventRow {
@@ -86,6 +91,10 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     ...(opts.reindex ? { reindex: opts.reindex } : {}),
     ...(opts.onSnapshotSkipped ? { onSnapshotSkipped: opts.onSnapshotSkipped } : {}),
     ...(opts.edb ? { edb: opts.edb } : {}),
+    ...(opts.memoryDefense
+      ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
+      : {}),
+    ...(opts.metrics ? { metrics: opts.metrics } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

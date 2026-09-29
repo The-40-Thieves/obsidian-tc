@@ -8,6 +8,11 @@
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
+import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+  redactedEcho,
+} from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
@@ -389,6 +394,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const fromPath = fromRes.resolved ? fromRes.target_path : null;
         const fromLiteral = normTarget(input.from_target);
 
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         const edits: Array<{ rel: string; text: string; count: number }> = [];
         let totalLinks = 0;
         for (const p of paths) {
@@ -414,7 +420,17 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             notes: edits.length,
             links: totalLinks,
           });
-          for (const e of edits) {
+          // item 1 sibling writer (GH #994 follow-up): `input.to_target` is caller-controlled and
+          // gets spliced into potentially many notes at once — scan EVERY edit's final body BEFORE
+          // writing any of them (a block-mode refusal must not leave a partially-applied
+          // multi-note rewrite on disk), same guard write_note/append_note/patch_note already get.
+          const scannedEdits = edits.map((e) => ({
+            ...e,
+            text: enforceMemoryDefenseOnNoteWrite(mdConfig, e.rel, e.text, {
+              metrics: deps.metrics,
+            }).content,
+          }));
+          for (const e of scannedEdits) {
             writeNoteAtomic(resolveVaultPath(v.root, e.rel), e.text, false);
             deps.reindex?.(v.id, e.rel, e.text);
           }
@@ -423,7 +439,11 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           vault: v.id,
           dry_run: input.dry_run,
           from_target: input.from_target,
-          to_target: input.to_target,
+          // Security review round (MEDIUM #7): echo the SCANNED to_target, not the raw
+          // caller-supplied one — a secret-shaped to_target spliced into every edit's body above
+          // must not still come back unredacted in this same response, dry_run or not (a preview
+          // is exactly as much of a leak surface as a real write).
+          to_target: redactedEcho(mdConfig, input.to_target),
           notes_changed: edits.length,
           links_rewritten: totalLinks,
           changes: edits.map((e) => ({ path: e.rel, count: e.count })),
@@ -468,14 +488,27 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           removeDuplicates: input.remove_duplicates,
         });
 
+        // Security review round (MEDIUM #7): `finalText` tracks whatever actually lands on disk —
+        // `text` (unscanned) when nothing is written (dry_run, or nothing removed), the
+        // memoryDefense-scanned bytes when a real write happens. `content_hash` below must hash
+        // THIS, not the pre-write `text`, or a redact-mode write reports a hash for bytes that
+        // were never persisted.
+        let finalText = text;
         if (!input.dry_run && removed.length > 0) {
           enforcePathAcl(ctx.acl, "write", rel, v.root);
           requireConfirmation(ctx, "prune_hub_links", input, true, {
             path: rel,
             removed: removed.length,
           });
-          writeNoteAtomic(abs, text, false);
-          deps.reindex?.(v.id, rel, text);
+          // item 1 sibling writer: the hub note's body may carry a pre-existing secret elsewhere
+          // (outside the pruned links) that predates memoryDefense — scan the final body before
+          // this write too, same as every other M1 writer.
+          const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+          finalText = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, text, {
+            metrics: deps.metrics,
+          }).content;
+          writeNoteAtomic(abs, finalText, false);
+          deps.reindex?.(v.id, rel, finalText);
         }
         return {
           vault: v.id,
@@ -484,7 +517,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           removed_count: removed.length,
           removed,
           prev_hash: hash,
-          content_hash: contentHash(text),
+          content_hash: contentHash(finalText),
         };
       },
     }),
