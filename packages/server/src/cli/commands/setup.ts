@@ -143,6 +143,48 @@ function rawCacheDirFallback(raw: Record<string, unknown> | undefined): string {
   return join(homedir(), ".obsidian-tc");
 }
 
+/** Setup hardening item 1: an existing config's own vault paths were never existence-checked —
+ *  only freshly-detected registry vaults were (via `isExistingDirectory` above). Missing paths are
+ *  WARNED, never dropped: an operator's own prior config entry is not setup's to delete just
+ *  because e.g. a USB/NFS mount isn't attached right now (mirrors `isExistingDirectory`'s own
+ *  tolerance for a `stat` throw). */
+function missingExistingVaultWarnings(existingVaults: SetupVaultInput[]): string[] {
+  return existingVaults
+    .filter((v) => !isExistingDirectory(v.path))
+    .map(
+      (v) =>
+        `obsidian-tc setup: existing config vault "${v.id}" path no longer exists: ${v.path} — ` +
+        "kept as-is (not deleted); fix or remove it by hand if this is stale.",
+    );
+}
+
+/** Setup hardening item 1: a vault id present in BOTH the existing config and a LIVE Obsidian
+ *  registry entry, at two DIFFERENT paths, must never resolve silently. Before this fix,
+ *  `buildSetupConfig`'s existing-id-wins union meant the existing (possibly stale) path always won
+ *  with no signal at all that the registry now disagrees — e.g. the vault was moved and
+ *  re-registered in Obsidian under the same id. Surfaced instead, and refused even with
+ *  `--yes`/`--force` together (see `run_setup`'s own check) — the operator resolves by hand. */
+export interface VaultIdCollision {
+  id: string;
+  existingPath: string;
+  registryPath: string;
+}
+
+function findVaultIdCollisions(
+  existingVaults: SetupVaultInput[],
+  registryVaults: SetupVaultInput[],
+): VaultIdCollision[] {
+  const existingById = new Map(existingVaults.map((v) => [v.id, v.path]));
+  const collisions: VaultIdCollision[] = [];
+  for (const rv of registryVaults) {
+    const existingPath = existingById.get(rv.id);
+    if (existingPath !== undefined && existingPath !== rv.path) {
+      collisions.push({ id: rv.id, existingPath, registryPath: rv.path });
+    }
+  }
+  return collisions;
+}
+
 /** Exported for cli/setup/first-run-fallback.ts (PR B of GH #995's two-part follow-up): `serve`'s
  *  own first-run fallback reuses this SAME detection pass — never a second, drifting
  *  re-implementation — non-interactively, when there is no config to boot from at all. See that
@@ -157,6 +199,13 @@ export async function detect(cmd: Cmd<"setup">): Promise<
      *  even when only ONE vault happened to survive filtering — see that module's own comment on
      *  why `decision.vaults.length` alone is not a safe signal for the no-operator-watching case. */
     registryVaultCount: number;
+    /** Setup hardening item 1 — see `missingExistingVaultWarnings`'s own doc comment. Already
+     *  printed to stderr by `detect` itself (the same point registry-vault warnings print from),
+     *  and carried on the return value only so callers/tests can assert on it directly. */
+    missingVaultWarnings: string[];
+    /** Setup hardening item 1 — see `findVaultIdCollisions`'s own doc comment. Non-empty blocks
+     *  `run_setup` from writing, even with `--yes`/`--force`. */
+    vaultIdCollisions: VaultIdCollision[];
   }
 > {
   const targetPath = cmd.configPath ?? defaultSetupConfigPath();
@@ -184,6 +233,9 @@ export async function detect(cmd: Cmd<"setup">): Promise<
   // configured, not just what the registry happens to list right now.
   const existingVaults =
     existing?.config?.vaults.map((v) => ({ id: v.id, path: v.path })) ?? rawVaults(existing?.raw);
+  const missingVaultWarnings = missingExistingVaultWarnings(existingVaults);
+  for (const w of missingVaultWarnings) process.stderr.write(`${w}\n`);
+  const vaultIdCollisions = findVaultIdCollisions(existingVaults, registryVaults);
   const seenIds = new Set(existingVaults.map((v) => v.id));
   const vaults = [...existingVaults, ...registryVaults.filter((v) => !seenIds.has(v.id))];
 
@@ -228,12 +280,18 @@ export async function detect(cmd: Cmd<"setup">): Promise<
     ...decideSetup(inputs),
     targetPath,
     registryVaultCount: profile.obsidian.vaults.length,
+    missingVaultWarnings,
+    vaultIdCollisions,
     ...(existing ? { existingRaw: existing.raw } : {}),
   };
 }
 
 function printDecisions(
-  decision: SetupDecision & { targetPath: string; existingRaw?: Record<string, unknown> },
+  decision: SetupDecision & {
+    targetPath: string;
+    existingRaw?: Record<string, unknown>;
+    vaultIdCollisions: VaultIdCollision[];
+  },
 ): void {
   const out: string[] = [];
   out.push(`obsidian-tc setup — target: ${decision.targetPath}`, "");
@@ -244,6 +302,17 @@ function printDecisions(
     for (const v of decision.vaults) out.push(`  - ${v.id}: ${v.path}`);
   }
   out.push(`cacheDir: ${decision.cacheDir}`);
+  if (decision.vaultIdCollisions.length > 0) {
+    out.push("", "VAULT ID COLLISIONS — resolve by hand before writing (setup will not guess):");
+    for (const c of decision.vaultIdCollisions) {
+      out.push(
+        `  - "${c.id}": existing config has ${c.existingPath}, but the Obsidian registry now ` +
+          `has a DIFFERENT path for the same id: ${c.registryPath}`,
+        `    Decide which is correct, then edit the config's vaults[] entry for "${c.id}" by ` +
+          "hand and re-run.",
+      );
+    }
+  }
   if (decision.refusal) {
     out.push("", `embeddings: REFUSED — ${decision.refusal}`);
   } else if (decision.embeddings) {
@@ -323,6 +392,14 @@ export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
       "obsidian-tc setup: no vault found — no Obsidian registry on this machine, and no --vault given. Pass --vault <path>.\n",
     );
     process.exitCode = 2;
+    return;
+  }
+
+  // Setup hardening item 1: a vault id collision between the existing config and a live registry
+  // entry is already printed above — stop here, unconditionally (never auto-resolved by --yes or
+  // --force together), rather than let buildSetupConfig's existing-id-wins union pick one silently.
+  if (decision.vaultIdCollisions.length > 0) {
+    process.exitCode = 1;
     return;
   }
 

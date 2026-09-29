@@ -252,30 +252,46 @@ function copyOverInPlace(tmpPath: string, target: string, mode: number): void {
   }
 }
 
+// Item 4: sync, bounded backoff between rename retries (Atomics.wait — module is sync throughout).
+function sleepSyncMs(ms: number): void {
+  if (ms <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+const FORCE_RENAME_RETRY_ATTEMPTS = 5; // attempts, incl. the first, before falling back to copy
+const FORCE_RENAME_RETRY_BACKOFF_MS = 15;
+
+function isTransientRenameError(code: string | undefined): boolean {
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
+}
+
 /** `--force`'s finalization step. A `renameSync` over an EXISTING target can fail with EPERM/EACCES
- *  on Windows when that target carries the read-only attribute (this writer's own restrictive mode,
- *  or an operator's own chmod — reproduced in CI, windows-latest, the "STRICTER existing mode"
- *  test). EBUSY covers the sharing-violation case (an AV scanner or search indexer briefly has the
- *  file open). Clears the read-only bit and retries once; if that still fails, falls back to
- *  copying the new content over the target in place (finding 3: `finalizeForceWriteNamingBackup`
- *  below names the pre-write backup if THIS fails too). Any OTHER error is rethrown unchanged —
- *  see setup-write-crash.test.ts's "a failing renameSync" case. */
+ *  (Windows read-only attribute) or EBUSY (an AV/indexer scan has it open). Item 4: retries with a
+ *  short backoff instead of giving up after one attempt — such a lock often clears within tens of
+ *  ms; only once every attempt fails the same way does this fall back to copying the new content
+ *  over the target in place (`finalizeForceWriteNamingBackup` names the backup if THAT fails too).
+ *  Any OTHER error is rethrown immediately — see setup-write-crash.test.ts's own case. */
 function finalizeForceWrite(tmpPath: string, target: string, mode: number): void {
-  try {
-    renameSync(tmpPath, target);
-    return;
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") throw e;
+  for (let attempt = 0; attempt < FORCE_RENAME_RETRY_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      try {
+        chmodSync(target, MODE_OWNER_RW);
+      } catch {
+        /* best-effort */
+      }
+    }
+    try {
+      renameSync(tmpPath, target);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (!isTransientRenameError(code)) throw e;
+      if (attempt < FORCE_RENAME_RETRY_ATTEMPTS - 1) {
+        sleepSyncMs(FORCE_RENAME_RETRY_BACKOFF_MS * (attempt + 1));
+      }
+    }
   }
-  try {
-    chmodSync(target, MODE_OWNER_RW);
-    renameSync(tmpPath, target);
-    return;
-  } catch {
-    /* the retry failed too (a real sharing violation, not a stale read-only bit) — copy-over below
-     * is the last resort, not re-thrown from here so its own errors are the ones that surface. */
-  }
+  // Every attempt failed the same way — copy-over is the last resort; ITS errors surface instead.
   copyOverInPlace(tmpPath, target, mode);
   unlinkSync(tmpPath);
 }
