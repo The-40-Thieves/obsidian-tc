@@ -8,11 +8,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
 import type { MetricsRecorder } from "../metrics/registry";
 import { parseNote } from "../vault/frontmatter";
 import { extractLinks } from "../vault/links";
-import { readNote, writeNoteAtomicGuarded } from "../vault/notes-io";
+import { readNote, writeNotesAllOrNothingGuarded } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
 import { rewriteLinks } from "../vault/rewrite";
 
@@ -140,8 +139,9 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
  * Review finding: the rewritten link text lands in an ordinary note BODY (not the binary
  * attachment), so it gets the same memoryDefense scan every other note-content writer applies —
  * `mdConfig` is scanned/redacted per note BEFORE any of them is persisted (block -> the whole
- * rewrite is refused, none written; redact -> every write lands in its redacted form), same
- * two-pass shape `bulk_move_notes`' own `rewriteForMoves` uses for a moved NOTE's backlinks.
+ * rewrite is refused, none written; redact -> every write lands in its redacted form), via the
+ * shared `writeNotesAllOrNothingGuarded` helper (vault/notes-io.ts) — the same one move_note's
+ * backlink rewrite and `bulk_move_notes`' own `rewriteForMoves` use for a moved NOTE's backlinks.
  */
 // ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
 // including notes outside the caller's write whitelist. Deliberate graph-integrity
@@ -210,19 +210,17 @@ export function rewriteAttachmentReferences(
     });
     if (count > 0) pending.push({ abs, rel: e.relPath, text, count });
   }
-  // Pass 1: scan every rewritten body BEFORE any of them is written. `enforceMemoryDefenseOnNoteWrite`
-  // throws on the first block-worthy match, and nothing above this loop has written anything yet —
-  // so a match in note N refuses the whole rewrite rather than leaving notes 1..N-1 repointed and
-  // N..last still pointing at the old location.
-  for (const p of pending) enforceMemoryDefenseOnNoteWrite(mdConfig, p.rel, p.text);
-  // Pass 2: persist. writeNoteAtomicGuarded re-scans (idempotent — pass 1 already proved this body
-  // is not block-worthy) so the bytes it writes are the same redacted-or-unchanged form pass 1 saw,
-  // and this is the one call that counts the memoryDefense metrics for what actually landed on disk.
+  // Scan every rewritten body BEFORE any of them is written, then persist — the shared
+  // all-or-nothing helper (vault/notes-io.ts): a block-worthy match in note N refuses the whole
+  // rewrite rather than leaving notes 1..N-1 repointed and N..last still pointing at the old
+  // location.
+  writeNotesAllOrNothingGuarded(
+    pending.map((p) => ({ abs: p.abs, path: p.rel, content: p.text })),
+    mdConfig,
+    { metrics },
+  );
   let refs = 0;
-  for (const p of pending) {
-    writeNoteAtomicGuarded(p.abs, p.rel, p.text, false, mdConfig, { metrics });
-    refs += p.count;
-  }
+  for (const p of pending) refs += p.count;
   return { notes: pending.length, refs };
 }
 

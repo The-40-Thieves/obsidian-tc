@@ -43,6 +43,7 @@ import {
   readNote,
   trashNote,
   writeNoteAtomicGuarded,
+  writeNotesAllOrNothingGuarded,
 } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { rewriteLinks } from "../../vault/rewrite";
@@ -92,6 +93,7 @@ function rewriteForMoves(
 
   const perMove = new Map<string, number>();
   let total = 0;
+  const pending: Array<{ abs: string; path: string; content: string }> = [];
   for (const p of scanPaths) {
     const abs = resolveVaultPath(root, p);
     let raw: string;
@@ -110,12 +112,16 @@ function rewriteForMoves(
     });
     if (count > 0) {
       total += count;
-      // scan the final rewritten body before persisting — same guard move_note's own
-      // updateBacklinks pattern applies (memory-defense.ts's enforceMemoryDefenseOnNoteWrite): the
-      // note being rewritten here can carry a pre-existing secret that predates memoryDefense.
-      if (apply) writeNoteAtomicGuarded(abs, p, text, false, mdConfig, { metrics });
+      if (apply) pending.push({ abs, path: p, content: text });
     }
   }
+  // Residual fix: scan every rewritten body BEFORE any of them is written — the shared
+  // all-or-nothing helper (vault/notes-io.ts), same guard move_note's own updateBacklinks uses.
+  // The note being rewritten here can carry a pre-existing secret that predates memoryDefense; a
+  // block-worthy match in note N must refuse the WHOLE backlink rewrite, not leave notes before
+  // it repointed and notes after it stale — the per-note-immediate-write loop this replaces could
+  // not make that guarantee despite `apply`'s own name suggesting an atomic step.
+  if (apply) writeNotesAllOrNothingGuarded(pending, mdConfig, { metrics });
   return { perMove, total };
 }
 

@@ -199,17 +199,70 @@ export function ingestHighlights(
           throw e;
         }
       }
+      let content = formatCaptureContent(scannedItem, scannedHighlight);
+      const title = scannedItem.title;
+      const tags: string[] = ["import", scannedItem.source, ...(scannedItem.tags ?? [])];
+      // Residual fix: the per-field/per-highlight scans above catch a secret sitting WHOLLY
+      // inside one field — they cannot catch one split across two (a label ending the highlight
+      // text, its value starting the item title), which only reassembles once
+      // formatCaptureContent concatenates them. Re-scan the FINAL persisted string before
+      // enqueue, honoring the same mode as every scan above.
+      //
+      // Security review round (finding 1): `title`/`tags` are built from the SAME `scannedItem`
+      // pieces `content` is — `joinScan` (below) is the single detector that decides whether
+      // ANYTHING here is safe to persist, so `title`/`tags` never need their own separate rescan:
+      // whenever it fires, the whole item is refused before either is used.
+      if (mdConfig.mode !== "off") {
+        // Security review round (finding 2): formatCaptureContent's own "> " blockquote prefix
+        // (before `note`) and " — " attribution separator are not whitespace — `labeled_secret`'s
+        // `\s*[=:]\s*` bridge misses a label/value pair split across one, even though `content`'s
+        // own "\n\n" paragraph joins DO bridge fine. `contentJoin` re-forms the same field values
+        // with a bare "\n" so a connector can't hide what content's own rescan would otherwise
+        // catch.
+        //
+        // Security review round (fail-closed fix): ANY hit on `contentJoin` refuses the WHOLE
+        // item in every non-off mode, unconditionally — NOT only when `content`'s own rescan left
+        // `content` unchanged. An earlier version compared `content` before/after and only
+        // refused when nothing else had changed; that failed OPEN whenever `content` also held an
+        // unrelated, independently-redacted match, which made `content` "changed" and let a
+        // separate, still-live, connector-hidden secret slip through in the same `content`
+        // string. There is no location in differently-connected `content` to safely cut just the
+        // hidden half, so any join-only hit — alone or alongside other matches — refuses the
+        // item, never a partial redact-and-persist.
+        const contentJoin = [
+          scannedHighlight.text,
+          scannedHighlight.note,
+          scannedItem.author,
+          scannedItem.title,
+          scannedItem.url,
+        ]
+          .filter((s): s is string => !!s)
+          .join("\n");
+        try {
+          const joinScan = enforceMemoryDefense(mdConfig, { content_join: contentJoin });
+          if (joinScan.redactions > 0) {
+            skipped_secret++;
+            seen.add(key);
+            continue;
+          }
+          const rescan = enforceMemoryDefense(mdConfig, { content }, { metrics: opts.metrics });
+          content = rescan.fields.content as string;
+          redacted += rescan.redactions;
+        } catch (e) {
+          if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+            skipped_secret++;
+            seen.add(key);
+            continue;
+          }
+          throw e;
+        }
+      }
       if (!opts.dryRun) {
         enqueueCapture(db, {
           vaultId,
-          content: formatCaptureContent(scannedItem, scannedHighlight),
-          title: scannedItem.title,
-          tags: [
-            "import",
-            scannedItem.source,
-            ...(scannedItem.tags ?? []),
-            `${IMPORT_DEDUPE_TAG_PREFIX}${key}`,
-          ],
+          content,
+          title,
+          tags: [...tags, `${IMPORT_DEDUPE_TAG_PREFIX}${key}`],
           source: "import",
           now,
         });

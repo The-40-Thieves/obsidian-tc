@@ -76,6 +76,12 @@ function isSecretShapedValue(value: string): boolean {
   );
 }
 
+// Residual fix (finding 3): mutating the joined text to neutralize a cross-boundary
+// `labeled_secret` match used to blind a genuine `private_key` match sharing those bytes
+// (`token:\n-----BEGIN` is itself an 11-char cross-boundary hit). Excluded from the array-join
+// scan instead — every OTHER pattern runs on the untouched join.
+const JOIN_SCAN_EXCLUDED_PATTERN_IDS = ["labeled_secret"] as const;
+
 /** True when EVERY `labeled_secret` match in `text` fails the secret-shape test. One
  *  high-confidence capture anywhere keeps the whole leaf block-worthy (conservative default). */
 function allLabeledSecretMatchesLowConfidence(text: string): boolean {
@@ -100,13 +106,34 @@ interface LeafScanResult {
 }
 
 // Zero-width/invisible-formatting codepoints an adversary can splice into a secret-shaped value
-// to defeat every pattern without changing what a human sees. Stripped before scanning only.
-// Widened from a narrow original set (U+200B-200D, U+2060, U+FEFF) to also cover LTR/RTL marks
-// (U+200E-200F), invisible math operators (U+2061-2064), and bidi controls (U+202A-202E,
-// U+2066-2069) — verified empirically the original set missed an LTR MARK (U+200E) splice (0
-// redactions). Does not reach ordinary punctuation (U+2010-U+2027); a claim that it once did was
-// checked against the shipped regex by byte inspection and does not hold.
-const ZERO_WIDTH_RE = /[​-‏⁠-⁤‪-‮⁦-⁩﻿]/g;
+// to defeat every pattern without changing what a human sees — none reached by NFKC folding;
+// stripped before scanning only. Widened over several rounds: ZWSP..ZWJ/word joiner/BOM
+// originally, then LTR/RTL marks, invisible math operators, bidi controls, SOFT HYPHEN,
+// MONGOLIAN VOWEL SEPARATOR, and (residual fix) ARABIC LETTER MARK (U+061C), COMBINING GRAPHEME
+// JOINER (U+034F), and VARIATION SELECTORs (U+FE00-FE0F). Exported (hex) for the test sweep.
+export const INVISIBLE_SPLICE_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x00ad, 0x00ad],
+  [0x034f, 0x034f],
+  [0x061c, 0x061c],
+  [0x180e, 0x180e],
+  [0x200b, 0x200f],
+  [0x2060, 0x2064],
+  [0x202a, 0x202e],
+  [0x2066, 0x2069],
+  [0xfe00, 0xfe0f],
+  [0xfeff, 0xfeff],
+];
+
+function buildInvisibleSpliceRegex(ranges: ReadonlyArray<readonly [number, number]>): RegExp {
+  const body = ranges
+    .map(([lo, hi]) =>
+      lo === hi ? `\\u{${lo.toString(16)}}` : `\\u{${lo.toString(16)}}-\\u{${hi.toString(16)}}`,
+    )
+    .join("");
+  return new RegExp(`[${body}]`, "gu");
+}
+
+const ZERO_WIDTH_RE = buildInvisibleSpliceRegex(INVISIBLE_SPLICE_RANGES);
 
 /** NFKC + zero-width strip, applied ONLY to the copy of `value` used for pattern matching —
  *  defeats a homoglyph normalization or invisible-character split used to sneak a secret past
@@ -116,9 +143,13 @@ function normalizeForScan(value: string): string {
   return value.normalize("NFKC").replace(ZERO_WIDTH_RE, "");
 }
 
-function scanLeafString(value: string, pii: boolean): LeafScanResult {
+function scanLeafString(
+  value: string,
+  pii: boolean,
+  excludeIds: readonly string[] = [],
+): LeafScanResult {
   const normalized = normalizeForScan(value);
-  let secrets = redactSecrets(normalized);
+  let secrets = redactSecrets(normalized, excludeIds.length ? { excludeIds } : undefined);
   const ids = Object.keys(secrets.matches);
   let blockWorthy = true;
   if (
@@ -217,7 +248,8 @@ function walk(value: unknown, path: string, ctx: WalkCtx): unknown {
     const items = value.map((item, i) => walk(item, `${path}[${i}]`, ctx));
     // Also scans the array's own PERSISTED joined form (strings "\n"-joined per
     // entities.ts's serializeObservations; numbers concatenated) — catches a secret split across
-    // elements. Mixed-type/single-element arrays are skipped: nothing to reassemble.
+    // elements, excluding `labeled_secret` (JOIN_SCAN_EXCLUDED_PATTERN_IDS, above). Mixed-type/
+    // single-element arrays are skipped: nothing to reassemble.
     if (value.length > 1) {
       const allStrings = value.every((v) => typeof v === "string");
       const allNumeric = value.every((v) => typeof v === "number" || typeof v === "bigint");
@@ -227,7 +259,7 @@ function walk(value: unknown, path: string, ctx: WalkCtx): unknown {
           ? (value as Array<number | bigint>).map(String).join("")
           : null;
       if (joined !== null) {
-        const scanned = scanLeafString(joined, ctx.pii);
+        const scanned = scanLeafString(joined, ctx.pii, JOIN_SCAN_EXCLUDED_PATTERN_IDS);
         if (scanned.redactions > 0) {
           const joinPath = `${path}[]`;
           if (scanned.blockWorthy) recordHit(ctx, joinPath, scanned.matches);

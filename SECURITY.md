@@ -356,10 +356,11 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
   pre-serialization object pair, and its `target_path` refusal reuses the same helper
   `move_note`/`copy_note` use (`refusePathIfSecretShaped`), which rescans the NORMALIZED path for
   the refusal's pattern ids — a match found only after NFKC/zero-width normalization no longer
-  reports an empty pattern-id list. `move_attachment`'s note-link rewrite is covered the same
-  two-pass way `bulk_move_notes`' own backlink rewrite is: every referencing note's rewritten body
-  is scanned BEFORE any of them is written, so a block-worthy match refuses the whole rewrite
-  rather than leaving some notes repointed and others still pointing at the old location.
+  reports an empty pattern-id list. `move_attachment`'s note-link rewrite, move_note's own
+  backlink rewrite, and `bulk_move_notes`' backlink rewrite all share one all-or-nothing helper:
+  every referencing note's rewritten body is scanned BEFORE any of them is written, so a
+  block-worthy match refuses the whole rewrite rather than leaving some notes repointed and
+  others still pointing at the old location.
   `create_periodic_note`/`find_or_create_periodic_note`'s `expand_template=true` path hands the
   actual write to the Templater bridge, which writes the expanded note itself — nothing upstream
   had scanned that content, so a template that rendered a secret persisted it unscanned; the bytes
@@ -394,6 +395,43 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
   -> `sanitizeSegment` gap (SECURITY.md's own "Path-sanitisation order" above). `commit_capture`
   now scans the note's FINAL serialized bytes (post-`serializeNote`) instead, matching every other
   note-content writer in this section.
+- **Fixed**: the ambient/highlight importers scanned `text`/`note`/`title`/etc. independently
+  before `formatCaptureContent` concatenated them into the persisted capture — a secret split
+  across two fields (a label ending one, its value starting the next, bridged by whitespace
+  `formatCaptureContent` sometimes inserts) survived per-field scanning. Both importers now
+  detect a cross-field reassembly via a synthetic "\n"-joined reconstruction of the same ordered
+  raw field values (`contentJoin`) BEFORE building the persisted `content`/`title`/`tags` —
+  catching both a plain paragraph-break split (which `content`'s own "\n\n" joins already bridge)
+  and one hidden behind a formatting connector that is not whitespace (highlight's `"> "`
+  blockquote prefix before `note`; ambient's `" — "` attribution separator between
+  `app`/`window_title`; the parentheses around a `url`).
+  **Any hit on this reassembly detector refuses the WHOLE item, unconditionally, in every
+  non-`off` mode — including `redact`.** There is no attributable location in the
+  differently-connected persisted `content` to safely cut just the reassembled half, and
+  `title`/`tags` are built from the SAME pre-concatenation pieces `content` is, so a per-field
+  rescan of `title`/`tags` alone cannot launder them either (the value-half of a split has no
+  label of its own to match in isolation). An earlier version of this fix instead compared
+  `content` before/after its own rescan and only refused when NOTHING else in `content` had
+  changed; that failed OPEN whenever `content` also held an UNRELATED, independently-redacted
+  match (an in-field secret caught upstream, or a second, separately-bridging pair) — the
+  unrelated redaction made `content` "changed" and let a still-live, connector-hidden secret sit
+  in the very same string that shipped as "already redacted." The detector's own result is now
+  authoritative on its own, never gated on what else did or didn't change.
+- **Fixed**: move_note's backlink rewrite and `bulk_move_notes`' `rewriteForMoves` scanned and
+  wrote one referencing note at a time despite `rewriteForMoves`' own "all-or-nothing" phase
+  naming — a `block`-mode refusal partway through a batch left notes processed BEFORE the refusal
+  already repointed on disk, and notes after it stale. Both now route through one shared
+  all-or-nothing helper (`writeNotesAllOrNothingGuarded`, `vault/notes-io.ts`) that scans every
+  rewritten body first and only writes if none refuse — the same pattern `move_attachment`'s own
+  reference rewrite already used, and which that rewrite now also shares rather than duplicates.
+  **This guarantee is SCAN-atomic, not WRITE-atomic**: no writes on a scan refusal
+  (every body is proven not block-worthy before pass 2 starts), but pass 2 itself is a plain
+  sequential loop of independent atomic-per-file writes with no batch rollback — an I/O failure
+  mid-batch (disk full, a permission error, a process kill) after pass 2 has already written some
+  entries still leaves those earlier notes rewritten and the rest untouched. This helper closes
+  the memoryDefense-refusal half-applied-rewrite case; a crash or I/O failure doing the same is a
+  separate, unaddressed gap (see `move_note`/`bulk_move_notes` also relocating the file BEFORE
+  this helper runs, a second, older partial-state case).
 - **Leaf-scanner ceiling.** Normalisation (NFKC + zero-width-codepoint stripping) and same-array
   reassembly are both handled, each within its own narrow scope:
   - **NFKC is a compatibility fold, not homoglyph/confusable folding.** It reliably normalizes
@@ -412,7 +450,24 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
     elements in a way that does not reduce to one of the two join conventions above (e.g. two
     elements concatenated with a separator neither convention produces) is equally unreassembled.
     This is a property of scanning fields (and array-join conventions) independently, not a gap
-    in any one pattern.
+    in any one pattern. The `labeled_secret` pattern is the one exception deliberately carved out
+    of the string-array join: a match whose span straddles the "\n" the join inserts (a label
+    ending one element, a value-shaped token starting the next, never written as a pair) is not
+    credited — every other pattern that legitimately needs to bridge the join for a genuinely
+    split secret still does. **Fixed**: this carve-out used to be implemented by overwriting a
+    cross-boundary `labeled_secret` match's bytes with `x` in the joined string before ANY pattern
+    ran, which could also blind a genuine, unrelated match sharing those same bytes — a
+    `private_key` PEM immediately preceded by an element ending `token:` had its own
+    `-----BEGIN...` bytes destroyed before the `private_key` pattern ever saw them, so the PEM
+    went uncaught. `labeled_secret` is now excluded from the array-join pattern set entirely
+    (`redactSecrets`' new `excludeIds` option) rather than the joined text being mutated for every
+    pattern — every other pattern runs on the original, untouched join.
+  - **Invisible-splice stripping** (`INVISIBLE_SPLICE_RANGES`, `memory-defense.ts`) covers
+    zero-width/formatting codepoints NFKC does not fold: ZWSP..RLM, word-joiner..invisible-plus,
+    bidi embeddings/overrides/isolates, SOFT HYPHEN (U+00AD), MONGOLIAN VOWEL SEPARATOR (U+180E),
+    ARABIC LETTER MARK (U+061C), COMBINING GRAPHEME JOINER (U+034F), the VARIATION SELECTOR block
+    (U+FE00-FE0F), and BOM. A splice using a codepoint outside this list is unstripped, same
+    caveat as any other fixed pattern/character-class list in this document.
 
 ## Telemetry
 

@@ -8,6 +8,34 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **memoryDefense closes a split-across-fields importer gap (including two ways the fix itself
+  could still leak), a partial backlink rewrite, an array-join false positive (and a mutation bug
+  in its own fix), and a wider invisible-codepoint sweep.** The ambient/highlight importers
+  scanned each field independently before concatenating them into the persisted capture content —
+  a secret split across two fields (a label ending one, its value starting the next) survived; both
+  importers now detect a cross-field reassembly via a synthetic "\n"-joined reconstruction of the
+  same raw field values, catching both a plain paragraph-break split AND one hidden behind a
+  non-whitespace formatting connector (highlight's `"> "` note prefix, ambient's `" — "`
+  attribution separator, parens around a url). Any hit on that detector refuses the WHOLE item,
+  unconditionally, in every non-`off` mode — including `redact`: there is no attributable location
+  in the persisted, differently-connected content to safely cut just the reassembled half, and
+  `title`/`tags` (built from the same pre-concatenation pieces) cannot be independently laundered
+  either. move_note's backlink rewrite and `bulk_move_notes`' `rewriteForMoves` scanned and wrote
+  one referencing note at a time, so a `block`-mode refusal partway through a batch left earlier
+  notes already repointed and later ones stale; both now route through one shared all-or-nothing
+  helper (scan every rewritten body first, write only if none refuse — SCAN-atomic, not
+  WRITE-atomic: an I/O failure mid-batch, as opposed to a scan refusal, can still leave earlier
+  notes rewritten) — the same pattern `move_attachment`'s reference rewrite already used. The
+  array-join secret scan's `labeled_secret` pattern could false-positive across a joined boundary
+  (a label in one array element, an unrelated value-shaped token in the next); that specific
+  pattern no longer credits a match spanning the join (via a new `excludeIds` option on the
+  shared redactor rather than mutating the joined text's bytes, which had briefly blinded a
+  genuinely split `private_key` PEM sharing those same bytes), while genuinely split secrets
+  (private-key bodies, bearer tokens) are still caught. The invisible-codepoint strip run before
+  scanning now also covers SOFT HYPHEN (U+00AD), MONGOLIAN VOWEL SEPARATOR (U+180E), ARABIC LETTER
+  MARK (U+061C), COMBINING GRAPHEME JOINER (U+034F), and the VARIATION SELECTOR block
+  (U+FE00-FE0F), none of which NFKC folding reaches.
+
 - **`setup` hardening: existing vault paths are re-validated, id collisions are surfaced instead of
   silently resolved, and `--force`'s Windows finalization is more resilient to transient file
   locks.** An existing config's own vault paths were never existence-checked (only freshly detected

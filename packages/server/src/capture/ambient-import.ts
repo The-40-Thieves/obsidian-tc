@@ -202,17 +202,54 @@ export function ingestAmbient(
         throw e;
       }
     }
+    let content = formatCaptureContent(scannedFields, o.captured_at);
+    const title = scannedFields.window_title ?? scannedFields.app;
+    const tags: string[] = ["ambient", o.source, `machine:${scannedFields.machine}`];
+    // Residual fix (findings 1+2, plus a fail-closed follow-up — full rationale in
+    // highlight-import.ts's sibling block): the per-field scan above misses a secret split
+    // across two fields, which only reassembles once formatCaptureContent concatenates them —
+    // sometimes via whitespace `content`'s own rescan bridges, sometimes hidden behind a
+    // non-whitespace connector (" — " between app/window_title, parens around a url) that only
+    // `contentJoin`'s bare-"\n" reconstruction can see. `title`/`tags` are built from the SAME
+    // pre-concatenation pieces `content` is, so they cannot be independently laundered — ANY hit
+    // on `contentJoin` therefore refuses the WHOLE item, unconditionally, in every non-off mode,
+    // regardless of whether `content`'s own rescan also changed `content` for an unrelated
+    // reason (an earlier, narrower version gated the refusal on that and failed open).
+    if (mdConfig.mode !== "off") {
+      const contentJoin = [
+        scannedFields.text,
+        scannedFields.app,
+        scannedFields.window_title,
+        scannedFields.url,
+        scannedFields.machine,
+      ]
+        .filter((s): s is string => !!s)
+        .join("\n");
+      try {
+        const joinScan = enforceMemoryDefense(mdConfig, { content_join: contentJoin });
+        if (joinScan.redactions > 0) {
+          skipped_secret++;
+          seen.add(key);
+          continue;
+        }
+        const rescan = enforceMemoryDefense(mdConfig, { content }, { metrics: opts.metrics });
+        content = rescan.fields.content as string;
+        redacted += rescan.redactions;
+      } catch (e) {
+        if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+          skipped_secret++;
+          seen.add(key);
+          continue;
+        }
+        throw e;
+      }
+    }
     if (!opts.dryRun) {
       enqueueCapture(db, {
         vaultId,
-        content: formatCaptureContent(scannedFields, o.captured_at),
-        title: scannedFields.window_title ?? scannedFields.app,
-        tags: [
-          "ambient",
-          o.source,
-          `machine:${scannedFields.machine}`,
-          `${AMBIENT_DEDUPE_TAG_PREFIX}${key}`,
-        ],
+        content,
+        title,
+        tags: [...tags, `${AMBIENT_DEDUPE_TAG_PREFIX}${key}`],
         source: "ambient",
         now,
       });
