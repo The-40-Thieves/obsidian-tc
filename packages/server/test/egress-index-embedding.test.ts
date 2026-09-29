@@ -445,6 +445,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
         excluded: true,
         vectors: [],
         ts: 1,
+        fenceGeneration: 0,
       },
       false,
       false,

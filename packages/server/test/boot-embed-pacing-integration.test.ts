@@ -124,6 +124,7 @@ function cleanStats(): IndexStats {
     chunks_dedup_unresolved: 0,
     embed_batch_rejections: 0,
     notes_stale_skipped: 0,
+    notes_epoch_stale_skipped: 0,
     notes_frontmatter_failed: 0,
     frontmatter_failures: [],
     model: "fake",

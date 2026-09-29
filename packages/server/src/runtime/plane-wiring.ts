@@ -382,6 +382,13 @@ export interface ReconcileRunnerDeps {
   indexVaultRecorded: (opts: IndexVaultArgs) => Promise<IndexStats>;
   roles: GatewayRoles | null;
   jobRunner: ReturnType<typeof makeJobRunner>;
+  /** GH #995 follow-up (demotion residual): reads the CURRENT index_leader_epoch value
+   *  (leader-epoch.ts's readLeaderEpoch), bumped once per promotion by
+   *  runtime/server-runtime.ts's leaderElection.onPromote wiring. Absent -> no epoch fencing (a
+   *  single-process deployment, or a caller that never wired the leader lock at all). Only this
+   *  runner threads it — the index_vault TOOL and index-on-write never do, matching
+   *  gateReconcileByLeader's own leader-only scope. */
+  leaderEpoch?: () => number;
 }
 
 // THE-1073 fix round 1 (LOW): a per-vault ceiling on frontmatter entries reconcileResultsForVault
@@ -493,6 +500,11 @@ export function createReconcileRunner(
               ? { isEgressExcluded: deps.isEgressExcluded }
               : {}),
             now: Date.now,
+            // GH #995 follow-up: captured ONCE per vault, at the moment THIS reconcile run starts —
+            // not re-read per flush, so the whole run is fenced against promotions that happen
+            // strictly AFTER it began (index-vault.ts re-reads the CURRENT persisted epoch at each
+            // flush's commit and compares against this captured value).
+            ...(deps.leaderEpoch !== undefined ? { leaderEpoch: deps.leaderEpoch() } : {}),
             sql: deps.sqlHooksFor(v.id),
             onVecRebuild: deps.onVecRebuild,
             signal,

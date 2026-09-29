@@ -50,6 +50,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   [docs/configuration/embeddings.md](docs/src/content/docs/configuration/embeddings.md#upgrading-from-a-pre-local-embedder-config)
   for the full behavior.
 
+- **Index writes are now fenced at commit time — a stale write can no longer overwrite a fresher
+  one, or resurrect a note after it's been deindexed, across two processes racing the same
+  `(vault, path)` (GH #995 follow-up).** The per-vault leader lock stops FOLLOWERS from running
+  boot/periodic reconcile and watcher-driven writes, but explicit writers (index-on-write from a
+  note's own `write_note`/`append_note`/`patch_note`, and the `index_vault` tool) stay ungated on
+  every role, and index coordinators are process-local — so two processes indexing the same path
+  against the same `cache.db` were never serialized against each other. A per-`(vault_id, path)`
+  monotonic generation (`note_write_fence`) is now captured when a write's plan is computed and
+  re-checked at commit time, inside the same transaction the write already lands in; a mismatch
+  means a fresher commit landed in the gap, and the stale write is dropped rather than applied.
+  Deindexing bumps the generation unconditionally — even when nothing existed to delete — so a
+  plan read before a delete always fails its re-check afterward, closing the resurrection case
+  the same way. A second, single-row-per-`cacheDir` counter (`index_leader_epoch`), bumped once
+  per leader promotion, closes the remaining residual: a demoted leader's in-flight reconcile
+  batch, still mid-embed when a successor promotes, is now dropped at its own commit rather than
+  landing after the successor has already started reconciling. Both fences are additive and
+  no-op on a pre-migration database; a vault rename re-keys `note_write_fence` rows the same way
+  every other `vault_id`-keyed table is re-keyed.
+
 ### Security
 
 - **`memoryDefense` extended to every server-side note writer, the M1 sibling tools, session

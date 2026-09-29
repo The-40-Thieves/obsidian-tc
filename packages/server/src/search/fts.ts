@@ -176,6 +176,13 @@ export interface NoteRecord {
   size: number;
   /** Raw note normalized to \n with secret-flagged chunk contents excised. */
   ftsContent: string;
+  /** Fence generation baseline at plan time — re-checked with commitFence inside the SAME write
+   *  transaction that upserts this row. Caller-set; 0 means "no row yet". */
+  fenceGeneration: number;
+  /** True only when this row is the SOLE write for its path this pass (`plan === null`). A path
+   *  WITH a same-pass chunk plan is already fenced by applyNoteWrites — re-checking here too would
+   *  collide with a generation it hasn't bumped yet (notes flush commits before the chunk batch). */
+  fenceCheckRequired: boolean;
 }
 
 /**
@@ -232,6 +239,9 @@ export function buildNoteRecord(
     mtime: stat?.mtime ?? ts,
     size: stat?.size ?? Buffer.byteLength(raw, "utf8"),
     ftsContent,
+    // Caller overrides with the real fence baseline before the row is queued — see NoteRecord.
+    fenceGeneration: 0,
+    fenceCheckRequired: true,
   };
 }
 

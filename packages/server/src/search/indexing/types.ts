@@ -47,6 +47,7 @@ export interface IndexStats {
    *  index-vault.ts's freshness guard. Already reported on stderr (sampled) and surfaced here as a
    *  counter; non-zero is rare and expected under concurrent write traffic — re-planned next pass. */
   notes_stale_skipped: number;
+  notes_epoch_stale_skipped: number;
   notes_frontmatter_failed: number;
   frontmatter_failures: Array<{ path: string; error: string }>;
   model: string;
@@ -118,6 +119,7 @@ export interface NoteWritePlan {
   sparse?: SparseVec[];
   colbert?: ColbertMatrix[];
   ts: number;
+  fenceGeneration: number;
 }
 
 export interface PlanResult {
@@ -128,6 +130,7 @@ export interface PlanResult {
   flagged: string[];
   /** THE-499: number of chunks in this note whose embedding was dedup-reused from a sibling path. */
   dedupSkipped: number;
+  fenceGeneration: number;
 }
 
 /** THE-390: outcome of an embedPlans pass. `failed` lists plans with at least one chunk the
@@ -242,4 +245,5 @@ export interface IndexVaultArgs {
   signal?: AbortSignal;
   // GH #995 follow-up: paced embed-pace.ts waitForIdle; boot, promotion, and periodic reconcile all set this, not boot-only (#1003 nit 5).
   embedPace?: (signal?: AbortSignal) => Promise<void>;
+  leaderEpoch?: number;
 }

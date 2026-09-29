@@ -52,6 +52,7 @@ export const CACHE_VAULT_ID_TABLES: readonly string[] = [
   "memory_entities",
   "note_snapshots",
   "note_summaries",
+  "note_write_fence",
   "notes",
   "snapshot_blobs",
   "syntheses",

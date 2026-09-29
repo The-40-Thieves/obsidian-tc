@@ -21,6 +21,7 @@ import { floatBlob, upsertVec } from "../vec";
 import { copyDedupVectors } from "./dedup";
 import { hasEmbeddingExcludedColumn } from "./note-plan";
 import type { DedupCache, IndexHook, NoteWritePlan } from "./types";
+import { commitFence } from "./write-fence";
 
 // #280-followup: a chunk's contradiction flags are judged on its exact content; when the chunk is
 // pruned or re-embedded (content changed) they are stale and must be dropped, or "open" rows accrue
@@ -47,7 +48,25 @@ export function applyNoteWrites(
   /** THE-488: per-flush memo of dedup source vectors by content_hash, shared across the batch's notes
    *  so a duplicate's JOIN runs once per distinct content_hash. */
   dedupCache: DedupCache,
-): { upserted: number; deleted: number; dedupUnresolved: number } {
+): { upserted: number; deleted: number; dedupUnresolved: number; staleSkipped: boolean } {
+  // GH #995 follow-up: re-present this plan's fence generation and bump it ATOMICALLY, INSIDE the
+  // caller's write transaction — the SAME commit-time re-check index-vault.ts's existingRowsMatch
+  // guard already does for its own batched path, generalized here to the ONE place both indexNote
+  // (single-note / index-on-write, which had no such guard at all) and indexVault funnel through.
+  // A mismatch means a fresher write OR a deindex tombstone (bumpFenceUnconditional) landed in the
+  // gap between this plan's read and this call — drop the whole write rather than apply it. No rows
+  // are touched below when this returns staleSkipped: true.
+  const fence = commitFence(db, vaultId, plan.path, plan.fenceGeneration, plan.ts);
+  if (!fence.ok) {
+    if (process.env.OBSIDIAN_TC_DEBUG_DEDUP !== undefined) {
+      process.stderr.write(
+        `[index] write-fence: dropped a stale write for "${plan.path}" (planned generation ` +
+          `${plan.fenceGeneration}, current ${fence.generation}) — a fresher commit or deindex ` +
+          `landed first\n`,
+      );
+    }
+    return { upserted: 0, deleted: 0, dedupUnresolved: 0, staleSkipped: true };
+  }
   // THE-316: static-arity SQL on the per-note reconcile write path — cache the compiled statements
   // by SQL text (cachedPrepare) so a 100-note flush recompiles these five once for the process, not
   // once per note. The vec0 DELETE is prepared only when the extension loaded — the table may not
@@ -223,7 +242,7 @@ export function applyNoteWrites(
   // reconcile kept its summary row for ever. index-vault.ts additionally prunes every excluded
   // note it walks, which covers the case where computeNotePlan returns no plan at all.
   if (plan.excluded) deleteNoteSummary(db, vaultId, plan.path);
-  return { upserted: plan.toEmbed.length, deleted, dedupUnresolved };
+  return { upserted: plan.toEmbed.length, deleted, dedupUnresolved, staleSkipped: false };
 }
 
 // Notify the index hook of a committed plan's (re)embedded chunks. Call only AFTER the plan's

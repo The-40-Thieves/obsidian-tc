@@ -48,6 +48,7 @@ import {
   embedPlans,
 } from "./embed-batches";
 import { deindexNote } from "./index-note";
+import { readLeaderEpoch } from "./leader-epoch";
 import {
   computeNotePlan,
   existingRowsMatch,
@@ -59,6 +60,7 @@ import {
 } from "./note-plan";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
+import { commitFence, preloadFenceGenerations } from "./write-fence";
 
 // THE-500: default flush thresholds. See docs/design/search-indexing-and-cache.md.
 const DEFAULT_BATCH_MAX_NOTES = 100;
@@ -146,6 +148,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // plans every note from memory instead of a per-note query. Safe because each note owns its path's
   // chunks exclusively, so a note's slice is unaffected by earlier notes' writes in this pass.
   const preloadedExisting = preloadChunkState(args.db, args.vaultId);
+  // GH #995 follow-up: one bulk load of the vault's note_write_fence state (mirrors
+  // preloadedExisting exactly) so a full reconcile plans every note's fence baseline from memory
+  // instead of a per-note query.
+  const preloadedFenceGenerations = preloadFenceGenerations(args.db, args.vaultId);
   const stats: IndexStats = {
     notes_seen: notes.length,
     notes_indexed: 0,
@@ -164,6 +170,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     chunks_dedup_unresolved: 0,
     embed_batch_rejections: 0,
     notes_stale_skipped: 0,
+    notes_epoch_stale_skipped: 0,
     notes_frontmatter_failed: 0,
     frontmatter_failures: [],
     model: args.provider.id,
@@ -252,10 +259,27 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-925: only plans actually WRITTEN this flush feed changedChunkPaths/fireIndexHook below —
     // a plan the guard skips must not be reported as a committed change.
     const appliedPlans: NoteWritePlan[] = [];
+    // GH #995 follow-up (demotion residual): re-check the leader epoch THIS RECONCILE RUN started
+    // with, inside the same transaction the batch commits in — a successor may have promoted since
+    // this run began, mid-batch, while an embed sub-batch above was in flight. note_write_fence
+    // alone cannot always catch this: a successor's own reconcile may not yet (or ever) replan a
+    // note whose content this stale batch is about to commit unchanged, so it never bumps that
+    // note's fence. `epochStale` gates the WHOLE batch's apply loop below rather than aborting the
+    // transaction — an empty commit is harmless and cheaper than a rollback.
+    //
+    // Fix round (cross-vendor review): the read MUST happen inside the transaction callback, not
+    // before `inWriteTransaction` is called. WAL lets a successor's `bumpLeaderEpoch` (an autocommit
+    // write) land between an outside-the-transaction read and this call's own `BEGIN IMMEDIATE`,
+    // which would silently widen the race window this check exists to close. `epochStale` is
+    // reassigned from inside the callback so the stats increment below still sees the real value.
+    let epochStale = false;
     inWriteTransaction(
       args.db,
       "index_batch",
       () => {
+        epochStale =
+          args.leaderEpoch !== undefined && readLeaderEpoch(args.db) !== args.leaderEpoch;
+        if (epochStale) return;
         for (const plan of toApply) {
           // THE-925 invariant: indexVault plans+embeds a whole batch OUTSIDE any transaction, then
           // applies it here, inside one. That gap is a real race window on this connection —
@@ -285,6 +309,16 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
             hasBodySha,
             dedupCache,
           );
+          // GH #995 follow-up: a backstop, not the common case — existingRowsMatch above already
+          // catches the process-local shape this connection can observe. applyNoteWrites'
+          // commitFence additionally catches a same-content re-write racing a deindex tombstone
+          // (existingRowsMatch alone cannot: the row shape can coincidentally match again after a
+          // delete-then-identical-recreate). Same treatment as the existingRowsMatch skip above.
+          if (r.staleSkipped) {
+            staleSkippedPaths.push(plan.path);
+            stats.notes_stale_skipped += 1;
+            continue;
+          }
           stats.chunks_upserted += r.upserted;
           stats.chunks_deleted += r.deleted;
           stats.chunks_dedup_unresolved += r.dedupUnresolved;
@@ -295,6 +329,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       },
       args.sql,
     );
+    if (epochStale) stats.notes_epoch_stale_skipped += toApply.length;
     if (unresolvedPaths.length > 0) {
       const sample = unresolvedPaths.slice(0, 3).join(", ");
       process.stderr.write(
@@ -310,6 +345,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           `concurrent write_note/watcher commit changed the path's chunks after this plan was ` +
           `computed (${sample}${staleSkippedPaths.length > 3 ? ", ..." : ""}); the next index_vault ` +
           `reconciles them against current content.\n`,
+      );
+    }
+    if (epochStale) {
+      process.stderr.write(
+        `[index] vault "${args.vaultId}": dropped a whole batch of ${toApply.length} note(s) — a ` +
+          `successor has promoted leadership since this reconcile started (GH #995 follow-up); the ` +
+          `successor's own reconcile supersedes this run.\n`,
       );
     }
     // THE-486: a committed plan means this note's chunk embeddings changed this pass (toEmbed
@@ -338,15 +380,32 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     if (!hasNotes || notesBatch.length === 0) return;
     const rows = notesBatch;
     notesBatch = [];
-    inWriteTransaction(
+    const upserted = inWriteTransaction(
       args.db,
       "index_notes_flush",
       () => {
-        for (const rec of rows) upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
+        let landed = 0;
+        for (const rec of rows) {
+          // Fix round (cross-vendor review): a notes-row-only backfill (plan==null but the row is
+          // missing/stale) previously bypassed BOTH fences entirely — a demoted leader's stale
+          // metadata could overwrite fresher content, or resurrect a note's search-visible row
+          // after a successor's deindex, since neither commitFence nor readLeaderEpoch ever ran
+          // for this write. Same commit-time re-check as applyNoteWrites, but only when this row is
+          // the SOLE write for its path this pass — see NoteRecord.fenceCheckRequired's own
+          // comment for why a plan-carrying row must NOT also bump this same generation here.
+          if (rec.fenceCheckRequired) {
+            const fence = commitFence(args.db, args.vaultId, rec.path, rec.fenceGeneration, now());
+            if (!fence.ok) continue;
+          }
+          upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
+          landed += 1;
+        }
+        return landed;
       },
       args.sql,
     );
-    stats.notes_upserted += rows.length;
+    stats.notes_upserted += upserted;
+    stats.notes_stale_skipped += rows.length - upserted;
   };
   // THE-490: the per-note processing body, shared by both the eager (default) and streaming
   // (opt-in) walk paths — extracted so it exists ONCE rather than drifting between two copies.
@@ -413,6 +472,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.chunkTokens, // THE-424: indexing.chunkTokens; undefined -> the chunker's 512 default
       args.isEgressExcluded, // THE-934: egress.excludePaths; undefined -> nothing excluded
       parsed.body, // THE-1073: reuse the probe-parse above; this note already parsed successfully
+      preloadedFenceGenerations, // GH #995 follow-up: bulk fence-state load, no per-note query
     );
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
@@ -420,6 +480,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     if (hasNotes && notesRowExpectedForSize(Buffer.byteLength(raw))) {
       const rec = buildNoteRecord(rel, raw, flagged, stat, now());
       if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
+        // Fix round (cross-vendor review): the SAME preloaded fence baseline the chunk plan above
+        // captured for this path — flushNotes re-checks it with commitFence inside its own write
+        // transaction, so a notes-row-ONLY backfill (no accompanying chunk plan this pass) can no
+        // longer land after a fresher commit or a deindex tombstone for this path. A note WITH a
+        // plan this pass is fenced by applyNoteWrites instead (see NoteRecord.fenceCheckRequired).
+        rec.fenceGeneration = preloadedFenceGenerations.get(rel) ?? 0;
+        rec.fenceCheckRequired = plan === null;
         notesBatch.push(rec);
         if (notesBatch.length >= BATCH) flushNotes();
       }
@@ -497,7 +564,15 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       .all(args.vaultId) as Array<{ path: string }>;
     for (const row of known) {
       if (!walkedSet.has(row.path)) {
-        deindexNote(args.db, args.vaultId, row.path, hasVec, args.chunkContext === true, args.sql);
+        deindexNote(
+          args.db,
+          args.vaultId,
+          row.path,
+          hasVec,
+          args.chunkContext === true,
+          args.sql,
+          now,
+        );
         stats.notes_deleted += 1;
         // THE-486: a deleted note's chunk embeddings AND its tags are both gone — both delta
         // computations need to know, so its derived edges in both directions get pruned rather than

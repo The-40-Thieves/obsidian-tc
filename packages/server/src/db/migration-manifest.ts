@@ -86,6 +86,17 @@ export const CACHE_MIGRATION_FILES = [
   // experiential-side rekey (which reuses the SAME decision, not its own table). See the
   // migration header for the full rationale.
   "20260928_001_vault_identity.sql",
+  // GH #995 follow-up: 20260928_002 adds note_write_fence, the per-(vault,path) monotonic
+  // generation index writers re-check at COMMIT time (persist-note-plan.ts's applyNoteWrites) so a
+  // stale plan computed before a fresher commit — or a deindex — is dropped instead of applied.
+  // Bumped to _002 at rebase time — _001 was already claimed by vault_identity above. See the
+  // migration's own header for the two-process race this closes.
+  "20260928_002_note_write_fence.sql",
+  // GH #995 follow-up: 20260928_003 adds index_leader_epoch, the single-row per-cacheDir counter
+  // bumped on every leader promotion (search/indexing/leader-epoch.ts), fencing a demoted leader's
+  // in-flight reconcile batch out of committing after a successor has already promoted. See the
+  // migration's own header for why note_write_fence alone does not close this residual.
+  "20260928_003_index_leader_epoch.sql",
 ] as const;
 
 /**
