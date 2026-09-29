@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,515 tracked code files · 279,821 lines.
+**Scale:** 1,516 tracked code files · 280,103 lines.
 
-TypeScript 257,726 · JavaScript 16,326 · Python 2,406 · SQL 2,127 · Rust 753 · Shell 483.
+TypeScript 258,008 · JavaScript 16,326 · Python 2,406 · SQL 2,127 · Rust 753 · Shell 483.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -91,7 +91,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `cli/` | 58 | 10,081 | arg parsing + subcommands |
 | `experiential/` | 29 | 7,771 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 28 | 6,718 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `runtime/` | 23 | 5,601 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `runtime/` | 23 | 5,639 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 21 | 3,533 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 18 | 3,013 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 16 | 2,147 | provisioning, migrate runner, experiential store |
@@ -148,12 +148,12 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 716 | `packages/server/src/runtime/plane-wiring.ts` |
 | 716 | `packages/server/src/workspace/sessions.ts` |
 | 710 | `packages/server/src/providers/registry.ts` |
+| 706 | `packages/server/src/runtime/server-runtime.ts` |
 | 704 | `packages/server/src/metrics/registry.ts` |
 | 694 | `packages/server/src/cli/args.ts` |
 | 688 | `packages/server/src/search/indexing/index-vault.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
-| 668 | `packages/server/src/runtime/server-runtime.ts` |
 | 655 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 641 | `packages/server/src/cli/commands/compact.ts` |
@@ -301,7 +301,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**521 modules · 2482 dependencies · 155 distinct subsystem pairs · 1133 cross-subsystem imports.**
+**521 modules · 2483 dependencies · 155 distinct subsystem pairs · 1133 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it

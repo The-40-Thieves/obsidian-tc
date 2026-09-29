@@ -131,6 +131,12 @@ Asymmetric (RS256 / ES256 / EdDSA) via a JWKS — inline `jwks` or a `jwksFile` 
 }
 ```
 
+A headless deploy with both transports on (`docker run -d`, a compose service without
+`stdin_open: true`, a systemd unit) has stdin backed by `/dev/null`, which hits stdio EOF
+immediately — closing only the stdio transport, not the process, as long as `http.enabled` is
+true. Set `stdio: false` for a headless HTTP-only deploy to skip the notice and the stdio
+transport entirely.
+
 ## Environment variables
 
 | Variable | Purpose |

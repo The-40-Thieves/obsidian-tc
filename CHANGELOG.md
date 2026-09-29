@@ -14,6 +14,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   against the installed `grok` CLI (project-scoped registration, `grok mcp doctor`/`mcp list`, and
   a headless run that called the vault tools through it).
 
+### Fixed
+
+- **A headless HTTP deploy no longer crash-loops on stdin EOF.** Since 1.31.6's bounded shutdown,
+  any stdio EOF — including the one a `docker run -d` container or a systemd unit hits immediately
+  because their stdin is backed by `/dev/null` rather than a real client — exited the WHOLE process
+  through the same path a SIGTERM uses, taking a co-enabled HTTP listener down with it on
+  1.31.6/1.31.7. When `transports.http.enabled` is also true, a stdio EOF now closes only the
+  stdio transport (already closed itself; nothing left to tear down) and logs a one-line notice
+  instead of exiting — the process keeps serving HTTP. stdio-only deployments are unaffected: with
+  HTTP disabled, a stdio EOF still exits promptly, exactly as before. A startup notice also fires
+  when both transports are enabled and stdin looks neither interactive nor piped. Workaround on an
+  affected release: set `transports.stdio: false` for headless deploys.
+
 ## [1.31.7] - 2026-09-29
 
 ### Fixed
