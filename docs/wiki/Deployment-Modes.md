@@ -277,6 +277,8 @@ docker run -v /path/to/vault:/vault \
 
 The native module is built into the image; the vault is bind-mounted. Obsidian (a GUI app with the companion + REST API plugins) runs on the **host**, not in the container, so the container must reach Obsidian's REST API port: `--network host` on Linux, or explicit port mapping on macOS/Windows.
 
+A container run detached (`docker run -d`, or any compose service without `stdin_open: true`) has stdin backed by `/dev/null`. If `transports.http.enabled` is also true, that stdin EOF closes only the stdio transport — the HTTP listener keeps serving. Set `transports.stdio: false` for a headless HTTP-only container to skip the stdio transport (and its startup notice) entirely.
+
 ## Standalone binary / MCPB
 
 - `bun build --compile` produces one executable per platform (~80 MB; runtime + native statically linked, no Node/Bun install needed); binaries are built per release — see [Releases](https://github.com/The-40-Thieves/obsidian-tc/releases).

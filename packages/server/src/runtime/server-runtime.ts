@@ -8,6 +8,7 @@
 // textually between `stores` and `governance` — reordering that is forbidden, and accepting an
 // arbitrary deps callback would reintroduce the service-locator this file avoids (docs/design/server-runtime.md).
 
+import { fstatSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { isFeedbackExemptFromReadOnly } from "@the-40-thieves/obsidian-tc-shared";
@@ -606,11 +607,48 @@ export async function buildServerRuntime(
     // false the server serves HTTP-only (the listening socket keeps the process alive), and if
     // neither transport is enabled there is nothing to serve, so exit with a clear message.
     if (config.transports.stdio) {
+      // A headless deploy with HTTP also enabled (docker/systemd, stdin backed by /dev/null) hits
+      // stdio EOF the instant it starts — the notice below fires BEFORE that happens, so it reads
+      // as an explanation rather than a post-mortem. Best-effort: an fd-0 stat failing (already
+      // closed, or a platform that refuses it) just means no notice, never a startup error.
+      if (config.transports.http.enabled) {
+        try {
+          const stat = fstatSync(0);
+          if (!stat.isFIFO() && !process.stdin.isTTY) {
+            process.stderr.write(
+              "obsidian-tc: transports.stdio and transports.http are both enabled, and stdin is " +
+                "neither a TTY nor a pipe (looks like /dev/null) — an immediate stdin EOF is " +
+                "expected here; the HTTP transport keeps serving through it. Set " +
+                "transports.stdio: false for a headless deploy to silence this.\n",
+            );
+          }
+        } catch {
+          // Best-effort notice only — see the comment above.
+        }
+      }
       await connectStdio(server);
       // GH #995: a stdio client disconnecting closes stdin — the MCP SDK already forwards that
       // to `server.onclose`, but nothing here was listening. Route it through the SAME bounded
       // close() every signal uses; idempotent via close()'s own `closed` flag.
+      //
+      // Fix (headless HTTP deploy crash-loop): that same EOF fires just as reliably when stdin is
+      // simply absent (`docker run -d`, a compose service without `stdin_open: true`, a systemd
+      // unit) — nobody disconnected a stdio CLIENT, the process just never had one. When HTTP is
+      // also enabled, closing the WHOLE process on that signal takes its listener down too, so
+      // this only tears down the stdio transport (which has already closed itself) and process.exit
+      // is reserved for stdio being the SOLE transport, matching GH #995's original behavior
+      // exactly for that case. stdio and HTTP each get their own McpServer instance (see
+      // wireTransports/createMcpServer in transport-wiring.ts) — `server` here is the stdio one
+      // alone, so this cannot tear down an HTTP session.
       server.onclose = () => {
+        if (config.transports.http.enabled) {
+          process.stderr.write(
+            "obsidian-tc: stdin closed (stdio transport EOF) — HTTP transport still serving; " +
+              "continuing HTTP-only (set transports.stdio: false to silence this for headless " +
+              "deploys)\n",
+          );
+          return;
+        }
         void close("transport:stdio-eof") // F3: close() can REJECT — mirrors shutdown.ts's guard
           .catch(logShutdownError)
           .finally(() => process.exit(0));
