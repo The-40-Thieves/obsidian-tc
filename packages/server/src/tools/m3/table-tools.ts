@@ -6,9 +6,10 @@
 // hand-rolling GFM padding.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
+import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./shared";
@@ -157,16 +158,21 @@ function withTable(
   const next = [...lines.slice(0, t.startLine), ...rendered, ...lines.slice(t.endLine)].join(
     raw.includes("\r\n") ? "\r\n" : "\n",
   );
-  writeNoteAtomic(abs, next, false);
-  deps.reindex?.(v.id, rel, next);
+  // cell values (insert_table_row's `values`, insert_table_column's header/values,
+  // sort_table_by_column's reordering) are caller-controlled and end up in the note's final
+  // persisted bytes — scan/refuse before writing, same guard every other note-content writer gets.
+  const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+  const scan = writeNoteAtomicGuarded(abs, rel, next, false, mdConfig, { metrics: deps.metrics });
+  deps.reindex?.(v.id, rel, scan.content);
   return {
     vault: v.id,
     path: rel,
     table_index: index,
     rows: t.rows.length,
     columns: t.header.length,
-    content_hash: contentHash(next),
+    content_hash: contentHash(scan.content),
     prev_hash: hash,
+    ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
   };
 }
 
@@ -189,6 +195,9 @@ const TableMutationOutput = z.object({
   columns: z.number().int(),
   content_hash: z.string(),
   prev_hash: z.string(),
+  // present only when memoryDefense.mode is "redact" and something matched — same
+  // convention as write_note's own `redactions` field.
+  redactions: z.number().optional(),
 });
 
 export function buildTableTools(deps: M3Deps): ToolDefinition[] {

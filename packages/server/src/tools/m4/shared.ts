@@ -3,9 +3,14 @@
 // both the stdio and HTTP edges. openBridge is the gate every bridge-proxy tool
 // runs first: it degrades (plugin_missing / plugin_unreachable) via the probed
 // capability snapshot before any network call, and yields the per-vault client.
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  err,
+  ObsidianTcError,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
 import { type CapabilitySnapshot, EXPECTED_COMPANION_API } from "../../bridge/capabilities";
+import type { MetricsRecorder } from "../../metrics/registry";
 import { assertLive, type VaultMode } from "../../vault/mode";
 import type { VaultRegistry } from "../../vault/registry";
 
@@ -44,6 +49,10 @@ export interface M4Deps {
    *  a fresh snapshot. refresh_plugin_capabilities calls this then swaps the cache. Omitted in tests
    *  that do not exercise refresh. */
   reprobe?: (vaultId: string) => Promise<CapabilitySnapshot>;
+  /** per-vault memoryDefense policy for update_task's note rewrite — the SAME
+   *  closure/metrics M1/M5/M8 already get. Absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  metrics?: MetricsRecorder;
 }
 
 /**

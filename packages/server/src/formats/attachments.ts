@@ -7,9 +7,12 @@
 // shortest-path attachment resolution).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
+import type { MetricsRecorder } from "../metrics/registry";
 import { parseNote } from "../vault/frontmatter";
 import { extractLinks } from "../vault/links";
-import { readNote, writeNoteAtomic } from "../vault/notes-io";
+import { readNote, writeNoteAtomicGuarded } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
 import { rewriteLinks } from "../vault/rewrite";
 
@@ -133,6 +136,12 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
  * (fromRel -> toRel) before calling this, so the current toRel entry is mapped back
  * to fromRel, and fromRel is always seeded even when no attachment file is on disk
  * (e.g. a link to an attachment that was never materialized).
+ *
+ * Review finding: the rewritten link text lands in an ordinary note BODY (not the binary
+ * attachment), so it gets the same memoryDefense scan every other note-content writer applies —
+ * `mdConfig` is scanned/redacted per note BEFORE any of them is persisted (block -> the whole
+ * rewrite is refused, none written; redact -> every write lands in its redacted form), same
+ * two-pass shape `bulk_move_notes`' own `rewriteForMoves` uses for a moved NOTE's backlinks.
  */
 // ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
 // including notes outside the caller's write whitelist. Deliberate graph-integrity
@@ -141,6 +150,8 @@ export function rewriteAttachmentReferences(
   root: string,
   fromRel: string,
   toRel: string,
+  mdConfig: VaultMemoryDefenseConfig | undefined,
+  metrics?: MetricsRecorder,
 ): { notes: number; refs: number } {
   const fromPathLower = fromRel.toLowerCase();
   const toBase = baseOf(toRel);
@@ -186,8 +197,7 @@ export function rewriteAttachmentReferences(
     return winner?.toLowerCase() === fromPathLower;
   };
 
-  let notes = 0;
-  let refs = 0;
+  const pending: Array<{ abs: string; rel: string; text: string; count: number }> = [];
   for (const e of walkVault(root, { extensions: [".md"] })) {
     const abs = resolveVaultPath(root, e.relPath);
     const { raw } = readNote(abs);
@@ -198,13 +208,22 @@ export function rewriteAttachmentReferences(
       if (!resolvesToFrom(t, hadSlash)) return null;
       return hadSlash ? toRel : toBaseUnique ? toBase : toRel;
     });
-    if (count > 0) {
-      writeNoteAtomic(abs, text, false);
-      notes++;
-      refs += count;
-    }
+    if (count > 0) pending.push({ abs, rel: e.relPath, text, count });
   }
-  return { notes, refs };
+  // Pass 1: scan every rewritten body BEFORE any of them is written. `enforceMemoryDefenseOnNoteWrite`
+  // throws on the first block-worthy match, and nothing above this loop has written anything yet —
+  // so a match in note N refuses the whole rewrite rather than leaving notes 1..N-1 repointed and
+  // N..last still pointing at the old location.
+  for (const p of pending) enforceMemoryDefenseOnNoteWrite(mdConfig, p.rel, p.text);
+  // Pass 2: persist. writeNoteAtomicGuarded re-scans (idempotent — pass 1 already proved this body
+  // is not block-worthy) so the bytes it writes are the same redacted-or-unchanged form pass 1 saw,
+  // and this is the one call that counts the memoryDefense metrics for what actually landed on disk.
+  let refs = 0;
+  for (const p of pending) {
+    writeNoteAtomicGuarded(p.abs, p.rel, p.text, false, mdConfig, { metrics });
+    refs += p.count;
+  }
+  return { notes: pending.length, refs };
 }
 
 /** Whether a vault-relative path has a recognized attachment extension. */

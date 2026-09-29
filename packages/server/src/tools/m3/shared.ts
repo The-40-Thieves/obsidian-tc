@@ -2,7 +2,9 @@
 // Workspaces). WP7: M3Deps lives in its own leaf module so implementation files can import it
 // without pulling in index.ts's barrel — which imports every implementation file back, and
 // previously made each of those a two-node import cycle through ./index.
+import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { BridgeClient } from "../../bridge";
+import type { MetricsRecorder } from "../../metrics/registry";
 import type { VaultRegistry } from "../../vault/registry";
 
 export interface M3Deps {
@@ -12,4 +14,9 @@ export interface M3Deps {
   templaterBridge?: (vaultId: string) => { client: BridgeClient; timeoutMs: number };
   /** THE-291: index-on-write hook for periodic-note writes (best-effort, backgrounded). */
   reindex?: (vaultId: string, path: string, content: string) => void;
+  /** per-vault memoryDefense policy for periodic-note create/append/find_or_create and
+   *  the GFM table mutate tool — the SAME closure/metrics M1/M5/M8 already get. Absent ->
+   *  MEMORY_DEFENSE_OFF (mode "off", no scan). */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  metrics?: MetricsRecorder;
 }

@@ -18,6 +18,7 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import {
   DEFAULT_ATTACHMENT_EXTS,
   findAttachmentReferences,
@@ -301,8 +302,11 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (input.options.create_dirs) mkdirSync(dirname(toAbs), { recursive: true });
         copyFileSync(fromAbs, toAbs);
         hardDelete(fromAbs);
+        // the rewritten link text lands in referencing notes' bodies — same guard every
+        // other note-content writer gets (see rewriteAttachmentReferences's own doc comment).
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         const references = input.update_references
-          ? rewriteAttachmentReferences(v.root, fromRel, toRel)
+          ? rewriteAttachmentReferences(v.root, fromRel, toRel, mdConfig, deps.metrics)
           : { notes: 0, refs: 0 };
         return {
           vault: v.id,

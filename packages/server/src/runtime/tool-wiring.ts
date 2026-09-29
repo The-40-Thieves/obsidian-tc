@@ -604,6 +604,10 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
       client: openBridge(deps.m4Deps, vaultId, "templater").client,
       timeoutMs: bridgeTimeouts(deps.m4Deps, vaultId).templaterTimeoutMs,
     }),
+    // periodic-note create/append/find_or_create and the table mutate tool's
+    // memoryDefense guard — the SAME closure/metrics M5/M7/M8 get above.
+    memoryDefense,
+    metrics: deps.metrics,
   });
   registerM4Tools(registry, deps.m4Deps);
 
@@ -647,7 +651,15 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // registry, so the surface is incomplete at the moment this object is built.
     toolSurface: () => ({ config: registry.visibilityConfig(), tools: registry.list() }),
   };
-  registerM6Tools(registry, { ...m6Deps, reindex: deps.reindex, deindex: deps.deindex });
+  registerM6Tools(registry, {
+    ...m6Deps,
+    reindex: deps.reindex,
+    deindex: deps.deindex,
+    // bulk_create_notes/bulk_set_property/bulk_move_notes' memoryDefense guard — the
+    // SAME closure/metrics M5/M7/M8 get above.
+    memoryDefense,
+    metrics: deps.metrics,
+  });
 
   // M7 knowledge domain (THE-233 integration): GraphRAG search (W-RETRIEVAL) + decision red-team
   // (W-WORKERS challenge), wired to the gateway seams (graceful when absent).
@@ -681,6 +693,9 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // THE-562 P1.6: reflect.persist writes through the governed path.
     snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
     reindex: deps.reindex,
+    // reflect.persist's memoryDefense guard — the SAME closure/metrics M5/M8 get above.
+    memoryDefense,
+    metrics: deps.metrics,
     // THE-497: the query-product cache (dark unless retrieval.cache.enabled). Built ONCE per
     // process and shared across every dispatch.
     ...(config.retrieval.cache.enabled ? { retrievalCaches: deps.retrievalCaches } : {}),

@@ -109,6 +109,40 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   step is not re-scanned, and NFKC folds compatibility variants only — not cross-script
   homoglyphs.
 
+- **`memoryDefense` extended to the remaining bulk/snapshot/task/table/periodic writers and
+  `reflect`'s persist path (GH #994 follow-up), closing the residual the prior round left open.**
+  A new `writeNoteAtomicGuarded` primitive (`vault/notes-io.ts`) scans/refuses before persisting,
+  reused by: the M6 bulk tools `bulk_create_notes`/`bulk_set_property`/`bulk_move_notes` (a
+  secret-shaped bulk-move destination is refused per item, before any file is touched);
+  `restore_note` (M1 — a snapshot predating the guard, or a secret pasted into an earlier version
+  of the note, is scanned the same as any other write); `update_task` (M4 — the RESULTING task
+  line is scanned, catching a secret-shaped `set.description` or any other field); the four GFM
+  table tools `format_table`/`insert_table_row`/`insert_table_column`/`sort_table_by_column` (M3);
+  and `create_periodic_note`/`find_or_create_periodic_note`/`append_to_periodic_note` (M3 — a
+  secret-shaped template, default or overridden, is caught the same as freshly-typed content).
+  `reflect`'s persist path (M7) now scans through `persistGovernedNote`'s new optional
+  `memoryDefense` param — the shared governed-write chokepoint every derived-note writer already
+  goes through — since nothing upstream of that call had scanned its model-synthesized content
+  before. `commit_capture` now scans the note's FINAL YAML-serialized bytes (post-`serializeNote`)
+  instead of the pre-serialization `{ frontmatter, content }` pair, closing the prior round's
+  documented residual, and its `target_path` refusal reuses `refusePathIfSecretShaped` (the same
+  helper `move_note`/`copy_note` use), which rescans the NORMALIZED path for the refusal's pattern
+  ids — a match found only after NFKC/zero-width normalization no longer reports an empty
+  pattern-id list. `move_attachment`'s note-link rewrite is covered too: every referencing note's
+  rewritten body is pre-scanned before any of them is written, so a block-worthy match refuses the
+  whole rewrite rather than leaving some notes repointed and others pointing at the old location.
+  `create_periodic_note`/`find_or_create_periodic_note`'s `expand_template=true` path — where the
+  Templater bridge writes the expanded note itself — now scans the bytes Templater wrote after the
+  fact, closing a gap where a template that rendered a secret persisted it unscanned. A bulk item
+  refused for a secret-shaped identity field (e.g. a secret-shaped `bulk_move_notes` destination)
+  now redacts that field in the reported result instead of echoing it back, and `update_task`'s
+  redact-mode `new_state` no longer falls back to the raw caller-supplied fields when the persisted
+  line fails to re-parse — it now falls back to the caller's fields only when nothing was redacted.
+  A registry-driven inventory test now enumerates every mutating tool and fails
+  if a new one lands with neither `memoryDefense` coverage nor a documented exemption. See
+  SECURITY.md's "Memory defense" Limits for what is still out of scope (the structured-document
+  formats — canvas/base/excalidraw/kanban) and the leaf-scanner ceiling notes that still apply.
+
 ## [1.31.6] - 2026-09-29
 
 ### Added

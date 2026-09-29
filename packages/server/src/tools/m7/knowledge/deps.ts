@@ -1,9 +1,11 @@
 // WP2 slice 1: M7Deps, moved verbatim out of knowledge-tools.ts. Types only — no runtime code
 // belongs here, and nothing here may import knowledge-tools.ts (the facade) or retrieval-runtime.ts.
+import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
 import type { EmbeddingProvider } from "../../../embeddings";
 import type { RetrievalLogger } from "../../../experiential/log";
+import type { MetricsRecorder } from "../../../metrics/registry";
 import type { EgressFilter } from "../../../plane/egress-filter";
 import type { GatewayRoles } from "../../../plane/gateway";
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
@@ -121,6 +123,12 @@ export interface M7Deps {
   /** THE-562 P1.6: governed-write handles so reflect.persist snapshots + reindexes like write_note. */
   snapshots?: { enabled: boolean; retention: number };
   reindex?: (vaultId: string, path: string, content: string) => void;
+  /** per-vault memoryDefense policy for reflect's persist path — the SAME
+   *  closure/metrics M1/M5/M8 already get; reflect.persist writes a model-synthesized note through
+   *  the same governed-write primitive write_note uses and must be scanned the same way before it
+   *  reaches disk. Absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  metrics?: MetricsRecorder;
   /** THE-497: the in-process query-product cache (retrieval.cache). Absent -> every retrieval
    *  surface below embeds and searches exactly as it did before, with no cache path taken. */
   retrievalCaches?: RetrievalCaches;

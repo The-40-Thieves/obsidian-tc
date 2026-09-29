@@ -72,11 +72,11 @@ describe("formats/attachments", () => {
       "a.md": "see ![[diagram.png]] and [pdf](docs/spec.pdf)\n",
     });
     try {
-      const r1 = rewriteAttachmentReferences(root, "diagram.png", "images/renamed.png");
+      const r1 = rewriteAttachmentReferences(root, "diagram.png", "images/renamed.png", undefined);
       expect(r1).toEqual({ notes: 1, refs: 1 });
       expect(readFileSync(join(root, "a.md"), "utf8")).toContain("![[renamed.png]]");
 
-      const r2 = rewriteAttachmentReferences(root, "docs/spec.pdf", "archive/spec.pdf");
+      const r2 = rewriteAttachmentReferences(root, "docs/spec.pdf", "archive/spec.pdf", undefined);
       expect(r2).toEqual({ notes: 1, refs: 1 });
       expect(readFileSync(join(root, "a.md"), "utf8")).toContain("[pdf](archive/spec.pdf)");
     } finally {
@@ -91,7 +91,7 @@ describe("formats/attachments", () => {
       "note.md": "bare ![[diagram.png]] and path [x](b/diagram.png)\n",
     });
     try {
-      const r = rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png");
+      const r = rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png", undefined);
       const txt = readFileSync(join(root, "note.md"), "utf8");
       // bare-basename link resolves to a/diagram.png (shortest/lex winner) -> rewritten
       expect(txt).toContain("![[renamed.png]]");
@@ -111,7 +111,7 @@ describe("formats/attachments", () => {
       "note.md": "[x](a/diagram.png) and [y](b/diagram.png)\n",
     });
     try {
-      rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png");
+      rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png", undefined);
       const txt = readFileSync(join(root, "note.md"), "utf8");
       expect(txt).toContain("[x](a/renamed.png)");
       expect(txt).toContain("[y](b/diagram.png)");
@@ -130,7 +130,7 @@ describe("formats/attachments", () => {
       // Move a/diagram.png -> c/diagram.png: the basename "diagram.png" is still shared
       // with b/diagram.png, so a bare ![[diagram.png]] would now resolve to b/ — the
       // rewrite must therefore emit the full path to stay pointed at the moved file.
-      rewriteAttachmentReferences(root, "a/diagram.png", "c/diagram.png");
+      rewriteAttachmentReferences(root, "a/diagram.png", "c/diagram.png", undefined);
       const txt = readFileSync(join(root, "note.md"), "utf8");
       expect(txt).toContain("![[c/diagram.png]]");
       expect(txt).not.toContain("![[diagram.png]]");

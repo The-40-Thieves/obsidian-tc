@@ -22,7 +22,9 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
+import type { MetricsRecorder } from "../metrics/registry";
 import { contentHash } from "./paths";
 
 // O_NOFOLLOW is POSIX-only; on Windows Node it is undefined. Fall back to 0 (no-op) —
@@ -178,6 +180,28 @@ export function writeNoteAtomic(abs: string, content: string, createDirs = true)
     closeSync(fd);
   }
   renameSync(tmp, abs);
+}
+
+/**
+ * the one memory-defense-guarded entry point every note-content writer that has a
+ * vault's memoryDefense config in hand should call, instead of hand-composing
+ * `enforceMemoryDefenseOnNoteWrite` + `writeNoteAtomic` at each call site (the PR #1015 pattern,
+ * which a new writer could otherwise reorder or drop under review). Refuses a secret-shaped
+ * `path` and scans/redacts `content` BEFORE persisting; `off` mode is a pure passthrough — see
+ * `enforceMemoryDefenseOnNoteWrite`'s own doc for the exact policy. Returns the persisted
+ * (possibly redacted) content so the caller can index/hash what actually landed on disk.
+ */
+export function writeNoteAtomicGuarded(
+  abs: string,
+  path: string,
+  content: string,
+  createDirs: boolean,
+  config: VaultMemoryDefenseConfig | undefined,
+  opts: { metrics?: MetricsRecorder } = {},
+): { content: string; redactions: number } {
+  const scan = enforceMemoryDefenseOnNoteWrite(config, path, content, opts);
+  writeNoteAtomic(abs, scan.content, createDirs);
+  return scan;
 }
 
 export function statNote(abs: string): NoteStat | null {

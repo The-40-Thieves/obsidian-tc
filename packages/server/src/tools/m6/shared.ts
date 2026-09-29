@@ -5,9 +5,10 @@
 // shared instance: the bulk tools consume its `bulk` tier and get_metrics reads its
 // hit counters. All admin-reporting fields are non-secret by construction (no JWT
 // secret, no REST/embedding API keys).
-import type { ThrottleConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ThrottleConfig, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilitySnapshot } from "../../bridge";
 import type { EffectiveToolVisibilityConfig } from "../../mcp/visibility";
+import type { MetricsRecorder } from "../../metrics/registry";
 import type { RateLimiter } from "../../throttle";
 import type { VaultRegistry } from "../../vault/registry";
 
@@ -16,6 +17,11 @@ export interface M6Deps {
   /** THE-291: index-on-write hooks for the bulk writers (best-effort, backgrounded). */
   reindex?: (vaultId: string, path: string, content: string) => void;
   deindex?: (vaultId: string, path: string) => void;
+  /** per-vault memoryDefense policy for bulk_create_notes/bulk_set_property/
+   *  bulk_move_notes — the SAME closure/metrics M1/M5/M8 already get. Absent -> MEMORY_DEFENSE_OFF
+   *  (mode "off", no scan). */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  metrics?: MetricsRecorder;
   /** Shared rate limiter: bulk tools consume the `bulk` tier; get_metrics reads hits. */
   rateLimiter: RateLimiter;
   /** Build version (get_server_config / get_metrics). */

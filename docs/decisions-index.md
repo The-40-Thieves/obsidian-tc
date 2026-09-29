@@ -312,8 +312,8 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-732 | _internal planning reference — see repo history_ | — | 1 |
 | THE-733 | Per-vault score calibration, and the confidence it makes possible (#711, THE-733, THE-631 item 1). | CHANGELOG.md (1.20.0) | 11 |
 | THE-735 | _internal planning reference — see repo history_ | — | 1 |
-| THE-736 | `rerun` — re-run a recorded session against current vault state (#722, #721, #720, THE-645 item 3, THE-736, THE-737). | CHANGELOG.md (1.20.0) | 12 |
-| THE-737 | `rerun` — re-run a recorded session against current vault state (#722, #721, #720, THE-645 item 3, THE-736, THE-737). | CHANGELOG.md (1.20.0) | 12 |
+| THE-736 | `rerun` — re-run a recorded session against current vault state (#722, #721, #720, THE-645 item 3, THE-736, THE-737). | CHANGELOG.md (1.20.0) | 11 |
+| THE-737 | `rerun` — re-run a recorded session against current vault state (#722, #721, #720, THE-645 item 3, THE-736, THE-737). | CHANGELOG.md (1.20.0) | 11 |
 | THE-738 | Rerun hygiene: WAL staging, audit attribution, policy refusals, exit codes (#730, THE-738, THE-739, THE-740, THE-742). | CHANGELOG.md (1.20.0) | 3 |
 | THE-739 | Rerun hygiene: WAL staging, audit attribution, policy refusals, exit codes (#730, THE-738, THE-739, THE-740, THE-742). | CHANGELOG.md (1.20.0) | 1 |
 | THE-740 | Rerun hygiene: WAL staging, audit attribution, policy refusals, exit codes (#730, THE-738, THE-739, THE-740, THE-742). | CHANGELOG.md (1.20.0) | 1 |
@@ -392,6 +392,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (1.31.4) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (1.31.4) | 1 |
 
-377 distinct ticket(s) across 570 source file(s) under
+377 distinct ticket(s) across 571 source file(s) under
 `packages/*/src`; 278 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

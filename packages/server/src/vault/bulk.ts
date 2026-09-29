@@ -8,6 +8,7 @@
 // callback does the work (resolveVaultPath + enforcePathAcl + write), so this
 // stays pure orchestration.
 import { type ErrorJSON, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { redactSecrets } from "../experiential/redact";
 
 export interface BulkOptions {
   /** Maximum sub-operations in flight at once (clamped to >= 1). */
@@ -32,6 +33,27 @@ function toErrorJson(e: unknown): ErrorJSON {
   return (
     e instanceof ObsidianTcError ? e : new ObsidianTcError("internal_error", (e as Error).message)
   ).toJSON();
+}
+
+/** Review finding: a `secret_detected` refusal must not echo the secret-shaped value BACK in the
+ *  same failed item it refused — `identity(item)` can carry the very field that triggered the
+ *  refusal (bulk_create_notes'/bulk_set_property's `path`, when the PATH itself is secret-shaped).
+ *  Redacts every string leaf (recursing into arrays/nested objects, though today's callers are
+ *  flat) with the same scanner every write path uses, so the class of leak memory-defense.test.ts
+ *  already pins for `add_tag`/`rewrite_link` extends to a bulk item's own identity fields too. */
+function redactIdentityValue(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value).text;
+  if (Array.isArray(value)) return value.map(redactIdentityValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, redactIdentityValue(v)]),
+    );
+  }
+  return value;
+}
+
+function redactIdentityFields(fields: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, redactIdentityValue(v)]));
 }
 
 /**
@@ -62,7 +84,14 @@ export async function runBulk<T>(
         const out = await perItem(item, i);
         results[i] = { ...idFields, ok: true, ...out };
       } catch (e) {
-        results[i] = { ...idFields, ok: false, error: toErrorJson(e) };
+        // Review finding: a secret_detected refusal must not echo the secret-shaped identity
+        // field(s) — e.g. a caller-supplied `path` that was ITSELF secret-shaped — back in the
+        // same failed item that refused it.
+        const safeIdFields =
+          e instanceof ObsidianTcError && e.code === "secret_detected"
+            ? redactIdentityFields(idFields)
+            : idFields;
+        results[i] = { ...safeIdFields, ok: false, error: toErrorJson(e) };
         if (opts.stopOnFirstError) stop = true;
       }
     }

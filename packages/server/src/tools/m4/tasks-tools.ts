@@ -5,6 +5,7 @@
 // path; ordinary edits are not gated.
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -14,7 +15,7 @@ import {
   readEnumerationUnrestricted,
 } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
-import { readNote, writeNoteAtomic } from "../../vault/notes-io";
+import { readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridgeWithHint } from "./shared";
@@ -185,6 +186,9 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         prev_state: TaskItemOutput,
         new_state: TaskItemOutput,
         content_hash: z.string(),
+        // present only when memoryDefense.mode is "redact" and something in the
+        // rewritten task line matched — same convention as write_note's own `redactions` field.
+        redactions: z.number().optional(),
       }),
       requiredScopes: ["write:tasks"],
       // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
@@ -225,15 +229,52 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         const updated = applyTaskSet(parsed, set);
         lines[idx] = serializeTask(updated);
         const content = lines.join(eol);
-        writeNoteAtomic(abs, content);
-        deps.reindex?.(v.id, rel, content);
+        // `set.description` (or any other caller-supplied task field) can be
+        // secret-shaped — scan the RESULTING note body before it reaches disk, same guard
+        // write_note/append_note apply to their own final bytes.
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const scan = writeNoteAtomicGuarded(abs, rel, content, true, mdConfig, {
+          metrics: deps.metrics,
+        });
+        deps.reindex?.(v.id, rel, scan.content);
+        // Review finding (memoryDefense follow-up round): in "redact" mode, `updated` still
+        // carries the raw caller-supplied field(s) — only `scan.content` (the persisted bytes)
+        // has the redacted form. Re-parse the PERSISTED line so `new_state` (and its
+        // `content_hash`) describe the same bytes actually on disk, never echoing back what a
+        // redact-mode write just scrubbed. Redaction replaces matched substrings in place, so the
+        // line's task shape survives and this re-parse is expected to succeed whenever the
+        // original parse did.
+        //
+        // Second review finding: falling back to `updated` on a re-parse failure was itself the
+        // leak — `updated` holds the RAW caller-supplied fields, so a redact-mode write whose
+        // persisted line happened not to re-parse would echo the very secret it just redacted on
+        // disk. `updated` is only a safe fallback when NOTHING was redacted (redactions === 0):
+        // there the caller's own fields are exactly what's on disk. When something WAS redacted
+        // and the re-parse still fails, `new_state` is built from safe data only — never
+        // `updated`'s raw strings — using `persistedLine` (the already-scanned form) verbatim as
+        // `description` and an empty `tags` (the re-parse that would have recovered them failed).
+        const persistedLine = scan.content.split(/\r?\n/)[idx];
+        const repersisted = persistedLine !== undefined ? parseTaskLine(persistedLine) : null;
+        const newState =
+          repersisted !== null
+            ? toOutput(repersisted, rel, input.line)
+            : scan.redactions > 0
+              ? {
+                  path: rel,
+                  line: input.line,
+                  status: updated.status,
+                  description: persistedLine ?? "",
+                  tags: [],
+                }
+              : toOutput(updated, rel, input.line);
         return {
           path: rel,
           line: input.line,
           updated_at: new Date(now).toISOString(),
           prev_state: toOutput(parsed, rel, input.line),
-          new_state: toOutput(updated, rel, input.line),
-          content_hash: contentHash(content),
+          new_state: newState,
+          content_hash: contentHash(scan.content),
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
         };
       },
     }),
