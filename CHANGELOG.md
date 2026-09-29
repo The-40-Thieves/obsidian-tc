@@ -6,6 +6,62 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`session_rerun` — sandbox-only session replay.** A new `admin` tool (`admin:rerun` scope,
+  destructive, routed through the central HITL confirmation gate) replays a recorded session's
+  trace against an isolated, throwaway sandbox copy of the vault's cache — never the live vault or
+  its live cache. The sandbox runtime is always disposed on completion, on error, and on timeout.
+  Requested scopes are intersected against the tool's own allow-list
+  (`grantedScopes ∩ RERUN_SCOPES`) rather than trusted as-is, so a rerun can never grant itself
+  more than a caller already holds.
+
+### Fixed
+
+- **Staging a sandbox no longer inherits the live vault's stale `vault_identity` row.** The
+  sandbox's cache is staged by copying the live cache.db; that copy previously carried over the
+  live vault's `vault_identity` row, and the stable-vault-identity migration then refused the
+  sandbox's second boot with a `conflict` because two different vault roots claimed the same
+  identity. Staging now drops that row from the copy before the sandbox starts, so its own boot
+  establishes a fresh identity for the sandbox root instead. This also affected the existing CLI
+  `rerun --sandbox` path, which shares the same staging code.
+- **A session replay now yields once per record.** The replay loop was fully synchronous, which
+  meant a caller-supplied timeout had no macrotask boundary to fire on and could never actually
+  interrupt a long-running replay. The loop now yields one macrotask per record, so a timeout set
+  around it is honored.
+- **A sandbox's second runtime no longer boots with every sibling vault at its live path, or with
+  watch/HTTP/telemetry left on.** Staging only ever remapped the ONE vault being replayed; every
+  other configured vault kept its live path, picked up a second filesystem watcher, and — when
+  `transports.http.enabled` was true — the sandbox's own `buildServerRuntime` call bound a second,
+  live HTTP listener over the whole config during construction, independent of `start()` (which
+  neither the CLI's `--sandbox` path nor `session_rerun` ever calls). Sandbox construction now
+  drops every vault but the one being replayed and forces watch, both transports, Prometheus, and
+  the OTEL exporter off before the second runtime is ever built — the same one-definition shape
+  `withoutBridgeTransport` already uses, shared by both callers.
+- **A sandbox rerun's staged directory could outlive the run on Windows.** A runtime's graceful
+  `close()` closed cache.db but never `experiential.db` when experiential capture (on by default)
+  had left it open — harmless on POSIX, where process exit reclaims the handle, but a real bug in
+  the shared close path: Windows opens file handles without delete-sharing, so `session_rerun`'s
+  own dispose-right-after-close call could lose the race against that still-open handle and leave
+  an `obtc-rerun-*` directory behind. `close()` now closes both stores. On a timeout specifically,
+  the background replay loop was never cancelled and could keep dispatching the rest of a long
+  session's trace against the staged files for as long as that took, well after the caller had
+  already been told the run timed out; a timeout now cooperatively stops the loop within one
+  macrotask, and disposal waits for staging/boot/replay to actually stop before removing anything.
+  A timeout that fired mid-staging also skipped closing the sandbox runtime entirely: disposal read
+  "is there a runtime to close?" before that wait, while the runtime was only built afterwards, so
+  its vault-lock keepalive and its cache.db, experiential.db and lock-db handles stayed open inside
+  the staged directory (Windows then refused the removal with EPERM for the rest of the process).
+  The runtime and its database are now closed after the wait, before the directory is removed.
+  That wait no longer holds up the caller: `timeout_ms` now bounds the call itself (the caller gets
+  `operation_timeout` at the deadline even if staging or the sandbox boot hangs) while the
+  wait-close-dispose chain finishes in the background. At most two sandbox reruns run at once per
+  server, each holding its slot until that cleanup finishes, so repeated calls get `throttled`
+  instead of piling up staged copies and open handles. As a net under all of these: a directory that still fails to remove now retries in the
+  background instead of being abandoned, and every sandbox rerun (the tool and the CLI's
+  `--sandbox` path both stage into the same directory shape) sweeps any stale `obtc-rerun-*`
+  directory left over an hour ago before staging a new one.
+
 ## [1.31.8] - 2026-09-29
 
 ### Added

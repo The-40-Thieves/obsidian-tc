@@ -56,10 +56,13 @@ export interface Stores {
    *  above). False means experientialDb was already provisioned-then-released by the time this
    *  function returns — see the constructor below, unchanged from the inline cli.ts behaviour. */
   experientialOpen: boolean;
-  /** Idempotent. Closes `db` only — matching the pre-extraction shutdown() body exactly: an open
-   *  experientialDb is (as before) never explicitly closed at graceful shutdown, only released
-   *  immediately at boot when nothing needs it (see `experientialOpen` above). Not "fixed" here;
-   *  WP5.2 owns shutdown(). */
+  /** Idempotent. Closes both `db` and, when `experientialOpen` left it open past boot,
+   *  `experientialDb` too — a live server relied on process exit to reclaim the second handle
+   *  (harmless on POSIX; a real leak of a shared close contract, not merely academic once anything
+   *  closes-then-immediately-removes the files underneath it, e.g. `session_rerun`'s sandbox
+   *  runtime and `rerun --sandbox`'s own disposal, both of which stage cache.db AND
+   *  experiential.db and then rmSync the directory they live in — on Windows a still-open handle
+   *  on either file blocks that removal outright). */
   close(): void;
 }
 
@@ -109,6 +112,7 @@ export async function wireStores(deps: StoresDeps): Promise<Stores> {
     experientialOpen,
     close: () => {
       db.close?.();
+      if (experientialOpen) experientialDb.close?.();
     },
   };
 }

@@ -18,8 +18,10 @@ import { openDatabase } from "../src/db/open";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../src/db/pragmas";
 import {
   RERUN_CALLER_PREFIX,
+  RERUN_SCOPES,
   rerunCaller,
   rerunSession,
+  sandboxRuntimeConfig,
   stageSandbox,
 } from "../src/workspace/rerun";
 import {
@@ -101,6 +103,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     ]);
 
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: v.registry,
       sessionId: id,
@@ -137,6 +140,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     ]);
 
     await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: v.registry,
       sessionId: id,
@@ -169,6 +173,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
       },
     ]);
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: v.registry,
       sessionId: id,
@@ -203,6 +208,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     } as unknown as TestVault["registry"];
 
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: spied,
       sessionId: id,
@@ -242,6 +248,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     } as unknown as TestVault["registry"];
 
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: cachedDispatch,
       sessionId: id,
@@ -264,6 +271,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     v = readOnlyVault({});
     await expect(
       rerunSession({
+        replayScopes: RERUN_SCOPES,
         db: v.db,
         registry: v.registry,
         sessionId: "nope",
@@ -278,6 +286,7 @@ describe("THE-645 item 3 — rerun in observe mode", () => {
     const id = seedSession(v, []);
     await expect(
       rerunSession({
+        replayScopes: RERUN_SCOPES,
         db: v.db,
         registry: v.registry,
         sessionId: id,
@@ -319,6 +328,7 @@ describe("THE-645 item 3 fix round 2 — what observe mode must refuse, and what
     } as never);
 
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: v.registry,
       sessionId: id,
@@ -359,6 +369,7 @@ describe("THE-645 item 3 fix round 2 — what observe mode must refuse, and what
     );
 
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: v.registry,
       sessionId: id,
@@ -390,6 +401,7 @@ describe("THE-645 item 3 fix round 2 — what observe mode must refuse, and what
     const id = seedSession(v, [patchRecord("some-other-vault")], "xvault_");
 
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: v.registry,
       sessionId: id,
@@ -412,6 +424,7 @@ describe("THE-645 item 3 fix round 2 — what observe mode must refuse, and what
     const id = seedSession(v, [patchRecord(v.id)], "ro_");
 
     const out = await rerunSession({
+      replayScopes: RERUN_SCOPES,
       db: v.db,
       registry: v.registry,
       sessionId: id,
@@ -546,7 +559,7 @@ describe("THE-740 — replayed calls are attributable, not indistinguishable", (
 describe("THE-645 item 3 — sandbox staging", () => {
   it("copies the vault so a write to the copy leaves the original untouched", async () => {
     v = readOnlyVault({ "a.md": "original" });
-    const sb = await stageSandbox(v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
+    const sb = await stageSandbox("main", v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
     try {
       expect(readFileSync(join(sb.root, "a.md"), "utf8")).toBe("original");
       writeFileSync(join(sb.root, "a.md"), "changed in sandbox");
@@ -569,7 +582,7 @@ describe("THE-645 item 3 — sandbox staging", () => {
     live.prepare("INSERT INTO t VALUES ('before-staging','present')").run();
     // The connection stays OPEN across staging — this is the production shape (`serve` holds one),
     // and it is what leaves the write sitting in an uncheckpointed -wal that a file copy misses.
-    const sb = await stageSandbox(v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
+    const sb = await stageSandbox("main", v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
     try {
       expect(existsSync(join(sb.cacheDir, "cache.db"))).toBe(true);
       const staged = await openDatabase(join(sb.cacheDir, "cache.db"));
@@ -593,9 +606,108 @@ describe("THE-645 item 3 — sandbox staging", () => {
 
   it("dispose removes the staged copy", async () => {
     v = readOnlyVault({ "a.md": "x" });
-    const sb = await stageSandbox(v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
+    const sb = await stageSandbox("main", v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
     const staged = sb.root;
     sb.dispose();
     expect(existsSync(staged)).toBe(false);
+  });
+
+  // Cross-vendor review round 1, suggestion 3: `dropStaleVaultIdentity` (stageSandbox's own doc
+  // comment explains WHY the row is stale the instant it is copied) opens the STAGED cache.db
+  // only — the live one is only ever opened for `VACUUM INTO`. Asserted directly rather than
+  // inferred from "the sandbox boots twice without a conflict" (session-rerun-sandbox-e2e.test.ts
+  // already covers that): a mutation that widened the DELETE to the live path would still pass
+  // that e2e test on the FIRST run, since the live row would not yet exist to collide with.
+  it("stageSandbox drops the staged copy's vault_identity row and leaves the live one untouched", async () => {
+    v = readOnlyVault({ "a.md": "x" });
+    const live = await openDatabase(join(cacheDir as string, "cache.db"));
+    // No migrations run against this fresh file (see the sibling "stages a REAL database" test
+    // above, which creates its own table the same way) — the real schema is
+    // src/migrations/20260928_001_vault_identity.sql; reproduced here rather than pulled through
+    // provisionCacheDb so this test does not pay for the full migration chain.
+    live.exec(
+      "CREATE TABLE vault_identity (vault_id TEXT PRIMARY KEY, root_realpath TEXT NOT NULL, root_canonical INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+    );
+    const now = Date.now();
+    live
+      .prepare(
+        "INSERT INTO vault_identity (vault_id, root_realpath, root_canonical, created_at, updated_at) VALUES (?, ?, 1, ?, ?)",
+      )
+      .run("main", v.root, now, now);
+    try {
+      const sb = await stageSandbox("main", v.root, cacheDir as string, DEFAULT_BUSY_TIMEOUT_MS);
+      try {
+        const staged = await openDatabase(join(sb.cacheDir, "cache.db"));
+        try {
+          const stagedRow = staged
+            .prepare("SELECT vault_id FROM vault_identity WHERE vault_id = 'main'")
+            .get();
+          expect(stagedRow).toBeUndefined();
+        } finally {
+          staged.close?.();
+        }
+      } finally {
+        sb.dispose();
+      }
+      // The live row survived staging AND the staged copy's own disposal — nothing here ever
+      // opened the live cache.db for anything but the VACUUM INTO snapshot read.
+      const liveRow = live
+        .prepare("SELECT vault_id, root_realpath FROM vault_identity WHERE vault_id = 'main'")
+        .get() as { vault_id: string; root_realpath: string } | undefined;
+      expect(liveRow).toEqual({ vault_id: "main", root_realpath: v.root });
+    } finally {
+      live.close?.();
+    }
+  });
+});
+
+describe("sandboxRuntimeConfig — isolation from the live vault", () => {
+  it("drops every sibling vault, and forces watch/transports/telemetry off", () => {
+    const cfg = {
+      cacheDir: "/live/cache",
+      db: { busyTimeoutMs: 1000 },
+      vaults: [
+        { id: "main", path: "/live/main", restApiUrl: "http://127.0.0.1:27124" },
+        { id: "other", path: "/live/other" },
+      ],
+      watch: { enabled: true, debounceMs: 500 },
+      transports: { stdio: true, http: { enabled: true, host: "0.0.0.0", port: 8080 } },
+      observability: {
+        otel: { endpoint: "http://collector:4318" },
+        prometheus: { enabled: true, port: 9464, bind: "127.0.0.1" },
+      },
+    } as unknown as Parameters<typeof sandboxRuntimeConfig>[0];
+
+    const out = sandboxRuntimeConfig(cfg, "main", {
+      root: "/staged/root",
+      cacheDir: "/staged/cache",
+    });
+
+    expect(out.vaults).toHaveLength(1);
+    expect(out.vaults[0]?.id).toBe("main");
+    expect(out.vaults[0]?.path).toBe("/staged/root");
+    // The bridge transport strip (withoutBridgeTransport) applies too.
+    expect((out.vaults[0] as { restApiUrl?: string }).restApiUrl).toBeUndefined();
+    expect(out.cacheDir).toBe("/staged/cache");
+    expect(out.watch.enabled).toBe(false);
+    expect(out.transports.stdio).toBe(false);
+    expect(out.transports.http.enabled).toBe(false);
+    expect(out.observability.otel.endpoint).toBeUndefined();
+    expect(out.observability.prometheus.enabled).toBe(false);
+  });
+
+  it("throws when the vault is no longer in config", () => {
+    const cfg = {
+      cacheDir: "/live/cache",
+      db: { busyTimeoutMs: 1000 },
+      vaults: [{ id: "main", path: "/live/main" }],
+      watch: { enabled: true },
+      transports: { stdio: true, http: { enabled: false } },
+      observability: { otel: {}, prometheus: { enabled: false } },
+    } as unknown as Parameters<typeof sandboxRuntimeConfig>[0];
+
+    expect(() =>
+      sandboxRuntimeConfig(cfg, "gone", { root: "/staged/root", cacheDir: "/staged/cache" }),
+    ).toThrow(/vault is no longer in config: gone/);
   });
 });

@@ -1,9 +1,9 @@
 ---
 title: Tool Reference
-description: The ~163-tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
+description: The ~164-tool surface obsidian-tc exposes to MCP clients, and the facade that shapes it.
 ---
 
-obsidian-tc groups **163 tools across modules M1–M8 plus admin**. Every tool has
+obsidian-tc groups **164 tools across modules M1–M8 plus admin**. Every tool has
 a Zod-validated input schema, a structured result, a declared scope set, and a
 scope class that selects its rate-limit tier. `tools/list` also derives MCP
 **annotations** (`readOnlyHint` / `destructiveHint` / `openWorldHint`) and a
@@ -71,12 +71,12 @@ same authorization / ACL / HITL / idempotency / throttle pipeline.
 `toolFacade.mode` (above) picks what a given **session** is advertised. A separate,
 deployment-level setting, `toolFacade.profile`, picks which tools are **visible and
 callable** at all. Registration itself never changes — every tool is always
-registered (`server_health`/`inspect_visibility` can always name all 163) — only
+registered (`server_health`/`inspect_visibility` can always name all 164) — only
 dispatch-time visibility does:
 
 - **`full`** (the default) — every tool stays visible/callable, exactly as today.
   **This ticket does not change the default.** A usage report over 4,787 recorded
-  calls (GitHub issue #877) found 97 of 163 tools never called once — but it names
+  calls (GitHub issue #877) found 97 of 164 tools never called once — but it names
   only five tools as confirmed zero-call, not whole families, and the same
   reporter separately filed a whole issue (#879) praising one of the tools an
   earlier draft of this feature would have hidden. Flipping the default needs its

@@ -30,7 +30,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-178 | _internal planning reference — see repo history_ | — | 1 |
 | THE-180 | _internal planning reference — see repo history_ | — | 9 |
 | THE-181 | _internal planning reference — see repo history_ | — | 10 |
-| THE-182 | _internal planning reference — see repo history_ | — | 7 |
+| THE-182 | _internal planning reference — see repo history_ | — | 6 |
 | THE-183 | Metrics Registry | docs/design/metrics-registry.md | 4 |
 | THE-184 | _internal planning reference — see repo history_ | — | 1 |
 | THE-185 | _internal planning reference — see repo history_ | — | 1 |
@@ -392,6 +392,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (1.31.4) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (1.31.4) | 1 |
 
-377 distinct ticket(s) across 571 source file(s) under
+377 distinct ticket(s) across 574 source file(s) under
 `packages/*/src`; 278 resolved to a public summary, 99
 fall back to the internal-reference placeholder above.

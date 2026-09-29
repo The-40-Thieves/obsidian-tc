@@ -2,7 +2,13 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { openConfiguredDatabase } from "../../db/open";
 import { buildServerRuntime } from "../../runtime/server-runtime";
 import { canonicalizeVaultRoot } from "../../vault/registry";
-import { rerunSession, stageSandbox } from "../../workspace/rerun";
+import {
+  RERUN_SCOPES,
+  rerunSession,
+  sandboxRuntimeConfig,
+  stageSandbox,
+} from "../../workspace/rerun";
+import { sweepStaleSandboxDirs } from "../../workspace/rerun-sandbox-cleanup";
 import {
   exitCodeFor,
   RERUN_EXIT_OPERATIONAL,
@@ -32,28 +38,6 @@ export function withReadOnlyAcl(cfg: ServerConfig): ServerConfig {
     acl: { ...cfg.acl, readOnly: true },
     vaults: cfg.vaults.map((v) => (v.acl ? { ...v, acl: { ...v.acl, readOnly: true } } : v)),
   };
-}
-
-/**
- * Strip the plugin-bridge transport from a vault.
- *
- * A `--sandbox` staging copy bounds FILESYSTEM writes and nothing else. `wireBridges`
- * (runtime/bridge-wiring.ts) builds a Local REST API client per vault from `restApiUrl`/
- * `restApiKey`, and a bridge tool then POSTs to the LIVE Obsidian app, which is operating on the
- * REAL vault: `git_stage` checks `enforcePathAcl` against the STAGED root and then stages files in
- * the real repo; `remotely_save` triggers a real sync. None of `write:git`, `write:tasks`,
- * `write:excalidraw`, `write:remotely-save` is in `HITL_FLOOR_FAMILIES`, so nothing else stops
- * them. A filesystem copy cannot bound a network-mediated write — so the sandbox removes the
- * transport instead, and every bridge tool degrades loudly (`plugin_unreachable` from
- * `openBridge`'s `if (!client)`) rather than silently reaching the live app.
- *
- * Observe mode deliberately keeps its bridges: every mutating bridge tool is already refused there
- * by the read-only gate (`write:*`/`execute:*` are mutating families), and a bridge READ against
- * the live app is exactly what "re-issue against current state" means.
- */
-function withoutBridgeTransport(v: ServerConfig["vaults"][number]): ServerConfig["vaults"][number] {
-  const { restApiUrl: _url, restApiKey: _key, ...rest } = v;
-  return rest;
 }
 
 /** The configured path for `vaultId`, canonicalized (THE-1081 review round, Medium 1) — matching
@@ -95,6 +79,9 @@ async function stageForSandbox(
   sessionId: string,
   expectVaultId: string | undefined,
 ): Promise<{ vaultId: string; root: string; cacheDir: string; dispose(): void }> {
+  // Windows safety net (workspace/rerun-sandbox-cleanup.ts): sweep whatever a PAST `--sandbox` run
+  // (or `session_rerun`) left behind before staging a new copy.
+  sweepStaleSandboxDirs();
   const probeDb = await openConfiguredDatabase(cfg, "cache.db");
   let vaultId: string;
   try {
@@ -111,6 +98,7 @@ async function stageForSandbox(
     probeDb.close?.();
   }
   const staged = await stageSandbox(
+    vaultId,
     configuredVaultPath(cfg, vaultId),
     cfg.cacheDir,
     cfg.db.busyTimeoutMs,
@@ -168,18 +156,11 @@ async function runRerunInner(cmd: Cmd<"rerun">): Promise<void> {
   // staged temp directory must still be disposed rather than leaked permanently.
   const staged = cmd.sandbox ? await stageForSandbox(cfg, cmd.sessionId, cmd.vault) : undefined;
   try {
+    // `sandboxRuntimeConfig` also drops every OTHER configured vault and forces watch/
+    // transports/telemetry off — see its own doc comment (workspace/rerun.ts) for why a bridge
+    // write is the least of what a live sibling-vault path or a live HTTP bind would leak here.
     const runtimeCfg: ServerConfig = staged
-      ? {
-          ...cfg,
-          cacheDir: staged.cacheDir,
-          // EVERY vault loses its bridge transport, not only the staged one: a bridge write is
-          // mediated by the live app, so containment cannot come from which copy the path resolves
-          // against. See `withoutBridgeTransport`.
-          vaults: cfg.vaults.map((v) => {
-            const noBridge = withoutBridgeTransport(v);
-            return v.id === staged.vaultId ? { ...noBridge, path: staged.root } : noBridge;
-          }),
-        }
+      ? sandboxRuntimeConfig(cfg, staged.vaultId, staged)
       : cfg;
 
     // buildServerRuntime, but never start(): a re-run needs the FULLY wired registry (every tool
@@ -212,6 +193,11 @@ async function runRerunInner(cmd: Cmd<"rerun">): Promise<void> {
           vaultRootFor: (vaultId) => staged?.root ?? configuredVaultPath(cfg, vaultId),
           ...(cmd.vault !== undefined ? { expectVaultId: cmd.vault } : {}),
           ...(cmd.sandbox ? { sandbox: true } : {}),
+          // The CLI operator already holds full local scope (stdio's `grantedScopes: new
+          // Set(["*"])`, server-runtime.ts) — RERUN_SCOPES verbatim, unnarrowed. Only
+          // session_rerun's MCP tool needs to intersect against a weaker caller grant; see
+          // intersectReplayScopes in workspace/rerun.ts.
+          replayScopes: RERUN_SCOPES,
         });
 
         if (cmd.json) {

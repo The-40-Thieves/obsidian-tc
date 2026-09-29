@@ -50,6 +50,11 @@ const EXEMPT_NO_PATH = new Set<string>([
   //     whole vault, not a caller-named vault-relative path.
   "reset_vault_cache", // drops cache rows (chunks/embeddings/idempotency) for a vault; no path arg
   "reload_vault", // re-reads config from disk; no vault-relative path
+  "session_rerun", // re-issues a recorded session's calls, whatever paths they name, against a
+  // DISPOSABLE SANDBOX COPY of the vault, never the live one — the tool's own input names a
+  // session id, not a vault-relative path, and the paths a replayed call touches are the
+  // recorded arguments themselves, enforced by the sandbox registry's own central pathAcl stage
+  // exactly as a live call would be, just against the staged copy
   "add_vault", // registers a NEW vault by absolute host path (validated by realpath), pre-ACL
   "index_vault", // indexes the whole vault, not a caller-named path (folder is a filter, read-side)
   // --- Computed target path (not derivable from input): the write path is resolved at runtime from
