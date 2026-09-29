@@ -101,12 +101,23 @@ export interface RedactScanResult {
 
 /** Redact credential-shaped substrings. Returns the scrubbed text, how many hits, and which
  *  pattern ids matched. `matches` is additive (GH #994) — every existing caller destructures only
- *  `{ text, redactions }`, so this stays backward compatible. */
-export function redactSecrets(text: string): RedactScanResult {
+ *  `{ text, redactions }`, so this stays backward compatible.
+ *
+ * `opts.excludeIds` skips the named pattern(s) entirely for this call — memory-defense.ts's
+ * array-join scan uses it to omit `labeled_secret` (whose FP carve-out for an accidental
+ * label/value adjacency across array elements needs to leave the join's bytes untouched for
+ * every OTHER pattern, rather than mutating them, which used to blind patterns like
+ * `private_key` that legitimately need to bridge the same join). */
+export function redactSecrets(
+  text: string,
+  opts: { excludeIds?: readonly string[] } = {},
+): RedactScanResult {
   let out = text;
   let redactions = 0;
   const matches: Record<string, number> = {};
+  const excluded = new Set(opts.excludeIds ?? []);
   for (const { id, pattern } of SECRET_PATTERNS) {
+    if (excluded.has(id)) continue;
     out = out.replace(pattern, () => {
       redactions += 1;
       matches[id] = (matches[id] ?? 0) + 1;

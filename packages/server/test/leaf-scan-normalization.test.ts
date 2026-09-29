@@ -11,7 +11,7 @@
 
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { enforceMemoryDefense } from "../src/experiential/memory-defense";
+import { enforceMemoryDefense, INVISIBLE_SPLICE_RANGES } from "../src/experiential/memory-defense";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 
 function un<T>(r: { ok: boolean; data?: unknown }): T {
@@ -269,5 +269,187 @@ describe("leaf-scan normalization — widened zero-width coverage (security revi
     const out = enforceMemoryDefense({ mode: "block", pii: false }, { text: prose });
     expect(out.redactions).toBe(0);
     expect(out.fields.text).toBe(prose);
+  });
+});
+
+// Residual fix — `labeled_secret`'s `\s*[=:]\s*` bridges the "\n" the array-join scan inserts
+// between elements, so a label sitting in one element and an unrelated value-looking token in the
+// NEXT element (never written as a pair) read as one hit purely because of how the join happens to
+// land. Every other pattern that legitimately needs to bridge the join (bearer_token's `\s+`,
+// private_key's `[\s\S]`) must keep working — only labeled_secret's own boundary-crossing match is
+// the false positive being closed here.
+describe("array-join scan — labeled_secret must not span an element boundary (residual fix)", () => {
+  it("block mode: a label alone in one element and an ORDINARY (not secret-shaped) word alone in the next is NOT caught via the joined scan", () => {
+    // Security review round (finding 3): the original fixture here used a high-confidence
+    // secret-shaped value ("AbCdEfGh12345678ZZZZ" — 20 chars, 3+ char classes) and asserted
+    // `redactions: 0`, which pinned "we still miss a real secret" as the expected/passing
+    // outcome. Replaced with an ordinary word: this test now proves the FP carve-out (an
+    // accidental label/value adjacency across array elements is not flagged), not a detection
+    // hole.
+    const label = "token:";
+    const unrelatedWord = "team-standup-notes"; // ordinary id-shaped text, not secret-shaped
+    for (const el of [label, unrelatedWord]) {
+      const solo = enforceMemoryDefense({ mode: "block", pii: false }, { text: el });
+      expect(solo.redactions, `"${el}" must not match alone`).toBe(0);
+    }
+    const out = enforceMemoryDefense(
+      { mode: "block", pii: false },
+      { parts: [label, unrelatedWord] },
+    );
+    expect(out.redactions).toBe(0);
+    expect(out.fields.parts).toStrictEqual([label, unrelatedWord]);
+  });
+
+  it("redact mode: the same boundary-only pairing leaves the array untouched, not severed to [REDACTED]", () => {
+    const label = "password:";
+    const unrelatedWord = "wednesday-meeting-agenda";
+    const out = enforceMemoryDefense(
+      { mode: "redact", pii: false },
+      { parts: [label, unrelatedWord] },
+    );
+    expect(out.redactions).toBe(0);
+    expect(out.fields.parts).toStrictEqual([label, unrelatedWord]);
+  });
+
+  // Residual fix (finding 3) — the OLD implementation neutralized a cross-boundary labeled_secret
+  // match by overwriting its bytes with "x" IN THE JOINED STRING before any other pattern ran,
+  // which also destroyed a genuine private_key match spanning the SAME text: `token:\n-----BEGIN`
+  // is itself a cross-boundary labeled_secret match (11 non-space chars after the colon), so its
+  // bytes — including "-----BEGIN" — were overwritten before the private_key pattern ever saw
+  // them. RED against the old strip-and-mutate implementation; GREEN once labeled_secret is
+  // excluded from the joined scan instead of the joined text being mutated for every pattern.
+  it("block mode: a labeled_secret FP carve-out at one boundary must not blind the private_key pattern to a genuine join elsewhere in the SAME array", () => {
+    const beginLine = "-----BEGIN PRIVATE KEY-----";
+    const bodyLine = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAy8Dbv8prpJ";
+    const endLine = "-----END PRIVATE KEY-----";
+    expectSecretDetected(() => {
+      enforceMemoryDefense(
+        { mode: "block", pii: false },
+        { parts: ["token:", beginLine, bodyLine, endLine] },
+      );
+    });
+  });
+
+  it("redact mode: the same array is still severed to [REDACTED] end to end, not left with a live PEM body", () => {
+    const beginLine = "-----BEGIN PRIVATE KEY-----";
+    const bodyLine = "MIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAy8Dbv8prpJ";
+    const endLine = "-----END PRIVATE KEY-----";
+    const out = enforceMemoryDefense(
+      { mode: "redact", pii: false },
+      { parts: ["token:", beginLine, bodyLine, endLine] },
+    );
+    expect(out.redactions).toBeGreaterThan(0);
+    expect(out.fields.parts).toStrictEqual([
+      "[REDACTED]",
+      "[REDACTED]",
+      "[REDACTED]",
+      "[REDACTED]",
+    ]);
+  });
+
+  it("block mode: a genuine label=value pair CONTAINED WITHIN one array element is still caught (not a boundary case)", () => {
+    const secret = ["access_token", ": ", "kJ8xQ2vR9mN4pL7wT1zY6sB3cH0dF5gA"].join("");
+    expectSecretDetected(() => {
+      enforceMemoryDefense({ mode: "block", pii: false }, { parts: ["intro", secret, "outro"] });
+    });
+  });
+
+  it("block mode: bearer_token still bridges an array-join boundary — a genuinely split secret is still caught", () => {
+    const tokenBody = "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2";
+    for (const el of ["Bearer", tokenBody]) {
+      const solo = enforceMemoryDefense({ mode: "block", pii: false }, { text: el });
+      expect(solo.redactions, `"${el}" must not match alone`).toBe(0);
+    }
+    expectSecretDetected(() => {
+      enforceMemoryDefense({ mode: "block", pii: false }, { parts: ["Bearer", tokenBody] });
+    });
+  });
+});
+
+// Residual fix — normalizeForScan's ZERO_WIDTH_RE was missing SOFT HYPHEN (U+00AD) and MONGOLIAN
+// VOWEL SEPARATOR (U+180E); a secret spliced with either survived unstripped (0 redactions).
+describe("leaf-scan normalization — invisible-splice codepoints not previously stripped (residual fix)", () => {
+  it("block mode: a secret spliced with U+00AD (SOFT HYPHEN) is caught", () => {
+    const softHyphen = "­";
+    const spliced = ["sk-", softHyphen, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+    expectSecretDetected(() => {
+      enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
+    });
+  });
+
+  it("block mode: a secret spliced with U+180E (MONGOLIAN VOWEL SEPARATOR) is caught", () => {
+    const mvs = "᠎";
+    const spliced = ["sk-", mvs, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+    expectSecretDetected(() => {
+      enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
+    });
+  });
+
+  it("redact mode: both spliced forms are what get redacted, never left splice-intact", () => {
+    for (const cp of [0x00ad, 0x180e]) {
+      const ch = String.fromCodePoint(cp);
+      const spliced = ["sk-", ch, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+      const out = enforceMemoryDefense({ mode: "redact", pii: false }, { text: spliced });
+      expect(out.redactions, `U+${cp.toString(16)} must redact`).toBeGreaterThan(0);
+      expect(out.fields.text).toBe("[REDACTED]");
+    }
+  });
+
+  // Sweeps the SAME array memory-defense.ts exports (INVISIBLE_SPLICE_RANGES) rather than a
+  // second hand-typed codepoint list here — this file would silently stop testing a codepoint the
+  // moment the production list changed if it kept its own copy.
+  it("every codepoint in memory-defense.ts's INVISIBLE_SPLICE_RANGES, spliced into a secret, is caught", () => {
+    for (const [lo, hi] of INVISIBLE_SPLICE_RANGES) {
+      for (let cp = lo; cp <= hi; cp++) {
+        const ch = String.fromCodePoint(cp);
+        const spliced = ["sk-", ch, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+        expectSecretDetected(() => {
+          enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
+        });
+      }
+    }
+  });
+});
+
+// Residual fix (finding 4) — three more invisible/formatting codepoint families never made it
+// into INVISIBLE_SPLICE_RANGES: U+061C (ARABIC LETTER MARK, a bidi control the U+200E-200F/
+// U+202A-202E/U+2066-2069 additions above should have swept in but did not), U+034F (COMBINING
+// GRAPHEME JOINER — zero-width by definition, distinct from the already-covered word joiner
+// U+2060), and the 16-codepoint VARIATION SELECTOR block U+FE00-FE0F (renders nothing on its
+// own; splices invisibly into a secret exactly like ZWSP). Each is a genuine RED case against the
+// pre-fix list — spliced into a secret, none were stripped by normalizeForScan (0 redactions).
+describe("leaf-scan normalization — Arabic letter mark, combining grapheme joiner, variation selectors (residual fix)", () => {
+  it("block mode: a secret spliced with U+061C (ARABIC LETTER MARK) is caught", () => {
+    const alm = "؜";
+    const spliced = ["sk-", alm, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+    expectSecretDetected(() => {
+      enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
+    });
+  });
+
+  it("block mode: a secret spliced with U+034F (COMBINING GRAPHEME JOINER) is caught", () => {
+    const cgj = "͏";
+    const spliced = ["sk-", cgj, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+    expectSecretDetected(() => {
+      enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
+    });
+  });
+
+  it("block mode: a secret spliced with U+FE0F (VARIATION SELECTOR-16, within the FE00-FE0F block) is caught", () => {
+    const vs16 = "️";
+    const spliced = ["sk-", vs16, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+    expectSecretDetected(() => {
+      enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
+    });
+  });
+
+  it("redact mode: all three spliced forms are what get redacted, never left splice-intact", () => {
+    for (const cp of [0x061c, 0x034f, 0xfe0f]) {
+      const ch = String.fromCodePoint(cp);
+      const spliced = ["sk-", ch, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+      const out = enforceMemoryDefense({ mode: "redact", pii: false }, { text: spliced });
+      expect(out.redactions, `U+${cp.toString(16)} must redact`).toBeGreaterThan(0);
+      expect(out.fields.text).toBe("[REDACTED]");
+    }
   });
 });

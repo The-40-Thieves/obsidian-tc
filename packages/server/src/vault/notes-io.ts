@@ -204,6 +204,54 @@ export function writeNoteAtomicGuarded(
   return scan;
 }
 
+/** One rewritten note body headed for disk, as `writeNotesAllOrNothingGuarded` takes it. */
+export interface NoteRewriteEntry {
+  abs: string;
+  /** Vault-relative path — the same `path` `enforceMemoryDefenseOnNoteWrite` scans/refuses on. */
+  path: string;
+  content: string;
+}
+
+/**
+ * Scan-then-persist a BATCH of note-content rewrites as one all-or-nothing unit: every entry's
+ * final body is scanned via `enforceMemoryDefenseOnNoteWrite` in pass 1, BEFORE any of them is
+ * written in pass 2 — so a `block`-mode refusal on entry N throws before entries before it have
+ * been written, never a half-applied rewrite (a caller retrying after refusal would otherwise be
+ * unable to tell which of N notes it left repointed and which still point at the stale target).
+ *
+ * The shared pattern behind a backlink/reference rewrite that touches multiple notes for one
+ * logical operation — `rewriteAttachmentReferences` (formats/attachments.ts), move_note's
+ * backlink rewrite, and bulk_move_notes' `rewriteForMoves` all route through this rather than each
+ * hand-rolling the same two-pass loop, which is what let move_note's and rewriteForMoves' own
+ * copies drift from the correct all-or-nothing shape in the first place.
+ *
+ * Every entry writes with `createDirs: false` — a backlink rewrite always targets a note that
+ * already exists on disk, never a new path. Metrics/redaction counts are recorded ONCE, during
+ * the scan pass: the bytes pass 2 writes are exactly what pass 1 already scanned (deterministic),
+ * and pass 1 only completes when every entry is proven not block-worthy, so counting there already
+ * reflects what actually lands on disk — pass 2 does not re-scan.
+ *
+ * "All-or-nothing" here means SCAN-atomic, not WRITE-atomic: no writes on a scan refusal
+ * (pass 1 completing is the only thing that lets pass 2 start), but pass 2 itself is a
+ * plain sequential loop of independent `writeNoteAtomic` calls with no rollback. An I/O failure
+ * mid-batch (ENOSPC, a permission error, a process kill) after some entries have already been
+ * written by pass 2 still leaves those earlier notes rewritten and the rest untouched — this
+ * helper guards against a memoryDefense refusal leaving a half-applied rewrite, not against a
+ * crash or I/O error doing the same.
+ */
+export function writeNotesAllOrNothingGuarded(
+  entries: readonly NoteRewriteEntry[],
+  config: VaultMemoryDefenseConfig | undefined,
+  opts: { metrics?: MetricsRecorder } = {},
+): Array<{ path: string; content: string; redactions: number }> {
+  const scanned = entries.map((e) => {
+    const scan = enforceMemoryDefenseOnNoteWrite(config, e.path, e.content, opts);
+    return { abs: e.abs, path: e.path, content: scan.content, redactions: scan.redactions };
+  });
+  for (const s of scanned) writeNoteAtomic(s.abs, s.content, false);
+  return scanned.map(({ path, content, redactions }) => ({ path, content, redactions }));
+}
+
 export function statNote(abs: string): NoteStat | null {
   try {
     const s = statSync(abs);

@@ -227,6 +227,64 @@ describe("memoryDefense block mode — remaining writers, real wiring, nothing p
     });
   });
 
+  // Residual fix — the backlink rewrite loop used to scan-then-write ONE note at a time, so a
+  // block-worthy match on a LATER note in the batch left EARLIER notes' link rewrites already on
+  // disk (a half-applied rewrite). Both linker notes here reference the moved note; only
+  // `probe/linker-secret.md` carries a block-worthy match (a pre-existing secret predating
+  // memoryDefense, planted directly via node:fs). The all-or-nothing fix means NEITHER note's
+  // link is rewritten, regardless of which one the vault walk visits first.
+  it("move_note: a block-worthy backlink note refuses the WHOLE rewrite — the other, clean linker note is not partially rewritten either", async () => {
+    await withHarness("block", async (h) => {
+      plant(h.vaultDir, "probe/target.md", "Target note content.\n");
+      const cleanLinker = "See [[target]] for details.\n";
+      plant(h.vaultDir, "probe/linker-clean.md", cleanLinker);
+      const secret = fakeOpenAiKey();
+      const secretLinker = `pre-existing secret: ${secret}\n\nAlso see [[target]] here.\n`;
+      plant(h.vaultDir, "probe/linker-secret.md", secretLinker);
+
+      const r = await confirmed(h, "move_note", {
+        vault: "main",
+        from: "probe/target.md",
+        to: "probe/target-renamed.md",
+        update_backlinks: true,
+      });
+      expect(errOf(r).code).toBe("secret_detected");
+      // Neither linker note was rewritten — not the one carrying the secret, and not the clean
+      // one that a per-note-immediate-write loop could have already persisted first.
+      expect(readFileSync(join(h.vaultDir, "probe/linker-clean.md"), "utf8")).toBe(cleanLinker);
+      expect(readFileSync(join(h.vaultDir, "probe/linker-secret.md"), "utf8")).toBe(secretLinker);
+      expect(JSON.stringify(r)).not.toContain(secret);
+    });
+  });
+
+  it("bulk_move_notes: a block-worthy backlink note refuses the WHOLE rewrite pass — the other, clean linker note is not partially rewritten either", async () => {
+    await withHarness("block", async (h) => {
+      plant(h.vaultDir, "probe/bulk-target.md", "Target note content.\n");
+      const cleanLinker = "See [[bulk-target]] for details.\n";
+      plant(h.vaultDir, "probe/bulk-linker-clean.md", cleanLinker);
+      const secret = fakeOpenAiKey();
+      const secretLinker = `pre-existing secret: ${secret}\n\nAlso see [[bulk-target]] here.\n`;
+      plant(h.vaultDir, "probe/bulk-linker-secret.md", secretLinker);
+
+      const r = await confirmed(h, "bulk_move_notes", {
+        vault: "main",
+        moves: [{ from: "probe/bulk-target.md", to: "probe/bulk-target-renamed.md" }],
+        dry_run: false,
+        update_backlinks: true,
+      });
+      // Phase 1 (the file relocation itself) is best-effort and can succeed even though phase 2
+      // (the backlink rewrite pass) throws — the throw propagates out of the handler as a whole.
+      expect(errOf(r).code).toBe("secret_detected");
+      expect(readFileSync(join(h.vaultDir, "probe/bulk-linker-clean.md"), "utf8")).toBe(
+        cleanLinker,
+      );
+      expect(readFileSync(join(h.vaultDir, "probe/bulk-linker-secret.md"), "utf8")).toBe(
+        secretLinker,
+      );
+      expect(JSON.stringify(r)).not.toContain(secret);
+    });
+  });
+
   it("restore_note refuses a secret-shaped snapshot and leaves the current note unchanged", async () => {
     await withHarness("block", async (h) => {
       // Plant the secret DIRECTLY on disk (node:fs, no memoryDefense scan at write time) — the

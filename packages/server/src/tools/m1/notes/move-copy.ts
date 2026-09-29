@@ -21,6 +21,7 @@ import {
   readNote,
   trashNote,
   writeNoteAtomic,
+  writeNotesAllOrNothingGuarded,
 } from "../../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
 import { rewriteLinks } from "../../../vault/rewrite";
@@ -62,9 +63,7 @@ function updateBacklinks(
   const unique = (newIndex.byBasename.get(newBase.toLowerCase()) ?? []).length === 1;
   const newTarget = unique ? newBase : toRel.replace(/\.md$/i, "");
 
-  let notes = 0;
-  let links = 0;
-  const rewritten: Array<{ rel: string; text: string }> = [];
+  const pending: Array<{ abs: string; rel: string; text: string; count: number }> = [];
   for (const p of postPaths) {
     if (p === toRel) continue; // the moved note's own outgoing links are unaffected
     const abs = resolveVaultPath(root, p);
@@ -73,18 +72,28 @@ function updateBacklinks(
       const r = resolveTarget(oldIndex, target);
       return r.resolved && r.target_path === fromRel ? newTarget : null;
     });
-    if (count > 0) {
-      // Security review round (GH #994 follow-up): scan the final rewritten body before writing
-      // it back — same "every note-mutation write scans its final persisted bytes" guard
-      // write_note/append_note/patch_note/remove_tag already get. The note being rewritten here
-      // can carry a pre-existing secret that predates memoryDefense; a link-text-only edit must
-      // not silently re-persist it unscanned.
-      const scanned = enforceMemoryDefenseOnNoteWrite(mdConfig, p, text, { metrics }).content;
-      writeNoteAtomic(abs, scanned, false);
-      rewritten.push({ rel: p, text: scanned });
-      notes++;
-      links += count;
-    }
+    if (count > 0) pending.push({ abs, rel: p, text, count });
+  }
+  // Security review round (GH #994 follow-up) + residual fix: scan every rewritten body BEFORE
+  // any of them is written — the shared all-or-nothing helper (vault/notes-io.ts). A note being
+  // rewritten here can carry a pre-existing secret that predates memoryDefense; a block-worthy
+  // match in note N must refuse the WHOLE backlink rewrite, not leave notes before it repointed
+  // and notes after it stale.
+  const written = writeNotesAllOrNothingGuarded(
+    pending.map((p) => ({ abs: p.abs, path: p.rel, content: p.text })),
+    mdConfig,
+    { metrics },
+  );
+  let notes = 0;
+  let links = 0;
+  const rewritten: Array<{ rel: string; text: string }> = [];
+  for (let i = 0; i < pending.length; i++) {
+    const p = pending[i];
+    const w = written[i];
+    if (!p || !w) continue;
+    rewritten.push({ rel: p.rel, text: w.content });
+    notes++;
+    links += p.count;
   }
   return { notes, links, rewritten };
 }
