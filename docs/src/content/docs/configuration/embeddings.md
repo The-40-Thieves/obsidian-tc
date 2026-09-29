@@ -273,21 +273,30 @@ to `chunk_embeddings` rather than a fixed 768. Likewise, if the stored `chunk_em
 carries a revision suffix (`provider:model@revision`), the kept config carries that same
 `embeddings.revision` rather than dropping or doubling it.
 
-**Ambiguous vault identity — a renamed vault id, or a fresh vault sharing a cache directory.**
-`onProviderChange: "keep"` scopes its lookup to the vault ids currently in your config. If no active
-vectors match any of them, but the cache db (`cacheDir`) still holds active vectors under some
-*other* vault id — most commonly because a vault's `id` was renamed, or a new vault was pointed at a
-`cacheDir` an existing vault already uses — obsidian-tc cannot tell which case this is, so it does
-not silently adopt this vault's OWN default identity over those rows either: it **keeps the
-orphaned rows' provider/model/width**, the same rule it applies to this vault's own rows, and
-reports the source as `ambiguous-orphaned-index` (never `default` or `kept-from-index`) with a
-notice naming the situation, both in `obsidian-tc doctor` and the boot log — so this reads as
-"provisionally kept, but unconfirmed" rather than either "yours" or "the default". If every
-orphaned row already belongs to the current default's own provider family (nothing to keep), this
-falls back to the current default and says so in the same notice. Either way: if the vault was
-renamed, restore its original `id` (or point `cacheDir` at the original location) so its rows match
-again; otherwise, set `embeddings.provider` explicitly (or `embeddings.onProviderChange: "switch"`)
-to make the choice yourself instead of relying on `"keep"`.
+**Renaming a vault's `id` no longer orphans its index.** obsidian-tc records each vault's canonical
+root path in `cache.db` the first time it sees it. At boot, if a configured vault's root path
+matches a path already recorded under a *different* id, every vault-scoped row (chunks, embeddings,
+notes, links, sessions — every table keyed on `vault_id`, across both `cache.db` and the
+experiential store) is re-keyed from the old id to the new one automatically, in one pass, before
+anything else reads them — no re-embed, no manual `cacheDir`/`id` juggling. A boot notice ("vault
+identity: vault "old-id" was renamed to "new-id" … re-keyed") confirms it happened. Two vaults
+resolving to the **same** id but **different** root paths — including two vaults both left at the
+zero-config default id `"main"` — are refused at boot instead, with an error naming both paths: give
+each vault a distinct `id` (and, if they still share a `cacheDir`, a distinct `cacheDir` too).
+
+**Ambiguous vault identity — the residual case.** Because renames are now resolved automatically
+(above), `onProviderChange: "keep"`'s `ambiguous-orphaned-index` source is now rare: it only fires
+when the cache db (`cacheDir`) holds active vectors under a vault id that matches no CURRENTLY
+configured vault id *and* has no recorded root path either — e.g. a vault entry removed from config
+outright, or a pre-upgrade cache db whose identity has not been recorded yet. In that case
+obsidian-tc still refuses to guess: it **keeps the orphaned rows' provider/model/width** rather than
+silently adopting this vault's own default identity over them, and reports the source as
+`ambiguous-orphaned-index` (never `default` or `kept-from-index`) with a notice naming the
+situation, both in `obsidian-tc doctor` and the boot log. If every orphaned row already belongs to
+the current default's own provider family (nothing to keep), this falls back to the current default
+and says so in the same notice. Either way: re-add the vault to config (or run `obsidian-tc doctor`
+to inspect the cache directory's stored providers), or set `embeddings.provider` explicitly (or
+`embeddings.onProviderChange: "switch"`) to make the choice yourself instead of relying on `"keep"`.
 
 **An unmappable stored provider fails closed, before any vector-index rebuild.** The active
 `chunk_embeddings.model` id obsidian-tc would otherwise keep must be reconstructable back into a

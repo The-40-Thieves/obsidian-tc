@@ -199,6 +199,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
           activationRerank: false,
         },
         experientialMigrations,
+        vaults: [{ id: "v1", path: cacheDir }],
       }),
     ),
     vaults: [{ id: "v1", path: cacheDir }],

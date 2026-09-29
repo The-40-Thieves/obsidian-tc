@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { version as VERSION } from "../../../package.json";
+import { provisionExperientialDb } from "../../db/experiential";
 import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import { formatStickyEmbeddingsNotice } from "../../embeddings/sticky-provider";
@@ -15,7 +16,12 @@ import { wireIndexResources } from "../../runtime/indexing-wiring";
 import { maybeSummarizeVault } from "../../search/indexing/summarize-notes";
 import { normalizeVaultPath } from "../../vault/paths";
 import { canonicalizeVaultRoot } from "../../vault/registry";
-import { type Cmd, resolveOrUsageExit } from "../shared";
+import {
+  type Cmd,
+  experientialMigrations,
+  resolveCliVaultIdentity,
+  resolveOrUsageExit,
+} from "../shared";
 
 /**
  * THE-697 — `obsidian-tc index`. The derived-state job that had no CLI.
@@ -69,6 +75,20 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
     // that moment. Idempotent: runMigrations skips what is already applied, so this is a no-op
     // against a live store.
     provisionCacheDb(db, { version: VERSION });
+    // GH #1014 fix round (Medium 4): `index` is the designated pre-`serve` entry point (this
+    // file's own header above) — resolve a config `id` rename here too, at the same choke point
+    // `wireStores` uses at boot, so a rename followed directly by `obsidian-tc index` (no `serve`
+    // first) re-keys rather than writing a second, orphaned set of rows under the new id. `edb` is
+    // only needed for this resolution — `index` otherwise never touches the experiential store —
+    // so it is opened, used, and closed here rather than held for the rest of the command.
+    const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
+      version: VERSION,
+    });
+    try {
+      resolveCliVaultIdentity(db, edb, vaults);
+    } finally {
+      edb.close?.();
+    }
     // A process-local recorder. Its Prometheus counters are discarded when this process exits —
     // there is no /metrics endpoint on a one-shot CLI — but recordIngestStats ALSO writes
     // event_log rows, and those are durable and are the point.

@@ -23,7 +23,12 @@ import type { GatewayRoles } from "../../plane/gateway";
 import { auditJob } from "../../plane/jobs/audit";
 import { planSynthesis, runSynthesis } from "../../plane/jobs/synthesis";
 import type { JobContext } from "../../plane/plane";
-import { type Cmd, experientialMigrations, resolveOrUsageExit } from "../shared";
+import {
+  type Cmd,
+  experientialMigrations,
+  resolveCliVaultIdentity,
+  resolveOrUsageExit,
+} from "../shared";
 
 /** Adapt a GatewayClient to the GatewayRoles seam the plane jobs consume — the same mapping
  *  runtime/tool-wiring.ts's rolesFrom does for the live server, duplicated here (not imported)
@@ -57,6 +62,10 @@ export async function run_consolidate(cmd: Cmd<"consolidate">): Promise<void> {
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
+  // GH #1014 fix round (Medium 4): `consolidate` writes vault-scoped rows (synthesis/audit) without
+  // ever going through `serve` first — resolve a config `id` rename the same way boot does, at the
+  // same choke point every other writer CLI command now shares (cli/shared.ts).
+  resolveCliVaultIdentity(cacheDb, edb, cfg.vaults);
   try {
     const excludeFilter = compileEgressFilter(cfg.egress.excludePaths);
     let gwc: {

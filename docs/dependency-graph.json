@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 517,
-    "dependencies": 2412,
+    "modules": 518,
+    "dependencies": 2423,
     "subsystemPairs": 152,
-    "crossSubsystemImports": 1084
+    "crossSubsystemImports": 1092
   },
   "subsystems": {
     "auth": 4,
@@ -40,7 +40,7 @@
     "tools": 92,
     "transports": 3,
     "util": 4,
-    "vault": 17,
+    "vault": 18,
     "workspace": 3
   },
   "edges": [
@@ -57,7 +57,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 55
+      "weight": 58
     },
     {
       "from": "search",
@@ -141,6 +141,11 @@
     },
     {
       "from": "cli",
+      "to": "vault",
+      "weight": 9
+    },
+    {
+      "from": "cli",
       "to": "search",
       "weight": 9
     },
@@ -160,9 +165,9 @@
       "weight": 9
     },
     {
-      "from": "cli",
+      "from": "runtime",
       "to": "vault",
-      "weight": 8
+      "weight": 9
     },
     {
       "from": "formats",
@@ -177,11 +182,6 @@
     {
       "from": "providers",
       "to": "embeddings",
-      "weight": 8
-    },
-    {
-      "from": "runtime",
-      "to": "vault",
       "weight": 8
     },
     {
@@ -302,6 +302,11 @@
     {
       "from": "search",
       "to": "util",
+      "weight": 5
+    },
+    {
+      "from": "vault",
+      "to": "db",
       "weight": 5
     },
     {
@@ -547,11 +552,6 @@
     {
       "from": "vault",
       "to": "experiential",
-      "weight": 2
-    },
-    {
-      "from": "vault",
-      "to": "db",
       "weight": 2
     },
     {

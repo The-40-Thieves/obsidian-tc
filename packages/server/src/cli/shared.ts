@@ -1,6 +1,8 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../db/migration-manifest";
 import { embeddedSql } from "../db/migrations-embedded";
+import type { Database } from "../db/types";
+import { formatVaultRenameNotice, resolveAndApplyVaultIdentity } from "../vault/identity";
 import {
   type parseCliArgs,
   type ResolvedServeConfig,
@@ -27,6 +29,31 @@ export function resolveOrUsageExit(input?: string): ServerConfig {
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n\n${USAGE}`);
     process.exit(2);
+  }
+}
+
+/**
+ * GH #1014 fix round (Medium 4, root cause): the shared store-opening point for every CLI command
+ * that provisions cache.db and writes vault-scoped rows into it (`index`, `consolidate`,
+ * `memory-import --apply`) — `wireStores` (runtime/stores.ts) was the ONLY caller of
+ * `resolveAndApplyVaultIdentity`, so a config `id` rename followed by one of these commands (no
+ * `serve` in between) wrote rows under the new id while the old id's rows stayed unresolved, and
+ * on cache.db specifically the very next re-key attempt (whenever `serve` finally ran) would hit
+ * the SAME `PRIMARY KEY (vault_id, path)` collision the identity module's own doc comment warns a
+ * stale row can cause — with no operator-facing error at the point that actually caused it.
+ *
+ * Reuses the exact call `wireStores` makes (same function, same notice formatter) rather than a
+ * second implementation, so the two composition roots can't drift on what "resolved" means. Every
+ * caller must already have both stores open and PROVISIONED (migrations applied) — this does not
+ * provision either one itself, matching every call site's existing "provision, then use" order.
+ */
+export function resolveCliVaultIdentity(
+  cacheDb: Database,
+  experientialDb: Database,
+  vaults: readonly { id: string; path: string }[],
+): void {
+  for (const notice of resolveAndApplyVaultIdentity(cacheDb, experientialDb, vaults)) {
+    process.stderr.write(formatVaultRenameNotice(notice));
   }
 }
 

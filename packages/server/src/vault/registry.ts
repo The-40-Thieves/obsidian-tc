@@ -32,7 +32,14 @@ import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsi
  * `ResolvedVault.rootCanonical` (below) still records which case a vault is in, for callers (e.g.
  * `doctor`) that want to warn about it before it ever gets used.
  */
-function canonicalizeVaultRootWithStatus(path: string): { root: string; canonical: boolean } {
+/** Exported for vault/identity.ts (GH #1014 fix round, Medium 5) — the resolver needs BOTH the
+ *  resolved path and whether it was a genuine realpath (vs the lexical fallback) to decide
+ *  whether a stored identity row is provisional and safe to upgrade later, not just the bare
+ *  string `canonicalizeVaultRoot` returns. */
+export function canonicalizeVaultRootWithStatus(path: string): {
+  root: string;
+  canonical: boolean;
+} {
   const lexical = resolve(path);
   try {
     return { root: realpathSync.native(lexical), canonical: true };

@@ -240,12 +240,18 @@ describe("THE-1130 ordinal-correlation adversarial verification", () => {
 });
 
 describe("THE-1130 migration verification", () => {
-  it("is registered at the CACHE tail and its JS postApply backfills exactly parseObservations order", () => {
+  it("is registered exactly once in the CACHE chain and its JS postApply backfills exactly parseObservations order", () => {
     const file = "20260925_002_memory_observation_intervals.sql";
-    expect(CACHE_MIGRATION_FILES.at(-1)).toBe(file);
+    // THE-1130 registered this at the tail when it shipped; 20260928_001_vault_identity.sql
+    // (stable vault identity) has since been appended after it — migrations are append-only, so
+    // "at the tail" is a point-in-time fact, not an invariant this test should keep pinning.
+    // `indexOf` finds it wherever it now sits and still builds the exact prefix (every migration
+    // that ran before it) this test needs to apply it in isolation.
+    const fileIndex = CACHE_MIGRATION_FILES.indexOf(file);
+    expect(fileIndex).toBeGreaterThanOrEqual(0);
     expect(CACHE_MIGRATION_FILES.filter((name) => name === file)).toHaveLength(1);
     const db = openMemoryDb();
-    const prefix = CACHE_MIGRATION_FILES.slice(0, -1);
+    const prefix = CACHE_MIGRATION_FILES.slice(0, fileIndex);
     const readSql = (name: string): string =>
       readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
     runMigrations(
