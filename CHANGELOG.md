@@ -6,11 +6,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.7] - 2026-09-29
+
 ### Fixed
 
 - **memoryDefense closes a split-across-fields importer gap (including two ways the fix itself
   could still leak), a partial backlink rewrite, an array-join false positive (and a mutation bug
-  in its own fix), and a wider invisible-codepoint sweep.** The ambient/highlight importers
+  in its own fix), and a wider invisible-codepoint sweep (#1018).** The ambient/highlight importers
   scanned each field independently before concatenating them into the persisted capture content —
   a secret split across two fields (a label ending one, its value starting the next) survived; both
   importers now detect a cross-field reassembly via a synthetic "\n"-joined reconstruction of the
@@ -38,7 +40,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **`setup` hardening: existing vault paths are re-validated, id collisions are surfaced instead of
   silently resolved, and `--force`'s Windows finalization is more resilient to transient file
-  locks.** An existing config's own vault paths were never existence-checked (only freshly detected
+  locks (#1013).** An existing config's own vault paths were never existence-checked (only freshly detected
   registry vaults were) — a moved/deleted path is now warned about, and kept, never silently
   dropped. A vault id present in both the existing config and a live Obsidian registry entry, at two
   different paths, is now surfaced as a collision and refuses to write even with `--yes`/`--force`
@@ -52,7 +54,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   the backup-collision test freezes the clock to force the counter-suffix path deterministically.
 
 - **Stable vault identity: renaming a vault's `id` no longer orphans its index, and two vaults can
-  no longer silently share rows under one id.** `chunks.vault_id` (and every other table keyed on
+  no longer silently share rows under one id (#1014).** `chunks.vault_id` (and every other table keyed on
   `vault_id`, across both `cache.db` and the experiential store) used to key on the config's
   `vaults[].id`, a mutable string with no path identity behind it — renaming that id orphaned every
   row written under the old one, and the zero-config path (no `id` set) always assigns `"main"` with
@@ -80,7 +82,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 - **Index writes are now fenced at commit time — a stale write can no longer overwrite a fresher
   one, or resurrect a note after it's been deindexed, across two processes racing the same
-  `(vault, path)` (GH #995 follow-up).** The per-vault leader lock stops FOLLOWERS from running
+  `(vault, path)` (GH #995 follow-up, #1016).** The per-vault leader lock stops FOLLOWERS from running
   boot/periodic reconcile and watcher-driven writes, but explicit writers (index-on-write from a
   note's own `write_note`/`append_note`/`patch_note`, and the `index_vault` tool) stay ungated on
   every role, and index coordinators are process-local — so two processes indexing the same path
@@ -100,7 +102,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 ### Security
 
 - **`memoryDefense` extended to every server-side note writer, the M1 sibling tools, session
-  metadata, and the importers (GH #994 follow-up).** Previously scoped to seven structured
+  metadata, and the importers (GH #994 follow-up, #1015).** Previously scoped to seven structured
   memory/capture tools, the scan now also covers `write_note`/`append_note`/`patch_note` (scanning
   the note's FINAL persisted body, after every transform, vault-wide once enabled — not just a
   configured memory folder; the three tools' responses now report a `redactions` count, matching
@@ -118,7 +120,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   under-count is also fixed. See SECURITY.md's "Memory defense" section for the full scope and
   remaining leaf-scanner ceiling (a secret split across unrelated fields is still not reassembled).
 
-- **Security-review-round fixes on the above (GH #994 follow-up).** `ZERO_WIDTH_RE` widened to
+- **Security-review-round fixes on the above (GH #994 follow-up, #1015).** `ZERO_WIDTH_RE` widened to
   also strip the LTR/RTL marks and the remaining bidi-control codepoints a splice could otherwise
   hide behind (a secret spliced with U+200E previously went uncaught entirely); `ULID_SHAPE_RE`
   is case-sensitive again, so a 26-char mixed-case token is no longer waved through as
@@ -138,7 +140,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   homoglyphs.
 
 - **`memoryDefense` extended to the remaining bulk/snapshot/task/table/periodic writers and
-  `reflect`'s persist path (GH #994 follow-up), closing the residual the prior round left open.**
+  `reflect`'s persist path (GH #994 follow-up, #1017), closing the residual the prior round left open.**
   A new `writeNoteAtomicGuarded` primitive (`vault/notes-io.ts`) scans/refuses before persisting,
   reused by: the M6 bulk tools `bulk_create_notes`/`bulk_set_property`/`bulk_move_notes` (a
   secret-shaped bulk-move destination is refused per item, before any file is touched);
