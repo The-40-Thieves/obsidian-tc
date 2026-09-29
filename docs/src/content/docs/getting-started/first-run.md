@@ -89,7 +89,7 @@ If you used `setup` and kept its default output path (`~/.obsidian-tc/config.jso
 
 ```sh
 obsidian-tc
-# obsidian-tc 1.31.6 ready on stdio (vault primary)
+# obsidian-tc 1.31.7 ready on stdio (vault primary)
 ```
 
 Otherwise — a hand-written config, or `setup --config <other-path>` — pass the file's actual
@@ -97,7 +97,7 @@ path:
 
 ```sh
 obsidian-tc /path/to/config.json
-# obsidian-tc 1.31.6 ready on stdio (vault primary)
+# obsidian-tc 1.31.7 ready on stdio (vault primary)
 ```
 
 By default the server speaks the Model Context Protocol over **stdio**, the
