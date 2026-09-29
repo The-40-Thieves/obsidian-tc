@@ -6,9 +6,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.31.8] - 2026-09-29
+
 ### Added
 
-- **`obsidian-tc setup --install-client grok`** — wires an `obsidian-tc` entry into xAI's Grok CLI
+- **`obsidian-tc setup --install-client grok` (#1021)** — wires an `obsidian-tc` entry into xAI's Grok CLI
   the same way Claude Code/Codex CLI/Antigravity/Hermes Agent are: `grok mcp add`, run directly
   (never a shell), with the command also printed for a human to copy-paste. Verified end-to-end
   against the installed `grok` CLI (project-scoped registration, `grok mcp doctor`/`mcp list`, and
@@ -16,7 +18,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
-- **A headless HTTP deploy no longer crash-loops on stdin EOF.** Since 1.31.6's bounded shutdown,
+- **A headless HTTP deploy no longer crash-loops on stdin EOF (#1020).** Since 1.31.6's bounded shutdown,
   any stdio EOF — including the one a `docker run -d` container or a systemd unit hits immediately
   because their stdin is backed by `/dev/null` rather than a real client — exited the WHOLE process
   through the same path a SIGTERM uses, taking a co-enabled HTTP listener down with it on
