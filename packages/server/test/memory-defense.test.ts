@@ -109,14 +109,43 @@ function fakeHighConfidenceLabeledSecret(): string {
   ].join("");
 }
 function fakeHighConfidenceLowercaseHexLabeledSecret(): string {
-  // addendum 3: 32 lowercase hex chars — only 2 character classes (lower + digit), so it must
-  // clear the length >= 20 branch instead, not the classes >= 3 branch.
-  return ["token", ": ", "a1b2c3d4e5f6", "a1b2c3d4e5f6", "a1b2c3d4e5f6", "a1b2"].join("");
+  // item 3 (entropy floor): a true 32-char lowercase hex value — only 2 character classes
+  // (lower + digit), so it must clear the length >= 20 branch's entropy floor rather than the
+  // classes >= 3 branch. Deliberately non-repetitive (each hex digit appears close to twice, in
+  // scrambled order) — computed at ~4.0 Shannon bits/char via codecalc, comfortably above the
+  // module's LABELED_SECRET_ENTROPY_FLOOR_BITS_PER_CHAR, unlike a repeating pattern which would
+  // score far lower despite "looking" hex-shaped.
+  return ["token", ": ", "3f2b8e9a", "1c04d7f6", "b8a2e9c1", "d4f07b3a"].join("");
 }
 function fakeLabeledUuidValue(): string {
   // addendum 3: a canonical UUID next to a label — long (36 chars) and would otherwise clear the
   // length >= 20 branch, but must stay low confidence (UUID shape excluded).
   return ["token", ": ", "123e4567-e89b-12d3-a456-426614174000"].join("");
+}
+
+// item 3 (entropy floor, GH #994 follow-up): a dash-joined, low-entropy label value that is
+// >= 20 chars and only 2 character classes (lower + digit) — previously misclassified
+// high-confidence by the length >= 20 branch alone. Computed at ~3.72 Shannon bits/char via
+// codecalc, below the floor.
+function fakeLowEntropyServiceLabel(): string {
+  return ["token", ": ", "production-service-1"].join("");
+}
+
+// item 3: a realistic 40-char base64url-shaped token — mixed upper/lower/digit (3 classes), so
+// it clears the classes >= 3 branch unconditionally and must stay high-confidence regardless of
+// the entropy floor added to the length >= 20 branch.
+function fakeHighConfidenceBase64UrlLabeledSecret(): string {
+  return ["access_token", " = ", "kJ8xQ2vR", "9mN4pL7w", "T1zY6sB3", "cH0dF5gA", "8eU2iO9k"].join(
+    "",
+  );
+}
+
+// item 3: a ULID (Crockford base32, 26 chars, digits + uppercase only — 2 classes) next to a
+// label. Structurally a correlation id (like the UUID case above), not a credential, even though
+// it clears both the classes >= 3 branch's alternative and the length >= 20 branch's raw length
+// check — excluded by shape, same treatment as UUID_SHAPE_RE.
+function fakeLabeledUlidValue(): string {
+  return ["token", ": ", "01ARZ3ND", "EKTSV4RR", "FFQ69G5F", "AV"].join("");
 }
 
 function fakeSsn(): string {
@@ -1446,6 +1475,9 @@ describe("review finding 6 — labeled_secret confidence tiers (block mode never
     { label: "password: hunter22-old", value: fakeLowConfidenceLabeledSecretB },
     { label: "password: Summer2024! (short, mixed-class)", value: fakeLowConfidenceLabeledSecretC },
     { label: "token: <UUID> (long, but UUID-shaped)", value: fakeLabeledUuidValue },
+    // item 3 — entropy floor / shape exclusions added to the length >= 20 branch.
+    { label: "token: production-service-1 (low entropy)", value: fakeLowEntropyServiceLabel },
+    { label: "token: <ULID> (long, but ULID-shaped)", value: fakeLabeledUlidValue },
   ];
 
   for (const c of lowConfidenceCases) {
@@ -1514,6 +1546,19 @@ describe("review finding 6 — labeled_secret confidence tiers (block mode never
     if (!r.ok) expect(r.error.code).toBe("secret_detected");
   });
 
+  it("block mode: a realistic 40-char base64url labeled token IS refused (classes>=3 branch, unaffected by the entropy floor)", async () => {
+    v = makeM5Vault({ memoryDefense: { mode: "block", pii: false } });
+    const secret = fakeHighConfidenceBase64UrlLabeledSecret();
+    const r = await v.call("create_entity", {
+      vault: "test",
+      type: "person",
+      name: "high-conf-base64url-probe",
+      observations: [secret],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("secret_detected");
+  });
+
   it("redact mode: low-confidence hits are redacted exactly as high-confidence ones are", async () => {
     v = makeM5Vault({ memoryDefense: { mode: "redact", pii: false } });
     const r = un<{ redactions: number }>(
@@ -1525,6 +1570,34 @@ describe("review finding 6 — labeled_secret confidence tiers (block mode never
       }),
     );
     expect(r.redactions).toBeGreaterThan(0);
+  });
+
+  // Security review round (LOW #11): ULID_SHAPE_RE dropped its `/i` flag on purpose — a canonical
+  // ULID is uppercase-only, so matching it case-insensitively forced ANY 26-char mixed-case token
+  // (a real high-entropy secret can easily land in that exact length/alphabet) to low-confidence
+  // before the classes>=3 test ever ran. This is the RED case that regex bug would have missed.
+  it("block mode: a 26-char MIXED-CASE token in the ULID length/alphabet range is REFUSED (not excluded as ULID-shaped)", async () => {
+    v = makeM5Vault({ memoryDefense: { mode: "block", pii: false } });
+    // Same 26 canonical-ULID characters as fakeLabeledUlidValue above, alternating case — still
+    // 26 chars, still digits+letters, but no longer uppercase-only, so ULID_SHAPE_RE (case-
+    // sensitive) must NOT match it. 3 character classes (lower+upper+digit) push it through the
+    // classes>=3 branch unconditionally.
+    const canonical = ["01ARZ3ND", "EKTSV4RR", "FFQ69G5F", "AV"].join("");
+    const mixedCase = canonical
+      .split("")
+      .map((c, i) => (i % 2 === 0 ? c.toLowerCase() : c))
+      .join("");
+    expect(mixedCase).toHaveLength(26);
+    expect(mixedCase).not.toBe(mixedCase.toUpperCase()); // genuinely mixed-case
+    const secret = ["token", ": ", mixedCase].join("");
+    const r = await v.call("create_entity", {
+      vault: "test",
+      type: "person",
+      name: "mixed-case-ulid-shaped-probe",
+      observations: [secret],
+    });
+    expect(r.ok, "a mixed-case 26-char token must not be waved through as ULID-shaped").toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("secret_detected");
   });
 });
 

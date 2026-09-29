@@ -182,7 +182,12 @@ describe("THE-650 ingestHighlights -> capture_queue", () => {
     expect(totalHighlights).toBe(3); // 2 from book 111 + 1 from book 333
 
     const first = ingestHighlights(db, "main", items, 1000);
-    expect(first).toStrictEqual({ enqueued: 3, skipped_duplicate: 0 });
+    expect(first).toStrictEqual({
+      enqueued: 3,
+      skipped_duplicate: 0,
+      redacted: 0,
+      skipped_secret: 0,
+    });
 
     const rows = listCaptures(db, "main", { source: "import" });
     expect(rows).toHaveLength(3);
@@ -200,7 +205,12 @@ describe("THE-650 ingestHighlights -> capture_queue", () => {
 
     // Re-run over the SAME fetched items (simulating a second sync pass): nothing new enqueued.
     const second = ingestHighlights(db, "main", items, 2000);
-    expect(second).toStrictEqual({ enqueued: 0, skipped_duplicate: 3 });
+    expect(second).toStrictEqual({
+      enqueued: 0,
+      skipped_duplicate: 3,
+      redacted: 0,
+      skipped_secret: 0,
+    });
     expect(listCaptures(db, "main", { source: "import" })).toHaveLength(3);
   });
 
@@ -230,7 +240,12 @@ describe("THE-650 ingestHighlights -> capture_queue", () => {
     const fetchFn = fakeReadwiseFetch();
     const items = await fetchReadwiseHighlights("test-token", { fetchFn });
     const result = ingestHighlights(db, "main", items, 1000, { dryRun: true });
-    expect(result).toStrictEqual({ enqueued: 3, skipped_duplicate: 0 });
+    expect(result).toStrictEqual({
+      enqueued: 3,
+      skipped_duplicate: 0,
+      redacted: 0,
+      skipped_secret: 0,
+    });
     expect(listCaptures(db, "main", { source: "import" })).toHaveLength(0);
   });
 });

@@ -3,9 +3,9 @@
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
     "modules": 518,
-    "dependencies": 2423,
-    "subsystemPairs": 152,
-    "crossSubsystemImports": 1092
+    "dependencies": 2440,
+    "subsystemPairs": 153,
+    "crossSubsystemImports": 1106
   },
   "subsystems": {
     "auth": 4,
@@ -70,6 +70,11 @@
       "weight": 50
     },
     {
+      "from": "tools",
+      "to": "experiential",
+      "weight": 30
+    },
+    {
       "from": "runtime",
       "to": "search",
       "weight": 29
@@ -86,23 +91,18 @@
     },
     {
       "from": "tools",
-      "to": "experiential",
-      "weight": 24
-    },
-    {
-      "from": "tools",
       "to": "db",
       "weight": 20
     },
     {
       "from": "cli",
       "to": "experiential",
-      "weight": 16
+      "weight": 17
     },
     {
       "from": "runtime",
       "to": "experiential",
-      "weight": 16
+      "weight": 17
     },
     {
       "from": "runtime",
@@ -310,6 +310,11 @@
       "weight": 5
     },
     {
+      "from": "capture",
+      "to": "experiential",
+      "weight": 4
+    },
+    {
       "from": "cli",
       "to": "workspace",
       "weight": 4
@@ -332,6 +337,11 @@
     {
       "from": "search",
       "to": "gateway",
+      "weight": 4
+    },
+    {
+      "from": "tools",
+      "to": "metrics",
       "weight": 4
     },
     {
@@ -446,7 +456,7 @@
     },
     {
       "from": "capture",
-      "to": "experiential",
+      "to": "metrics",
       "weight": 2
     },
     {
@@ -541,11 +551,6 @@
     },
     {
       "from": "tools",
-      "to": "metrics",
-      "weight": 2
-    },
-    {
-      "from": "tools",
       "to": "plur",
       "weight": 2
     },
@@ -621,17 +626,17 @@
     },
     {
       "from": "experiential",
+      "to": "metrics",
+      "weight": 1
+    },
+    {
+      "from": "experiential",
       "to": "util",
       "weight": 1
     },
     {
       "from": "experiential",
       "to": "gateway",
-      "weight": 1
-    },
-    {
-      "from": "experiential",
-      "to": "metrics",
       "weight": 1
     },
     {

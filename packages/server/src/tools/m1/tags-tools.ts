@@ -6,6 +6,11 @@
 // frontmatter `tags` list or the body, per the `location` argument.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+  redactedEcho,
+} from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -257,18 +262,29 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           added = true;
         }
 
-        const content = serializeNote(fm, body, parsed.rawFrontmatter, {
+        const rawContent = serializeNote(fm, body, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
           frontmatterAtEof: parsed.frontmatterAtEof,
           path: rel,
           onFallback: frontmatterFallbackSink,
         });
+        // item 1 sibling writer (GH #994 follow-up): same guard write_note/append_note/patch_note
+        // already get — a caller-supplied tag can itself be secret-shaped (isValidTag allows any
+        // alnum/-/_//, no length ceiling), and a pre-existing note can carry a secret that
+        // predates memoryDefense; either way this scans the FINAL persisted body.
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const content = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, rawContent, {
+          metrics: deps.metrics,
+        }).content;
         writeNoteAtomic(abs, content, false);
         deps.reindex?.(v.id, rel, content);
+        // Security review round (MEDIUM #7): echo the SCANNED tag, not the raw caller-supplied
+        // one — a secret-shaped tag persisted as "[REDACTED]" above must not still come back
+        // unredacted in this same response.
         return {
           vault: v.id,
           path: rel,
-          tag,
+          tag: redactedEcho(mdConfig, tag),
           location: input.location,
           added,
           content_hash: contentHash(content),
@@ -334,12 +350,21 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         }
 
         const nextFm = Object.keys(fm).length > 0 ? fm : null;
-        const content = serializeNote(nextFm, body, parsed.rawFrontmatter, {
+        const rawContent = serializeNote(nextFm, body, parsed.rawFrontmatter, {
           frontmatterEol: parsed.frontmatterEol,
           frontmatterAtEof: parsed.frontmatterAtEof,
           path: rel,
           onFallback: frontmatterFallbackSink,
         });
+        // item 1 sibling writer: same guard as add_tag above — a note being rewritten (even just
+        // to drop one tag) can carry a pre-existing secret elsewhere in its frontmatter/body that
+        // predates memoryDefense; the scan runs over the FINAL persisted body either way.
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const content =
+          removed > 0
+            ? enforceMemoryDefenseOnNoteWrite(mdConfig, rel, rawContent, { metrics: deps.metrics })
+                .content
+            : rawContent;
         // Skip the rewrite (and content-hash churn) when nothing was removed (F1).
         if (removed > 0) {
           writeNoteAtomic(abs, content, false);

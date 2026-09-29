@@ -11,6 +11,10 @@
 // private to this file — nothing else in the notes domain called them. read_note's section read
 // needs the same resolution, so they moved to ./anchors.ts; read.ts imports from there too.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+} from "../../../experiential/memory-defense";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";
@@ -120,6 +124,15 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         prev_hash: prevHash,
       });
 
+      // GH #994 follow-up: scan the note's FINAL body before it reaches disk — the same guard
+      // the structured M5/M8 writers already run on their own fields. See
+      // memory-defense.ts's enforceMemoryDefenseOnNoteWrite for why this is vault-wide rather
+      // than restricted to the configured memory folder.
+      const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, input.content, {
+        metrics: deps.metrics,
+      });
+
       persistGovernedNote(
         ctx.db,
         {
@@ -132,7 +145,7 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
           vaultId: v.id,
           root: v.root,
           rel,
-          content: input.content,
+          content: scan.content,
           op: "write_note",
           createDirs: input.options.create_dirs,
         },
@@ -142,15 +155,18 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         path: rel,
         created: !ex.exists,
         mode_used: ex.exists ? "overwrite" : "create",
-        content_hash: contentHash(input.content),
+        content_hash: contentHash(scan.content),
         prev_hash: prevHash,
-        bytes_written: Buffer.byteLength(input.content, "utf8"),
+        bytes_written: Buffer.byteLength(scan.content, "utf8"),
         // THE-643 item 1: never recomputed here — a point read of whatever the offline/scheduled
         // note-quality pass last wrote. null (not deps.edb) means "rollup never ran for this note".
         quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
         // THE-639: null when provenance !== "agent_synthesis" (assessPoison never ran) — not a
         // false all-clear, same convention as quality_warning above.
         poison_assessment: poisonAssessment,
+        // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
+        // this write matched — same convention as commit_capture's own `redactions` field.
+        ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
       };
     },
   });
@@ -216,6 +232,13 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         next = input.content;
       }
 
+      // GH #994 follow-up: scan the RESULTING note body (existing bytes + appended content), not
+      // just `input.content` — a secret split across the join is still caught. Runs before every
+      // durable effect below (nothing has committed yet), so `block` mode refuses cleanly.
+      const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, next, { metrics: deps.metrics });
+      next = scan.content;
+
       // THE-572: append is the one write in this file that is NOT idempotent — re-running it
       // concatenates the content a second time — and it is keyed through the nested
       // `options.idempotency_key` that WriteOptions carries. Before this signal, a throw between
@@ -238,6 +261,8 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
         // THE-639: see write_note's identical comment above.
         poison_assessment: poisonAssessment,
+        // GH #994 follow-up: see write_note's identical comment above.
+        ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
       };
     },
   });
@@ -405,12 +430,19 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           },
         );
 
-      const next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter, {
+      let next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter, {
         frontmatterEol: parsed.frontmatterEol,
         frontmatterAtEof: parsed.frontmatterAtEof,
         path: rel,
         onFallback: frontmatterFallbackSink,
       });
+      // GH #994 follow-up: scan the RESULTING note body — for `replace_text` in particular, this
+      // is the whole note after substitution, not just old_string/new_string, so a secret
+      // ASSEMBLED by the substitution (two clean halves joined into one secret-shaped value) is
+      // still caught. Runs before any durable effect below.
+      const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, next, { metrics: deps.metrics });
+      next = scan.content;
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a
       // destructive replace (GH #928: replace_text is the same shape — it discards content too)
@@ -430,6 +462,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         anchor,
         ...(anchor.type === "heading" ? { target_heading: anchor.heading } : {}),
         content_hash: contentHash(next),
+        ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
         prev_hash: hash,
         lines_removed: patched.removedLines,
         bytes_removed: patched.removedBytes,

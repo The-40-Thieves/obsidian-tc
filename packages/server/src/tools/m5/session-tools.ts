@@ -14,6 +14,7 @@
 import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inTransaction } from "../../db/txn";
+import { enforceMemoryDefense } from "../../experiential/memory-defense";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
@@ -31,7 +32,7 @@ import {
   type TraceRecord,
 } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
-import { type M5Deps, parseIso } from "./shared";
+import { type M5Deps, memoryDefenseFor, parseIso } from "./shared";
 
 /**
  * THE-737 — resolve a session's trace file, applying the folder ACL only where it means something.
@@ -66,6 +67,9 @@ const StartSessionOutput = z.object({
   vault: z.string(),
   started_at: z.number(),
   trace_path: z.string(),
+  // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
+  // session_metadata matched.
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 const EndSessionOutput = z.object({
@@ -74,6 +78,7 @@ const EndSessionOutput = z.object({
   trace_path: z.string(),
   event_count: z.number(),
   duration_ms: z.number(),
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 // THE-417: mirrors TraceRecord (workspace/sessions.ts), which carries an index signature — the
@@ -129,6 +134,23 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         // see `traceAbsFor` below for the legacy branch that still checks.
         const tracePath = cacheTraceRelPath(id);
         const abs = resolveCacheTracePath(deps.cacheDir, tracePath);
+        // GH #994 follow-up: `session_metadata` is arbitrary caller JSON persisted in TWO places
+        // (the JSONL trace below, and the workspace_sessions row's metadata_json) — scan it once,
+        // through the SAME recursive walk the structured M5/M8 writers already run, and use the
+        // one scanned object for both. Runs before the first durable effect (appendTrace) so
+        // `block` mode refuses cleanly with nothing written.
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        const metaScan =
+          input.session_metadata !== undefined
+            ? enforceMemoryDefense(
+                mdConfig,
+                { session_metadata: input.session_metadata },
+                { metrics: deps.metrics },
+              )
+            : null;
+        const scannedMetadata = metaScan
+          ? (metaScan.fields.session_metadata as Record<string, unknown>)
+          : undefined;
         // THE-572: two effects — a SQLite row and a JSONL trace file — that cannot share a
         // transaction. The row used to be inserted first, so an appendTrace throw left a durable
         // session row behind while dispatch deleted the idempotency claim, and a retry inserted a
@@ -142,7 +164,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           type: "session_start",
           session_id: id,
           caller: input.caller,
-          ...(input.session_metadata ? { metadata: input.session_metadata } : {}),
+          ...(scannedMetadata ? { metadata: scannedMetadata } : {}),
         });
         // The row and the idempotency marker are both writes on ctx.db, so they commit together:
         // a failed INSERT rolls the marker back too and the claim stays legitimately re-runnable.
@@ -154,7 +176,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
             caller: input.caller,
             startedAt: now,
             tracePath,
-            metadata: input.session_metadata,
+            metadata: scannedMetadata,
             // THE-627: server-observed client identity, kept separate from the caller-supplied
             // `session_metadata` above so an observation and a declaration stay distinguishable.
             ...(ctx.clientInfo ? { clientInfo: ctx.clientInfo } : {}),
@@ -167,7 +189,15 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           });
         });
         deps.activeSessions?.set(ctx.caller, id, v.id);
-        return { session_id: id, vault: v.id, started_at: now, trace_path: tracePath };
+        return {
+          session_id: id,
+          vault: v.id,
+          started_at: now,
+          trace_path: tracePath,
+          // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
+          // session_metadata matched — same convention as commit_capture's own field.
+          ...(metaScan && metaScan.redactions > 0 ? { redactions: metaScan.redactions } : {}),
+        };
       },
     }),
 
@@ -220,11 +250,27 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           throw err.invalidInput("session already ended", { session_id: input.session_id });
         const now = (ctx.now ?? Date.now)();
         const abs = traceAbsFor(deps, s, v, ctx, "write");
+        // GH #994 follow-up: `end_metadata` is arbitrary caller JSON appended straight into the
+        // session's JSONL trace — the same recursive scan start_session runs on
+        // `session_metadata`. Runs before appendTrace (the first durable effect below), so
+        // `block` mode refuses with nothing written.
+        const mdConfig = memoryDefenseFor(deps, v.id);
+        const metaScan =
+          input.end_metadata !== undefined
+            ? enforceMemoryDefense(
+                mdConfig,
+                { end_metadata: input.end_metadata },
+                { metrics: deps.metrics },
+              )
+            : null;
+        const scannedMetadata = metaScan
+          ? (metaScan.fields.end_metadata as Record<string, unknown>)
+          : undefined;
         appendTrace(abs, {
           ts: now,
           type: "session_end",
           session_id: s.id,
-          ...(input.end_metadata ? { metadata: input.end_metadata } : {}),
+          ...(scannedMetadata ? { metadata: scannedMetadata } : {}),
         });
         endSession(ctx.db, s.id, now);
         // THE-838: clear the tracker entry under the session's OWNER, not the caller. The two are
@@ -238,6 +284,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           trace_path: s.trace_path,
           event_count: readTrace(abs).length,
           duration_ms: now - s.started_at,
+          ...(metaScan && metaScan.redactions > 0 ? { redactions: metaScan.redactions } : {}),
         };
       },
     }),

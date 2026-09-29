@@ -7,6 +7,10 @@
 // merge do not. Property keys are top-level by default; pass nested=true for dotted-path access (THE-198).
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+} from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -362,20 +366,37 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           );
 
         const hasKeys = Object.keys(next).length > 0;
-        const content = serializeNote(hasKeys ? next : null, body, rawFm, {
+        const rawContent = serializeNote(hasKeys ? next : null, body, rawFm, {
           frontmatterEol: fmEol,
           frontmatterAtEof: fmAtEof,
           path: rel,
           onFallback: frontmatterFallbackSink,
         });
+        // item 1 sibling writer (GH #994 follow-up): scan the FINAL persisted body — same guard,
+        // same "vault-wide once mode != off" scope, write_note/append_note/patch_note already get
+        // (notes/write.ts). update_frontmatter's caller-supplied `properties` can carry a secret
+        // as a frontmatter value; a pre-existing note's frontmatter can also carry one that
+        // predates memoryDefense — either way, the scan runs on the bytes about to be written,
+        // not just the caller's raw input.
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, rawContent, {
+          metrics: deps.metrics,
+        });
+        const content = scan.content;
         writeNoteAtomic(abs, content, true);
         deps.reindex?.(v.id, rel, content);
+        // A match redacted the persisted bytes above — the RESPONSE's own `frontmatter` echo must
+        // reflect what actually landed on disk, never the pre-scan `next`, or the response itself
+        // would leak the secret the file no longer contains. Re-parse the persisted (possibly
+        // redacted) content rather than hand-redacting `next` a second way.
+        const responseFrontmatter =
+          scan.redactions > 0 ? parseNote(content, rel).frontmatter : hasKeys ? next : null;
         return {
           vault: v.id,
           path: rel,
           operation: input.operation,
           created: !ex.exists,
-          frontmatter: hasKeys ? next : null,
+          frontmatter: responseFrontmatter,
           content_hash: contentHash(content),
           prev_hash: prevHash,
         };

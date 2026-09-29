@@ -100,11 +100,16 @@ export async function run_import_highlights(cmd: Cmd<"import-highlights">): Prom
     // Provisioned defensively, like `index` (cli/commands/index.ts): an operator may reach for
     // this before ever running `serve`.
     provisionCacheDb(cacheDb, { version: VERSION });
-    const result = ingestHighlights(cacheDb, vault.id, items, t0, { dryRun: !!cmd.dryRun });
+    const result = ingestHighlights(cacheDb, vault.id, items, t0, {
+      dryRun: !!cmd.dryRun,
+      // GH #994 follow-up: same per-vault policy the MCP capture tools already honor.
+      ...(vault.memoryDefense ? { memoryDefense: vault.memoryDefense } : {}),
+    });
     const label = cmd.dryRun ? "would enqueue" : "enqueued";
     process.stdout.write(
       `import-highlights${cmd.dryRun ? " --dry-run" : ""} [${vault.id}]: ${result.enqueued} ${label}, ` +
-        `${result.skipped_duplicate} already staged (deduplicated)\n`,
+        `${result.skipped_duplicate} already staged (deduplicated), ${result.redacted} secret(s) redacted, ` +
+        `${result.skipped_secret} skipped (memoryDefense block)\n`,
     );
     if (!cmd.dryRun && result.enqueued > 0) {
       auditImportHighlightsEvent(cacheDb, vault.id, Date.now() - t0, result.enqueued);

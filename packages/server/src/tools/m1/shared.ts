@@ -2,7 +2,9 @@
 // module so implementation files can import it without pulling in index.ts's barrel — which
 // imports every implementation file back, and previously made each of those a two-node
 // import cycle through ./index).
+import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../../db/types";
+import type { MetricsRecorder } from "../../metrics/registry";
 import type { VaultRegistry } from "../../vault/registry";
 
 export interface M1Deps {
@@ -37,4 +39,10 @@ export interface M1Deps {
    *  read into note_quality. Absent (store closed, or tests that don't need it) -> write_note/
    *  append_note/patch_note report quality_warning: null, same as "rollup never ran". */
   edb?: Database;
+  /** GH #994 follow-up: per-vault memoryDefense policy for write_note/append_note/patch_note.
+   *  Absent -> MEMORY_DEFENSE_OFF (mode "off", no scan), same "closure, defaulted at the read
+   *  site" shape M5/M8 already use. */
+  memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
+  /** GH #994 follow-up: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
+  metrics?: MetricsRecorder;
 }

@@ -121,6 +121,9 @@ export const WriteNoteOutput = z.object({
   bytes_written: z.number(),
   quality_warning: QualityWarningOut,
   poison_assessment: PoisonAssessmentOut,
+  // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in this
+  // write matched — same convention as commit_capture's own `redactions` field.
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 export const AppendNoteOutput = z.object({
@@ -132,6 +135,7 @@ export const AppendNoteOutput = z.object({
   bytes_written: z.number(),
   quality_warning: QualityWarningOut,
   poison_assessment: PoisonAssessmentOut,
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 /** Mirrors the PatchAnchor input union verbatim — patch_note echoes the resolved anchor back. */
@@ -160,6 +164,7 @@ export const PatchNoteOutput = z.object({
   lines_removed: z.number(),
   bytes_removed: z.number(),
   quality_warning: QualityWarningOut,
+  redactions: z.number().int().nonnegative().optional(),
 });
 
 export const DeleteNoteOutput = z.object({

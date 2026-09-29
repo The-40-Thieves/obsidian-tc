@@ -50,6 +50,46 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   [docs/configuration/embeddings.md](docs/src/content/docs/configuration/embeddings.md#upgrading-from-a-pre-local-embedder-config)
   for the full behavior.
 
+### Security
+
+- **`memoryDefense` extended to every server-side note writer, the M1 sibling tools, session
+  metadata, and the importers (GH #994 follow-up).** Previously scoped to seven structured
+  memory/capture tools, the scan now also covers `write_note`/`append_note`/`patch_note` (scanning
+  the note's FINAL persisted body, after every transform, vault-wide once enabled — not just a
+  configured memory folder; the three tools' responses now report a `redactions` count, matching
+  `commit_capture`'s own convention), `move_note`/`copy_note` (including an outright refusal on a
+  secret-shaped destination path, before any content is written), `update_frontmatter`,
+  `add_tag`/`remove_tag`, `rewrite_link`/`prune_hub_links`, `start_session`/`end_session` metadata,
+  and the ambient/highlight/memory importers (previously the only writers into the same
+  entity/capture/goal tables that bypassed the scan entirely). Leaf scanning now normalizes NFKC
+  and strips zero-width/invisible codepoints before matching (closing a homoglyph/invisible-splice
+  bypass), and additionally scans a same-typed array's PERSISTED joined form alongside each element
+  (closing a secret split across `observations[0]`/`observations[1]`). The `labeled_secret`
+  high-confidence tier now also requires a Shannon-entropy floor (>= 3.8 bits/char) on its
+  length >= 20 branch, and excludes canonical ULIDs alongside UUIDs, cutting false-positive
+  `block`-mode refusals on long-but-readable identifiers. A separate ambient-import redaction
+  under-count is also fixed. See SECURITY.md's "Memory defense" section for the full scope and
+  remaining leaf-scanner ceiling (a secret split across unrelated fields is still not reassembled).
+
+- **Security-review-round fixes on the above (GH #994 follow-up).** `ZERO_WIDTH_RE` widened to
+  also strip the LTR/RTL marks and the remaining bidi-control codepoints a splice could otherwise
+  hide behind (a secret spliced with U+200E previously went uncaught entirely); `ULID_SHAPE_RE`
+  is case-sensitive again, so a 26-char mixed-case token is no longer waved through as
+  ULID-shaped before the confidence classifier ever runs. `write_note`/`append_note`/`patch_note`
+  now refuse a secret-shaped `path` before scanning `content`, even in `redact` mode (previously
+  only scanned as part of a discarded field). The ambient/highlight importers now scan every
+  field that lands in the persisted row (`app`/`window_title`/`url`/`machine`; `title`/`author`/
+  `url`/`tags`), not just the primary text field. `move_note`'s backlink rewrite in every OTHER
+  note is now scanned before it is written back, same as every other M1 writer. `add_tag` and
+  `rewrite_link` now echo the SCANNED value in their response, not the raw caller-supplied one
+  (a redact-mode write that redacted a secret on disk must not still hand it back in the same
+  response); `prune_hub_links`' `content_hash` now reflects the bytes actually persisted, not a
+  pre-scan preview. See SECURITY.md's "Memory defense" Limits for the corrected scope and the
+  residuals this round left open (deferred, tracked separately): several bulk/snapshot/task/table
+  writers still bypass the scan entirely, `commit_capture`'s frontmatter-to-YAML serialization
+  step is not re-scanned, and NFKC folds compatibility variants only — not cross-script
+  homoglyphs.
+
 ## [1.31.6] - 2026-09-29
 
 ### Added

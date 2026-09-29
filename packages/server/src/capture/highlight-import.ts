@@ -14,8 +14,11 @@
 // `import-dedupe:<hash>` — checked against every existing `source: "import"` row (pending AND
 // committed, via queue.ts's `listCaptureTags`) before enqueueing. `commit_capture`/human review is
 // still the only path to the vault; this only keeps the QUEUE itself from filling with repeats.
+import { ObsidianTcError, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
+import { enforceMemoryDefense, MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import { argsHash } from "../hash";
+import type { MetricsRecorder } from "../metrics/registry";
 import { enqueueCapture, listCaptureTags } from "./queue";
 
 /** One highlight within a `CanonicalHighlightSource` item. Source-agnostic: no field here may
@@ -84,20 +87,39 @@ function formatCaptureContent(item: CanonicalHighlightSource, h: CanonicalHighli
 export interface IngestHighlightsResult {
   enqueued: number;
   skipped_duplicate: number;
+  /** GH #994 follow-up: total secret-shaped substrings redacted this run (memoryDefense
+   *  `mode: "redact"` only — this format runs no unconditional baseline scan of its own, unlike
+   *  ambient-import.ts). */
+  redacted: number;
+  /** GH #994 follow-up: highlights skipped outright because the vault's memoryDefense policy is
+   *  `block` and the highlight text/note was block-worthy. Counted, never described. */
+  skipped_secret: number;
 }
 
 /**
  * Stage every highlight in `items` into `vaultId`'s capture_queue (`source: "import"`), skipping
  * any whose dedupe key already exists on a prior "import" row. Nothing here writes to the vault —
  * `commit_capture` is still the human gate `enqueueCapture` always has.
+ *
+ * GH #994 follow-up: a Readwise/Instapaper export is untrusted external input the same as any
+ * ambient observation — route it through the vault's `memoryDefense` policy before it lands in
+ * the queue, same contract as ambient-import.ts: `off` — unchanged; `redact` — the highlight text
+ * and note are scanned (incl. PII when `pii: true`) and redacted matches replace the [REDACTED]
+ * marker; `block` — the highlight is skipped entirely rather than staged with a redacted
+ * stand-in.
  */
 export function ingestHighlights(
   db: Database,
   vaultId: string,
   items: readonly CanonicalHighlightSource[],
   now: number,
-  opts: { dryRun?: boolean } = {},
+  opts: {
+    dryRun?: boolean;
+    memoryDefense?: VaultMemoryDefenseConfig;
+    metrics?: MetricsRecorder;
+  } = {},
 ): IngestHighlightsResult {
+  const mdConfig = opts.memoryDefense ?? MEMORY_DEFENSE_OFF;
   const seen = new Set<string>();
   for (const tags of listCaptureTags(db, vaultId, "import")) {
     for (const t of tags) {
@@ -108,19 +130,86 @@ export function ingestHighlights(
 
   let enqueued = 0;
   let skipped_duplicate = 0;
+  let redacted = 0;
+  let skipped_secret = 0;
   for (const item of items) {
+    // Security review round (GH #994 follow-up): title/author/url/tags land in EVERY highlight's
+    // persisted content/title/tags for this item just like text/note do — previously only
+    // text/note were scanned, so a credential sitting in a document title or tag (routine for a
+    // scraped/imported source) bypassed memoryDefense entirely. Scanned once per item (not once
+    // per highlight) since these fields are item-level, not highlight-level.
+    let scannedItem = item;
+    if (mdConfig.mode !== "off") {
+      try {
+        const scan = enforceMemoryDefense(
+          mdConfig,
+          {
+            title: item.title,
+            ...(item.author !== undefined ? { author: item.author } : {}),
+            ...(item.url !== undefined ? { url: item.url } : {}),
+            ...(item.tags !== undefined ? { tags: item.tags } : {}),
+          },
+          { metrics: opts.metrics },
+        );
+        redacted += scan.redactions;
+        scannedItem = {
+          ...item,
+          title: scan.fields.title as string,
+          ...(item.author !== undefined ? { author: scan.fields.author as string } : {}),
+          ...(item.url !== undefined ? { url: scan.fields.url as string } : {}),
+          ...(item.tags !== undefined ? { tags: scan.fields.tags as string[] } : {}),
+        };
+      } catch (e) {
+        if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+          // Item-level fields are shared by every highlight in this item — none of them can be
+          // staged safely, so skip the whole item, not just one highlight.
+          for (const h of item.highlights) seen.add(highlightDedupeKey(item, h));
+          skipped_secret += item.highlights.length;
+          continue;
+        }
+        throw e;
+      }
+    }
     for (const h of item.highlights) {
       const key = highlightDedupeKey(item, h);
       if (seen.has(key)) {
         skipped_duplicate++;
         continue;
       }
+      let scannedHighlight = h;
+      if (mdConfig.mode !== "off") {
+        try {
+          const scan = enforceMemoryDefense(
+            mdConfig,
+            { text: h.text, ...(h.note !== undefined ? { note: h.note } : {}) },
+            { metrics: opts.metrics },
+          );
+          redacted += scan.redactions;
+          scannedHighlight = {
+            ...h,
+            text: scan.fields.text as string,
+            ...(h.note !== undefined ? { note: scan.fields.note as string } : {}),
+          };
+        } catch (e) {
+          if (e instanceof ObsidianTcError && e.code === "secret_detected") {
+            skipped_secret++;
+            seen.add(key);
+            continue;
+          }
+          throw e;
+        }
+      }
       if (!opts.dryRun) {
         enqueueCapture(db, {
           vaultId,
-          content: formatCaptureContent(item, h),
-          title: item.title,
-          tags: ["import", item.source, ...(item.tags ?? []), `${IMPORT_DEDUPE_TAG_PREFIX}${key}`],
+          content: formatCaptureContent(scannedItem, scannedHighlight),
+          title: scannedItem.title,
+          tags: [
+            "import",
+            scannedItem.source,
+            ...(scannedItem.tags ?? []),
+            `${IMPORT_DEDUPE_TAG_PREFIX}${key}`,
+          ],
           source: "import",
           now,
         });
@@ -132,5 +221,5 @@ export function ingestHighlights(
       enqueued++;
     }
   }
-  return { enqueued, skipped_duplicate };
+  return { enqueued, skipped_duplicate, redacted, skipped_secret };
 }
