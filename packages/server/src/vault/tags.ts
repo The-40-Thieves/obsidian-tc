@@ -19,9 +19,17 @@ export interface NoteTags {
   all: string[];
 }
 
+/** Strip trailing `/` characters. Linear scan (no regex) — `/\/+$/` is `recheck`-confirmed
+ *  polynomial for the same reason `/\r+$/` was (see vault/frontmatter.ts's stripTrailingCR). */
+function stripTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "/") end--;
+  return s.slice(0, end);
+}
+
 /** Normalize a user/string tag: strip a leading `#`, trim, drop trailing slashes. */
 export function normalizeTag(tag: string): string {
-  return tag.replace(/^#/, "").trim().replace(/\/+$/, "");
+  return stripTrailingSlashes(tag.replace(/^#/, "").trim());
 }
 
 export function isValidTag(tag: string): boolean {

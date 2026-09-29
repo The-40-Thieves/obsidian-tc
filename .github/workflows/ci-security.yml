@@ -78,6 +78,21 @@ jobs:
           node-version: '24'
       - run: node scripts/check-workflow-injection.mjs
 
+  link-scanner-redos:
+    # A crafted 80KB note (many unclosed "[a](" spans) drove the old vault/links.ts MDLINK/WIKILINK
+    # regexes to 11+ seconds via quadratic re-scan-to-end-of-line on every failed start position.
+    # This job re-runs the recurrence guard (scripts/check-redos.mjs) so a future regression in
+    # vault/ or experiential/ — either a reintroduced quadratic pattern or a new one added without
+    # measurement — fails CI instead of shipping.
+    name: link scanner ReDoS guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - run: node scripts/check-redos.mjs
+
   actionlint:
     # Kept ALONGSIDE check-workflow-injection.mjs above, not instead of it. That script encodes a
     # deliberate repo policy — an explicit allow-list of contexts this workflow set fixes itself

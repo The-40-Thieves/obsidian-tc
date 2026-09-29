@@ -229,6 +229,8 @@ Per-**path** folder ACL is enforced **as a dispatch stage** (THE-414), not a han
 
 Compute budgets (THE-293) also live at the handler layer: regex search runs in a worker thread under a true execution timeout (`governor.regexTimeoutMs`, default 2000 ms — a catastrophic-backtracking pattern terminates with `compute_budget_exceeded` instead of hanging the event loop, with an inline-scan fallback when the worker cannot start), and JSONLogic evaluation carries a 10k op budget counted on every node.
 
+The same class is closed on the note-parsing side: wikilink and Markdown-link extraction, link rewriting, and prune all share one linear scanner (`vault/link-scan.ts`) instead of per-caller regexes that re-scanned to end-of-line on every failed start position, and `scripts/check-redos.mjs` (`check:redos`, run as its own CI job) fails the build on any super-linear regex literal under `vault/` or `experiential/` that has not been measured and allowlisted.
+
 **Layer 7: Governor + observability.** The byte governor serializes the result once (memoized for the transport formatter, THE-294); a result over `governor.maxResponseBytes` → `overflow`. Observability always fires, regardless of success/failure:
 - **OTLP span**: one root span per tool call named `obsidian_tc.<tool>` (SERVER kind), attributes in the `obsidian_tc.*` namespace (`vault_id`, `tool`, `caller_hash`, `scopes_required`, `status`, `error_code`, `elicit_used`, `overflow_b`).
 - **Prometheus**: increments `obsidian_tc_tool_calls_total{vault, tool, status}`, records `obsidian_tc_tool_duration_seconds` histogram.

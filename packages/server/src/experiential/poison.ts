@@ -89,10 +89,24 @@ const HTML_COMMENT_DIRECTIVE =
 const OPAQUE_BLOB = /[A-Za-z0-9+/=]{160,}/;
 
 // Family: exfiltration / tool coercion.
+//
+// Both patterns below were rewritten to close a `recheck`-confirmed quadratic-time DoS (measured:
+// the `curl` pattern's un-rewritten form took 2.1s on a 45 KB crafted line, part of the same
+// MDLINK/WIKILINK regex-DoS sweep — check-redos.mjs is the recurrence guard).
 const EXFIL = [
   /\b(?:send|forward|post|upload|exfiltrate)\s+(?:this|that|it|the\s+\w+)\s+to\s+\S+/i,
-  /\bcurl\s+(?:-\w+\s+)*https?:\/\//i,
-  /https?:\/\/[^\s/]*:[^\s@]*@/i, // credentials embedded in a URL
+  // Was `(?:-\w+\s+)*` (unbounded): a URL-less "curl -a -a -a ..." run made every failed match
+  // backtrack across every already-tried flag-repetition count. Bounded to 20 flags — no realistic
+  // curl invocation carries more, and a bounded quantifier caps worst-case cost by construction
+  // (the same mitigation redact.ts's SECRET_PATTERNS docblock already uses for this exact class).
+  /\bcurl\s+(?:-\w+\s+){0,20}https?:\/\//i,
+  // Was `[^\s/]*:[^\s@]*@` — two problems, both closed: (1) both classes allowed ':', so a run of
+  // many ':' with no trailing '@' let the engine retry every possible split point between the two
+  // groups (excluding ':' from the first class makes the first ':' the only possible split); (2)
+  // `[^\s@]*` was unbounded, so with many separate "http://...:" occurrences and no '@' at all,
+  // EACH occurrence's failed match still rescanned to the end of the line (the same many-start-
+  // positions shape MDLINK had) — bounded to 256 chars, far past any real credential length.
+  /https?:\/\/[^\s/:]*:[^\s@]{0,256}@/i, // credentials embedded in a URL
 ];
 
 // Invisible/spacing controls used to smuggle directives past a literal scan: zero-width

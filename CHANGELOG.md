@@ -150,6 +150,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   rises inside its existing `<4` bound, and `moment` gains a bounded `>=2.31.0 <3` override, so
   neither can drag a dependent across a major. `moment` is a dev-time transitive only; the plugin
   bundle reads the host's `moment` at runtime and does not ship it.
+- **Linear-time link extraction closes a quadratic-regex denial of service.** `extractLinks`
+  (`links.ts`), `rewriteLinks` (`rewrite.ts`), and a third, previously undetected duplicate of the
+  same regex in `prune.ts` each re-scanned to end-of-line on every failed match start; a crafted
+  80 KB note (many unclosed `[a](` spans) drove indexing to 3.1-10.4s instead of the <200ms bound a
+  new perf test now holds it to. All three now share one linear scanner
+  (`packages/server/src/vault/link-scan.ts`), verified to produce byte-identical output to the old
+  parser across the existing link tests, 100 generated adversarial documents, and 1,468 real vault
+  files. The same fix bounds four other regex scanners over untrusted note content that had the
+  same shape: frontmatter parsing, tag extraction, the experiential citation judge, and the
+  prompt-injection/secret-redaction poison detector. A new CI job (`check:redos`, driven by
+  `recheck`) now scans every regex literal under `vault/` and `experiential/` on each PR so a
+  future super-linear regex on untrusted text fails the build instead of shipping.
 
 ## [1.31.8] - 2026-09-29
 

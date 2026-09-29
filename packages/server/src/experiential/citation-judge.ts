@@ -58,11 +58,19 @@ export interface JudgeVerdict {
  * With the flag OFF the behaviour is byte-identical to before: an `"uncertain"` reply is still a
  * parse failure, exactly as it is today.
  */
+/** Strip a trailing code-fence marker (optional whitespace + ` ``` `) anchored at the true end.
+ *  Linear (no regex) — `/\s*```$/` is `recheck`-confirmed polynomial for the same reason
+ *  vault/frontmatter.ts's stripTrailingCR was: `.replace()` retries every position on input that
+ *  never actually ends in the fence. */
+function stripTrailingFence(s: string): string {
+  if (!s.endsWith("```")) return s;
+  let end = s.length - 3;
+  while (end > 0 && /\s/.test(s[end - 1] ?? "")) end--;
+  return s.slice(0, end);
+}
+
 export function parseCitationVerdict(text: string, allowUncertain: boolean): JudgeVerdict | null {
-  const stripped = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "");
+  const stripped = stripTrailingFence(text.trim().replace(/^```(?:json)?\s*/i, ""));
   try {
     const v = JSON.parse(stripped) as { cited?: unknown; score?: unknown };
     const score = typeof v.score === "number" && Number.isFinite(v.score) ? v.score : 0;

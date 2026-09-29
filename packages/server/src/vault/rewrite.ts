@@ -2,11 +2,10 @@
 // and Domain 5's rewrite_link. Fenced code blocks are skipped so code samples are
 // never mutated; the dominant line ending is preserved. Inline-code spans on an
 // otherwise-prose line are not excluded (a documented M1 limitation).
+import { applyScanReplacements, scanMdLinks, scanWikilinks } from "./link-scan";
 import type { LinkKind } from "./links";
 
 const FENCE = /^\s*(```|~~~)/;
-const WIKILINK = /(!?)\[\[([^\]\n]+?)\]\]/g;
-const MDLINK = /(!?)\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 
 function splitParts(inner: string): {
   target: string;
@@ -48,21 +47,23 @@ export function rewriteLinks(raw: string, map: TargetMapper): { text: string; co
       return line;
     }
     if (fenced) return line;
-    let l = line.replace(WIKILINK, (m, bang: string, inner: string) => {
-      const { target, display, heading, pipeSep } = splitParts(inner);
-      const next = map(target, bang === "!" ? "embed" : "wikilink");
-      if (next === null) return m;
+    let l = applyScanReplacements(line, scanWikilinks(line), (m) => {
+      const bang = m.bang ? "!" : "";
+      const { target, display, heading, pipeSep } = splitParts(m.inner);
+      const next = map(target, m.bang ? "embed" : "wikilink");
+      if (next === null) return m.raw;
       count++;
       let v = next;
       if (heading !== null) v += `#${heading}`;
       if (display !== null) v += `${pipeSep}${display}`;
       return `${bang}[[${v}]]`;
     });
-    l = l.replace(MDLINK, (m, bang: string, disp: string, url: string) => {
-      const next = map(url.trim(), bang === "!" ? "embed" : "markdown");
-      if (next === null) return m;
+    l = applyScanReplacements(l, scanMdLinks(l), (m) => {
+      const bang = m.bang ? "!" : "";
+      const next = map(m.url.trim(), m.bang ? "embed" : "markdown");
+      if (next === null) return m.raw;
       count++;
-      return `${bang}[${disp}](${next})`;
+      return `${bang}[${m.display}](${next})`;
     });
     return l;
   });
