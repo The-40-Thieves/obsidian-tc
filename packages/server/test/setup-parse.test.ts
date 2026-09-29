@@ -119,6 +119,15 @@ describe("parseCliArgs setup", () => {
       "zed",
       "devin",
       "aider",
+      "cline",
+      "roo",
+      "continue",
+      "goose",
+      "amazonq",
+      "kiro",
+      "jetbrains",
+      "warp",
+      "augment",
     ]) {
       const c = parseCliArgs(["setup", "--install-client", client]);
       if (c.kind !== "setup") throw new Error("expected setup");
@@ -132,6 +141,14 @@ describe("parseCliArgs setup", () => {
     const c = parseCliArgs(["setup", "--install-client", "devin-desktop"]);
     if (c.kind !== "setup") throw new Error("expected setup");
     expect(c.installClient).toBe("windsurf");
+  });
+
+  // PR C follow-up: `auggie` is Augment's own CLI binary/product name — at least as likely to be
+  // typed as "augment" itself.
+  it("--install-client auggie is an alias for augment", () => {
+    const c = parseCliArgs(["setup", "--install-client", "auggie"]);
+    if (c.kind !== "setup") throw new Error("expected setup");
+    expect(c.installClient).toBe("augment");
   });
 
   it("--install-client with an unrecognized value is a usage error", () => {

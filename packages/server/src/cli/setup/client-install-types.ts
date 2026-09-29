@@ -15,7 +15,13 @@ import { CliError } from "../cli-error";
  *  (ChatGPT, Devin — both cloud); `"unsupported"` when the client has no MCP support whatsoever
  *  (Aider) — `--install-client aider` is a real command that must still exit non-zero with a clear
  *  message, not a silent no-op. */
-export type ClientKind = "cli" | "json-merge" | "jsonc-merge" | "instructions-only" | "unsupported";
+export type ClientKind =
+  | "cli"
+  | "json-merge"
+  | "jsonc-merge"
+  | "yaml-merge"
+  | "instructions-only"
+  | "unsupported";
 
 interface ClientRegistryBase {
   /** Human label — used only in printed text, never parsed back. */
@@ -39,7 +45,11 @@ export interface JsonMergeClientSpec extends ClientRegistryBase {
     env: Record<string, string | undefined>,
     home: string,
   ) => string;
-  /** The top-level key server entries live under — passed to `mergeMcpServersEntry`'s own param. */
+  /** The top-level key server entries live under — passed to `mergeMcpServersEntry`'s own param.
+   *  An EMPTY string means server entries live directly on the file's top-level object with no
+   *  nesting at all (Warp's `~/.warp/.mcp.json`, whose own docs show `{"ServerName": {...}}` with
+   *  no wrapping `"mcpServers"` key) — `mergeMcpServersEntry` special-cases `""` to mean exactly
+   *  that, rather than creating a real `""`-named key. */
   serversKey: string;
   /** Windsurf only today: its pre-rebrand config path (`~/.codeium/windsurf/mcp_config.json`) is
    *  used INSTEAD of `configPath` when it already exists on disk — an operator with an existing
@@ -66,6 +76,21 @@ export interface JsoncMergeClientSpec extends ClientRegistryBase {
   buildEntry: (configPath: string) => Record<string, unknown>;
 }
 
+export interface YamlMergeClientSpec extends ClientRegistryBase {
+  kind: "yaml-merge";
+  configPath: (
+    platform: NodeJS.Platform,
+    env: Record<string, string | undefined>,
+    home: string,
+  ) => string;
+  /** Path segments the entry is merged under, e.g. `["extensions"]` for Goose. An EMPTY array
+   *  means the whole file IS the entry (Continue's per-server `.continue/mcpServers/*.yaml`) —
+   *  `buildEntry` then returns the entire document (its own `name`/`version`/`schema`/`mcpServers`
+   *  keys included), and "already exists" means the file already has content, not a nested key. */
+  serversPath: string[];
+  buildEntry: (configPath: string) => Record<string, unknown>;
+}
+
 export interface InstructionsOnlyClientSpec extends ClientRegistryBase {
   kind: "instructions-only";
   instructions: () => string;
@@ -82,6 +107,7 @@ export type ClientRegistryEntry =
   | CliClientSpec
   | JsonMergeClientSpec
   | JsoncMergeClientSpec
+  | YamlMergeClientSpec
   | InstructionsOnlyClientSpec
   | UnsupportedClientSpec;
 
@@ -139,6 +165,18 @@ export function mergeMcpServersEntry(
   buildEntry: (configPath: string) => Record<string, unknown> = obsidianTcServerEntry,
 ): McpClientMergeResult {
   const base: Record<string, unknown> = existingRaw ? { ...existingRaw } : {};
+  // Warp (PR C follow-up): `serversKey === ""` means the top-level object itself is the servers
+  // map — no nested key to find/validate/replace at all, so this is its own short, separate branch
+  // rather than folding a "root" case into every check below (each of which is written in terms of
+  // `base[serversKey]`, meaningless for `serversKey === ""`).
+  if (serversKey === "") {
+    const alreadyExists = "obsidian-tc" in base;
+    if (alreadyExists && !opts.force) {
+      return { alreadyExists: true, merged: base };
+    }
+    base["obsidian-tc"] = buildEntry(configPath);
+    return { alreadyExists: false, merged: base };
+  }
   // Finding 5 (fix round, cross-vendor review): a `serversKey` that IS present but is not a plain
   // object (an array, a string, ...) used to fall through the same `? existingServers : {}`
   // ternary as "absent" and get silently REPLACED with `{ "obsidian-tc": ... }` — every server that
