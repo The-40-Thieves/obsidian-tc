@@ -5,7 +5,7 @@
 > Obsidian Turbocharged — governed, agent-ready vault access over MCP.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-![Status: Shipped v1.31.5](https://img.shields.io/badge/Status-Shipped_v1.31.5-success)
+![Status: Shipped v1.31.6](https://img.shields.io/badge/Status-Shipped_v1.31.6-success)
 
 ## What it is
 
@@ -111,7 +111,7 @@ filesystem-level feature works without it.
 
 ### Status
 
-**Shipped — v1.31.5**, published to npm as provenance-signed packages, container image on GHCR.
+**Shipped — v1.31.6**, published to npm as provenance-signed packages, container image on GHCR.
 Milestones: [Roadmap](https://obsidian-tc.the40thieves.io/roadmap/); releases:
 [CHANGELOG.md](./CHANGELOG.md).
 

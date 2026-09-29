@@ -15,7 +15,7 @@
     },
     "packages/native": {
       "name": "@the-40-thieves/obsidian-tc-native",
-      "version": "1.31.5",
+      "version": "1.31.6",
       "devDependencies": {
         "@napi-rs/cli": "^3.10.5",
         "@types/node": "^24.0.0",
@@ -24,7 +24,7 @@
     },
     "packages/plugin": {
       "name": "@the-40-thieves/obsidian-tc-plugin",
-      "version": "1.31.5",
+      "version": "1.31.6",
       "devDependencies": {
         "@types/node": "^24.0.0",
         "@vitest/coverage-v8": "^5.0.1",
@@ -36,7 +36,7 @@
     },
     "packages/server": {
       "name": "obsidian-tc",
-      "version": "1.31.5",
+      "version": "1.31.6",
       "bin": {
         "obsidian-tc": "./dist/cli.js",
       },
@@ -69,12 +69,12 @@
         "vitest": "^5.0.1",
       },
       "optionalDependencies": {
-        "@the-40-thieves/obsidian-tc-embedder-local": "1.31.5",
+        "@the-40-thieves/obsidian-tc-embedder-local": "1.31.6",
       },
     },
     "packages/shared": {
       "name": "@the-40-thieves/obsidian-tc-shared",
-      "version": "1.31.5",
+      "version": "1.31.6",
       "dependencies": {
         "zod": "^4.6.5",
       },
@@ -814,6 +814,7 @@
     "ini": ["ini@4.1.1", "", {}, "sha512-QQnnxNyfvmHFIsj7gkPcYymR8Jdw/o7mp5ZFihxn6h8Ci6fh3Dx4E1gPjpQEpIuPo9XVNY/ZUwh4BPMjGyL01g=="],
 
     "interpret": ["interpret@3.1.1", "", {}, "sha512-6xwYfHbajpoF0xLW+iwLkhwgvLoZDfjYfoFNu8ftMoXINzwuymNLd9u/KmwtdT2GbR+/Cz66otEGEVVUHX9QLQ=="],
+
     "ip-address": ["ip-address@10.7.2", "", {}, "sha512-7H/2gFSIitxc0hG3nOI1glS8QLo/EHBFFLk8vEUjXY/xu0AdL8jZ9U1IzO2PUm0d2D/ofQcAifb0g6OBkt8U7w=="],
 
     "ipaddr.js": ["ipaddr.js@1.9.1", "", {}, "sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g=="],
@@ -863,6 +864,7 @@
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
 
     "jsonc-parser": ["jsonc-parser@3.3.1", "", {}, "sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ=="],
+
     "kleur": ["kleur@3.0.3", "", {}, "sha512-eTIzlVOSUR+JxdDFepEYcBMtZ9Qqdef+rnzWdRZuMbOywu5tO2w2N7rqjoANZ5k9vywhL6Br1VRjUIgTQx4E8w=="],
 
     "knip": ["knip@6.38.0", "", { "dependencies": { "fdir": "^6.5.0", "formatly": "^0.7.0", "get-tsconfig": "4.14.3", "jiti": "^2.7.0", "oxc-parser": "^0.150.0", "oxc-resolver": "11.24.2", "picomatch": "^4.0.7", "smol-toml": "^1.8.0", "strip-json-comments": "5.0.3", "tinyglobby": "^0.2.17", "unbash": "^4.0.11", "yaml": "^2.9.1", "zod": "^4.4.3" }, "bin": { "knip": "bin/knip.js", "knip-bun": "bin/knip-bun.js" } }, "sha512-umytiMCaZf02MV9SOO1FEDgbDf6h20VZk3ruJE0kh52kkGjYZFRUAXHJWYoLhvhoHGINO/7GXVJmQ2vxTBvl6A=="],
