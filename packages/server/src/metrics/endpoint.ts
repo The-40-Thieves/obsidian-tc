@@ -2,7 +2,7 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
 import { effectiveAudience } from "../auth/protected-resource";
 import type { AuthRegistry } from "../auth/registry";
-import { createTokenVerifier } from "../auth/verifier";
+import { createTokenVerifier, type TokenVerifier } from "../auth/verifier";
 import type { ServerHandle } from "../transports/serve";
 import { serveHono } from "../transports/serve";
 import type { MetricsRecorder } from "./registry";
@@ -21,6 +21,10 @@ export interface MetricsEndpointOptions {
   auth: AuthConfig;
   /** When set, a scrape token must be signed by a live registry key and not be revoked. */
   registry?: AuthRegistry;
+  /** Under `auth.mode: oidc`: the SAME verifier the MCP edge uses (built once at boot), so a scrape
+   *  token is an IdP token checked exactly like a bearer. Absent under oidc: every remote scrape is
+   *  refused. Ignored in jwt mode, which builds its own from `registry`. */
+  verifier?: TokenVerifier;
 }
 
 export type MetricsHandle = ServerHandle;
@@ -39,19 +43,21 @@ export function createMetricsApp(opts: MetricsEndpointOptions): Hono {
   // key retirement from the registry), so the two cannot disagree about which tokens are accepted.
   // It has no external JWKS: a scrape token is one this server issued. With a registry the
   // configured secret is optional (it can be removed once the `config` key is retired).
-  const verifier =
-    opts.auth.mode === "jwt" && (opts.auth.jwtSecret || opts.registry)
-      ? createTokenVerifier({
-          secret: opts.auth.jwtSecret,
-          registry: opts.registry,
-          maxAgeSeconds: opts.auth.tokenTtlSeconds,
-          // Same audience/issuer binding as the MCP HTTP edge: a token minted for another
-          // service, or by another issuer, must not scrape this one.
-          audience: effectiveAudience(opts.auth),
-          issuer: opts.auth.issuer,
-          requireJti: opts.auth.requireJti,
-        })
-      : undefined;
+  const verifier: TokenVerifier | undefined =
+    opts.auth.mode === "oidc"
+      ? opts.verifier
+      : opts.auth.mode === "jwt" && (opts.auth.jwtSecret || opts.registry)
+        ? createTokenVerifier({
+            secret: opts.auth.jwtSecret,
+            registry: opts.registry,
+            maxAgeSeconds: opts.auth.tokenTtlSeconds,
+            // Same audience/issuer binding as the MCP HTTP edge: a token minted for another
+            // service, or by another issuer, must not scrape this one.
+            audience: effectiveAudience(opts.auth),
+            issuer: opts.auth.issuer,
+            requireJti: opts.auth.requireJti,
+          })
+        : undefined;
   app.get("/metrics", async (c) => {
     if (requireAuth) {
       const m = /^Bearer\s+(.+)$/i.exec(c.req.header("authorization") ?? "");

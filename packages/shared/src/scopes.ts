@@ -17,6 +17,16 @@ export function parseScope(s: Scope): { family: string; resource: string } {
   return { family: s.slice(0, i), resource: s.slice(i + 1) };
 }
 
+// A FULLY-QUALIFIED scope: a known family, a colon, a non-empty resource with no whitespace
+// (`read:notes`, `write:*`). parseScope reads a colon-less value as a family wildcard (`admin` grants
+// `admin:*`), which is right for a scope the operator wrote and wrong for an arbitrary string from an
+// external token (an IdP role called `admin`), so `auth.mode: oidc` accepts only this form from a claim.
+export function isQualifiedScope(s: string): boolean {
+  const i = s.indexOf(":");
+  if (i <= 0 || i === s.length - 1) return false;
+  return (SCOPE_FAMILIES as readonly string[]).includes(s.slice(0, i)) && !/\s/.test(s);
+}
+
 // Does the granted set satisfy one required scope, honoring family/global wildcards?
 export function grantsScope(granted: Iterable<Scope>, required: Scope): boolean {
   const req = parseScope(required);

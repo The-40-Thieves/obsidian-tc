@@ -484,7 +484,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // single key `allowOsLaunch` (boolean, default false) — whether the tool may hand an obsidian://
   // URI to the OS URI handler when no live Obsidian session answers. Honoured only for the stdio
   // transport; read at runtime/tool-wiring.ts. No existing key, type, default or constraint moved.
-  "c8d66fdc237a92a0795a852dfcf2c281fe6544eb7ad88856fff45939ff96380b";
+  // `auth.mode: oidc`: rebaselined deliberately. `auth.mode` gains the value "oidc" and the root
+  // `auth` block gains ONE optional block, `auth.oidc` (issuer, audience, clientId, jwksUri,
+  // allowedAlgs, clockToleranceSeconds, discoveryCacheSeconds, requireAtJwtType, claimMapping,
+  // requiredClaims), for verifying access tokens from an external OpenID Connect provider. The
+  // block is refused under any other mode and vice versa (server.schema.ts superRefine). No
+  // existing key, type, default or constraint moved. Security review of that block, same PR: adds
+  // `auth.oidc.allowedJwksHosts` / `allowPrivateNetwork`, `claimMapping.scopeMap` /
+  // `allowedPersonas` / `allowedVaults`, array-form claim paths, and object-form `requiredClaims`.
+  "56e045f0f81056fed8a58931927f7fa77186224ee4c7af0af2c460869f4b0818";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

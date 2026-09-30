@@ -109,7 +109,7 @@ export function nativeCheck(profile: CapabilityProfile): Check {
 }
 
 export interface AuthPolicy {
-  mode: "none" | "jwt";
+  mode: "none" | "jwt" | "oidc";
   tokenTtlSeconds: number;
   readOnly: boolean;
 }

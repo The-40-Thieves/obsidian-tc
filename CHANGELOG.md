@@ -8,6 +8,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`auth.mode: "oidc"`: verify tokens from your own OpenID Connect provider.** `auth.oidc` takes an
+  https `issuer`, a required `audience`, and optionally `clientId`, a `jwksUri` override, `allowedAlgs`
+  (asymmetric only, default RS256/ES256/EdDSA; HS* and `none` cannot be configured),
+  `clockToleranceSeconds` (default 30, maximum 300), `discoveryCacheSeconds`, `requireAtJwtType`,
+  `requiredClaims` and a `claimMapping` (`subject`, `scopes` as a string or array claim or dotted path,
+  `principal`, `vault`, `persona`). Discovery (`<issuer>/.well-known/openid-configuration`, https only, no
+  redirects, timeouts and size caps, document issuer must equal the configured one exactly) runs at boot and
+  a failure refuses to start; `doctor` gains an `auth.oidc` probe and a successful boot logs the issuer and
+  `jwks_uri`. Verified tokens resolve to the same identity jwt mode builds, so folder ACL, rule-scopes, vault
+  binding and personas apply unchanged, and revocation by `jti` (`auth revoke`, tombstones included) and
+  `auth.requireJti` cover them through the same registry. With `auth.resource` set, Protected Resource
+  Metadata advertises the issuer as the authorization server. Verification only: there is still no
+  authorization server. New rejection reasons: `token_not_yet_valid`, `invalid_token_type`,
+  `client_mismatch`, `idp_unavailable`, `claim_not_allowed`. See `docs/src/content/docs/security/auth-model.md`.
+  Review hardening of the same block: `claimMapping.scopeMap` (role to scopes), `allowedPersonas` /
+  `allowedVaults`, array-form claim paths, object-form `requiredClaims`, `allowedJwksHosts` and
+  `allowPrivateNetwork`.
 - **`show_file_in_obsidian`: actually open a note in Obsidian.** `generate_uri` only builds an
   `obsidian://` string and stays a pure builder; this tool launches. Path 1 asks the companion plugin
   (new `POST /files/open` route, plugin route table 28 to 29) to open the file in the live Obsidian
@@ -145,6 +162,30 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   refused once it carries that jti.
 
 ### Security
+
+- **OIDC review fixes (before first release of `auth.mode: "oidc"`).** (1) A lost or partly lost auth
+  registry now refuses every token in `oidc` AND `jwt` mode, including tokens with no `jti`, which were
+  never looked up. (2) ID and refresh tokens are refused by payload as well as header: a `typ` other than
+  `Bearer`, a `nonce`/`at_hash`/`c_hash` claim, or a Cognito `token_use` other than `access`; a non-string
+  header `typ` is refused. (3) Only fully-qualified scopes (`read:notes`) are taken from the scopes claim,
+  so an IdP role named `admin` or `read` no longer becomes a family wildcard; map roles with
+  `claimMapping.scopeMap`. (4) The discovered `jwks_uri` must share the issuer's origin (or be in
+  `allowedJwksHosts`), carry no credentials, and no provider fetch goes to a loopback, link-local, private or
+  reserved address unless `allowPrivateNetwork` is true. (5) A dotted claim path walks nested objects only;
+  a top-level claim with dots in its name needs the array form. (6) `claimMapping.persona` / `vault` require
+  `allowedPersonas` / `allowedVaults`, and any other value refuses the token. (7) `requiredClaims` checks
+  values: a name list needs a truthy, non-empty value, an object needs an exact one. Breaking for
+  unreleased configs only: a `scopes` mapping that relied on bare role names, a namespaced claim written as a
+  string, or a `persona`/`vault` mapping without an allowlist now needs the forms above.
+
+- **OIDC verification is fail-closed.** The `oidc` mode refuses to boot without a discoverable identity
+  provider, accepts only algorithms from an asymmetric allowlist chosen by configuration (an HS256 token
+  signed with the provider's public key is refused), compares `iss` and the discovery document's issuer
+  exactly, refuses discovery over http or via a redirect, bounds every provider fetch by time and size, and
+  refuses tokens rather than serving a stale discovery document. An `auth.oidc` block under any other mode
+  is a config error, since it would look protected while it is not. Two small changes reach `jwt` mode:
+  a token whose `nbf` is in the future now logs `token_not_yet_valid` (it was `malformed`), and an
+  unknown `kid` against a remote JWKS logs `unknown_key`.
 
 - **The registry row, not the token header, chooses the verification algorithm.** A token naming a
   registry `kid` must carry that key's algorithm: an HS256 header against an asymmetric key (public

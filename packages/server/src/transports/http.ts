@@ -175,10 +175,18 @@ async function resolveAuth(
     // fail-closes when HTTP is exposed on a non-loopback host with auth.mode "none".
     return { ok: true, caller: "http-local", scopes: new Set(["*"]) };
   }
-  // auth.mode === "jwt" — the only other mode the config schema admits.
+  // auth.mode "jwt" or "oidc" — the only other modes the config schema admits. Both resolve through
+  // `verifier`; an oidc server that reaches here without one (never true via `wireTransports`, which
+  // builds it at boot or refuses to start) refuses every request rather than admitting anyone.
   const token = bearer(header);
   if (!token) return { ok: false, status: 401, reason: "missing bearer token" };
-  if (!verifier) return { ok: false, status: 500, reason: "jwt mode misconfigured: no secret" };
+  if (!verifier) {
+    return {
+      ok: false,
+      status: 500,
+      reason: `${auth.mode} mode misconfigured: no verifier`,
+    };
+  }
   try {
     const id = await verifier.verify(token);
     // THE-647 item 2: a `persona` claim resolves to an effective scope/vault/toolVisibility

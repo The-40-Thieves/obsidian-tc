@@ -44,7 +44,17 @@ export interface ProtectedResourceMetadata {
  * pre-registration stops being sufficient, or (b) access becomes multi-user.
  */
 export function isPrmConfigured(auth: AuthConfig): boolean {
-  return !!auth.resource && (auth.authorizationServers?.length ?? 0) > 0;
+  return !!auth.resource && authorizationServersOf(auth).length > 0;
+}
+
+/**
+ * The authorization servers this resource advertises. Under `auth.mode: oidc` that is the external
+ * identity provider's issuer, by construction (the schema refuses any other explicit list), so a
+ * bring-your-own-IdP deployment needs `auth.resource` and nothing else to be discoverable.
+ */
+function authorizationServersOf(auth: AuthConfig): string[] {
+  if (auth.mode === "oidc" && auth.oidc !== undefined) return [auth.oidc.issuer];
+  return auth.authorizationServers ?? [];
 }
 
 /**
@@ -53,6 +63,9 @@ export function isPrmConfigured(auth: AuthConfig): boolean {
  * HTTP edge and the `/metrics` scrape so the two cannot disagree about which tokens they accept.
  */
 export function effectiveAudience(auth: AuthConfig): string | string[] | undefined {
+  // oidc mode binds ONLY its own audience: the PRM `resource` is a URL the client sees, while an IdP
+  // API audience may be any registered identifier (`api://...`), so the two are not assumed equal.
+  if (auth.mode === "oidc") return auth.oidc?.audience;
   return auth.audience ?? (isPrmConfigured(auth) ? auth.resource : undefined);
 }
 
@@ -69,7 +82,7 @@ export function effectiveAudience(auth: AuthConfig): string | string[] | undefin
 export function buildProtectedResourceMetadata(auth: AuthConfig): ProtectedResourceMetadata {
   return {
     resource: auth.resource as string,
-    authorization_servers: auth.authorizationServers ?? [],
+    authorization_servers: authorizationServersOf(auth),
     // RFC 9728 §5.2, OPTIONAL. The token verifier (transports/http.ts `bearer()`) reads ONLY the
     // Authorization header -- never a request body or query string -- so `["header"]` is a fixed
     // fact about this deployment, not something an operator configures per instance.

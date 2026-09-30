@@ -10,6 +10,7 @@
 // unwindReversed pattern for the boot-time layers.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import { createOidcVerifier, type OidcVerifier } from "../auth/oidc";
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
 import type { Database } from "../db/types";
@@ -69,8 +70,10 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   // listener that checks bearers exists. A LOST registry (initialised before, auth.db now missing or
   // empty) is not an error at boot: the verifier refuses every bearer with the recovery named, and
   // the operator sees it here, in every rejection line and in `doctor`.
+  // `oidc` needs it too: revocation by `jti` (and `auth.requireJti`) applies to an IdP's tokens through
+  // the same tombstone registry, with the same fail-closed `registry_lost` semantics.
   const needsRegistry =
-    config.auth.mode === "jwt" &&
+    (config.auth.mode === "jwt" || config.auth.mode === "oidc") &&
     (config.transports.http.enabled || config.observability.prometheus.enabled);
   // Server start is one of the three reaper triggers (rotate, start, periodic sweep): windows that
   // elapsed while nothing was running are persisted now. Housekeeping; verification never waits on it.
@@ -80,7 +83,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   if (registryHealth?.state === "lost") {
     process.stderr.write(`auth: ERROR ${registryHealth.detail}\n`);
   }
-  if (authRegistry !== undefined) {
+  if (authRegistry !== undefined && config.auth.mode === "jwt") {
     // A jwt server whose only key source is the registry must HAVE a key there. The config no
     // longer demands auth.jwtSecret (it can be removed once the `config` key is retired), so this
     // is where a deployment with no key anywhere is refused at boot instead of running with every
@@ -101,6 +104,19 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   }
 
   try {
+    // oidc: discover the identity provider NOW. A failure throws (naming the issuer) and the server
+    // does not start; one verifier is then shared by the MCP edge and /metrics.
+    let oidcVerifier: OidcVerifier | undefined;
+    if (
+      config.auth.mode === "oidc" &&
+      (config.transports.http.enabled || config.observability.prometheus.enabled)
+    ) {
+      oidcVerifier = await createOidcVerifier(config.auth, { registry: authRegistry });
+      const d = oidcVerifier.describe();
+      process.stderr.write(
+        `auth: oidc verification only; issuer=${d.issuer} jwks_uri=${d.jwksUri} audience=${JSON.stringify(d.audience)} algs=${d.allowedAlgs.join(",")}\n`,
+      );
+    }
     if (config.transports.http.enabled) {
       // THE-585 (#11): time the transport's construction + bind.
       const httpT0 = performance.now();
@@ -112,6 +128,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         auth: config.auth,
         db: deps.db,
         authRegistry,
+        ...(oidcVerifier ? { verifier: oidcVerifier } : {}),
         vaultId: deps.firstVaultId,
         acl: deps.acl,
         host: config.transports.http.host,
@@ -154,6 +171,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         port: config.observability.prometheus.port,
         auth: config.auth,
         registry: authRegistry,
+        ...(oidcVerifier ? { verifier: oidcVerifier } : {}),
       });
       metricsHandle = m;
       process.stderr.write(

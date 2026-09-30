@@ -229,6 +229,59 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
       message: `refusing to expose an unauthenticated server: transports.http.enabled is true with host "${http.host}" (non-loopback) while auth.mode is "none". Set auth.mode to "jwt" (with jwtSecret) or bind transports.http.host to a loopback address (127.0.0.1, ::1, localhost).`,
     });
   }
+  // `oidc` mode: the trust anchor is the `auth.oidc` block and nothing else. An `oidc` block under
+  // any other mode would LOOK like protection while none applies (mode none admits everyone), so it
+  // is refused; and jwt-mode key/issuer keys beside an oidc block would leave two answers to "who
+  // issues tokens here", so they are refused too. `jwtSecret` is allowed (it also keys the HITL
+  // elicit codec) but never verifies an oidc bearer.
+  if (cfg.auth.mode === "oidc") {
+    const a = cfg.auth;
+    if (a.oidc === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", "oidc"],
+        message:
+          "auth.mode is 'oidc' but auth.oidc is not set: configure at least auth.oidc.issuer and auth.oidc.audience.",
+      });
+    }
+    const conflicting = (
+      [
+        ["jwks", a.jwks],
+        ["jwksFile", a.jwksFile],
+        ["jwksUri", a.jwksUri],
+        ["algorithms", a.algorithms],
+        ["issuer", a.issuer],
+        ["audience", a.audience],
+      ] as const
+    )
+      .filter(([, v]) => v !== undefined)
+      .map(([k]) => k);
+    for (const key of conflicting) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", key],
+        message: `auth.${key} is a jwt-mode setting and is ignored under auth.mode 'oidc': set the equivalent under auth.oidc instead (auth.oidc.${key === "algorithms" ? "allowedAlgs" : key}).`,
+      });
+    }
+    if (
+      a.oidc !== undefined &&
+      a.authorizationServers !== undefined &&
+      (a.authorizationServers.length !== 1 || a.authorizationServers[0] !== a.oidc.issuer)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", "authorizationServers"],
+        message:
+          "under auth.mode 'oidc' the advertised authorization server is auth.oidc.issuer; auth.authorizationServers must be omitted or contain exactly that issuer.",
+      });
+    }
+  } else if (cfg.auth.oidc !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["auth", "oidc"],
+      message: `auth.oidc is set but auth.mode is "${cfg.auth.mode}": nothing would verify tokens against it. Set auth.mode to "oidc", or remove auth.oidc.`,
+    });
+  }
   // THE-456 (audit #3): a remote or JWKS-verified deployment MUST bind the token audience — warn-only
   // was insufficient. Without an audience, a token an issuer minted for a DIFFERENT service is accepted
   // here (confused deputy). The verifier treats the PRM `resource` as the audience when set, so an
