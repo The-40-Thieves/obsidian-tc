@@ -19,7 +19,7 @@ function gitDirOf(root: string): string | null {
  *  spawning git: a vault's `.git/config` is not trusted to run programs (core.fsmonitor). */
 function headOf(gitDir: string): string {
   const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
-  const ref = /^ref:\s*(.+)$/.exec(head)?.[1];
+  const ref = head.startsWith("ref:") ? head.slice(4).trim() : "";
   if (!ref) return head;
   const common = existsSync(join(gitDir, "commondir"))
     ? resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim())
