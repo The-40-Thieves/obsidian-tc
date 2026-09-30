@@ -118,13 +118,15 @@ describe("resource URIs", () => {
 
 describe("listResources", () => {
   it("lists every readable .md (skipping dot-dirs) with obsidian-tc:// URIs", () => {
-    const res = listResources(tempVault(), ctx(["*"]));
+    const res = listResources(tempVault(), ctx(["*"]), () => undefined);
     expect(res.resources.map((r) => r.name).sort()).toEqual(["alpha.md", "sub/beta.md"]);
     expect(res.resources[0]?.uri.startsWith("obsidian-tc://main/")).toBe(true);
     expect(res.resources[0]?.mimeType).toBe("text/markdown");
   });
   it("returns nothing without the read:notes scope", () => {
-    expect(listResources(tempVault(), ctx(["write:notes"])).resources).toHaveLength(0);
+    expect(
+      listResources(tempVault(), ctx(["write:notes"]), () => undefined).resources,
+    ).toHaveLength(0);
   });
 });
 
@@ -135,6 +137,7 @@ describe("readResource", () => {
       ctx(["*"]),
       "obsidian-tc://main/alpha.md",
       DEFAULT_TEST_CEILING,
+      () => undefined,
     );
     const c = out.contents[0];
     expect(c?.uri).toBe("obsidian-tc://main/alpha.md");
@@ -148,12 +151,19 @@ describe("readResource", () => {
         ctx(["*"]),
         "obsidian-tc://main/../escape.md",
         DEFAULT_TEST_CEILING,
+        () => undefined,
       ),
     ).toThrow();
   });
   it("rejects without the read:notes scope", () => {
     expect(() =>
-      readResource(tempVault(), ctx([]), "obsidian-tc://main/alpha.md", DEFAULT_TEST_CEILING),
+      readResource(
+        tempVault(),
+        ctx([]),
+        "obsidian-tc://main/alpha.md",
+        DEFAULT_TEST_CEILING,
+        () => undefined,
+      ),
     ).toThrow(/read:notes/);
   });
   it("P1.4: honors a path's rule-scopes (no bypass of the read_note path-scope gate)", () => {
@@ -166,15 +176,16 @@ describe("readResource", () => {
     });
     const uri = buildResourceUri("main", "finance/secret.md");
     // Holds the baseline read:notes but NOT the path's read:finance -> denied, same as read_note.
-    expect(() => readResource(reg, ctx(["read:notes"], acl), uri, DEFAULT_TEST_CEILING)).toThrow(
-      /scope/i,
-    );
+    expect(() =>
+      readResource(reg, ctx(["read:notes"], acl), uri, DEFAULT_TEST_CEILING, () => undefined),
+    ).toThrow(/scope/i);
     // Holds the path scope -> the content is returned.
     const out = readResource(
       reg,
       ctx(["read:notes", "read:finance"], acl),
       uri,
       DEFAULT_TEST_CEILING,
+      () => undefined,
     );
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
@@ -188,6 +199,7 @@ describe("readResource", () => {
         ctx(["*"]),
         "obsidian-tc://other/secret.md",
         DEFAULT_TEST_CEILING,
+        () => undefined,
       ),
     ).toThrow(/bound vault/);
   });
@@ -198,6 +210,7 @@ describe("readResource", () => {
       ctx(["*"]),
       buildResourceUri("main", "50% done.md"),
       DEFAULT_TEST_CEILING,
+      () => undefined,
     );
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
@@ -206,7 +219,13 @@ describe("readResource", () => {
   it("rejects a note exceeding the size ceiling (via stat, before loading it)", () => {
     const reg = tempVaultWith({ "big.md": "x".repeat(DEFAULT_TEST_CEILING + 1) });
     expect(() =>
-      readResource(reg, ctx(["*"]), "obsidian-tc://main/big.md", DEFAULT_TEST_CEILING),
+      readResource(
+        reg,
+        ctx(["*"]),
+        "obsidian-tc://main/big.md",
+        DEFAULT_TEST_CEILING,
+        () => undefined,
+      ),
     ).toThrow(/exceeds/);
   });
   // THE-514 item 2: MAX_RESOURCE_BYTES used to be a second, fixed 1MB constant — agreeing with
@@ -216,11 +235,11 @@ describe("readResource", () => {
   // this asserts a caller-supplied ceiling BELOW the 1MB default is honored, not just the default.
   it("honors a caller-supplied ceiling below the 1MB default", () => {
     const reg = tempVaultWith({ "small.md": "x".repeat(100) });
-    expect(() => readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 50)).toThrow(
-      /exceeds 50 bytes/,
-    );
+    expect(() =>
+      readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 50, () => undefined),
+    ).toThrow(/exceeds 50 bytes/);
     // The identical content passes under a larger explicit ceiling.
-    const out = readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 1000);
+    const out = readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 1000, () => undefined);
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
     expect(c.text).toBe("x".repeat(100));
@@ -299,7 +318,13 @@ describe("Greptile review fixes", () => {
   });
   it("readResource rejects a URI for a vault other than the caller's bound vault", () => {
     expect(() =>
-      readResource(tempVault(), ctx(["*"]), "obsidian-tc://main2/alpha.md", DEFAULT_TEST_CEILING),
+      readResource(
+        tempVault(),
+        ctx(["*"]),
+        "obsidian-tc://main2/alpha.md",
+        DEFAULT_TEST_CEILING,
+        () => undefined,
+      ),
     ).toThrow(/bound vault/);
   });
 });
@@ -311,10 +336,10 @@ describe("listResources pagination", () => {
     const reg = new VaultRegistry(
       ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,
     );
-    const p1 = listResources(reg, ctx(["*"]), undefined, 2);
+    const p1 = listResources(reg, ctx(["*"]), () => undefined, undefined, 2);
     expect(p1.resources).toHaveLength(2);
     expect(p1.nextCursor).toBe("2");
-    const p2 = listResources(reg, ctx(["*"]), p1.nextCursor, 2);
+    const p2 = listResources(reg, ctx(["*"]), () => undefined, p1.nextCursor, 2);
     expect(p2.resources).toHaveLength(1);
     expect(p2.nextCursor).toBeUndefined();
     expect([...p1.resources, ...p2.resources].map((r) => r.name).sort()).toEqual([
@@ -325,6 +350,6 @@ describe("listResources pagination", () => {
   });
 
   it("a small vault fits in one page (no nextCursor)", () => {
-    expect(listResources(tempVault(), ctx(["*"])).nextCursor).toBeUndefined();
+    expect(listResources(tempVault(), ctx(["*"]), () => undefined).nextCursor).toBeUndefined();
   });
 });

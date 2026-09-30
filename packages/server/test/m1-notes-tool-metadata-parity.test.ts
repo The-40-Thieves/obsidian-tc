@@ -298,7 +298,7 @@ function stubDeps() {
 
 describe("m1 notes tool metadata parity (WP8 invariant)", () => {
   it("keeps the ordered public metadata of the 11 M1 note tools byte-identical", () => {
-    const tools = buildNotesTools(stubDeps());
+    const tools = buildNotesTools(stubDeps(), () => undefined);
     const actual = tools.map(toSnapshot);
     expect(stableStringify(actual)).toBe(stableStringify(EXPECTED));
   });

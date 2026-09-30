@@ -350,6 +350,7 @@ describe("THE-514 item 2 — vault-binding: documented divergence, asserted as s
         },
         "obsidian-tc://other/secret.md",
         1_000_000,
+        () => undefined,
       ),
     ).toThrow(/bound vault/);
   });
@@ -387,6 +388,7 @@ describe("THE-514 item 1 — resources and tool-dispatch share one scope-authori
         },
         "obsidian-tc://main/alpha.md",
         1_000_000,
+        () => undefined,
       );
     } catch (e) {
       resourceErr = e;
@@ -477,6 +479,7 @@ describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversi
         // THE-514 item 2: this is exactly what mcp/server.ts now passes — the registry's OWN
         // configured ceiling, not a hardcoded resources.ts constant.
         registry.maxResponseBytes,
+        () => undefined,
       ),
     ).toThrow(/exceeds 50 bytes/);
   });

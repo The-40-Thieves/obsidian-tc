@@ -4,24 +4,29 @@
 // vault check, folder/rule-scope ACL and the size ceiling are the resource surface's, not a copy.
 // Paging is the shared byte-page.ts paginator, exactly as read_notes uses it.
 //
-// ACL: enforced per item inside readResource (which passes the caller's granted scopes, so P1.4
-// rule-scopes apply), on every page. No central `pathAcl` is declared on purpose: the central stage
-// throws for the WHOLE call on the first denied path, and its extractor cannot see the caller's
-// bound vault, so a denied or foreign-vault URI would sink the batch instead of being one error item.
+// ACL: enforced per item inside readResource, on every page, under the ACL of the vault each URI
+// resolves to: the per-vault override when one is configured, else the root ACL (the registry's own
+// aclResolver, passed in as `aclFor` - this tool has no `vault` argument, so dispatch's per-vault
+// swap never runs for it). Granted scopes are passed too, so rule-scopes apply. No central
+// `pathAcl` is declared on purpose: the central stage throws for the WHOLE call on the first denied
+// path, and its extractor cannot see the caller's bound vault, so a denied or foreign-vault URI
+// would sink the batch instead of being one error item. Because that also hides a denial from
+// dispatch's denial signals, `deniedItems` hands them back (audit row, acl_denied_total,
+// tc.acl.denied per denied item, as read_notes gets for a denied path).
 // memoryDefense is a write-side gate (write_note/append_note/patch_note); no read path runs it, so
 // there is nothing to evaluate per item here - the same as read_notes.
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
 import type { ToolDefinition } from "../../../mcp/registry";
-import { readResource } from "../../../mcp/resources";
+import { readResource, type VaultAclResolver } from "../../../mcp/resources";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { ReadResourcesOutput } from "./schemas";
 
 type ReadResourcesItem = z.infer<typeof ReadResourcesOutput>["results"][number];
 
-export function createReadResourcesTool(deps: M1Deps): ToolDefinition {
+export function createReadResourcesTool(deps: M1Deps, aclFor: VaultAclResolver): ToolDefinition {
   return defineTool({
     name: "read_resources",
     domain: "notes",
@@ -40,6 +45,9 @@ export function createReadResourcesTool(deps: M1Deps): ToolDefinition {
       .strict(),
     outputSchema: ReadResourcesOutput,
     requiredScopes: ["read:notes"],
+    // A denied URI is an item, not a failed call (see the ACL note above), so dispatch is told how
+    // to find the denials and records each one as it would a thrown acl_denied.
+    deniedItems: (out) => out.results.flatMap((r) => (r.ok ? [] : [r.error.code])),
     handler: async (input, ctx) => {
       const paging = pagingOf(deps.paging);
       const { entries, nextCursor } = await paginateByBytes<string, ReadResourcesItem>({
@@ -50,7 +58,7 @@ export function createReadResourcesTool(deps: M1Deps): ToolDefinition {
         // Runs per item on every page, so a folder ACL revoked between pages is honoured on resume.
         produce: (uri): ReadResourcesItem => {
           try {
-            const content = readResource(deps.vaultRegistry, ctx, uri, paging.budgetBytes())
+            const content = readResource(deps.vaultRegistry, ctx, uri, paging.budgetBytes(), aclFor)
               .contents[0];
             if (!content || !("text" in content))
               throw new ObsidianTcError("internal", "resource has no text content");

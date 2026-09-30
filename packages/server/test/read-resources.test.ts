@@ -1,5 +1,5 @@
 // read_resources: batch resources/read. Each obsidian-tc:// note URI goes through the SAME
-// readResource() the MCP resources/read handler calls, then the shared byte-page paginator. Every
+// readResource(, (id) => v.registry.aclFor(id)) the MCP resources/read handler calls, then the shared byte-page paginator. Every
 // case runs through registry.dispatch, i.e. under the real governor.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -168,7 +168,9 @@ describe("read_resources: per-item results", () => {
     const uris = [uri("a b/ünï.md"), uri("n.md")];
     const d = pageOf(await readPage(v, uris));
     d.results.forEach((item, i) => {
-      const single = readResource(v.vaultRegistry, v.ctx(), uris[i] as string, 1_000_000);
+      const single = readResource(v.vaultRegistry, v.ctx(), uris[i] as string, 1_000_000, (id) =>
+        v.registry.aclFor(id),
+      );
       expect(item.ok).toBe(true);
       if (!item.ok) return;
       expect({ uri: item.uri, mimeType: item.mimeType, text: item.text }).toEqual(
@@ -182,7 +184,7 @@ describe("read_resources: per-item results", () => {
     for (const bad of [uri("missing.md"), "nope://x/y.md", uri("x.md", "other")]) {
       let thrown: { code?: string } = {};
       try {
-        readResource(v.vaultRegistry, v.ctx(), bad, 1_000_000);
+        readResource(v.vaultRegistry, v.ctx(), bad, 1_000_000, (id) => v.registry.aclFor(id));
       } catch (e) {
         thrown = e as { code?: string };
       }

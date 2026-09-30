@@ -123,6 +123,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   An emptied `auth_keys` table in an initialised registry refuses every bearer with `registry_lost`,
   asymmetric tokens included; they no longer fall through to `auth.jwks` / `auth.jwksUri`.
 
+- **`resources/read`, `resources/list` and `read_resources` now enforce the vault's own ACL
+  override.** A per-vault `acl` block (narrower `readPaths`, `strictReadDefault`, or `rules`) was
+  applied only to tools that take a `vault` argument. A resource URI names its vault inside the URI,
+  so these surfaces were authorized by the root ACL instead, which defaults to unrestricted reads: a
+  token bound to a vault whose override hid a folder could still read (or list) that folder through
+  `resources/read`. They now resolve the ACL of the vault the URI names, through the same per-vault
+  resolver tool dispatch uses, and the verdict for a given caller and path is the same on
+  `read_notes`, `read_resources`, `resources/read` and `resources/list`. A vault with no override
+  still inherits the root ACL. Also: a denied item inside a `read_resources` batch is now audited,
+  counted in `obsidian_tc_acl_denied_total` and relayed as `tc.acl.denied`, as a denied `read_notes`
+  path is, and a folder under an allowed path now reads as `note_not_found` on both resource
+  surfaces (it was `path_invalid`), so a caller cannot tell a folder from a missing note.
 - **`replay_drift` now covers the eight HITL-gated tools that bound on `args_hash` alone.** A
   gated tool declares what its confirmation is about through `pathAcl` or a new per-tool
   `confirmationTargets` function. `rewrite_link` binds the set of notes it would rewrite, `ocr_bulk` the

@@ -56,9 +56,9 @@ import {
   CATALOG_RESOURCE_URI,
   canReadNotes,
   catalogResourceEntry,
-  listResources,
+  listResourcesFor,
   readCatalogResource,
-  readResource,
+  readResourceFor,
 } from "./resources";
 import {
   clientSupportsTasks,
@@ -716,7 +716,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
           ["read:notes"],
           { cursor: req.params?.cursor ?? null },
           () => {
-            const notes = listResources(vaultRegistry, ctx, req.params?.cursor);
+            const notes = listResourcesFor(opts.registry, vaultRegistry, ctx, req.params?.cursor);
             // THE-937: catalog listed FIRST, one row, only on the first page (no re-emitting it
             // per cursor page) and only for a caller who could read it (same gate as notes).
             if (req.params?.cursor || !canReadNotes(ctx)) return notes;
@@ -769,12 +769,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
             }
             // Synchronous, so a try/catch rather than .catch — the miss must surface as -32602.
             try {
-              return readResource(
-                vaultRegistry,
-                ctx,
-                req.params.uri,
-                opts.registry.maxResponseBytes,
-              );
+              return readResourceFor(opts.registry, vaultRegistry, ctx, req.params.uri);
             } catch (e) {
               throw asResourceProtocolError(e, req.params.uri);
             }

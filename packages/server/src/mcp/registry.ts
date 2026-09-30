@@ -101,6 +101,14 @@ export class ToolRegistry {
     return this._maxResponseBytes;
   }
 
+  /** The ACL that governs `vaultId` — the same `aclResolver` dispatch swaps in for a tool
+   *  that names a vault. Surfaces that name the vault only inside a URI (resources/read,
+   *  resources/list, read_resources) resolve through this, so a vault's override is enforced on
+   *  them too. `undefined` = no resolver wired (bare registry) -> the caller's own ctx.acl. */
+  aclFor(vaultId: string): ReturnType<NonNullable<RegistryOptions["aclResolver"]>> {
+    return this.aclResolver?.(vaultId);
+  }
+
   constructor(opts: RegistryOptions = {}) {
     this._maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;

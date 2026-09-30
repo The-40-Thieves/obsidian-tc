@@ -549,6 +549,27 @@ export async function runDispatch(
     deps.observability.meter((m) =>
       m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize, telemetryDetail(ctx)),
     );
+    // A batch tool reports a denied item as data inside this successful result; give each the
+    // denial records a thrown acl_denied gets above (see ToolDefinition.deniedItems). Fail-open:
+    // observability must never break the call it observes.
+    if (def.deniedItems) {
+      try {
+        for (const code of def.deniedItems(out))
+          deps.observability.recordItemDenial(
+            ctx,
+            name,
+            episodeKind(),
+            hash,
+            rawInput,
+            scopeClass,
+            code,
+            duration,
+            policy.requiredScopes,
+          );
+      } catch {
+        /* a faulty declaration must not turn a served read into an error */
+      }
+    }
     try {
       deps.onProfile?.({
         tool: name,
