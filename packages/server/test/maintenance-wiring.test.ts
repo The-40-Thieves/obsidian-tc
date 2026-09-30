@@ -41,6 +41,7 @@ const baseDeps = (db: Database, morgiana: MorgianaEmitter) => ({
     jobsFailedRetentionDays: 30,
     episodesRetentionDays: 90,
     retrievalsRetentionDays: 365,
+    captureQueueRetentionDays: 30,
   },
   retention: { eventLogDays: 30, tracesDays: 30 },
   vaults: [] as { id: string; root: string }[],
@@ -68,6 +69,7 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
+        capture_queue: 0,
       }),
     ).toBe(3);
     expect(
@@ -84,8 +86,9 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
+        capture_queue: 5,
       }),
-    ).toBe(127);
+    ).toBe(132);
   });
 
   it("THE-1039: fts_merged is a string[], not a row count — it must not corrupt the numeric total", () => {
@@ -107,6 +110,7 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: ["notes_fts", "chunk_fts"],
+        capture_queue: 0,
       }),
     ).toBe(1);
   });
@@ -145,6 +149,7 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_expired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
+        capture_queue: 0,
       }),
     ).toBe(0);
   });
@@ -222,6 +227,29 @@ describe("configureMaintenance", () => {
       expect(vaultId).toBe("v1");
       expect(payload.count).toBe(1);
       expect(payload.rows_dropped.idempotency_keys).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("threads maintenance.captureQueueRetentionDays into the sweep's capture_queue arm", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = freshDb();
+      db.prepare(
+        "INSERT INTO capture_queue (id, vault_id, title, content, captured_at, committed_at, committed_path) VALUES (?,?,NULL,?,?,?,?)",
+      ).run("cap-old", "v1", "content", NOW - 100 * 86_400_000, NOW - 40 * 86_400_000, "n.md");
+      // Pending capture must survive regardless of the configured retention.
+      db.prepare(
+        "INSERT INTO capture_queue (id, vault_id, title, content, captured_at, committed_at, committed_path) VALUES (?,?,NULL,?,?,NULL,NULL)",
+      ).run("cap-pending", "v1", "content", NOW - 100 * 86_400_000);
+      const { m } = fakeMorgiana();
+      const sched = new Scheduler();
+      configureMaintenance(sched, baseDeps(db, m));
+      sched.start();
+      await vi.advanceTimersByTimeAsync(61_000);
+      await sched.stop();
+      expect(db.prepare("SELECT id FROM capture_queue").all()).toEqual([{ id: "cap-pending" }]);
     } finally {
       vi.useRealTimers();
     }

@@ -162,6 +162,9 @@ describe("maintenance config (THE-292)", () => {
       // activation and note-quality signals rather than only reclaiming disk.
       episodesRetentionDays: 90,
       retrievalsRetentionDays: 365,
+      // Days a COMMITTED capture_queue row is retained before the maintenance sweep prunes it —
+      // a PENDING row is never pruned by this sweep at any age, see db/maintenance.ts.
+      captureQueueRetentionDays: 30,
       // THE-458 item 6: reconcileIntervalMinutes is ABSENT by default, not 0 — a healthy server
       // with a working watcher does not need a periodic full vault walk, and 0 would parse as
       // "set" while meaning "off".
@@ -200,6 +203,7 @@ describe("maintenance config (THE-292)", () => {
       jobsFailedRetentionDays: 30,
       episodesRetentionDays: 90,
       retrievalsRetentionDays: 365,
+      captureQueueRetentionDays: 30,
     });
   });
 });
