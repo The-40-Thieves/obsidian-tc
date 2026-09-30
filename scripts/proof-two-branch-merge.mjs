@@ -75,7 +75,6 @@ function sh(cmd, args, opts = {}) {
 }
 
 function setup() {
-  git("--version");
   execFileSync("git", ["worktree", "add", "--detach", WT, BASE], { cwd: REPO, env });
   // node_modules is not checked in; reuse the main checkout's install (read-only use).
   const links = [
