@@ -18,6 +18,7 @@ import {
   renderText,
   resolveInstallRoot,
 } from "../../doctor";
+import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
 import { probeIndexCoverage } from "../../doctor/index-coverage";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { hiddenNamesInAllowlist } from "../../doctor/tool-facade";
@@ -333,6 +334,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
     : undefined;
   // THE-722: the reader audit_reports never had.
   const kbHealth = cmd.probe ? await probeKbHealth(config.cacheDir, busyTimeoutMs) : undefined;
+  const hitlConfirmations = cmd.probe
+    ? await probeHitlConfirmations(config.cacheDir, busyTimeoutMs, {
+        windowDays: HITL_DOCTOR_WINDOW_DAYS,
+        ttlSeconds: config.elicitTtlSeconds,
+      })
+    : undefined;
   const sessionLiveness = cmd.probe
     ? await probeStaleExplicitSessions(
         config.cacheDir,
@@ -620,6 +627,10 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
             })(),
           }
         : {}),
+      hitlConfirmations: {
+        windowDays: HITL_DOCTOR_WINDOW_DAYS,
+        ...(hitlConfirmations !== undefined ? { probe: () => hitlConfirmations } : {}),
+      },
       sessions: {
         windowSeconds: config.sessions.windowSeconds,
         ...(sessionLiveness !== undefined ? { probe: () => sessionLiveness } : {}),

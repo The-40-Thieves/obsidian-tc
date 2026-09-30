@@ -23,9 +23,11 @@ import {
 } from "@modelcontextprotocol/server";
 import type { ErrorJSON, MorgianaEventData } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
+import { type HitlSource, recordHitlOffer } from "../hitl-telemetry";
 import { callerHash } from "../throttle";
 // THE-1106 fix round 1 (check:duplicate-exports): reuse tasks.ts's copy rather than declaring a
 // second one — this module and tasks.ts independently needed the SAME SEP-2575 fact.
+import type { CallerContext } from "./registry";
 import { MODERN_PROTOCOL_VERSION } from "./tasks";
 
 /**
@@ -42,6 +44,12 @@ export function negotiatedModern(server: Server, isModern: boolean): boolean {
   if (isModern) return true;
   const negotiated = server.getNegotiatedProtocolVersion();
   return negotiated !== undefined && negotiated >= MODERN_PROTOCOL_VERSION;
+}
+
+/** Confirmation telemetry label (hitl-telemetry.ts): `request_state` for the 2026-era client echo,
+ *  `form` for the server-driven legacy round trip. */
+export function hitlFormSource(server: Server, isModern: boolean): "form" | "request_state" {
+  return negotiatedModern(server, isModern) ? "request_state" : "form";
 }
 
 /**
@@ -188,6 +196,10 @@ export function resolveElicitConfirmation(mcpReq: {
   elicitState: ElicitRequestState | undefined;
   roundDeclinedOrCancelled: boolean;
   approvedRound: number | undefined;
+  /** What the human answered on this request's confirm leg, tied to the verified echoed state's
+   *  own tool/args_hash. Telemetry only (hitl-telemetry.ts): no gate reads it. Undefined with no
+   *  verified state or no answer, so an unverifiable claim is never recorded. */
+  answer: { action: "accept" | "decline" | "cancel"; tool: string; argsHash: string } | undefined;
 } {
   const echoed = mcpReq.requestState?.<ElicitRequestState>();
   const confirmResponse = inputResponse(mcpReq.inputResponses, "confirm");
@@ -199,6 +211,18 @@ export function resolveElicitConfirmation(mcpReq: {
     elicitState: confirmApproved ? echoed : undefined,
     roundDeclinedOrCancelled: confirmResponse.kind !== "missing" && !confirmApproved,
     approvedRound: confirmApproved ? (echoed?.round ?? 0) : undefined,
+    answer:
+      echoed !== undefined && confirmResponse.kind === "elicit"
+        ? {
+            action: confirmApproved
+              ? "accept"
+              : confirmResponse.action === "cancel"
+                ? "cancel"
+                : "decline",
+            tool: echoed.tool,
+            argsHash: echoed.argsHash,
+          }
+        : undefined,
   };
 }
 
@@ -224,8 +248,12 @@ export async function offerInputRequired(
   codec: ElicitCodec,
   name: string,
   error: ErrorJSON,
-  ctx: { vaultId: string; caller: string | null },
+  ctx: { vaultId: string; caller: string | null } & Partial<
+    Pick<CallerContext, "db" | "clientInfo" | "hitlRoute">
+  >,
   previousApprovedRound: number | undefined,
+  /** Confirmation telemetry: when given, a delivered offer is recorded as `offered`. */
+  offerSource?: Exclude<HitlSource, "token">,
 ): Promise<CallToolResult | undefined> {
   if ((previousApprovedRound ?? 0) >= MAX_MISMATCH_ROUNDS) return undefined;
   const details = error as {
@@ -235,6 +263,7 @@ export async function offerInputRequired(
   if (typeof argsHash !== "string") return undefined;
   const path = details.details?.path;
   const stateFp = details.details?.state_fp;
+  if (offerSource && ctx.db) recordHitlOffer({ ...ctx, db: ctx.db }, name, error, offerSource);
   return inputRequired({
     requestState: await codec.mint({
       tool: name,
@@ -278,4 +307,23 @@ export function elicitStateContextPatch(
     relayElicitConsumed: (toolName: string) =>
       registry.relayElicitConsumed(vaultId, { tool: toolName, caller_hash: callerHash(caller) }),
   };
+}
+
+/** The `CallerContext` for one tools/call request's confirmation state: the verified approved
+ *  `elicitState` (see `elicitStateContextPatch`) plus, for telemetry only, the human's answer
+ *  (`hitlAnswer`, recorded by `recordHitlAnswer`, read by no gate). */
+export function elicitConfirmationContext(
+  ctx: CallerContext,
+  registry: Parameters<typeof elicitStateContextPatch>[0],
+  confirmation: ReturnType<typeof resolveElicitConfirmation>,
+  server: Server,
+  isModern: boolean,
+): CallerContext {
+  const source = hitlFormSource(server, isModern);
+  const { elicitState, answer } = confirmation;
+  const withState =
+    elicitState === undefined
+      ? ctx
+      : { ...ctx, ...elicitStateContextPatch(registry, elicitState, ctx.vaultId, ctx.caller) };
+  return answer === undefined ? withState : { ...withState, hitlAnswer: { ...answer, source } };
 }

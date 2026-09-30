@@ -55,6 +55,18 @@ export interface CallerContext {
    *  accept+approve:true `elicitState`; absent otherwise, so a caller with no such state simply has
    *  nothing to call. */
   relayElicitConsumed?: (toolName: string) => void;
+  /** Confirmation telemetry (hitl-telemetry.ts): how this call reached dispatch. Set by
+   *  mcp/server.ts only for `call_capability` ("facade") and domain-verb ("domain") routing;
+   *  absent means a direct tool call. Read only to label an `event_log` row. */
+  hitlRoute?: "facade" | "domain";
+  /** Confirmation telemetry: the human's answer to THIS request's confirm leg, read from a
+   *  transport-verified requestState. Set by mcp/server.ts; never consulted by any gate. */
+  hitlAnswer?: {
+    action: "accept" | "decline" | "cancel";
+    tool: string;
+    argsHash: string;
+    source: "form" | "request_state";
+  };
   acl?: FolderAcl;
   /** SEP-2577 client features (roots/sampling), deprecated but functional through the revision's
    *  migration window — see docs/design/mcp-registry-context-types.md. `undefined` when the client

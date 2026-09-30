@@ -157,7 +157,11 @@ function makeVault(opts: IntegrationVaultOptions = {}): IntegrationVault {
       });
       return registry.dispatch(name, input, ctx({ elicitToken: token, ...over }));
     },
-    auditDump: () => db.prepare("SELECT * FROM event_log ORDER BY rowid").all(),
+    // One row per DISPATCH: the confirmation-outcome rows (`hitl_*`) are a separate event type.
+    auditDump: () =>
+      db
+        .prepare("SELECT * FROM event_log WHERE event_type = 'tool_invocation' ORDER BY rowid")
+        .all(),
     cleanup: () => rmTemp(root),
   };
 }

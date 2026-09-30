@@ -41,6 +41,10 @@ export type {
   ToolCensus,
 } from "./entrypoints";
 export { entryPointsCheck } from "./entrypoints";
+// THE-1108: sessions.liveness's probe result type, same barrel reasoning as every other
+// doctor/*.ts submodule above — the CLI builds its probe without importing through checks.ts.
+export type { HitlConfirmationsProbe, HitlConfirmationsView } from "./hitl-confirmations";
+export { hitlConfirmationsCheck } from "./hitl-confirmations";
 // THE-1073: index.coverage's probe result type, so the CLI can build it without importing through
 // checks.ts — same barrel reasoning as every other doctor/*.ts submodule in this file.
 export type { IndexCoverageState } from "./index-coverage";
@@ -54,8 +58,6 @@ export { renderText, runDoctor } from "./report";
 export type { DenseProbeResult } from "./retrieval-heads";
 export type { AssembleOptions, DoctorConfigView } from "./run";
 export { assembleDoctorReport, decodeTokenClaims } from "./run";
-// THE-1108: sessions.liveness's probe result type, same barrel reasoning as every other
-// doctor/*.ts submodule above — the CLI builds its probe without importing through checks.ts.
 export type { SessionLivenessProbe, SessionLivenessView } from "./session-liveness";
 export { sessionLivenessCheck } from "./session-liveness";
 export type { TelemetryView } from "./telemetry";
