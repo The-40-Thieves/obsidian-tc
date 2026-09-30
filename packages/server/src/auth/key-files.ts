@@ -2,8 +2,9 @@
 //
 // A key file is trusted only when we can show, on the OPEN file descriptor, that it is a regular
 // file we own that no group/other principal can read, reached without following a symlink, inside a
-// real directory that is itself ours and 0700. The check is repeated on every read (see the
-// registry: no secret is cached), so a `chmod` made after startup is noticed on the next verify.
+// real directory that is itself ours and 0700. `readKeyFile` repeats the check on every
+// call; the registry reuses a validated secret for at most KEY_FILE_CACHE_TTL_MS, so a `chmod` made
+// after startup is noticed within that window.
 //
 // Why descriptor-based: `stat(path)` then `readFile(path)` are two lookups, and `stat` follows
 // symlinks, so a link to a 0600 file passes the first and the bytes of the link TARGET become the

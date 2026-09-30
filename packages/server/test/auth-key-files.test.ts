@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { AuthRejection } from "../src/auth/jwt";
 import { createKeyFile, KeyFileError, readKeyFile } from "../src/auth/key-files";
-import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
+import { authKeysDir, createAuthRegistry, KEY_FILE_CACHE_TTL_MS } from "../src/auth/registry";
 import { createTokenVerifier } from "../src/auth/verifier";
 import { signAndRecord } from "../src/cli/commands/token-mint";
 import { provisionAuthDb } from "../src/db/provision";
@@ -38,9 +38,19 @@ function fixture() {
   dirs.push(dir);
   const db = openMemoryDb();
   provisionAuthDb(db);
-  const registry = createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(dir) });
+  // Injected clock: a validated key is reused for KEY_FILE_CACHE_TTL_MS, so a test that changes the
+  // file after a successful verify steps past that window to make the change observable.
+  const clock = { t: Date.now() };
+  const registry = createAuthRegistry(db, {
+    configSecret: SECRET,
+    keysDir: authKeysDir(dir),
+    now: () => clock.t,
+  });
   const verifier = createTokenVerifier({ secret: SECRET, registry });
-  return { dir, db, registry, verifier, keys: authKeysDir(dir) };
+  const pastWindow = () => {
+    clock.t += KEY_FILE_CACHE_TTL_MS + 1;
+  };
+  return { dir, db, registry, verifier, keys: authKeysDir(dir), clock, pastWindow };
 }
 const claims = () => {
   const now = Math.floor(Date.now() / 1000);
@@ -60,7 +70,7 @@ const keyFile = (keys: string) =>
 
 describe.skipIf(!posix)("key files are trusted only through the open descriptor", () => {
   it("refuses a key file that is a symlink to a well-behaved 0600 file", async () => {
-    const { dir, registry, verifier, keys } = fixture();
+    const { dir, registry, verifier, keys, pastWindow } = fixture();
     registry.rotateKey();
     const token = await signAndRecord(registry, claims());
     expect(await reasonOf(verifier.verify(token))).toBe("accepted");
@@ -71,37 +81,63 @@ describe.skipIf(!posix)("key files are trusted only through the open descriptor"
     rmSync(file);
     symlinkSync(elsewhere, file);
     expect(statSync(elsewhere).mode & 0o777).toBe(0o600);
+    pastWindow();
     expect(await reasonOf(verifier.verify(token))).toBe("misconfigured");
     expect(() => readKeyFile(file)).toThrow(KeyFileError);
   });
 
   it("refuses an auth-keys directory that is a symlink", async () => {
-    const { dir, registry, verifier, keys } = fixture();
+    const { dir, registry, verifier, keys, pastWindow } = fixture();
     registry.rotateKey();
     const token = await signAndRecord(registry, claims());
     const real = join(dir, "real-keys");
     renameSync(keys, real);
     symlinkSync(real, keys);
+    pastWindow();
     expect(await reasonOf(verifier.verify(token))).toBe("misconfigured");
     expect(() => registry.rotateKey()).toThrow(/symlink|real directory/);
   });
 
-  it("detects a chmod 0644 made AFTER the key was first used, on the very next verify", async () => {
-    const { registry, verifier, keys } = fixture();
+  it("detects a chmod 0644 made AFTER the key was first used, once the reuse window has passed", async () => {
+    const { registry, verifier, keys, pastWindow } = fixture();
     registry.rotateKey();
     const token = await signAndRecord(registry, claims());
     expect(await reasonOf(verifier.verify(token))).toBe("accepted"); // secret now used once
     chmodSync(keyFile(keys), 0o644);
+    pastWindow();
     expect(await reasonOf(verifier.verify(token))).toBe("misconfigured");
     chmodSync(keyFile(keys), 0o600);
     expect(await reasonOf(verifier.verify(token))).toBe("accepted");
   });
 
+  it("reuses a validated key for at most KEY_FILE_CACHE_TTL_MS: inside the window a chmod is not yet seen, at the edge it is", async () => {
+    const { registry, verifier, keys, clock } = fixture();
+    registry.rotateKey();
+    const token = await signAndRecord(registry, claims());
+    expect(await reasonOf(verifier.verify(token))).toBe("accepted");
+    chmodSync(keyFile(keys), 0o644);
+    clock.t += KEY_FILE_CACHE_TTL_MS - 1;
+    expect(await reasonOf(verifier.verify(token))).toBe("accepted"); // the documented staleness
+    clock.t += 1;
+    expect(await reasonOf(verifier.verify(token))).toBe("misconfigured");
+  });
+
+  it("does not cache a failed read: a bad file stays refused until it is fixed", async () => {
+    const { registry, verifier, keys, pastWindow } = fixture();
+    registry.rotateKey();
+    const token = await signAndRecord(registry, claims());
+    chmodSync(keyFile(keys), 0o644);
+    pastWindow();
+    expect(await reasonOf(verifier.verify(token))).toBe("misconfigured");
+    expect(await reasonOf(verifier.verify(token))).toBe("misconfigured");
+  });
+
   it("refuses a too-open keys directory on verify, and tightens it on rotate", async () => {
-    const { registry, verifier, keys } = fixture();
+    const { registry, verifier, keys, pastWindow } = fixture();
     registry.rotateKey();
     const token = await signAndRecord(registry, claims());
     chmodSync(keys, 0o755);
+    pastWindow(); // signing above validated the key; step past the reuse window
     expect(await reasonOf(verifier.verify(token))).toBe("misconfigured");
     registry.rotateKey();
     expect(statSync(keys).mode & 0o777).toBe(0o700);

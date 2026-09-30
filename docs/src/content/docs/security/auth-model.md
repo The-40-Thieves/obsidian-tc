@@ -125,8 +125,9 @@ tokens and retired keys become valid again, remove the `auth-keys/` directory to
 
 A key file is trusted only if it is a regular file owned by the server user, not readable by
 group or other (0600), reached without following a symlink, inside a real `auth-keys/` directory
-(0700, not a symlink). The check runs on the open file descriptor and is repeated on every
-verify (a `chmod` after startup is noticed on the next request), and keys are created with
+(0700, not a symlink). The check runs on the open file descriptor and is repeated at least
+once a second (a validated secret is reused for at most one second, so a `chmod` or symlink swap
+after startup is noticed within that window), and keys are created with
 `O_EXCL|O_NOFOLLOW`. On **Windows** there are no POSIX modes, owner check or `O_NOFOLLOW`, so
 none of this is enforced: protect the directory with its ACL (`doctor` warns).
 

@@ -37,6 +37,16 @@ export const CONFIG_KID = "config";
 const CONFIG_REF = "config";
 /** How long a "never initialised" reading is reused before the disk is checked again. */
 const UNINITIALISED_TTL_MS = 1000;
+/**
+ * The MAXIMUM staleness for a change to a key file to be noticed by a running server: a chmod, a
+ * swapped-in symlink or a deleted/replaced file is seen on the first verify after this window. A
+ * validated secret is reused for at most this long, then re-read through the full descriptor checks
+ * (see key-files.ts). It buys back the open/fstat/read/close syscalls that made a verify with a
+ * rotated file key cost roughly +140-180 us over the configured-secret path (measured, loaded box);
+ * `rotate-key` and every other process's writes go to new files or to the database, which is never
+ * cached, so revocation and retirement stay immediate.
+ */
+export const KEY_FILE_CACHE_TTL_MS = 1000;
 const FILE_REF = /^file:([A-Za-z0-9_-]+\.key)$/;
 
 export type KeyState = "active" | "retiring" | "retired";
@@ -218,8 +228,24 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
     state: "active",
     retireAfter: null,
   });
-  /** The secret for `key`. Key-file secrets are re-read and re-judged on EVERY call: a chmod, a
-   *  swapped-in symlink or a deleted file is seen on the next request, not at the next restart. */
+  // path -> a secret that passed the full key-file checks, and when. Only ever holds a value that
+  // `readKeyFile` accepted; expiry and any failed re-read drop it, so a bad file is never served
+  // past KEY_FILE_CACHE_TTL_MS.
+  const keyCache = new Map<string, { secret: string; checkedAt: number }>();
+  const readKeyCached = (path: string): string => {
+    const t = now();
+    const hit = keyCache.get(path);
+    if (hit !== undefined && t >= hit.checkedAt && t - hit.checkedAt < KEY_FILE_CACHE_TTL_MS) {
+      return hit.secret;
+    }
+    keyCache.delete(path);
+    const secret = readKeyFile(path);
+    keyCache.set(path, { secret, checkedAt: t });
+    return secret;
+  };
+  /** The secret for `key`. A key-file secret is re-read and re-judged (regular file, ours, no
+   *  group/other bits, no symlink) at least every KEY_FILE_CACHE_TTL_MS, so a chmod, a swapped-in
+   *  symlink or a deleted file is seen within that window, not at the next restart. */
   const loadSecret = (key: AuthKey): string => {
     if (key.keyRef === CONFIG_REF) {
       if (!opts.configSecret) throw new AuthRejection("misconfigured");
@@ -227,7 +253,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
     }
     const m = FILE_REF.exec(key.keyRef);
     if (!m || !keysDir) throw new AuthRejection("misconfigured");
-    return readKeyFile(join(keysDir, m[1] as string));
+    return readKeyCached(join(keysDir, m[1] as string));
   };
 
   const hasRows = (): boolean =>

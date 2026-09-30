@@ -188,8 +188,9 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `O_RDONLY|O_NOFOLLOW` and judged by `fstat` on that descriptor (regular file, owned by the server
   user, no group/other bits) instead of `stat`-then-read, which followed symlinks; the `auth-keys/`
   directory must be a real 0700 directory (a symlink is refused, a too-open one is tightened on
-  `rotate-key`); keys are created `O_CREAT|O_EXCL|O_NOFOLLOW` 0600; and the check repeats on every
-  verify, so a later `chmod` is noticed on the next request. Windows cannot enforce any of this and
+  `rotate-key`); keys are created `O_CREAT|O_EXCL|O_NOFOLLOW` 0600; and the check repeats at least
+  once a second (a validated secret is reused for at most 1 s, which is also the longest a later
+  `chmod`, symlink swap or file replacement can go unnoticed). Windows cannot enforce any of this and
   `doctor` says so.
 
 - **Two dependency advisories cleared across both install roots.** `fast-uri` 3.1.7 to 3.1.8
