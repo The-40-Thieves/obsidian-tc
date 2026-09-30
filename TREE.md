@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,525 tracked code files · 283,048 lines.
+**Scale:** 1,528 tracked code files · 283,734 lines.
 
-TypeScript 260,266 · JavaScript 16,944 · Python 2,406 · SQL 2,127 · Rust 753 · Shell 552.
+TypeScript 260,925 · JavaScript 16,944 · Python 2,406 · SQL 2,154 · Rust 753 · Shell 552.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -88,14 +88,14 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 |---|---:|---:|---|
 | `tools/` | 92 | 20,247 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 64 | 13,603 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `cli/` | 58 | 10,067 | arg parsing + subcommands |
+| `cli/` | 58 | 10,070 | arg parsing + subcommands |
 | `experiential/` | 29 | 7,771 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 28 | 6,718 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 28 | 6,770 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 25 | 5,875 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 21 | 3,533 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `vault/` | 18 | 3,013 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `db/` | 16 | 2,191 | provisioning, migrate runner, experiential store |
-| `migrations/` | 58 | 2,127 | hand-registered SQL. **Two chains** — see below |
+| `vault/` | 18 | 3,019 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `db/` | 16 | 2,196 | provisioning, migrate runner, experiential store |
+| `migrations/` | 59 | 2,154 | hand-registered SQL. **Two chains** — see below |
 | `providers/` | 8 | 1,749 |  |
 | `workspace/` | 4 | 1,610 | session tracking |
 | `plane/` | 9 | 1,498 | generative plane; `jobs/` holds the contradiction detector |
@@ -120,7 +120,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 123 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 525 files across 33 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 527 files across 33 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -153,7 +153,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 688 | `packages/server/src/search/indexing/index-vault.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
-| 655 | `packages/server/src/mcp/registry/dispatch.ts` |
+| 661 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 655 | `packages/server/src/runtime/server-runtime.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
 | 641 | `packages/server/src/cli/commands/compact.ts` |
@@ -303,7 +303,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**524 modules · 2504 dependencies · 155 distinct subsystem pairs · 1144 cross-subsystem imports.**
+**525 modules · 2517 dependencies · 155 distinct subsystem pairs · 1144 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it

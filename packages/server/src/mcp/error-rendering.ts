@@ -211,6 +211,9 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
  *  block (above) instead — it has neither `issues` nor a vault hint to fall through to. */
 export function formatErrorDetail(error: ErrorJSON): string | undefined {
   if (error.code === "elicit_required") return renderElicitInstruction(error.details);
+  // replay_drift has no field detail to render; clients show the text block alone, so the fix
+  // (request a fresh confirmation, never resubmit the old token) has to be in it.
+  if (error.code === "replay_drift") return error.recovery;
   const issues = error.details?.issues;
   return Array.isArray(issues) && issues.length > 0
     ? renderIssues(issues as z.core.$ZodIssue[], error.details)

@@ -24,6 +24,18 @@ authorize the same call more than once until it expires. Either way,
 fresh confirmation (`tc.elicit.requested`) is required for the next sensitive
 call.
 
+**Stale confirmations are refused.** An approval covers the state of the target as it was
+when the request was raised, not just the tool and arguments. When the call's target paths
+(the ones the tool declares for the folder ACL) change between the request and the
+redemption, whether by an edit, an mtime change, or a note appearing or disappearing, the
+server answers `replay_drift` and applies nothing. The token is spent; re-issue the original
+call with no token to request a fresh confirmation. This holds for every route a
+confirmation can arrive by: a token minted by `obsidian-tc elicit`, the stdio form round
+trip, the 2026-07-28 `requestState`, and the lean facade's `call_capability`. A token minted
+with no raised request behind it, and tools that declare no target paths (`execute_command`,
+`git_commit`, `trigger_quickadd`, `session_rerun`, `reset_vault_cache`, `delete_entity`,
+`rewrite_link`, `ocr_bulk`), are bound to the arguments alone.
+
 The elicitation thresholds are **hardcoded floors** — a client cannot configure
 them away. This keeps the confirmation gate present even under a permissive config.
 

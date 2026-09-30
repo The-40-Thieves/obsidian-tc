@@ -8,6 +8,7 @@ import type {
 import type { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
+import type { StateProbe } from "../../elicit-drift";
 import type { ElicitRequestState } from "../../elicit-request-state";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { TraceCarrier } from "../../otel/propagation";
@@ -240,7 +241,12 @@ export interface OperationPolicy {
   scopeClass?: string;
 }
 
-export type VerifyElicit = (token: string, expectedHash: string, ctx: CallerContext) => boolean;
+export type VerifyElicit = (
+  token: string,
+  expectedHash: string,
+  ctx: CallerContext,
+  currentFp?: StateProbe,
+) => boolean;
 export type Status = "ok" | "error" | "skipped";
 
 /** THE-839: what KIND of operation produced an episode, decided by the registry at the dispatch

@@ -228,16 +228,20 @@ export async function offerInputRequired(
   previousApprovedRound: number | undefined,
 ): Promise<CallToolResult | undefined> {
   if ((previousApprovedRound ?? 0) >= MAX_MISMATCH_ROUNDS) return undefined;
-  const details = error as { details?: { args_hash?: string; path?: unknown } };
+  const details = error as {
+    details?: { args_hash?: string; path?: unknown; state_fp?: unknown };
+  };
   const argsHash = details.details?.args_hash;
   if (typeof argsHash !== "string") return undefined;
   const path = details.details?.path;
+  const stateFp = details.details?.state_fp;
   return inputRequired({
     requestState: await codec.mint({
       tool: name,
       argsHash,
       vaultId: ctx.vaultId,
       caller: ctx.caller,
+      ...(typeof stateFp === "string" ? { stateFp } : {}),
       round: (previousApprovedRound ?? 0) + 1,
     }),
     inputRequests: {

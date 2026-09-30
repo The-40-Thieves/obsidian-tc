@@ -45,6 +45,7 @@ export const CACHE_VAULT_ID_TABLES: readonly string[] = [
   "cluster_summaries",
   "cluster_summary_members",
   "contradictions",
+  "elicit_requests",
   "elicit_tokens",
   "event_log",
   "idempotency_keys",

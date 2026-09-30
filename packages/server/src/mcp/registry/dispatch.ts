@@ -4,6 +4,8 @@ import {
   scopeClassOf,
   type ToolResult,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { elicitRequiredError } from "../../elicit";
+import { withStateProbe } from "../../elicit-drift";
 import { argsHash } from "../../hash";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
@@ -23,6 +25,7 @@ import {
   assertScopesGranted,
   checkHitl,
   checkThrottle,
+  confirmationStateProbe,
   enforceCentralPathAcl,
   enforceReadOnlyGate,
   enforceVaultKindGate,
@@ -382,8 +385,11 @@ export async function runDispatch(
     // the throttle gate (so a rate-limited call doesn't burn the confirmation) and last
     // before the handler (so the token is spent only once the call is cleared to execute).
     const needsHitl = hitlRequired(policy);
+    // Fingerprints what this call targets, so a confirmation bound to state that has since changed
+    // is refused as replay_drift. Lazy: nothing is read from disk unless a gate asks for it.
+    const stateProbe = confirmationStateProbe(def, inputData, ctx, deps.rootResolver);
     if (needsHitl) {
-      const ok = checkHitl(ctx, hash, name, deps.verifyElicit);
+      const ok = checkHitl(ctx, hash, name, deps.verifyElicit, stateProbe);
       if (!ok) {
         deps.observability.meter((m) => m.incHitlElicited(ctx.vaultId, name));
         if (idemClaimed && idemKey) {
@@ -401,7 +407,7 @@ export async function runDispatch(
         // this it carried only `args_hash`, which left `--tool` (a hard CLI requirement,
         // cli/args.ts) unrenderable for every always-gated (`destructive: true`) tool — the main
         // class the issue was filed about (11+ sites).
-        throw new ObsidianTcError("elicit_required", "human confirmation required", {
+        throw elicitRequiredError(ctx, hash, stateProbe, {
           args_hash: hash,
           tool: name,
           vault: ctx.vaultId,
@@ -459,7 +465,7 @@ export async function runDispatch(
         // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
         checkAborted(ctx.signal);
         const handlerStart = now();
-        const r = await def.handler(inputData, ctx);
+        const r = await withStateProbe(stateProbe, () => def.handler(inputData, ctx));
         handlerMs = Math.max(0, now() - handlerStart);
         handlerReturned = true;
         // #13: the default marker point — the WHOLE handler returned, so any later fault is
