@@ -47,7 +47,7 @@ if tokens >= n then
 else
   if rate > 0 then retry = math.ceil((n - tokens) / rate) else retry = -1 end
 end
-redis.call('HSET', KEYS[1], 't', string.format('%.17g', tokens), 'l', string.format('%.0f', last))
+redis.call('HSET', KEYS[1], 't', string.format('%.17g', tokens), 'l', string.format('%.17g', last))
 redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[6]))
 return { ok, retry, math.floor(tokens) }
 `;

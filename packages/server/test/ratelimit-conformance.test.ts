@@ -123,6 +123,19 @@ for (const sk of STORE_KINDS) {
       }
     });
 
+    it("keeps fractional-ms clocks exact across the persisted round-trip (differential)", async () => {
+      // A codecalc TS-vs-Lua differential found the redis script persisting `last` rounded to a whole
+      // ms: TS retry at op 4 was 1000, Lua 999.
+      const { b } = await fresh();
+      const spec: BucketSpec = { capacity: 3, refillTokens: 1, intervalMs: 1_000 };
+      const ref = new TokenBucket(spec);
+      for (const now of [0.5, 0.7, 0.9, 1.4, 1_000.6]) {
+        const want = ref.tryRemove(1, now);
+        const got = await b.consume("frac", spec, 1, now);
+        expect(got, `now=${now}`).toEqual(want);
+      }
+    });
+
     it("drives a RateLimiter end to end with the same G2.4 decision fields", async () => {
       const store = await sk.newStore();
       stores.push(store);
