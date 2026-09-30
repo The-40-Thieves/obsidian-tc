@@ -4,7 +4,7 @@ description: The metrics catalog and the optional, auth-gated /metrics scrape en
 ---
 
 <!-- BEGIN GENERATED: metrics-catalog -->
-obsidian-tc maintains a Prometheus catalog of **32 counters, 4 histograms, 18 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
+obsidian-tc maintains a Prometheus catalog of **33 counters, 4 histograms, 18 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
 
 ### Counters
 
@@ -30,6 +30,7 @@ obsidian-tc maintains a Prometheus catalog of **32 counters, 4 histograms, 18 ga
 | `obsidian_tc_memory_defense_hits_total` | `pattern` | memoryDefense (GH #994) redact/block matches, by pattern id only — no vault, tool, or content — so an operator sees the policy firing without reading what was matched. |
 | `obsidian_tc_memory_orphans_swept_total` | `class` | Memory rows deleted by the periodic orphan sweep, by class (dangling_relations, dangling_intervals, retired_entities, removed_vault_entities, removed_vault_relations, removed_vault_intervals). Cumulative. Only the two dangling_* classes are on by default; the other four move only when the operator sets their retention window. A dry run does not increment it. |
 | `obsidian_tc_morgiana_emit_dropped_total` | `reason`, `vault` | MORGIANA events dropped, by vault and reason. |
+| `obsidian_tc_morgiana_spool_files_pruned_total` | `reason` | Morgiana event spool day files deleted by the retention sweep, by reason (age = older than observability.retention.spoolRetentionDays, size = oldest files dropped to fit spoolMaxBytes). Cumulative. The current day's file is never deleted. |
 | `obsidian_tc_output_schema_drift_total` | `tool`, `vault` | Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case. |
 | `obsidian_tc_rate_limit_backend_outages_total` | `backend` | Shared rate-limit backend outages (sqlite or redis unreachable), by backend. Counted once per outage, not per request; the failure policy decides what calls do meanwhile. |
 | `obsidian_tc_rate_limit_hits_total` | `scope_class`, `vault` | Rate-limit refusals, by vault and scope class. |

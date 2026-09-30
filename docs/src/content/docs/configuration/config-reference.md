@@ -245,7 +245,9 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `observability.prometheus.bind` | `string` | `"127.0.0.1"` |  | Bind address for the scrape endpoint. Loopback by default — /metrics is unauthenticated. |
 | `observability.prometheus.enabled` | `boolean` | `false` |  | Serve the Prometheus /metrics endpoint. |
 | `observability.prometheus.port` | `number` | `9464` |  | Port for the Prometheus scrape endpoint. |
-| `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound. |
+| `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. The morgiana event spool has its own bounds, spoolRetentionDays and spoolMaxBytes. |
+| `observability.retention.spoolMaxBytes` | `number` | — |  | Optional size bound on the morgiana spool, in bytes, applied per vault directory: when a vault's spool files total more than this, the oldest day files are deleted until it fits. The current day's file is never deleted, so a single day larger than the bound is kept. Absent means no size bound. |
+| `observability.retention.spoolRetentionDays` | `number` | `30` |  | Days of morgiana CloudEvents spool files (<cacheDir>/<vault>/morgiana-events-<YYYY-MM-DD>.jsonl) kept by the maintenance sweep. Whole day files older than this are deleted; the file for the current UTC day, and any file modified in the last hour, is never touched. 0 keeps the spool forever (no age bound). Make sure MORGIANA has consumed a file before its day leaves this window. |
 | `observability.retention.tracesDays` | `number` | `30` |  | Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (the trace is written before the session row, so a failed attempt leaves a file with no row referencing it). |
 
 ### `pensieve`

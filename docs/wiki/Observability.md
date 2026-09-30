@@ -23,7 +23,7 @@ obsidian-tc is **observable from day one**. The Observability layer is the last 
 }
 ```
 
-`otel` has no `enabled` flag — tracing turns on when `endpoint` is set. `retention.eventLogDays` is the **only** enforced retention; trace files and the morgiana spool are not pruned by config.
+`otel` has no `enabled` flag — tracing turns on when `endpoint` is set. `retention.eventLogDays` prunes `event_log` rows, `retention.tracesDays` prunes trace files, and `retention.spoolRetentionDays` (default 30, `0` = keep forever) and the optional `retention.spoolMaxBytes` prune the morgiana spool, oldest whole day files first, never the current day's file.
 
 ## Prometheus endpoint
 
