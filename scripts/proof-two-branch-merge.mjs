@@ -220,7 +220,8 @@ function mergeOrder(first, second, label) {
       return { conflicted };
     }
   }
-  const markers = git("grep", "-lE", "^(<<<<<<<|>>>>>>>) ", "--", ".").trim();
+  // `git grep` exits 1 on no match, which is the passing case here.
+  const markers = sh("git", ["grep", "-lE", "^(<<<<<<<|>>>>>>>) ", "--", "."]).out.trim();
   // Only tracked text that could carry a real marker; the merge-driver tests quote markers in prose.
   const real = markers.split("\n").filter((f) => f && !/\.(test\.[mc]?[jt]s|md)$/.test(f));
   console.log(
