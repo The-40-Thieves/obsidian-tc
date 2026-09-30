@@ -147,7 +147,7 @@ Emitted for the **`small` scenario only**. Cold boot is scenario-independent —
 
 | metric | class | direction | why |
 | -- | -- | -- | -- |
-| `boot.tools_registered` | hard | exact | The only deterministic figure here, so it carries the gate. It also pins the module-registrar surface: adding a tool to a module moves it and demands a deliberate re-record. |
+| `boot.tools_registered` | hard | exact | The only deterministic figure here, so it carries the gate. It pins the module-registrar surface against `test/registered-tools.txt` (names minus the two inline tools), NOT against the value recorded in the baseline file, so adding a tool needs no re-record; fewer or more registered at boot than the manifest lists fails. The gate prints an `EXPECT` line with the manifest-derived value. |
 | `boot.module_eval_ms` | warn | higher-worse | Importing the tool surface cold. **The dominant term** — see below. |
 | `boot.registration_ms` | warn | higher-worse | Running every `register*Tools`: ~148 tools and their Zod schemas. |
 | `boot.tools_list_ms` | warn | higher-worse | First `tools/list`: visibility filtering **plus** the per-tool `toMcpTool` schema projection, which is what `mcp/server.ts` actually does. Timing `registry.list()` alone measured a map copy at 0.3 ms and would have stayed flat through a regression in the projection — the real path costs ~60 ms. Pagination and caller-context resolution are excluded: those need a live server, and this probe stands up no transport. |

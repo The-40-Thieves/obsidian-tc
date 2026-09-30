@@ -23,7 +23,7 @@ import {
   measureIoScalingRho,
   type VectorContentionResult,
 } from "./contention";
-import { checkCoherence, evaluate } from "./gate";
+import { checkCoherence, describeViolation, evaluate, manifestExpectations } from "./gate";
 import { buildVault } from "./harness";
 import { type AggregatedReport, toMedianReport } from "./isolate";
 import { type Baseline, type BaselineProvenance, type PerfReport, toMarkdown } from "./report";
@@ -322,16 +322,24 @@ function writeBaseline(
 
 /** Returns true iff a hard failure occurred (caller decides when to exit — isolated mode also
  *  wants to report contention/hard-instability findings before exiting). */
-function runGate(name: Scenario["name"], report: PerfReport): boolean {
+async function runGate(name: Scenario["name"], report: PerfReport): Promise<boolean> {
   const baseline = JSON.parse(readFileSync(`eval/perf/baseline.${name}.json`, "utf8")) as Baseline;
-  const result = evaluate(report, baseline);
-  // THE-534: a "missing" violation has no measured value, so print WHY rather than `NaN vs
-  // baseline X` — the actionable fact is that the harness stopped emitting the metric (or the key
-  // was renamed), not that some number drifted.
-  const describe = (v: (typeof result.hardFailures)[number]): string =>
-    v.reason === "missing"
-      ? `${v.key}: NOT MEASURED (baseline ${v.baseline} — metric absent from report; renamed or no longer emitted?)`
-      : `${v.key}: ${v.actual} vs baseline ${v.baseline} (tol ${v.tol})`;
+  // Counts the repo already enumerates are judged against that enumeration, not the recorded
+  // baseline (see `manifestExpectations`). Loaded lazily, and through the loader the tests use:
+  // test/registered-tool-count.ts reads registered-tools.txt at module load relative to its own
+  // `import.meta.url`, which would throw at IMPORT time in the `perf:node-parity` bundle — a path
+  // that never reaches the gate (`--profile portable` refuses `--gate`).
+  const { REGISTERED_TOOL_NAMES } = await import("../../test/registered-tool-count");
+  const expectations = manifestExpectations(REGISTERED_TOOL_NAMES);
+  const result = evaluate(report, baseline, expectations);
+  const describe = describeViolation;
+  for (const [key, e] of Object.entries(expectations)) {
+    if (baseline[key] === undefined) continue; // e.g. densify carries no boot.* keys
+    const got = report.samples.find((s) => s.key === key)?.value;
+    process.stdout.write(
+      `EXPECT ${key}: measured ${got ?? "NOT MEASURED"}, expected ${e.value} per ${e.source}\n`,
+    );
+  }
 
   for (const w of result.warnings) process.stdout.write(`WARN ${describe(w)}\n`);
 
@@ -545,7 +553,7 @@ async function main(): Promise<void> {
           `WARN host contention detected during this gate run (${contention.reason ?? "high variance"}) — perf numbers may be unreliable this run\n`,
         );
       }
-      if (runGate(name, medianReport)) process.exit(1);
+      if (await runGate(name, medianReport)) process.exit(1);
     }
     return;
   }
@@ -564,7 +572,7 @@ async function main(): Promise<void> {
   }
 
   if (args.includes("--gate")) {
-    if (runGate(name, report)) process.exit(1);
+    if (await runGate(name, report)) process.exit(1);
   }
 }
 

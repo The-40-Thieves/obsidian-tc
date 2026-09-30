@@ -179,10 +179,14 @@ on an eighth nobody had written down.
 3. **`boot.tools_registered`** — `eval/perf/baseline.small.json`, hard/exact. Pinned **2 lower**
    than the number of names in `registered-tools.txt`, since `health` and `index_status` register inline in `cli.ts`.
 
-   **Do NOT hand-edit it. RE-RECORD the baseline** — dispatch `perf-baseline.yml`, download the
-   artifact, commit all three files. Editing this key in place now fails the coherence check
-   (THE-754): the provenance sidecar snapshots every `exact` value at record time, and a mismatch
-   means the timing keys beside it were measured against a different tool surface.
+   **Nothing to do when adding a tool.** The perf gate takes the expected value for this key from
+   `registered-tools.txt` (names minus the two inline tools, exact equality — `manifestExpectations`
+   in `eval/perf/gate.ts`) and ignores the number recorded in the baseline, so a stale recorded value
+   no longer fails the post-merge `perf` job. **Do NOT hand-edit the baseline copy.** Re-record it
+   (`perf-baseline.yml`, commit all three files) only when the timing keys need re-recording anyway;
+   editing this key in place fails the coherence check (THE-754): the provenance sidecar snapshots
+   every `exact` value at record time, and a mismatch means the timing keys beside it were measured
+   against a different tool surface.
 
    That check exists because hand-editing was the documented advice here until 2026-08-08, and it
    produced exactly the failure you would expect. Between 07-27 and 08-05 this key was bumped seven

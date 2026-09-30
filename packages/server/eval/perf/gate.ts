@@ -10,6 +10,67 @@ export interface GateViolation {
   class: MetricClass;
   /** "regression" = measured and worse than tolerance. "missing" = never measured at all. */
   reason: "regression" | "missing";
+  /** Set when `baseline` is an expectation derived from a repo-enumerated source of truth (see
+   *  `manifestExpectations`) instead of the recorded baseline file — names that source. */
+  expectedFrom?: string;
+}
+
+/** A value the repo already enumerates somewhere else, used in place of the recorded baseline's
+ *  copy of the same number. */
+export interface Expectation {
+  value: number;
+  /** Human-readable provenance, printed beside the expectation so a failure names its authority. */
+  source: string;
+}
+export type Expectations = Record<string, Expectation>;
+
+/**
+ * The two tools that register inline in cli.ts from live runtime state rather than from a module
+ * registrar, so `boot-probe.ts` (which only runs the registrars) never sees them: `health` is the
+ * tool named `server_health`, and `index_status` is `get_index_status`.
+ */
+export const INLINE_REGISTERED_TOOLS = ["get_index_status", "server_health"] as const;
+
+/**
+ * Expectations for keys whose exact value is a COUNT OF SOMETHING THE REPO ALREADY ENUMERATES.
+ *
+ * `boot.tools_registered` was pinned in baseline.small.json with tol 0, so every tool addition
+ * failed the post-merge perf job (`172 vs baseline 171`) until someone re-recorded the entire
+ * baseline — timings included — for a number `test/registered-tools.txt` already holds.
+ * tool-count.test.ts keeps that manifest equal to the live registry, so it is the authority and the
+ * recorded copy is ignored for this key. Equality stays exact: fewer OR more tools at boot than the
+ * manifest lists is a real registration bug.
+ *
+ * Takes the names rather than reading the file so gate.ts stays pure and the caller reuses the one
+ * existing loader (`test/registered-tool-count.ts`). Throws if an inline tool has left the manifest,
+ * because then "names minus inline" no longer describes what the probe registers.
+ */
+export function manifestExpectations(manifestNames: readonly string[]): Expectations {
+  const listed = new Set(manifestNames);
+  for (const inline of INLINE_REGISTERED_TOOLS) {
+    if (!listed.has(inline)) {
+      throw new Error(
+        `manifestExpectations: test/registered-tools.txt does not list the inline tool "${inline}" — boot.tools_registered is "manifest names minus inline tools", so the inline list in eval/perf/gate.ts is stale`,
+      );
+    }
+  }
+  return {
+    "boot.tools_registered": {
+      value: manifestNames.length - INLINE_REGISTERED_TOOLS.length,
+      source: `test/registered-tools.txt (${manifestNames.length} names - ${INLINE_REGISTERED_TOOLS.length} inline tools)`,
+    },
+  };
+}
+
+/** One gate line body for a violation. "missing" says WHY there is no number (THE-534); an
+ *  expectation-derived failure names the manifest it was judged against, not the recorded baseline. */
+export function describeViolation(v: GateViolation): string {
+  if (v.reason === "missing") {
+    return `${v.key}: NOT MEASURED (expected ${v.baseline}${v.expectedFrom ? ` per ${v.expectedFrom}` : " per baseline"} — metric absent from report; renamed or no longer emitted?)`;
+  }
+  return v.expectedFrom
+    ? `${v.key}: ${v.actual} registered vs ${v.baseline} expected by ${v.expectedFrom} (tol ${v.tol}; exact — the recorded baseline value is not consulted for this key)`
+    : `${v.key}: ${v.actual} vs baseline ${v.baseline} (tol ${v.tol})`;
 }
 
 /** A metric that beat its baseline by so much that the baseline no longer describes the system. */
@@ -140,13 +201,24 @@ function improvementFactor(actual: number, b: Baseline[string]): number {
  * Samples present in the report but absent from the baseline remain informational — a new metric is
  * not yet a promise. The renamed-key case is caught from the other side: the OLD key goes missing.
  */
-export function evaluate(report: PerfReport, baseline: Baseline): GateResult {
+export function evaluate(
+  report: PerfReport,
+  baseline: Baseline,
+  expectations: Expectations = {},
+): GateResult {
   const hardFailures: GateViolation[] = [];
   const warnings: GateViolation[] = [];
   const stale: StaleBaselineEntry[] = [];
   const byKey = new Map(report.samples.map((s) => [s.key, s]));
 
-  for (const [key, b] of Object.entries(baseline)) {
+  for (const [key, recorded] of Object.entries(baseline)) {
+    // An expectation replaces the recorded VALUE only; the entry stays in the baseline so the key
+    // remains a claim the report must answer (the missing-metric floor above).
+    const expected = expectations[key];
+    const b: Baseline[string] = expected
+      ? { ...recorded, value: expected.value, tol: 0, direction: "exact" }
+      : recorded;
+    const expectedFrom = expected?.source;
     const sample = byKey.get(key);
     const bucket = b.class === "hard" ? hardFailures : warnings;
 
@@ -159,6 +231,7 @@ export function evaluate(report: PerfReport, baseline: Baseline): GateResult {
         mode: b.mode,
         class: b.class,
         reason: "missing",
+        ...(expectedFrom ? { expectedFrom } : {}),
       });
       continue;
     }
@@ -172,6 +245,7 @@ export function evaluate(report: PerfReport, baseline: Baseline): GateResult {
         mode: b.mode,
         class: b.class,
         reason: "regression",
+        ...(expectedFrom ? { expectedFrom } : {}),
       });
       continue;
     }

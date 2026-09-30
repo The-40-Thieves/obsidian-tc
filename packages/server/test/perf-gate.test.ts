@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { checkCoherence, evaluate } from "../eval/perf/gate";
+import {
+  checkCoherence,
+  describeViolation,
+  evaluate,
+  INLINE_REGISTERED_TOOLS,
+  manifestExpectations,
+} from "../eval/perf/gate";
 import type { Baseline, PerfReport } from "../eval/perf/report";
+import { REGISTERED_TOOL_COUNT, REGISTERED_TOOL_NAMES } from "./registered-tool-count";
 
 const baseline: Baseline = {
   "index.chunks_per_s": {
@@ -390,5 +397,85 @@ describe("THE-754 baseline coherence — is this file still the recording it cla
     // Deliberately indistinguishable from clean here; run.ts prints "NOT CHECKED" off the
     // `undefined`, so the false green cannot be produced by this function alone.
     expect(checkCoherence(withCount(157), undefined)).toEqual([]);
+  });
+});
+
+// boot.tools_registered used to be pinned in baseline.small.json with tol 0, so EVERY tool addition
+// failed the post-merge perf job (`172 vs baseline 171`, run 36790864249) and commented on #1024
+// until someone re-recorded the whole baseline. The count is already enumerated by
+// test/registered-tools.txt, which tool-count.test.ts keeps equal to the live registry, so that is
+// the authority; the baseline's copy of the number is ignored for this key.
+describe("boot.tools_registered is judged against the names manifest, not the recorded baseline", () => {
+  const staleBaseline: Baseline = {
+    "boot.tools_registered": {
+      value: 171,
+      tol: 0,
+      mode: "ratio",
+      class: "hard",
+      direction: "exact",
+    },
+  };
+  const measured = (n: number): PerfReport =>
+    report([
+      {
+        key: "boot.tools_registered",
+        value: n,
+        unit: "count",
+        class: "hard",
+        direction: "exact",
+      },
+    ]);
+  /** A manifest of `registered` module-registered tools plus the inline ones. */
+  const manifestOf = (registered: number): string[] => [
+    ...Array.from({ length: registered }, (_, i) => `tool_${String(i).padStart(4, "0")}`),
+    ...INLINE_REGISTERED_TOOLS,
+  ];
+
+  it("PASSES a stale baseline (171) when the manifest and the measurement both say 172", () => {
+    const r = evaluate(measured(172), staleBaseline, manifestExpectations(manifestOf(172)));
+    expect(r.hardFailures).toEqual([]);
+  });
+
+  it("FAILS fewer registered at boot than the manifest lists, and the message names the manifest", () => {
+    const r = evaluate(measured(171), staleBaseline, manifestExpectations(manifestOf(172)));
+    expect(r.hardFailures.map((v) => v.key)).toEqual(["boot.tools_registered"]);
+    const msg = describeViolation(r.hardFailures[0] as (typeof r.hardFailures)[number]);
+    expect(msg).toContain("registered-tools.txt");
+    expect(msg).toContain("172");
+    expect(msg).toContain("171");
+  });
+
+  it("FAILS more registered at boot than the manifest lists (exact, not a floor)", () => {
+    const r = evaluate(measured(173), staleBaseline, manifestExpectations(manifestOf(172)));
+    expect(r.hardFailures.map((v) => v.key)).toEqual(["boot.tools_registered"]);
+  });
+
+  it("still hard-fails a MISSING measurement (the non-empty floor survives the override)", () => {
+    const r = evaluate(report([]), staleBaseline, manifestExpectations(manifestOf(172)));
+    expect(r.hardFailures.map((v) => v.reason)).toEqual(["missing"]);
+  });
+
+  it("without an expectation the recorded baseline still decides (legacy call shape)", () => {
+    const r = evaluate(measured(172), staleBaseline);
+    expect(r.hardFailures.map((v) => v.key)).toEqual(["boot.tools_registered"]);
+    expect(describeViolation(r.hardFailures[0] as (typeof r.hardFailures)[number])).toContain(
+      "vs baseline 171",
+    );
+  });
+
+  it("derives the expectation as manifest names minus the two inline-registered tools", () => {
+    const exp = manifestExpectations(manifestOf(172))["boot.tools_registered"];
+    expect(exp?.value).toBe(172);
+    expect(exp?.source).toContain("registered-tools.txt");
+  });
+
+  it("throws when the manifest no longer lists an inline tool (the -2 assumption is stale)", () => {
+    expect(() => manifestExpectations(["read_note", "server_health"])).toThrow(/get_index_status/);
+  });
+
+  it("the real manifest yields the real count: REGISTERED_TOOL_COUNT minus the inline tools", () => {
+    const exp = manifestExpectations(REGISTERED_TOOL_NAMES)["boot.tools_registered"];
+    expect(exp?.value).toBe(REGISTERED_TOOL_COUNT - INLINE_REGISTERED_TOOLS.length);
+    expect(exp?.value).toBeGreaterThan(100); // existence floor: an empty manifest must not pass
   });
 });
