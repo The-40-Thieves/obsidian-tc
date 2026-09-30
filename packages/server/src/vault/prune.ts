@@ -4,12 +4,10 @@
 // skipped. When removing a link leaves its line as only a list bullet / blank, the
 // whole line is dropped (the common MOC bullet-list case); otherwise the link
 // token is replaced by its display text (or removed). External URLs are kept.
+import { applyScanReplacements, scanLinks } from "./link-scan";
 import { resolveTarget, type VaultIndex } from "./links";
 
 const FENCE = /^\s*(```|~~~)/;
-// One alternation so wikilinks and markdown links are visited left-to-right in a
-// single pass: g1/g2 = wikilink bang/inner, g3/g4/g5 = markdown bang/display/url.
-const LINK = /(!?)\[\[([^\]\n]+?)\]\]|(!?)\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 const BULLET_ONLY = /^[\s>*+-]*$/;
 
 export type PruneReason = "unresolved" | "duplicate";
@@ -44,54 +42,51 @@ export function pruneHubLinks(raw: string, index: VaultIndex, policy: PrunePolic
     }
 
     let removals = 0;
-    const next = line.replace(
-      LINK,
-      (full, wBang: string, wInner: string, mBang: string, mDisp: string, mUrl: string) => {
-        const isWiki = wInner !== undefined;
-        let target: string;
-        let display: string | null;
-        let kind: "wikilink" | "embed" | "markdown";
-        if (isWiki) {
-          // "\|" is the alias separator inside a table; split on it, not on the
-          // raw pipe, so the backslash is not left on the target (GH #279).
-          const pipeM = wInner.match(/\\?\|/);
-          display =
-            pipeM?.index !== undefined ? wInner.slice(pipeM.index + pipeM[0].length).trim() : null;
-          const beforePipe = pipeM?.index !== undefined ? wInner.slice(0, pipeM.index) : wInner;
-          const hash = beforePipe.indexOf("#");
-          target = (hash >= 0 ? beforePipe.slice(0, hash) : beforePipe).trim();
-          kind = wBang === "!" ? "embed" : "wikilink";
-        } else {
-          target = (mUrl ?? "").trim();
-          display = (mDisp ?? "").trim() || null;
-          kind = mBang === "!" ? "embed" : "markdown";
-        }
+    const next = applyScanReplacements(line, scanLinks(line), (m) => {
+      const full = m.raw;
+      let target: string;
+      let display: string | null;
+      let kind: "wikilink" | "embed" | "markdown";
+      if (m.kind === "wikilink") {
+        // "\|" is the alias separator inside a table; split on it, not on the
+        // raw pipe, so the backslash is not left on the target (GH #279).
+        const pipeM = m.inner.match(/\\?\|/);
+        display =
+          pipeM?.index !== undefined ? m.inner.slice(pipeM.index + pipeM[0].length).trim() : null;
+        const beforePipe = pipeM?.index !== undefined ? m.inner.slice(0, pipeM.index) : m.inner;
+        const hash = beforePipe.indexOf("#");
+        target = (hash >= 0 ? beforePipe.slice(0, hash) : beforePipe).trim();
+        kind = m.bang ? "embed" : "wikilink";
+      } else {
+        target = m.url.trim();
+        display = m.display.trim() || null;
+        kind = m.bang ? "embed" : "markdown";
+      }
 
-        const isExternalUrl = kind === "markdown" && /^[a-z]+:\/\//i.test(target);
-        if (isExternalUrl) return full;
+      const isExternalUrl = kind === "markdown" && /^[a-z]+:\/\//i.test(target);
+      if (isExternalUrl) return full;
 
-        const res = resolveTarget(index, target);
-        if (!res.resolved) {
-          if (policy.removeUnresolved) {
-            removed.push({ target, line: i + 1, reason: "unresolved" });
-            removals++;
-            return display ?? "";
-          }
-          return full;
+      const res = resolveTarget(index, target);
+      if (!res.resolved) {
+        if (policy.removeUnresolved) {
+          removed.push({ target, line: i + 1, reason: "unresolved" });
+          removals++;
+          return display ?? "";
         }
-        const path = res.target_path ?? target;
-        if (seen.has(path)) {
-          if (policy.removeDuplicates) {
-            removed.push({ target, line: i + 1, reason: "duplicate" });
-            removals++;
-            return display ?? "";
-          }
-          return full;
-        }
-        seen.add(path);
         return full;
-      },
-    );
+      }
+      const path = res.target_path ?? target;
+      if (seen.has(path)) {
+        if (policy.removeDuplicates) {
+          removed.push({ target, line: i + 1, reason: "duplicate" });
+          removals++;
+          return display ?? "";
+        }
+        return full;
+      }
+      seen.add(path);
+      return full;
+    });
 
     if (removals === 0) out.push(line);
     else if (!BULLET_ONLY.test(next)) out.push(next);

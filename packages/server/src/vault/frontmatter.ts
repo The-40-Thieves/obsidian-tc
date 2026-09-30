@@ -260,12 +260,18 @@ function replaceAliases(doc: ReturnType<typeof YAML.parseDocument>, anchors: Set
   });
 }
 
+function stripTrailingCR(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "\r") end--;
+  return s.slice(0, end);
+}
+
 /** THE-1040 X1: normalize a SOURCE slice to the block's EOL, dropping a trailing empty line (or a
  *  stray "\r" a CRLF node range leaves) so re-joining never doubles one. SOURCE slices only. */
 function normalizeSlice(text: string, eol: string): string {
   const lines = text.split(/\r?\n/);
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-  return lines.join(eol).replace(/\r+$/, "");
+  return stripTrailingCR(lines.join(eol));
 }
 
 /** Build the frontmatter YAML body: the LINE LIST rewrite this file opens with when `original`

@@ -46,6 +46,7 @@
     "check:plugin-routes": "node scripts/check-plugin-routes.mjs",
     "check:public-text": "node scripts/check-public-text.mjs",
     "check:readme-size": "node scripts/check-readme-size.mjs",
+    "check:redos": "node scripts/check-redos.mjs",
     "check:version": "node scripts/check-version-coherence.mjs",
     "check:workflow-injection": "node scripts/check-workflow-injection.mjs",
     "config:schema": "bun scripts/gen-config-schema.ts",
@@ -78,6 +79,7 @@
     "dependency-cruiser": "18.4.0",
     "jscpd": "^5.3.2",
     "knip": "6.38.0",
+    "recheck": "4.5.0",
     "typescript": "^7.0.2"
   },
   "engines": {
