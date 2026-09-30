@@ -25,6 +25,7 @@
 import type { Database } from "../db/types";
 import type { TelemetryStatusInfo } from "../telemetry/wiring";
 import type { FacadeMode } from "./facade";
+import type { AutoFacadeExplanation } from "./facade-mode";
 // THE-1125 fix round: split out to a dependency-free leaf module so telemetry/wiring.ts can use
 // the SAME table without a cycle (this file already imports TelemetryStatusInfo from wiring.ts
 // above) — see known-clients.ts's own header for the full reasoning. Re-exported here so every
@@ -32,6 +33,7 @@ import type { FacadeMode } from "./facade";
 // tool-facade.ts, this file's own tests) keeps compiling unchanged.
 import { BUILTIN_AUTO_FACADE_CLIENTS } from "./known-clients";
 
+export type { AutoFacadeExplanation } from "./facade-mode";
 export { BUILTIN_AUTO_FACADE_CLIENTS };
 
 /** What an unmatched client — or one with no observable `clientInfo.name` at all — gets. */
@@ -105,26 +107,53 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
 export function mcpServerFacadeOptions(cfg: {
   mode: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
-}): { facadeMode: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> } {
-  return { facadeMode: cfg.mode, autoClients: cfg.autoClients };
+  explainAutoMode?: boolean;
+}): {
+  facadeMode: FacadeMode | "auto";
+  autoClients?: Readonly<Record<string, FacadeMode>>;
+  explainAutoMode?: boolean;
+} {
+  return {
+    facadeMode: cfg.mode,
+    autoClients: cfg.autoClients,
+    explainAutoMode: cfg.explainAutoMode,
+  };
+}
+
+/** The ONE matcher: `resolveAutoFacadeMode` is this function's `.mode`, so the explanation can
+ *  never describe a different decision than the one made. */
+export function explainAutoFacadeMode(
+  clientName: string | undefined,
+  configured?: Readonly<Record<string, FacadeMode>>,
+): AutoFacadeExplanation {
+  const configuredEntries = Object.entries(configured ?? {});
+  const base = {
+    configuredKeys: configuredEntries.map(([k]) => k),
+    builtInKeys: BUILTIN_AUTO_FACADE_CLIENTS.map(([k]) => k),
+    fallback: FALLBACK_FACADE_MODE,
+  };
+  // `clientName` is typed `string | undefined`, but every caller ultimately derives it from
+  // untrusted wire data (a client's own declared `clientInfo.name`) threaded through several
+  // optional-chain hops; a `typeof` guard (not just the type declaration) is what actually stops
+  // a non-string reaching `.toLowerCase()` and throwing out of what is meant to be a pure,
+  // never-fails matcher.
+  if (typeof clientName !== "string" || clientName.length === 0)
+    return { ...base, mode: FALLBACK_FACADE_MODE, rule: "no-client-name" };
+  const lower = clientName.toLowerCase();
+  for (const [substr, mode] of configuredEntries) {
+    if (lower.includes(substr.toLowerCase()))
+      return { ...base, mode, rule: "configured-override", matchedKey: substr, clientName };
+  }
+  for (const [substr, mode] of BUILTIN_AUTO_FACADE_CLIENTS) {
+    if (lower.includes(substr.toLowerCase()))
+      return { ...base, mode, rule: "built-in-table", matchedKey: substr, clientName };
+  }
+  return { ...base, mode: FALLBACK_FACADE_MODE, rule: "no-match", clientName };
 }
 
 export function resolveAutoFacadeMode(
   clientName: string | undefined,
   configured?: Readonly<Record<string, FacadeMode>>,
 ): FacadeMode {
-  // `clientName` is typed `string | undefined`, but every caller ultimately derives it from
-  // untrusted wire data (a client's own declared `clientInfo.name`) threaded through several
-  // optional-chain hops; a `typeof` guard (not just the type declaration) is what actually stops
-  // a non-string reaching `.toLowerCase()` and throwing out of what is meant to be a pure,
-  // never-fails matcher.
-  if (typeof clientName !== "string" || clientName.length === 0) return FALLBACK_FACADE_MODE;
-  const lower = clientName.toLowerCase();
-  for (const [substr, mode] of Object.entries(configured ?? {})) {
-    if (lower.includes(substr.toLowerCase())) return mode;
-  }
-  for (const [substr, mode] of BUILTIN_AUTO_FACADE_CLIENTS) {
-    if (lower.includes(substr.toLowerCase())) return mode;
-  }
-  return FALLBACK_FACADE_MODE;
+  return explainAutoFacadeMode(clientName, configured).mode;
 }

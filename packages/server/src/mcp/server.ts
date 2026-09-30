@@ -144,6 +144,8 @@ export interface McpServerOptions {
   facadeMode?: FacadeMode | "auto";
   /** Only consulted when `facadeMode` is "auto"; merged over facade-auto.ts's built-in table. */
   autoClients?: Readonly<Record<string, FacadeMode>>;
+  /** `toolFacade.explainAutoMode`: record + log why "auto" chose what it chose (observability only). */
+  explainAutoMode?: boolean;
   /**
    * THE-583: the protocol era this instance is being constructed to serve, as classified by the
    * SDK (`createMcpHandler`'s `McpRequestContext.era`).
@@ -333,7 +335,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
   ): T => (isModern ? { ...result, ...hint } : result);
 
   // THE-1123: see facade-mode-resolver.ts for the design (extracted to stay under biome's cap).
-  const { resolveFacadeMode, requestClientName } = createFacadeModeResolver(server, opts);
+  const { resolveFacadeMode, requestClientName, ctxExplanation } = createFacadeModeResolver(
+    server,
+    opts,
+  );
 
   // THE-583: the verbosity floor for server->client log notifications is FIXED at `info` and
   // deliberately not settable. `logging/setLevel` is unroutable under MODERN (SEP-2575 removed
@@ -526,7 +531,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
     // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
     const facadeMode = resolveFacadeMode(clientInfo?.name);
-    ctx = { ...ctx, effectiveFacadeMode: facadeMode };
+    ctx = { ...ctx, effectiveFacadeMode: facadeMode, ...ctxExplanation() };
     // THE-1131: shared disclosable-hidden check (describe/call_capability + direct dispatch).
     const checkHidden = (name: string): CallToolResult | null =>
       capabilityHiddenCheck(

@@ -32,6 +32,9 @@ export interface ToolFacadeView {
    *  `configured` above, this needs no live client to report; it is exactly what the running
    *  process resolved. */
   profile: "full" | "core";
+  /** mirrors config.toolFacade.explainAutoMode (absent = off). Offline doctor can only report the
+   *  flag; the live per-client explanation is server_health's `toolFacade.explanation`. */
+  explainAutoMode?: boolean;
   /** THE-1131 review round 2: every allowlist (static or per-persona) that names a tool `profile`
    *  currently hides. Empty under `"full"` (nothing is hidden to name) or when no allowlist names
    *  a hidden tool. */
@@ -84,6 +87,7 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
         configured: view.configured,
         profile: view.profile,
         nonCoreToolCount: String(nonCoreToolCount),
+        explainAutoMode: view.explainAutoMode ? "on" : "off",
       };
       if (view.configured === "auto") {
         details.autoClients = renderAutoClientsTable(view.autoClients);
@@ -111,9 +115,19 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
           remediation: 'Set toolFacade.mode to "auto", or remove toolFacade.autoClients.',
         };
       }
+      // Same shape as ignoredAutoClients: the flag only explains an "auto" decision, so under a
+      // concrete mode it does nothing.
+      if (view.explainAutoMode && view.configured !== "auto") {
+        return {
+          status: "warning" as CheckStatus,
+          summary: `toolFacade.explainAutoMode is true but toolFacade.mode is "${view.configured}", not "auto" — nothing is auto-decided, so nothing is explained`,
+          details,
+          remediation: 'Set toolFacade.mode to "auto", or remove toolFacade.explainAutoMode.',
+        };
+      }
       const modeSummary =
         view.configured === "auto"
-          ? `toolFacade.mode is "auto" — resolved per connecting client (see details.autoClients)`
+          ? `toolFacade.mode is "auto" — resolved per connecting client (see details.autoClients)${view.explainAutoMode ? "; explainAutoMode is on (live per-client explanation: server_health toolFacade.explanation)" : ""}`
           : `toolFacade.mode is "${view.configured}"`;
       const profileSummary =
         view.profile === "core"

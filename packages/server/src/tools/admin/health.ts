@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { FacadeMode } from "../../mcp/facade";
 import { FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
+import type { AutoFacadeExplanation } from "../../mcp/facade-mode";
 import type { ToolDefinition } from "../../mcp/registry";
 import { NON_CORE_TOOL_NAMES } from "../../mcp/tool-profiles";
 import { readUnrestrictedOnEveryVault } from "../../vault/acl-read-filter";
@@ -93,6 +94,7 @@ export interface HealthInfo {
     /** THE-1131: NON_CORE_TOOL_NAMES.length — how many registered tools `profile: "core"` hides
      *  and dispatch-rejects. 0 under "full" (the default; nothing is hidden). */
     nonCoreToolCount: number;
+    explanation?: AutoFacadeExplanation;
   };
   /** THE-1125: opt-in telemetry status. Always present when wired (every real deployment; absent
    *  only for a harness/bare unit test of this tool). `endpoint` is REDACTED
@@ -209,6 +211,17 @@ const ToolFacadeHealthOutput = z.object({
   clientName: z.string().optional(),
   profile: z.enum(["full", "core"]),
   nonCoreToolCount: z.number(),
+  explanation: z
+    .object({
+      mode: z.enum(["triad", "domain", "flat"]),
+      rule: z.enum(["no-client-name", "configured-override", "built-in-table", "no-match"]),
+      matchedKey: z.string().optional(),
+      clientName: z.string().optional(),
+      configuredKeys: z.array(z.string()),
+      builtInKeys: z.array(z.string()),
+      fallback: z.enum(["triad", "domain", "flat"]),
+    })
+    .optional(),
 });
 
 const TelemetryHealthOutput = z.object({
@@ -425,6 +438,7 @@ export function createHealthTool(opts: {
                 ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
                 profile: opts.toolFacade.profile,
                 nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+                ...(ctx.facadeExplanation ? { explanation: ctx.facadeExplanation } : {}),
               },
             }
           : {}),

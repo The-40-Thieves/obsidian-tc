@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { toJson } from "../src/mcp/facade";
+import { explainAutoFacadeMode } from "../src/mcp/facade-auto";
 import type { CallerContext } from "../src/mcp/registry";
 import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
@@ -150,6 +151,35 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     const result = validate(JSON.parse(JSON.stringify(out)));
     expect(result.valid).toBe(true);
+  });
+
+  // `toolFacade.explainAutoMode`: the optional `explanation` sub-object must survive the SDK's ajv
+  // validator too (zod's safeParse strips unknown keys; ajv rejects them), so a field added to the
+  // explanation but not to the output schema fails here.
+  it("the toolFacade block carrying an explanation validates under zod and ajv", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      toolFacade: { configured: "auto", profile: "core" },
+    });
+    const explanation = explainAutoFacadeMode("claude-code", { zed: "flat" });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+      clientInfo: { name: "claude-code" },
+      effectiveFacadeMode: "domain",
+      facadeExplanation: explanation,
+    } as CallerContext) as HealthInfo;
+    expect(out.toolFacade?.explanation).toEqual(explanation);
+    // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
+    const schema = toJson(tool.outputSchema!);
+    // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
+    expect(tool.outputSchema!.safeParse(out).success).toBe(true);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
   });
 
   // THE-1123 review fix (HIGH): the exact regression the reviewer reproduced — a naive
