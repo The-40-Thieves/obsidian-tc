@@ -8,6 +8,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Morgiana event spool retention: `observability.retention.spoolRetentionDays` / `spoolMaxBytes`.** The
+  CloudEvents JSONL spool (`<cacheDir>/<vault>/morgiana-events-<date>.jsonl`, one file per vault per UTC
+  day) grew without bound. A new `morgiana-spool-sweep` job on the maintenance interval now deletes whole
+  finished day files older than `spoolRetentionDays` (default 30; `0` keeps them forever), and, when
+  `spoolMaxBytes` is set, the oldest day files of each vault until its spool fits. It never touches the
+  current UTC day's file, a file modified in the last hour, a symlink, or anything not named like a spool
+  file, and never truncates. Each sweep logs one line, and
+  `obsidian_tc_morgiana_spool_files_pruned_total{reason}` counts what was deleted. **Upgrade note:** spool
+  files older than 30 days are deleted on the first sweep; set `spoolRetentionDays: 0` to keep them. See
+  `docs/G2.4-observability.md`.
+
 - **Memory orphan sweep: `maintenance.memoryOrphans`.** `memory_entities` / `memory_relations` had no
   cleanup at all ("not auto-swept"), so rows nothing can read accumulated. A new `memory-orphan-sweep`
   job (own interval, daily by default) removes, by default, only **dangling relations** (source or target

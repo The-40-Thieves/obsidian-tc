@@ -12,6 +12,7 @@ import type { MemoryOrphanClass } from "../db/memory-orphans";
 import type { BusyReason, WriteTxnLabel } from "../db/txn";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { RerankOutcome } from "../search/rerank";
+import { MaintenanceCounters } from "./maintenance-counters";
 
 /** Per-vault gauge sample sources, read lazily at scrape time (G2.4 gauges are per `vault`). */
 export interface GaugeSources {
@@ -137,7 +138,7 @@ export class MetricsRecorder {
   private readonly indexFrontmatterFailed: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
-  private readonly memoryOrphansSwept: Counter<string>;
+  private readonly maintenance: MaintenanceCounters;
   private readonly outputSchemaDrift: Counter<string>;
   private readonly activationRecomputeChunks: Counter<string>;
   private readonly vecRebuild: Counter<string>;
@@ -298,12 +299,7 @@ export class MetricsRecorder {
       labelNames: ["vault", "txn", "reason"],
       registers,
     });
-    this.memoryOrphansSwept = new Counter({
-      name: "obsidian_tc_memory_orphans_swept_total",
-      help: "Memory rows deleted by the periodic orphan sweep, by class (dangling_relations, dangling_intervals, retired_entities, removed_vault_entities, removed_vault_relations, removed_vault_intervals). Cumulative. Only the two dangling_* classes are on by default; the other four move only when the operator sets their retention window. A dry run does not increment it.",
-      labelNames: ["class"],
-      registers,
-    });
+    this.maintenance = new MaintenanceCounters(registers);
     this.idempotencyHits = new Counter({
       name: "obsidian_tc_idempotency_hits_total",
       help: "Idempotency cache hits, by vault and tool.",
@@ -683,10 +679,11 @@ export class MetricsRecorder {
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });
   }
-  /** Rows the memory orphan sweep deleted for one class. Guarded on n > 0 like the ingest counters,
-   *  so a sweep that found nothing creates no series. */
   incMemoryOrphansSwept(cls: MemoryOrphanClass, n: number): void {
-    if (n > 0) this.memoryOrphansSwept.inc({ class: cls }, n);
+    this.maintenance.incMemoryOrphansSwept(cls, n);
+  }
+  incMorgianaSpoolPruned(reason: "age" | "size", n: number): void {
+    this.maintenance.incMorgianaSpoolPruned(reason, n);
   }
   /** THE-585 (#6): one completed retrieval stage. Takes the whole StageMetric rather than three
    *  loose numbers so a caller cannot pair a duration with the wrong stage's counts. */

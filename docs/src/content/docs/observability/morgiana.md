@@ -45,3 +45,20 @@ so a crafted vault id cannot escape the cache directory.
 
 `spool` writes the JSONL file spool (default `true`); `httpEndpoint` and
 `httpHeaders` are optional and enable an additional HTTP sink.
+
+## Spool retention
+
+The spool is one file per vault per UTC day,
+`<cacheDir>/<vault>/morgiana-events-<YYYY-MM-DD>.jsonl`. The maintenance sweep
+deletes whole finished day files and never truncates one:
+
+- `observability.retention.spoolRetentionDays` (default `30`; `0` keeps the
+  spool forever) deletes files older than the window.
+- `observability.retention.spoolMaxBytes` (optional) caps each vault's spool by
+  deleting its oldest day files first.
+
+The file for the current UTC day, any file modified in the last hour,
+symlinks and anything not named like a spool file are never touched. Set the
+window longer than the longest time MORGIANA can be down, because a deleted day
+cannot be replayed. Each sweep logs one `[maintenance] morgiana spool sweep`
+line and adds to `obsidian_tc_morgiana_spool_files_pruned_total{reason}`.

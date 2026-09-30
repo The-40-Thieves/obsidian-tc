@@ -2244,7 +2244,7 @@
           "properties": {
             "eventLogDays": {
               "default": 30,
-              "description": "Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound.",
+              "description": "Days of event_log rows kept by the maintenance sweep. The morgiana event spool has its own bounds, spoolRetentionDays and spoolMaxBytes.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
@@ -2252,6 +2252,19 @@
             "tracesDays": {
               "default": 30,
               "description": "Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (the trace is written before the session row, so a failed attempt leaves a file with no row referencing it).",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "spoolRetentionDays": {
+              "default": 30,
+              "description": "Days of morgiana CloudEvents spool files (<cacheDir>/<vault>/morgiana-events-<YYYY-MM-DD>.jsonl) kept by the maintenance sweep. Whole day files older than this are deleted; the file for the current UTC day, and any file modified in the last hour, is never touched. 0 keeps the spool forever (no age bound). Make sure MORGIANA has consumed a file before its day leaves this window.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "spoolMaxBytes": {
+              "description": "Optional size bound on the morgiana spool, in bytes, applied per vault directory: when a vault's spool files total more than this, the oldest day files are deleted until it fits. The current day's file is never deleted, so a single day larger than the bound is kept. Absent means no size bound.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991

@@ -5,11 +5,14 @@
 // THE-585 is the cautionary case: three gauges were declared, registered a `# TYPE` line, and
 // emitted nothing at all for many releases, because the only wiring lived in the boot function.
 // "Registered" is not "emitting"; these tests assert the VALUE arrives.
+import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { SweepCounts } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
-import type { MorgianaEmitter } from "../src/morgiana/emitter";
+import { type MorgianaEmitter, spoolFileName } from "../src/morgiana/emitter";
 import { configureMaintenance, sweepTotal } from "../src/runtime/maintenance-wiring";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
@@ -183,7 +186,10 @@ describe("configureMaintenance — memory orphan sweep", () => {
       const sched = new Scheduler();
       configureMaintenance(sched, {
         ...depsWith(db, m, memoryOrphans),
-        metrics: { incMemoryOrphansSwept: (c, n) => incs.push([c, n]) },
+        metrics: {
+          incMemoryOrphansSwept: (c, n) => incs.push([c, n]),
+          incMorgianaSpoolPruned: () => {},
+        },
       });
       expect(sched.stats().map((s) => s.job)).toContain("memory-orphan-sweep");
       sched.start();
@@ -213,7 +219,10 @@ describe("configureMaintenance — memory orphan sweep", () => {
       const sched = new Scheduler();
       configureMaintenance(sched, {
         ...depsWith(db, m, { ...memoryOrphans, dryRun: true }),
-        metrics: { incMemoryOrphansSwept: (c, n) => incs.push([c, n]) },
+        metrics: {
+          incMemoryOrphansSwept: (c, n) => incs.push([c, n]),
+          incMorgianaSpoolPruned: () => {},
+        },
       });
       sched.start();
       await vi.advanceTimersByTimeAsync(121_000);
@@ -411,5 +420,85 @@ describe("configureMaintenance", () => {
       spy.mockRestore();
       vi.useRealTimers();
     }
+  });
+});
+
+describe("configureMaintenance — morgiana spool sweep", () => {
+  const DAY = 86_400_000;
+  const spoolDeps = (db: Database, m: MorgianaEmitter, cacheDir: string, retention = {}) => ({
+    ...baseDeps(db, m),
+    cacheDir,
+    retention: { eventLogDays: 30, tracesDays: 30, spoolRetentionDays: 30, ...retention },
+  });
+  /** A vault dir holding one 60-day-old spool file. NOW is the fixed wiring-test clock. */
+  const seed = (): { cacheDir: string; file: string } => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "tc-spool-wire-"));
+    mkdirSync(join(cacheDir, "v1"));
+    const date = new Date(NOW - 60 * DAY).toISOString().slice(0, 10);
+    const file = join(cacheDir, "v1", spoolFileName(date));
+    writeFileSync(file, "x".repeat(42));
+    utimesSync(file, (NOW - 60 * DAY) / 1000, (NOW - 60 * DAY) / 1000);
+    return { cacheDir, file };
+  };
+
+  it("registers its own job, prunes, logs once, and feeds the counter by reason", async () => {
+    vi.useFakeTimers();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const { cacheDir, file } = seed();
+      const { m } = fakeMorgiana();
+      const spool: Array<[string, number]> = [];
+      const sched = new Scheduler();
+      configureMaintenance(sched, {
+        ...spoolDeps(freshDb(), m, cacheDir),
+        metrics: {
+          incMemoryOrphansSwept: () => {},
+          incMorgianaSpoolPruned: (r, n) => spool.push([r, n]),
+        },
+      });
+      expect(sched.stats().map((s) => s.job)).toContain("morgiana-spool-sweep");
+      sched.start();
+      await vi.advanceTimersByTimeAsync(61_000);
+      await sched.stop();
+      expect(existsSync(file)).toBe(false);
+      expect(spool).toEqual([
+        ["age", 1],
+        ["size", 0],
+      ]);
+      const lines = stderr.mock.calls
+        .map((c) => String(c[0]))
+        .filter((l) => l.includes("morgiana spool sweep"));
+      expect(lines).toEqual([
+        "[maintenance] morgiana spool sweep: files_age=1 files_size=0 bytes=42\n",
+      ]);
+    } finally {
+      stderr.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("is not registered when there is no bound, and is when only spoolMaxBytes is set", () => {
+    const { cacheDir } = seed();
+    const { m } = fakeMorgiana();
+    const jobs = (retention: object): string[] => {
+      const sched = new Scheduler();
+      configureMaintenance(sched, spoolDeps(freshDb(), m, cacheDir, retention));
+      return sched.stats().map((s) => s.job);
+    };
+    expect(jobs({ spoolRetentionDays: 0 })).not.toContain("morgiana-spool-sweep");
+    expect(jobs({ spoolRetentionDays: 0, spoolMaxBytes: 1 })).toContain("morgiana-spool-sweep");
+    // a caller predating the spool keys (the default test deps) gets no job
+    const sched = new Scheduler();
+    configureMaintenance(sched, baseDeps(freshDb(), m));
+    expect(sched.stats().map((s) => s.job)).not.toContain("morgiana-spool-sweep");
+  });
+
+  it("is not registered when maintenance is disabled", () => {
+    const { cacheDir } = seed();
+    const { m } = fakeMorgiana();
+    const sched = new Scheduler();
+    const d = spoolDeps(freshDb(), m, cacheDir);
+    configureMaintenance(sched, { ...d, maintenance: { ...d.maintenance, enabled: false } });
+    expect(sched.stats()).toHaveLength(0);
   });
 });

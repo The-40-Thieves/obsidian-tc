@@ -47,9 +47,14 @@ describe("config schema", () => {
     // once for exactly that reason, and THE-610 could only put it back by also landing the sweep's
     // filesystem arm (`sweepTraceFiles`, covered in maintenance-traces.test.ts).
     //
-    // `morgianaEventsDays` stays absent: the morgiana spool still has no retention. Do not re-add
-    // it here before something prunes the spool.
-    expect(c.observability.retention).toEqual({ eventLogDays: 30, tracesDays: 30 });
+    // `morgianaEventsDays` stays absent: it was never read. The spool's retention is
+    // `spoolRetentionDays` / `spoolMaxBytes`, honored by morgiana/spool-sweep.ts
+    // (morgiana-spool-sweep.test.ts); `spoolMaxBytes` is unset by default, so it is not a key here.
+    expect(c.observability.retention).toEqual({
+      eventLogDays: 30,
+      tracesDays: 30,
+      spoolRetentionDays: 30,
+    });
   });
 
   it("accepts the full G2.4 observability shape and fills inner gaps", () => {
@@ -76,6 +81,27 @@ describe("config schema", () => {
     expect(c.observability.morgiana.spool).toBe(false);
     expect(c.observability.morgiana.httpEndpoint).toBe("https://morgiana.internal/events");
     expect(c.observability.retention.eventLogDays).toBe(7);
+  });
+
+  it("validates the spool retention keys: 0 days keeps forever, spoolMaxBytes must be positive", () => {
+    const parse = (retention: object) =>
+      ServerConfigSchema.safeParse({
+        vaults: [{ id: "m", path: "/v" }],
+        observability: { retention },
+      });
+    const ok = parse({ spoolRetentionDays: 0, spoolMaxBytes: 1_000_000 });
+    expect(ok.success).toBe(true);
+    if (ok.success) {
+      expect(ok.data.observability.retention.spoolRetentionDays).toBe(0);
+      expect(ok.data.observability.retention.spoolMaxBytes).toBe(1_000_000);
+    }
+    for (const bad of [
+      { spoolRetentionDays: -1 },
+      { spoolRetentionDays: 1.5 },
+      { spoolMaxBytes: 0 },
+      { spoolMaxBytes: -5 },
+    ])
+      expect(parse(bad).success).toBe(false);
   });
 
   it("requires at least one vault", () => {

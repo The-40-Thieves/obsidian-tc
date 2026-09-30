@@ -1,9 +1,10 @@
 // MORGIANA spool emitter (G2.4 §MORGIANA events — THE-183). Writes CloudEvents 1.0 JSONL to a
 // per-vault, per-day spool file under <cacheDir>/<vault>/morgiana-events-<YYYY-MM-DD>.jsonl
-// (daily rotation by date, matching the G2.3 D8 trace layout). MORGIANA tails the file. The
-// emitter is FAIL-SOFT by contract: emit() never throws and never blocks the caller — a write
-// failure drops the event and reports it via onDropped (which feeds morgiana_emit_dropped_total
-// and the event_log). The clock and uuid are injectable so tests are fully deterministic.
+// (daily rotation by date, matching the G2.3 D8 trace layout; retention is spool-sweep.ts). MORGIANA
+// tails the file. The emitter is FAIL-SOFT by contract: emit() never throws and never blocks the
+// caller — a write failure drops the event and reports it via onDropped (which feeds
+// morgiana_emit_dropped_total and the event_log). The clock and uuid are injectable so tests are
+// fully deterministic.
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -38,6 +39,12 @@ export function safeVault(vaultId: string): string {
   const s = vaultId.replace(/[^a-zA-Z0-9._-]/g, "_");
   return [...s].some((c) => c !== ".") ? s : "_";
 }
+
+/** The spool file for one UTC day. The writer and the retention sweep (spool-sweep.ts) both derive
+ *  the name from here, so the sweep can only ever match what the emitter writes. */
+export const spoolFileName = (date: string): string => `morgiana-events-${date}.jsonl`;
+/** Matches a spool file name; group 1 is its UTC date. */
+export const SPOOL_FILE_RE = /^morgiana-events-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 
 export class MorgianaEmitter {
   private readonly cacheDir: string;
@@ -92,10 +99,6 @@ export class MorgianaEmitter {
     const dir = join(this.cacheDir, safeVault(vaultId));
     mkdirSync(dir, { recursive: true });
     const date = event.time.slice(0, 10); // YYYY-MM-DD from the rfc3339 time
-    appendFileSync(
-      join(dir, `morgiana-events-${date}.jsonl`),
-      `${JSON.stringify(event)}\n`,
-      "utf8",
-    );
+    appendFileSync(join(dir, spoolFileName(date)), `${JSON.stringify(event)}\n`, "utf8");
   }
 }
