@@ -504,7 +504,7 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // OTel child spans: rebaselined deliberately. Adds ONE key, `observability.otel.detail` (enum
   // root | children | verbose, default root) — see packages/shared/src/config/observability.schema.ts.
   // No existing key, type, default or constraint moved.
-  "70bc76cbfde229669340a9ae84901bbffd76c8fe3927ff20c51056d9ee85a957";
+  "82df492185e8260887702dac2472d4e45e45036b86d925b81ae9c10fa03b26d1";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
