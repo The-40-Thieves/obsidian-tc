@@ -35,10 +35,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup-repo
-      - name: docs drift gate (regenerate + fail if stale)
+      - name: docs drift gate (generated regions committed empty, every target renders)
+        # Generated content is NOT committed: a filled region is what two tool- or config-adding PRs
+        # conflicted on. --check asserts every committed region is canonical-EMPTY and every target
+        # still RENDERS non-empty (a broken extractor fails here). The docs build and the wiki
+        # publisher fill the regions; `bun run docgen:render -- --reset` empties them again.
         working-directory: packages/server
         run: bun run docgen:render -- --check
-      - name: narrative fact gate (THE-566 — no stale tool-count / golden-set numbers in prose)
+      - name: narrative fact gate (THE-566 — prose states no tool count; golden-set/domain numbers match)
         working-directory: packages/server
         run: bun run docgen:facts-check
       - name: error-envelope gate (THE-470 — documented error fields must match the taxonomy)
@@ -53,6 +57,12 @@ jobs:
         # what caught that, exactly as facts-check's own floors are there to.
         working-directory: packages/server
         run: bun run docgen:error-envelope
+      # The structural half of the schema gate compares against main, so main must be a real ref.
+      # actions/checkout leaves fetch-depth at 1 (no origin/main at all); depth 1 is enough because
+      # the check only reads that commit's copy of the schema, never its history. The check fails
+      # closed on an unresolvable ref, so a broken fetch is loud, not a green run that compared nothing.
+      - name: fetch main (schema structure baseline)
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
       - name: config JSON Schema drift gate
         # The published schema is what editors read for autocomplete + inline docs on
         # obsidian-tc.config.json. It is generated from the Zod schema that already validates the
@@ -67,22 +77,28 @@ jobs:
         # The zod->JSON-Schema conversion lives in packages/shared, not in the script: a script
         # under scripts/ resolves imports from its own directory upward, so it finds zod only when
         # the workspace hoists it to the root — true locally, false on this runner.
-        run: bun scripts/gen-config-schema.ts --check
-      - name: TREE.md dependency-graph drift gate (THE-470)
-        # TREE.md carried a standing "hand-generated and will drift" warning, and it had — the
-        # committed numbers were 232 modules / 785 dependencies against a real 246 / 978. The graph
-        # sections are now generated into marker regions, so this keeps them honest.
+        #
+        # `--base origin/main` adds the STRUCTURAL half (replacing the old pinned hash, which made
+        # any two config PRs conflict by construction): a type/default/constraint change to an
+        # existing key, or a removed key, must be named by `config-schema-change:` in the PR's
+        # changes/*.md fragment. Added keys and reworded descriptions need nothing.
+        run: bun scripts/gen-config-schema.ts --check --base origin/main
+      - name: TREE.md / dependency-graph gate (THE-470)
+        # The module map and dependency graph are generated into the gitignored generated/ directory
+        # (`bun run map`), not committed: the committed copies changed on nearly every PR and
+        # conflicted on each. This asserts the generator still runs over the real tree with sane
+        # floors, and FAILS if a generated region or file is committed again.
         #
         # The generator refuses to write from an empty module set rather than reporting success over
         # nothing: depcruise 18.x declares typescript <7 and this repo is on TS 7, so handed a
         # DIRECTORY it resolves zero files and exits 0. The file list is explicit for that reason.
         run: bun run map:check
-      - name: decisions-index drift gate
-        # docs/decisions-index.md resolves every THE-xxx cited under packages/*/src to a public
+      - name: decisions-index gate
+        # The decisions index resolves every THE-xxx cited under packages/*/src to a public
         # CHANGELOG or docs/ summary, so the private Linear tracker never becomes a dead end for an
         # outside contributor — CONTRIBUTING.md's "Inline commentary" policy relies on this staying
-        # current. Same drift-gate shape as the TREE.md graph above: regenerate, refuse if the
-        # committed table disagrees.
+        # current. It is generated at docs-build time (gitignored), so this asserts the generator
+        # still runs over the real tree with sane floors and that no copy is committed.
         run: bun run docs:decisions-index:check
       - name: embedded-migrations drift gate (THE-578)
         # db/migrations-embedded.ts inlines every migrations/*.sql so provisioning needs no

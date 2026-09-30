@@ -53,6 +53,11 @@ jobs:
       - uses: ./.github/actions/setup-repo
       - name: biome check
         run: bun run lint
+      # changes/*.md release-note fragments: every one must parse (type + bullet body) and none may
+      # be a stray file. Same parser release.mjs assembles from, so this refuses what a release
+      # would refuse, at PR time instead of at cut time.
+      - name: changelog fragments
+        run: bun run check:changes
       # THE-525: module boundary gate. Runs in the existing lint job rather than a new workflow so
       # it shares the checkout + install. The wrapper fails on an EMPTY scan as well as on a
       # violation — dependency-cruiser supports typescript <7 and this repo is on 7.x, where a
@@ -78,8 +83,9 @@ jobs:
       - name: ingest telemetry wiring (source scan)
         run: bun run check:ingest-telemetry-wiring
       # THE-598: every backticked dotted config path (`a.b.c`) in narrative docs must resolve in
-      # ServerConfigSchema. Ground truth is docs/wiki/Configuration.md's own generated reference
-      # table (kept fresh by the docgen drift gate), so this needs no schema re-parse of its own.
+      # ServerConfigSchema. Ground truth is the committed JSON Schema
+      # (docs/obsidian-tc.config.schema.json, kept fresh by the docgen drift gate), so this needs no
+      # schema re-parse of its own.
       # Four keys (traceDetail/tracesSampleRate/tracesDays/morgianaEventsDays) were deleted from the
       # schema as dead — the schema has no .strict(), so a config that still sets them validates
       # cleanly and silently does nothing. This is the mechanized guard against that recurring.
