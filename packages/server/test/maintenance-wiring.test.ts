@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import type { SweepCounts } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
@@ -16,6 +16,7 @@ import { type MorgianaEmitter, spoolFileName } from "../src/morgiana/emitter";
 import { configureMaintenance, sweepTotal } from "../src/runtime/maintenance-wiring";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
+import { rmTemp } from "./tmp";
 
 const NOW = 10_000_000_000;
 
@@ -425,6 +426,16 @@ describe("configureMaintenance", () => {
 
 describe("configureMaintenance — morgiana spool sweep", () => {
   const DAY = 86_400_000;
+  const tmpDirs: string[] = [];
+  afterAll(() => {
+    for (const d of tmpDirs.splice(0)) {
+      try {
+        rmTemp(d);
+      } catch {
+        /* a leaked temp dir is cheaper than a teardown failure */
+      }
+    }
+  });
   const spoolDeps = (db: Database, m: MorgianaEmitter, cacheDir: string, retention = {}) => ({
     ...baseDeps(db, m),
     cacheDir,
@@ -433,6 +444,7 @@ describe("configureMaintenance — morgiana spool sweep", () => {
   /** A vault dir holding one 60-day-old spool file. NOW is the fixed wiring-test clock. */
   const seed = (): { cacheDir: string; file: string } => {
     const cacheDir = mkdtempSync(join(tmpdir(), "tc-spool-wire-"));
+    tmpDirs.push(cacheDir);
     mkdirSync(join(cacheDir, "v1"));
     const date = new Date(NOW - 60 * DAY).toISOString().slice(0, 10);
     const file = join(cacheDir, "v1", spoolFileName(date));
