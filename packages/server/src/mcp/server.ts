@@ -13,6 +13,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { type ErrorJSON, err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec } from "../elicit-request-state";
+import { recordHitlAnswer } from "../hitl-telemetry";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
@@ -27,7 +28,8 @@ import {
 import { clientInfoFromFields, extractClientInfo } from "./client-info";
 import {
   clientSupportsFormElicitation,
-  elicitStateContextPatch,
+  elicitConfirmationContext,
+  hitlFormSource,
   offerInputRequired,
   resolveElicitConfirmation,
   roundTripDeliverable,
@@ -479,6 +481,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
      *  shim's full `maxRounds` (8). See `resolveElicitConfirmation`'s doc comment. */
     approvedRound: number | undefined = undefined,
   ): Promise<CallToolResult> => {
+    recordHitlAnswer(ctx); // telemetry only: the human's verified answer, code-only
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
       // THE-583 + THE-1106: offered only when the SDK will ACTUALLY deliver it — offerInputRequired.
@@ -495,6 +498,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
           result.error,
           ctx,
           approvedRound,
+          hitlFormSource(server, isModern),
         );
         if (offer !== undefined) return offer;
       }
@@ -557,19 +561,15 @@ export function createMcpServer(opts: McpServerOptions): Server {
         : {}),
     };
     // THE-583 + THE-1106 (CRITICAL fix — see resolveElicitConfirmation's doc comment, elicit-form.ts).
-    const { elicitState, roundDeclinedOrCancelled, approvedRound } = resolveElicitConfirmation(
+    const confirmation = resolveElicitConfirmation(
       extra.mcpReq as {
         requestState?: <T>() => T | undefined;
         inputResponses?: Record<string, unknown>;
       },
     );
+    const { roundDeclinedOrCancelled, approvedRound } = confirmation;
     // THE-1106 fix round 2: elicitStateContextPatch's doc comment (./elicit-form.ts) covers why.
-    if (elicitState !== undefined) {
-      ctx = {
-        ...ctx,
-        ...elicitStateContextPatch(opts.registry, elicitState, ctx.vaultId, ctx.caller),
-      };
-    }
+    ctx = elicitConfirmationContext(ctx, opts.registry, confirmation, server, isModern);
     ({ args, ctx } = splitElicitToken(rawArgs, ctx));
     // THE-583: run as a background TASK when the client asked and the tool opted in.
     //
@@ -604,7 +604,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     if (facadeMode === "domain" && isDomainTool(req.params.name)) {
       const action = typeof args.action === "string" ? args.action : "";
       const rawActionArgs = (args.args ?? {}) as Record<string, unknown>;
-      const { args: actionArgs, ctx: actionCtx } = splitElicitToken(rawActionArgs, ctx);
+      const { args: actionArgs, ctx: actionCtx } = splitElicitToken(rawActionArgs, ctx, "domain");
       return dispatchToResult(
         action,
         actionArgs,
@@ -677,7 +677,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         (n, a) => {
           // THE-1037 (GH #925): `a` is call_capability's INNER args, forwarded here untouched by
           // callCapability itself — strip it the same way as the outer envelope (splitElicitToken).
-          const { args: targetArgs, ctx: targetCtx } = splitElicitToken(a, ctx);
+          const { args: targetArgs, ctx: targetCtx } = splitElicitToken(a, ctx, "facade");
           return dispatchToResult(
             n,
             targetArgs,

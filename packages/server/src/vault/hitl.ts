@@ -9,6 +9,7 @@ import { elicitRequiredError, verifyAndConsumeElicit } from "../elicit";
 import { activeStateProbe } from "../elicit-drift";
 import { hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
+import { recordHitlOutcome } from "../hitl-telemetry";
 import type { CallerContext } from "../mcp/registry";
 
 /**
@@ -71,6 +72,16 @@ export function requireConfirmation(
     // accept+approve:true state exists for this connection, so audit now sees a shim/modern
     // approval clearing one of these 16 tools' gates, which it could not see before.
     if (stateOk) ctx.relayElicitConsumed?.(toolName);
+    // A token redemption is recorded here; a form/requestState answer was recorded when it
+    // arrived (mcp/server.ts), so the state path adds nothing and cannot double-count.
+    if (tokenOk) {
+      recordHitlOutcome(ctx, {
+        tool: toolName,
+        argsHash: hash,
+        outcome: "accept",
+        source: "token",
+      });
+    }
     return;
   }
   // THE-1082 (GH #945; fix round 2, cross-vendor review): `tool`/`vault` ride along so

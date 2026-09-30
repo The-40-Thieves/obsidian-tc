@@ -46,11 +46,12 @@ import { type ConflictCopiesView, conflictCopiesCheck } from "./conflict-copies"
 import { type DbSpaceView, dbSpaceCheck } from "./db-space";
 import { type EmbeddingsBuildableView, embeddingsBuildableCheck } from "./embeddings-buildable";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
+// THE-1108: sessions.liveness lives in its own module, same reasoning as capture-location above —
+// its own probe shape that no other check needs.
+import { type HitlConfirmationsView, hitlConfirmationsCheck } from "./hitl-confirmations";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
 import { retrievalHeadsCheck } from "./retrieval-heads";
-// THE-1108: sessions.liveness lives in its own module, same reasoning as capture-location above —
-// its own probe shape that no other check needs.
 import { type SessionLivenessView, sessionLivenessCheck } from "./session-liveness";
 // THE-1123: toolFacade lives in its own module, same reasoning as capture-location above — its
 // own merged-table rendering that no other check needs.
@@ -151,6 +152,7 @@ export interface DoctorConfigView {
   /** THE-1108: is any explicit (start_session) session stuck open past windowSeconds? Probe-only,
    *  same reasoning as derivedTables above. */
   sessions?: SessionLivenessView;
+  hitlConfirmations?: HitlConfirmationsView;
 }
 
 export interface AssembleOptions {
@@ -254,6 +256,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.authOidc) checks.push(authOidcCheck(config.authOidc));
   // THE-1108: sessions.liveness — same optional-view reasoning as derivedTables above.
   if (config.sessions) checks.push(sessionLivenessCheck(config.sessions));
+  if (config.hitlConfirmations) checks.push(hitlConfirmationsCheck(config.hitlConfirmations));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

@@ -9,6 +9,7 @@ import {
 import { fingerprintTargets, type StateProbe } from "../../elicit-drift";
 import { hitlSatisfiedByState } from "../../elicit-request-state";
 import { argsHash } from "../../hash";
+import { recordHitlOutcome } from "../../hitl-telemetry";
 import { callerHash, type RateLimiter, type ThrottleDecision } from "../../throttle";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
@@ -252,16 +253,17 @@ export function checkHitl(
   verifyElicit: VerifyElicit | undefined,
   stateProbe?: StateProbe,
 ): boolean {
-  return (
-    (!!ctx.elicitToken && !!verifyElicit && verifyElicit(ctx.elicitToken, hash, ctx, stateProbe)) ||
-    hitlSatisfiedByState(ctx.elicitState, {
-      tool: name,
-      argsHash: hash,
-      vaultId: ctx.vaultId,
-      caller: ctx.caller,
-      currentFp: stateProbe,
-    })
-  );
+  if (ctx.elicitToken && verifyElicit?.(ctx.elicitToken, hash, ctx, stateProbe)) {
+    recordHitlOutcome(ctx, { tool: name, argsHash: hash, outcome: "accept", source: "token" });
+    return true;
+  }
+  return hitlSatisfiedByState(ctx.elicitState, {
+    tool: name,
+    argsHash: hash,
+    vaultId: ctx.vaultId,
+    caller: ctx.caller,
+    currentFp: stateProbe,
+  });
 }
 
 /**

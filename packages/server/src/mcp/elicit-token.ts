@@ -11,8 +11,11 @@ import type { CallerContext } from "./registry";
 export function splitElicitToken(
   args: Record<string, unknown>,
   ctx: CallerContext,
+  /** Confirmation telemetry: how the call reaches dispatch, for call_capability / domain verbs. */
+  hitlRoute?: CallerContext["hitlRoute"],
 ): { args: Record<string, unknown>; ctx: CallerContext } {
-  if (typeof args.elicit_token !== "string") return { args, ctx };
+  const routed = hitlRoute === undefined ? ctx : { ...ctx, hitlRoute };
+  if (typeof args.elicit_token !== "string") return { args, ctx: routed };
   const { elicit_token, ...rest } = args;
-  return { args: rest, ctx: { ...ctx, elicitToken: elicit_token } };
+  return { args: rest, ctx: { ...routed, elicitToken: elicit_token } };
 }

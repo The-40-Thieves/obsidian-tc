@@ -110,3 +110,27 @@ deriving it.
 `job_runs` history (THE-716) is read in its own `try` so a store without the `job_runs` table still
 reports the schedule state above; `runs` stays `null` when the table is absent, because
 not-measured and measured-zero are different facts and the check renders them differently.
+
+## `probeHitlConfirmations` — confirmation outcomes, recorded as codes
+
+`doctor --probe` reads the code-only `event_log` rows the dispatch path writes for every human
+confirmation (`src/hitl-telemetry.ts`) and reports them as the `hitl.confirmations` check: per tool,
+accept / decline / cancel / timeout counts, acceptance rate, and how many accepts were a redeemed
+`obsidian-tc elicit` token. A tool with at least five token approvals making up half or more of its
+accepts raises a warning (a headless approval smell), naming the clients that redeemed them.
+
+- **Why `event_log`.** It already has a retention sweep (`observability.retention.eventLogDays`), no
+  content column, and is not the experiential layer, which the confirmation gate must never depend
+  on. A row pairs with its episode by `(vault_id, tool_name, args_hash, caller)`; no schema change.
+- **Row shape.** `event_type` is `hitl_accept` | `hitl_decline` | `hitl_cancel` | `hitl_offered`;
+  `status` is `ok` for an accept and `skipped` otherwise; `error_code` holds
+  `<source>:<route>[:<client>]` (source `form` | `request_state` | `token`, route `direct` |
+  `facade` | `domain`, client sanitized to `[A-Za-z0-9._-]`, at most 48 characters). It is a telemetry
+  code on these rows, not an error.
+- **Timeout is derived, not written.** Nothing in-process observes a client that never answers (the
+  SDK's legacy shim swallows the leg timeout), so a `timeout` is an `hitl_offered` row older than
+  the confirmation TTL with no form/requestState answer after it. A token redeemed afterwards does
+  not cancel it.
+- **Floor, not preference.** Nothing reads these rows back into a gate. `test/hitl-preference-isolation.test.ts`
+  fails the build if any HITL gate module references the preference store, the reflect pass or an
+  experiential module.
