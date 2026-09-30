@@ -47,7 +47,6 @@ import {
 import {
   authDbPath,
   authKeysDir,
-  type RegistryInitState,
   type RegistryTable,
   registryInitialized,
   registryInitState,
@@ -88,8 +87,6 @@ const FILE_REF = /^file:([A-Za-z0-9_-]+\.key)$/;
 export {
   authDbPath,
   authKeysDir,
-  type RegistryInitState,
-  type RegistryTable,
   registryInitialized,
   registryInitState,
   registryLostMessage,
