@@ -156,7 +156,7 @@ describe("checkToolPages (the invariant)", () => {
   });
 
   it("FAILS when a tool is added to the registry without its page", () => {
-    const extra: ToolDoc = { ...tools[0], name: "brand_new_tool" };
+    const extra: ToolDoc = { ...(byName.get("read_note") as ToolDoc), name: "brand_new_tool" };
     const problems = checkToolPages({ ...ok, tools: [...tools, extra] });
     expect(problems.join("\n")).toMatch(/page count \d+ != registry tool count \d+/);
     expect(problems.join("\n")).toContain("brand_new_tool.md");

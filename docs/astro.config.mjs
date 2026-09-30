@@ -24,7 +24,11 @@ export default defineConfig({
             { slug: 'tools/tool-catalog' },
             { slug: 'tools/error-catalog' },
             // One page per tool, generated from the registry at build time (see docs/package.json).
-            { label: 'Per-tool pages', collapsed: true, autogenerate: { directory: 'tools/reference' } },
+            {
+              label: 'Per-tool pages',
+              collapsed: true,
+              items: [{ autogenerate: { directory: 'tools/reference' } }],
+            },
           ],
         },
         { label: 'Deployment', items: [{ autogenerate: { directory: 'deployment' } }] },
