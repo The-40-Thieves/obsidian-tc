@@ -137,7 +137,7 @@ function makeBranch(name, who) {
   // config key
   const key = alpha ? "proofAlpha" : "proofBeta";
   insertAfter(
-    "packages/shared/src/config/" + (alpha ? "observability" : "runtime") + ".schema.ts",
+    `packages/shared/src/config/${alpha ? "observability" : "runtime"}.schema.ts`,
     alpha
       ? '      .describe("Maximum snapshot versions kept per note. Older versions are pruned."),\n'
       : '        "Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",\n      ),\n',

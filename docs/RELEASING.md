@@ -182,8 +182,8 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
 7. **Update the GitHub repository description and topics.** Not automated — the registry entry
    above is a machine-readable listing, but the repo header is what a human finds it through
-   first, and its tool-count headline has its own staleness history (it still said "141 tools"
-   through this task). Do by hand (`gh repo edit`, or the GitHub UI) whenever the set of tool
+   first, and its tool-count headline has its own staleness history (it lagged the real
+   surface by several releases). Do by hand (`gh repo edit`, or the GitHub UI) whenever the set of tool
    names in `packages/server/test/registered-tools.txt` changes:
 
    - **Description** — keep the "N tools across M domains" phrase in lockstep with the live

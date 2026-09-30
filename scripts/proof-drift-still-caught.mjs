@@ -170,7 +170,15 @@ try {
     }
     c.plant();
     const r = GATES[c.gate]();
-    const detail = r.out.trim().split("\n").filter(Boolean).slice(-3).join(" | ").slice(0, 260);
+    const signal =
+      /(Error|error:|expected|missing|extra|STALE|FILLED|toolCount|changed:|committed|tracked)/;
+    const detail = r.out
+      .split("\n")
+      .filter((l) => signal.test(l))
+      .slice(0, 2)
+      .map((l) => l.trim())
+      .join(" | ")
+      .slice(0, 260);
     line(!r.ok, `${c.gate} fails on: ${c.name}${r.ok ? "" : `\n        -> ${detail}`}`);
     if (r.ok) failures++;
     if (c.control) {
