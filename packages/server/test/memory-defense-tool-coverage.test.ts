@@ -132,6 +132,10 @@ const MEMORY_DEFENSE_EXEMPT = new Map<string, string>([
   ["execute_command", "plugin-side action via the companion bridge; no server-side vault write"],
   ["trigger_quickadd", "plugin-side action via the companion bridge; no server-side vault write"],
   [
+    "show_file_in_obsidian",
+    "opens an existing note in the Obsidian UI (companion bridge or OS URI handler); writes nothing",
+  ],
+  [
     "remotely_save_trigger",
     "plugin-side action via the companion bridge; no server-side vault write",
   ],

@@ -180,6 +180,9 @@ until this generator existed, by which point five entire defaulted blocks had go
     "mode": "triad",
     "profile": "full"
   },
+  "uri": {
+    "allowOsLaunch": false
+  },
   "bootstrap": {
     "deepPaths": [],
     "domains": [],

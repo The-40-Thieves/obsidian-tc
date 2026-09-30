@@ -140,6 +140,19 @@ export const ServerConfigObject = z.object({
   personas: PersonasConfigSchema.optional().describe(
     "Named persona bundles ({vaults, scopes, toolVisibility?}) a JWT's `persona` claim resolves to. Absent means no personas are configured — any token carrying a `persona` claim is refused.",
   ),
+  // show_file_in_obsidian's OS-handler fallback. Inline rather than a leaf export: the facade's
+  // export surface is pinned (check:facade-parity), and nothing outside this object reads it.
+  uri: z
+    .object({
+      allowOsLaunch: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Let `show_file_in_obsidian` hand an obsidian:// URI to this machine's OS URI handler (xdg-open, open, rundll32) when no live Obsidian session answers through the companion plugin. Off by default and honoured ONLY for the local stdio transport: over HTTP the tool refuses regardless of this flag, because the launch happens on the server host, not the caller's machine. The URI is always built from a vault-relative path that passed the read ACL; no caller-supplied URI is ever launched.",
+        ),
+    })
+    .prefault({})
+    .describe("Host-side URI launching."),
   bootstrap: BootstrapConfigSchema.describe("session_bootstrap context routing table."),
   throttle: ThrottleConfigSchema.describe("Per-scope-class rate limits and write concurrency."),
   observability: ObservabilityConfigSchema.prefault({}).describe(

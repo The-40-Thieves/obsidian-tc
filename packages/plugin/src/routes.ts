@@ -14,9 +14,9 @@
 // src/routes/{types,envelope,probe,commands,git,remotely-save}.ts. WP6.2 completed the split,
 // moving the remaining 11 community-plugin integration families out to their own modules
 // (src/routes/{dataview,quickadd,ocr,excalidraw,makemd,omnisearch,datacore,metadata-menu,
-// daily-notes,templater,tasks}.ts). This file is now purely the FACADE: it re-exports the
-// public types those modules define, and `buildRoutes` concatenates every family's routes in
-// the same order as before the split. A `packages/plugin/test/route-table-snapshot.test.ts`
+// daily-notes,templater,tasks}.ts); `files` (open a file in the workspace) landed later as its own
+// module. This file is now purely the FACADE: it re-exports the public types those modules define,
+// and `buildRoutes` concatenates every family's routes in the same order as before the split. A `packages/plugin/test/route-table-snapshot.test.ts`
 // pins that order plus every (method, path) pair and their uniqueness across the whole table.
 import type { App } from "obsidian";
 import { buildCommandsRoutes } from "./routes/commands";
@@ -25,6 +25,7 @@ import { buildDatacoreRoutes } from "./routes/datacore";
 import { buildDataviewRoutes } from "./routes/dataview";
 import { safeHandler } from "./routes/envelope";
 import { buildExcalidrawRoutes } from "./routes/excalidraw";
+import { buildFilesRoutes } from "./routes/files";
 import { buildGitRoutes } from "./routes/git";
 import { buildMakemdRoutes } from "./routes/makemd";
 import { buildMetadataMenuRoutes } from "./routes/metadata-menu";
@@ -75,6 +76,8 @@ export function buildRoutes(
     ...buildTemplaterRoutes(app),
 
     ...buildTasksRoutes(app),
+
+    ...buildFilesRoutes(app),
   ];
   return defs.map((d) => ({ ...d, handler: safeHandler(d.handler) }));
 }

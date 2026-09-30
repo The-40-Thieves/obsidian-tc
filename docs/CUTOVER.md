@@ -84,7 +84,8 @@ and deprecation notices for the old aliases, THE-280), bookmarks, workspaces, bu
 | Semantic search (`search_vault_smart`, requires the Smart Connections plugin) | `search_semantic` — **sqlite-vec-native** KNN with SQL-side vault filtering and an ACL-correct brute-force fallback (THE-287); embeddings via local Ollama by default. Independent of Smart Connections — retiring mcp-tools does not lose semantic search even if Smart Connections is removed. |
 | Templater (`execute_template`) | `list_templates`, `execute_template` — companion-bridged; the server now refuses to clobber an existing target unless `overwrite: true` (THE-289) |
 | `get_server_info` | `server_health` |
-| Active-file tools, `show_file_in_obsidian` | See §2c |
+| `show_file_in_obsidian` | `show_file_in_obsidian` (companion-backed; opt-in OS-launch fallback) — see §2c |
+| Active-file tools | Not covered — see §2c |
 | `fetch` (web fetch) | Not carried over — out of scope for a vault server; the agent host provides web tools |
 
 ### 2c. UI-coupled gaps (honest notes)
@@ -96,12 +97,15 @@ full obsidian-tc equivalent today:
   Not covered. obsidian-tc tools are path-addressed; there is no `get_active_file`
   equivalent in `packages/server/src/tools/`. Workflow change: the agent asks for (or is
   told) the note path and uses the path-addressed tools.
-- **Open / reveal a file in Obsidian (`show_file_in_obsidian`).** Partially covered:
-  `generate_uri` (action `open`, plus `search`/`new`/`daily`/`command`/`hookmark`/
-  `advanced`) builds the exact `obsidian://` URI — but it is a pure string builder; the
-  server does not launch it. The user (or a host-side shell step) opens the URI.
-  `execute_command` can dispatch any command-palette command via the companion, but it is
-  not file-targeted.
+- **Open / reveal a file in Obsidian (`show_file_in_obsidian`).** Covered by
+  `show_file_in_obsidian`, which actually opens the note (`generate_uri` stays the pure
+  `obsidian://` string builder). It first asks the companion plugin to open the file in the live
+  Obsidian session; with no live session it can fall back to the OS URI handler, but only when
+  `uri.allowOsLaunch` is `true` (default `false`) and the call arrives over the local stdio
+  transport. Neither path available (a headless server) returns `available: false` with a reason
+  and a hint, never a silent success. It is HITL-gated like `execute_command`
+  (`execute:uri`). It needs a companion that ships `POST /files/open`; an older companion answers
+  with an "update the companion plugin" hint.
 - The opt-in companion "refresh nudge" for open panes is designed but deferred
   (THE-283, `docs/COHERENCE.md`).
 
@@ -136,9 +140,8 @@ No obsidian-tc equivalent:
 
 - **`active_file_get_path`.** UI-coupled to the currently-open note; see §2c above —
   obsidian-tc tools are path-addressed, not session-addressed.
-- **`open_file`.** Partially covered: `generate_uri` (action `open`) builds the exact
-  `obsidian://` URI, but it is a pure string builder — the server does not launch it, the
-  same caveat as `show_file_in_obsidian` in §2c.
+- **`open_file`.** Covered by `show_file_in_obsidian` (see §2c); `generate_uri` (action
+  `open`) remains the pure string builder.
 - **`vault_get_document_map`.** No note-outline/heading-discovery tool exists today;
   `patch_note` targets a heading, block, or frontmatter path directly instead of requiring a
   prior structure lookup.

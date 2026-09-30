@@ -15,7 +15,7 @@ filesystem access to years of notes, every tool call runs through one pipeline �
 ACLs, a read-only kill switch, HITL confirmation on destructive ops, and an audit log. It also
 adds fused retrieval (full-text, vector, graph) and a memory tier — episodes, decay, forgetting —
 living *inside* your vault under that same ACL.
-**166 tools across 31 domains** (all visible by default; 97 with opt-in `profile: "core"`), via a
+**167 tools across 31 domains** (all visible by default; 97 with opt-in `profile: "core"`), via a
 3-tool facade. Pitch: [docs/WHY.md](./docs/WHY.md).
 
 ## 60-second start
@@ -42,7 +42,7 @@ Also ships as a Docker image, `.mcpb` bundle, and standalone binaries. More:
 
 ## When NOT to use obsidian-tc
 
-Honest guidance — this is a heavier product than most alternatives:
+Honest guidance — this is a heavier product than most:
 
 - **Smallest possible footprint, read-only access, or no MCP at all.** A single trusted human
   over one vault, a read-only wrapper, or the Obsidian URI/Local REST API plugin directly may be
@@ -69,7 +69,7 @@ win"](https://obsidian-tc.the40thieves.io/getting-started/compare/).
 
 | | Tools | Group | What it's for |
 |---|---|---|---|
-| **obsidian-tc** | 166 (3-tool facade) | all three | governed access + retrieval + in-vault memory |
+| **obsidian-tc** | 167 (3-tool facade) | all three | governed access + retrieval + in-vault memory |
 | [obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api) | 18 | access | Obsidian's own built-in MCP server; one bearer key, no ACL |
 | [basic-memory](https://github.com/basicmachines-co/basic-memory) | ~35 | memory | entities/relations in a separate, portable markdown KB |
 
@@ -133,7 +133,7 @@ Polyglot monorepo:
 Dispatch-pipeline and package-layout detail: [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 <!-- BEGIN GENERATED: tools-summary -->
-**166 governed capabilities**, grouped by access scope.
+**167 governed capabilities**, grouped by access scope.
 
 **read** (98) — `audit_provenance`, `bundle_files`, `bundle_folder`, `diagnose_retrieval`, `episode_stats`, `eval_dataview_field`, `explain_answer`, `find_link_cycles`, `find_notes_by_property`, `find_notes_by_tag`, `find_orphans`, `find_unresolved_links`, `gap_report`, `generate_uri`, `get_attachment`, `get_backlinks`, `get_entity`, `get_index_status`, `get_link_strength`, `get_note_tags`, `get_outgoing_links`, `get_periodic_note`, `get_session_traces`, `get_vault`, `git_diff`, `git_log`, `git_status`, `graph_centrality`, `graph_communities`, `graph_path_between`, `knowledge_challenge`, `knowledge_get_critical`, `knowledge_search`, `list_attachments`, `list_bookmarks`, `list_capture_queue`, `list_commands`, `list_contradictions`, `list_goals`, `list_kanban_boards`, `list_notes`, `list_periodic_notes`, `list_properties`, `list_quickadd_actions`, `list_snapshots`, `list_tags`, `list_tasks`, `list_templates`, `list_vaults`, `list_workspaces`, `makemd_list_spaces`, `makemd_query`, `note_exists`, `note_quality_report`, `ocr_attachment`, `ocr_bulk`, `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search`, `query_base`, `query_canvas`, `query_datacore`, `query_entity_graph`, `read_base`, `read_canvas`, `read_excalidraw`, `read_frontmatter`, `read_kanban_board`, `read_metadata_fields`, `read_note`, `read_notes`, `read_property`, `read_resources`, `read_snapshot`, `reflect`, `remotely_save_status`, `resolve_daily_note`, `search_and_read`, `search_dql`, `search_jsonlogic`, `search_omnisearch`, `search_regex`, `search_semantic`, `search_text`, `search_vault`, `server_health`, `session_bootstrap`, `snapshot_note`, `suggest_links`, `tasks_filter`, `validate_dql`, `vault_context`, `vault_graph_search`, `vault_health_score`, `work_episode_chain`, `work_episodes`, `work_search`
 
@@ -143,12 +143,12 @@ Dispatch-pipeline and package-layout detail: [ARCHITECTURE.md](./ARCHITECTURE.md
 
 **bulk** (3) — `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`
 
-**execute** (3) — `execute_command`, `git_commit`, `trigger_quickadd`
+**execute** (4) — `execute_command`, `git_commit`, `show_file_in_obsidian`, `trigger_quickadd`
 
 **admin** (10) — `add_vault`, `get_metrics`, `get_server_config`, `index_vault`, `inspect_acl`, `inspect_visibility`, `refresh_plugin_capabilities`, `reload_vault`, `reset_vault_cache`, `session_rerun`
 <!-- END GENERATED: tools-summary -->
 
-### The interface: 3 tools, ~166 governed capabilities
+### The interface: 3 tools, ~167 governed capabilities
 
 By default the server advertises just **three meta-tools** instead of a wall of 164:
 `find_capability`, `describe_capability`, `call_capability` (invoke by name, same pipeline as a
