@@ -1,4 +1,4 @@
-import { SpanKind, type Tracer } from "@opentelemetry/api";
+import { type Span, SpanKind, type Tracer } from "@opentelemetry/api";
 import {
   err,
   type MorgianaEventData,
@@ -10,6 +10,7 @@ import {
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
+import { requestVerboseSpans } from "../otel/dispatch-spans";
 import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
 import { markDispatchActive, markInFlight } from "../workspace/sessions";
@@ -113,6 +114,7 @@ export class ToolRegistry {
     this._maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
     this.tracer = opts.tracer;
+    if (opts.tracer && opts.otelDetail === "verbose") requestVerboseSpans();
     this.rateLimiter = opts.rateLimiter;
     this.idempotencyTtlMs = (opts.idempotencyTtlSeconds ?? 86400) * 1000;
     this.idempotencyReclaimMs = (opts.idempotencyReclaimSeconds ?? 60) * 1000;
@@ -151,6 +153,8 @@ export class ToolRegistry {
       rootResolver: this.rootResolver,
       vaultKindResolver: this.vaultKindResolver,
       visibleVaultIds: this.visibleVaultIds,
+      tracer: this.tracer,
+      otelDetail: opts.otelDetail,
     };
   }
 
@@ -366,7 +370,7 @@ export class ToolRegistry {
               (this.toolStore.get(name)?.requiredScopes ?? []).join(","),
             );
             span.setAttribute(SPAN_ATTR.elicitUsed, !!ctx.elicitToken);
-            const result = await this.runDispatch(name, rawInput, ctx);
+            const result = await this.runDispatch(name, rawInput, ctx, span);
             annotateSpanResult(span, result);
             this.emitCompletion(name, ctx, result);
             return result;
@@ -388,7 +392,8 @@ export class ToolRegistry {
     name: string,
     rawInput: unknown,
     ctx: CallerContext,
+    rootSpan?: Span,
   ): Promise<ToolResult> {
-    return runDispatchPipeline(this.dispatchDeps, name, rawInput, ctx);
+    return runDispatchPipeline(this.dispatchDeps, name, rawInput, ctx, rootSpan);
   }
 }

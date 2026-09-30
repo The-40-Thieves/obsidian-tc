@@ -13,6 +13,7 @@ import { ToolRegistry } from "../mcp/registry";
 import type { RegistryOptions } from "../mcp/registry/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
+import type { OtelDetail } from "../otel/dispatch-spans";
 import type { RateLimitBackend, RateLimitFailurePolicy } from "../ratelimit/backend";
 import { outageHooks } from "../ratelimit/outage-hooks";
 import { RateLimiter, type ThrottleTiers } from "../throttle";
@@ -54,6 +55,7 @@ export interface GovernanceDeps {
   toolVisibility: RegistryOptions["toolVisibility"];
   metrics: MetricsRecorder;
   tracer: Tracer | undefined;
+  otelDetail?: OtelDetail;
   morgiana: Pick<MorgianaEmitter, "emit">;
   /** THE-228: present only when experiential.captureEpisodes. */
   onEpisode?: RegistryOptions["onEpisode"];
@@ -107,6 +109,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
     verifyElicit: elicitVerifier,
     metrics: deps.metrics,
     tracer: deps.tracer,
+    otelDetail: deps.otelDetail,
     emit: (vaultId, type, data) => deps.morgiana.emit(vaultId, type, data),
     // THE-288: honor throttle.enabled — when false the dispatch gate gets no limiter and never
     // throttles. The RateLimiter object still exists (above) so get_metrics keeps reporting.

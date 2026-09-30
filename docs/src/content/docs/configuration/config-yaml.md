@@ -236,7 +236,8 @@ until this generator existed, by which point five entire defaulted blocks had go
   },
   "observability": {
     "otel": {
-      "headers": {}
+      "headers": {},
+      "detail": "root"
     },
     "prometheus": {
       "enabled": false,
@@ -458,7 +459,7 @@ returns `rate_limit` with `retry_after_ms`.
 
 | Field | Default | What it does |
 | --- | --- | --- |
-| `otel.endpoint` | *(optional)* | OTLP export; unset = no-op. `otel.headers` for auth. There is no sampling knob and no `traceDetail`/detail-level switch — every dispatch gets one root span, unconditionally, when tracing is enabled. |
+| `otel.endpoint` | *(optional)* | OTLP export; unset = no-op. `otel.headers` for auth. `otel.detail` (`root` default, `children`, `verbose`) sets span depth; there is no sampling knob — every dispatch gets a root span when tracing is enabled. |
 | `prometheus` | disabled, `127.0.0.1:9464` | `/metrics` scrape endpoint. |
 | `morgiana.spool` | true | CloudEvents JSONL spool; `httpEndpoint` (+`httpHeaders`) enables push. |
 | `retention.eventLogDays` | 30 | The **only** enforced retention: `event_log` rows older than this are pruned by the maintenance sweep. Trace files and the morgiana spool are **not** pruned by config — they grow without bound regardless of any value set here. |

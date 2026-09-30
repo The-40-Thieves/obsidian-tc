@@ -11,6 +11,7 @@ import type { EmbeddingsConfigLike } from "../embeddings";
 import type { RegistryOptions } from "../mcp/registry/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
+import type { OtelDetail } from "../otel/dispatch-spans";
 import type { OtelHandle } from "../otel/tracing";
 import type { EgressFilter } from "../plane/egress-filter";
 import type { RateLimitFailurePolicy } from "../ratelimit/backend";
@@ -59,6 +60,8 @@ export interface RuntimeCoreDeps {
   idempotencyReclaimSeconds: number;
   toolVisibility: RegistryOptions["toolVisibility"];
   tracer: Tracer | undefined;
+  /** config.observability.otel.detail */
+  otelDetail?: OtelDetail;
   morgiana: Pick<MorgianaEmitter, "emit">;
   // shared
   metrics: MetricsRecorder;

@@ -51,6 +51,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createRequestStateCodec, type ServerContext } from "@modelcontextprotocol/server";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { argsHash } from "../hash";
+import { traceItem } from "../otel/dispatch-spans";
 
 /** Fallback byte budget, matching ToolRegistry's own default maxResponseBytes. */
 const DEFAULT_BUDGET_BYTES = 1_000_000;
@@ -222,7 +223,7 @@ export async function paginateByBytes<K, E>(o: PaginateByBytesOptions<K, E>): Pr
   let used = 0;
   for (let i = start; i < n; i++) {
     const item = o.items[i] as K;
-    let entry: E = await o.produce(item, i);
+    let entry: E = await traceItem("batch_item", () => o.produce(item, i), i);
     let size = bytes(wire(entry));
     // Per item, position-independent: does it fit alone, with a cursor if anything follows it?
     if (size + (i === n - 1 ? envNone : envCursor) > budget) {

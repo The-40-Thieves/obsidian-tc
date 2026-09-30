@@ -8,6 +8,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **OpenTelemetry child spans: `observability.otel.detail`.** Tracing emitted one flat root span per tool
+  call with no way to see where the time went. `observability.otel.detail` is `"root"` (default: the
+  current single root span, exactly, with no child span created and no attribute allocated),
+  `"children"` (adds a span per dispatch stage, parented to the root in pipeline order: `input_parse`,
+  `auth_check`, `policy_eval`, `idempotency`, `rate_limit`, `hitl_check`, `acl_eval`, `tool_impl`,
+  `output_serialize`; the gated ones appear only when the call reaches them), or `"verbose"` (also a
+  `batch_item` span per item of `read_notes` / `read_resources` / `search_and_read` and a span per SQLite
+  transaction, capped at 64 child spans per request, with `obsidian_tc.spans_dropped` on the root when the
+  cap cut some). A failure marks the span of the stage that failed with ERROR and the structured error code
+  only: no exception event, message, path, note content or token reaches any span, and every string
+  attribute passes the shared credential scanner. Concurrent requests keep separate trees. Regenerated the
+  config schema; `docs/G2.4-observability.md` and the OpenTelemetry page now document the tree.
 - **Memory orphan sweep: `maintenance.memoryOrphans`.** `memory_entities` / `memory_relations` had no
   cleanup at all ("not auto-swept"), so rows nothing can read accumulated. A new `memory-orphan-sweep`
   job (own interval, daily by default) removes, by default, only **dangling relations** (source or target
