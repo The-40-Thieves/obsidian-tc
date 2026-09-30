@@ -13,6 +13,8 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import type { OtelHandle } from "../otel/tracing";
 import type { EgressFilter } from "../plane/egress-filter";
+import type { RateLimitFailurePolicy } from "../ratelimit/backend";
+import type { ThrottleBackendConfig } from "../ratelimit/create";
 import type { VecRebuildEvent } from "../search/vec";
 import type { ThrottleTiers } from "../throttle";
 import type { OwnedLayer } from "./boot-helpers";
@@ -42,7 +44,16 @@ export interface RuntimeCoreDeps {
   /** OBSIDIAN_TC_DEFAULT_VAULT */
   defaultVaultId: string | undefined;
   elicitTtlSeconds: number;
-  throttle: { enabled: boolean; tiers: ThrottleTiers };
+  throttle: {
+    enabled: boolean;
+    tiers: ThrottleTiers;
+    /** Bucket store; absent means the process-local default (see ../ratelimit). */
+    backend?: ThrottleBackendConfig["backend"];
+    redis?: ThrottleBackendConfig["redis"];
+    failurePolicy?: RateLimitFailurePolicy;
+  };
+  /** config.db.busyTimeoutMs — bounds a contended shared-sqlite bucket update. */
+  busyTimeoutMs?: number;
   maxResponseBytes: number;
   idempotencyTtlSeconds: number;
   idempotencyReclaimSeconds: number;

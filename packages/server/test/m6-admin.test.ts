@@ -280,7 +280,7 @@ describe("get_metrics", () => {
   it("includes live rate-limiter hit counters", async () => {
     v = makeM6Vault({ register, rateLimiter: new RateLimiter() });
     // Exhaust the bulk burst directly to seed a hit (3 ok, 1 throttled).
-    for (let i = 0; i < 4; i++) v.rateLimiter.check("c0ffee00", "bulk", "test", 0);
+    for (let i = 0; i < 4; i++) await v.rateLimiter.check("c0ffee00", "bulk", "test", 0);
     const out = data<{
       metrics: { name: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
@@ -312,7 +312,7 @@ describe("get_metrics", () => {
         null,
         "tool_invocation",
       );
-    v.rateLimiter.check("c0ffee00", "bulk", "beta", 0);
+    await v.rateLimiter.check("c0ffee00", "bulk", "beta", 0);
 
     const out = data<{
       metrics: { name: string; value: number; labels: Record<string, string> }[];

@@ -353,7 +353,7 @@ export async function runDispatch(
     // call never consumes the single-use elicit token. Idempotent replays (returned from cache
     // above) are not re-counted — the original call already drew down the bucket, and a throttled
     // check itself costs no budget.
-    const throttleDecision = checkThrottle(
+    const throttleDecision = await checkThrottle(
       deps.rateLimiter,
       ctx.caller,
       scopeClass,
@@ -361,7 +361,10 @@ export async function runDispatch(
       now(),
     );
     if (throttleDecision && !throttleDecision.ok) {
-      deps.observability.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
+      // A refusal because the shared backend is down (fail-closed) is an outage symptom, not a hit.
+      if (!throttleDecision.reason) {
+        deps.observability.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
+      }
       if (idemClaimed && idemKey) {
         try {
           deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
@@ -377,6 +380,7 @@ export async function runDispatch(
         retry_after_seconds: throttleDecision.retryAfterSeconds,
         current_burst: throttleDecision.currentBurst,
         current_rate: throttleDecision.currentRate,
+        ...(throttleDecision.reason ? { reason: throttleDecision.reason } : {}),
       });
     }
 

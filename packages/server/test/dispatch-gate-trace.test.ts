@@ -81,7 +81,12 @@ class TracingRateLimiter extends RateLimiter {
   ) {
     super();
   }
-  override check(_callerHashValue: string, scopeClass: string, _vaultId: string, _nowMs: number) {
+  override async check(
+    _callerHashValue: string,
+    scopeClass: string,
+    _vaultId: string,
+    _nowMs: number,
+  ) {
     this.trace.push("rate_limiter");
     return this.allow
       ? { ok: true, scopeClass, retryAfterSeconds: 0, currentBurst: -1, currentRate: -1 }

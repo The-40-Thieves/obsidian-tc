@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import type { RateLimitBackend } from "../src/ratelimit/backend";
 import { RateLimiter } from "../src/throttle";
 
 const fakeDb = { prepare: () => ({ run: () => undefined }) } as unknown as Database;
@@ -129,5 +130,46 @@ describe("dispatch-wide rate limiter (THE-210)", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("throttled");
     expect(elicitChecks).toBe(1);
+  });
+});
+
+describe("dispatch under a shared-backend outage", () => {
+  const dead: RateLimitBackend = {
+    kind: "redis",
+    consume: () => Promise.reject(new Error("connect ECONNREFUSED")),
+    close: async () => {},
+  };
+  const build = (policy: "fail-open" | "fail-closed") => {
+    const r = new ToolRegistry({
+      rateLimiter: new RateLimiter(undefined, { backend: dead, failurePolicy: policy }),
+      verifyElicit: () => true,
+    });
+    r.register(tool("read_note", ["read:notes"]));
+    return r;
+  };
+
+  it("fail-open: the call is served", async () => {
+    const res = await build("fail-open").dispatch(
+      "read_note",
+      {},
+      ctx(() => 0),
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  it("fail-closed: the call is refused as throttled with reason backend_unavailable", async () => {
+    const res = await build("fail-closed").dispatch(
+      "read_note",
+      {},
+      ctx(() => 0),
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("throttled");
+      expect(res.error.details).toMatchObject({
+        scope_class: "read",
+        reason: "backend_unavailable",
+      });
+    }
   });
 });

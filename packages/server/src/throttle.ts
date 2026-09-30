@@ -1,70 +1,20 @@
-// Deterministic token-bucket throttle (THE-182 / M6, G2.4 §Rate limits). A token
-// bucket per (caller_hash, scope_class, vault_id), in-memory only (process-local;
-// restart resets buckets — multi-process limiting is deferred to V1.x per G2.4).
+// Deterministic token-bucket throttle (G2.4 §Rate limits). A token bucket per
+// (caller_hash, scope_class, vault_id). Where bucket state lives is a pluggable backend
+// (./ratelimit): `memory` (default, process-local; a restart resets buckets), `sqlite` (shared by
+// every process on one host through the cacheDir) or `redis` (shared across instances).
 // The clock is always passed in as an explicit `nowMs`, so refill/burst/exhaustion
-// are deterministic and testable with no wall-clock sleeps. M6 consumes the `bulk`
-// tier from the bulk tools; the other tiers exist (and are tested) so M7 can promote
-// the limiter to a dispatch-wide policy gate.
+// are deterministic and testable with no wall-clock sleeps.
 import { createHash } from "node:crypto";
+import type { BucketSpec, RateLimitBackend, RateLimitFailurePolicy } from "./ratelimit/backend";
+import type { TokenBucketResult } from "./ratelimit/bucket";
+import { MemoryBackend, type MemoryBackendOptions } from "./ratelimit/memory-backend";
 
-export interface TokenBucketOptions {
-  /** Maximum tokens the bucket holds (the burst). */
-  capacity: number;
-  /** Tokens replenished per `intervalMs` (the sustained rate). */
-  refillTokens: number;
-  /** Refill window in milliseconds. */
-  intervalMs: number;
-  /** Starting token count; defaults to a full bucket. */
-  initialTokens?: number;
-}
-
-export interface TokenBucketResult {
-  ok: boolean;
-  /** Milliseconds until enough tokens refill for the requested amount (0 when ok). */
-  retryAfterMs: number;
-  /** Tokens remaining after the attempt (floored to a whole token). */
-  tokens: number;
-}
-
-/**
- * A single continuous-refill token bucket. `tryRemove(n, nowMs)` lazily refills
- * based on elapsed time before deciding, so it never needs a background timer.
- */
-export class TokenBucket {
-  private readonly capacity: number;
-  private readonly ratePerMs: number;
-  private tokens: number;
-  private lastMs: number | null = null;
-
-  constructor(opts: TokenBucketOptions) {
-    this.capacity = opts.capacity;
-    this.ratePerMs = opts.refillTokens / opts.intervalMs;
-    this.tokens = opts.initialTokens ?? opts.capacity;
-  }
-
-  private refill(nowMs: number): void {
-    if (this.lastMs === null) {
-      this.lastMs = nowMs;
-      return;
-    }
-    const elapsed = nowMs - this.lastMs;
-    if (elapsed <= 0) return;
-    this.tokens = Math.min(this.capacity, this.tokens + elapsed * this.ratePerMs);
-    this.lastMs = nowMs;
-  }
-
-  tryRemove(n: number, nowMs: number): TokenBucketResult {
-    this.refill(nowMs);
-    if (this.tokens >= n) {
-      this.tokens -= n;
-      return { ok: true, retryAfterMs: 0, tokens: Math.floor(this.tokens) };
-    }
-    const deficit = n - this.tokens;
-    const retryAfterMs =
-      this.ratePerMs > 0 ? Math.ceil(deficit / this.ratePerMs) : Number.POSITIVE_INFINITY;
-    return { ok: false, retryAfterMs, tokens: Math.floor(this.tokens) };
-  }
-}
+export type { RateLimitFailurePolicy } from "./ratelimit/backend";
+export {
+  TokenBucket,
+  type TokenBucketOptions,
+  type TokenBucketResult,
+} from "./ratelimit/bucket";
 
 export interface ThrottleTier {
   /** Sustained operations per minute. */
@@ -95,88 +45,93 @@ export interface ThrottleDecision {
   currentBurst: number;
   /** Configured sustained rate per minute (-1 when the class is unlimited). */
   currentRate: number;
+  /** Set when the call was refused because the shared backend is down under `fail-closed`, not
+   *  because the caller's bucket is empty. Such a refusal is not a rate-limit hit. */
+  reason?: "backend_unavailable";
 }
 
 const INTERVAL_MS = 60_000;
 
-interface BucketEntry {
-  bucket: TokenBucket;
-  /** ms for an empty bucket of this tier to refill to capacity; idle past this => full. */
-  fullRefillMs: number;
-  /** Injected-clock timestamp of the most recent check for this key. */
-  lastSeenMs: number;
-}
-
-export interface RateLimiterOptions {
-  /** Drop buckets idle at least this long (default 600_000 = 10 min). */
-  idleTtlMs?: number;
-  /** Soft ceiling on live buckets; only guaranteed-full idle buckets are reclaimed (default 10_000). */
-  maxBuckets?: number;
-  /** Minimum gap between idle sweeps (default 60_000 = 1 min). */
-  sweepIntervalMs?: number;
+export interface RateLimiterOptions extends MemoryBackendOptions {
+  /** Where bucket state lives. Default: a process-local MemoryBackend built from the options above. */
+  backend?: RateLimitBackend;
+  /** Behavior while `backend` is unreachable (default "fail-open"). Irrelevant for memory. */
+  failurePolicy?: RateLimitFailurePolicy;
+  /** After a backend failure, skip the backend for this long (injected clock) before probing it
+   *  again, so an outage costs one failed call per window rather than one per request (default 5000). */
+  backendRetryMs?: number;
+  /** Fired ONCE when an outage begins (not per request). */
+  onBackendDown?: (info: {
+    backend: string;
+    policy: RateLimitFailurePolicy;
+    error: unknown;
+  }) => void;
+  /** Fired ONCE when the backend answers again after an outage. */
+  onBackendUp?: (info: { backend: string }) => void;
 }
 
 /**
  * Per-(caller, scope_class, vault) token-bucket rate limiter. An unknown scope
  * class is unlimited (no tier configured). Throttle hits are counted per
  * (vault, scope_class) for the `obsidian_tc_rate_limit_hits_total` metric.
+ *
+ * A shared backend that throws is an OUTAGE, never a throttle: the failure policy decides the
+ * call, the first failure of an outage is reported once through `onBackendDown`, and the backend is
+ * not touched again until `backendRetryMs` has passed.
  */
 export class RateLimiter {
   private readonly tiers: ThrottleTiers;
-  private readonly buckets = new Map<string, BucketEntry>();
   private readonly hits = new Map<string, number>();
-  // Idle-bucket reclamation (THE-213). A bucket is evicted only once it is
-  // guaranteed full (idle past its full-refill time), so re-creating it on the
-  // next call yields an identical full bucket and grants no burst — eviction can
-  // never be used to bypass the limit. The TTL bounds the map under long uptime;
-  // the size cap is an early-reclaim optimization for idle-full buckets when the
-  // map is large, NOT a flood defense (a burst of concurrent *active* callers is
-  // intentionally never evicted and may exceed maxBuckets until they go idle).
-  private readonly idleTtlMs: number;
-  private readonly maxBuckets: number;
-  private readonly sweepIntervalMs: number;
-  private lastSweepMs: number | null = null;
+  private readonly backend: RateLimitBackend;
+  /** Per-process buckets: the memory backend itself, or the fail-open fallback for a shared one. */
+  private readonly local: MemoryBackend;
+  private readonly failurePolicy: RateLimitFailurePolicy;
+  private readonly backendRetryMs: number;
+  private readonly opts: RateLimiterOptions;
+  private inOutage = false;
+  private retryAtMs = 0;
 
   constructor(tiers: ThrottleTiers = DEFAULT_THROTTLE_TIERS, opts: RateLimiterOptions = {}) {
     this.tiers = tiers;
-    this.idleTtlMs = opts.idleTtlMs ?? 600_000; // 10 min >> max full-refill (~20s)
-    this.maxBuckets = opts.maxBuckets ?? 10_000;
-    this.sweepIntervalMs = opts.sweepIntervalMs ?? 60_000;
+    this.opts = opts;
+    this.local = opts.backend instanceof MemoryBackend ? opts.backend : new MemoryBackend(opts);
+    this.backend = opts.backend ?? this.local;
+    this.failurePolicy = opts.failurePolicy ?? "fail-open";
+    this.backendRetryMs = opts.backendRetryMs ?? 5000;
   }
 
-  check(
+  async check(
     callerHashValue: string,
     scopeClass: string,
     vaultId: string,
     nowMs: number,
     n = 1,
-  ): ThrottleDecision {
+  ): Promise<ThrottleDecision> {
     const tier = this.tiers[scopeClass];
     if (!tier) {
       return { ok: true, scopeClass, retryAfterSeconds: 0, currentBurst: -1, currentRate: -1 };
     }
+    const spec: BucketSpec = {
+      capacity: tier.burst,
+      refillTokens: tier.perMinute,
+      intervalMs: INTERVAL_MS,
+    };
     const key = `${callerHashValue}|${scopeClass}|${vaultId}`;
-    let entry = this.buckets.get(key);
-    if (!entry) {
-      entry = {
-        bucket: new TokenBucket({
-          capacity: tier.burst,
-          refillTokens: tier.perMinute,
-          intervalMs: INTERVAL_MS,
-        }),
-        fullRefillMs:
-          tier.perMinute > 0 ? Math.ceil((tier.burst * INTERVAL_MS) / tier.perMinute) : 0,
-        lastSeenMs: nowMs,
+    const res = await this.consume(key, spec, n, nowMs);
+    if (res === "unavailable") {
+      return {
+        ok: false,
+        scopeClass,
+        retryAfterSeconds: Math.max(1, Math.ceil(this.backendRetryMs / 1000)),
+        currentBurst: 0,
+        currentRate: tier.perMinute,
+        reason: "backend_unavailable",
       };
-      this.buckets.set(key, entry);
     }
-    entry.lastSeenMs = nowMs;
-    const res = entry.bucket.tryRemove(n, nowMs);
     if (!res.ok) {
       const hk = `${vaultId}|${scopeClass}`;
       this.hits.set(hk, (this.hits.get(hk) ?? 0) + 1);
     }
-    this.sweep(nowMs);
     return {
       ok: res.ok,
       scopeClass,
@@ -186,34 +141,55 @@ export class RateLimiter {
     };
   }
 
-  /**
-   * Idle-bucket reclamation (THE-213). Rate-limited to once per `sweepIntervalMs`
-   * and driven entirely by the injected clock — no timers. Phase 1 drops buckets
-   * idle past `idleTtlMs` (which exceeds every tier's full-refill time, so they are
-   * always full and safe to drop). Phase 2, only when over `maxBuckets`, evicts the
-   * most-idle buckets that are *guaranteed full* (idle >= their own full-refill
-   * time), oldest first; a sub-full bucket is never evicted, so a caller mid-burst
-   * cannot reset its allowance by forcing eviction.
-   */
-  private sweep(nowMs: number): void {
-    if (this.lastSweepMs !== null && nowMs - this.lastSweepMs < this.sweepIntervalMs) return;
-    this.lastSweepMs = nowMs;
-    for (const [key, e] of this.buckets) {
-      if (nowMs - e.lastSeenMs >= this.idleTtlMs) this.buckets.delete(key);
-    }
-    if (this.buckets.size <= this.maxBuckets) return;
-    const evictable = [...this.buckets.entries()]
-      .filter(([, e]) => nowMs - e.lastSeenMs >= e.fullRefillMs)
-      .sort((a, b) => a[1].lastSeenMs - b[1].lastSeenMs);
-    for (const [key] of evictable) {
-      if (this.buckets.size <= this.maxBuckets) break;
-      this.buckets.delete(key);
+  private async consume(
+    key: string,
+    spec: BucketSpec,
+    n: number,
+    nowMs: number,
+  ): Promise<TokenBucketResult | "unavailable"> {
+    if (this.backend === this.local) return this.local.consume(key, spec, n, nowMs);
+    if (this.inOutage && nowMs < this.retryAtMs) return this.duringOutage(key, spec, n, nowMs);
+    try {
+      const res = await this.backend.consume(key, spec, n, nowMs);
+      if (this.inOutage) {
+        this.inOutage = false;
+        this.opts.onBackendUp?.({ backend: this.backend.kind });
+      }
+      return res;
+    } catch (error) {
+      this.retryAtMs = nowMs + this.backendRetryMs;
+      if (!this.inOutage) {
+        this.inOutage = true;
+        this.opts.onBackendDown?.({
+          backend: this.backend.kind,
+          policy: this.failurePolicy,
+          error,
+        });
+      }
+      return this.duringOutage(key, spec, n, nowMs);
     }
   }
 
-  /** Live bucket count, exposed for eviction tests (THE-213). */
+  private duringOutage(
+    key: string,
+    spec: BucketSpec,
+    n: number,
+    nowMs: number,
+  ): Promise<TokenBucketResult | "unavailable"> {
+    return this.failurePolicy === "fail-closed"
+      ? Promise.resolve("unavailable")
+      : this.local.consume(key, spec, n, nowMs);
+  }
+
+  /** Live process-local bucket count, exposed for eviction tests. */
   get bucketCount(): number {
-    return this.buckets.size;
+    return this.local.bucketCount;
+  }
+
+  /** Release the backend's connections/handles. */
+  async close(): Promise<void> {
+    await this.backend.close();
+    if (this.local !== this.backend) await this.local.close();
   }
 
   /** Throttle-hit counters for the metrics snapshot, one row per (vault, scope_class). */

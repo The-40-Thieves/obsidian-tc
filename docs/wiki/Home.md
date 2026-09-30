@@ -11,7 +11,7 @@
 |---|---|
 | **Version** | `1.31.8` |
 | **Tools** | 164 governed capabilities (advertised via the 3-tool facade), all visible/callable by default (`toolFacade.profile: "full"`); 98 with the opt-in `profile: "core"` |
-| **Config keys** | 250 |
+| **Config keys** | 255 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
 | **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
 | **MCP spec** | [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) |

@@ -2,6 +2,8 @@
 // runtime-core-types.ts exist, see their own headers) to keep that file under biome's 700-line
 // noExcessiveLinesPerFile cap. Re-exported from server-runtime.ts so every existing import path
 // (including `wireRuntimeCore`'s own test suite) keeps working.
+import { DEFAULT_BUSY_TIMEOUT_MS } from "../db/pragmas";
+import { createRateLimitBackend, DEFAULT_REDIS_REF } from "../ratelimit/create";
 import { type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
 import { wireGovernance } from "./governance";
 import { type IndexHealthState, wireIndexResources } from "./indexing-wiring";
@@ -26,25 +28,42 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
   // that closes over it — same forward-reference shape as cli.ts's indexCoordinatorRef/schedulerRef.
   let indexHealthRef: IndexHealthState | undefined;
   try {
-    const governance = wireGovernance({
-      db: deps.stores.db,
-      cacheDir: deps.cacheDir,
-      ...(deps.traceContent !== undefined ? { traceContent: deps.traceContent } : {}),
-      vaults: deps.vaults,
-      acl: deps.acl,
-      defaultVaultId: deps.defaultVaultId,
-      elicitTtlSeconds: deps.elicitTtlSeconds,
-      throttle: deps.throttle,
-      maxResponseBytes: deps.maxResponseBytes,
-      idempotencyTtlSeconds: deps.idempotencyTtlSeconds,
-      idempotencyReclaimSeconds: deps.idempotencyReclaimSeconds,
-      toolVisibility: deps.toolVisibility,
-      metrics: deps.metrics,
-      tracer: deps.tracer,
-      morgiana: deps.morgiana,
-      ...(deps.stores.episodeCapture ? { onEpisode: deps.stores.episodeCapture } : {}),
-      getAuditWriteFailureCounter: () => requireBoot(indexHealthRef, "indexHealth"),
-    });
+    // The shared bucket store (sqlite / redis) is opened here, before governance, so a bad
+    // reference (no Redis URL, a missing @redis/client, an unwritable cacheDir) refuses boot loudly
+    // rather than surfacing as a runtime "outage". The default memory backend loads nothing.
+    const rateLimitBackend = await createRateLimitBackend(
+      {
+        backend: deps.throttle.backend ?? "memory",
+        redis: deps.throttle.redis ?? DEFAULT_REDIS_REF,
+      },
+      { cacheDir: deps.cacheDir, busyTimeoutMs: deps.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS },
+    );
+    let governance: ReturnType<typeof wireGovernance>;
+    try {
+      governance = wireGovernance({
+        db: deps.stores.db,
+        cacheDir: deps.cacheDir,
+        ...(deps.traceContent !== undefined ? { traceContent: deps.traceContent } : {}),
+        vaults: deps.vaults,
+        acl: deps.acl,
+        defaultVaultId: deps.defaultVaultId,
+        elicitTtlSeconds: deps.elicitTtlSeconds,
+        throttle: deps.throttle,
+        rateLimitBackend,
+        maxResponseBytes: deps.maxResponseBytes,
+        idempotencyTtlSeconds: deps.idempotencyTtlSeconds,
+        idempotencyReclaimSeconds: deps.idempotencyReclaimSeconds,
+        toolVisibility: deps.toolVisibility,
+        metrics: deps.metrics,
+        tracer: deps.tracer,
+        morgiana: deps.morgiana,
+        ...(deps.stores.episodeCapture ? { onEpisode: deps.stores.episodeCapture } : {}),
+        getAuditWriteFailureCounter: () => requireBoot(indexHealthRef, "indexHealth"),
+      });
+    } catch (e) {
+      await rateLimitBackend.close().catch(() => {});
+      throw e;
+    }
     built.push({ name: "governance", close: governance.close });
 
     const indexResources = await wireIndexResources({

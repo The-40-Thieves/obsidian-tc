@@ -106,6 +106,7 @@ export class MetricsRecorder {
   private readonly idempotencyHits: Counter<string>;
   private readonly idempotencyCacheSkipped: Counter<string>;
   private readonly rateLimitHits: Counter<string>;
+  private readonly rateLimitBackendOutages: Counter<string>;
   private readonly governorTruncations: Counter<string>;
   private readonly morgianaDropped: Counter<string>;
   private readonly authRejections: Counter<string>;
@@ -305,6 +306,12 @@ export class MetricsRecorder {
       name: "obsidian_tc_rate_limit_hits_total",
       help: "Rate-limit refusals, by vault and scope class.",
       labelNames: ["vault", "scope_class"],
+      registers,
+    });
+    this.rateLimitBackendOutages = new Counter({
+      name: "obsidian_tc_rate_limit_backend_outages_total",
+      help: "Shared rate-limit backend outages (sqlite or redis unreachable), by backend. Counted once per outage, not per request; the failure policy decides what calls do meanwhile.",
+      labelNames: ["backend"],
       registers,
     });
     this.governorTruncations = new Counter({
@@ -683,6 +690,9 @@ export class MetricsRecorder {
   }
   incRateLimitHit(vault: string, scopeClass: string): void {
     this.rateLimitHits.inc({ vault, scope_class: scopeClass });
+  }
+  incRateLimitBackendOutage(backend: string): void {
+    this.rateLimitBackendOutages.inc({ backend });
   }
   incGovernorTruncation(vault: string, tool: string): void {
     this.governorTruncations.inc({ vault, tool });

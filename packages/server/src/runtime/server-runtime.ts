@@ -168,6 +168,7 @@ export async function buildServerRuntime(
     defaultVaultId: process.env.OBSIDIAN_TC_DEFAULT_VAULT,
     elicitTtlSeconds: config.elicitTtlSeconds,
     throttle: config.throttle,
+    busyTimeoutMs: config.db.busyTimeoutMs,
     maxResponseBytes: config.governor.maxResponseBytes,
     idempotencyTtlSeconds: config.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
@@ -643,6 +644,11 @@ export async function buildServerRuntime(
       await otel.shutdown();
     } catch {
       /* shutdown is best-effort */
+    }
+    try {
+      await governance.close(); // releases the shared rate-limit backend's connection, if any
+    } catch {
+      /* best-effort */
     }
     try {
       stores.close();

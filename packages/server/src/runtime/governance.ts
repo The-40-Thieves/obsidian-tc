@@ -13,6 +13,8 @@ import { ToolRegistry } from "../mcp/registry";
 import type { RegistryOptions } from "../mcp/registry/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
+import type { RateLimitBackend, RateLimitFailurePolicy } from "../ratelimit/backend";
+import { outageHooks } from "../ratelimit/outage-hooks";
 import { RateLimiter, type ThrottleTiers } from "../throttle";
 import { VaultRegistry } from "../vault/registry";
 import {
@@ -39,7 +41,10 @@ export interface GovernanceDeps {
   /** config.elicitTtlSeconds */
   elicitTtlSeconds: number;
   /** config.throttle */
-  throttle: { enabled: boolean; tiers: ThrottleTiers };
+  throttle: { enabled: boolean; tiers: ThrottleTiers; failurePolicy?: RateLimitFailurePolicy };
+  /** The configured shared bucket store (wireRuntimeCore builds it from config.throttle.backend).
+   *  Omitted means the process-local default. Governance owns it from here: close() releases it. */
+  rateLimitBackend?: RateLimitBackend;
   /** config.governor.maxResponseBytes */
   maxResponseBytes: number;
   /** config.idempotencyTtlSeconds */
@@ -68,10 +73,10 @@ export interface Governance {
   activeSessions: ActiveSessionTracker;
   rateLimiter: RateLimiter;
   registry: ToolRegistry;
-  /** No open resource to release — ACL/registry/rate-limiter objects are plain in-memory state.
-   *  Present (as a no-op) so this wiring step participates in the same accumulate-and-unwind
-   *  cleanup stack as stores/indexing (see server-runtime.ts) rather than being a silent exception. */
-  close(): void;
+  /** Releases the rate-limit backend's connections (a no-op for the default memory backend); the
+   *  ACL/registry objects are plain in-memory state. Participates in the same accumulate-and-unwind
+   *  cleanup stack as stores/indexing (see server-runtime.ts). */
+  close(): void | Promise<void>;
 }
 
 /**
@@ -89,7 +94,12 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
   // THE-302: the configured elicit-token TTL governs every HITL token mint (issueElicitToken falls
   // back to this default when a caller passes no explicit ttlSeconds). Set once at startup.
   setDefaultElicitTtlSeconds(deps.elicitTtlSeconds);
-  const rateLimiter = new RateLimiter(deps.throttle.tiers);
+  const rateLimiter = new RateLimiter(deps.throttle.tiers, {
+    ...(deps.rateLimitBackend ? { backend: deps.rateLimitBackend } : {}),
+    ...(deps.throttle.failurePolicy ? { failurePolicy: deps.throttle.failurePolicy } : {}),
+    // Once per outage, never per request (the limiter guarantees it); redacted (see outage-hooks).
+    ...outageHooks(deps.metrics),
+  });
   const registry = new ToolRegistry({
     maxResponseBytes: deps.maxResponseBytes,
     idempotencyTtlSeconds: deps.idempotencyTtlSeconds,
@@ -191,8 +201,6 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
     activeSessions,
     rateLimiter,
     registry,
-    close: () => {
-      /* no owned resource */
-    },
+    close: () => rateLimiter.close(),
   };
 }

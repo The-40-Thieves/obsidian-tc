@@ -30,7 +30,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-178 | _internal planning reference — see repo history_ | — | 1 |
 | THE-180 | _internal planning reference — see repo history_ | — | 9 |
 | THE-181 | _internal planning reference — see repo history_ | — | 10 |
-| THE-182 | _internal planning reference — see repo history_ | — | 6 |
+| THE-182 | _internal planning reference — see repo history_ | — | 5 |
 | THE-183 | Metrics Registry | docs/design/metrics-registry.md | 4 |
 | THE-184 | _internal planning reference — see repo history_ | — | 1 |
 | THE-185 | _internal planning reference — see repo history_ | — | 1 |
@@ -47,7 +47,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-210 | Dispatch-wide rate limiting (THE-210) | CHANGELOG.md (1.0.1) | 9 |
 | THE-211 | Metrics Registry | docs/design/metrics-registry.md | 2 |
 | THE-212 | _internal planning reference — see repo history_ | — | 2 |
-| THE-213 | _internal planning reference — see repo history_ | — | 1 |
 | THE-219 | Tool-visibility scoping (THE-219): | CHANGELOG.md (1.2.1) | 11 |
 | THE-221 | Conditional temporal retrieval stream, flag-gated (THE-221 Phase 1). | CHANGELOG.md (1.6.0) | 5 |
 | THE-222 | `reflect` — the third verb, as one callable operation (THE-222). | CHANGELOG.md (1.7.0) | 13 |
@@ -392,6 +391,6 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-1131 | New `toolFacade.profile` (`"full"` \| `"core"`, default `"full"`) — an OPT-IN, smaller curated tool surface; the default does not change (THE-1131, PR #984). | CHANGELOG.md (1.31.4) | 9 |
 | THE-1133 | `@modelcontextprotocol/server` 2.0.0→2.1.0, dev `@modelcontextprotocol/sdk` 1.29.0→1.30.1 (THE-1133, PR 1). | CHANGELOG.md (1.31.4) | 1 |
 
-377 distinct ticket(s) across 576 source file(s) under
-`packages/*/src`; 278 resolved to a public summary, 99
+376 distinct ticket(s) across 581 source file(s) under
+`packages/*/src`; 278 resolved to a public summary, 98
 fall back to the internal-reference placeholder above.
