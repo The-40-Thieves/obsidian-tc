@@ -45,8 +45,9 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    This sets the version across every `package.json` + distribution file (server, native, shared,
    `reranker-local`, `server.json`, the MCPB manifest at `mcpb/manifest.json`, and the companion
    plugin's `manifest.json` / `package.json` / `versions.json` in lockstep — including mirroring
-   the bumped plugin `manifest.json` onto the repo-root `manifest.json`, THE-950), rolls
-   `CHANGELOG.md`'s `[Unreleased]` section into the new version, rewrites `bun.lock`'s
+   the bumped plugin `manifest.json` onto the repo-root `manifest.json`, THE-950), folds
+   every `changes/*.md` fragment (and any text already in `CHANGELOG.md`'s `[Unreleased]` section)
+   into a new dated version section, deletes the consumed fragments, rewrites `bun.lock`'s
    `workspaces[*].version` fields for the four lockstep workspace members (THE-948: `bun install`
    does not refresh these after a version-only `package.json` bump, so `release.mjs` does it
    itself, via `scripts/lib/bun-lock-workspace-versions.mjs`, before running `bun install`), runs
@@ -57,9 +58,15 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    already-published preflight skips publishing any version already on npm, so a version that never
    moved would make every release after the owner's one-time first manual publish silently no-op.
 
+   **Release notes come from `changes/` fragments.** Each PR adds its own `changes/<slug>.md`
+   (front matter `type:` plus a CHANGELOG bullet; see `changes/README.md`) instead of editing the
+   shared `[Unreleased]` block, so two PRs never conflict on a CHANGELOG line. `bun run
+   check:changes` validates them; a release with no fragments and an empty `[Unreleased]` refuses
+   to stage.
+
    **The CHANGELOG coverage gate runs first**, before anything is mutated. It asserts that every
-   user-visible commit since the previous tag (`feat`/`fix`/`perf`/`build`) is cited in
-   `[Unreleased]`, because `release.mjs` only *renames* that section — a PR that never wrote an entry
+   user-visible commit since the previous tag (`feat`/`fix`/`perf`/`build`) is cited in the
+   assembled `[Unreleased]` text (fragments included), because `release.mjs` only *renames* that section — a PR that never wrote an entry
    would otherwise ship undocumented. Each commit is attributed to a PR by `(#N)` in its own subject
    (squash merges) or through its enclosing `Merge pull request #N` commit (merge commits); a
    rebase-merged commit carries no PR number anywhere and must be cited by **every** ticket id in its
@@ -71,8 +78,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    "coverage OK" — the other 43 arrived under merge commits and were structurally invisible.
 
 2. **Branch + PR.** Commit the staged changes on a release branch, open a PR, and let CI run:
-   build/test across Linux/macOS/Windows, install-smoke, `ci-version` (version coherence + the
-   tool-count headline pin), and `ci-native`. Address any autofix-bot commits (fetch/rebase before
+   build/test across Linux/macOS/Windows, install-smoke, `ci-version` (version coherence), and `ci-native`. Address any autofix-bot commits (fetch/rebase before
    pushing follow-ups).
 
 3. **Merge to `main`.**
@@ -176,14 +182,17 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
 7. **Update the GitHub repository description and topics.** Not automated — the registry entry
    above is a machine-readable listing, but the repo header is what a human finds it through
-   first, and its tool-count headline has its own staleness history (it still said "141 tools"
-   through this task). Do by hand (`gh repo edit`, or the GitHub UI) whenever
-   `packages/server/test/registered-tool-count.ts`'s `REGISTERED_TOOL_COUNT` changes:
+   first, and its tool-count headline has its own staleness history (it lagged the real
+   surface by several releases). Do by hand (`gh repo edit`, or the GitHub UI) whenever the set of tool
+   names in `packages/server/test/registered-tools.txt` changes:
 
-   - **Description** — keep the "N tools across M domains" phrase in lockstep with
-     `REGISTERED_TOOL_COUNT` (163 as of this task) and `docs/project-facts.json`'s `domainCount`
-     (31); e.g. `Obsidian Turbocharged — governed, agent-ready Obsidian MCP server. 163 tools
-     across 31 domains, multi-vault native, pluggable embeddings. TypeScript + Rust.
+   - **Description** — keep the "N tools across M domains" phrase in lockstep with the live
+     numbers. Read them, do not copy them from a previous release: N is the number of lines in
+     `packages/server/test/registered-tools.txt` (`wc -l`), M is `domainCount` in
+     `docs/project-facts.json`. (No doc in this repo states these numbers, on purpose — the
+     `docgen:facts-check` gate forbids it, so this description is the one place they are typed.)
+     Template: `Obsidian Turbocharged — governed, agent-ready Obsidian MCP server. <N> tools
+     across <M> domains, multi-vault native, pluggable embeddings. TypeScript + Rust.
      AGPL-3.0-only.`
    - **Topics** — review against the current stack (`ai-agents`, `mcp`, `model-context-protocol`,
      `obsidian`, `obsidian-md`, `rust`, `typescript` as of this task) and add any newly-relevant
@@ -379,7 +388,7 @@ npm CLI ≥ 11.15.0 and Node ≥ 22.14.0, and the trusted publisher must be reco
 
 - All version strings agree (`scripts/check-version-coherence.mjs`).
 - The companion plugin's manifest version equals the repo version and `versions.json` lists it.
-- The documented tool-count headline matches the registered surface (THE-306).
+- No doc states the tool count (`docgen:facts-check` forbids it; the registered names live in `packages/server/test/registered-tools.txt`).
 - `packages/server/package.json`'s `mcpName` matches `server.json`'s `name` and `server.json`'s
   `description` stays within the registry's 100-character cap (`scripts/check-mcp-name.mjs`,
   THE-940).

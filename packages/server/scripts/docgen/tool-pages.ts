@@ -5,18 +5,19 @@
 //   bun scripts/docgen/tool-pages.ts --check --dist D   also count the pages in the built site D
 //
 // The pages are build output: `docs/package.json` runs this before `astro build`, into a
-// gitignored directory. Only the combined catalog is committed, so a new tool never conflicts on
-// ~170 generated files.
+// gitignored directory. The combined catalog is a generated region filled at build time too (the
+// committed region is canonical-empty), so --check renders the catalog IN MEMORY from the registry
+// rather than reading a file that only exists after `docgen:render`.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { checkToolPages } from "./check-tool-pages";
 import { extractTools } from "./extract-tools";
 import { renderToolPage } from "./render-tool-pages";
-import { TOOL_PAGES_DIR, toolPageSlug } from "./tool-page-slug";
+import { renderTools } from "./render-tools";
+import { TOOL_PAGES_DIR, TOOL_PAGES_URL_BASE, toolPageSlug } from "./tool-page-slug";
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\/$/, "");
 const pagesDir = `${repoRoot}/${TOOL_PAGES_DIR}`;
-const CATALOG = `${repoRoot}/docs/src/content/docs/tools/tool-catalog.md`;
 const args = process.argv.slice(2);
 const distArg = args.indexOf("--dist");
 const dist = distArg === -1 ? undefined : args[distArg + 1];
@@ -56,7 +57,7 @@ const problems = checkToolPages({
   tools,
   files,
   contents,
-  catalog: readFileSync(CATALOG, "utf8"),
+  catalog: renderTools(tools, TOOL_PAGES_URL_BASE),
   ...(distPages ? { dist: distPages } : {}),
 });
 if (problems.length > 0) {

@@ -9,6 +9,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { changelogWithFragments, readFragments } from "./lib/changes.mjs";
 
 const THRESHOLD = Number(process.env.RELEASE_LAG_THRESHOLD ?? 30);
 
@@ -28,7 +29,13 @@ const ahead = Number(git(["rev-list", "--count", `${tag}..HEAD`]));
 
 // Extract the CHANGELOG [Unreleased] section (up to the next "## [" version header) and check
 // whether it carries any ### Fixed / ### Security entries — i.e. shippable fixes are waiting.
-const changelog = readFileSync(fileURLToPath(new URL("../CHANGELOG.md", import.meta.url)), "utf8");
+// Fragments (changes/*.md) are part of [Unreleased] until the release folds them in, so a pending
+// Fixed/Security fragment counts exactly like a hand-written entry.
+const root = fileURLToPath(new URL("..", import.meta.url));
+const changelog = changelogWithFragments(
+  readFileSync(fileURLToPath(new URL("../CHANGELOG.md", import.meta.url)), "utf8"),
+  readFragments(root),
+);
 const m = changelog.match(/## \[Unreleased\]([\s\S]*?)(?=\n## \[)/);
 const unreleased = m ? m[1] : "";
 const hasSecurityFixes = /^###\s+(Fixed|Security)\b/m.test(unreleased);

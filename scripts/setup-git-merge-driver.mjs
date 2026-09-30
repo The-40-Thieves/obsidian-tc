@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Bootstrap for the "regenerate" merge driver. .gitattributes names it for TREE.md and
- * docs/dependency-graph.json; this script is what actually DEFINES it, since a merge driver's
+ * Bootstrap for the "regen" merge driver. .gitattributes names it for
+ * packages/server/src/db/migrations-embedded.ts; this script is what actually DEFINES it, since a merge driver's
  * definition lives in .git/config, which git never commits or clones — see check-merge-driver.mjs
  * for the empirical proof that skipping this step leaves the fix silently vacuous.
  *
@@ -23,7 +23,10 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DRIVER_NAME = "regenerate";
+const DRIVER_NAME = "regen";
+// Pre-`regen` name (it deferred TREE.md / dependency-graph.json to manual regeneration). Both files
+// stopped being committed, so the definition is removed rather than left dangling at a deleted script.
+const LEGACY_DRIVER_NAME = "regenerate";
 
 function git(args) {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
@@ -56,13 +59,19 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // Git runs a merge driver with its working directory at the top of the working tree being merged,
 // so one relative command resolves correctly in EVERY worktree simultaneously and cannot be
 // invalidated by another worktree's install or removal.
-const driverScript = path.posix.join("scripts", "merge-drivers", "defer-regeneration.mjs");
+const driverScript = path.posix.join("scripts", "merge-drivers", "regen.mjs");
+
+try {
+  git(["config", "--remove-section", `merge.${LEGACY_DRIVER_NAME}`]);
+} catch {
+  // no legacy section — nothing to remove
+}
 
 git([
   "config",
   `merge.${DRIVER_NAME}.name`,
-  "Defer TREE.md / docs/dependency-graph.json to regeneration instead of hand-merging machine " +
-    "output (run `just map` after; `just map-check` / CI catches staleness)",
+  "Regenerate packages/server/src/db/migrations-embedded.ts from the three sides as data " +
+    "(filename -> SQL) instead of text-merging it; a same-migration edit is a real conflict",
 ]);
 git(["config", `merge.${DRIVER_NAME}.driver`, `node "${driverScript}" %O %A %B %P`]);
 
