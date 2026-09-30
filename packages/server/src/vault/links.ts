@@ -5,7 +5,7 @@
 // vault path wins; otherwise a basename match, shortest-path-wins, with all
 // candidates surfaced so resolvers can raise path_ambiguous.
 
-import { scanMdLinks, scanWikilinks } from "./link-scan";
+import { inCodeRange, inlineCodeRanges, scanMdLinks, scanWikilinks } from "./link-scan";
 
 export type LinkKind = "wikilink" | "markdown" | "embed";
 
@@ -21,7 +21,6 @@ export interface ExtractedLink {
 }
 
 const FENCE = /^\s*(```|~~~)/;
-const INLINE_CODE = /`[^`]*`/g;
 
 function splitWikilink(inner: string): {
   target: string;
@@ -47,18 +46,6 @@ function splitWikilink(inner: string): {
   return { target: rest.trim(), display, heading };
 }
 
-function codeRanges(line: string): Array<[number, number]> {
-  const ranges: Array<[number, number]> = [];
-  for (const m of line.matchAll(INLINE_CODE)) {
-    const i = m.index ?? 0;
-    ranges.push([i, i + m[0].length]);
-  }
-  return ranges;
-}
-function inCode(ranges: Array<[number, number]>, idx: number): boolean {
-  return ranges.some(([a, b]) => idx >= a && idx < b);
-}
-
 export function extractLinks(body: string): ExtractedLink[] {
   const out: ExtractedLink[] = [];
   const lines = body.split(/\r?\n/);
@@ -69,7 +56,7 @@ export function extractLinks(body: string): ExtractedLink[] {
       fenced = !fenced;
       continue;
     }
-    const ranges = fenced ? [] : codeRanges(line);
+    const ranges = fenced ? [] : inlineCodeRanges(line);
     for (const m of scanWikilinks(line)) {
       const { target, display, heading } = splitWikilink(m.inner);
       out.push({
@@ -80,7 +67,7 @@ export function extractLinks(body: string): ExtractedLink[] {
         heading,
         line: i + 1,
         col: m.start + 1,
-        inCodeblock: fenced || inCode(ranges, m.start),
+        inCodeblock: fenced || inCodeRange(ranges, m.start),
       });
     }
     for (const m of scanMdLinks(line)) {
@@ -92,7 +79,7 @@ export function extractLinks(body: string): ExtractedLink[] {
         heading: null,
         line: i + 1,
         col: m.start + 1,
-        inCodeblock: fenced || inCode(ranges, m.start),
+        inCodeblock: fenced || inCodeRange(ranges, m.start),
       });
     }
   }

@@ -161,7 +161,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   same shape: frontmatter parsing, tag extraction, the experiential citation judge, and the
   prompt-injection/secret-redaction poison detector. A new CI job (`check:redos`, driven by
   `recheck`) now scans every regex literal under `vault/` and `experiential/` on each PR so a
-  future super-linear regex on untrusted text fails the build instead of shipping.
+  future super-linear regex on untrusted text fails the build instead of shipping. The gate fails
+  closed: a pattern passes only when `recheck` proves it safe, a checker timeout or "cannot
+  decide" verdict fails unless the exact pattern is allowlisted with its measured timing, a
+  runtime-built `new RegExp(...)` or a regex literal inside a template `${...}` is a reported
+  finding that needs a justified allowlist entry, a stale allowlist entry fails, and the scanner
+  now reads `/regex/` after `return`/`typeof`/`case` and the other expression keywords. Inline-code
+  marking in link and tag extraction (a per-link and per-tag scan of every code span, quadratic on
+  a line of `` `a`[b](c) `` repeated: 23 s at 640 KB) is now a binary search, and the perf tests
+  assert scaling (4x input, under 6x time) as well as an absolute bound.
 
 ## [1.31.8] - 2026-09-29
 

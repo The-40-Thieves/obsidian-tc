@@ -210,3 +210,35 @@ export function scanLinks(line: string): LinkScanMatch[] {
   }
   return out;
 }
+
+const INLINE_CODE = /`[^`]*`/g;
+
+/** Half-open `[start, end)` spans of the inline `` `code` `` runs on one line, in increasing
+ *  order and pairwise disjoint (each match resumes after the previous one). */
+export function inlineCodeRanges(line: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const m of line.matchAll(INLINE_CODE)) {
+    const i = m.index ?? 0;
+    ranges.push([i, i + m[0].length]);
+  }
+  return ranges;
+}
+
+/** Whether `idx` falls inside one of `ranges` (sorted and disjoint, as `inlineCodeRanges`
+ *  returns them). Binary search: a per-link/per-tag `ranges.some` was O(spans x matches) — a line
+ *  of "`a`[b](c) " repeated measured 23 s at 640 KB — where this is O(log spans). */
+export function inCodeRange(
+  ranges: ReadonlyArray<readonly [number, number]>,
+  idx: number,
+): boolean {
+  let lo = 0;
+  let hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const [a, b] = ranges[mid] as readonly [number, number];
+    if (idx < a) hi = mid - 1;
+    else if (idx >= b) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}

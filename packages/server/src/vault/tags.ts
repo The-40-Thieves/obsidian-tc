@@ -6,9 +6,9 @@
 // child of `#project`, and a query for `project` matches both.
 import type { Frontmatter } from "./frontmatter";
 import { parseNote } from "./frontmatter";
+import { inCodeRange, inlineCodeRanges } from "./link-scan";
 
 const FENCE = /^\s*(```|~~~)/;
-const INLINE_CODE = /`[^`]*`/g;
 // A tag is `#` (at start-of-line or after whitespace) then a run of tag chars
 // beginning with a non-slash. Group 1 is the boundary char, group 2 the tag.
 const TAG = /(^|\s)#([A-Za-z0-9_][A-Za-z0-9_/-]*)/g;
@@ -48,12 +48,10 @@ export function extractInlineTags(body: string): string[] {
       continue;
     }
     if (fenced) continue;
-    const ranges = [...line.matchAll(INLINE_CODE)].map(
-      (m) => [m.index ?? 0, (m.index ?? 0) + m[0].length] as [number, number],
-    );
+    const ranges = inlineCodeRanges(line);
     for (const m of line.matchAll(TAG)) {
       const hashIdx = (m.index ?? 0) + (m[1] ?? "").length;
-      if (ranges.some(([a, b]) => hashIdx >= a && hashIdx < b)) continue;
+      if (inCodeRange(ranges, hashIdx)) continue;
       const tag = normalizeTag(m[2] ?? "");
       if (tag && /[A-Za-z_-]/.test(tag)) out.add(tag);
     }
