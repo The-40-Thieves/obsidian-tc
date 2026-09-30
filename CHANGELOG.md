@@ -258,6 +258,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   tag (a strict, case-sensitive regexp form is kept for "any release"). End-to-end proof arrives with
   the next tagged release; nothing on a PR executes `publish.yml`.
 
+- **`bge-m3-service`: urllib3 2.7.0 to 2.8.0.** Fixes GHSA-8988-9cw3-xx77 and GHSA-vxq7-64xx-v4gw (both
+  fixed in urllib3 2.8.0), which `osv-scanner` reported against the hash-locked
+  `services/bge-m3-service/requirements.txt`. Regenerated with `uv pip compile --generate-hashes`; only the
+  urllib3 pin and its hashes change. `requirements-ci.txt` does not include urllib3.
+
 ### Changed
 
 - **`read_notes` output gains `next_cursor`** (always present; `null` when the batch is complete)
