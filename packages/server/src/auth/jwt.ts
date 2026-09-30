@@ -221,8 +221,10 @@ export function claimAt(payload: Record<string, unknown>, path: string): unknown
   if (Object.hasOwn(payload, path)) return payload[path];
   let cur: unknown = payload;
   for (const part of path.split(".")) {
-    if (typeof cur !== "object" || cur === null || !Object.hasOwn(cur, part)) return undefined;
-    cur = (cur as Record<string, unknown>)[part];
+    if (typeof cur !== "object" || cur === null) return undefined;
+    const own = Object.getOwnPropertyDescriptor(cur, part);
+    if (own === undefined) return undefined;
+    cur = own.value;
   }
   return cur;
 }
