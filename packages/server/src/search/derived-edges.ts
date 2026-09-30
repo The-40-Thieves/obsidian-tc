@@ -12,6 +12,7 @@
 // hub, not a similarity signal (graphify --exclude-hubs).
 import type { Database } from "../db/types";
 import { bumpGeneration } from "./generation";
+import { DEFAULT_KNN_MIN_SIM } from "./retrieval-defaults";
 import { blobToFloats, loadVec, vecKnn } from "./vec";
 
 export type DerivedEdgeType = "shared_tag" | "similar_to" | "semantically_similar_to";
@@ -426,7 +427,7 @@ export function knnEdgesFromNeighbors(
   opts: { k?: number; minSim?: number } = {},
 ): DerivedEdge[] {
   const k = opts.k ?? 8;
-  const minSim = opts.minSim ?? 0;
+  const minSim = opts.minSim ?? DEFAULT_KNN_MIN_SIM;
   const bySource = new Map<string, Map<string, number>>();
   for (const n of neighbors) {
     if (n.source_path === n.target_path || n.sim < minSim) continue;
@@ -608,7 +609,7 @@ export function knnDiscoveryScope(
     db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'vec_chunks'").get() !== undefined;
   if (!loadVec(db) || !hasVecChunks) return scope;
   const k = opts.k ?? 8;
-  const minSim = opts.minSim ?? 0;
+  const minSim = opts.minSim ?? DEFAULT_KNN_MIN_SIM;
   const placeholders = [...changed].map(() => "?").join(", ");
   const rows = db
     .prepare(

@@ -28,6 +28,7 @@ import { isLoudRefusal } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import { runWithConcurrency } from "../util/concurrency";
 import { type GraphSearchOptions, type GraphSearchResult, graphSearch } from "./graph_search";
+import { resolveFanOutRrfK } from "./retrieval-defaults";
 
 /** THE-448 fan-out tuning — nested optional object, off-by-default convention (graph_search.ts's
  *  graphStream/smoothExpansion/etc. shape), even though the fan-out itself is gated by `queries`
@@ -36,10 +37,11 @@ import { type GraphSearchOptions, type GraphSearchResult, graphSearch } from "./
 export interface MultiQueryFanOutOptions {
   /** Max simultaneous graphSearch calls across variants. Default 3. */
   concurrency?: number;
-  /** RRF k for the ACROSS-variant fusion (rank-based). Defaults to 10 — the same default as
-   *  graph_search's own in-query rrfK (graphSearchCore's `opts.rrfK ?? 10` in graph_search.ts),
-   *  for tuning consistency between the two fusion layers; independently overridable since the
-   *  two pools have different shapes (in-query streams vs. per-variant full result lists). */
+  /** RRF k for the ACROSS-variant fusion (rank-based). Defaults to DEFAULT_RRF_K (10,
+   *  retrieval-defaults.ts) — the constant graph_search's own in-query rrfK resolves to when no
+   *  stat-derived value applies; independently overridable since the two pools have different
+   *  shapes (in-query streams vs. per-variant full result lists). Never stat-derived: this list is
+   *  shaped by finalTopK, not by any vault's index. */
   rrfK?: number;
 }
 
@@ -48,7 +50,6 @@ export interface MultiQueryGraphSearchOptions extends GraphSearchOptions {
 }
 
 const DEFAULT_CONCURRENCY = 3;
-const DEFAULT_FAN_OUT_RRF_K = 10;
 // Mirrors graph_search.ts's own `opts.finalTopK ?? 30` (graphSearchCore). Not imported because
 // graph_search.ts does not export it and this ticket keeps graph_search.ts untouched.
 const DEFAULT_FINAL_TOP_K = 30;
@@ -109,7 +110,7 @@ export async function multiQueryGraphSearch(
   // even after the OTHER variants' hits interleave ahead of it in the fused order.
   const perQueryK = Math.max(finalTopK * 2, finalTopK + 10);
   const concurrency = Math.max(1, opts.multiQueryFanOut?.concurrency ?? DEFAULT_CONCURRENCY);
-  const rrfK = opts.multiQueryFanOut?.rrfK ?? DEFAULT_FAN_OUT_RRF_K;
+  const rrfK = resolveFanOutRrfK(opts.multiQueryFanOut?.rrfK).value;
 
   const perVariantResults = await runWithConcurrency(
     queries,

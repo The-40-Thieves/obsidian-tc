@@ -172,6 +172,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       intervalMs: config.experiential.gapSweep.intervalHours * 3_600_000,
       maxQueries: config.experiential.gapSweep.maxQueries,
       ...(config.retrieval?.rrfK !== undefined ? { rrfK: config.retrieval.rrfK } : {}),
+      ...(config.retrieval?.derivedDefaults ? { derivedDefaults: true } : {}),
     });
   }
 

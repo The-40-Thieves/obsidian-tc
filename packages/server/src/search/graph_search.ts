@@ -26,6 +26,7 @@ import {
 } from "./graph_search_stages/types";
 import { hasNoteSummaries, type SummaryHit, searchNoteSummaries } from "./note-summaries";
 import { rerankWithScores } from "./rerank";
+import { resolveRetrievalDefaultsForVault } from "./retrieval-defaults";
 
 // Public API is unchanged by THE-465: same graphSearch(db, opts) signature, same
 // GraphSearchResult shape, same GraphSearchOptions surface (every opts.* default preserved) —
@@ -304,7 +305,16 @@ async function graphSearchCore(
   // in TWO streams outrank a rank-1 single-stream hit whenever k > M-2 (2/(k+M) > 1/(k+1)),
   // burying confident dense hits under overlapping noise. Measured better-or-equal on all gate
   // metrics at this pool size; see CHANGELOG.md [1.5.0] THE-397 for the numbers.
-  const rrfK = opts.rrfK ?? 10;
+  // ADR-0007 class (b): one resolver owns the constant and the (flag-gated) stat derivation. The
+  // derivation is skipped for a partition-restricted caller — see GraphSearchOptions.derivedDefaults.
+  const derivedAllowed =
+    opts.derivedDefaults === true && opts.aclSetId === undefined && !opts.aclWalkFilter?.blocked;
+  const rrfK = resolveRetrievalDefaultsForVault(
+    db,
+    opts.vaultId,
+    { derivedDefaults: derivedAllowed },
+    { rrfK: opts.rrfK, seedCount },
+  ).rrfK.value;
   const rerankPool = opts.rerankPool ?? 40;
   const routerEnabled = opts.router?.enabled ?? true;
   const routerSim = opts.router?.simThreshold ?? 0.62;

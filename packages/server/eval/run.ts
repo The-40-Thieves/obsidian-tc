@@ -25,9 +25,11 @@ import { type GraphSearchOptions, graphSearch, seedZMargin } from "../src/search
 import { gatedRerankOptionsFromConfig } from "../src/search/graph_search_stages/rerank_stage";
 import { multiQueryGraphSearch } from "../src/search/multi_query";
 import type { Reranker } from "../src/search/rerank";
+import { DEFAULT_RRF_K, resolveRetrievalDefaults } from "../src/search/retrieval-defaults";
 import { lexicalRouteResults, routeQuery } from "../src/search/router";
 import { semanticSearch } from "../src/search/semantic";
 import type { SparseVec } from "../src/search/sparse";
+import { readVaultIndexStats } from "../src/search/vault-index-stats";
 import { sliceByCategory } from "./categories";
 import { analyzeQuery, type QueryFailureAnalysis, recommendV11 } from "./failure_analysis";
 import {
@@ -249,6 +251,10 @@ export interface RunEvalOptions {
   /** THE-258: the deterministic class router — same rules as the serve path
    *  (retrieval.classRouter): lexical short-circuit + temporal auto-stream. */
   classRouter?: boolean;
+  /** ADR-0007 class (b): `--derived-defaults` — the serve flag `retrieval.derivedDefaults`. Forwarded
+   *  to graphSearch, which derives rrfK from THIS index's stats exactly as a serving process would.
+   *  Off -> key absent -> the shipped constant, byte-identical to every pre-flag artifact. */
+  derivedDefaults?: boolean;
   /** THE-448: multi-query fan-out. `variantsFor` returns the ADDITIONAL phrasings for a query (the
    *  original always leads, matching vault_graph_search's handler); returning fewer than one
    *  variant leaves that query on the plain single-query path, so a partial variants file measures
@@ -413,6 +419,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
           ? { router: { enabled: true, zThreshold: opts.zRouter } }
           : {}),
         ...(opts.adaptiveRrf ? { adaptiveRrf: opts.adaptiveRrf } : {}),
+        ...(opts.derivedDefaults ? { derivedDefaults: true } : {}),
         ...(opts.lexical ? { lexical: opts.lexical } : {}),
         ...(sparse ? { querySparse: sparse } : {}),
         ...(opts.graphStream ? { graphStream: opts.graphStream } : {}),
@@ -713,6 +720,8 @@ async function main(): Promise<void> {
   // THE-258: `--class-router` — the deterministic class router (lexical short-circuit +
   // temporal auto-stream), same rules as retrieval.classRouter on serve.
   const classRouter = argv.includes("--class-router");
+  // ADR-0007 class (b): derive rrfK from the index's measured stats (retrieval.derivedDefaults).
+  const derivedDefaults = argv.includes("--derived-defaults");
   // THE-404: `--decompose` — LLM sub-query decomposition for z-hard queries only
   // (DECOMPOSE_MODEL / DECOMPOSE_Z / DECOMPOSE_URL envs).
   const decompose = argv.includes("--decompose");
@@ -780,6 +789,7 @@ async function main(): Promise<void> {
         "--max-per-cluster <n> caps chunks per cluster_id (THE-73 diversification). Requires a CLUSTERED index (`obsidian-tc cluster`); the run refuses rather than silently no-op.\n" +
         "--temporal enables the THE-221 conditional temporal stream (fires only on explicit temporal intent).\n" +
         "SPARSE_URL=<bge-m3 token_classify server> + --sparse fuses the learned-sparse stream into a NON-bge dense pipeline (THE-403).\n" +
+        "--derived-defaults derives stat-conditional defaults (rrfK) from this index's measured stats, as retrieval.derivedDefaults does on serve (ADR-0007 class b).\n" +
         "--mmr enables THE-393 diversification (note-collapse maxPerNote=2 + MMR final pick).\n" +
         "Needs an indexed cache.db + a reachable embedding backend (config.embeddings).\n",
     );
@@ -870,6 +880,16 @@ async function main(): Promise<void> {
       })()
     : provider0;
   const db = await openConfiguredDatabase(config, "cache.db");
+  // ADR-0007: state what the flag resolves to on THIS index, so an artifact's log says whether the
+  // derived arm actually differs from the constant one (on any vault >= the 30-deep seed pool it
+  // does not, by construction).
+  {
+    const stats = readVaultIndexStats(db, firstVault.id);
+    const r = resolveRetrievalDefaults(stats, { derivedDefaults }).rrfK;
+    process.stderr.write(
+      `[eval] vault ${firstVault.id}: chunks=${stats?.chunkCount ?? "?"} notes=${stats?.noteCount ?? "?"} edges=${stats?.edgeCount ?? "?"} -> rrfK ${r.value} (${r.source}); constant ${DEFAULT_RRF_K}\n`,
+    );
+  }
   // THE-692: refuse --max-per-cluster on an unclustered index. diversifyByCluster skips rows whose
   // cluster_id is NULL, so on an unclustered corpus the flag caps nothing and the A/B reports "no
   // effect" — indistinguishable from a real null result, and wrong for a different reason. Fail
@@ -1129,6 +1149,7 @@ async function main(): Promise<void> {
     ...(temporal ? { temporal: true } : {}),
     ...(activationLookup ? { activation: activationLookup } : {}),
     ...(classRouter ? { classRouter: true } : {}),
+    ...(derivedDefaults ? { derivedDefaults: true } : {}),
     ...(decompose
       ? {
           decompose: {
@@ -1167,6 +1188,7 @@ async function main(): Promise<void> {
     temporal ? "temporal stream" : null,
     activation ? "activation bubble" : null,
     classRouter ? "class router" : null,
+    derivedDefaults ? "derived defaults" : null,
     fanoutPath ? "multi-query fan-out" : null,
     pathDedup ? "path-dedup" : null,
   ]
@@ -1332,6 +1354,7 @@ async function main(): Promise<void> {
       temporal && "temporal",
       activation && "activation",
       classRouter && "class-router",
+      derivedDefaults && "derived-defaults",
       fanoutPath && "fanout",
       pathDedup && "path-dedup",
     ].filter((x): x is string => typeof x === "string");

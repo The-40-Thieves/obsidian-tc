@@ -96,10 +96,13 @@ export function cacheContextFor(
  * adaptive RRF they are computed PER QUERY from lexical specificity, and a missing FTS signal
  * silently falls back to static all-1 weights — so a record built from the configured gain would
  * describe a policy that did not run. No sink call (the lexical short-circuit never fuses) leaves
- * the weights null and the policy id explicit.
+ * the weights null and the policy id explicit. The logged rrfK is the k the fusion APPLIED (ADR-0007:
+ * explicit, derived, or the constant), reported by the same sink.
  */
-export function capturePolicy(deps: M7Deps, vaultId: string, routeClass: string) {
-  let weights: { policyId: string; dense: number; lex: number; sparse: number } | undefined;
+export function capturePolicy(vaultId: string, routeClass: string) {
+  let weights:
+    | { policyId: string; dense: number; lex: number; sparse: number; rrfK: number }
+    | undefined;
   return {
     sink: (w: typeof weights) => {
       weights = w;
@@ -112,7 +115,10 @@ export function capturePolicy(deps: M7Deps, vaultId: string, routeClass: string)
       sparseW: weights?.sparse ?? null,
       // These surfaces never override fusionMode, so the effective mode is graphSearch's default.
       fusionMode: weights ? "graph_rrf" : null,
-      rrfK: weights ? (deps.retrieval?.rrfK ?? 10) : null,
+      // The k the fusion ACTUALLY applied (the sink reports the resolved value: explicit, derived, or
+      // the constant) — not `deps.retrieval?.rrfK`, which under retrieval.derivedDefaults no longer
+      // identifies it.
+      rrfK: weights ? weights.rrfK : null,
       routeClass,
     }),
   };
@@ -340,6 +346,9 @@ export function buildGraphSearchOptions(
     vaultId: site.vaultId,
     finalTopK: site.finalTopK,
     ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
+    // ADR-0007 class (b): graphSearch resolves the per-vault derived rrfK itself (it owns db +
+    // vaultId), so this only forwards the opt-in. Absent (the default) -> key absent -> constant.
+    ...(deps.retrieval?.derivedDefaults === true ? { derivedDefaults: true } : {}),
     ...(deps.retrieval?.densify?.includeInWalk ? { densify: deps.retrieval.densify } : {}),
     ...(deps.retrieval?.adaptiveRrf?.enabled ? { adaptiveRrf: deps.retrieval.adaptiveRrf } : {}),
     // THE-693: the hub defence, reachable from config at last. Passed WHOLE, not just `enabled` —

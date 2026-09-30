@@ -39,10 +39,9 @@ class (b) below, mis-filed as a settled default until this ADR named the categor
 *(b) Vault-fact-conditional settings* — flags whose right value depends on measurable properties of
 the index (language, note count, doc-length variance, link density, retrieval-pool depth) — should
 derive from those measured statistics at index time, not ship as a fixed constant tuned on one
-vault's statistics and assumed portable. Nothing in this class exists yet; making `rrfK`,
-`knnMinSim`, and similar depend on measured index stats rather than a hardcoded default is future
-work, not built, and is the natural next stop for the `rrfK`/pool-size finding above once someone
-takes it on.
+vault's statistics and assumed portable. The mechanism for this class now exists but ships dark
+(see Status below): making `rrfK` depend on measured index stats is built behind
+`retrieval.derivedDefaults`, and no default has moved.
 
 *(c) Judgment-dependent mechanisms* — everything whose ranking effect is a genuine judgment call
 rather than a corpus-measurable fact — defaults OFF until it wins-or-ties on a majority of a
@@ -82,3 +81,49 @@ named rather than merely implied because sourcing them is tracked work, referenc
 THE-884 and THE-637. Until the suite exists, no *new* mechanism is promoted to a global default off
 a single-vault win — it may still ship dark per ADR 0003, or ship labeled as a personal-notes-shape
 preset per class (c) above.
+
+## Status (2026-09-30): class (b) mechanism built, dark; the evidence bar is not met
+
+**Built.** `retrieval.derivedDefaults` (default `false`) derives `rrfK` from each vault's measured
+index statistics. One resolver, `search/retrieval-defaults.ts`, replaces every hardcoded `10`
+(in-query graph search, federated search, multi-query fusion, the federated tool, the retrieval-policy
+record, the gap sweep, the episode fuser) with the precedence *per-call argument > explicit config >
+derived (only with the flag on) > the shipped constant*. With the flag off the effective value at
+every call site is the constant main shipped. The per-vault stats (chunk, note and authored-edge
+counts, chunks per note, edges per note) are cached against the vault generation. The derivation is
+`k = clamp(round(min(seedCount, chunkCount) * 10/30), 2, 60)`: the pool depth the constant was
+measured at (30) reproduces it exactly, so every vault with at least 30 chunks derives `10` and only a
+vault smaller than the seed pool differs. It is skipped for an ACL-partition-restricted caller (a
+whole-vault stat steering that caller's ranking would leak the vault's size). `knnMinSim` goes
+through the same resolver for its constant and its diagnostic but is **not derived**: the index
+records no neighbour-similarity distribution to derive a floor from. `get_server_config` reports, per
+vault, the `rrfK` in effect and which source won.
+
+**Measured** (`eval/run.ts --derived-defaults` against the constant, same index copy, same
+precomputed query vectors, paired by query id; artifacts and `runs.db` under
+`/data/obsidian-tc-eval/stat-defaults/`):
+
+| shape | chunks | n | derived k | nDCG@10 constant / derived | recall@10 | MRR@10 | queries that differ |
+| --- | ---: | ---: | ---: | --- | --- | --- | ---: |
+| Matuschak evergreen, strict labels (public) | 2,986 | 78 | 10 | 0.9143 / 0.9143 | 0.9786 / 0.9786 | 0.9053 / 0.9053 | 0 |
+| Matuschak evergreen, lenient labels | 2,986 | 78 | 10 | 0.6895 / 0.6895 | 0.6958 / 0.6958 | 0.9402 / 0.9402 | 0 |
+| private multi-hop vault | 13,746 | 250 | 10 | 0.7696 / 0.7696 | 0.8602 / 0.8602 | 0.8364 / 0.8364 | 0 |
+| constructed 6-note vaults (8 subsamples of the evergreen corpus) | 13-20 | 73 | 4-7 | 0.9949 / 0.9949 | 1.0000 / 1.0000 | 0.9932 / 0.9932 | 0 (metrics) |
+| constructed 10-note vaults (8 subsamples) | 18-34 | 115 | 6-10 | 0.9968 / 0.9968 | 1.0000 / 1.0000 | 0.9957 / 0.9957 | 0 (metrics) |
+
+The two real shapes are identical under both arms for the reason the formula predicts: each vault is
+past the 30-deep pool, so derivation returns the constant. That is a parity result, not an
+effectiveness result. The only place the derived value differs is sub-pool vaults, and no organically
+small corpus exists locally, so those are constructed subsamples (a synthetic shape, labelled as such).
+On them the derived `k` changed the top-10 *order* for 20 of 188 queries and never the top-1 or the
+top-10 set, and nDCG@10 sits at its ceiling (0.995 to 0.997), so the metrics cannot see it. The stated
+minimum detectable effects (alpha 0.05, power 0.8) were 0.066 nDCG@10 on the strict evergreen labels,
+0.043 on the lenient ones, 0.035 on the private set, and roughly 0.08 to 0.09 pooled on the tiny
+vaults; every observed delta is exactly 0.
+
+**Verdict: the class (b) evidence bar is not met, and no default is flipped.** The bar is a win or
+tie on a majority of three or more corpora of different shape, size and language. Locally there are
+two real shapes, both English, and they are tied only because the derivation is the identity on them.
+The code-documentation and CJK corpora this ADR names are still unsourced. Nothing here recommends
+flipping `retrieval.derivedDefaults` on. The mechanism stays reachable for an operator who wants to
+measure their own collection, which is the pattern this ADR adopts.

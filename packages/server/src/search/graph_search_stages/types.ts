@@ -112,7 +112,15 @@ export interface GraphSearchOptions {
    *  (kNN similar_to, shared_tag) in the walk, down-weighted vs authored links. Off by default. */
   densify?: { includeInWalk?: boolean; derivedWeight?: number };
   fusionMode?: FusionMode;
+  /** RRF constant. Absent -> resolveRetrievalDefaults (retrieval-defaults.ts): the derived value when
+   *  `derivedDefaults` is on and stats support one, else the shipped constant (10). */
   rrfK?: number;
+  /** ADR-0007 class (b): derive stat-conditional defaults (today rrfK) from this vault's measured
+   *  index stats when the caller gave no explicit value. Off by default — flag off is byte-identical
+   *  to the constant. Ignored (constant kept) for an ACL-partition-restricted caller: the stats are
+   *  whole-vault, and letting them steer ranking for a caller who cannot see the whole vault would
+   *  leak its size (the same shape as whole-corpus IDF steering adaptive RRF). */
+  derivedDefaults?: boolean;
   rerankPool?: number;
   /** THE-391: adaptive per-query RRF stream weighting. When enabled, the query's lexical
    *  specificity (mean IDF of its terms over chunk_fts, tokenizer-aligned — see adaptive_rrf.ts)
@@ -290,6 +298,9 @@ export interface GraphSearchOptions {
     dense: number;
     lex: number;
     sparse: number;
+    /** The RRF constant the fusion ACTUALLY applied — resolved (call / derived / constant), not the
+     *  configured value, for the same reason the weights are reported post-tilt. */
+    rrfK: number;
   }) => void;
   /** THE-631 (additive, observability-only): fired once per completed graphSearch call with an
    *  honest coverage estimate of the RETURNED result set — see CoverageEstimate above and

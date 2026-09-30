@@ -222,6 +222,10 @@ export const NO_EXTERNAL_DEPENDENCY_FLAGS: ReadonlySet<string> = new Set([
   "metadata-prior",
   "temporal",
   "class-router",
+  // Nothing outside the process to miss. It IS inert on any vault with at least 30 chunks, by design
+  // (the derivation returns the constant there), so run.ts prints the resolved rrfK and its source
+  // in the `[eval] vault ...` header rather than refusing: a parity arm is a legitimate measurement.
+  "derived-defaults",
   "path-dedup",
 ]);
 

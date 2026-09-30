@@ -42,6 +42,8 @@ export function makeGapBatchSearch(deps: {
   provider: EmbeddingProvider;
   vaultId: string;
   rrfK?: number | undefined;
+  /** retrieval.derivedDefaults — forwarded so this search resolves k exactly as serving does. */
+  derivedDefaults?: boolean | undefined;
 }): GapBatchSearchFn {
   return async (queries) => {
     if (queries.length === 0) return [];
@@ -56,6 +58,7 @@ export function makeGapBatchSearch(deps: {
         model: deps.provider.id, // THE-530: constrain seeds to the active model
         finalTopK: 10,
         ...(deps.rrfK !== undefined ? { rrfK: deps.rrfK } : {}),
+        ...(deps.derivedDefaults === true ? { derivedDefaults: true } : {}),
         reranker: null,
       });
       out.push(results.map((r) => ({ path: r.path, score: r.rerank_score })));
@@ -127,6 +130,7 @@ export interface GapSweepDeps {
   intervalMs: number;
   maxQueries: number;
   rrfK?: number | undefined;
+  derivedDefaults?: boolean | undefined;
   /** Injected for tests; production passes nothing and gets Date.now. */
   now?: () => number;
 }
@@ -163,6 +167,7 @@ export function registerGapSweep(scheduler: Scheduler, deps: GapSweepDeps): void
           provider: deps.provider,
           vaultId,
           ...(deps.rrfK !== undefined ? { rrfK: deps.rrfK } : {}),
+          ...(deps.derivedDefaults === true ? { derivedDefaults: true } : {}),
         });
         // THE-891 item 4: same calibration-first threshold the CLI uses (resolveGapThreshold) —
         // two copies of "prefer score_calibration, fall back to the single-vault constant" would

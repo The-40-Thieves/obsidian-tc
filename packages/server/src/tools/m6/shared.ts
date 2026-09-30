@@ -55,6 +55,9 @@ export interface M6Deps {
   embeddingsProvider: string;
   /** Response-byte governor ceiling (get_server_config). */
   governorMaxResponseBytes: number;
+  /** ADR-0007 class (b): the config that decides rrfK / knnMinSim, so get_server_config can report
+   *  which source won per vault. Non-secret numbers only. */
+  retrieval?: { rrfK?: number; knnMinSim?: number; derivedDefaults?: boolean };
   /** Per-vault plugin-capability snapshot for plugins_detected (get_server_config). */
   capabilities?: (vaultId: string) => CapabilitySnapshot;
   /** Count of registered tools (get_metrics gauge); evaluated lazily after wiring. */

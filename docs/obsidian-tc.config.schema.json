@@ -1123,11 +1123,15 @@
       "type": "object",
       "properties": {
         "rrfK": {
-          "default": 10,
-          "description": "Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits.",
+          "description": "Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. Unset means 10, or the value derived from the vault's measured index stats when derivedDefaults is on; setting it always wins over both.",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "derivedDefaults": {
+          "default": false,
+          "description": "Derive stat-conditional retrieval defaults (today: rrfK, from the vault's chunk count versus the seed-stream depth) from each vault's measured index statistics instead of one constant. An explicit rrfK always wins. Ships dark pending multi-shape evidence (ADR-0007); off is byte-identical to the shipped constants.",
+          "type": "boolean"
         },
         "classRouter": {
           "default": false,
@@ -1247,8 +1251,7 @@
               "maximum": 9007199254740991
             },
             "knnMinSim": {
-              "default": 0,
-              "description": "Drop kNN edges below this cosine similarity. 0 keeps every neighbour the kNN returns.",
+              "description": "Drop kNN edges below this cosine similarity. Unset means 0, which keeps every neighbour the kNN returns.",
               "type": "number",
               "minimum": 0,
               "maximum": 1

@@ -31,6 +31,7 @@
 import { isLoudRefusal } from "@the-40-thieves/obsidian-tc-shared";
 import { runWithConcurrency } from "../util/concurrency";
 import type { GraphSearchResult } from "./graph_search_stages/types";
+import { resolveFanOutRrfK } from "./retrieval-defaults";
 
 /** THE-630 fan-out tuning — same off-by-default-shape convention as
  *  MultiQueryFanOutOptions (multi_query.ts): depth/concurrency knobs, not a behavior toggle
@@ -38,9 +39,9 @@ import type { GraphSearchResult } from "./graph_search_stages/types";
 export interface FederatedFanOutOptions {
   /** Max simultaneous per-vault searches. Default 3 — same default as THE-448's fan-out. */
   concurrency?: number;
-  /** RRF k for the ACROSS-vault fusion (rank-based). Defaults to 10, matching both graph_search's
-   *  own in-query rrfK default and THE-448's fuseVariants default, for tuning consistency across
-   *  every fusion layer in this codebase. */
+  /** RRF k for the ACROSS-vault fusion (rank-based). Defaults to retrieval-defaults.ts's DEFAULT_RRF_K (10),
+   *  the same constant graph_search's in-query rrfK and the multi-query fuser resolve to. Never
+   *  derived from a vault stat: a cross-vault list has no single vault to measure. */
   rrfK?: number;
 }
 
@@ -64,7 +65,6 @@ export interface FederatedLegOutcome<Meta = undefined> {
 }
 
 const DEFAULT_CONCURRENCY = 3;
-const DEFAULT_FAN_OUT_RRF_K = 10;
 
 /** THE-926: why a leg contributed nothing to the fused result, reported through `onLegOutcome`
  *  (mirrors search/rerank.ts's `RerankOutcome`/`onOutcome` shape, and multi_query.ts's own
@@ -178,7 +178,7 @@ export async function federatedGraphSearch<Meta = undefined>(
   fanOutOpts?: FederatedFanOutOptions,
   onLegOutcome?: OnLegOutcome,
 ): Promise<{ legOutcomes: FederatedLegOutcome<Meta>[]; fused: TaggedGraphSearchResult[] }> {
-  const rrfK = fanOutOpts?.rrfK ?? DEFAULT_FAN_OUT_RRF_K;
+  const rrfK = resolveFanOutRrfK(fanOutOpts?.rrfK).value;
   const legOutcomes = await runFederatedLegs(legs, fanOutOpts, onLegOutcome);
   const fused = fuseFederatedResults(legOutcomes, rrfK, finalTopK);
   return { legOutcomes, fused };

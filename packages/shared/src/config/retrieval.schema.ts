@@ -26,9 +26,18 @@ export const RetrievalConfigSchema = z.object({
     .number()
     .int()
     .positive()
-    .default(10)
+    .optional()
     .describe(
-      "Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits.",
+      "Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. Unset means 10, or the value derived from the vault's measured index stats when derivedDefaults is on; setting it always wins over both.",
+    ),
+  /** ADR-0007 class (b): stat-conditional defaults. DARK — the mechanism ships without evidence
+   *  that it beats the constant on the multi-shape suite the ADR requires (see the ADR's status
+   *  section); precedence is per-call arg > an explicit value here > derived > constant. */
+  derivedDefaults: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Derive stat-conditional retrieval defaults (today: rrfK, from the vault's chunk count versus the seed-stream depth) from each vault's measured index statistics instead of one constant. An explicit rrfK always wins. Ships dark pending multi-shape evidence (ADR-0007); off is byte-identical to the shipped constants.",
     ),
   /** THE-258: the deterministic class router (temporal auto-stream, lexical short-circuit
    *  that skips the embedding round-trip; standard falls through unchanged). DARK by
@@ -207,9 +216,9 @@ export const RetrievalConfigSchema = z.object({
         .number()
         .min(0)
         .max(1)
-        .default(0)
+        .optional()
         .describe(
-          "Drop kNN edges below this cosine similarity. 0 keeps every neighbour the kNN returns.",
+          "Drop kNN edges below this cosine similarity. Unset means 0, which keeps every neighbour the kNN returns.",
         ),
       /** Let the graph walk traverse derived edges, down-weighted vs authored links. Increment C. */
       includeInWalk: z
