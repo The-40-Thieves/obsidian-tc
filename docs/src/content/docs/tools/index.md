@@ -62,6 +62,22 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
   replace it with per-client data; until then, override any entry with
   `toolFacade.autoClients` in your config.
 
+  **Explaining an `auto` decision.** Set `toolFacade.explainAutoMode: true`
+  (default `false`) to see why a client got the mode it did, without changing
+  it. Each resolution writes one `obsidian-tc toolFacade.explain {...}` JSON
+  line to stderr, and the `explanation` field of `server_health`'s `toolFacade`
+  block returns the same record for the calling client. The record lists the signals the matcher
+  actually reads — the observed `clientName` (name only, bounded and stripped of
+  control characters), the `configuredKeys` from `toolFacade.autoClients` and the
+  `builtInKeys` it checked, in match order — plus the `rule` that fired
+  (`no-client-name`, `configured-override`, `built-in-table` or `no-match`), the
+  `matchedKey`, the `fallback`, and the `mode` chosen. Tool-search support is
+  not a separate input: the built-in table above encodes it per client name.
+  Tool count, tags and `toolFacade.profile` do not affect the decision and so
+  do not appear. `obsidian-tc doctor` (offline) reports the flag and warns when
+  it is set under a mode other than `auto`; the live, per-client view is
+  `server_health`.
+
 Every underlying tool stays callable by name in every mode, and `tools/list` is
 filtered per caller scopes + tool-visibility ACL. Routing always goes through the
 same authorization / ACL / HITL / idempotency / throttle pipeline.

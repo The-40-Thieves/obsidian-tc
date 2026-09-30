@@ -74,7 +74,7 @@ export interface HealthToolsDeps {
     oldestQueuedAgeMs: number | null;
   };
   /** THE-1123: config.toolFacade, shaped by `wireHealthTools` for createHealthTool's own field. */
-  toolFacade?: ServerConfig["toolFacade"];
+  toolFacade?: Pick<ServerConfig["toolFacade"], "mode" | "autoClients" | "profile">;
   /** THE-1125: opt-in telemetry status, read live per call — see telemetry/wiring.ts's
    *  `getStatus`. Absent only for a harness that omits it. */
   getTelemetryStatus?: () => {

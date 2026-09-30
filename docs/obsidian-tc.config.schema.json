@@ -1800,6 +1800,11 @@
             ]
           }
         },
+        "explainAutoMode": {
+          "default": false,
+          "description": "Only meaningful when mode is \"auto\". Explain the auto-mode decision without changing it: one structured `toolFacade.explain` log line per resolution (client name, matched rule, chosen mode) and `server_health`'s `toolFacade.explanation` for the calling client. Default false.",
+          "type": "boolean"
+        },
         "profile": {
           "default": "full",
           "description": "Which tools are visible/callable for this process — registration itself is unaffected (every tool is always registered). \"full\" (the default) leaves every tool visible/callable, unchanged from today. \"core\" is an opt-in, smaller curated surface. Orthogonal to `mode`: `mode` picks what a session is ADVERTISED, `profile` picks what is CALLABLE. A tool `core` hides answers describe_capability/call_capability with a `capability_hidden` error rather than a silent failure.",
