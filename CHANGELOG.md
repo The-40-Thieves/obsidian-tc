@@ -8,6 +8,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Continuation cursor for bulk reads.** `read_notes` no longer fails the whole call with
+  `overflow` when the batch exceeds the response byte budget. It returns the notes that fit plus an
+  opaque `next_cursor`; repeat the same request with `cursor` set and it resumes exactly where the
+  page stopped (request order, no duplicates, no gaps) until `next_cursor` is `null`. A note too
+  large to ever fit is reported as a per-path `too_large` error carrying its `size` and the
+  `budget`, and the walk moves on, so a cursor call always makes progress or finishes. The cursor
+  is HMAC-signed under a key derived separately from the elicit state, bound to the caller, the tool
+  and a hash of the arguments, and expires after ten minutes; a foreign, altered or expired cursor is
+  an `invalid_input` error with `details.reason`. The folder ACL is evaluated per note on every page,
+  so a permission revoked between pages is honoured on the resume. The paging logic is a shared
+  helper (`src/mcp/byte-page.ts`: an ordered list of item producers plus a byte budget) for the
+  other bulk reads to reuse.
+
 - **Structural and behavioural tests for release signing.** `scripts/publish-signing.test.mjs` pins
   the whole `publish.yml` (a per-job permission table with `id-token: write` only where an OIDC step
   exists, every publishing job downstream of the signing job, draft then validate then publish, the
@@ -101,6 +114,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   document `cosign verify-blob` / `cosign verify` with an exact `--certificate-identity` for the release
   tag (a strict, case-sensitive regexp form is kept for "any release"). End-to-end proof arrives with
   the next tagged release; nothing on a PR executes `publish.yml`.
+
+### Changed
+
+- **`read_notes` output gains `next_cursor`** (always present; `null` when the batch is complete)
+  and its per-path `errors` entries may carry `size` and `budget` (for `too_large`). Input gains an
+  optional `cursor`.
 
 ### Fixed
 

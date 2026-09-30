@@ -127,6 +127,15 @@ the refusal is counted (`governor_truncations_total`) and emitted as
 `tc.governor.overflow`. This bounds memory and protects clients from
 pathologically large payloads.
 
+`read_notes` is the exception to that refusal: it stays under the cap by paging. It returns the
+notes that fit plus a `next_cursor`, and the caller repeats the same request with `cursor` set until
+`next_cursor` is `null`. Every page makes progress; a note that could never fit is reported as a
+per-path `too_large` error (with its `size` and the `budget`) and skipped. The cursor is HMAC-signed
+and bound to the caller, the tool and the request arguments, expires after ten minutes, and is
+refused as `invalid_input` (`details.reason` is `expired`, `invalid`, `foreign` or
+`request_mismatch`) if replayed by another caller or against a different request. The folder ACL is
+re-checked per note on every page, so a path revoked mid-walk is not served.
+
 An MCP `resources/read` honors the same configured `governor.maxResponseBytes` ceiling
 — lowering it refuses an oversized resource too, not just an oversized tool
 response. A resource's rejection is a plain `invalid_input` error (checked via a cheap

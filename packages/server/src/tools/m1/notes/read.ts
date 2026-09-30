@@ -7,6 +7,7 @@
 // whole note.
 import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { parseNote } from "../../../vault/frontmatter";
@@ -94,42 +95,94 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
   });
 }
 
+/** One read_notes item: a note entry, or a per-path error entry (partial semantics). */
+type ReadNotesEntryOrError =
+  | { kind: "note"; note: Record<string, unknown> }
+  | { kind: "error"; error: Record<string, unknown> };
+
 export function createReadNotesTool(deps: M1Deps): ToolDefinition {
   return defineTool({
     name: "read_notes",
     domain: "notes",
     pathAcl: (input) => input.paths.map((p) => ({ op: "read" as const, path: p })),
-    description: "Batch-read notes. Returns successful notes and a per-path error list (partial).",
-    inputSchema: z.object({ vault: VaultId, paths: z.array(VaultPath).min(1).max(100) }).strict(),
+    description:
+      "Batch-read notes. Returns successful notes and a per-path error list (partial). The response is held under the server's byte budget: when the batch does not fit, the notes that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single note too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires.",
+    inputSchema: z
+      .object({
+        vault: VaultId,
+        paths: z.array(VaultPath).min(1).max(100),
+        cursor: z
+          .string()
+          .min(1)
+          .max(4096)
+          .optional()
+          .describe("The next_cursor of a previous page of this same request."),
+      })
+      .strict(),
     outputSchema: ReadNotesOutput,
     requiredScopes: ["read:notes"],
-    handler: (input, ctx) => {
+    handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
-      const notes: Array<Record<string, unknown>> = [];
-      const errors: Array<{ path: string; code: string; message: string }> = [];
-      for (const p of input.paths) {
-        try {
-          const rel = normalizeVaultPath(p);
-          const abs = resolveVaultPath(v.root, rel);
-          enforcePathAcl(ctx.acl, "read", rel, v.root);
-          const ex = noteExists(abs);
-          if (!ex.exists || ex.type === "folder")
-            throw err.noteNotFound("note not found", { path: rel });
-          const { raw, hash } = readNote(abs);
-          const parsed = parseNote(raw, rel);
-          notes.push({
-            path: rel,
-            content: raw,
-            frontmatter: parsed.frontmatter,
-            body: parsed.body,
-            content_hash: hash,
-          });
-        } catch (e) {
-          const code = e instanceof ObsidianTcError ? e.code : "internal_error";
-          errors.push({ path: p, code, message: (e as Error).message });
-        }
-      }
-      return { vault: v.id, notes, errors };
+      const { entries, nextCursor } = await paginateByBytes<string, ReadNotesEntryOrError>({
+        paging: pagingOf(deps.paging),
+        binding: { tool: "read_notes", principal: ctx.caller, args: input },
+        cursor: input.cursor,
+        items: input.paths,
+        // Runs per item on every page, so a folder ACL revoked between pages is honoured on resume.
+        produce: (p) => {
+          try {
+            const rel = normalizeVaultPath(p);
+            const abs = resolveVaultPath(v.root, rel);
+            enforcePathAcl(ctx.acl, "read", rel, v.root);
+            const ex = noteExists(abs);
+            if (!ex.exists || ex.type === "folder")
+              throw err.noteNotFound("note not found", { path: rel });
+            const { raw, hash } = readNote(abs);
+            const parsed = parseNote(raw, rel);
+            return {
+              kind: "note",
+              note: {
+                path: rel,
+                content: raw,
+                frontmatter: parsed.frontmatter,
+                body: parsed.body,
+                content_hash: hash,
+              },
+            };
+          } catch (e) {
+            const code = e instanceof ObsidianTcError ? e.code : "internal_error";
+            return { kind: "error", error: { path: p, code, message: (e as Error).message } };
+          }
+        },
+        tooLarge: (p, { size, budget }) => ({
+          kind: "error",
+          error: {
+            path: p,
+            code: "too_large",
+            message: "note is larger than the response byte budget and cannot be returned",
+            size,
+            budget,
+          },
+        }),
+        frame: (es, next) => readNotesResult(v.id, es, next),
+        lane: (e) => e.kind,
+        wire: (e) => (e.kind === "note" ? e.note : e.error),
+      });
+      return readNotesResult(v.id, entries, nextCursor);
     },
   });
+}
+
+function readNotesResult(
+  vault: string,
+  entries: ReadNotesEntryOrError[],
+  nextCursor: string | null,
+) {
+  const notes: Array<Record<string, unknown>> = [];
+  const errors: Array<Record<string, unknown>> = [];
+  for (const e of entries) {
+    if (e.kind === "note") notes.push(e.note);
+    else errors.push(e.error);
+  }
+  return { vault, notes, errors, next_cursor: nextCursor };
 }

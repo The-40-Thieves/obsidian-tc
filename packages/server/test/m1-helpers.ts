@@ -11,6 +11,7 @@ import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier } from "../src/elicit";
+import { createPagingDeps } from "../src/mcp/byte-page";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import type { MetricsRecorder } from "../src/metrics/registry";
 import { registerM1Tools } from "../src/tools/m1";
@@ -36,6 +37,12 @@ export interface TestVaultOptions {
    *  default -> the tools scan nothing (MEMORY_DEFENSE_OFF), matching a vault with no config. */
   memoryDefense?: VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** The governor byte budget (ToolRegistry maxResponseBytes); also the size bulk-read pages are
+   *  cut to. Default: the registry's 1 MB. */
+  maxResponseBytes?: number;
+  /** Wire dispatch's central folder-ACL stage (rootResolver), as production does. Off by default:
+   *  the older M1 tests exercise the handler-side ACL only. */
+  centralAcl?: boolean;
 }
 
 export interface EventRow {
@@ -80,7 +87,11 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    verifyElicit: elicitVerifier,
+    ...(opts.centralAcl ? { rootResolver: () => root } : {}),
+    ...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),
+  });
   registerM1Tools(registry, {
     vaultRegistry,
     version: "test",
@@ -95,6 +106,10 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
       ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
       : {}),
     ...(opts.metrics ? { metrics: opts.metrics } : {}),
+    paging: createPagingDeps({
+      secret: "test-secret",
+      budgetBytes: () => registry.maxResponseBytes,
+    }),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
