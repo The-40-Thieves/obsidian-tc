@@ -13,6 +13,7 @@ import { type CapabilitySnapshot, EXPECTED_COMPANION_API } from "../../bridge/ca
 import type { MetricsRecorder } from "../../metrics/registry";
 import { assertLive, type VaultMode } from "../../vault/mode";
 import type { VaultRegistry } from "../../vault/registry";
+import type { OsLaunchFn } from "./os-launch";
 
 export interface BridgeTimeouts {
   timeoutMs: number;
@@ -53,6 +54,10 @@ export interface M4Deps {
    *  closure/metrics M1/M5/M8 already get. Absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** `uri.*` config (show_file_in_obsidian). Absent -> `allowOsLaunch: false`, the deny-by-default. */
+  uri?: { allowOsLaunch: boolean };
+  /** The OS URI-handler launch seam; absent -> the real spawn-based launcher. Tests inject a stub. */
+  osLaunch?: OsLaunchFn;
 }
 
 /**
@@ -130,6 +135,19 @@ function assertCompanionApiCompat(snap: CapabilitySnapshot): void {
       expected_api: EXPECTED_COMPANION_API,
       hint: "update the companion plugin (obsidian-tc expects companion API v1).",
     });
+}
+
+// Degrade codes that mean "no working companion path": the snapshot says the companion is
+// missing/unreachable (plugin_unreachable) or the vault is headless (requires_live_obsidian). A
+// plugin_incompatible companion is a deliberate "update it" signal and is NOT one of these.
+const COMPANION_UNREACHABLE: ReadonlySet<string> = new Set([
+  "plugin_unreachable",
+  "requires_live_obsidian",
+]);
+
+/** True for a degrade that means there is no working companion path (so a fallback is warranted). */
+export function companionUnreachable(e: unknown): e is ObsidianTcError {
+  return e instanceof ObsidianTcError && COMPANION_UNREACHABLE.has(e.code);
 }
 
 export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: BridgeClient } {

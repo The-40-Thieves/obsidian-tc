@@ -24,7 +24,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { registerM4Tools } from "../src/tools/m4";
+import { type M4Deps, registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
@@ -48,6 +48,8 @@ export interface M4VaultOptions {
   /** Per-vault memoryDefense policy for update_task's note rewrite — same config every vault
    *  ID resolves to. Omit to leave memoryDefense unwired (MEMORY_DEFENSE_OFF). */
   memoryDefense?: VaultMemoryDefenseConfig;
+  /** Extra M4Deps merged over the harness defaults (e.g. `uri`, `osLaunch`, `mode`). */
+  extra?: Partial<M4Deps>;
 }
 
 export interface M4EventRow {
@@ -125,6 +127,7 @@ export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
     ...(opts.memoryDefense
       ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
       : {}),
+    ...(opts.extra ?? {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

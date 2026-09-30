@@ -480,6 +480,10 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // not part of the emitted JSON Schema; the signing-key check moved to boot, since the auth
   // registry can now be the only key). Rewords `auth.mode` and `auth.jwtSecret` descriptions to
   // say so. No existing key, type, default or constraint moved.
+  // show_file_in_obsidian: rebaselined deliberately. Adds ONE new optional block, `uri`, with a
+  // single key `allowOsLaunch` (boolean, default false) — whether the tool may hand an obsidian://
+  // URI to the OS URI handler when no live Obsidian session answers. Honoured only for the stdio
+  // transport; read at runtime/tool-wiring.ts. No existing key, type, default or constraint moved.
   // `auth.mode: oidc`: rebaselined deliberately. `auth.mode` gains the value "oidc" and the root
   // `auth` block gains ONE optional block, `auth.oidc` (issuer, audience, clientId, jwksUri,
   // allowedAlgs, clockToleranceSeconds, discoveryCacheSeconds, requireAtJwtType, claimMapping,
@@ -497,7 +501,7 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // `spoolRetentionDays` (integer >= 0, default 30; 0 = keep forever) and `spoolMaxBytes` (positive
   // integer, optional), and rewords the `eventLogDays` description that said the spool was never
   // pruned. No existing key, type, default or constraint moved.
-  "3182e9ba4690d0e74a8736f7663afea35778353fe109315d22f4686573c706b6";
+  "e537f110895bd65aee223b1e2b373ccdda12aec787f1b51b7c58894c28b471af";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

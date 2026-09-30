@@ -18,6 +18,7 @@ import { buildMakeMdTools } from "./makemd-tools";
 import { buildMetadataMenuTools } from "./metadata-menu-tools";
 import { buildOcrTools } from "./ocr-tools";
 import { buildOmnisearchTools } from "./omnisearch-tools";
+import { buildOpenTools } from "./open-tools";
 import { buildQuickAddTools } from "./quickadd-tools";
 import { buildRemotelySaveTools } from "./remotely-save-tools";
 import type { M4Deps } from "./shared";
@@ -41,6 +42,8 @@ export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildMakeMdTools(deps)) registry.register(tool);
   for (const tool of buildMetadataMenuTools(deps)) registry.register(tool);
   for (const tool of buildCommandTools(deps)) registry.register(tool);
+  // show_file_in_obsidian: open a note via the companion, or the OS URI handler when opted in.
+  for (const tool of buildOpenTools(deps)) registry.register(tool);
   // THE-378/381: git + remotely-save bridges (domains 30/31).
   for (const tool of buildGitTools(deps)) registry.register(tool);
   for (const tool of buildRemotelySaveTools(deps)) registry.register(tool);
