@@ -206,13 +206,15 @@ export function readResource(
   const abs = resolveVaultPath(v.root, rel);
   // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling
   // only after the read would let any read:notes caller point at a multi-hundred-MB file and
-  // force the full allocation just to be told it is too big. A null stat (missing file) falls
-  // through to readNote, which throws the same not-found error as before.
+  // force the full allocation just to be told it is too big. A null stat is a missing note: a
+  // domain `note_not_found` (asResourceProtocolError maps it to -32602), not the raw ENOENT that
+  // readNote would throw and that surfaced as an internal error.
   const stat = statNote(abs);
-  if (stat !== null && stat.size > maxResourceBytes)
+  if (stat === null) throw err.noteNotFound("note not found", { uri });
+  if (stat.size > maxResourceBytes)
     throw err.invalidInput(
       `resource exceeds ${maxResourceBytes} bytes; read it with the read_note tool instead`,
-      { uri },
+      { uri, size: stat.size, budget: maxResourceBytes },
     );
   const { raw } = readNote(abs);
   return { contents: [{ uri, mimeType: MIME_MARKDOWN, text: raw }] };

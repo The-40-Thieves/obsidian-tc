@@ -32,6 +32,7 @@ import { createDeleteNoteTool } from "./notes/delete";
 import { createListNotesTool, createNoteExistsTool } from "./notes/list";
 import { createCopyNoteTool, createMoveNoteTool } from "./notes/move-copy";
 import { createReadNotesTool, createReadNoteTool } from "./notes/read";
+import { createReadResourcesTool } from "./notes/read-resources";
 import { createAppendNoteTool, createPatchNoteTool, createWriteNoteTool } from "./notes/write";
 import type { M1Deps } from "./shared";
 
@@ -39,6 +40,7 @@ export function buildNotesTools(deps: M1Deps): ToolDefinition[] {
   return [
     createReadNoteTool(deps),
     createReadNotesTool(deps),
+    createReadResourcesTool(deps),
     createListNotesTool(deps),
     createNoteExistsTool(deps),
     createWriteNoteTool(deps),
