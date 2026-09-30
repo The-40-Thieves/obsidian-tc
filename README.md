@@ -133,21 +133,14 @@ Polyglot monorepo:
 
 Dispatch-pipeline and package-layout detail: [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-<!-- BEGIN GENERATED: tools-summary -->
-**167 governed capabilities**, grouped by access scope.
-
-**read** (98) — `audit_provenance`, `bundle_files`, `bundle_folder`, `diagnose_retrieval`, `episode_stats`, `eval_dataview_field`, `explain_answer`, `find_link_cycles`, `find_notes_by_property`, `find_notes_by_tag`, `find_orphans`, `find_unresolved_links`, `gap_report`, `generate_uri`, `get_attachment`, `get_backlinks`, `get_entity`, `get_index_status`, `get_link_strength`, `get_note_tags`, `get_outgoing_links`, `get_periodic_note`, `get_session_traces`, `get_vault`, `git_diff`, `git_log`, `git_status`, `graph_centrality`, `graph_communities`, `graph_path_between`, `knowledge_challenge`, `knowledge_get_critical`, `knowledge_search`, `list_attachments`, `list_bookmarks`, `list_capture_queue`, `list_commands`, `list_contradictions`, `list_goals`, `list_kanban_boards`, `list_notes`, `list_periodic_notes`, `list_properties`, `list_quickadd_actions`, `list_snapshots`, `list_tags`, `list_tasks`, `list_templates`, `list_vaults`, `list_workspaces`, `makemd_list_spaces`, `makemd_query`, `note_exists`, `note_quality_report`, `ocr_attachment`, `ocr_bulk`, `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search`, `query_base`, `query_canvas`, `query_datacore`, `query_entity_graph`, `read_base`, `read_canvas`, `read_excalidraw`, `read_frontmatter`, `read_kanban_board`, `read_metadata_fields`, `read_note`, `read_notes`, `read_property`, `read_resources`, `read_snapshot`, `reflect`, `remotely_save_status`, `resolve_daily_note`, `search_and_read`, `search_dql`, `search_jsonlogic`, `search_omnisearch`, `search_regex`, `search_semantic`, `search_text`, `search_vault`, `server_health`, `session_bootstrap`, `snapshot_note`, `suggest_links`, `tasks_filter`, `validate_dql`, `vault_context`, `vault_graph_search`, `vault_health_score`, `work_episode_chain`, `work_episodes`, `work_search`
-
-**write** (46) — `add_bookmark`, `add_kanban_card`, `add_observation`, `add_tag`, `append_note`, `append_to_periodic_note`, `close_goal`, `commit_capture`, `copy_note`, `create_base`, `create_canvas`, `create_entity`, `create_excalidraw`, `create_periodic_note`, `end_session`, `enqueue_capture`, `execute_template`, `find_or_create_periodic_note`, `format_table`, `git_stage`, `insert_table_column`, `insert_table_row`, `link_entities`, `move_kanban_card`, `open_workspace`, `patch_note`, `prune_hub_links`, `record_retrieval_feedback`, `remotely_save_trigger`, `remove_tag`, `rename_entity`, `restore_note`, `rewrite_link`, `save_workspace`, `set_goal`, `sort_table_by_column`, `start_session`, `unlink_entities`, `update_base`, `update_canvas`, `update_excalidraw`, `update_frontmatter`, `update_task`, `work_forget`, `work_result`, `write_note`
-
-**delete** (6) — `delete_attachment`, `delete_entity`, `delete_note`, `move_attachment`, `move_note`, `remove_bookmark`
-
-**bulk** (3) — `bulk_create_notes`, `bulk_move_notes`, `bulk_set_property`
-
-**execute** (4) — `execute_command`, `git_commit`, `show_file_in_obsidian`, `trigger_quickadd`
-
-**admin** (10) — `add_vault`, `get_metrics`, `get_server_config`, `index_vault`, `inspect_acl`, `inspect_visibility`, `refresh_plugin_capabilities`, `reload_vault`, `reset_vault_cache`, `session_rerun`
-<!-- END GENERATED: tools-summary -->
+Every capability is a governed tool with declared access scopes. **Read** tools (`read_note`,
+`search_vault`, `get_backlinks`, ...) never mutate the vault. **Write** tools cover whole-note and
+partial edits: `write_note`, `append_note`, `patch_note` (heading- and block-anchored edits),
+`update_frontmatter`, tag and link maintenance. Separate scope classes gate **delete** and move
+(`delete_note`, `move_note`), **bulk** operations (`bulk_set_property`), **execute** (`execute_command`)
+and **admin** (`add_vault`, `reload_vault`). The complete, always-current list, grouped by access
+scope and generated from the tool registry, is the
+[tool catalog](https://obsidian-tc.the40thieves.io/tools/tool-catalog/).
 
 ### The interface: 3 tools, every governed capability
 

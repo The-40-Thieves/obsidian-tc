@@ -70,11 +70,7 @@ Default 5s per route (`vaults[].bridges.timeoutMs`); OCR and Templater routes de
 The server and companion plugin form a versioned contract. On first bridge contact the server compares the companion's reported version and Obsidian API major against the supported range; a skew logs **once** at `warn` with the specific incompatibility rather than diverging silently at whichever route changed.
 
 <!-- BEGIN GENERATED: bridge-compat -->
-| Contract axis | Supported minimum |
-|---|---|
-| Companion plugin version | `1.7.0` |
-| Obsidian app version (`minAppVersion`) | `1.7.0` |
-| Companion API major | `1` |
+
 <!-- END GENERATED: bridge-compat -->
 
 A companion **older** than the minimum, or on a different API major, is a **breaking** skew — the affected bridge tools degrade rather than behave unpredictably. A companion that did not report a version (predating version reporting) is a soft warning; a **newer** companion is fine.

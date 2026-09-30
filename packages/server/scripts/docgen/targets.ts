@@ -26,9 +26,6 @@ export const GENERATED_DOC_FILES = [
   "docs/src/content/docs/observability/prometheus.md",
   // THE-595: the same catalog, generated into the G2.4 design-commitment doc.
   "docs/G2.4-observability.md",
-  // Hand-authored narrative docs (THE-473) — only the marked region is generated.
-  "README.md",
-  "ARCHITECTURE.md",
 ] as const;
 
 /**
@@ -37,3 +34,17 @@ export const GENERATED_DOC_FILES = [
  * prose suggestion (THE-477) is for.
  */
 export const NARRATIVE_DOC_FILES = ["README.md", "ARCHITECTURE.md"] as const;
+
+/**
+ * What the prose watcher (suggest-prose.ts) diffs to learn "the generated reference moved".
+ * It cannot diff GENERATED_DOC_FILES any more: those regions are committed empty and filled at
+ * build time, so their git history never changes. These are the small committed inputs the
+ * renderers are driven by instead: the registered-tool name manifest, the published config JSON
+ * Schema, the curated project facts, and the bridge compatibility constants.
+ */
+export const REFERENCE_SIGNAL_FILES = [
+  "packages/server/test/registered-tools.txt",
+  "docs/obsidian-tc.config.schema.json",
+  "docs/project-facts.json",
+  "packages/server/src/bridge/version.ts",
+] as const;

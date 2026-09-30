@@ -1,9 +1,16 @@
 // docgen — render CLI (THE-472). Builds the model, renders the reference tables, and injects them
-// into the wiki pages' GENERATED marker regions (THE-473). Deterministic: re-running with unchanged
-// code + schema is a no-op. Pass --check to fail (exit 1) if any target is stale — the drift gate
-// (THE-476) uses that.
+// into the docs' GENERATED marker regions (THE-473). Deterministic: re-running with unchanged code
+// + schema is a no-op.
 //
-//   bun scripts/docgen/render.ts [--check]
+// Generated content is NOT committed. A filled region is a wall of lines (tool rows, config rows,
+// counts) that every tool- or config-adding PR rewrote, so any two of them conflicted. Regions are
+// committed canonical-EMPTY; the docs build and the wiki publisher fill them in place.
+//
+//   bun scripts/docgen/render.ts             fill every region in place (docs build / wiki publish)
+//   bun scripts/docgen/render.ts --reset     empty every region back to its committed form
+//   bun scripts/docgen/render.ts --check     the CI drift gate: every committed region is
+//                                            canonical-empty, every target RENDERS non-empty, no
+//                                            orphan marker, no broken extractor
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { extractConfig } from "./extract-config";
@@ -11,7 +18,6 @@ import { extractErrors } from "./extract-errors";
 import { extractMetrics } from "./extract-metrics";
 import { extractStats } from "./extract-stats";
 import { extractTools } from "./extract-tools";
-import { injectGenerated } from "./inject";
 import { findGeneratedMarkers } from "./marker-scan";
 import { findHandWrittenMetricTables } from "./metric-table-scan";
 import { renderBridgeCompat } from "./render-bridge-compat";
@@ -19,13 +25,24 @@ import { renderConfig } from "./render-config";
 import { renderConfigExample } from "./render-config-example";
 import { renderErrors } from "./render-errors";
 import { renderMetrics } from "./render-metrics";
+import { applyRegions, type RegionMode } from "./render-regions";
 import { renderStats } from "./render-stats";
-import { renderToolSummary, renderTools } from "./render-tools";
+import { renderTools } from "./render-tools";
 import { GENERATED_DOC_FILES } from "./targets";
 import { TOOL_PAGES_URL_BASE } from "./tool-page-slug";
 
 const check = process.argv.includes("--check");
-const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\/$/, "");
+const reset = process.argv.includes("--reset");
+if (check && reset) {
+  process.stderr.write("docgen: --check and --reset are mutually exclusive\n");
+  process.exit(2);
+}
+const mode: RegionMode = check ? "check" : reset ? "reset" : "fill";
+// The override exists so the modes can be exercised against a COPY of the doc tree (the test suite
+// must never rewrite the working tree). It only changes where docs are read and written.
+const repoRoot =
+  process.env.DOCGEN_RENDER_ROOT_OVERRIDE ??
+  fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\/$/, "");
 const repo = (rel: string): string => `${repoRoot}/${rel}`;
 
 // Render each surface once; the same content fills every target that hosts it.
@@ -35,10 +52,6 @@ const toolDocs = extractTools();
 const SITE_ORIGIN = "https://obsidian-tc.the40thieves.io";
 const toolsMd = renderTools(toolDocs, TOOL_PAGES_URL_BASE);
 const toolsWikiMd = renderTools(toolDocs, `${SITE_ORIGIN}${TOOL_PAGES_URL_BASE}`);
-// THE-473: README/ARCHITECTURE get the COMPACT summary, not the ~30KB reference table — injecting
-// the full catalog into a 260-line README would bury the prose it supports. THE-469's root cause
-// was that these two files named none of the write tools, so the summary names them explicitly.
-const toolSummaryMd = renderToolSummary(toolDocs);
 const configMd = renderConfig(extractConfig());
 const metricsMd = renderMetrics(await extractMetrics());
 const errorsMd = renderErrors(extractErrors());
@@ -126,15 +139,6 @@ const targets: Array<{ rel: string; file: string; marker: string; content: strin
     marker: "errors",
     content: errorsMd,
   },
-  // Hand-authored narrative docs (THE-473). Only the marked region is replaced; every byte of
-  // surrounding prose is preserved, so positioning stays human-written.
-  { rel: "README.md", file: repo("README.md"), marker: "tools-summary", content: toolSummaryMd },
-  {
-    rel: "ARCHITECTURE.md",
-    file: repo("ARCHITECTURE.md"),
-    marker: "tools-summary",
-    content: toolSummaryMd,
-  },
 ];
 
 const declared = new Set<string>(GENERATED_DOC_FILES);
@@ -201,21 +205,28 @@ if (metricTableScan.violations.length > 0) {
   );
 }
 
-let stale = 0;
-for (const t of targets) {
-  const before = readFileSync(t.file, "utf8");
-  const after = injectGenerated(before, t.marker, t.content);
-  if (before === after) continue;
-  stale += 1;
-  if (check) {
-    process.stderr.write(
-      `docgen: STALE ${t.file} (marker: ${t.marker}) — run \`bun run docgen:render\`\n`,
-    );
-  } else {
-    writeFileSync(t.file, after);
-    process.stderr.write(`docgen: wrote ${t.file} (marker: ${t.marker})\n`);
-  }
+const { problems, changed } = applyRegions(mode, targets, {
+  read: (file) => readFileSync(file, "utf8"),
+  write: (file, text) => writeFileSync(file, text),
+});
+for (const c of changed) {
+  const [rel, marker] = c.split("::");
+  process.stderr.write(
+    `docgen: ${mode === "reset" ? "emptied" : "wrote"} ${rel} (marker: ${marker})\n`,
+  );
 }
-
-if (check && stale > 0) process.exit(1);
-if (!check) process.stderr.write(`docgen:render done (${stale} file(s) updated)\n`);
+if (problems.length > 0) {
+  process.stderr.write(
+    `docgen: ${problems.length} problem(s):\n${problems.map((p) => `  ${p}\n`).join("")}`,
+  );
+  process.exit(1);
+}
+if (mode === "check") {
+  process.stderr.write(
+    `docgen:render --check OK — ${targets.length} regions canonical-empty, every target renders\n`,
+  );
+} else {
+  process.stderr.write(
+    `docgen:render ${mode} done (${changed.length} region(s) ${mode === "reset" ? "emptied" : "filled"})\n`,
+  );
+}

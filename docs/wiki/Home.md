@@ -7,15 +7,7 @@
 <!-- The table below is generated from the code by docgen (bun run docgen:render); do not hand-edit
      between the markers — these facts stay current automatically. -->
 <!-- BEGIN GENERATED: stats -->
-| | |
-|---|---|
-| **Version** | `1.31.8` |
-| **Tools** | 167 governed capabilities (advertised via the 3-tool facade), all visible/callable by default (`toolFacade.profile: "full"`); 100 with the opt-in `profile: "core"` |
-| **Config keys** | 286 |
-| **Golden set** | 250 queries, statistical ship rule on every ranking change |
-| **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
-| **MCP spec** | [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) |
-| **License** | AGPL-3.0-only |
+
 <!-- END GENERATED: stats -->
 
 > **Status:** Shipped — **v1.31.8**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.31.8`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **the full tool set across every domain**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.

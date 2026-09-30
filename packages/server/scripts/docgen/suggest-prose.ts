@@ -29,7 +29,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GENERATED_DOC_FILES, NARRATIVE_DOC_FILES } from "./targets";
+import { NARRATIVE_DOC_FILES, REFERENCE_SIGNAL_FILES } from "./targets";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -124,15 +124,14 @@ async function callLlm(prompt: string): Promise<string> {
 async function main(): Promise<void> {
   const range = arg("--range", "HEAD~1..HEAD");
   const docPaths = arg("--docs", NARRATIVE_DOC_FILES.join(",")).split(",");
-  // The compact, factual signal: how the generated reference tables moved in this range.
-  // THE-477: watch EVERY generated surface, from the shared list. This was a hardcoded four, which
-  // silently excluded README.md and ARCHITECTURE.md once THE-473 made them render targets — the
-  // watcher reported "no generated-reference changes" for a commit that had just rewritten both.
-  const referenceDiff = git(["diff", range, "--", ...GENERATED_DOC_FILES]);
+  // The compact, factual signal: how the committed reference INPUTS moved in this range (tool
+  // manifest, config schema, facts, bridge constants). The generated doc regions themselves are
+  // committed empty and filled at build time, so diffing them would always report "no changes" --
+  // the same blind-watcher failure THE-477 fixed once already; REFERENCE_SIGNAL_FILES is the shared
+  // list that keeps it from recurring.
+  const referenceDiff = git(["diff", range, "--", ...REFERENCE_SIGNAL_FILES]);
   if (!referenceDiff.trim()) {
-    process.stdout.write(
-      `No generated-reference changes in ${range} — no prose suggestion needed.\n`,
-    );
+    process.stdout.write(`No reference-input changes in ${range} — no prose suggestion needed.\n`);
     return;
   }
   const docs: Array<{ name: string; content: string }> = [];
