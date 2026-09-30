@@ -1,6 +1,6 @@
 // `auth rotate-key|list|revoke` and the registry writes `token mint` now makes, driven through the
 // same functions cli.ts dispatches to, against a real config file and a real cache.db on disk.
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeJwt, decodeProtectedHeader } from "jose";
@@ -118,7 +118,7 @@ describe("mint -> verify -> auth revoke -> verify, through the CLI", () => {
     const a = await mint(d.configPath, "a");
     const b = await mint(d.configPath, "b");
 
-    const db = await openDatabase(join(d.cacheDir, "cache.db"));
+    const db = await openDatabase(join(d.cacheDir, "auth.db"));
     const verifier = createTokenVerifier({
       secret: SECRET,
       registry: createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(d.cacheDir) }),
@@ -145,11 +145,41 @@ describe("mint -> verify -> auth revoke -> verify, through the CLI", () => {
     db.close?.();
   });
 
-  it("revoking an unrecorded jti is an error that says why", async () => {
+  it("revoking an unrecorded jti plants a tombstone instead of writing nothing", async () => {
     const d = deployment();
-    await expect(auth(d.configPath, { sub: "revoke", jti: "nope" })).rejects.toThrow(
-      /no issued token/,
-    );
+    expect(
+      await auth(d.configPath, { sub: "revoke", jti: "nope", reason: "seen in a log" }),
+    ).toEqual({
+      jti: "nope",
+      status: "tombstoned",
+    });
+    const rows = await auth(d.configPath, { sub: "list" });
+    expect(rows).toEqual([expect.objectContaining({ jti: "nope", state: "revoked", kid: null })]);
+    expect(await auth(d.configPath, { sub: "revoke", jti: "nope" })).toEqual({
+      jti: "nope",
+      status: "already_revoked",
+    });
+  });
+
+  it("keeps the registry in auth.db and never touches cache.db", async () => {
+    const d = deployment();
+    await mint(d.configPath);
+    expect(existsSync(join(d.cacheDir, "auth.db"))).toBe(true);
+    expect(existsSync(join(d.cacheDir, "cache.db"))).toBe(false);
+  });
+
+  it("refuses every subcommand, naming the recovery, once auth.db is lost", async () => {
+    const d = deployment();
+    await mint(d.configPath);
+    await auth(d.configPath, { sub: "rotate-key" });
+    for (const f of readdirSync(d.cacheDir).filter((n) => n.startsWith("auth.db"))) {
+      rmSync(join(d.cacheDir, f));
+    }
+    for (const over of [{ sub: "list" }, { sub: "revoke", jti: "x" }, { sub: "rotate-key" }]) {
+      await expect(auth(d.configPath, over)).rejects.toThrow(/restore auth\.db from backup/);
+    }
+    await expect(mint(d.configPath)).rejects.toThrow(/restore auth\.db from backup/);
+    expect(existsSync(join(d.cacheDir, "auth.db"))).toBe(false);
   });
 });
 
@@ -159,12 +189,14 @@ describe("auth rotate-key through the CLI", () => {
     const old = await mint(d.configPath);
     const r = await auth(d.configPath, { sub: "rotate-key" });
     expect(r.previous_kid).toBe("config");
-    expect(readdirSync(authKeysDir(d.cacheDir))).toEqual([`${r.kid}.key`]);
+    expect(readdirSync(authKeysDir(d.cacheDir)).filter((f) => f.endsWith(".key"))).toEqual([
+      `${r.kid}.key`,
+    ]);
 
     const fresh = await mint(d.configPath);
     expect(decodeProtectedHeader(fresh.token).kid).toBe(r.kid);
 
-    const db = await openDatabase(join(d.cacheDir, "cache.db"));
+    const db = await openDatabase(join(d.cacheDir, "auth.db"));
     const verifier = createTokenVerifier({
       secret: SECRET,
       registry: createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(d.cacheDir) }),

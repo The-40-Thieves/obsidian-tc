@@ -12,7 +12,7 @@
     },
     "cacheDir": {
       "default": ".obsidian-tc",
-      "description": "Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth. This default only applies when `embeddings.provider` is not \"local\" — a config file must set `cacheDir` explicitly when the embeddings provider is \"local\" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you.",
+      "description": "Directory holding the derived index and caches. `cache.db`, `experiential.db` and the other index files are regenerable — deleting them forces a full reindex — EXCEPT `auth.db` and `auth-keys/`, the auth registry: revocations, key retirements and signing-key files that CANNOT be regenerated and must be backed up (delete only `cache.db*`, never the whole directory, when resetting the index). This default only applies when `embeddings.provider` is not \"local\" — a config file must set `cacheDir` explicitly when the embeddings provider is \"local\" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you.",
       "type": "string"
     },
     "db": {
@@ -365,6 +365,11 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "requireJti": {
+          "default": false,
+          "description": "Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry; `obsidian-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).",
+          "type": "boolean"
         },
         "jwks": {
           "description": "Inline JWKS document for asymmetric verification (RS256/ES256/EdDSA). Rotation is multiple keys in the set, selected by the token's `kid`.",

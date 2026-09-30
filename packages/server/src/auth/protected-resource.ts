@@ -48,6 +48,15 @@ export function isPrmConfigured(auth: AuthConfig): boolean {
 }
 
 /**
+ * The audience every bearer check binds: an explicit `auth.audience`, else the PRM `resource` when
+ * a complete PRM is configured, else undefined (not checked). ONE definition, shared by the MCP
+ * HTTP edge and the `/metrics` scrape so the two cannot disagree about which tokens they accept.
+ */
+export function effectiveAudience(auth: AuthConfig): string | string[] | undefined {
+  return auth.audience ?? (isPrmConfigured(auth) ? auth.resource : undefined);
+}
+
+/**
  * Build the RFC 9728 document from config. Precondition: isPrmConfigured(auth).
  *
  * THE-583 deliberately does NOT use the SDK's `buildOAuthProtectedResourceMetadata` here, even

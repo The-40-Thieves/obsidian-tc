@@ -101,13 +101,25 @@ export const CACHE_MIGRATION_FILES = [
   // (elicit_requests + elicit_tokens.state_fp) so redemption can refuse drifted state as
   // `replay_drift`. See the migration header.
   "20260930_001_elicit_state_fingerprint.sql",
-  // 20260930_001/_002: the signing-key registry and the issued-token (jti) registry behind
-  // `auth rotate-key|list|revoke` and the per-request revocation check. CACHE chain, not
-  // EXPERIENTIAL: both are AUTHORED operator state (an operator's decision to revoke), not observed
-  // or derived telemetry, and losing them silently un-revokes a token — the opposite of the
-  // resettable-store property that chain exists for. Two files, one table each.
-  "20260930_001_auth_keys.sql",
-  "20260930_002_auth_tokens.sql",
+] as const;
+
+/**
+ * auth.db chain (auth/registry-open.ts, db/provision.ts `provisionAuthDb`).
+ *
+ * A THIRD file, deliberately neither cache.db nor experiential.db. Both of those are documented as
+ * disposable (`rm <cacheDir>/cache.db*` is the migration recovery step), and these two tables are
+ * AUTHORED operator state that cannot be regenerated: an operator's decision to retire a signing
+ * key or revoke a token. Sharing a file with a wipeable store made "delete the cache" silently
+ * un-revoke every token for every vault. auth.db is the one store under cacheDir that must be
+ * backed up; nothing that resets, compacts or re-provisions cache.db touches it.
+ *
+ * The 9xx sequence is this chain's own: versions are the first two filename segments, and the cache
+ * chain hands out `<date>_00x`, so an auth version can never collide with a cache one landing the
+ * same day (migrations-manifest.test.ts pins the version sets disjoint).
+ */
+export const AUTH_MIGRATION_FILES = [
+  "20260930_901_auth_keys.sql",
+  "20260930_902_auth_tokens.sql",
 ] as const;
 
 /**

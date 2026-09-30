@@ -58,15 +58,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 - **Issued-token and signing-key registry, with `auth list`, `auth revoke` and `auth rotate-key`.**
   `token mint` now gives every token a `jti` claim and a `kid` header and records it (jti, kid,
   subject, issue and expiry time, a scope summary; never the token string) in a new `auth_tokens`
-  table in `cache.db`. `obsidian-tc auth list` shows jti/kid/sub/exp/state (`--all` adds expired
-  tokens, `--keys` lists signing keys), `auth revoke <jti> [--reason]` revokes one token before it
-  expires, and `auth rotate-key [--grace <seconds>]` generates a new active HS256 key. Signing keys
-  live in an `auth_keys` table (kid, key reference, created_at, state `active|retiring|retired`,
-  retire_after), several of which can verify at once by `kid`; secrets stay in 0600 files under
-  `<cacheDir>/auth-keys/`, never in the database. An existing `auth.jwtSecret` remains the initial
-  key (kid `config`), and a deployment that never rotates verifies exactly as before. `token mint`
-  now needs a writable `cache.db` (it is created on demand) and refuses to print a token it could not
-  record. See `docs/src/content/docs/security/auth-model.md`.
+  table in `<cacheDir>/auth.db`, its own database file. `obsidian-tc auth list` shows
+  jti/kid/sub/exp/state (`--all` adds expired tokens, `--keys` lists signing keys), `auth revoke
+  <jti> [--reason]` revokes one token before it expires, and `auth rotate-key [--grace <seconds>]`
+  generates a new active HS256 key. Signing keys live in an `auth_keys` table (kid, key reference,
+  created_at, state `active|retiring|retired`, retire_after), several of which can verify at once by
+  `kid`; secrets stay in 0600 files under `<cacheDir>/auth-keys/`, never in the database. An existing
+  `auth.jwtSecret` remains the initial key (kid `config`), and a deployment that never rotates
+  verifies exactly as before. `token mint` refuses to print a token it could not record. See
+  `docs/src/content/docs/security/auth-model.md`.
+- **`auth.requireJti` (default `false`).** Rejects a bearer token that carries no `jti` on every verify
+  path (HS256, JWKS, `/metrics`), since a jti-less token can only be killed by rotating its key.
+  `obsidian-tc doctor` (new `auth.registry` check) recommends turning it on once the registry is in use.
+- **`auth revoke` on a jti this registry never issued now records a tombstone** instead of doing
+  nothing, so a token minted before the registry existed, or issued by an external JWKS issuer, is
+  refused once it carries that jti.
 
 ### Security
 
@@ -158,13 +164,33 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`elicit_requests`, `elicit_tokens.state_fp`).
 - **A minted bearer token can now be revoked before it expires.** The HTTP edge and the `/metrics`
   scrape check the verified token's `jti` against the registry on every request, so `auth revoke`
-  takes effect on the next request in every process sharing `cache.db` (no in-process cache). A
+  takes effect on the next request in every process sharing `auth.db` (no in-process cache). A
   revoked token is refused with the operator-facing reason `token_revoked` (log and
   `auth_rejections_total`); the client still sees the same undifferentiated 401. New refusal reasons
-  `unknown_key` and `key_retired` cover a `kid` outside the registry and a retired signing key. Not
-  covered: a token with no `jti` (minted before this change) cannot be revoked individually, and a
-  JWKS-issued token is affected only if its `jti` is in the registry. `cache.db` now holds
-  revocation state, so deleting it un-revokes tokens.
+  `unknown_key` and `key_retired` cover a `kid` outside the registry and a retired signing key
+  (a `retiring` key with no `retire_after` is treated as retired, and the schema refuses to store one),
+  `jti_required` covers `auth.requireJti`. `/metrics` now binds the same audience and issuer as the
+  HTTP edge: a scrape token without the configured `aud`/`iss` is refused. A token with no `jti`
+  cannot be revoked individually (rotate the key, or set `auth.requireJti`), and work already queued
+  as a background task keeps the scopes it was enqueued with.
+- **The auth registry is its own file, `<cacheDir>/auth.db`, and it fails closed when lost.** cache.db
+  is documented as disposable (`rm cache.db*` is the migration recovery step), so keeping revocations
+  and key retirements there meant deleting the cache silently un-revoked every token for every vault.
+  `auth.db` and `auth-keys/` are now documented everywhere as NOT regenerable and to be backed up;
+  `reset_vault_cache`, `compact`, the maintenance sweep and the sandbox never touch them, and the
+  `cacheDir` description no longer says everything in it is regenerable. Once the registry has ever
+  been used (a marker at `auth-keys/.registry-initialized`, or any `*.key` file, outside the database),
+  a missing or empty `auth.db` makes the verifier refuse every HS256 bearer (`registry_lost`) and
+  `token mint`/`auth *` refuse to run, with the recovery (restore `auth.db` from backup) in the startup
+  log, every rejection line and `doctor`; only a deployment that never initialised the registry keeps
+  the "configured secret verifies" path.
+- **Signing-key files are trusted only through the open descriptor.** The key is opened
+  `O_RDONLY|O_NOFOLLOW` and judged by `fstat` on that descriptor (regular file, owned by the server
+  user, no group/other bits) instead of `stat`-then-read, which followed symlinks; the `auth-keys/`
+  directory must be a real 0700 directory (a symlink is refused, a too-open one is tightened on
+  `rotate-key`); keys are created `O_CREAT|O_EXCL|O_NOFOLLOW` 0600; and the check repeats on every
+  verify, so a later `chmod` is noticed on the next request. Windows cannot enforce any of this and
+  `doctor` says so.
 
 - **Two dependency advisories cleared across both install roots.** `fast-uri` 3.1.7 to 3.1.8
   (GHSA-hrr3-gc8f-f4qj, in the root and `docs/` lockfiles) and `moment` 2.29.4 to 2.31.0

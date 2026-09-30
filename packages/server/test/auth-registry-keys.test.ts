@@ -8,7 +8,7 @@ import { AuthRejection } from "../src/auth/jwt";
 import { authKeysDir, CONFIG_KID, createAuthRegistry } from "../src/auth/registry";
 import { createTokenVerifier } from "../src/auth/verifier";
 import { signAndRecord } from "../src/cli/commands/token-mint";
-import { provisionCacheDb } from "../src/db/provision";
+import { provisionAuthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 import { rmTemp } from "./tmp";
 
@@ -20,7 +20,7 @@ afterAll(() => {
 
 function fixture() {
   const db = openMemoryDb();
-  provisionCacheDb(db);
+  provisionAuthDb(db);
   const dir = mkdtempSync(join(tmpdir(), "auth-keys-"));
   dirs.push(dir);
   const clock = { t: 1_800_000_000_000 };
@@ -160,7 +160,7 @@ describe("secret hygiene", () => {
     const { db, dir, registry } = fixture();
     registry.rotateKey();
     const fresh = await signAndRecord(registry, claims());
-    const [file] = readdirSync(authKeysDir(dir));
+    const file = readdirSync(authKeysDir(dir)).find((f) => f.endsWith(".key"));
     chmodSync(join(authKeysDir(dir), file as string), 0o644);
     // A registry built after the mode change has no cached secret, so it must read the file, and
     // must refuse to.

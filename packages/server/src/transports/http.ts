@@ -17,10 +17,11 @@ import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { resolvePersona } from "../auth/persona";
 import {
   buildProtectedResourceMetadata,
+  effectiveAudience,
   isPrmConfigured,
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
-import { type AuthRegistry, authKeysDir, createAuthRegistry } from "../auth/registry";
+import type { AuthRegistry } from "../auth/registry";
 import { createTokenVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import { getDefaultElicitTtlSeconds } from "../elicit";
@@ -76,7 +77,10 @@ function reportAuthRejection(d: AuthRejectionDetail, opts: HttpAppOptions): void
   const hint = d.expStillFuture
     ? " — token has NOT expired; it exceeded auth.tokenTtlSeconds. A long-lived token under a" +
       " short ttl is almost certainly a misconfiguration."
-    : "";
+    : d.reason === "registry_lost"
+      ? " — the auth registry was initialised but auth.db is missing or empty; every bearer is" +
+        " refused until it is restored. restore auth.db from backup (see the startup log)."
+      : "";
   process.stderr.write(`auth: rejected reason=${d.reason}${who}${hint}\n`);
 }
 
@@ -98,11 +102,10 @@ export interface HttpAppOptions {
   /** Per-vault trace folder, so a server-opened session's `trace_path` matches where
    *  `get_session_traces` looks. Absent -> DEFAULT_TRACE_FOLDER, the same fallback m5 uses. */
   traceFolderFor?: (vaultId: string) => string;
-  /** Signing-key + issued-token registry the default verifier consults on every request. Absent ->
-   *  built from `db` (cache.db) and `cacheDir`, so a direct `createHttpApp` caller is covered too. */
+  /** Signing-key + issued-token registry (auth.db) the default verifier consults on every request.
+   *  Absent -> the configured secret alone, with no revocation: `wireTransports` always supplies one
+   *  (opened by `openAuthRegistry`), so only a direct `createHttpApp` caller can omit it. */
   authRegistry?: AuthRegistry;
-  /** Directory holding cache.db; where registry-issued signing keys live (`<cacheDir>/auth-keys`). */
-  cacheDir?: string;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
   /** THE-583: durable queue backing the Tasks extension; when absent, tasks/* are not served.
@@ -401,8 +404,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   // protected resource to accept only tokens whose aud is itself). Undefined keeps the legacy
   // behavior for local self-issued HS256. A JWKS (shared external issuer) with no effective
   // audience is the confused-deputy hole, so warn.
-  const audience =
-    opts.auth.audience ?? (isPrmConfigured(opts.auth) ? opts.auth.resource : undefined);
+  const audience = effectiveAudience(opts.auth);
   if (jwks && audience === undefined) {
     process.stderr.write(
       "auth: JWKS configured without an audience — set auth.audience (or auth.resource) so tokens " +
@@ -420,12 +422,8 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
           maxAgeSeconds: opts.auth.tokenTtlSeconds,
           audience,
           issuer: opts.auth.issuer,
-          registry:
-            opts.authRegistry ??
-            createAuthRegistry(opts.db, {
-              configSecret: opts.auth.jwtSecret,
-              keysDir: opts.cacheDir === undefined ? undefined : authKeysDir(opts.cacheDir),
-            }),
+          registry: opts.authRegistry,
+          requireJti: opts.auth.requireJti,
         })
       : null);
 

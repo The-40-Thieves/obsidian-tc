@@ -14,7 +14,7 @@
 // Both paths now provision through this chain. Divergence is no longer possible.
 import { backfillObservationIntervalsJs } from "./backfill-observation-intervals";
 import { type Migration, runMigrations } from "./migrate";
-import { CACHE_MIGRATION_FILES, versionOf } from "./migration-manifest";
+import { AUTH_MIGRATION_FILES, CACHE_MIGRATION_FILES, versionOf } from "./migration-manifest";
 import { embeddedSql } from "./migrations-embedded";
 import type { Database } from "./types";
 
@@ -65,4 +65,21 @@ export function provisionCacheDb(
   opts: { version?: string; now?: () => number } = {},
 ): string[] {
   return runMigrations(db, CACHE_MIGRATIONS, opts);
+}
+
+/**
+ * The auth.db migration chain (signing keys + issued/revoked tokens). A separate file from cache.db
+ * so that wiping the cache never wipes revocations; see AUTH_MIGRATION_FILES.
+ */
+export const AUTH_MIGRATIONS: Migration[] = AUTH_MIGRATION_FILES.map((file) => ({
+  version: versionOf(file),
+  sql: embeddedSql(file),
+}));
+
+/** Bring an auth.db up to the current schema. */
+export function provisionAuthDb(
+  db: Database,
+  opts: { version?: string; now?: () => number } = {},
+): string[] {
+  return runMigrations(db, AUTH_MIGRATIONS, opts);
 }

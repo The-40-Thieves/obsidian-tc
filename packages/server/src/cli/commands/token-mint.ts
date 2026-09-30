@@ -20,18 +20,11 @@
 //     LOOKING valid for a year, and the failure is a flat 401 with no hint. That exact
 //     misunderstanding took the MCP plane down for five days.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { SignJWT } from "jose";
-import { version as VERSION } from "../../../package.json";
-import {
-  type AuthRegistry,
-  authKeysDir,
-  createAuthRegistry,
-  summarizeScopes,
-} from "../../auth/registry";
+import { type AuthRegistry, summarizeScopes } from "../../auth/registry";
+import { openAuthRegistry } from "../../auth/registry-open";
 import { applyEnvOverlays } from "../../config/load";
-import { openConfiguredDatabase } from "../../db/open";
-import { provisionCacheDb } from "../../db/provision";
 import { CliError } from "../args";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
@@ -189,22 +182,24 @@ export async function run_token_mint(cmd: TokenMintCmd): Promise<void> {
   const auth = readAuthBlock(configPath);
   const { claims, ttlSeconds } = planMint(auth, cmd, Math.floor(Date.now() / 1000));
 
-  // Every minted token is recorded in the registry BEFORE it is printed, and the mint fails if the
-  // record cannot be written: a token that cannot be found by jti cannot be revoked. The record
-  // holds the jti and the signing kid, never the token string.
+  // Every minted token is recorded in the registry (auth.db) BEFORE it is printed, and the mint
+  // fails if the record cannot be written: a token that cannot be found by jti cannot be revoked.
+  // The record holds the jti and the signing kid, never the token string.
   const cfg = resolveOrUsageExit(configPath);
-  mkdirSync(cfg.cacheDir, { recursive: true });
-  const db = await openConfiguredDatabase(cfg, "cache.db");
+  // The minted token's config secret is the one read from the raw auth block (env overlay applied).
+  const { registry, close } = await openAuthRegistry({
+    ...cfg,
+    auth: { ...cfg.auth, jwtSecret: auth.jwtSecret },
+  });
   let token: string;
   try {
-    provisionCacheDb(db, { version: VERSION });
-    const registry = createAuthRegistry(db, {
-      configSecret: auth.jwtSecret,
-      keysDir: authKeysDir(cfg.cacheDir),
-    });
+    // A lost registry (initialised before, auth.db now gone) refuses to sign: minting into a fresh
+    // empty registry would look healthy while every earlier revocation is missing.
+    const health = registry.health();
+    if (health.state === "lost") throw new CliError(health.detail);
     token = await signAndRecord(registry, claims);
   } finally {
-    db.close?.();
+    close();
   }
 
   if (cmd.json) {

@@ -7,6 +7,9 @@
 // THE-688 fix 2: the opt-in probe's result type, so the CLI can build a probe without importing
 // through the checks module directly.
 
+// THE-1125: telemetry's view type, same barrel reasoning as every other doctor/*.ts submodule
+// above — the CLI builds it without importing through checks.ts.
+export { type AuthRegistryView, authRegistryCheck } from "./auth-registry";
 // THE-891 item 3: experiential.capture-location's view type, so the CLI can build it without
 // importing through checks.ts — same barrel reasoning as every other doctor/*.ts submodule below.
 export type { CaptureLocationView } from "./capture-location";
@@ -54,8 +57,6 @@ export { assembleDoctorReport, decodeTokenClaims } from "./run";
 // doctor/*.ts submodule above — the CLI builds its probe without importing through checks.ts.
 export type { SessionLivenessProbe, SessionLivenessView } from "./session-liveness";
 export { sessionLivenessCheck } from "./session-liveness";
-// THE-1125: telemetry's view type, same barrel reasoning as every other doctor/*.ts submodule
-// above — the CLI builds it without importing through checks.ts.
 export type { TelemetryView } from "./telemetry";
 export { telemetryCheck } from "./telemetry";
 // THE-1123: toolFacade's view type, same barrel reasoning as every other doctor/*.ts submodule

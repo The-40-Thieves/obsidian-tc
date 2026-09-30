@@ -66,7 +66,8 @@ the `Origin` header (rejecting DNS-rebinding / cross-origin browser requests wit
 
 `obsidian-tc token mint` gives every token a `jti` claim and a `kid` header and records
 the token (its `jti`, `kid`, subject, expiry and a scope summary, never the token string)
-in the `auth_tokens` table of `cache.db`. Three commands operate on that registry:
+in the `auth_tokens` table of `<cacheDir>/auth.db` (its own file: see "Back up auth.db" below).
+Three commands operate on that registry:
 
 ```bash
 obsidian-tc auth list [--all] [--keys] [--json] [config-path]
@@ -80,8 +81,11 @@ obsidian-tc auth rotate-key [--grace <seconds>] [config-path]
 - **`auth revoke <jti>`** kills one token before it expires. The verifier checks the
   token's `jti` on every request, after the signature verifies, so the revoked token
   is refused (logged and counted as `token_revoked`; the caller sees the same generic
-  `401` as any other bad token). The check reads `cache.db` directly with no in-process
-  cache, so every process sharing that database sees a revocation on its next request.
+  `401` as any other bad token). The check reads `auth.db` directly with no in-process
+  cache, so every process sharing that file sees a revocation on its next request. A jti this
+  registry never issued (a token minted before the registry existed, or by an external issuer
+  behind a JWKS) is revoked by recording a *tombstone*, so `auth revoke` works for any jti you can
+  name.
 - **`auth rotate-key`** generates a new signing key and makes it the only active one.
   The old key is `retiring` for `--grace` seconds (default `0`: retired at once, and
   every token it signed stops verifying) and verifies alongside the new one until then.
@@ -92,12 +96,46 @@ exactly as before. `jwtSecret` must stay configured, because it anchors the `con
 key. Keys created by `rotate-key` live in `<cacheDir>/auth-keys/<kid>.key` (mode 0600),
 never in the database.
 
-What revocation does not cover: a token with no `jti` (minted before this feature, or
-by another tool) cannot be revoked individually; rotate the key instead. A token issued
-by an external authorization server and verified through a JWKS is affected only if it
-carries a `jti` that is present in this registry. Work already queued as a background
-task keeps the scopes it was enqueued with. `cache.db` now holds these decisions, so
-keep it in your backups: deleting it un-revokes tokens.
+### Tokens with no `jti`
+
+A token with no `jti` (minted before this feature, or by another tool) cannot be revoked
+individually; only rotating its signing key kills it. Set `auth.requireJti: true` to reject
+such tokens outright on every path (HS256, JWKS, `/metrics`); it defaults to `false` so
+existing tokens keep working, and `obsidian-tc doctor` recommends `true` once the registry
+is in use (`token mint` always sets a `jti`).
+
+### Back up `auth.db`: it is not a cache
+
+The registry lives in `<cacheDir>/auth.db` and the signing keys in `<cacheDir>/auth-keys/`.
+Unlike `cache.db`, **neither is regenerable**: they hold your decisions to revoke a token or
+retire a key. `rm <cacheDir>/cache.db*` (the documented way to reset the index), `compact`,
+`reset_vault_cache` and every other cache wipe leave them alone; back both up with your other
+operator state.
+
+The server fails closed if the registry is lost. Once it has ever been used (the first
+`rotate-key`, `token mint` or `revoke` writes a marker, `auth-keys/.registry-initialized`,
+outside the database), an `auth.db` that is missing or empty makes the verifier refuse every
+HS256 bearer (reason `registry_lost`), the startup log and `doctor` name the problem, and `auth *`
+and `token mint` refuse to run, instead of quietly trusting `auth.jwtSecret` again and reviving
+revoked tokens. Recover by restoring `auth.db` from backup. Only if you accept that revoked
+tokens and retired keys become valid again, remove the `auth-keys/` directory to return to
+`auth.jwtSecret` alone.
+
+### Signing-key files
+
+A key file is trusted only if it is a regular file owned by the server user, not readable by
+group or other (0600), reached without following a symlink, inside a real `auth-keys/` directory
+(0700, not a symlink). The check runs on the open file descriptor and is repeated on every
+verify (a `chmod` after startup is noticed on the next request), and keys are created with
+`O_EXCL|O_NOFOLLOW`. On **Windows** there are no POSIX modes, owner check or `O_NOFOLLOW`, so
+none of this is enforced: protect the directory with its ACL (`doctor` warns).
+
+### What revocation does not cover
+
+An external issuer's token is affected only by a `jti` you revoked (tombstone) or that is in the
+registry. Work already queued as a background task keeps the scopes it was enqueued with:
+revocation is checked when a request is authenticated, and a queued task has no request, so
+revoking a token does not stop a task it already enqueued.
 
 ## OAuth resource-server discovery (optional)
 

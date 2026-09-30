@@ -46,7 +46,9 @@ Treat a model change like a schema migration: plan it, run a full re-embed, and 
 
 2. **Drop the vector index** so it is recreated at the new dimension. Delete the cache database (it
    is a regenerable derivative of the vault) — `rm <cacheDir>/cache.db*` — or drop just `vec_chunks`
-   if you want to keep other cached state. The next boot recreates `vec_chunks` at the new
+   if you want to keep other cached state. Delete **only** `cache.db*`, never the whole cache
+   directory: `auth.db` and `auth-keys/` beside it are the auth registry (revocations, key
+   retirements, signing keys), are **not** regenerable, and must survive. The next boot recreates `vec_chunks` at the new
    `dimensions`.
 
 3. **Full reindex.** Start the server (the boot reconcile re-embeds the whole vault) or call

@@ -215,8 +215,9 @@ export async function serveTaskExtension(
  *
  * A consequence worth naming: a token revoked (`auth revoke`) AFTER enqueue does not stop a
  * running task. The revocation check runs when a request is authenticated, and a queued task has no
- * request; stopping one mid-run would mean re-checking the caller's jti on every step, which this
- * payload deliberately does not carry.
+ * request. The payload carries no jti, so a queued task is NOT re-checked when it starts either
+ * (threading the jti through CallerContext, the payload and the runner is a wider change than the
+ * finding warranted); auth-model.md documents it.
  */
 export interface TaskCallPayload {
   tool: string;

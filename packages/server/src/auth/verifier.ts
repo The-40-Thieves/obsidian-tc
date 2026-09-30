@@ -64,6 +64,8 @@ export interface TokenVerifierOptions {
    * remote issuer's token is only ever affected if its `jti` is present in this registry.
    */
   registry?: AuthRegistry;
+  /** auth.requireJti: reject any token with no `jti` on every path (HS256, JWKS, remote JWKS). */
+  requireJti?: boolean;
 }
 
 /**
@@ -86,6 +88,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
         if (!o.secret) throw new Error("HS256 token but no jwtSecret configured");
         return verifyJwt(token, registry ? (h) => registry.verificationKey(h.kid) : o.secret, {
           isRevoked,
+          requireJti: o.requireJti,
           maxAgeSeconds: o.maxAgeSeconds,
           audience: o.audience,
           issuer: o.issuer,
@@ -94,6 +97,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
       if (remote !== undefined) {
         return verifyJwtWithKeySet(token, remote, {
           isRevoked,
+          requireJti: o.requireJti,
           maxAgeSeconds: o.maxAgeSeconds,
           algorithms: o.algorithms,
           audience: o.audience,
@@ -103,6 +107,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
       if (!o.jwks) throw new Error(`${String(header.alg)} token but no JWKS configured`);
       return verifyJwtJwks(token, o.jwks, {
         isRevoked,
+        requireJti: o.requireJti,
         maxAgeSeconds: o.maxAgeSeconds,
         algorithms: o.algorithms,
         audience: o.audience,

@@ -11,7 +11,7 @@ import { AuthRejection } from "../src/auth/jwt";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
 import { createTokenVerifier } from "../src/auth/verifier";
 import { signAndRecord } from "../src/cli/commands/token-mint";
-import { provisionCacheDb } from "../src/db/provision";
+import { provisionAuthDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { startHttp } from "../src/transports/http";
@@ -26,7 +26,7 @@ afterAll(() => {
 
 function fixture() {
   const db = openMemoryDb();
-  provisionCacheDb(db);
+  provisionAuthDb(db);
   const dir = mkdtempSync(join(tmpdir(), "auth-registry-"));
   dirs.push(dir);
   const registry = createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(dir) });
@@ -70,12 +70,12 @@ describe("token revocation", () => {
     expect(registry.revoke(jti, "second")).toBe("already_revoked");
     const row = registry.listTokens().find((t) => t.jti === jti);
     expect(row?.revokedReason).toBe("first");
-    expect(registry.revoke("no-such-jti", null)).toBe("unknown");
+    expect(registry.revoke("no-such-jti", null)).toBe("tombstoned");
   });
 
   it("revocation written on one connection is seen by another process on its next request", async () => {
     const db = openMemoryDb();
-    provisionCacheDb(db);
+    provisionAuthDb(db);
     const a = createAuthRegistry(db, { configSecret: SECRET });
     // A second registry object over the same database stands in for a second process: nothing is
     // cached in-process, so its very next lookup must observe the write.
@@ -145,7 +145,7 @@ describe("revocation over the HTTP edge and /metrics", () => {
       registry: new ToolRegistry(),
       auth: parsed.auth,
       db: registryDb.db,
-      cacheDir: registryDb.dir,
+      authRegistry: registryDb.registry,
       vaultId: "main",
       acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
       host: "127.0.0.1",
@@ -206,5 +206,181 @@ describe("revocation over the HTTP edge and /metrics", () => {
       null,
     );
     expect((await scrape()).status).toBe(401);
+  });
+});
+
+describe("revocation covers tokens this registry never issued", () => {
+  it("revoking an unknown jti writes a tombstone that rejects a later token carrying it", async () => {
+    const { registry } = fixture();
+    const verifier = createTokenVerifier({ secret: SECRET, registry });
+    // Signed by the configured secret before the registry existed: it has a jti, no row.
+    const preRegistry = await new SignJWT(claims({ jti: "issued-elsewhere-1" }))
+      .setProtectedHeader({ alg: "HS256" })
+      .sign(new TextEncoder().encode(SECRET));
+    expect(await reasonOf(verifier.verify(preRegistry))).toBe("accepted");
+
+    expect(registry.revoke("issued-elsewhere-1", "leaked in a paste")).toBe("tombstoned");
+    expect(registry.revoke("issued-elsewhere-1", "again")).toBe("already_revoked");
+    expect(await reasonOf(verifier.verify(preRegistry))).toBe("token_revoked");
+
+    const row = registry.listTokens().find((t) => t.jti === "issued-elsewhere-1");
+    expect(row).toMatchObject({
+      revokedReason: "leaked in a paste",
+      kid: null,
+      sub: null,
+      expiresAt: null,
+    });
+    expect(row?.revokedAt).toBeTypeOf("number");
+  });
+
+  it("a JWKS-issued token can be revoked by its jti before we ever saw it", async () => {
+    const { registry } = fixture();
+    const { publicKey, privateKey } = await generateKeyPair("ES256");
+    const jwk = { ...(await exportJWK(publicKey)), kid: "ext-1", alg: "ES256" };
+    const verifier = createTokenVerifier({ jwks: { keys: [jwk] }, registry });
+    const token = await new SignJWT({ ...claims(), jti: "external-42" })
+      .setProtectedHeader({ alg: "ES256", kid: "ext-1" })
+      .sign(privateKey);
+    expect(await reasonOf(verifier.verify(token))).toBe("accepted");
+    registry.revoke("external-42", null);
+    expect(await reasonOf(verifier.verify(token))).toBe("token_revoked");
+  });
+});
+
+describe("auth.requireJti", () => {
+  const noJti = () =>
+    new SignJWT(claims())
+      .setProtectedHeader({ alg: "HS256" })
+      .sign(new TextEncoder().encode(SECRET));
+
+  it("is off by default: a jti-less token still verifies", async () => {
+    const { registry } = fixture();
+    const verifier = createTokenVerifier({ secret: SECRET, registry });
+    expect(await reasonOf(verifier.verify(await noJti()))).toBe("accepted");
+  });
+
+  it("when on, rejects a jti-less token on the HS256 and the JWKS paths, and accepts one with a jti", async () => {
+    const { registry } = fixture();
+    const hs = createTokenVerifier({ secret: SECRET, registry, requireJti: true });
+    expect(await reasonOf(hs.verify(await noJti()))).toBe("jti_required");
+    expect(await reasonOf(hs.verify(await signAndRecord(registry, claims())))).toBe("accepted");
+
+    const { publicKey, privateKey } = await generateKeyPair("ES256");
+    const jwk = { ...(await exportJWK(publicKey)), kid: "ext-1", alg: "ES256" };
+    const rs = createTokenVerifier({ jwks: { keys: [jwk] }, registry, requireJti: true });
+    const sign = (extra: Record<string, unknown>) =>
+      new SignJWT({ ...claims(), ...extra })
+        .setProtectedHeader({ alg: "ES256", kid: "ext-1" })
+        .sign(privateKey);
+    expect(await reasonOf(rs.verify(await sign({})))).toBe("jti_required");
+    expect(await reasonOf(rs.verify(await sign({ jti: "e1" })))).toBe("accepted");
+  });
+
+  it("/metrics enforces it too", async () => {
+    const fx = fixture();
+    const parsed = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/tmp/main" }],
+      auth: { mode: "jwt", jwtSecret: SECRET, tokenTtlSeconds: 3600, requireJti: true },
+    });
+    expect(parsed.auth.requireJti).toBe(true);
+    const app = createMetricsApp({
+      recorder: { metrics: async () => "m 1\n", contentType: "text/plain" } as never,
+      bind: "0.0.0.0",
+      port: 0,
+      auth: parsed.auth,
+      registry: fx.registry,
+    });
+    const scrape = (t: string) =>
+      app.request("/metrics", { headers: { authorization: `Bearer ${t}` } });
+    expect((await scrape(await noJti())).status).toBe(401);
+    expect((await scrape(await signAndRecord(fx.registry, claims()))).status).toBe(200);
+  });
+
+  it("defaults to false in the config schema", () => {
+    const parsed = ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/tmp/main" }] });
+    expect(parsed.auth.requireJti).toBe(false);
+  });
+});
+
+describe("/metrics binds audience and issuer like the HTTP edge", () => {
+  function metricsApp(
+    auth: Record<string, unknown>,
+    registry: ReturnType<typeof fixture>["registry"],
+  ) {
+    const parsed = ServerConfigSchema.parse({
+      vaults: [{ id: "main", path: "/tmp/main" }],
+      auth: { mode: "jwt", jwtSecret: SECRET, tokenTtlSeconds: 3600, ...auth },
+    });
+    return createMetricsApp({
+      recorder: { metrics: async () => "m 1\n", contentType: "text/plain" } as never,
+      bind: "0.0.0.0",
+      port: 0,
+      auth: parsed.auth,
+      registry,
+    });
+  }
+  const scrape = (app: ReturnType<typeof createMetricsApp>, t: string) =>
+    app.request("/metrics", { headers: { authorization: `Bearer ${t}` } });
+
+  it("refuses a token minted for another audience or issuer, accepts the right one", async () => {
+    const { registry } = fixture();
+    const app = metricsApp({ audience: "http://test", issuer: "https://issuer.test" }, registry);
+    const good = await signAndRecord(
+      registry,
+      claims({ aud: "http://test", iss: "https://issuer.test" }),
+    );
+    const wrongAud = await signAndRecord(
+      registry,
+      claims({ aud: "http://other", iss: "https://issuer.test" }),
+    );
+    const wrongIss = await signAndRecord(
+      registry,
+      claims({ aud: "http://test", iss: "https://evil.test" }),
+    );
+    const noAud = await signAndRecord(registry, claims({ iss: "https://issuer.test" }));
+    expect((await scrape(app, good)).status).toBe(200);
+    expect((await scrape(app, wrongAud)).status).toBe(401);
+    expect((await scrape(app, wrongIss)).status).toBe(401);
+    expect((await scrape(app, noAud)).status).toBe(401);
+  });
+
+  it("defaults the audience to the PRM resource, exactly as the HTTP edge does", async () => {
+    const { registry } = fixture();
+    const app = metricsApp(
+      {
+        resource: "https://mcp.example.test/mcp",
+        authorizationServers: ["https://as.example.test"],
+      },
+      registry,
+    );
+    const ok = await signAndRecord(registry, claims({ aud: "https://mcp.example.test/mcp" }));
+    const bad = await signAndRecord(registry, claims({ aud: "https://elsewhere.test" }));
+    expect((await scrape(app, ok)).status).toBe(200);
+    expect((await scrape(app, bad)).status).toBe(401);
+  });
+});
+
+describe("a retiring key with no retire_after fails closed", () => {
+  it("the schema refuses to store one", () => {
+    const { db } = fixture();
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO auth_keys (kid, key_ref, created_at, state, retire_after) VALUES ('k_x', 'file:k_x.key', 1, 'retiring', NULL)",
+        )
+        .run(),
+    ).toThrow(/CHECK|constraint/i);
+  });
+
+  it("and the verifier treats a row that got past the constraint as retired", async () => {
+    const { db, registry } = fixture();
+    const verifier = createTokenVerifier({ secret: SECRET, registry });
+    const token = await signAndRecord(registry, claims());
+    registry.rotateKey({ graceSeconds: 600 }); // config -> retiring with a window
+    expect(await reasonOf(verifier.verify(token))).toBe("accepted");
+    db.exec("PRAGMA ignore_check_constraints = ON");
+    db.exec("UPDATE auth_keys SET retire_after = NULL WHERE state = 'retiring'");
+    db.exec("PRAGMA ignore_check_constraints = OFF");
+    expect(await reasonOf(verifier.verify(token))).toBe("key_retired");
   });
 });
