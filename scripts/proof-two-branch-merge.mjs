@@ -17,6 +17,9 @@
 // only file both edit at overlapping lines is migrations-embedded.ts (plus the sorted names list),
 // which is what the `regen` merge driver and git's own 3-way merge must carry.
 //
+// A control run with the merge driver disabled must conflict on migrations-embedded.ts alone, so the
+// driver is shown to be what resolves it.
+//
 // Exit 0 only if: both merge orders succeed with no conflict and leave no markers, the two results
 // are the same tree, and every gate below passes on each.
 import { execFileSync, spawnSync } from "node:child_process";
@@ -255,6 +258,26 @@ try {
     );
     if (!same) failures++;
   }
+  // Negative control: the same two branches with the driver switched off MUST conflict, and only
+  // on migrations-embedded.ts. Without it the PASS lines above could mean the conflict never
+  // existed. (`false` as the driver command exits 1, which git reports as a conflict.)
+  git("checkout", "-q", "--detach", BASE);
+  git("checkout", "-q", "-b", "proof/control", BASE);
+  git("merge", "--no-edit", "-q", "proof/a");
+  const off = spawnSync("git", ["merge", "--no-edit", "-q", "proof/b"], {
+    cwd: WT,
+    env: { ...env, GIT_CONFIG_VALUE_0: "false" },
+    encoding: "utf8",
+  });
+  const unmerged = git("diff", "--name-only", "--diff-filter=U").trim().split("\n").filter(Boolean);
+  const controlOk =
+    off.status !== 0 &&
+    unmerged.length === 1 &&
+    unmerged[0] === "packages/server/src/db/migrations-embedded.ts";
+  console.log(
+    `  [${controlOk ? "PASS" : "FAIL"}] control, driver disabled: conflicts in ${JSON.stringify(unmerged)} (expected only migrations-embedded.ts)`,
+  );
+  if (!controlOk) failures++;
 } catch (e) {
   console.error(`proof setup failed: ${e.stack ?? e}`);
   failures++;
@@ -263,7 +286,7 @@ try {
   else {
     spawnSync("git", ["worktree", "remove", "--force", WT], { cwd: REPO });
     rmSync(join(WT, ".."), { recursive: true, force: true });
-    for (const b of ["proof/a", "proof/b", "proof/merge-ab", "proof/merge-ba"]) {
+    for (const b of ["proof/a", "proof/b", "proof/merge-ab", "proof/merge-ba", "proof/control"]) {
       spawnSync("git", ["branch", "-D", b], { cwd: REPO });
     }
   }
