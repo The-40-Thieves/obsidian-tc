@@ -7,11 +7,12 @@
 // the named TARGET straight through registry.dispatch so every gate fires unchanged. Every
 // registered tool stays callable by name, so a client that already knows a name is never blocked.
 import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
-import { type ErrorJSON, err, isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
 import { profileHiddenTools } from "./capability-hidden";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
+import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 import type { VisibilityCaller } from "./visibility";
 
 export type { FacadeMode } from "./facade-mode";
@@ -51,19 +52,6 @@ export function toInputJson(schema: z.ZodType): Tool["inputSchema"] {
     inputJsonSchemaMemo.set(schema, cached);
   }
   return cached;
-}
-
-// THE-824: what the WIRE `destructive` annotation says, as distinct from `def.destructive` (which
-// also drives dispatch-time authorization via isMutatingCall/hitlRequired and must stay untouched
-// by advertisement concerns). A tool that calls requireConfirmation only conditionally never sets
-// the real `destructive` flag — doing so would make dispatch demand a token on every call — but
-// leaving it unset made every one of these tools advertise `destructive: false`, contradicting the
-// MCP spec's own default (destructiveHint defaults to true). Shared by describeCapability,
-// domainTools here, and mcp/server.ts's toolAnnotations, so the three surfaces cannot drift apart.
-export function isAdvertisedDestructive(
-  def: Pick<ToolDefinition, "destructive" | "conditionallyDestructive">,
-): boolean {
-  return def.destructive === true || def.conditionallyDestructive === true;
 }
 
 /** Human-facing label for a snake_case tool name. Also used by mcp/tool-projection.ts. */
@@ -281,7 +269,7 @@ const describeMemo = new WeakMap<ToolDefinition, Record<string, unknown>>();
 export function describeCapability(def: ToolDefinition): Record<string, unknown> {
   const cached = describeMemo.get(def);
   if (cached !== undefined) return cached;
-  const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
+  const mutating = isMutatingDefinition(def);
   const out: Record<string, unknown> = {
     name: def.name,
     title: titleize(def.name),
@@ -289,6 +277,7 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     input_schema: toInputJson(def.inputSchema),
     ...(def.outputSchema ? { output_schema: toJson(def.outputSchema) } : {}),
     required_scopes: def.requiredScopes,
+    tags: def.tags ?? [],
     annotations: { read_only: !mutating, destructive: isAdvertisedDestructive(def) },
     ...(def.icons ? { icons: def.icons } : {}),
   };
@@ -298,9 +287,9 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
 
 // ---- Domain-verb mode (shipped under THE-275; see the caveat) ---------------------------------
 // THE-275 was CANCELLED. Its actual proposal — stamping per-tool visibility `tags` and shipping a
-// hand-curated ~20-tool preset — was never built; only 15 of 150 definitions carry `tags` to this
-// day. What landed under its number is this domain-verb mode, which superseded that proposal
-// rather than implementing it. Recorded because the ticket number appears in several places in the
+// hand-curated ~20-tool preset — was never built as a preset. What landed under its number is this
+// domain-verb mode, which superseded that proposal rather than implementing it. The tags half was
+// finished separately: every tool now carries tags (mcp/tool-tags.ts). Recorded because the ticket number appears in several places in the
 // tree and a reader who looks it up finds a cancelled ticket. See
 // docs/adr/0006-the-default-surface-is-the-triad.md.
 // In "domain" mode tools/list advertises ~a dozen domain meta-tools instead of the full surface or
@@ -386,7 +375,7 @@ export function isDomainTool(name: string): boolean {
 }
 
 function isReadOnly(def: ToolDefinition): boolean {
-  return !(def.destructive === true || def.requiredScopes.some(isMutatingScope));
+  return !isMutatingDefinition(def);
 }
 
 /**

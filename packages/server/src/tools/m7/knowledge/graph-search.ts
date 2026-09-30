@@ -229,7 +229,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
       .strict(),
     outputSchema: VaultGraphSearchOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge", "search"],
+    tags: ["knowledge", "search", "external-network"],
     handler: async (input, ctx) => {
       // THE-635: validate before any DB/embedding work — a clean error, never a silently-ignored
       // or silently-clamped input.

@@ -31,6 +31,7 @@
     "docgen:facts-check": "bun scripts/docgen/facts-check.ts",
     "docgen:tool-pages": "bun scripts/docgen/tool-pages.ts",
     "docgen:tool-pages-check": "bun scripts/docgen/tool-pages.ts --check",
+    "check:tool-tags": "bun scripts/check-tool-tags.ts",
     "docgen:error-envelope": "bun scripts/docgen/check-error-envelope.ts",
     "check:cold-start-budget": "node scripts/check-cold-start-budget.mjs",
     "perf": "bun eval/perf/run.ts --scenario small --out perf-report.json",

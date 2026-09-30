@@ -109,6 +109,46 @@ never a silent dispatch; `inspect_visibility` reports `disabled_by_profile`.
 `toolFacade.profile` is the default (`"full"`) unless you set it — no migration
 needed.
 
+## Tool tags
+
+Every tool carries a set of tags, and `toolVisibility.hiddenTags` / `disabledTags` act on them.
+Naming a tag in `hiddenTags` drops its tools from `tools/list`, `find_capability`, the
+`obsidian-tc://catalog` resource and the domain meta-tools while leaving them callable by name;
+naming it in `disabledTags` also rejects the call, as if the tool were never registered. Each
+tool's page in the [Tool Catalog](/tools/tool-catalog/) lists its tags, and `describe_capability`
+returns them as `tags`.
+
+Most tags are **derived** at registration from what the tool already declares, so they cannot
+drift: a tool's scopes say whether it writes, its destructive and confirmation flags say whether
+it can destroy data, and its facade domain gives its `domain:` tag. A few facts no other field
+carries are **declared** on the tool definition. Registration refuses a tag outside this
+vocabulary, a derived tag written by hand, and a declaration the derivation already makes.
+
+| Tag | Source | Meaning |
+| --- | --- | --- |
+| `read-only` | derived | Does not mutate the vault: no write, delete, bulk or execute scope, and not destructive. The same test as the read-only gate and the MCP `readOnlyHint`. |
+| `writes` | derived | Mutates the vault. The complement of `read-only`. |
+| `destructive` | derived | Can destroy data, always or on some calls (the MCP `destructiveHint`). |
+| `hitl` | derived | Needs a human confirmation token, always or when a call crosses a boundary. |
+| `bulk` | derived | Holds a `bulk:*` scope: one call changes many notes. |
+| `admin` | derived | Holds an `admin:*` scope: administers the server, its vaults, ACLs, config or metrics. It may change server state without modifying notes, so it can also be `read-only`. |
+| `domain:<name>` | derived | Belongs to that facade domain, for example `domain:git` or `domain:notes`. |
+| `plugin-bridge` | derived and declared | Needs the Obsidian companion plugin, so a live Obsidian session. Derived from a scope that names a plugin; declared for the few bridge tools whose scope is a generic vault scope. |
+| `external-network` | declared | The tool's handler may send query or note text to a service outside the server process: a hosted embedding provider, or a cloud sync plugin. Indexing that runs in the background after a write is not attributed to the tool that triggered it. |
+| `experiential` | declared | Reads or writes the derived work-memory plane. |
+| `verdict` | declared | A verdict verb: its calls are recorded as verdicts, never as evidence for later retrieval. |
+| `knowledge` | declared | Part of the knowledge-retrieval surface. |
+| `search` | declared | Retrieves notes or chunks by query. |
+| `docs` | declared | Reads the external vendor-docs corpus. |
+| `links` | declared | Reads the link graph. |
+| `graph` | declared | Computes graph analytics over the link graph. |
+| `provenance` | declared | Reports where an answer came from. |
+| `diagnostics` | declared | Explains or audits retrieval behaviour. |
+
+For example, `hiddenTags: ["destructive"]` keeps every tool that can delete or overwrite out of a
+client's discovery, and `disabledTags: ["external-network"]` makes a deployment that must not call
+a hosted embedding provider refuse those tools outright.
+
 ## Domains
 
 | Group | Domains | Examples |

@@ -158,7 +158,7 @@ export function createDiagnoseRetrievalTool(
       .strict(),
     outputSchema: DiagnoseRetrievalOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge", "search", "diagnostics"],
+    tags: ["knowledge", "search", "diagnostics", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);

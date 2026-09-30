@@ -31,6 +31,13 @@ describe("renderToolPage: params from the live registry (write_note)", () => {
     expect(md).toContain("`write:notes`");
   });
 
+  it("lists the tool's tags, derived and declared, in the header table", () => {
+    const tags = md.split("\n").find((l) => l.startsWith("| **Tags** |")) ?? "";
+    expect(tags).toContain("`writes`");
+    expect(tags).toContain("`domain:notes`");
+    expect(page("search_semantic")).toMatch(/\| \*\*Tags\*\* \|.*`external-network`/);
+  });
+
   it("marks required params and leaves optional ones unmarked", () => {
     expect(row(md, "path")).toMatch(/\| yes \|/);
     expect(row(md, "content")).toMatch(/\| yes \|/);

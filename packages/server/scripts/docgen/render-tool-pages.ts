@@ -90,6 +90,7 @@ export function renderToolPage(tool: ToolDoc, all: ToolDoc[]): string {
     .sort((a, b) => a.name.localeCompare(b.name));
   const scopes =
     tool.requiredScopes.length > 0 ? tool.requiredScopes.map((s) => `\`${s}\``).join(", ") : "none";
+  const tags = tool.tags.length > 0 ? tool.tags.map((t) => `\`${t}\``).join(", ") : "none";
   const a = tool.annotations;
 
   const out = [
@@ -106,6 +107,7 @@ export function renderToolPage(tool: ToolDoc, all: ToolDoc[]): string {
     `| **Domain** | ${tool.domain ?? "—"} |`,
     `| **Scopes** | ${scopes} |`,
     `| **Access** | ${access(tool)} |`,
+    `| **Tags** | ${tags} |`,
     `| **Profile** | ${profileCell(tool.name)} |`,
     "",
     "## Annotations",

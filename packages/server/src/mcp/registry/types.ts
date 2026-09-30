@@ -195,8 +195,11 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  Opt-in per tool; the server already emits structuredContent for object results. */
   outputSchema?: z.ZodType<O>;
   requiredScopes: string[];
-  /** Free-form classification labels for tool-visibility scoping (THE-219):
-   *  matched against toolVisibility.hiddenTags / disabledTags. */
+  /** Hand-declared classification labels for tool-visibility scoping (THE-219), matched against
+   *  toolVisibility.hiddenTags / disabledTags. Declare ONLY what mcp/tool-tags.ts cannot derive
+   *  (`external-network`, bridge tools with a generic scope, topic labels): scopes, destructive
+   *  flags, HITL gating and domain are computed at registration, and the registry stores the union.
+   *  Registration throws on a tag outside the vocabulary or one that is derived. */
   tags?: string[];
   /** Optional MCP 2025-11-25 icons metadata (THE-278). Boundary-only; never read by dispatch. */
   icons?: ToolIcon[];

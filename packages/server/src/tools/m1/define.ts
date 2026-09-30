@@ -30,8 +30,11 @@ export interface ToolSpec<S extends z.ZodTypeAny, O, B extends object = Record<n
   /** Optional output schema (Zod object) advertised as the tool's `outputSchema` (THE-278). */
   outputSchema?: z.ZodType<O>;
   requiredScopes: string[];
-  /** Free-form classification labels for tool-visibility scoping (THE-219):
-   *  matched against toolVisibility.hiddenTags / disabledTags. */
+  /** Hand-declared classification labels for tool-visibility scoping (THE-219), matched against
+   *  toolVisibility.hiddenTags / disabledTags. Declare ONLY what mcp/tool-tags.ts cannot derive
+   *  (`external-network`, bridge tools with a generic scope, topic labels): scopes, destructive
+   *  flags, HITL gating and domain are computed at registration, and the registry stores the union.
+   *  Registration throws on a tag outside the vocabulary or one that is derived. */
   tags?: string[];
   /** Optional MCP 2025-11-25 icons metadata (THE-278). */
   icons?: ToolIcon[];

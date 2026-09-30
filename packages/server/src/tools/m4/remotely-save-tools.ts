@@ -46,6 +46,7 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z.object({ vault: VaultId }).strict(),
       outputSchema: RemotelySaveTriggerOutput,
       requiredScopes: ["write:remotely-save"],
+      tags: ["external-network"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "remotely-save");

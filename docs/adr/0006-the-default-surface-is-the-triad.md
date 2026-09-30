@@ -34,9 +34,30 @@ just is not one yet.
 
 Nothing here removes an option. The infrastructure for a lean profile exists twice over —
 `toolVisibility.allowed` is a literal name allowlist, and the three facade modes are already
-configurable — and both remain supported. One genuine residual is worth naming: only 15 of the 150
-definitions carry `tags`, so the `hiddenTags` / `disabledTags` filters are largely inert. Anything
-tag-driven needs that filled in first.
+configurable — and both remain supported. The third, `hiddenTags` / `disabledTags`, was the
+residual: when this was written only a handful of definitions carried `tags`, so the filters were
+largely inert. That is now closed by giving every tool a tag set from one fixed vocabulary.
+
+The tags split by where they come from, so that the ones a filter relies on cannot drift:
+
+| Tag | Source | Meaning |
+| --- | --- | --- |
+| `read-only` / `writes` | derived | Whether the tool mutates the vault, by the same predicate as the read-only gate and the MCP `readOnlyHint`. |
+| `destructive` | derived | Destructive always, or on some calls (the MCP `destructiveHint`). |
+| `hitl` | derived | Needs a human confirmation token, always or conditionally. |
+| `bulk` | derived | Holds a `bulk:*` scope. |
+| `admin` | derived | Holds an `admin:*` scope. |
+| `domain:<name>` | derived | The facade domain the tool already declares. |
+| `plugin-bridge` | derived and declared | Needs the Obsidian companion plugin: derived from a scope naming a plugin, declared for bridge tools with a generic vault scope. |
+| `external-network` | declared | The handler may send query or note text outside the process (a hosted embedding provider, a cloud sync plugin). |
+| `experiential`, `verdict`, `knowledge`, `search`, `docs`, `links`, `graph`, `provenance`, `diagnostics` | declared | Topic labels that predate the vocabulary and are kept; `verdict` also marks a verdict verb for episode recording. |
+
+The registry computes the derived tags at registration and stores the union with whatever the
+definition declares. Registration throws on a declared tag outside the vocabulary, on a derived tag
+written by hand, and on a declaration the derivation already makes, so the hand-written list is the
+minimal remainder. A tag is hidden or disabled by naming it: `hiddenTags: [destructive]` removes
+every tool that can destroy data from every facade mode's discovery while leaving them callable;
+`disabledTags: [external-network]` makes them behave as unregistered.
 
 One piece of record-keeping came out of this and is fixed alongside it. The domain-verb facade
 shipped in 1.3.0 under the number of the ticket whose *strategy* had just been cancelled, so the

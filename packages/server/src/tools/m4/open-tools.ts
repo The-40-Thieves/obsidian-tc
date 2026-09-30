@@ -80,6 +80,7 @@ export function buildOpenTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
       outputSchema: ShowFileOutput,
       requiredScopes: ["execute:uri"],
+      tags: ["plugin-bridge"],
       // The confirmation binds on the note named here (its existence/content state) plus args_hash.
       pathAcl: (input) => [{ op: "read", path: input.path }],
       handler: async (input, ctx) => {

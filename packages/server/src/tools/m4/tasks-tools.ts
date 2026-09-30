@@ -301,6 +301,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         .object({ vault: z.string(), items: z.array(z.unknown()), total: z.number().int() })
         .passthrough(),
       requiredScopes: ["read:tasks"],
+      tags: ["plugin-bridge"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridgeWithHint(

@@ -77,6 +77,7 @@ export function buildCapabilityTools(deps: M4Deps): ToolDefinition[] {
         changes: z.array(SnapshotChangeSchema),
       }),
       requiredScopes: ["admin:vault"],
+      tags: ["plugin-bridge"],
       handler: async (input, _ctx) => {
         if (!deps.reprobe) {
           throw err.invalidInput(

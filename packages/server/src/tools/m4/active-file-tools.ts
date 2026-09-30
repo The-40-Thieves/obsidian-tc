@@ -179,6 +179,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       inputSchema: ReadActiveInput,
       outputSchema: GetActiveOutput,
       requiredScopes: ["read:notes"],
+      tags: ["plugin-bridge"],
       resolveTarget: (input): Promise<ActiveTarget> => resolveActiveFile(deps, input.vault),
       pathAcl: (input) => [{ op: "read", path: input.path }],
       handler: async (input, ctx) => {
@@ -214,6 +215,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       inputSchema: WriteInput.omit({ path: true, mode: true }),
       outputSchema: WriteNoteOutput,
       requiredScopes: ["write:notes"],
+      tags: ["plugin-bridge"],
       conditionallyDestructive: true,
       resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
       pathAcl: (input) => [{ op: "write", path: input.path }],
@@ -233,6 +235,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       inputSchema: AppendInput.omit({ path: true, create_if_missing: true }),
       outputSchema: AppendNoteOutput,
       requiredScopes: ["write:notes"],
+      tags: ["plugin-bridge"],
       resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
       pathAcl: (input) => [{ op: "write", path: input.path }],
       handler: (input, ctx) =>
@@ -250,6 +253,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       inputSchema: PatchActiveInput,
       outputSchema: PatchNoteOutput,
       requiredScopes: ["write:notes"],
+      tags: ["plugin-bridge"],
       resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
       pathAcl: (input) => [{ op: "write", path: input.path }],
       handler: (input, ctx) =>
@@ -267,6 +271,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       inputSchema: DeleteInput.omit({ path: true }),
       outputSchema: DeleteNoteOutput,
       requiredScopes: ["delete:notes"],
+      tags: ["plugin-bridge"],
       destructive: true,
       resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
       pathAcl: (input) => [{ op: "delete", path: input.path }],
