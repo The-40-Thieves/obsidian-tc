@@ -152,6 +152,12 @@ const GetServerConfigOutput = z.object({
     execute: TierLimits,
     admin: TierLimits,
   }),
+  // Which limiter backs the buckets and what happens when a shared one is down. Deliberately just
+  // these two enums: throttle.redis (URL env name, file path, key prefix) never leaves config.
+  throttle: z.object({
+    backend: z.enum(["memory", "sqlite", "redis"]),
+    failure_policy: z.enum(["fail-open", "fail-closed"]),
+  }),
   governor: z.object({ max_response_bytes: z.number() }),
   observability: z.object({
     otlp_enabled: z.boolean(),
@@ -335,6 +341,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
             max_operations_per_minute: t.tiers.bulk.perMinute,
           },
           throttle_tiers: t.tiers,
+          throttle: { backend: t.backend, failure_policy: t.failurePolicy },
           governor: { max_response_bytes: deps.governorMaxResponseBytes },
           observability: {
             otlp_enabled: deps.observability.otel,

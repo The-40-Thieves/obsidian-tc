@@ -30,7 +30,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `fail-closed` refuses the call as `throttled` with `details.reason: "backend_unavailable"`; an
   outage is logged once and counted in `obsidian_tc_rate_limit_backend_outages_total`, not reported
   per request. One conformance suite runs against all three backends, including cross-process
-  sqlite and real-Redis cases. `RateLimiter.check` is now async.
+  sqlite and real-Redis cases. `RateLimiter.check` is now async. The container image ships the pinned
+  `@redis/client` (the `redis` backend works there out of the box); the `.mcpb` desktop bundle does
+  not and refuses `backend: "redis"` with the install hint. `get_server_config` reports
+  `throttle.backend` and `throttle.failure_policy` (never the Redis URL).
 - **`reset_vault_cache`'s `include.embeddings` accepts `"inactive"` (#1025).** Previously a plain
   boolean that dropped every `chunk_embeddings` row for a vault; `"inactive"` now drops only rows
   for embedding generations the vault is no longer searching with (`is_active = 0` — the same

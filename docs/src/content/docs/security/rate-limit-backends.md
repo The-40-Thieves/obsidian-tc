@@ -63,7 +63,7 @@ full bucket.
 
 ```bash
 export OBSIDIAN_TC_REDIS_URL='redis://default:<password>@redis.internal:6379'   # rediss:// for TLS
-npm install @redis/client        # optional dependency, loaded only when backend is "redis"
+npm install @redis/client        # npm installs only: optional dependency, loaded only when backend is "redis"
 ```
 
 The bucket update is one Lua script, so refill-and-take is atomic on the Redis server however many
@@ -76,10 +76,14 @@ several deployments share one Redis.
   points at a file whose content is the URL, for container secret mounts. The URL is never logged
   and is stripped from any connection error before it is printed.
 - **Where the client must be resolvable.** `@redis/client` is an optional dependency kept out of the
-  bundle, so `npm install obsidian-tc` (which installs optional dependencies by default) has it.
-  Installs that ship no `node_modules`, such as the container image and the `.mcpb` bundle, do not:
-  there `backend: "redis"` refuses at startup with the install hint, and you either extend the image
-  with `@redis/client` or use `sqlite`.
+  bundle, so each way of running the server treats `backend: "redis"` differently:
+
+  | Install | Redis backend | Notes |
+  | --- | --- | --- |
+  | npm (`npm install obsidian-tc`) | supported | optional dependencies install by default; if yours are disabled, `npm install @redis/client` |
+  | Container image (GHCR) | supported | the image ships the pinned `@redis/client` next to the bundle, nothing to install |
+  | `.mcpb` desktop bundle | not supported | single-user, no `node_modules`: `backend: "redis"` refuses at startup with the install hint. Use `memory` or `sqlite` |
+
 - **Boot refusal.** A missing URL, or a missing `@redis/client`, stops the server at startup with
   the exact remedy. An unreachable Redis at startup does **not**: that is an outage, handled by the
   failure policy.
