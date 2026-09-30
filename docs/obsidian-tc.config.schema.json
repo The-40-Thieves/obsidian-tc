@@ -2317,6 +2317,48 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "memoryOrphans": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "Run the memory orphan sweep. With only this on, it removes DANGLING rows: a memory_relations row whose source or target entity no longer exists, and a memory_observation_intervals row whose entity no longer exists. Both are unreachable by every reader. It never deletes an entity that merely has no relations. Set false to turn the whole sweep off, including the opt-in classes below. Also requires maintenance.enabled.",
+              "type": "boolean"
+            },
+            "intervalMs": {
+              "default": 86400000,
+              "description": "Milliseconds between memory orphan sweeps (default: daily).",
+              "type": "integer",
+              "minimum": 60000,
+              "maximum": 9007199254740991
+            },
+            "batchSize": {
+              "default": 500,
+              "description": "Maximum rows deleted per write transaction, so a large backlog is drained in short lock holds rather than one long one. A class stops after 100 batches per run and resumes on the next run.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 5000
+            },
+            "retiredRetentionDays": {
+              "description": "OPT-IN, off when absent. Days after retirement (measured from updated_at) before a status=retired entity is deleted, and only when it is empty: blank observations, no interval rows, no relation in either direction, and no materialized note (vault_path unset). A retired entity that still holds any fact, edge or note is never deleted.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "removedVaultRetentionDays": {
+              "description": "OPT-IN, off when absent. Days since an entity was last updated before it is deleted, together with its relations and intervals, when its vault_id is not in the live vault registry (the configured vaults plus any added with add_vault). Off by default because a vault missing from the registry can also be a config typo or an unmounted drive; never runs when the registry is empty. Keep it long.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "dryRun": {
+              "default": false,
+              "description": "Count what each class WOULD delete, log it, and delete nothing. The metric counter is not incremented for a dry run.",
+              "type": "boolean"
+            }
+          }
         }
       }
     },

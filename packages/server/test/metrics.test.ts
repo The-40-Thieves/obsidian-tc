@@ -37,6 +37,9 @@ const COUNTERS = [
   // THE-585 (#5): busy-class write-transaction failures. reason=snapshot is a bug report — see
   // the counter's help text and src/db/txn.ts.
   "obsidian_tc_sql_busy_total",
+  // The periodic memory-orphan sweep's per-class delete count. Only the dangling_* classes move by
+  // default; the other four need an operator-set retention window.
+  "obsidian_tc_memory_orphans_swept_total",
   // THE-417 Phase 2: the readable half of warn-mode. Any non-zero value names a tool whose
   // declared contract has drifted from what it returns; there is no benign case.
   "obsidian_tc_output_schema_drift_total",
@@ -113,14 +116,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 31 counters, 4 histograms, 18 gauges", async () => {
+  it("registers the full catalog: 32 counters, 4 histograms, 18 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(53);
+    expect(new Set(declared).size).toBe(54);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -238,6 +241,16 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     expect(text).toContain(
       'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 5',
     );
+  });
+
+  it("counts memory-orphan deletes by class, guarded on n > 0", async () => {
+    const r = new MetricsRecorder();
+    r.incMemoryOrphansSwept("dangling_relations", 3);
+    r.incMemoryOrphansSwept("dangling_relations", 2);
+    r.incMemoryOrphansSwept("retired_entities", 0); // a sweep that found nothing: no series
+    const text = await r.metrics();
+    expect(text).toContain('obsidian_tc_memory_orphans_swept_total{class="dangling_relations"} 5');
+    expect(text).not.toContain('class="retired_entities"');
   });
 
   it("counts vec_chunks rebuild events by reason, with no vault label (THE-612)", async () => {

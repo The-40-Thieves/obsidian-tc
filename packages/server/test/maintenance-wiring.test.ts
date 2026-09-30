@@ -159,6 +159,85 @@ describe("sweepTotal — every arm joins the total", () => {
   });
 });
 
+describe("configureMaintenance — memory orphan sweep", () => {
+  const memoryOrphans = { enabled: true, intervalMs: 120_000, batchSize: 100, dryRun: false };
+  const seedDangling = (db: Database) => {
+    db.exec("PRAGMA foreign_keys = OFF");
+    db.prepare(
+      "INSERT INTO memory_relations (source_id, target_id, relation_type, created_at) VALUES ('x', 'y', 'r', 1)",
+    ).run();
+  };
+  const depsWith = (db: Database, m: MorgianaEmitter, mo?: typeof memoryOrphans & object) => ({
+    ...baseDeps(db, m),
+    maintenance: { ...baseDeps(db, m).maintenance, ...(mo ? { memoryOrphans: mo } : {}) },
+  });
+
+  it("registers its own job at memoryOrphans.intervalMs, sweeps, logs once, and feeds the counter", async () => {
+    vi.useFakeTimers();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const db = freshDb();
+      seedDangling(db);
+      const { m } = fakeMorgiana();
+      const incs: Array<[string, number]> = [];
+      const sched = new Scheduler();
+      configureMaintenance(sched, {
+        ...depsWith(db, m, memoryOrphans),
+        metrics: { incMemoryOrphansSwept: (c, n) => incs.push([c, n]) },
+      });
+      expect(sched.stats().map((s) => s.job)).toContain("memory-orphan-sweep");
+      sched.start();
+      await vi.advanceTimersByTimeAsync(121_000);
+      await sched.stop();
+      expect(db.prepare("SELECT COUNT(*) AS n FROM memory_relations").get()).toEqual({ n: 0 });
+      expect(incs).toContainEqual(["dangling_relations", 1]);
+      const lines = stderr.mock.calls
+        .map((c) => String(c[0]))
+        .filter((l) => l.includes("memory orphan sweep"));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("dangling_relations=1");
+    } finally {
+      stderr.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("dryRun: logs counts, deletes nothing, and does not touch the counter", async () => {
+    vi.useFakeTimers();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const db = freshDb();
+      seedDangling(db);
+      const { m } = fakeMorgiana();
+      const incs: Array<[string, number]> = [];
+      const sched = new Scheduler();
+      configureMaintenance(sched, {
+        ...depsWith(db, m, { ...memoryOrphans, dryRun: true }),
+        metrics: { incMemoryOrphansSwept: (c, n) => incs.push([c, n]) },
+      });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(121_000);
+      await sched.stop();
+      expect(db.prepare("SELECT COUNT(*) AS n FROM memory_relations").get()).toEqual({ n: 1 });
+      expect(incs).toEqual([]);
+      expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toContain("(dry run)");
+    } finally {
+      stderr.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("is not registered when memoryOrphans.enabled is false or the block is absent", () => {
+    const db = freshDb();
+    const { m } = fakeMorgiana();
+    for (const mo of [{ ...memoryOrphans, enabled: false }, undefined]) {
+      const sched = new Scheduler();
+      configureMaintenance(sched, depsWith(db, m, mo));
+      expect(sched.stats().map((s) => s.job)).not.toContain("memory-orphan-sweep");
+    }
+  });
+});
+
 describe("configureMaintenance", () => {
   it("registers nothing when maintenance is disabled, and says so", async () => {
     vi.useFakeTimers();

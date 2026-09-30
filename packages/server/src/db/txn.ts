@@ -178,6 +178,8 @@ export type WriteTxnLabel =
   | "memory_rename"
   | "memory_unlink"
   | "memory_delete"
+  // The periodic memory-orphan sweep: one bounded delete batch per transaction.
+  | "memory_orphan_sweep"
   // THE-726: the task-verdict projection. One label for the stamp AND the -1 demotion, because
   // they are one transaction by requirement: a crash between them would leave a session's episodes
   // condemned but still promoted, which is exactly the hold-rule bypass the demotion exists to

@@ -256,7 +256,13 @@ until this generator existed, by which point five entire defaulted blocks had go
     "episodesRetentionDays": 90,
     "retrievalsRetentionDays": 365,
     "jobsFailedRetentionDays": 30,
-    "captureQueueRetentionDays": 30
+    "captureQueueRetentionDays": 30,
+    "memoryOrphans": {
+      "enabled": true,
+      "intervalMs": 86400000,
+      "batchSize": 500,
+      "dryRun": false
+    }
   },
   "scheduler": {},
   "watch": {
