@@ -25,16 +25,45 @@ fresh confirmation (`tc.elicit.requested`) is required for the next sensitive
 call.
 
 **Stale confirmations are refused.** An approval covers the state of the target as it was
-when the request was raised, not just the tool and arguments. When the call's target paths
-(the ones the tool declares for the folder ACL) change between the request and the
-redemption, whether by an edit, an mtime change, or a note appearing or disappearing, the
-server answers `replay_drift` and applies nothing. The token is spent; re-issue the original
-call with no token to request a fresh confirmation. This holds for every route a
-confirmation can arrive by: a token minted by `obsidian-tc elicit`, the stdio form round
-trip, the 2026-07-28 `requestState`, and the lean facade's `call_capability`. A token minted
-with no raised request behind it, and tools that declare no target paths (`execute_command`,
-`git_commit`, `trigger_quickadd`, `session_rerun`, `reset_vault_cache`, `delete_entity`,
-`rewrite_link`, `ocr_bulk`), are bound to the arguments alone.
+when the request was raised, not just the tool and arguments. Every HITL-gated tool declares
+what its confirmation is about, either the target paths it declares for the folder ACL
+(`pathAcl`) or a `confirmationTargets` function on its definition. When that state changes
+between the request and the redemption, the server answers `replay_drift` and applies nothing.
+The token is spent; re-issue the original call with no token to request a fresh confirmation.
+This holds for every route a confirmation can arrive by: a token minted by `obsidian-tc elicit`,
+the stdio form round trip, the 2026-07-28 `requestState`, and the lean facade's
+`call_capability`.
+
+| Tool | What the confirmation is bound to |
+| --- | --- |
+| `rewrite_link` | the set of notes the rewrite would touch, and their content: a note changing, or a new note gaining a link to the target |
+| `ocr_bulk` | the attachments it would read: a file replaced, or one added under `root` |
+| `git_commit` | HEAD and the staged index (path, mode, blob id); stat-only index refreshes are not drift |
+| `reset_vault_cache` | the chunk and committed-capture counts and the embedding generations it would clear |
+| `delete_entity` | the entity row, its relations and its materialized note |
+| `session_rerun` | the session row and, once the session has ended, its recorded trace |
+| `execute_command`, `trigger_quickadd` | nothing (`confirmationTargets: "none"`) |
+
+Registering a HITL-gated tool with neither `pathAcl` nor `confirmationTargets` throws at
+startup, so a new gated tool cannot silently bind on the arguments alone.
+
+Residuals, stated rather than hidden. `execute_command` and `trigger_quickadd` produce effects
+inside Obsidian that the server cannot observe, so they bind on `args_hash` alone. `git_commit`
+reads the vault's own `.git` on the server host; when the Obsidian Git bridge runs against a
+repository on another machine and the vault has no repo here, that binding is empty. An open
+session's trace is not part of `session_rerun`'s binding, because it grows with the calls around
+the request itself. `reset_vault_cache` leaves out the event log and idempotency keys, which the
+confirmation flow writes itself. A vault with no root wired (some embedded uses) cannot bind
+path-based targets.
+
+**A token minted with no raised request is refused by the CLI.** `obsidian-tc elicit` holds an
+`args_hash`, not the call's arguments, so it cannot recompute what a tool's `confirmationTargets`
+fingerprints; it binds the token to the state recorded when the server raised `elicit_required`
+(for every tool, including the `"none"` ones, which record an empty fingerprint). With no raised
+request behind the hash it would mint a token that redeems on `args_hash` alone, so it exits
+with an error asking you to run the blocked call again first (`--caller` must match the caller
+that was blocked). Library callers of `issueElicitToken` are unchanged: a token issued directly
+with no raised request stays unbound.
 
 The elicitation thresholds are **hardcoded floors** — a client cannot configure
 them away. This keeps the confirmation gate present even under a permissive config.

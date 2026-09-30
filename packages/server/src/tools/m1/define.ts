@@ -44,6 +44,8 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
    *  own enforcePathAcl calls; paths a handler computes at runtime (not derivable from input, e.g.
    *  backlink-rewrite targets) stay handler-enforced only. */
   pathAcl?: (input: z.infer<S>) => ReadonlyArray<{ op: AclOp; path: string }>;
+  /** See ToolDefinition.confirmationTargets. */
+  confirmationTargets?: ToolDefinition<z.infer<S>>["confirmationTargets"];
   handler: (input: z.infer<S>, ctx: CallerContext) => O | Promise<O>;
 }
 

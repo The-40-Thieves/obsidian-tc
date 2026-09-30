@@ -38,6 +38,7 @@ function registerNoteMutate(reg: ToolRegistry): void {
     inputSchema: z.object({ action: z.enum(["read", "delete"]), path: z.string() }).strict(),
     requiredScopes: ["read:notes", "delete:notes"],
     destructive: true,
+    confirmationTargets: "none",
     resolvePolicy: (input: { action: "read" | "delete" }) =>
       input.action === "read"
         ? { requiredScopes: ["read:notes"], destructive: false }

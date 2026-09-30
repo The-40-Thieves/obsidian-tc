@@ -661,6 +661,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // registry, so the surface is incomplete at the moment this object is built.
     toolSurface: () => ({ config: registry.visibilityConfig(), tools: registry.list() }),
     rerun: deps.sandboxRerun,
+    cacheDir: config.cacheDir,
   };
   registerM6Tools(registry, {
     ...m6Deps,

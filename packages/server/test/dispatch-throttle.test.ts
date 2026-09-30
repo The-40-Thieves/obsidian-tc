@@ -20,6 +20,7 @@ const ctx = (now: () => number, o: Partial<CallerContext> = {}): CallerContext =
 });
 
 const tool = (name: string, requiredScopes: string[]) => ({
+  confirmationTargets: "none" as const,
   name,
   description: "",
   inputSchema: z.object({}).strict(),

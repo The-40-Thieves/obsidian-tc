@@ -316,6 +316,7 @@ function destructiveTool(name: string): ToolDefinition {
     inputSchema: z.object({}),
     requiredScopes: [],
     destructive: true,
+    confirmationTargets: "none",
     handler: () => ({ done: true }),
   } as unknown as ToolDefinition;
 }

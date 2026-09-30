@@ -6,6 +6,9 @@
 // floor: OCR is expensive). Plugin id is "text-extractor".
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import type { FolderAcl } from "../../acl";
+import { fingerprintTargets } from "../../elicit-drift";
+import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
@@ -22,6 +25,24 @@ const DEFAULT_EXTS = [".pdf", ".png", ".jpg", ".jpeg", ".tiff"];
 // .passthrough() is the honest schema beyond the fields the handler itself guarantees.
 const OcrAttachmentOutput = z.object({ vault: z.string(), path: z.string() }).passthrough();
 const OcrBulkOutput = z.object({ vault: z.string(), requested: z.number().int() }).passthrough();
+
+/** The ACL-filtered attachment paths an `ocr_bulk` call would OCR, from explicit `paths` or a walk. */
+function ocrCandidates(
+  root: string,
+  acl: FolderAcl | undefined,
+  input: { paths?: string[]; root?: string; extensions?: string[] },
+): string[] {
+  const sub = input.root ? normalizeVaultPath(input.root) : undefined;
+  if (sub) enforcePathAcl(acl, "read", sub, root);
+  if (input.paths?.length) {
+    const candidates = input.paths.map(normalizeVaultPath);
+    for (const p of candidates) enforcePathAcl(acl, "read", p, root);
+    return candidates;
+  }
+  return walkVault(root, { sub, extensions: input.extensions ?? DEFAULT_EXTS })
+    .map((e) => e.relPath)
+    .filter((rel) => readableRel(acl, rel));
+}
 
 export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -84,21 +105,14 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
       // confirmation like every other bulk tool, without making this read-side tool
       // mutating (a bulk:* scope would). read:ocr still governs the grant + read ACL.
       scopeClass: "bulk",
+      // The attachments a run would read: a file replaced, or one added under `root`, moves it.
+      confirmationTargets: (input, { ctx, root }) =>
+        root
+          ? (fingerprintTargets(root, ocrCandidates(root, ctx.acl, input)) ?? argsHash("state", []))
+          : null,
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const sub = input.root ? normalizeVaultPath(input.root) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
-        const exts = input.extensions ?? DEFAULT_EXTS;
-
-        let candidates: string[];
-        if (input.paths?.length) {
-          candidates = input.paths.map(normalizeVaultPath);
-          for (const p of candidates) enforcePathAcl(ctx.acl, "read", p, v.root);
-        } else {
-          candidates = walkVault(v.root, { sub, extensions: exts })
-            .map((e) => e.relPath)
-            .filter((rel) => readableRel(ctx.acl, rel));
-        }
+        const candidates = ocrCandidates(v.root, ctx.acl, input);
 
         requireConfirmation(ctx, "ocr_bulk", input, true, {
           count: candidates.length,

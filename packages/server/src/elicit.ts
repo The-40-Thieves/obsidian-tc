@@ -52,7 +52,9 @@ export interface IssueElicitInput {
 const REQUEST_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /** Record the state fingerprint a call's `elicit_required` was raised against, keyed the way a token
- *  is later minted for it (vault + args_hash + caller). Upsert: the newest request wins. */
+ *  is later minted for it (vault + args_hash + caller). Upsert: the newest request wins. An empty
+ *  `stateFp` records that a request WAS raised with nothing to bind (a tool declaring
+ *  `confirmationTargets: "none"`), which is what lets the headless mint tell it from no request. */
 export function recordElicitRequest(
   db: Database,
   input: {
@@ -73,18 +75,27 @@ export function recordElicitRequest(
   db.prepare("DELETE FROM elicit_requests WHERE raised_at < ?").run(now - REQUEST_RETENTION_MS);
 }
 
-function requestedStateFp(
+function requestedRow(
   db: Database,
   vaultId: string,
   argsHash: string,
   caller: string | null,
-): string | null {
-  const row = db
+): { state_fp: string } | undefined {
+  return db
     .prepare(
       "SELECT state_fp FROM elicit_requests WHERE vault_id = ? AND args_hash = ? AND caller = ?",
     )
     .get(vaultId, argsHash, caller ?? "") as { state_fp: string } | undefined;
-  return row?.state_fp ?? null;
+}
+
+/** Whether `elicit_required` was raised for this (vault, args_hash, caller) within retention. */
+export function hasRaisedElicitRequest(
+  db: Database,
+  vaultId: string,
+  argsHash: string,
+  caller: string | null,
+): boolean {
+  return requestedRow(db, vaultId, argsHash, caller) !== undefined;
 }
 
 /**
@@ -101,14 +112,21 @@ export function elicitRequiredError(
   details: Record<string, unknown>,
 ): ObsidianTcError {
   const stateFp = probe?.() ?? null;
-  if (stateFp !== null) {
+  const record = () =>
     recordElicitRequest(ctx.db, {
       vaultId: ctx.vaultId,
       argsHash,
       caller: ctx.caller,
-      stateFp,
+      stateFp: stateFp ?? "",
       now: ctx.now,
     });
+  if (stateFp !== null) record();
+  else {
+    // Only the headless mint reads an empty row (as "a request was raised"); losing it fails that
+    // mint closed and must not turn this `elicit_required` into an internal error.
+    try {
+      record();
+    } catch {}
   }
   return err.elicitRequired("human confirmation required", {
     ...details,
@@ -141,7 +159,7 @@ export function issueElicitToken(db: Database, input: IssueElicitInput): string 
     input.caller,
     now,
     now + ttlMs,
-    requestedStateFp(db, input.vaultId, input.argsHash, input.caller),
+    requestedRow(db, input.vaultId, input.argsHash, input.caller)?.state_fp || null,
   );
   return token;
 }

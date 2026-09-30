@@ -21,6 +21,7 @@ function ctx(overrides: Partial<CallerContext> = {}): CallerContext {
 }
 
 const tool = (name: string, requiredScopes: string[], handler: () => unknown) => ({
+  confirmationTargets: "none" as const,
   name,
   description: "",
   inputSchema: z.object({}).strict(),

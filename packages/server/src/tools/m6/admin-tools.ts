@@ -10,6 +10,8 @@
 import { err, parseScope, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
+import { fingerprintTargets } from "../../elicit-drift";
+import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import { explainVisibility } from "../../mcp/visibility";
 import { evaluatePathAcl, pathScopesSatisfied } from "../../vault/acl-path";
@@ -576,6 +578,17 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       inputSchema: SessionRerunInput,
       outputSchema: SessionRerunOutput,
       requiredScopes: ["admin:rerun"],
+      // The session row and, once it has ended, its recorded trace. An open session keeps appending
+      // the calls around this one (including this request), so its trace is not a stable thing to bind.
+      confirmationTargets: (input, { ctx, vaultId, root }) => {
+        const s = getSession(ctx.db, input.session_id);
+        if (!s || s.vault_id !== vaultId) return argsHash("state", "absent");
+        const traceRoot = s.trace_store === "cache" ? deps.cacheDir : root;
+        const trace =
+          s.ended_at !== null && traceRoot ? fingerprintTargets(traceRoot, [s.trace_path]) : null;
+        const { ended_at, trace_path, trace_store, metadata_json } = s;
+        return argsHash("state", { ended_at, trace_path, trace_store, metadata_json, trace });
+      },
       handler: async (input, ctx) => {
         const rerun = deps.rerun;
         // Unwired dep must FAIL, not silently degrade — same discipline inspect_visibility's

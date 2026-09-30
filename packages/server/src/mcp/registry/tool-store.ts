@@ -1,5 +1,6 @@
 import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { isListed, type VisibilityCaller } from "../visibility";
+import { assertConfirmationTargetsDeclared } from "./hitl-declaration";
 import type { ToolDefinition } from "./types";
 
 /**
@@ -21,6 +22,7 @@ export class ToolStore {
   // biome-ignore lint/suspicious/noExplicitAny: accepts any specific ToolDefinition for storage in the heterogeneous registry (see the tools map above).
   register(def: ToolDefinition<any, any>): void {
     if (this.tools.has(def.name)) throw new Error(`duplicate tool: ${def.name}`);
+    assertConfirmationTargetsDeclared(def);
     this.tools.set(def.name, def);
   }
 

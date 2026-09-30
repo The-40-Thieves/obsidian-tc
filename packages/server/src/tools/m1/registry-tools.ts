@@ -7,6 +7,7 @@ import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { loadConfig } from "../../config/load";
 import type { Database } from "../../db/types";
+import { argsHash } from "../../hash";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
@@ -141,6 +142,36 @@ const ResetInput = z
   })
   .strict();
 
+/**
+ * What a `reset_vault_cache` call would clear, as the rows it drops: chunk and capture counts plus
+ * the embedding generations (model/dimensions/active) per the `include` flags. `idempotency_keys`
+ * and `event_log` are left out on purpose: the confirmation flow writes to both itself (the
+ * request's audit row, the redeeming call's idempotency claim), so counting them would drift on
+ * every redemption.
+ */
+function cacheResetState(
+  db: Database,
+  vaultId: string,
+  inc: z.infer<typeof ResetInput>["include"],
+): string {
+  const count = (sql: string): number => (db.prepare(sql).get(vaultId) as { n: number }).n;
+  const state: Record<string, unknown> = {};
+  if (inc.chunks) state.chunks = count("SELECT COUNT(*) AS n FROM chunks WHERE vault_id = ?");
+  if (inc.chunks || inc.embeddings !== false)
+    state.embeddings = db
+      .prepare(
+        `SELECT model, dimensions, is_active, COUNT(*) AS n FROM chunk_embeddings
+         WHERE chunk_id IN (SELECT id FROM chunks WHERE vault_id = ?)
+         GROUP BY model, dimensions, is_active ORDER BY model, dimensions, is_active`,
+      )
+      .all(vaultId);
+  if (inc.capture_committed)
+    state.capture_committed = count(
+      "SELECT COUNT(*) AS n FROM capture_queue WHERE vault_id = ? AND committed_at IS NOT NULL",
+    );
+  return argsHash("state", state);
+}
+
 export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -269,6 +300,8 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       outputSchema: ResetVaultCacheOutput,
       requiredScopes: ["admin:vault"],
       destructive: true,
+      confirmationTargets: (input, { ctx, vaultId }) =>
+        cacheResetState(ctx.db, vaultId, input.include),
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const inc = input.include;

@@ -89,6 +89,17 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Security
 
+- **`replay_drift` now covers the eight HITL-gated tools that bound on `args_hash` alone.** A
+  gated tool declares what its confirmation is about through `pathAcl` or a new per-tool
+  `confirmationTargets` function. `rewrite_link` binds the set of notes it would rewrite, `ocr_bulk` the
+  attachments it would read, `git_commit` HEAD and the staged index, `reset_vault_cache` the rows and
+  embedding generations it would clear, `delete_entity` the entity row, relations and note, and
+  `session_rerun` the session and its recorded trace; a change since the request is refused as
+  `replay_drift` with nothing applied. `execute_command` and `trigger_quickadd` declare
+  `confirmationTargets: "none"` (opaque Obsidian side effects) and stay bound to the arguments.
+  Registering a HITL-gated tool with neither declaration now throws at startup.
+  `obsidian-tc elicit` refuses to mint a token for an `args_hash` the server never raised a request
+  for, since such a token carried no state binding.
 - **Every release artifact, and the GHCR image, is now signed keylessly with cosign (Sigstore).** A new
   `sign-artifacts` job in `publish.yml` (job-scoped `id-token: write` + `contents: read`, no checkout,
   cosign v3.1.3 via a SHA-pinned `sigstore/cosign-installer`) signs the 8 native `.node` prebuilds, the 5

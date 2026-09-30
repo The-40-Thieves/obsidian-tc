@@ -167,6 +167,9 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
         .strict(),
       outputSchema: ExecuteCommandOutput,
       requiredScopes: ["execute:command"],
+      // Opaque: a command's effects happen inside Obsidian and are not observable from here, so the
+      // confirmation binds on args_hash alone (documented residual, hitl-elicit.md).
+      confirmationTargets: "none",
       // Deny-by-default policy runs in precheck (D5): dispatch invokes it AFTER scope/ACL
       // and BEFORE the HITL elicit consumption, so a disabled / not-allowlisted command is
       // rejected without burning the single-use confirmation token.

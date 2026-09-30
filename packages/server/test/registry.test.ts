@@ -55,6 +55,7 @@ function reg() {
     inputSchema: z.object({}).strict(),
     requiredScopes: ["delete:notes"],
     destructive: true,
+    confirmationTargets: "none",
     handler: () => ({ deleted: true }),
   });
   r.register({

@@ -57,6 +57,7 @@ function toolWith(
     ...testTool(name),
     requiredScopes: opts.requiredScopes ?? [],
     destructive: opts.destructive,
+    confirmationTargets: "none",
     idempotent: opts.idempotent,
     acceptsIdempotencyKey: opts.acceptsIdempotencyKey,
   };

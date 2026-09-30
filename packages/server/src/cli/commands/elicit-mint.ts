@@ -34,7 +34,7 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type AuditEvent, writeEvent } from "../../audit";
 import { openConfiguredDatabase } from "../../db/open";
 import type { Database } from "../../db/types";
-import { issueElicitToken } from "../../elicit";
+import { hasRaisedElicitRequest, issueElicitToken } from "../../elicit";
 import { CliError } from "../args";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
@@ -153,6 +153,32 @@ export function mintElicitAudited(
   return token;
 }
 
+/**
+ * The mint `obsidian-tc elicit` performs: only for a request the server actually raised.
+ *
+ * The CLI holds an args_hash, not the arguments, so it cannot recompute the state a tool's
+ * `confirmationTargets` (or `pathAcl`) fingerprints. The state the token binds to is therefore the
+ * one recorded when `elicit_required` was raised (elicit_requests, see issueElicitToken). A mint
+ * with no raised request behind it would carry no fingerprint and redeem on args_hash alone,
+ * approving a state nobody was shown — so it is refused, for every tool: a request raised by a
+ * `confirmationTargets: "none"` tool records an empty fingerprint, which counts.
+ */
+export function mintElicitForRaisedRequest(
+  db: Database,
+  plan: ElicitMintPlan,
+  opts: { now?: () => number } = {},
+): string {
+  if (!hasRaisedElicitRequest(db, plan.vaultId, plan.argsHash, plan.caller)) {
+    throw new CliError(
+      `no raised request for args_hash ${plan.argsHash} (vault ${plan.vaultId}, caller ` +
+        `${plan.caller}): the confirmation is bound to the state the request was raised against, ` +
+        "which only the server can compute. Run the blocked tool call again to raise a request, then " +
+        "mint for the args_hash it returns (--caller must match the requesting caller).",
+    );
+  }
+  return mintElicitAudited(db, plan, opts);
+}
+
 export async function run_elicit_mint(cmd: ElicitMintCmd): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.configPath);
   const plan = planElicitMint(cfg, cmd);
@@ -164,7 +190,7 @@ export async function run_elicit_mint(cmd: ElicitMintCmd): Promise<void> {
   mkdirSync(cfg.cacheDir, { recursive: true });
   const db = await openConfiguredDatabase(cfg, "cache.db");
   try {
-    const token = mintElicitAudited(db, plan);
+    const token = mintElicitForRaisedRequest(db, plan);
     if (cmd.json) {
       // The token rides in this object too — --json is for a caller that is going to parse it out
       // of stdout programmatically either way, same tradeoff `token mint --json` already makes.
