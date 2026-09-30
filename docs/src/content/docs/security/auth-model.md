@@ -104,7 +104,7 @@ A retiring key stops verifying at its `retire_after` instant, exactly. The verif
 `retire_after` on every request, so the window is exact whether or not anything has yet rewritten
 the row from `retiring` to `retired`. That rewrite (the *reaper*) is housekeeping that keeps
 `auth list --keys` and the `obsidian_tc_auth_keys` gauge truthful, and it runs on `rotate-key`, on
-server start and on the periodic maintenance sweep (`auth_keys_retired` in the sweep counts).
+server start and on the periodic maintenance sweep (`signing_keys_retired` in the sweep counts).
 Nothing about verification waits for it.
 
 `obsidian-tc doctor` (`auth.registry`) lists each retiring key with its time remaining and warns

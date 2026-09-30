@@ -11,7 +11,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 - **Signing-key rotation grace window, asymmetric keys and a JWKS.** `auth.rotationGraceSeconds`
   (default 0, maximum 7 days) is the grace window `auth rotate-key` uses when `--grace` is omitted;
   an explicit `--grace`, including 0, wins. A reaper persists `retiring` to `retired` on rotate, on
-  server start and in the periodic maintenance sweep (`auth_keys_retired`); the verifier already
+  server start and in the periodic maintenance sweep (`signing_keys_retired`); the verifier already
   refuses a key at `retire_after` and never depends on it. `doctor` lists each retiring key with its
   time remaining and warns on a long window; `obsidian_tc_auth_keys{state}` is the new gauge.
   `token mint --kid <kid>` pins a mint to the active key (retiring, retired and unknown kids are

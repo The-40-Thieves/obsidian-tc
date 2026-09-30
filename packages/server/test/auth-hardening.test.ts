@@ -61,8 +61,10 @@ describe("jwksUri — a key source that can rotate", () => {
     expect(parse({ mode: "jwt", jwksUri: "not-a-url", audience: "http://x" }).success).toBe(false);
   });
 
-  it("still refuses jwt with no key source at all", () => {
-    expect(parse({ mode: "jwt", audience: "http://x" }).success).toBe(false);
+  it("parses jwt with no static key source: the auth registry may hold the only key", () => {
+    // The schema cannot see the registry, so the refusal moved to boot: wireTransports throws when
+    // there is no secret, no JWKS and no registry key (test/transport-wiring-auth-key.test.ts).
+    expect(parse({ mode: "jwt", audience: "http://x" }).success).toBe(true);
   });
 });
 

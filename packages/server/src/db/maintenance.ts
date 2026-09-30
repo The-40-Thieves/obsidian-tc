@@ -56,7 +56,7 @@ export interface SweepCounts {
   /** Auth-registry signing keys persisted `retiring` -> `retired` because their grace window
    *  elapsed. Housekeeping only: the verifier refuses an elapsed window itself, so this count is
    *  0 for a deployment without a registry and never affects which tokens verify. */
-  auth_keys_retired: number;
+  signing_keys_retired: number;
 }
 
 /** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
@@ -306,8 +306,8 @@ export function runMaintenanceSweep(
      *  its own doc comment. Omitted -> no callback, unchanged behavior. */
     onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
     /** Persist elapsed signing-key grace windows (`AuthRegistry.reapRetired`, which lives in
-     *  auth.db, not this cache.db) and return how many keys moved. Omitted -> the arm is skipped
-     *  and `auth_keys_retired` is 0. A throw is reported and counted as 0: the verifier never
+     *  the registry's own database, not this cache.db) and return how many keys moved. Omitted -> the arm is skipped
+     *  and `signing_keys_retired` is 0. A throw is reported and counted as 0: the verifier never
      *  depends on this arm, so it must not take the rest of the sweep down. */
     reapAuthKeys?: () => number;
   },
@@ -441,7 +441,7 @@ export function runMaintenanceSweep(
     orphan_schedule_rows: orphanScheduleRows,
     fts_merged: ftsMerged,
     capture_queue: captureQueue,
-    auth_keys_retired: authKeysRetired,
+    signing_keys_retired: authKeysRetired,
   };
 }
 
