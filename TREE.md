@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,544 tracked code files · 285,586 lines.
+**Scale:** 1,544 tracked code files · 285,585 lines.
 
-TypeScript 262,777 · JavaScript 16,944 · Python 2,406 · SQL 2,154 · Rust 753 · Shell 552.
+TypeScript 262,776 · JavaScript 16,944 · Python 2,406 · SQL 2,154 · Rust 753 · Shell 552.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -90,7 +90,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `search/` | 64 | 13,603 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `cli/` | 58 | 10,070 | arg parsing + subcommands |
 | `experiential/` | 29 | 7,771 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 28 | 6,781 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 28 | 6,780 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 25 | 5,919 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 21 | 3,533 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 18 | 3,019 | filesystem primitives — paths, links, ACL, snapshots, prune |

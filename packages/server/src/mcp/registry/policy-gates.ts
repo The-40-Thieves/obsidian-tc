@@ -204,10 +204,9 @@ export async function runPrecheck<I>(
  * scope_class, vault); an unknown scope class is unlimited. `undefined` when no rateLimiter is
  * configured — the caller then skips the gate entirely, matching the original `if
  * (this.rateLimiter)` guard. The decision itself draws down the bucket (a shared backend does it
- * atomically, so concurrent processes cannot spend the same token);
- * the reaction to a rejected decision — metering, releasing an idempotency claim, throwing —
- * stays with the caller, since it needs dispatch-local state (idemClaimed/idemKey) this function
- * does not have.
+ * atomically, so concurrent processes cannot spend the same token); the reaction to a rejected
+ * decision — metering, releasing an idempotency claim, throwing — stays with the caller, since it
+ * needs dispatch-local state (idemClaimed/idemKey) this function does not have.
  */
 export async function checkThrottle(
   rateLimiter: RateLimiter | undefined,
