@@ -1,6 +1,9 @@
 // WP2 slice 1: M7Deps, moved verbatim out of knowledge-tools.ts. Types only — no runtime code
 // belongs here, and nothing here may import knowledge-tools.ts (the facade) or retrieval-runtime.ts.
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type {
+  VaultMemoryDefenseConfig,
+  VaultReflectConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
 import type { EmbeddingProvider } from "../../../embeddings";
@@ -133,6 +136,9 @@ export interface M7Deps {
    *  reaches disk. Absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** Per-vault `reflect` config (citationStyle / detail), the middle tier of reflect's precedence:
+   *  call argument > this > the shipped default. Absent -> no vault defaults. */
+  reflectDefaults?: (vaultId: string) => VaultReflectConfig;
   /** THE-497: the in-process query-product cache (retrieval.cache). Absent -> every retrieval
    *  surface below embeds and searches exactly as it did before, with no cache path taken. */
   retrievalCaches?: RetrievalCaches;

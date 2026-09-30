@@ -7,7 +7,11 @@
 // dependency); `wireDomainTools` (M2-M8) runs AFTER it, because M2's dataviewBridge / M3's
 // templaterBridge / M4 itself all read the composed M4Deps object bridge-wiring.ts returns.
 // See docs/design/runtime-gateway-seams.md for the extraction background.
-import type { ServerConfig, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type {
+  ServerConfig,
+  VaultMemoryDefenseConfig,
+  VaultReflectConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { DEFAULT_MEMORY_FOLDER, err } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
@@ -508,6 +512,8 @@ export interface DomainToolsDeps {
   traceFolderByVault: Map<string, string>;
   /** GH #994: per-vault memoryDefense config, present only for a vault that configured one. */
   memoryDefenseByVault: Map<string, VaultMemoryDefenseConfig>;
+  /** Per-vault reflect style defaults (citationStyle / detail), only for a vault that set them. */
+  reflectDefaultsByVault: Map<string, VaultReflectConfig>;
   /** GH #994: threaded to M5/M8 so their handlers can tag obsidian_tc_memory_defense_hits_total. */
   metrics?: MetricsRecorder;
   rateLimiter: RateLimiter;
@@ -721,6 +727,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // reflect.persist's memoryDefense guard — the SAME closure/metrics M5/M8 get above.
     memoryDefense,
     metrics: deps.metrics,
+    // reflect's per-vault citation_style / detail defaults (call arg > this > shipped default).
+    reflectDefaults: (vaultId) => deps.reflectDefaultsByVault.get(vaultId) ?? {},
     // THE-497: the query-product cache (dark unless retrieval.cache.enabled). Built ONCE per
     // process and shared across every dispatch.
     ...(config.retrieval.cache.enabled ? { retrievalCaches: deps.retrievalCaches } : {}),

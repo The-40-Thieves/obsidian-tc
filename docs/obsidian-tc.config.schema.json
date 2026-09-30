@@ -273,6 +273,29 @@
                 "type": "boolean"
               }
             }
+          },
+          "reflect": {
+            "description": "Per-vault defaults for the reflect tool's citation_style and detail arguments. A call argument beats this; absent means the shipped defaults (numeric, concise).",
+            "type": "object",
+            "properties": {
+              "citationStyle": {
+                "description": "Default `citation_style` for reflect on this vault when the call omits it. \"numeric\" keeps the [n] markers; \"wikilink\" renders each [n] as [[path]] in the answer and in a persisted note. Unset means numeric.",
+                "type": "string",
+                "enum": [
+                  "numeric",
+                  "wikilink"
+                ]
+              },
+              "detail": {
+                "description": "Default `detail` for reflect on this vault when the call omits it: how much the synthesis says. Unset means concise.",
+                "type": "string",
+                "enum": [
+                  "concise",
+                  "standard",
+                  "thorough"
+                ]
+              }
+            }
           }
         },
         "required": [
