@@ -160,6 +160,7 @@ const EVAL_EMBEDDING_PROVIDER_ALLOWLIST = [
   "export-rerank-pools.ts",
   "reembed-graph-context.ts",
   "run.ts",
+  "search-and-read-cost.ts",
   "the651-ceiling-probe.ts",
 ].sort();
 const EVAL_GATEWAY_CLIENT_ALLOWLIST = ["the651-ceiling-probe.ts"].sort();

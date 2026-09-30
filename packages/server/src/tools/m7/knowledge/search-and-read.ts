@@ -40,7 +40,7 @@ import { readVaultNote } from "../../m1/notes/read";
 import type { M7Deps } from "./deps";
 import { searchOneVault } from "./graph-search";
 import { cacheContextFor, type RetrievalRuntime } from "./retrieval-runtime";
-import { SearchAndReadOutput } from "./schemas";
+import { SearchAndReadOutput } from "./search-and-read-schemas";
 
 type Note = z.infer<typeof SearchAndReadOutput>["notes"][number];
 type ErrorItem = z.infer<typeof SearchAndReadOutput>["errors"][number];
