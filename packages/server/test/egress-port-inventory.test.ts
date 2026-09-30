@@ -161,6 +161,7 @@ const EVAL_EMBEDDING_PROVIDER_ALLOWLIST = [
   "reembed-graph-context.ts",
   "run.ts",
   "search-and-read-cost.ts",
+  "search-mode.ts",
   "the651-ceiling-probe.ts",
 ].sort();
 const EVAL_GATEWAY_CLIENT_ALLOWLIST = ["the651-ceiling-probe.ts"].sort();

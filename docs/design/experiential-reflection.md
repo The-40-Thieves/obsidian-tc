@@ -68,3 +68,23 @@ THE-718 removed the retrieval-evidence half of this extractor. THE-644 reopened 
 `evaluateEpisodes` had exactly two non-test call sites before this: its own definition and the manual `obsidian-tc reflect` CLI. Nothing wired it on a schedule the way `registerActivationRecompute` wires activation, so the promotion pass simply never happened unless an operator remembered to invoke it. Measured on the live store before this shipped: 337 of 337 episodes `pending`, zero eligible, across seventeen days of continuous capture.
 
 The consequence was not a stale number but a dark subsystem. `work_search` serves evaluator-approved rows only — that is its security contract, not a default — so with zero eligible rows it returned nothing, always. An empty result is indistinguishable from "nothing matched," which is exactly how this stayed invisible. SECURITY.md documents `pending` as "a short-lived state and not a quarantine"; seventeen days at 100% pending is a quarantine.
+
+## Reading `preferred.search_mode` (`retrieval.useSearchModePreference`)
+
+Until this reader existed, `preferred.search_mode` had a producer (`extractPreferences`) and no consumer on the serve path; only the operator's context export read the profile. `experiential/search-mode-preference.ts` is that consumer, dark behind `retrieval.useSearchModePreference` (default `false`). It is a default-selector for `search_vault` and nothing else: a call that names no `mode` may take the caller's stored mode instead of `auto`.
+
+**Only `search_vault` is wired, because it is the only search tool that chooses a retrieval mode.** The other search tools each run one fixed engine. `search_and_read` also has a `mode` input, but it is output granularity (`note` or `section`), not a search mode. A test pins this set, so a new mode-taking tool cannot ship without the question being asked again.
+
+**The stored value is a tool name, and only one maps.** `search_text` becomes `mode=text`. `search_regex` deliberately maps to nothing: a regex is a pattern language, the query of a mode-less call is natural language, and forcing `regex` turns calls that work today into `invalid_input` (the ReDoS guard, bad syntax). `search_vault` is the router itself, and `vault_graph_search` and `search_omnisearch` are different engines. An unmapped value resolves to the default, never an error. An object query (jsonlogic) is never affected.
+
+**Precedence is explicit, then preference, then default.** An explicit `mode: "auto"` counts as explicit. To tell an omitted `mode` from an explicit `auto`, the input schema's `mode` is now `.optional()` with a `default: "auto"` annotation instead of `.default("auto")`; the advertised JSON Schema is byte-identical (pinned by a test).
+
+**Scope follows the key's declaration.** `preferred.search_mode` is `"caller"`-scoped, so the reader takes only the row whose `scope_caller` equals the caller (`''` for the unauthenticated stdio principal) and only for the vault being searched. `preferenceProfile` returns the shared `''` partition union the caller's own, which is right for a human-scoped key; the reader filters it down to the key's declared scope so a named caller never inherits the stdio principal's row.
+
+**The threshold is a floor, not a confidence.** `SEARCH_MODE_MIN_WEIGHT` is 3.0. The weight is one counter per row, not a per-value tally, and it is not a count of distinct windows: extraction re-reads the newest judged windows on every run and re-applies them, so a single unchanged window reaches 3.0 after five `obsidian-tc reflect` runs (measured; pinned by a test that must flip if extraction becomes idempotent).
+
+**Extraction stays CLI-only.** Scheduling it behind the flag was considered and rejected for that reason: a scheduled run would push every weight to its cap with no new evidence, turning the threshold into a clock. The prerequisite is a per-window watermark so extraction is idempotent; that is a change to the producer, not to this reader. Until then the profile is as fresh as the last `obsidian-tc reflect`, and an operator who turns the flag on should run it deliberately.
+
+**Diagnostics.** With the flag on, `search_vault` adds `mode_source` (`explicit`, `preference`, `default`) to its output, and `_explain.reason` names a stored preference. It is a label; no path, query or weight is reported. With the flag off nothing is added.
+
+**Evidence.** See ADR-0007's status section for the eval. The short version: forcing `text` removes `auto`'s semantic fallback, so the preference arm regresses retrieval on every corpus measured, and the flag stays off.
