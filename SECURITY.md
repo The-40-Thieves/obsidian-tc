@@ -110,6 +110,66 @@ assumptions:
   restricted caller and is zero by construction otherwise, so a live deployment can see the size
   of what the filter is protecting rather than taking the design argument on faith.
 
+## Verifying release artifacts
+
+Every binary artifact of a release is signed **keylessly** with [cosign](https://docs.sigstore.dev/cosign/):
+the `sign-artifacts` job in `.github/workflows/publish.yml` exchanges its GitHub Actions OIDC token for
+a short-lived Sigstore (Fulcio) certificate, signs, and records the signature in the public Rekor
+transparency log. No long-lived signing key exists to steal or rotate. The signed set is:
+
+- the five standalone binaries (`obsidian-tc-bun-<os>-<arch>`, `.exe` on Windows);
+- the plugin zips (`obsidian-tc-plugin-<version>.zip`, `obsidian-tc-legacy-final-notice-<version>.zip`) and the
+  three loose plugin files (`main.js`, `manifest.json`, `styles.css`);
+- the `.mcpb` bundle (`obsidian-tc.mcpb`);
+- the eight native prebuilds (`obsidian-tc-native.<triple>.node`), which ship through npm inside the
+  `@the-40-thieves/obsidian-tc-native-<triple>` platform packages rather than as release files.
+
+Each one has a `<file>.sigstore.json` bundle (signature, certificate and transparency-log proof in one
+file) attached to the GitHub Release next to it. Verify with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3.x:
+
+```sh
+cosign verify-blob \
+  --bundle obsidian-tc-bun-linux-x64.sigstore.json \
+  --certificate-identity-regexp '(?i)^https://github\.com/the-40-thieves/obsidian-tc/\.github/workflows/publish\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  obsidian-tc-bun-linux-x64
+```
+
+Success prints `Verified OK`. The identity pattern pins the signer to **this repository's `publish.yml`
+workflow running on a `v*` release tag** (the `(?i)` is because GitHub owner and repository names are
+case-insensitive); the issuer pins it to GitHub Actions. To pin one exact release, replace the version
+part of the pattern with that tag. A native prebuild is verified against the `.node` inside its npm
+package, which is byte-for-byte the file that was signed:
+
+```sh
+npm pack @the-40-thieves/obsidian-tc-native-linux-x64-gnu@<x.y.z>
+tar -xzf the-40-thieves-obsidian-tc-native-linux-x64-gnu-<x.y.z>.tgz package/obsidian-tc-native.linux-x64-gnu.node
+gh release download v<x.y.z> --repo The-40-Thieves/obsidian-tc --pattern 'obsidian-tc-native.linux-x64-gnu.node.sigstore.json'
+cosign verify-blob \
+  --bundle obsidian-tc-native.linux-x64-gnu.node.sigstore.json \
+  --certificate-identity-regexp '(?i)^https://github\.com/the-40-thieves/obsidian-tc/\.github/workflows/publish\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  package/obsidian-tc-native.linux-x64-gnu.node
+```
+
+How this relates to the other release records, none of which it replaces:
+
+- **SSH-signed release tags** (`docs/RELEASE-SIGNING.md`) authenticate *who started* a release: `verify-tag`
+  refuses any `v*` tag not signed by a key in `.github/allowed_signers`, and nothing else runs until it
+  passes. The cosign bundle authenticates *what the build produced*: the file's digest was signed by the
+  workflow that tag triggered.
+- **GitHub build-provenance attestations** exist for the three loose plugin files
+  (`gh attestation verify main.js --repo The-40-Thieves/obsidian-tc`); the cosign bundles cover those files too,
+  via a different record (Sigstore/Rekor rather than GitHub's attestation store).
+- **npm provenance** covers the npm packages themselves; the cosign bundles add the native prebuilds' bytes
+  as a standalone, offline-verifiable signature.
+- **`SHASUMS256.txt`** is an integrity list, not an authenticity proof: it is unsigned, so trust the
+  bundles, not the list.
+
+Not covered yet: the GHCR container image (`ghcr.io/the-40-thieves/obsidian-tc`) carries no cosign
+signature, and the un-prefixed plugin mirror release (`<x.y.z>`) carries the three plugin files without
+bundles; verify those files against the `v<x.y.z>` release, which holds identical bytes.
+
 ## Learned-state namespaces
 
 obsidian-tc accumulates several kinds of adaptive state. Each is scoped deliberately; this table makes

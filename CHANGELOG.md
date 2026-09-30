@@ -8,6 +8,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Structural test for the release signing job (`scripts/publish-signing.test.mjs`).** Pins that the
+  cosign installer is commit-pinned, the signing job holds exactly `id-token: write` + `contents: read`,
+  `draft-release` cannot run without it, and every artifact family has a signing step with an
+  existence floor.
 - **`reset_vault_cache`'s `include.embeddings` accepts `"inactive"` (#1025).** Previously a plain
   boolean that dropped every `chunk_embeddings` row for a vault; `"inactive"` now drops only rows
   for embedding generations the vault is no longer searching with (`is_active = 0` — the same
@@ -21,6 +25,22 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Requested scopes are intersected against the tool's own allow-list
   (`grantedScopes ∩ RERUN_SCOPES`) rather than trusted as-is, so a rerun can never grant itself
   more than a caller already holds.
+
+### Security
+
+- **Every release binary artifact is now signed keylessly with cosign (Sigstore).** A new
+  `sign-artifacts` job in `publish.yml` (its own job-scoped `id-token: write` + `contents: read`, no
+  checkout, cosign v3.1.3 via a SHA-pinned `sigstore/cosign-installer`) signs the 8 native `.node`
+  prebuilds, the 5 standalone binaries, both plugin zips, the three loose plugin files and the `.mcpb`,
+  each with `cosign sign-blob --bundle` (GitHub OIDC, Fulcio certificate, Rekor entry; no long-lived
+  key). Every bundle is verified in-job against the run's own workflow identity before it ships, an
+  artifact family that matches no files fails the job, and `draft-release` (now `needs:` the signing
+  job) attaches the 19 `<file>.sigstore.json` bundles next to the artifacts;
+  `scripts/check-release-assets.sh` asserts they landed. `SECURITY.md` documents the
+  `cosign verify-blob` command (identity pinned to this repository's `publish.yml` on a `v*` tag,
+  issuer `https://token.actions.githubusercontent.com`) and how the bundles relate to SSH-signed tags,
+  GitHub attestations and npm provenance. The container image is not signed yet. End-to-end proof
+  arrives with the next tagged release; nothing on a PR executes `publish.yml`.
 
 ### Fixed
 

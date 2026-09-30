@@ -110,8 +110,9 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
    ```sh
    npm view obsidian-tc version                 # 11 packages must all be at the new version
-   gh release view v<x.y.z> --json assets       # 11 assets: 5 binaries, plugin zip, .mcpb,
-                                                # SHASUMS256.txt, and 3 loose BRAT files
+   gh release view v<x.y.z> --json assets       # 31 assets: 5 binaries, plugin zip, legacy notice zip,
+                                                # .mcpb, SHASUMS256.txt, 3 loose BRAT files, and 19
+                                                # .sigstore.json bundles (one per signed file)
    docker manifest inspect ghcr.io/the-40-thieves/obsidian-tc:<x.y.z>   # amd64 + arm64
    ```
 
@@ -122,6 +123,17 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    - **`sha256sum -c SHASUMS256.txt` verifies NOTHING against downloaded assets** and still exits 0.
      The manifest carries build-time paths (`./mcpb/obsidian-tc.mcpb`), which match no downloaded
      file, so `-c` reports "no file was verified" rather than a mismatch. Compare a hash directly.
+   - **Spot-check one signature** (the release job already verifies all of them before attaching, so
+     this proves the *published* bundle, not the build). The full command, the pinned identity and
+     the native-prebuild variant are in `SECURITY.md` → *Verifying release artifacts*:
+
+     ```sh
+     gh release download v<x.y.z> --pattern 'obsidian-tc-bun-linux-x64*'
+     cosign verify-blob --bundle obsidian-tc-bun-linux-x64.sigstore.json \
+       --certificate-identity-regexp '(?i)^https://github\.com/the-40-thieves/obsidian-tc/\.github/workflows/publish\.yml@refs/tags/v.+$' \
+       --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+       obsidian-tc-bun-linux-x64
+     ```
 
 6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
    and its own job log is the primary signal, but confirm the entry actually landed rather than
@@ -196,7 +208,15 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   `styles.css` set for BRAT).
 - **`.mcpb` bundle** — the single-file MCPB server bundle.
 - **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64).
-- **Published GitHub Release** (`v<x.y.z>`) — binaries, plugin zip, and `SHASUMS256.txt`.
+- **Cosign signatures** — the `sign-artifacts` job signs every binary artifact keylessly (GitHub OIDC,
+  Sigstore Fulcio + Rekor; no key to manage) and re-verifies each bundle against the run's own workflow
+  identity before `draft-release` attaches it. Covers the 8 native `.node` prebuilds, the 5 standalone
+  binaries, both plugin zips, the 3 loose plugin files and the `.mcpb`: 19 `<file>.sigstore.json`
+  bundles. A family that matches no files fails the job; `check-release-assets.sh` then asserts the
+  bundles are attached. This is separate from, and does not replace, the SSH-signed tag
+  (`RELEASE-SIGNING.md`), the plugin's GitHub build-provenance attestation, or npm provenance. The
+  container image is not signed yet. Consumer verification is documented in `SECURITY.md`.
+- **Published GitHub Release** (`v<x.y.z>`) — binaries, plugin zips, `.mcpb`, `SHASUMS256.txt`, and the `.sigstore.json` bundles.
 - **Un-prefixed plugin release** (`<x.y.z>`, THE-955) — `mirror-plugin-release` mirrors the three
   loose companion-plugin assets (`main.js`, `manifest.json`, `styles.css`) from the `v<x.y.z>`
   release onto a second, `--latest=false` release tagged with the bare version — the tag

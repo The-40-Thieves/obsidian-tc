@@ -28,6 +28,9 @@ expected=$(grep -c . "$SUMS")
 
 attached=$(gh release view "$TAG" --json assets --jq '.assets[].name' | sort -u)
 
+# Every checksummed artifact, plus the three loose plugin files (which are not checksummed), must
+# also carry its keyless cosign bundle. A release that lost a `.sigstore.json` in the same upload
+# race would otherwise pass this gate while shipping an artifact nobody can verify.
 missing=0
 while read -r _sum path; do
   [ -n "${path:-}" ] || continue
@@ -36,11 +39,22 @@ while read -r _sum path; do
     echo "::error::release $TAG is missing checksummed asset: $name"
     missing=$((missing + 1))
   fi
+  if ! grep -qxF "$name.sigstore.json" <<<"$attached"; then
+    echo "::error::release $TAG is missing the cosign bundle for: $name"
+    missing=$((missing + 1))
+  fi
 done < "$SUMS"
 
+for name in main.js manifest.json styles.css; do
+  if ! grep -qxF "$name.sigstore.json" <<<"$attached"; then
+    echo "::error::release $TAG is missing the cosign bundle for: $name"
+    missing=$((missing + 1))
+  fi
+done
+
 if [ "$missing" -gt 0 ]; then
-  echo "::error::$missing of $expected checksummed artifact(s) missing from $TAG"
+  echo "::error::$missing asset(s) or cosign bundle(s) missing from $TAG ($expected checksummed artifact(s) expected)"
   exit 1
 fi
 
-echo "release $TAG: all $expected checksummed artifacts attached"
+echo "release $TAG: all $expected checksummed artifacts and their cosign bundles attached"
