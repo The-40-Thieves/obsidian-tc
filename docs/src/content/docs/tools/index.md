@@ -135,6 +135,7 @@ vocabulary, a derived tag written by hand, and a declaration the derivation alre
 | `domain:<name>` | derived | Belongs to that facade domain, for example `domain:git` or `domain:notes`. |
 | `plugin-bridge` | derived and declared | Needs the Obsidian companion plugin, so a live Obsidian session. Derived from a scope that names a plugin; declared for the few bridge tools whose scope is a generic vault scope. |
 | `external-network` | declared | The tool's handler may send query or note text to a service outside the server process: a hosted embedding provider, or a cloud sync plugin. Indexing that runs in the background after a write is not attributed to the tool that triggered it. |
+| `client-sampling` | declared | The tool asks the calling client's own model to run a completion (MCP sampling) and sends it note text the caller may already read. The client decides whether to prompt its user and whose tokens pay for it. The tool has a non-sampling fallback, so `disabledTags: ["client-sampling"]` removes it only for deployments that want no sampling request at all. |
 | `experiential` | declared | Reads or writes the derived work-memory plane. |
 | `verdict` | declared | A verdict verb: its calls are recorded as verdicts, never as evidence for later retrieval. |
 | `knowledge` | declared | Part of the knowledge-retrieval surface. |
@@ -153,7 +154,7 @@ a hosted embedding provider refuse those tools outright.
 
 | Group | Domains | Examples |
 | --- | --- | --- |
-| **Notes & metadata** (5 tools `full`-only) | notes, frontmatter, properties, tags, links, headings | `read_note`, `write_note`, `patch_note`, `update_frontmatter`, `get_backlinks`; graph analysis is `full`-only: `graph_centrality`, `graph_communities`, `suggest_links`, `find_link_cycles`, `prune_hub_links` |
+| **Notes & metadata** (6 tools `full`-only) | notes, frontmatter, properties, tags, links, headings | `read_note`, `write_note`, `patch_note`, `update_frontmatter`, `get_backlinks`; graph analysis is `full`-only: `graph_centrality`, `graph_communities`, `suggest_links`, `find_link_cycles`, `prune_hub_links`; `suggest_tags` (client-sampled tag suggestions) is `full`-only too |
 | **Search & retrieval** | text search, DQL, vector / hybrid search, embeddings | `search_vault`, `search_dql`, `search_semantic` |
 | **Structured formats** (`full`-only) | Bases, Canvas, periodic notes, bookmarks, outlines | `read_base`, `update_canvas`, `create_periodic_note`, `list_bookmarks` |
 | **Plugin bridges** (`full`-only) | Dataview, Templater, OCR, command execution, tasks, workspace | `eval_dataview_field`, `execute_template`, `execute_command`, `list_tasks` |

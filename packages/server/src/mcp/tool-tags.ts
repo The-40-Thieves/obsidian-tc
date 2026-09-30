@@ -72,6 +72,11 @@ export const TOOL_TAG_VOCABULARY: Readonly<Record<string, ToolTagSpec>> = {
     description:
       "May send query or note text to a service outside the server process: a hosted embedding provider, or a cloud sync plugin.",
   },
+  "client-sampling": {
+    source: "declared",
+    description:
+      "Asks the calling client's own model to run a completion (MCP sampling), sending note text to that client. The client may prompt its user or spend its own tokens.",
+  },
   experiential: {
     source: "declared",
     description: "Reads or writes the derived work-memory plane.",

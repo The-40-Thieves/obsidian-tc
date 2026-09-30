@@ -10,12 +10,48 @@ functional for at least a twelve-month deprecation window (through at least 2027
 mid-migration still uses them. The SDK still implements all three (logging, roots, sampling) despite
 the deprecation.
 
-They are surfaced on the context every tool receives, rather than consumed by any tool this server
-happens to ship — this is a public server, and the useful thing is that a downstream tool author can
-reach the calling client's roots and model at all. Both are `undefined` when the client did not
+They are surfaced on the context every tool receives — this is a public server, and the useful thing
+is that a downstream tool author can reach the calling client's roots and model at all. The one
+in-tree consumer of `sample` is `suggest_tags` (below). Both are `undefined` when the client did not
 advertise the capability; an absent optional feature is a normal state, not an error. `roots` is
 advisory only — vaults come from server config, and a client naming a root does not grant access to
 it, which is exactly what makes consuming it safe.
+
+### `suggest_tags`: the sampling consumer
+
+`suggest_tags` (metadata domain, `read:notes`) is read-only: it returns tag candidates and writes
+nothing, so applying one is an ordinary `add_tag` call with its scope, folder ACL, CAS and
+memoryDefense. It was chosen over a summarizer or a reflect-synthesis path because tags are a small,
+closed output (a strictly parseable JSON list, each entry checkable against the tag grammar) whose
+context is a single note plus the vault's own tag vocabulary. Free-text summaries would put
+unvalidated model prose into the tool result, and reflect's synthesis already has an operator-chosen
+gateway path that sampling must not silently replace (see `sampleViaClient`).
+
+- **What leaves the server.** One `sampling/createMessage` request to the caller's own client: a
+  fixed system prompt, and one JSON document holding the note body (first 6000 characters), its
+  title and path, and up to 100 existing tags. The note is a JSON string value, so text in it cannot
+  close a delimiter; the system prompt states that everything in the document is untrusted data.
+  `maxTokens` is 256. The note goes through the read ACL and scope check like `read_note`, and the
+  vocabulary is counted only from notes the caller can read, so nothing the caller cannot read
+  reaches the prompt. Human approval of the request is the client's job under the sampling spec.
+- **What comes back is untrusted.** Text blocks only, at most 2000 characters, one JSON object with
+  exactly a `tags` array of at most 20 valid tags of at most 64 characters each. Anything else
+  rejects the whole reply (`sampling.status: rejected_response`); nothing of a rejected reply is
+  echoed. The model name is echoed only if it looks like one.
+- **Provenance.** `source` is `client-sampled` or `heuristic`; `sampling.status` is one of `sampled`,
+  `unsupported` (client did not advertise sampling), `declined_or_failed`, `rejected_response`.
+- **Fallback.** No sampling, a declined request or a rejected reply all return a deterministic
+  heuristic: existing vault tags whose words all occur in the note, most specific first. It never
+  invents a tag and never calls the gateway, because moving inference to a provider the operator did
+  not choose is the thing `sampleViaClient` refuses to do. The tag `client-sampling` marks the tool
+  for `toolVisibility`.
+- **Transports.** `ctx.sample` is attached only when the client advertised `sampling`. Over stdio
+  (a legacy `initialize` carries the capabilities) and an in-memory connection that is proven by
+  `suggest-tags-sampling-e2e.test.ts`. Over stateless Streamable HTTP, legacy requests never populate
+  client capabilities, so they get the heuristic; a modern request declaring `sampling` gets
+  `ctx.sample`, but whether a real client can answer a server-initiated request there is the
+  separate, unverified-in-this-repo claim the compat matrix records for roots. A failed round trip
+  lands in the `declined_or_failed` fallback, never in an error.
 
 ## `episode_type` becomes a structural value, not a hardcoded literal (THE-839)
 

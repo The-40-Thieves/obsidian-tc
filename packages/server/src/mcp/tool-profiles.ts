@@ -140,6 +140,11 @@ const M1_GRAPH_ANALYSIS = [
   "prune_hub_links",
 ] as const;
 
+// `suggest_tags` (MCP sampling consumer): optional client-side LLM help with no usage evidence yet,
+// and `core` is capped at 100 tools (docgen-stats.test.ts). Curated out on the same structural
+// criterion as the graph-analysis family, not on a usage claim; the tool stays discoverable.
+const M1_SAMPLING_CONSUMERS = ["suggest_tags"] as const;
+
 /** Every tool name `toolFacade.profile: "core"` hides and dispatch-rejects. Absent from this list
  *  (and therefore always visible/callable) under `"full"` (the default) too — `"full"` disables
  *  nothing. See the module comment for the evidence behind each family. */
@@ -147,6 +152,7 @@ export const NON_CORE_TOOL_NAMES: readonly string[] = Object.freeze([
   ...M3_STRUCTURED_DOCUMENTS,
   ...M4_PLUGIN_BRIDGE,
   ...M1_GRAPH_ANALYSIS,
+  ...M1_SAMPLING_CONSUMERS,
 ]);
 
 const NON_CORE_SET: ReadonlySet<string> = new Set(NON_CORE_TOOL_NAMES);

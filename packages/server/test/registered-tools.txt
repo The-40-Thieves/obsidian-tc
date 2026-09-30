@@ -151,6 +151,7 @@ snapshot_note
 sort_table_by_column
 start_session
 suggest_links
+suggest_tags
 tasks_filter
 trigger_quickadd
 unlink_entities
