@@ -18,7 +18,7 @@
 import type { Database } from "../db/types";
 import { readVaultIndexStats, type VaultIndexStats } from "./vault-index-stats";
 
-/** THE-397's k=10: the RRF rank constant, measured on ~30-deep streams. */
+/** The RRF rank constant, k=10, measured on ~30-deep streams. */
 export const DEFAULT_RRF_K = 10;
 /** kNN edge floor: 0 keeps every neighbour the kNN returns. */
 export const DEFAULT_KNN_MIN_SIM = 0;
@@ -30,7 +30,7 @@ export const DEFAULT_SEED_COUNT = 30;
 export const RRF_K_MIN = 2;
 export const RRF_K_MAX = 60;
 
-/** k per unit of pool depth: THE-397 measured k=10 best at a pool depth of 30. */
+/** k per unit of pool depth: k=10 measured best at a pool depth of 30. */
 const RRF_K_POOL_RATIO = DEFAULT_RRF_K / DEFAULT_SEED_COUNT;
 
 export type DefaultSource = "call" | "config" | "derived" | "default";
@@ -65,10 +65,10 @@ export interface RetrievalDefaults {
  *   pool = min(seedCount, chunkCount)           (how deep the dense/lexical streams can rank)
  *   k    = clamp(round(pool * 10/30), 2, 60)
  *
- * Why: graph_search.ts's own THE-397 comment — k must stay BELOW the stream pool depth, because at
+ * Why: graph_search.ts's own comment on the k=10 default — k must stay BELOW the stream pool depth, because at
  * k > M-2 a document at rank M in two streams outranks a rank-1 single-stream hit. A vault smaller
  * than the seed pool has a shallower pool, so the same k over-rewards overlap. The ratio is pinned
- * so the pool THE-397 measured (30) reproduces its constant (10) exactly; every vault with >= 30
+ * so the pool the constant was measured at (30) reproduces its constant (10) exactly; every vault with >= 30
  * chunks therefore derives the shipped value, and only sub-pool vaults differ.
  *
  * Monotonic non-decreasing in chunkCount and in seedCount (round and clamp are monotone). Returns

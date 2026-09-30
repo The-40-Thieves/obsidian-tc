@@ -40,7 +40,7 @@ export interface FederatedFanOutOptions {
   /** Max simultaneous per-vault searches. Default 3 — same default as THE-448's fan-out. */
   concurrency?: number;
   /** RRF k for the ACROSS-vault fusion (rank-based). Defaults to retrieval-defaults.ts's DEFAULT_RRF_K (10),
-   *  the same constant graph_search's in-query rrfK and THE-448's fuseVariants resolve to. Never
+   *  the same constant graph_search's in-query rrfK and the multi-query fuser resolve to. Never
    *  derived from a vault stat: a cross-vault list has no single vault to measure. */
   rrfK?: number;
 }

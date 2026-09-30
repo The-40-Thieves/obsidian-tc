@@ -342,7 +342,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
         legs,
         input.final_top_k,
         // No rrfK: federatedGraphSearch resolves the same shared constant (retrieval-defaults.ts) as
-        // THE-448's fuseVariants, so the tool's cross-vault fusion cannot drift from it.
+        // the multi-query fuser, so the tool's cross-vault fusion cannot drift from it.
         undefined,
         (event) => {
           if (event.outcome === "swallowed_error") failedVaults += 1;

@@ -113,13 +113,13 @@ export interface GraphSearchOptions {
   densify?: { includeInWalk?: boolean; derivedWeight?: number };
   fusionMode?: FusionMode;
   /** RRF constant. Absent -> resolveRetrievalDefaults (retrieval-defaults.ts): the derived value when
-   *  `derivedDefaults` is on and stats support one, else the shipped constant (10, THE-397). */
+   *  `derivedDefaults` is on and stats support one, else the shipped constant (10). */
   rrfK?: number;
   /** ADR-0007 class (b): derive stat-conditional defaults (today rrfK) from this vault's measured
    *  index stats when the caller gave no explicit value. Off by default — flag off is byte-identical
    *  to the constant. Ignored (constant kept) for an ACL-partition-restricted caller: the stats are
    *  whole-vault, and letting them steer ranking for a caller who cannot see the whole vault would
-   *  leak its size (the THE-853 shape). */
+   *  leak its size (the same shape as whole-corpus IDF steering adaptive RRF). */
   derivedDefaults?: boolean;
   rerankPool?: number;
   /** THE-391: adaptive per-query RRF stream weighting. When enabled, the query's lexical
