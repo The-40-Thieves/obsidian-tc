@@ -44,6 +44,9 @@ export interface M2VaultOptions {
   ) => void;
   /** THE-645: passthrough for tests observing the failure-path cleanup hook. */
   onIndexVaultError?: (vaultId: string) => void;
+  /** retrieval.useSearchModePreference: the experiential store search_vault's mode reader consults.
+   *  Absent (the default) is the flag OFF — the reader's code path is not entered at all. */
+  searchModePreference?: { edb: Database };
 }
 
 export interface M2Vault {
@@ -89,6 +92,7 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     onIndexVaultComplete: opts.onIndexVaultComplete,
     onProgress: opts.onProgress,
     onIndexVaultError: opts.onIndexVaultError,
+    searchModePreference: opts.searchModePreference,
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

@@ -39,6 +39,14 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "Derive stat-conditional retrieval defaults (today: rrfK, from the vault's chunk count versus the seed-stream depth) from each vault's measured index statistics instead of one constant. An explicit rrfK always wins. Ships dark pending multi-shape evidence (ADR-0007); off is byte-identical to the shipped constants.",
     ),
+  /** The reader for `preferred.search_mode` (experiential/search-mode-preference.ts). DARK: ranking-
+   *  adjacent, and the ADR-0007 evidence bar is not met (see the ADR's status section). */
+  useSearchModePreference: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Let search_vault use the caller's learned preferred.search_mode when the call names no mode: a stored search_text preference (profile weight >= 3.0, for this vault and this caller only) selects mode=text instead of auto. The weight counts evidence observed across extraction runs, not distinct windows: re-running `obsidian-tc reflect` re-counts unchanged evidence. An explicit mode, including an explicit auto, always wins; a stored value with no safe search_vault counterpart (search_regex, search_vault, vault_graph_search, search_omnisearch) and an object query are ignored. When on, search_vault reports mode_source (explicit, preference or default). The profile is written only by `obsidian-tc reflect` (extraction is deliberately not scheduled, because it is not idempotent), so it is as fresh as the last run. Needs the experiential store. Off by default — ranking-adjacent, ADR-0007 bar not met; off is byte-identical to before.",
+    ),
   /** THE-258: the deterministic class router (temporal auto-stream, lexical short-circuit
    *  that skips the embedding round-trip; standard falls through unchanged). DARK by
    *  default — flips only after the per-class + aggregate A/B passes the ship rule. */

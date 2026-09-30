@@ -15,6 +15,7 @@ import {
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
+import { resolveSearchVaultMode } from "../../experiential/search-mode-preference";
 import type { ToolDefinition } from "../../mcp/registry";
 import { mtimesByPath, noteFreshness } from "../../search/freshness";
 import { evaluatesTruthy } from "../../search/jsonlogic";
@@ -159,6 +160,10 @@ const SearchVaultOutput = z.object({
       reason: z.string(),
     })
     .optional(),
+  /** Where the requested mode came from: the caller, the stored preference or the tool's `auto`.
+   *  Present ONLY when retrieval.useSearchModePreference is on (a conditional spread -> optional);
+   *  a label, never content. */
+  mode_source: z.enum(["explicit", "preference", "default"]).optional(),
 });
 
 function jsonlogicMatches(
@@ -497,7 +502,13 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           query: z.union([z.string().min(1), z.record(z.string(), z.unknown())]),
-          mode: z.enum(["auto", "text", "regex", "dql", "jsonlogic", "semantic"]).default("auto"),
+          // `.optional()` + a `default` annotation, not `.default("auto")`: the schema a client sees
+          // is byte-identical (pinned in search-mode-preference-parity.test.ts), but the handler can
+          // tell an omitted mode from an explicit "auto", which the stored-preference reader needs.
+          mode: z
+            .enum(["auto", "text", "regex", "dql", "jsonlogic", "semantic"])
+            .optional()
+            .meta({ default: "auto" }),
           root: VaultPath.optional(),
           explain: z.boolean().default(false),
           ...Cursor,
@@ -509,6 +520,19 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       tags: ["external-network"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
+        // retrieval.useSearchModePreference: the reader is only entered when it is wired (flag on);
+        // otherwise the mode is the caller's or `auto`, exactly as before, and no field is added.
+        const resolved = deps.searchModePreference
+          ? resolveSearchVaultMode({
+              explicit: input.mode,
+              stringQuery: typeof input.query === "string",
+              edb: deps.searchModePreference.edb,
+              vaultId: s.id,
+              caller: ctx.caller,
+            })
+          : { mode: input.mode ?? ("auto" as const), source: undefined };
+        const mode = resolved.mode;
+        const sourceField = resolved.source ? { mode_source: resolved.source } : {};
         const asString = (): string => {
           if (typeof input.query !== "string")
             throw err.invalidInput("this search mode requires a string query");
@@ -546,9 +570,9 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
 
         const tried: string[] = [];
         let items: UnifiedHit[] = [];
-        let chosen = input.mode;
+        let chosen: string = mode;
 
-        switch (input.mode) {
+        switch (mode) {
           case "text":
             tried.push("text");
             items = textHits();
@@ -600,7 +624,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
                 { tool: "search_vault" },
               );
             const dql = await runDql(deps, s.id, asString(), "table");
-            return { vault: s.id, mode_used: "dql", ...dql };
+            return { vault: s.id, mode_used: "dql", ...dql, ...sourceField };
           }
           default: {
             // auto: object -> jsonlogic; string -> text, then semantic on zero hits.
@@ -631,9 +655,11 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
                 modes_tried: tried,
                 chosen,
                 reason:
-                  input.mode === "auto" && chosen === "semantic"
+                  mode === "auto" && chosen === "semantic"
                     ? "text returned no hits; fell back to semantic"
-                    : `mode ${input.mode}`,
+                    : resolved.source === "preference"
+                      ? `mode ${mode} (stored preference)`
+                      : `mode ${mode}`,
               },
             }
           : {};
@@ -642,6 +668,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           mode_used: chosen,
           ...paginate(projectHits(items, input.verbosity), input.limit, input.cursor),
           ...explain,
+          ...sourceField,
         };
       },
     }),
