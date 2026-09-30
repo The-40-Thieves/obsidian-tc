@@ -14,6 +14,13 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   column the sticky-provider resolver already treats as the vault's current embedding identity),
   leaving the active generation's rows — and the vec0 index, which only ever mirrors active rows —
   untouched and search working. `true`/`false` behave exactly as before.
+- **`capture_queue` is now purged (#1026).** COMMITTED capture rows (`committed_at IS NOT NULL`)
+  were never swept — the queue grew unbounded on a long-running server even after every capture
+  was reviewed and committed to the vault. The maintenance sweep now prunes them after
+  `maintenance.captureQueueRetentionDays` (default 30 days, measured from `committed_at`), and
+  `reset_vault_cache`'s new `include.capture_committed` flag purges every committed row for one
+  vault on demand. A PENDING row (`committed_at IS NULL`) is never touched by either path, at any
+  age — only `commit_capture` ever transitions one.
 - **`session_rerun` — sandbox-only session replay.** A new `admin` tool (`admin:rerun` scope,
   destructive, routed through the central HITL confirmation gate) replays a recorded session's
   trace against an isolated, throwaway sandbox copy of the vault's cache — never the live vault or

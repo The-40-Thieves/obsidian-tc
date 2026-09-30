@@ -67,6 +67,8 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       // ensureNotesFts/ensureChunkFts, not a migration), so the sweep's existence check finds
       // neither table. Own coverage below.
       fts_merged: [],
+      // captureQueueRetentionDays was not passed, so the arm is skipped. Own coverage below.
+      capture_queue: 0,
     });
     expect(db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys").get()).toMatchObject({
       n: 2,
@@ -330,5 +332,71 @@ describe("THE-1039 FTS5 merge in the sweep", () => {
       counts = sweep(db);
     }).not.toThrow();
     expect(counts?.fts_merged).toEqual([]);
+  });
+});
+
+// docs/G2.3-storage.md ("Not auto-swept"): capture_queue was committed_at soft-delete only, with
+// purging deferred to a tool that never shipped — a long-running server's queue grew unbounded
+// even after every row was reviewed and committed. The sweep is COMMITTED-ONLY, mirroring
+// THE-571's jobs terminal-only discipline: a PENDING row (committed_at IS NULL) is live review
+// work and is never pruned by this sweep, however old.
+describe("capture_queue retention sweep", () => {
+  const now = 10_000_000_000;
+  const DAY = 86_400_000;
+  const insertCapture = (
+    db: Database,
+    id: string,
+    vaultId: string,
+    capturedAt: number,
+    committedAt: number | null,
+  ) =>
+    db
+      .prepare(
+        "INSERT INTO capture_queue (id, vault_id, title, content, captured_at, committed_at, committed_path) VALUES (?,?,NULL,?,?,?,?)",
+      )
+      .run(id, vaultId, "content", capturedAt, committedAt, committedAt === null ? null : "n.md");
+
+  const sweep = (db: Database, captureQueueRetentionDays?: number) =>
+    runMaintenanceSweep(db, {
+      now: () => now,
+      eventLogDays: 30,
+      jobsCompleteDays: 7,
+      jobsFailedDays: 30,
+      ...(captureQueueRetentionDays !== undefined ? { captureQueueRetentionDays } : {}),
+    });
+
+  it("deletes COMMITTED rows past retention (measured from committed_at) and keeps recent ones", () => {
+    const db = freshDb();
+    insertCapture(db, "old-committed", "v1", now - 40 * DAY, now - 31 * DAY);
+    insertCapture(db, "new-committed", "v1", now - 40 * DAY, now - 1 * DAY);
+    const counts = sweep(db, 30);
+    expect(counts.capture_queue).toBe(1);
+    expect(db.prepare("SELECT id FROM capture_queue").all()).toEqual([{ id: "new-committed" }]);
+  });
+
+  it("NEVER deletes a PENDING row, however old — that would drop content nobody reviewed", () => {
+    const db = freshDb();
+    insertCapture(db, "ancient-pending", "v1", now - 365 * DAY, null);
+    const counts = sweep(db, 30);
+    expect(counts.capture_queue).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM capture_queue").get()).toMatchObject({ n: 1 });
+  });
+
+  it("is skipped entirely (capture_queue: 0) when captureQueueRetentionDays is omitted", () => {
+    const db = freshDb();
+    insertCapture(db, "old-committed", "v1", now - 40 * DAY, now - 31 * DAY);
+    const counts = sweep(db);
+    expect(counts.capture_queue).toBe(0);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM capture_queue").get()).toMatchObject({ n: 1 });
+  });
+
+  it("is a no-op on a cache.db predating the capture_queue table, without throwing", () => {
+    const db = freshDb();
+    db.exec("DROP TABLE capture_queue");
+    let counts: ReturnType<typeof runMaintenanceSweep> | undefined;
+    expect(() => {
+      counts = sweep(db, 30);
+    }).not.toThrow();
+    expect(counts?.capture_queue).toBe(0);
   });
 });

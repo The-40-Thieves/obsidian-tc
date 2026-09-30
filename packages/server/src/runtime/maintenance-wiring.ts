@@ -29,6 +29,8 @@ export interface MaintenanceWiringDeps {
     jobsFailedRetentionDays: number;
     episodesRetentionDays: number;
     retrievalsRetentionDays: number;
+    /** maintenance.captureQueueRetentionDays — see db/maintenance.ts's sweepCaptureQueue. */
+    captureQueueRetentionDays: number;
   };
   /** config.observability.retention */
   retention: { eventLogDays: number; tracesDays: number };
@@ -94,6 +96,7 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     eventLogDays: deps.retention.eventLogDays,
     jobsCompleteDays: deps.maintenance.jobsCompleteRetentionDays,
     jobsFailedDays: deps.maintenance.jobsFailedRetentionDays,
+    captureQueueRetentionDays: deps.maintenance.captureQueueRetentionDays,
     tracesDays: deps.retention.tracesDays,
     // THE-737: sweep BOTH generations -- the cacheDir directory new sessions write to, and
     // the legacy per-vault dirs that still hold pre-migration traces.

@@ -465,7 +465,7 @@ Cross-vault ops: **none shipped.** Every vault tool takes a single `vault` argum
 2. Error with `vault_not_found` if the vault is no longer in the config.
 3. Return `{vault, reloaded_at}`. **The running server keeps its startup config until restart** — hot-applying config deltas (ACL, timeouts, `plugins.force*`) was deferred at implementation; it does not touch the cache and does not re-fire the capability probe.
 
-`reset_vault_cache(vault_id)` (destructive, HITL-gated) drops a vault's cached rows (chunks, embeddings, idempotency keys; optionally the event log).
+`reset_vault_cache(vault_id)` (destructive, HITL-gated) drops a vault's cached rows (chunks, embeddings, idempotency keys; optionally the event log and committed capture_queue rows).
 
 Adding or removing a vault: requires server restart. Config file edit + restart. Removed vault's cached rows are preserved in `cache.db` for safety (manual cleanup if user wants).
 

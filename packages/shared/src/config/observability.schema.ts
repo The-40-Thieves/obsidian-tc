@@ -179,6 +179,22 @@ export const MaintenanceConfigSchema = z
       .describe(
         "Days a FAILED (dead-lettered) job row is retained. Longer than the complete-row window because these exist to be read; bounded by age, so a burst of failures inside the window is still unbounded in count.",
       ),
+    // docs/G2.3-storage.md ("Not auto-swept"): capture_queue was committed_at soft-delete only,
+    // with purging deferred to "a future tool" — it never shipped, so a long-running server's
+    // capture_queue grew unbounded even after every row was reviewed and committed. Mirrors the
+    // jobs sweep's terminal-only discipline: only COMMITTED rows (committed_at IS NOT NULL) age
+    // out, by committed_at, never captured_at — a row awaiting review (committed_at IS NULL) is
+    // live work (commit_capture is the only thing that ever transitions it) and is never touched
+    // by this sweep at any age, matching a `queued`/`running` job row above. See
+    // db/maintenance.ts's sweepCaptureQueue for the WHERE clause this governs.
+    captureQueueRetentionDays: z
+      .number()
+      .int()
+      .positive()
+      .default(30)
+      .describe(
+        "Days a COMMITTED capture_queue row (committed_at IS NOT NULL) is retained before the maintenance sweep prunes it, measured from committed_at. A row still awaiting review (committed_at IS NULL) is never pruned by this sweep, at any age. An operator can also purge every committed row for one vault immediately (independent of age, matching that tool's other include flags) via reset_vault_cache's include.capture_committed. commit_capture's default (delete_from_queue: true) removes the row at commit time, before this window is ever reached; a caller that opts to KEEP a committed row (delete_from_queue: false) — the only shape this sweep can still find and prune — should keep this value above the longest highlight-import/ambient-import re-sync window (THE-650/THE-175's listCaptureTags reads a committed row's import-dedupe:/ambient-dedupe: tag as its dedup identity), or a purged row can be re-imported as a duplicate.",
+      ),
   })
   .prefault({});
 

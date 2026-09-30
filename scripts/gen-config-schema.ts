@@ -437,7 +437,20 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // none existed and exactly one vault was found; never set by an interactive `obsidian-tc setup`
   // run. See server.schema.ts's own comment on the field for the full description text. No
   // existing key, type, default or constraint moved.
-  "f488e4a18a56c24849b2935c8eeb987b0ff858d46a019caa59c4713bca04936e";
+  //
+  // capture_queue purge: rebaselined deliberately. Adds ONE new key,
+  // `maintenance.captureQueueRetentionDays` (int, positive, default 30) — days a COMMITTED
+  // capture_queue row is retained before the maintenance sweep prunes it; see
+  // packages/shared/src/config/observability.schema.ts's MaintenanceConfigSchema for the full
+  // description text. No existing key, type, default or constraint moved.
+  //
+  // capture_queue purge, cross-vendor review round 1 (LOW): rebaselined again, text only. The
+  // SAME key's .describe() gained a clause on the THE-650/THE-175 dedup interaction — a
+  // committed row kept past commit_capture (delete_from_queue: false) is still the re-sync
+  // identity listCaptureTags reads, so this window should outlive the longest import re-sync
+  // period or a purged row can be re-imported as a duplicate. No key, type, default or
+  // constraint moved.
+  "02f9ee9022372a80939e472093e27fec3f75c82bcedab8fc5c6991c359effd64";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

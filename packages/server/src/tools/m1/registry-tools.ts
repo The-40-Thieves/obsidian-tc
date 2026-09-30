@@ -109,6 +109,11 @@ const ResetVaultCacheOutput = z.object({
     embeddings: z.number().int(),
     idempotency_keys: z.number().int(),
     event_log: z.number().int(),
+    // docs/G2.3-storage.md ("Not auto-swept"): the on-demand counterpart to the maintenance
+    // sweep's age-based capture_queue arm (maintenance.captureQueueRetentionDays) — drops every
+    // COMMITTED row for this vault immediately, regardless of age, matching every other
+    // `include` flag here. A PENDING row (committed_at IS NULL) is never touched, at any age.
+    capture_committed: z.number().int(),
   }),
 });
 
@@ -127,6 +132,9 @@ const ResetInput = z
         embeddings: z.union([z.boolean(), z.literal("inactive")]).default(true),
         idempotency_keys: z.boolean().default(true),
         event_log: z.boolean().default(false),
+        // Defaulted false like event_log: an operator opts in rather than a routine cache reset
+        // silently discarding reviewed capture history.
+        capture_committed: z.boolean().default(false),
       })
       .prefault({}),
     elicit_token: ElicitToken.optional(),
@@ -256,7 +264,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       domain: "vault",
       vaultArg: "vault",
       description:
-        'Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log). include.embeddings accepts true (drop every embedding row), false, or "inactive" (drop only superseded embedding generations, keeping the vault\'s active vectors and search working — pass include.chunks: false too, or the default include.chunks: true cascades and drops the active rows as well). Destructive — requires confirmation.',
+        'Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log and committed capture_queue rows). include.embeddings accepts true (drop every embedding row), false, or "inactive" (drop only superseded embedding generations, keeping the vault\'s active vectors and search working — pass include.chunks: false too, or the default include.chunks: true cascades and drops the active rows as well). Destructive — requires confirmation.',
       inputSchema: ResetInput,
       outputSchema: ResetVaultCacheOutput,
       requiredScopes: ["admin:vault"],
@@ -271,6 +279,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
           embeddings: 0,
           idempotency_keys: 0,
           event_log: 0,
+          capture_committed: 0,
         };
         if (inc.embeddings === true)
           rows_dropped.embeddings = del(
@@ -326,6 +335,16 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
           );
         if (inc.event_log)
           rows_dropped.event_log = del(ctx.db, "DELETE FROM event_log WHERE vault_id = ?", v.id);
+        // docs/G2.3-storage.md: the on-demand counterpart to the maintenance sweep's age-based
+        // capture_queue arm — drops every COMMITTED row for THIS vault, regardless of age. A
+        // PENDING row (committed_at IS NULL) is never a candidate: the WHERE clause excludes it
+        // by construction, matching the maintenance sweep's own terminal-only discipline.
+        if (inc.capture_committed)
+          rows_dropped.capture_committed = del(
+            ctx.db,
+            "DELETE FROM capture_queue WHERE vault_id = ? AND committed_at IS NOT NULL",
+            v.id,
+          );
         return { vault: v.id, reset_at: iso(nowMs(ctx)), rows_dropped };
       },
     }),
