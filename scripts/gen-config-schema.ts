@@ -15,7 +15,7 @@
 // usage:
 //   bun scripts/gen-config-schema.ts            # write docs/obsidian-tc.config.schema.json
 //   bun scripts/gen-config-schema.ts --check    # fail if the committed file is stale
-import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,488 +23,15 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
 
-// WP1.1: a pinned baseline of the complete emitted bytes (including the trailing newline). The
-// staleness check below (comparing regenerated output to the committed file) catches the schema
-// going STALE, but regenerating both together would silently hide an unintended CHANGE — this
-// hash is the second, independent witness. A deliberate schema change updates this constant in
-// its own behavioral PR, not as a side effect of an unrelated refactor.
-// THE-678: rebaselined deliberately. The only emitted change is the description text on
-// embeddings.modelTier.dense.revision and .full.revision, which now state they are provenance-only
-// and point at the top-level embeddings.revision. No key, type, default or constraint moved.
-// THE-683: rebaselined deliberately. The only emitted change is embeddings.pooling's description,
-// which no longer says the key "does not affect the index" — it now does. No key, type, default or
-// constraint moved.
-// THE-709: rebaselined deliberately. Adds ONE key, plane.gatewayTimeoutMs (int, positive, default
-// 300000), and rewords plane.gatewayMaxAttempts' description to point at it. Attempts alone could
-// not fix a scheduled pass that was merely slow — measured 370.4s twice, 45 minutes apart and 12ms
-// from each other, which is 6 x 60s expiring on schedule, not a cold start varying. No existing
-// key, type, default or constraint moved.
-// THE-726 follow-up: rebaselined deliberately, DESCRIPTION TEXT ONLY. `sessions.windowSeconds` said
-// "how long a server-opened session stays open", which overstates the precision. Closing is done by
-// the maintenance sweep on its own cadence, so the window is a FLOOR: a session lives between
-// windowSeconds and windowSeconds + maintenance.intervalMinutes. Measured in production on the
-// 1.19.0 rollout — a session created at 12:34 was still correlating at 13:21 because the sweep had
-// last run at 12:27. No key, type, default or constraint changed; only the `description` string.
-// THE-726: rebaselined deliberately. Adds ONE block, `sessions`, with two keys — `autoOpen`
-// (boolean, default FALSE) and `windowSeconds` (int, positive, default 1800). The default is the
-// privacy posture, not a convenience: server-opened sessions correlate a principal's retrievals,
-// which changes what this server retains about who read what, so a config that says nothing gets
-// the non-correlating behaviour. No existing key, type, default or constraint moved.
-// THE-717: rebaselined deliberately. Adds ONE block, `experiential.citationInfer`, with three keys
-// — `enabled` (boolean, default FALSE), `transcriptIndex` (string, OPTIONAL, no default) and
-// `intervalHours` (number, default 6). Off by default because the pass cannot run without
-// `transcriptIndex`, and nothing in this package can produce one: it needs the ASSISTANT'S answer,
-// which no MCP surface hands to a server. A default-on flag pointing at a file that does not exist
-// would dead-letter a job on every tick. No existing key, type, default or constraint moved.
-// THE-736: rebaselined deliberately for ONE NEW KEY — `sessions.traceContent` (boolean, default
-// FALSE). It gates capturing each dispatch's raw parsed arguments onto the session trace, so a
-// recorded session can be replayed; the trace previously stored only `args_hash`, which is not
-// invertible, so replay was impossible at any effort level. Default off because capturing
-// arguments is a capture-posture decision — the same call `experiential.captureContent` is off
-// for, and deliberately the same vocabulary rather than a second one. That decision is unowned
-// rather than blocked; the poisoning defence it was once deferred to shipped on 2026-07-11.
-// No existing key, type, default or constraint moved.
-// THE-657: rebaselined deliberately, DESCRIPTION TEXT ONLY. The Windows watcher is enabled, so
-// three descriptions that said it is "not active on Windows" are now false. No key, type, default
-// or constraint moved; `watch.enabled` and `reconcileIntervalMinutes` are byte-identical apart
-// from their prose. The crash was an 8.3 short path reaching libuv, not recursive fs.watch —
-// measured on windows-latest, which died under os.tmpdir() and survived twice under a realpath.
-// THE-718: rebaselined deliberately, DESCRIPTION TEXT ONLY. `maintenance.retrievalsRetentionDays`
-// explained itself by naming the four aggregates a prune rewrites, one of which was
-// `outcome_balance` — a chunk_access_stats column that no longer exists after 20260806_001
-// replaced it with `observed`. The description named a column, so retiring the column made the
-// prose false. No key, type, default or constraint moved.
-// THE-644 item 3: rebaselined for a NEW KEY, `experiential.activationDecay` — the first time the
-// ACT-R decay exponent is reachable from configuration. Every layer beneath already accepted a
-// decay (`recomputeActivation(edb, now, { decay })`, `registerActivationRecompute`'s `deps.decay`)
-// and nothing ever supplied one, so the knob existed with no handle and the only way to change it
-// was an eval-harness script. Additive, defaulted to the existing 0.5, and threaded to its
-// consumer in the same change — this repo has deleted four declared-but-unwired keys.
-// THE-540 direction 2: rebaselined deliberately. TWO DEFAULTS MOVED — this is a behavioural change,
-// not a prose pass, and it is the whole point of the change rather than a side effect of one.
-//
-// `experiential.captureContent` and `sessions.traceContent` both went false -> TRUE under the
-// trusted-local posture. Both had been off "until the THE-238 poisoning defence lands"; that
-// defence landed 2026-07-11, and THE-238 never contained the red-team the comments named, so the
-// gate was an event no ticket has ever owned. The controls that DO exist all shipped: layer-1
-// poison scan on every capture, secret redaction, size caps, and traces held in cacheDir rather
-// than the vault. What was missing was a decision, and it has now been taken.
-//
-// The cost of leaving them off was concrete: `args_json` NULL on every episode, and `obsidian-tc
-// rerun` — 16 commits and 99 tests — exiting 2 on every production record because nothing had
-// arguments to re-issue.
-//
-// `securityProfile: "hardened"` pins both back to false. Content capture is the opposite of
-// least-privilege and that profile must not inherit a permissive default.
-// THE-424 Part A: rebaselined deliberately, DESCRIPTION TEXT ONLY — but the prose moved because the
-// BEHAVIOUR did, which is the opposite of the usual description-only entry above. No key, type,
-// default or constraint moved: `experiential.activationRerank` is still a boolean still defaulting
-// to false. What changed is that the flag now does what it says. It used to build the
-// cached-activation-score lookup and thread it to every M7 graphSearch call while changing no
-// ranking, because the bubble pass needs `opts.bubbleSafe.enabled` and nothing under src/ set it —
-// the defect THE-535 raised and answered by making the DESCRIPTION honest ("not yet wired"). Part A
-// answers it the other way, in the M7 options builder, so the hedge had to go.
-// Deliberately NOT a default change: the A/B that would move it off false is THE-424 Part B.
-// THE-424: rebaselined for ONE NEW KEY — `indexing.chunkTokens` (int, default 512, bounded
-// [64, 8192]). The chunker's `ChunkOptions.maxTokens` has always existed and `chunkNote(body)` was
-// always called with no options, so the budget was pinned at an inline 512 and the only way to
-// change it was to edit chunk.ts. Same shape as `experiential.activationDecay` before THE-644
-// item 3 — a knob with no handle — and fixed the same way: additive, defaulted to the value already
-// in force, and threaded to its consumer in the same change rather than declared and left dark.
-// No existing key, type, default or constraint moved, and every existing index keeps its exact
-// chunk boundaries because the default IS the old hardcoded value.
-//
-// It also joins the representation fingerprint, which the other capture-posture rebaselines above
-// did not have to think about: chunk size is the first axis that changes what a chunk IS rather
-// than what its vector MEANS, so two indexes at different budgets must not compare equal.
-// THE-806: rebaselined for ONE NEW BLOCK — `retrieval.gatedRerankHardness` (mode `cosine` |
-// `zMargin`, hardTop1 0.55, hardZ 1.0, pool 20). This IS the behavioral PR for the change, which is
-// what the refusal message above asks for; it is not a hash bumped alongside an unrelated refactor.
-//
-// The block is additive and its defaults reproduce the shipped gate EXACTLY. `hardZ`/`hardTop1`
-// already existed as GraphSearchOptions fields with no config surface at all, and the only non-test
-// code that set either was eval/run.ts — so production always took the `top1 < 0.55` branch while
-// the harness always took the z-margin one, and the two arms measured different gates. Giving them
-// a surface is what makes the arms comparable; flipping `mode` is a ranking change that owes the
-// n=250 paired permutation gate and THE-400's unmet acceptance.
-//
-// Same shape as the THE-424 rebaseline above: a knob with no handle, made additive, defaulted to
-// the value already in force, and threaded to its consumer in the same change rather than declared
-// and left dark. No existing key, type, default or constraint moved — `retrieval.gatedRerank` stays
-// a plain boolean, so no existing config file changes meaning.
-// THE-832: added the root `gateway` block (baseUrl/token) so the inference gateway can be set in
-// obsidian-tc.config.json instead of only OBSIDIAN_TC_GATEWAY_URL / _TOKEN — see
-// packages/shared/src/config/gateway.schema.ts.
-// THE-825 (BREAKING, GH #786): rebaselined deliberately. `plane.enabled`'s default moved
-// `true` -> `false` and its description now states the key is opt-in — ambient sleep-time LLM
-// work over the whole vault must not run just because a gateway was configured for an unrelated
-// feature (e.g. reflect). No key, type or constraint moved; only the default value and the
-// description text on plane.enabled.
-// THE-705 item 1: additive. `reranker.provider`'s description now names the new "local" built-in
-// (a bundled, fully offline cross-encoder — see packages/reranker-local), and a new optional
-// `reranker.localModelPath` string key was added, read only by that provider. No existing key,
-// type, default or constraint moved.
-// THE-705 round 2 (adversarial review): additive. A second new optional key,
-// `reranker.localModulePath` — route (i) of provider "local"'s resolution ladder (an explicit path
-// to the optional package's built module entry). No existing key, type, default or constraint
-// moved.
-// THE-647 item 2: rebaselined deliberately. Adds the root `personas` block (name -> {vaults,
-// scopes, toolVisibility?}) — see packages/shared/src/config/personas.schema.ts. Additive and
-// optional; a config predating this key validates unchanged (personas: undefined).
-// THE-634: rebaselined deliberately. Added `experiential.proactive` (enabled/minScore/topK/
-// maxPerSession/dismissalPenalty) — the config surface PR #779 deliberately deferred until a
-// reader existed (check-config-threading refused it as 3 declared-but-unread keys). This PR is
-// that reader (runtime/advisory-sweep.ts), so the block lands now. No existing key moved.
-// THE-628 (first PR): rebaselined deliberately. Added `retrieval.summaries` (enabled/model/
-// maxConcurrency) — the note-level summary tier, dark behind `enabled: false`. Threaded through
-// search/indexing/summarize-notes.ts (index-time) and graph_search.ts/candidate_assembly.ts
-// (retrieval-time); see those files' THE-628 comments. No existing key moved.
-// THE-628 (second PR): rebaselined deliberately again. Added `retrieval.summaries.clusters`
-// (enabled/maxConcurrency) — the cluster-level (tier-2, RAPTOR) summary tier, dark behind its OWN
-// `enabled: false` (a separate flag from the note-level one, both default off). Threaded through
-// search/indexing/summarize-clusters.ts (the offline `obsidian-tc cluster` cadence) and
-// graph_search.ts/candidate_assembly.ts (retrieval-time, `source: "cluster_summary"`); see those
-// files' THE-628 comments. No existing key moved.
-// THE-644: adds the `experiential.citationPreferences` boolean flag (default false).
-// THE-891 item 1/4: rebaselined deliberately. Adds ONE new key, `experiential.captureRetentionDays`
-// (int, min 0, default 30) — bounded retention on the content axis `experiential.captureContent`
-// populates; the maintenance sweep redacts args_json to NULL (never deletes the row) on episodes
-// past the window, 0 disables the sweep (unlimited, an explicit power-user opt-out). Also rewrites
-// `experiential.captureContent`'s description: the old text justified the default on "the
-// deployment is single-principal" (an owner, not a control); the new text states the actual
-// evidence chain — on-by-default local persistence is an accepted precedent (VS Code/JetBrains
-// Local History, Go local-mode telemetry) precisely because it ships bounded retention, a visible
-// notice, and a location guard together, which THE-891 items 1-3 are. No existing key, type,
-// default or constraint moved.
-const CONFIG_SCHEMA_BASELINE_SHA256 =
-  // THE-175: rebaselined deliberately. Adds ONE new optional block, `pensieve` (a single key,
-  // `baseUrl`, string, optional) — the Pensieve ambient-capture adapter config for `obsidian-tc
-  // import-ambient` (packages/server/src/cli/commands/import-ambient.ts). Absent baseUrl means
-  // the command no-ops with no network call; see
-  // packages/shared/src/config/observability.schema.ts's PensieveConfigSchema for the full
-  // description text. No existing key, type, default or constraint moved.
-  // THE-650: rebaselined deliberately. Adds ONE new optional block, `readwise` (a single key,
-  // `token`, string, optional) — the Readwise adapter config for `obsidian-tc import-highlights`
-  // (packages/server/src/cli/commands/import-highlights.ts). Absent token means the command
-  // no-ops with no network call; see packages/shared/src/config/observability.schema.ts's
-  // ReadwiseConfigSchema for the full description text. No existing key, type, default or
-  // constraint moved.
-  // THE-891 item 7: rebaselined deliberately. `plane.maxPromptChars`'s DEFAULT changed
-  // 60000 -> 45535 and its `.describe()` text was rewritten. No key added, removed, retyped or
-  // moved — see packages/shared/src/config/observability.schema.ts's PlaneConfigSchema and
-  // packages/server/src/plane/jobs/synthesis.ts's DEFAULT_MAX_PROMPT_CHARS comment for the
-  // derivation: the char budget now targets the SAME ~14,554-token output reserve for every vault
-  // shape (derived from the worst-case 2.5 chars/token density this job already documented),
-  // instead of a budget anchored to one vault's own measured prose density.
-  // THE-726: rebaselined deliberately. Adds ONE new key, `experiential.derivedVerdictHold`
-  // (boolean, default false) — whether a DERIVED task verdict (-1, inferred from a closed
-  // session's tool-call log) holds an episode out of promotion the same way an OPERATOR
-  // work_result(-1) unconditionally does; see packages/shared/src/config/retrieval.schema.ts's
-  // ExperientialConfigSchema for the full description text. No existing key, type, default or
-  // constraint moved.
-  // THE-726 review round 1: rebaselined deliberately AGAIN — the SAME key's `.describe()` text
-  // grew the owner-settled dependency statement (this axis acts only on sessions that exist and
-  // end). Still no key/type/default/constraint moved.
-  // THE-934: rebaselined deliberately. Adds ONE new top-level block, `egress` (a single key,
-  // `excludePaths`, string array, default []) — vault-relative glob patterns withheld from the
-  // inference gateway and the embedding provider by the ambient consolidation plane (contradiction
-  // judging, synthesis, citation inference, index-time embedding); see
-  // packages/shared/src/config/observability.schema.ts's EgressConfigSchema for the full
-  // description text. No existing key, type, default or constraint moved.
-  // THE-934 fix round 1: rebaselined again — the SAME key's .describe() text was rewritten to
-  // state the guard is enforced at the PORT (createGatewayClient / createEmbeddingProvider(Async))
-  // rather than only at the four original consumers, and to enumerate every egress leg it now
-  // covers (reflect/knowledge_challenge, the note/cluster summarizers, densify-llm, the hosted
-  // reranker, the advisory sweep, and the single-note write path). No key, type, default or
-  // constraint moved — text only.
-  // THE-934 fix round 3 (2026-09-03), item F: rebaselined again — `egress.excludePaths`'s
-  // .describe() text gained one clause stating the literal-pattern folder-widening rule
-  // compileEgressFilter now applies (a pattern with no glob metacharacters, "Private" or
-  // "Private/", also matches everything nested under it, identically to "Private/**"; a literal
-  // FILE pattern like "Private/a.md" still matches only that exact file). No key, type, default
-  // or constraint moved — text only.
-  // THE-934 fix round 4 (2026-09-03), item 1: rebaselined again, and this time NOT text only —
-  // the same key gains a per-item CONSTRAINT (a refine that refuses a pattern normalising to
-  // nothing at all), and its .describe() text was rewritten to state the full normalisation rule
-  // the round-3 clause described only one spelling of: a leading "/" or "./" is stripped, repeated
-  // separators collapse, and EVERY pattern also matches its subtree (so "/Private", "**/Private",
-  // "Private*/" and "Private/*" stop matching nothing). No key, type or default moved; the added
-  // constraint rejects only inputs that were previously accepted and then silently excluded
-  // nothing. The exclude-all form ("**") stays VALID and is now named as such in the description —
-  // withholding every note from every hosted provider is a supported fully-local deployment, and
-  // refusing it would turn a valid config into a boot failure.
-  // THE-944: rebaselined deliberately, text only — no key, type, default or constraint moved.
-  // Rewrites three .describe() strings in packages/shared/src/config/reranker.schema.ts (the
-  // top-level `reranker` key's own description, plus its nested `provider` and `localModelPath`
-  // fields) and one in server.schema.ts's `reranker` key, to state: (1) provider "local" is now
-  // also auto-selected — no explicit `provider: "local"` needed — when the whole `reranker` block
-  // is absent, embeddings.modelTier.full is unconfigured, and no gateway URL is configured; (2)
-  // localModelPath's pinned model weights are fetched and sha256-verified automatically on first
-  // use rather than requiring a prior `bun run fetch-model` run (which remains available for
-  // offline/CI pre-population). See packages/server/src/runtime/tool-wiring.ts's wireGatewaySeams
-  // and packages/reranker-local/src/model-fetch.ts for the corresponding behavioral changes.
-  // THE-935 (GH #878): rebaselined deliberately. Adds ONE new top-level block, `db` (a single key,
-  // `busyTimeoutMs`, int, min 1, default 5000) — the first config surface over db/pragmas.ts's
-  // DEFAULT_BUSY_TIMEOUT_MS, previously reachable only from a test override. Threaded through
-  // db/open.ts to all three DB adapters (bun-sqlite/node-better-sqlite3/node-node-sqlite) and to
-  // db/experiential.ts's provisionExperientialDb, so the server's actual cache.db and
-  // experiential.db connections (runtime/stores.ts's wireStores, wired from
-  // runtime/server-runtime.ts's config.db.busyTimeoutMs) honor a configured value instead of only
-  // validating in the schema. Default (5000) is unchanged, so an unset config behaves identically.
-  // See server.schema.ts's `db` key for the full description text: raising it is documented as
-  // symptom treatment (the fix for sustained contention is splitting the shared database per
-  // vault, THE-467), and it states that stdio MCP spawns one server process per client, so the
-  // concurrent client count is what busy_timeout has to absorb. No existing key, type, default or
-  // constraint moved.
-  // THE-1078: rebaselined deliberately. Adds ONE new optional block,
-  // `experiential.citationInfer.judge` (provider enum gateway|typesafe default "gateway", plus
-  // model/threshold/apiKey/apiKeyEnv/baseUrl/timeoutMs for the opt-in TypeSafe Jev judge provider)
-  // — see retrieval.schema.ts's own comment on the block for the full description text and the
-  // cross-field validation (model/threshold required, and a `-latest`/`-preview` model suffix
-  // rejected, when provider is "typesafe"). Absent block reproduces exactly today's behaviour: the
-  // gateway's `judge` role, or stage-1-only mode. No existing key, type, default or constraint
-  // moved.
-  // THE-1078 review round 2: rebaselined again for two cross-vendor-review fixes, both scoped
-  // entirely to describe() text and validation logic already introduced above (no new key, no
-  // retyped key): (1) judge.model's format check became a POSITIVE predicate (a dotted numeric
-  // version suffix) instead of a `-latest`/`-preview` blacklist, and was narrowed to fire only
-  // when provider is "typesafe" — a `model` set alongside the default "gateway" provider is no
-  // longer format-checked at all, matching that block's "the gateway's own contract" describe()
-  // text; (2) judge.baseUrl now refuses a plain http:// endpoint unless the host is loopback
-  // (localhost/127.0.0.1/[::1]) — the URL carries the bearer key and vault-derived text.
-  // THE-1084: rebaselined deliberately. Adds ONE new key,
-  // `experiential.citationInfer.judge.allowPlainHttp` (boolean, default false) — an explicit
-  // operator opt-in that widens the https-unless-loopback rule on judge.baseUrl to any http://
-  // host, for a gateway reachable only over a host-local docker network or an encrypted overlay
-  // (e.g. the Cave LiteLLM gateway's pass-through endpoint). See retrieval.schema.ts's own comment
-  // on the field for the full description text. No existing key, type, default or constraint
-  // moved.
-  // THE-1099 (GH #964 part 2): rebaselined deliberately. Adds ONE new key,
-  // `experiential.allowFeedbackInReadOnly` (boolean, default false) — exempts
-  // record_retrieval_feedback (only) from the acl.readOnly kill switch and
-  // toolVisibility.requireReadOnly hiding, because its writes are derived telemetry in
-  // experiential.db (chunk_retrievals), never authored vault content. Also needs
-  // experiential.logRetrievals: true; otherwise there is nothing for it to update and the
-  // exemption is inert. See retrieval.schema.ts's ExperientialConfigSchema.allowFeedbackInReadOnly
-  // for the full description text. No existing key, type, default or constraint moved.
-  // THE-1121 (2026-09-24): rebaselined deliberately. Removed bare Linear ticket ids from eleven
-  // `.describe()` strings that flow into the emitted JSON Schema (obsidian-tc is a public repo;
-  // the ticket ids leaked the private planning plane into a published artifact) —
-  // retrieval.schema.ts's adaptiveRrf/cache/summaries(.clusters)/citationInfer(.judge.provider)/
-  // gapSweep/proactive blocks, server.schema.ts's reranker.provider and egress descriptions, and
-  // personas.schema.ts's toolVisibility mask description. Description text only; no key, type,
-  // default or constraint moved.
-  // THE-1123 (2026-09-25): rebaselined deliberately. `toolFacade.mode` gains a fourth enum value,
-  // "auto" — picks one of triad/domain/flat PER CONNECTING CLIENT from its observed MCP
-  // clientInfo.name (see mcp/facade-auto.ts). Adds ONE new optional key, `toolFacade.autoClients`
-  // (record<string, enum(triad|domain|flat)>) — only consulted when mode is "auto"; a
-  // case-insensitive substring-of-clientInfo.name -> mode override table, checked before the
-  // server's built-in one. See config/tools.schema.ts's ToolFacadeConfigSchema for the full
-  // description text. No existing key, type, default or constraint moved.
-  // THE-1125 (2026-09-25): rebaselined deliberately. Adds ONE new block, `telemetry` (enabled:
-  // boolean default false; endpoint: optional url; intervalMinutes: int min 60 default 1440;
-  // authTokenEnv: optional string) — opt-in, anonymous usage telemetry, off by default with NO
-  // default endpoint (see observability.schema.ts's TelemetryConfigSchema for the full contract:
-  // enabled requires endpoint, endpoint must be https unless loopback, endpoint must not carry
-  // userinfo). No existing key, type, default or constraint moved.
-  // THE-1125 (2026-09-25, security-review fix round): rebaselined deliberately again —
-  // DESCRIPTION TEXT ONLY on `telemetry.endpoint`. Now also states the literal
-  // private/link-local/carrier-grade-NAT/unspecified/cloud-metadata IP refusal (a validation
-  // behavior added the same round, not merely documented) and that a bearer token travels
-  // alongside the document (fixing a description that used to say telemetry carries no bearer
-  // key, which stopped being true once `authTokenEnv` shipped). No key, type, default or
-  // constraint moved.
-  // THE-1131 (2026-09-25, review round 2): rebaselined deliberately. Adds ONE new key,
-  // `toolFacade.profile` (enum("full"|"core"), default "full") — deployment-level: which
-  // REGISTERED tools are visible/callable for this process (registration itself is unaffected —
-  // every tool is always registered), orthogonal to `toolFacade.mode` (which picks what a SESSION
-  // is advertised). "full" is the default and does not change today's surface; "core" is an
-  // opt-in, smaller curated set. See config/tools.schema.ts's ToolFacadeConfigSchema for the full
-  // description text. No existing key, type, default or constraint moved.
-  // THE-1122: rebaselined deliberately, and this IS the behavioral PR the refusal message asks
-  // for. THREE existing defaults moved, all unconditional (still plain ZodObject field defaults —
-  // an earlier draft tried a provider-conditional `.transform()` and it broke
-  // scripts/docgen/extract-config.ts's hand-rolled introspection walker for the WHOLE embeddings
-  // subtree; see indexing-embeddings.schema.ts's own comment on why this stays a flat default):
-  // `embeddings.provider` "ollama" -> "local" (a bundled, fully offline dense embedder via the
-  // optional @the-40-thieves/obsidian-tc-embedder-local package, so semantic search works with a
-  // zero-configuration `embeddings` block); `embeddings.model` "nomic-embed-text" ->
-  // "bge-small-en-v1.5" (local's default catalog entry); `embeddings.dimensions` 768 -> 384
-  // (bge-small-en-v1.5's native width). A config that already sets `provider` (to ANY value,
-  // including "ollama") but not `model`/`dimensions` now gets the NEW defaults too, not the old
-  // ollama-shaped pairing — this repo's own documented config examples always set `model`
-  // alongside `provider: "ollama"` explicitly (config-yaml.md, docs/wiki/Configuration.md), so
-  // this shorthand was never a documented contract, and an Ollama server asked for
-  // "bge-small-en-v1.5" 404s loudly rather than silently misconfiguring anything. Two new keys,
-  // both read ONLY by provider "local": `embeddings.quantized` (boolean, default true — q8 vs
-  // fp32 ONNX export) and `embeddings.threads` (positive int, optional — onnxruntime-node thread
-  // count).
-  // THE-1122 review: rebaselined AGAIN, text-only — `embeddings.provider`'s .describe() string
-  // dropped its inline "(THE-1122 — ...)" parenthetical. Generated docs (config-reference.md,
-  // docs/wiki/Configuration.md) render every .describe() verbatim into user-facing pages, which a
-  // sibling PR's check:public-text gate refuses ticket ids in. No key, type, default or
-  // constraint moved.
-  // THE-1122 review 2: rebaselined AGAIN — `embeddings.model`/`embeddings.dimensions` DEFAULTS
-  // moved "bge-small-en-v1.5"/384 -> "nomic-embed-text-v1.5"/768. This is a measured correction,
-  // not a typo: both 384-dim catalog candidates FAILED the ticket's own -0.015 non-inferiority
-  // floor against nomic-embed-text-v1.5 on the public evergreen corpus, each run with its own
-  // correct pooling strategy (strict nDCG@10 one-sided 95% lower bound: all-MiniLM-L6-v2 -0.151,
-  // bge-small-en-v1.5 -0.110, both below -0.015; n=78, both run through the SAME "local" code
-  // path). See packages/embedder-local/src/model-info.ts's DEFAULT_MODEL_NAME comment and
-  // docs/EVALUATION.md's "Local embedder model selection" section for the full table. No key,
-  // type or constraint moved — only these two default VALUES.
-  // THE-1122 rebase: rebaselined again — rebasing onto main's THE-1123 (toolFacade.mode "auto")
-  // added ONE new description (toolFacade.autoClients) ahead of this entry in emission order,
-  // shifting the hash even though nothing in THIS change moved. No key, type, default or
-  // constraint of THIS PR's own changes moved.
-  // THE-1122 review round 2 rebase: rebaselined again onto main's THE-1125 (telemetry block) for
-  // the same reason as the THE-1123 rebase above — a new description ahead of this entry in
-  // emission order, nothing of THIS change's own moved.
-  // THE-1122 review round 3 rebase: rebaselined again onto main's THE-1131 (toolFacade.profile)
-  // for the same reason — a new description ahead of this entry in emission order, nothing of
-  // THIS change's own moved.
-  // THE-1122 pre-merge doc pass: rebaselined deliberately, text-only — `cacheDir`'s .describe()
-  // string gained a sentence documenting the review-round-2 behavioral change (config load now
-  // requires cacheDir explicitly when embeddings.provider is "local", the default provider) —
-  // this was a real, user-visible upgrade note that the field's own generated documentation
-  // (config-reference.md, docs/wiki/Configuration.md) had never stated. No key, type, default or
-  // constraint moved.
-  // THE-1108: rebaselined deliberately. Adds ONE new key, `sessions.maxExplicitLifetimeSeconds`
-  // (int, positive, default 86400) — the absolute ceiling on how long an explicit start_session
-  // session may stay open before the maintenance sweep closes it, regardless of activity. Also
-  // rewrites `sessions.windowSeconds`'s `.describe()` text to state the new resolver-bound
-  // behavior (activeSessionFor stops attaching new dispatches to an explicit session past this
-  // age) rather than only the sweep-eligibility text it already had. No existing key, type,
-  // default or constraint moved.
-  // GH #995: rebaselined deliberately, DESCRIPTION TEXT ONLY. `embeddings.threads`'s `.describe()`
-  // string said absent "lets the runtime pick its own default" — no longer true: onnxruntime-node's
-  // own default sizes the intra-op pool from the uncapped physical core count with spinning left
-  // on, which is what regressed 1.31.4's zero-config CPU/RSS (PR #980). The description now states
-  // the actual default (a quarter of the host's available CPU cores, minimum 1, spinning disabled)
-  // and that an explicit value overrides it outright — see packages/embedder-local's
-  // ort-session-options.ts. No key, type, default or constraint moved.
-  // GH #995 follow-up: rebaselined deliberately. Adds ONE new key, `embeddings.onProviderChange`
-  // (enum "keep"|"switch", default "keep") — whether an UNCONFIGURED install (no explicit
-  // `embeddings.provider`) keeps using whatever provider its existing index's active embeddings
-  // already belong to instead of silently adopting the current default, undoing PR #980's silent
-  // switch/re-embed (GH #995). An explicit `embeddings.provider` (including `"local"` itself)
-  // always wins over this key. See packages/shared/src/config/indexing-embeddings.schema.ts's
-  // `onProviderChange` field and packages/server/src/embeddings/sticky-provider.ts for the full
-  // resolution rule and description text. No existing key, type, default or constraint moved.
-  //
-  // GH #994: rebaselined deliberately, on top of the GH #995 rebaseline above. Adds ONE new
-  // optional per-vault block, `vaults[].memoryDefense` — `{ mode: "off"|"redact"|"block" (default
-  // "off"), pii: boolean (default false) }`, the secret/PII scan on
-  // create_entity/add_observation/enqueue_capture/commit_capture/set_goal (and the two sibling
-  // memory writers, link_entities/rename_entity, the GH #994 sibling-writer audit found and
-  // closed) — see packages/shared/src/config/vault.schema.ts's VaultMemoryDefenseConfigSchema for
-  // the full description text. Absent means "off": zero behaviour change for a vault that never
-  // opts in. No existing key, type, default or constraint moved.
-  //
-  // GH #994 security review (994-verify.log): rebaselined deliberately, on top of the GH #994
-  // rebaseline above. Only `vaults[].memoryDefense.mode`'s `.describe()` text was rewritten — it
-  // now names ALL SEVEN guarded tools (was missing link_entities/rename_entity, which the
-  // original GH #994 pass wired but never updated this string for) and states the `block`-mode
-  // exception for a LOW-CONFIDENCE `labeled_secret` hit (review finding 6: an ordinary
-  // `key: value` line is redacted rather than refused, even in "block" mode). No key, type,
-  // default or constraint moved — text only.
-  //
-  // rebase onto GH #999 (fix/embeddings-sticky-provider merged as PR #999): no schema key moved by
-  // the rebase itself — the hash below is the byte-identical recompute of the emitted schema with
-  // both the GH #995-follow-up and GH #994 changes above applied together.
-  //
-  // GH #995 follow-up (idle-reembed-pacing): rebaselined deliberately, on top of the GH #999
-  // rebase above. Adds ONE new optional block, `indexing.bootEmbed` — `{ mode: "idle"|"immediate"
-  // (default "idle"), idleMs: number (default 2000) }` — pacing the boot/promotion reconcile's
-  // embed pass against live dispatch activity so it stops starving interactive tool calls; see
-  // packages/shared/src/config/indexing-embeddings.schema.ts's IndexingConfigSchema for the full
-  // description text and runtime/plane-wiring.ts's createReconcileRunner for the consumer.
-  // Explicit index_vault calls and index-on-write are never paced regardless of this key. No
-  // existing key, type, default or constraint moved.
-  //
-  // Fix round (Codex review on #1003, idle-reembed-pacing): rebaselined deliberately, on top of
-  // the GH #995-follow-up rebase directly above. `indexing.bootEmbed` is RENAMED to
-  // `indexing.backgroundEmbed` (finding 3 — the same runner also paces the periodic scheduled
-  // `vault-reconcile` job, not only boot/promotion; unreleased before this rename, so no
-  // back-compat key was kept) and gains ONE new key, `maxDeferMs: number (default 30000)`
-  // (finding 1 — a bounded-fairness floor under the idle-quiet-window wait, described in full on
-  // that key). Every `mode`/`idleMs` description string was also reworded to say
-  // "boot/promotion/periodic" instead of "boot/promotion" and to reference the new key. No
-  // existing key's type, default or constraint moved.
-  // PR B of GH #995's two-part follow-up (PR A: #1001): rebaselined deliberately. Adds ONE new
-  // top-level key, `setupOrigin` (enum `["first-run-fallback"]`, optional) — set only by `serve`'s
-  // own first-run fallback (cli/setup/first-run-fallback.ts) when it auto-writes a config because
-  // none existed and exactly one vault was found; never set by an interactive `obsidian-tc setup`
-  // run. See server.schema.ts's own comment on the field for the full description text. No
-  // existing key, type, default or constraint moved.
-  //
-  // capture_queue purge: rebaselined deliberately. Adds ONE new key,
-  // `maintenance.captureQueueRetentionDays` (int, positive, default 30) — days a COMMITTED
-  // capture_queue row is retained before the maintenance sweep prunes it; see
-  // packages/shared/src/config/observability.schema.ts's MaintenanceConfigSchema for the full
-  // description text. No existing key, type, default or constraint moved.
-  //
-  // capture_queue purge, cross-vendor review round 1 (LOW): rebaselined again, text only. The
-  // SAME key's .describe() gained a clause on the THE-650/THE-175 dedup interaction — a
-  // committed row kept past commit_capture (delete_from_queue: false) is still the re-sync
-  // identity listCaptureTags reads, so this window should outlive the longest import re-sync
-  // period or a purged row can be re-imported as a duplicate. No key, type, default or
-  // constraint moved.
-  //
-  // check:public-text fix (this repo is public): rebaselined again, text only. The SAME key's
-  // .describe() drops the bare "THE-650/THE-175" ticket ids the dedup clause above named —
-  // check:public-text flags any bare ticket id that reaches a reader-facing surface, and this
-  // description propagates into docs/src/content/docs/configuration/config-reference.md and
-  // docs/wiki/Configuration.md via docgen. The re-sync identity itself (listCaptureTags reads a
-  // committed row's import-dedupe:/ambient-dedupe: tag) is unchanged and still named; only the
-  // ticket ids are removed, replaced with a pointer to the dedup tags noted on commit_capture. No
-  // key, type, default or constraint moved.
-  //
-  // Pluggable rate-limit backends: rebaselined deliberately. Adds three keys under `throttle` —
-  // `backend` (enum memory|sqlite|redis, default memory), `failurePolicy` (enum
-  // fail-open|fail-closed, default fail-open) and the `redis` block (`urlEnv`, `urlFile`,
-  // `keyPrefix`) — see packages/shared/src/config/runtime.schema.ts's ThrottleConfigSchema for the
-  // description text. `db.busyTimeoutMs`'s enclosing block description now also names ratelimit.db.
-  // Every default keeps today's behavior (process-local memory buckets). No existing key, type,
-  // default or constraint moved.
-  //
-  // auth registry: rebaselined deliberately. Adds ONE new key, `auth.requireJti` (boolean, default
-  // false) — rejects a bearer token carrying no `jti` on every verify path, since only a token with
-  // a jti can be revoked individually. Also rewrites `cacheDir`'s description text: it no longer
-  // says everything in the directory is regenerable, because `auth.db` and `auth-keys/` (the auth
-  // registry: revocations, key retirements, signing-key files) are not. No existing key, type,
-  // default or constraint moved.
-  // Rotation grace window: rebaselined deliberately. Adds ONE key, `auth.rotationGraceSeconds`
-  // (int, min 0, max 604800, default 0 = the previous immediate-retirement behaviour), and REMOVES
-  // the `auth` refinement that required jwtSecret or a JWKS when mode is "jwt" (that refinement is
-  // not part of the emitted JSON Schema; the signing-key check moved to boot, since the auth
-  // registry can now be the only key). Rewords `auth.mode` and `auth.jwtSecret` descriptions to
-  // say so. No existing key, type, default or constraint moved.
-  // show_file_in_obsidian: rebaselined deliberately. Adds ONE new optional block, `uri`, with a
-  // single key `allowOsLaunch` (boolean, default false) — whether the tool may hand an obsidian://
-  // URI to the OS URI handler when no live Obsidian session answers. Honoured only for the stdio
-  // transport; read at runtime/tool-wiring.ts. No existing key, type, default or constraint moved.
-  // `auth.mode: oidc`: rebaselined deliberately. `auth.mode` gains the value "oidc" and the root
-  // `auth` block gains ONE optional block, `auth.oidc` (issuer, audience, clientId, jwksUri,
-  // allowedAlgs, clockToleranceSeconds, discoveryCacheSeconds, requireAtJwtType, claimMapping,
-  // requiredClaims), for verifying access tokens from an external OpenID Connect provider. The
-  // block is refused under any other mode and vice versa (server.schema.ts superRefine). No
-  // existing key, type, default or constraint moved. Security review of that block, same PR: adds
-  // `auth.oidc.allowedJwksHosts` / `allowPrivateNetwork`, `claimMapping.scopeMap` /
-  // `allowedPersonas` / `allowedVaults`, array-form claim paths, and object-form `requiredClaims`.
-  // Memory orphan sweep: rebaselined deliberately. Adds ONE block, `maintenance.memoryOrphans`
-  // (enabled, intervalMs, batchSize, retiredRetentionDays, removedVaultRetentionDays, dryRun) — see
-  // packages/shared/src/config/observability.schema.ts's MemoryOrphansConfigSchema for the
-  // description text. Only `enabled` (dangling rows) is on by default; both age-gated classes are
-  // absent-means-off. No existing key, type, default or constraint moved.
-  // Morgiana spool retention: rebaselined deliberately. Adds TWO keys under observability.retention,
-  // `spoolRetentionDays` (integer >= 0, default 30; 0 = keep forever) and `spoolMaxBytes` (positive
-  // integer, optional), and rewords the `eventLogDays` description that said the spool was never
-  // pruned. No existing key, type, default or constraint moved.
-  // OTel child spans: rebaselined deliberately. Adds ONE key, `observability.otel.detail` (enum
-  // root | children | verbose, default root) — see packages/shared/src/config/observability.schema.ts.
-  // No existing key, type, default or constraint moved.
-  "70bc76cbfde229669340a9ae84901bbffd76c8fe3927ff20c51056d9ee85a957";
+// Drift is checked two ways, and neither is a pinned literal (a single shared hash made any two
+// config PRs conflict by construction):
+//   1. STALENESS — the regenerated bytes must equal the committed file.
+//   2. STRUCTURE vs the base branch (`--base <ref>`): every key whose type, default or constraint
+//      changed, or that was removed, must be named by `config-schema-change:` in the change's
+//      release-note fragment (changes/<slug>.md). Added keys and reworded descriptions need nothing.
+//      Regenerating the schema can therefore never hide an unintended change to an existing key.
+// `--base` without a resolvable ref FAILS (fail closed); without `--base` the structural half is
+// reported as NOT RUN, never as passed. CI passes `--base origin/main`.
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
@@ -539,29 +66,63 @@ if (process.argv.includes("--check")) {
     console.error(`config schema missing: ${OUT}\nRun: bun scripts/gen-config-schema.ts`);
     process.exit(1);
   }
-  // Two independent checks, reported separately, because regenerating both files together would
-  // hide a change that trips ONLY the hash: staleness (committed file vs regenerated output) says
-  // nothing about whether that output still matches the pinned baseline.
-  const staleFile = current !== json;
-  const actualSha256 = createHash("sha256").update(json).digest("hex");
-  const staleHash = actualSha256 !== CONFIG_SCHEMA_BASELINE_SHA256;
-  if (staleFile || staleHash) {
-    if (staleFile) {
-      console.error(
-        `config schema is STALE: ${OUT}\nThe Zod schema changed without regenerating.\nRun: bun scripts/gen-config-schema.ts`,
-      );
-    }
-    if (staleHash) {
-      console.error(
-        `config schema HASH MISMATCH: expected ${CONFIG_SCHEMA_BASELINE_SHA256}, got ${actualSha256}\n` +
-          "The emitted JSON Schema bytes no longer match the pinned baseline. If this schema change " +
-          "is deliberate, update CONFIG_SCHEMA_BASELINE_SHA256 in scripts/gen-config-schema.ts in its " +
-          "own behavioral PR — do not update it as a side effect of an unrelated refactor.",
-      );
-    }
+  if (current !== json) {
+    console.error(
+      `config schema is STALE: ${OUT}\nThe Zod schema changed without regenerating.\nRun: bun scripts/gen-config-schema.ts`,
+    );
     process.exit(1);
   }
-  console.log(`config schema OK (${described} descriptions, up to date, hash ${actualSha256})`);
+
+  const baseIdx = process.argv.indexOf("--base");
+  const baseRef = baseIdx === -1 ? undefined : process.argv[baseIdx + 1];
+  if (baseIdx !== -1 && !baseRef) {
+    console.error("config schema: --base needs a git ref (e.g. --base origin/main)");
+    process.exit(1);
+  }
+  let structure = "structure vs base NOT RUN (pass --base <ref>; CI passes --base origin/main)";
+  if (baseRef) {
+    let baseJson: string;
+    try {
+      baseJson = execFileSync("git", ["show", `${baseRef}:docs/obsidian-tc.config.schema.json`], {
+        cwd: ROOT,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (err) {
+      // Fail closed: a check that cannot read its baseline has compared nothing.
+      console.error(
+        `config schema: cannot read docs/obsidian-tc.config.schema.json at "${baseRef}" ` +
+          `(${(err as Error).message.split("\n")[0]}). Fetch the ref, or drop --base.`,
+      );
+      process.exit(1);
+    }
+    const { diffStructure, flattenSchema, unacknowledged } = await import(
+      join(ROOT, "scripts", "lib", "config-schema-structure.mjs")
+    );
+    const { readFragments } = await import(join(ROOT, "scripts", "lib", "changes.mjs"));
+    const base = flattenSchema(JSON.parse(baseJson));
+    const head = flattenSchema(schema);
+    // Floor: an empty flattening means the walk broke, not that nothing changed.
+    if (base.size < 100 || head.size < 100) {
+      console.error(`config schema: structural walk saw ${base.size}/${head.size} nodes (floor 100)`);
+      process.exit(1);
+    }
+    const diff = diffStructure(base, head);
+    const acknowledged = readFragments(ROOT).flatMap((f: { schemaChange: string[] }) => f.schemaChange);
+    const bad = unacknowledged(diff, acknowledged);
+    if (bad.length > 0) {
+      console.error(
+        `config schema: ${bad.length} existing key(s) changed type/default/constraint or were removed vs ${baseRef} without acknowledgement:\n` +
+          bad.map((b: { path: string; kind: string }) => `  ${b.kind}: ${b.path}`).join("\n") +
+          "\nIf deliberate, add `config-schema-change: <key>[, <key>]` to the front matter of this change's " +
+          "changes/<slug>.md release-note fragment. If not, the refactor altered the published schema by accident.",
+      );
+      process.exit(1);
+    }
+    structure = `structure vs ${baseRef}: +${diff.added.length} added, ${diff.changed.length} changed, ${diff.removed.length} removed, all acknowledged`;
+  }
+  console.log(`config schema OK (${described} descriptions, up to date; ${structure})`);
 } else {
   writeFileSync(OUT, json);
   console.log(`wrote ${OUT} (${described} descriptions)`);

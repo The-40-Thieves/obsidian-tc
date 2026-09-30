@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 /**
- * docs/decisions-index.md generator.
+ * Decisions-index generator. The output is NOT committed.
+ *
+ * It used to live at docs/decisions-index.md, regenerated whole by every PR that cited a ticket in
+ * a source comment — a per-ticket row plus a "referencing files" count, so two PRs citing the same
+ * or neighbouring tickets conflicted by construction. It is now produced at docs-build time into
+ * the gitignored docs/src/content/docs/contributing/decisions-index.md (published on the docs site;
+ * `bun run docs:decisions-index` writes it on demand), and `--check` (ci-docgen) asserts that the
+ * generator still runs over the real tree with sane floors and that no copy is committed.
  *
  * The comment-style policy (CONTRIBUTING.md "Inline commentary") allows a bare `THE-xxx` ticket
  * suffix in source comments, on the premise that this index resolves it for a reader without
@@ -29,11 +36,17 @@
  * rather than injected into marker regions.
  */
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { changelogWithFragments, readFragments } from "./lib/changes.mjs";
 
-export const OUTPUT = "docs/decisions-index.md";
+export const OUTPUT = "docs/src/content/docs/contributing/decisions-index.md";
+/** The old committed location. Tracked = drift: the gate refuses it. */
+export const LEGACY_COMMITTED = "docs/decisions-index.md";
+/** Existence floors (measured: 376 tickets, 278 resolved). A parse that finds far less is broken. */
+export const FLOOR = { tickets: 100, resolved: 100 };
 export const DOC_DIRS = ["docs/adr", "docs/design", "docs/superpowers/specs"];
 export const FALLBACK_SUMMARY = "_internal planning reference — see repo history_";
 export const FALLBACK_LOCATION = "—";
@@ -157,7 +170,7 @@ export function cell(s) {
  * Ticket rows -> the full markdown document. Pure function of already-resolved data, so tests can
  * check formatting without touching the filesystem or CHANGELOG parsing.
  */
-export function renderDocument(rows, sourceFileCount) {
+export function renderDocument(rows, sourceFileCount, { site = false } = {}) {
   const table = [
     "| Ticket | Summary | Where the substance lives | Referencing files |",
     "|---|---|---|---:|",
@@ -166,8 +179,10 @@ export function renderDocument(rows, sourceFileCount) {
 
   const resolvedCount = rows.filter((r) => r.summary !== FALLBACK_SUMMARY).length;
 
-  return `# Decisions index
-
+  const head = site
+    ? "---\ntitle: Decisions index\ndescription: Resolves the ticket ids cited in source comments to public summaries.\n---\n"
+    : "# Decisions index\n";
+  return `${head}
 This project tracks day-to-day planning work in Linear, a private issue tracker — source comments
 and CHANGELOG entries routinely cite a \`THE-xxx\` ticket id as shorthand for "the discussion that
 produced this." Those ids are not resolvable outside the maintainer team, which would otherwise
@@ -176,9 +191,10 @@ leave every outside contributor who hits one at a dead end. This index closes th
 repo already has — the CHANGELOG entry that shipped it, or the design/ADR/spec doc that discusses
 it — so the repository stays self-contained without anyone needing tracker access.
 
-This file is **generated** — do not hand-edit it. Regenerate with \`bun run docs:decisions-index\`;
-\`bun run docs:decisions-index:check\` fails if the committed table has drifted from the source
-tree, and runs as part of the docs drift gate in CI.
+This page is **generated** at docs-build time and is not stored in git. Regenerate it with
+\`bun run docs:decisions-index\`; \`bun run docs:decisions-index:check\` fails if the generator no
+longer runs over the source tree (or if a copy is committed), and runs as part of the docs drift
+gate in CI.
 
 ${table}
 
@@ -239,7 +255,11 @@ function main() {
   }
 
   // ── 2. CHANGELOG.md: bold LEAD of the bullet that cites a ticket (THE-952) ────────────────────
-  const changelogEntries = parseChangelogEntries(readFileSync("CHANGELOG.md", "utf8"));
+  // Unreleased release notes live in changes/*.md fragments until the release folds them into
+  // CHANGELOG.md, so they are read through the same view the release uses.
+  const changelogEntries = parseChangelogEntries(
+    changelogWithFragments(readFileSync("CHANGELOG.md", "utf8"), readFragments(".")),
+  );
   const fromChangelog = resolveChangelogLeads(changelogEntries, (num, chosen, others) => {
     console.warn(
       `gen-decisions-index: THE-${num} is lead-cited by more than one CHANGELOG bullet; using ` +
@@ -277,25 +297,33 @@ function main() {
       };
     });
 
-  const content = renderDocument(rows, sourceFiles.length);
-  const before = (() => {
-    try {
-      return readFileSync(OUTPUT, "utf8");
-    } catch {
-      return null;
-    }
-  })();
-
-  if (before === content) {
-    console.log(`gen-decisions-index: up to date (${rows.length} tickets)`);
-    process.exit(0);
-  }
-  if (CHECK) {
-    console.error(`gen-decisions-index: ${OUTPUT} is STALE — run \`bun run docs:decisions-index\``);
+  const resolved = rows.filter((r) => r.summary !== FALLBACK_SUMMARY).length;
+  if (rows.length < FLOOR.tickets || resolved < FLOOR.resolved) {
+    console.error(
+      `gen-decisions-index: only ${rows.length} tickets / ${resolved} resolved (floors ` +
+        `${FLOOR.tickets}/${FLOOR.resolved}) — the scan or the CHANGELOG parse is broken, not the docs.`,
+    );
     process.exit(1);
   }
-  writeFileSync(OUTPUT, content);
-  console.log(`gen-decisions-index: wrote ${OUTPUT} (${rows.length} tickets)`);
+
+  if (CHECK) {
+    const tracked = run("git", ["ls-files", "--", LEGACY_COMMITTED]).trim();
+    if (tracked) {
+      console.error(
+        `gen-decisions-index: ${LEGACY_COMMITTED} is tracked — the index is generated at docs-build ` +
+          "time and must not be committed (two PRs citing neighbouring tickets would conflict on it).",
+      );
+      process.exit(1);
+    }
+    console.log(`gen-decisions-index: OK (${rows.length} tickets, ${resolved} resolved; none committed)`);
+    return;
+  }
+  const outIdx = process.argv.indexOf("--out");
+  const out = outIdx === -1 ? OUTPUT : process.argv[outIdx + 1];
+  const content = renderDocument(rows, sourceFiles.length, { site: out === OUTPUT });
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, content);
+  console.log(`gen-decisions-index: wrote ${out} (${rows.length} tickets)`);
 }
 
 // Importing this module (as its test file does, to reach the exported pure functions) must have

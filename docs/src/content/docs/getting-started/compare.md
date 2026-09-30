@@ -26,7 +26,7 @@ disagree.
 
 | | Tools | Group | Retrieval | Governance | Memory engine |
 |---|---|---|---|---|---|
-| **obsidian-tc** | 164 (3-tool facade) | all three | BM25 (FTS5) · vector (vec0) · graph · RRF fusion · diversity | JWT (HS256/JWKS) · per-vault folder ACL · HITL elicit · CAS · idempotency · snapshots · audit log | episodes · activation · forgetting · contradictions |
+| **obsidian-tc** | full surface (3-tool facade) | all three | BM25 (FTS5) · vector (vec0) · graph · RRF fusion · diversity | JWT (HS256/JWKS) · per-vault folder ACL · HITL elicit · CAS · idempotency · snapshots · audit log | episodes · activation · forgetting · contradictions |
 | [coddingtonbear/obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api) (built-in MCP, v5.0+) | 18 | access | text (`search_query`/`search_simple`) | single REST API bearer key (full vault admin) | — |
 | [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | access | text / regex | JWT/OAuth · folder-scoped path policy · read-only mode · elicited delete confirmation showing blast radius | — |
 | [aaronsb/obsidian-mcp-plugin](https://github.com/aaronsb/obsidian-mcp-plugin) | 8 families | access | text · graph traversal · Dataview/Bases | path allow/block lists · read-only mode · per-operation controls · API key | — |

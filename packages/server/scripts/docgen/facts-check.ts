@@ -1,35 +1,41 @@
-// docgen — narrative fact assert gate (THE-566 / THE-470). The complement to two existing checks:
+// docgen — narrative fact assert gate (THE-566 / THE-470). The complement to `injectGenerated`
+// (render.ts), which owns facts INSIDE `<!-- GENERATED -->` regions.
 //
-//   * `injectGenerated` (render.ts) owns facts INSIDE `<!-- GENERATED -->` markers — byte-exact.
-//   * `check-version-coherence.mjs` (THE-306) POSITIVELY asserts a fixed allowlist of 9 canonical
-//     tool-count phrases: "this exact phrase must exist and equal N".
+// It is the NEGATIVE sweep: scan every narrative surface for a fact-shaped number typed by a human
+// outside a generated region, and fail on it. Two kinds of fact:
 //
-// Neither can see a fact-shaped number that a human typed into narrative OUTSIDE a marker and
-// OUTSIDE the allowlist — which is exactly how "143 tools" leaked into docs/wiki/Home.md, WHY.md,
-// QUICKSTART.md, G2.1-tools.md, and how "n=136 golden set" survived across README/wiki/roadmap
-// after the set grew to 250. This gate is the NEGATIVE sweep: scan every narrative surface and fail
-// if any occurrence of a tracked current fact disagrees with its canonical value.
+//   * CURRENT facts that change rarely and are curated in docs/project-facts.json (goldenSetSize,
+//     domainCount): an occurrence must equal the canonical value.
+//   * The TOOL COUNT, which changes with every tool-adding PR: NO occurrence is allowed at all.
+//     A correct "167 tools" in prose is stale by the next tool PR, and keeping ~22 such sites current
+//     made every two tool-adding PRs conflict on them (and once both wrote the same new number,
+//     merge to a count that was wrong by one). Prose states no count — say "every tool", "the full
+//     surface" — and the number lives only in generated regions (docgen:render fills the stats
+//     block and tool catalog at build time from the live registry).
+//
+// This replaces two earlier mechanisms: the equality check against the registry count, and
+// check-version-coherence.mjs's ~10 positive anchors ("this exact phrase must exist and equal N").
+// Both existed to keep typed counts current; with no typed counts there is nothing to keep current,
+// and a positive anchor on a phrase that must no longer exist would only force the number back in.
 //
 // Two escape hatches keep it honest about intent (the reason THE-566 was a decision, not a sed):
 //   * genuinely-historical or spec numbers (the real "3-tool facade", the "103 at r2" G2.1 design
 //     surface, a dated measurement) are NOT current facts — mark that line `<!-- facts-check:ignore -->`
 //     (or the whole file `<!-- facts-check:ignore-file -->`) and the sweep skips it.
-//   * a fact is only ever asserted against the ONE authority the render pipeline already trusts:
-//     toolCount from the live registry (extractTools().length), goldenSetSize and domainCount
-//     (THE-470 hole 3) from docs/project-facts.json. No new source of truth, no third hardcoded
-//     146 — and no fourth hardcoded 31: the domain map (src/mcp/facade.ts) only covers 13
-//     tool-routing buckets, not the "31 domains" figure, which spans the G2.1 design-era domain
-//     list plus post-1.0 additions and so is curated exactly like goldenSetSize.
+//   * goldenSetSize and domainCount are asserted against docs/project-facts.json, the one curated
+//     authority (they come from the private eval harness / the G2.1 design-era domain list, not a
+//     single live registry structure).
 //
 //   bun scripts/docgen/facts-check.ts            # report + exit 1 on drift
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { extractTools } from "./extract-tools";
 
 /** A tracked, machine-checkable CURRENT fact and the patterns that mean it in prose. */
 export interface FactRule {
   name: string;
-  value: number;
+  /** The canonical value an occurrence must equal, or `null` = NO occurrence is allowed (the tool
+   *  count: prose must not state it at all). */
+  value: number | null;
   /** Patterns whose first capture group is the number that must equal `value`. */
   patterns: RegExp[];
   /** When set, a pattern only applies to lines that also match this (proximity scoping). */
@@ -40,7 +46,8 @@ export interface FactViolation {
   fact: string;
   line: number;
   found: number;
-  expected: number;
+  /** `null` for a forbidden fact: any occurrence is the violation. */
+  expected: number | null;
   snippet: string;
 }
 
@@ -107,7 +114,7 @@ export function scanFacts(text: string, rules: FactRule[], stats?: ScanStats): F
           // there is, so counting only violations would make the floor unsatisfiable exactly when
           // the docs are right.
           if (Number.isFinite(found) && stats) stats.patternMatches += 1;
-          if (!Number.isFinite(found) || found === rule.value) continue;
+          if (!Number.isFinite(found) || (rule.value !== null && found === rule.value)) continue;
           violations.push({
             fact: rule.name,
             line: i + 1,
@@ -133,46 +140,37 @@ const STANDALONE = "(?<![A-Za-z0-9.\\-])";
  * the exact production patterns are unit-testable. `currentFactRules()` resolves the values from
  * the render pipeline's own authorities and calls this.
  */
-export function factRules(
-  toolCount: number,
-  goldenSetSize: number,
-  domainCount: number,
-): FactRule[] {
+export function factRules(goldenSetSize: number, domainCount: number): FactRule[] {
   return [
     {
       name: "toolCount",
-      value: toolCount,
-      // "Full surface" phrasings only. Deliberately NOT bare "(\d+)-tool" (the legitimate "3-tool
-      // facade" is a different fact). "tools across N domains" is anchored to the CURRENT
-      // domainCount (not a hardcoded 31) so a milestone sub-count like "20 tools across 9 domains"
-      // is not mistaken for the surface, and the anchor tracks domainCount as it changes.
+      // Forbidden outright — see the header. The patterns are the "full surface" phrasings seen in
+      // the wild; each one was added for an observed leak.
+      value: null,
       patterns: [
         new RegExp(`${STANDALONE}(\\d+)\\s+governed\\s+capabilities`, "i"),
-        new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+${domainCount}\\s+domains`, "i"),
+        // Three-plus digits: a milestone sub-count ("20 tools across 9 domains") is a different,
+        // legitimate fact, and no tool surface has been under 100 since 1.3.
+        new RegExp(`${STANDALONE}(\\d{3,})\\s+tools\\s+across\\s+\\d+\\s+domains`, "i"),
         new RegExp(`${STANDALONE}(\\d+)[-\\s]tool\\s+surface`, "i"),
         // THE-598: "the 128-tool G2.1 set plus post-1.0 additive tools" (ARCHITECTURE.md) slipped
-        // through every gate — one noun away from the pattern above, which requires "tool" to be
-        // followed directly by "surface". Widened to also match an arbitrary noun between the
-        // count and a closing "surface"/"set" (e.g. "128-tool G2.1 set", "146-tool registered
-        // surface"), without touching the "-tool surface" pattern's own STANDALONE-anchored count
-        // group.
+        // through every gate — one noun away from the pattern above. Matches an arbitrary noun
+        // between the count and a closing "surface"/"set" (e.g. "128-tool G2.1 set").
         new RegExp(`${STANDALONE}(\\d+)-tool\\s+\\S+\\s+(?:surface|set)`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+typed\\s+tools`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tool\\s+impls?`, "i"), // "across the 141 tool impls"
-        // Measured 2026-07-31: "150 tools" survived in FIVE places (README.md, docs/G2.1-tools.md,
-        // docs/wiki/Home.md x2, docs/src/content/docs/tools/index.md) while REGISTERED_TOOL_COUNT
-        // was 151 — README said 151 twice and 150 once, in one file. Every pattern above needs a
-        // specific FOLLOWING word, and none of these phrasings supplied one.
-        //
-        // A bare `(\\d+)\\s+tools\\b` was tried first and is WRONG here: docgen-facts-check.test.ts
-        // pins "the facade fronts the surface with 3 tools" and "20 tools across 9 domains" as
-        // must-NOT-flag. Nothing separates a bare "3 tools" from a bare "150 tools" except
-        // magnitude, and this gate deliberately does not guess from magnitude. So these stay
-        // narrow, one per observed leak — the same way the THE-598 pattern above was added.
+        // Measured 2026-07-31: "150 tools" survived in FIVE places while the registry said 151.
+        // A bare `(\\d+)\\s+tools\\b` is WRONG here: the gate's tests pin "the facade fronts the
+        // surface with 3 tools" and "20 tools across 9 domains" as must-NOT-flag, and nothing but
+        // magnitude separates them from "150 tools". So these stay narrow, one per observed leak.
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+covering`, "i"),
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+ship`, "i"),
         /\ball\s+(\d+)\s+tools\b/i,
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+modules`, "i"),
+        // The opt-in core profile's count moves with the same PRs ("97 with opt-in profile: core").
+        new RegExp(`${STANDALONE}(\\d+)\\s+(?:tools\\s+)?with\\s+the\\s+opt-in\\s+\`profile`, "i"),
+        new RegExp(`\\((?:all\\s+visible\\s+by\\s+default;\\s+)?(\\d+)\\s+with\\s+opt-in\\s+\`profile`, "i"),
+        new RegExp(`(?:^|[\\s(*~])~?(\\d{3,})\\s+\\(3-tool\\s+facade\\)`, "i"),
       ],
     },
     {
@@ -184,17 +182,14 @@ export function factRules(
         new RegExp(`${STANDALONE}(\\d+)[-\\s]quer(?:y|ies)[-\\s]golden`, "i"),
       ],
     },
-    // THE-470 hole 3: "31 domains" was only ever an ANCHOR inside the toolCount pattern above (and
-    // in scripts/check-version-coherence.mjs) — never itself asserted, so it could drift to 32
-    // silently everywhere it appears. Anchored on the canonical toolCount, mirroring how the
-    // toolCount rule anchors on domainCount above, so a milestone line like "20 tools across 9
-    // domains" (a real, different, smaller sub-count) is not mistaken for the canonical figure.
+    // THE-470 hole 3: "31 domains" was only ever an ANCHOR — never itself asserted, so it could
+    // drift to 32 silently everywhere it appears. Anchored on a three-digit tool count so a
+    // milestone line like "20 tools across 9 domains" (a real, smaller sub-count) is not mistaken
+    // for the canonical figure.
     {
       name: "domainCount",
       value: domainCount,
-      patterns: [
-        new RegExp(`${STANDALONE}${toolCount}\\s+tools\\s+across\\s+(\\d+)\\s+domains`, "i"),
-      ],
+      patterns: [new RegExp(`${STANDALONE}\\d{3,}\\s+tools\\s+across\\s+(\\d+)\\s+domains`, "i")],
     },
   ];
 }
@@ -207,7 +202,7 @@ export function currentFactRules(): FactRule[] {
     goldenSetSize: number;
     domainCount: number;
   };
-  return factRules(extractTools().length, facts.goldenSetSize, facts.domainCount);
+  return factRules(facts.goldenSetSize, facts.domainCount);
 }
 
 /**
@@ -281,16 +276,30 @@ export function narrativeFiles(repoRoot: string): string[] {
  * broken, not the docs. Refusing to report success"), has a second floor on metric mentions, and
  * gen-tree-map.mjs refuses an empty file list. facts-check was the one that missed it.
  *
- * The numbers are floors, not targets. Measured on `main` at the time of writing: **54 files, 7817
- * narrative lines, 30 pattern matches** — so each floor sits at roughly a third of reality, leaving
- * room for ordinary doc churn (and for deleting a doc or two) while still catching a broken walk,
- * an unreadable tree, or a rule set that can no longer match anything.
- *
- * `patternMatches` is the tightest of the three at 30, and deliberately so: it is the only one that
- * fails if the RULES stop working while the files are still readable — e.g. a `domainCount` change
- * silently invalidating the "tools across N domains" anchor.
+ * The numbers are floors, not targets. Measured on `main` at the time of writing: **54 files, ~7800
+ * narrative lines, 6 pattern matches** (golden-set phrasings; the forbidden tool-count rule matches
+ * nothing by design) — so each floor sits well under reality, leaving room for ordinary doc churn
+ * while still catching a broken walk or an unreadable tree. The CANARIES above are what prove the
+ * forbidden rule itself still fires.
  */
-const FLOOR = { files: 20, lines: 500, patternMatches: 10 } as const;
+const FLOOR = { files: 20, lines: 500, patternMatches: 3 } as const;
+
+/**
+ * Canary for the forbidden tool-count rule. In a clean tree that rule matches NOTHING (that is the
+ * goal), so a pattern-match floor can no longer prove it is still capable of firing — a regex
+ * edited into a no-op would keep the gate green forever. Planting a phrase per pattern shape and
+ * requiring the rule to flag each one is the existence floor for a gate whose success is silence.
+ */
+const CANARIES = [
+  "the 999-tool surface",
+  "999 governed capabilities",
+  "999 tools across 31 domains",
+  "the 999-tool G2.1 set",
+  "999 typed tools",
+  "across the 999 tool impls",
+  "all 999 tools",
+  "999 with the opt-in `profile: \"core\"`",
+] as const;
 
 function main(): void {
   // The override exists so the FLOOR can be watched failing end-to-end, which is the only way to
@@ -318,9 +327,16 @@ function main(): void {
     for (const v of scanFacts(text, rules, stats)) all.push({ file: rel, v });
   }
 
-  const counts = rules.map((r) => `${r.name}=${r.value}`).join(", ");
+  const counts = rules.map((r) => `${r.name}=${r.value ?? "forbidden"}`).join(", ");
+
+  const toolRule = rules.find((r) => r.name === "toolCount");
+  const deadCanaries = CANARIES.filter(
+    (c) => !toolRule || scanFacts(c, [toolRule]).length === 0,
+  );
 
   const shortfalls = [
+    deadCanaries.length > 0 &&
+      `the tool-count rule no longer flags ${deadCanaries.length} canary phrase(s): ${deadCanaries.join(" | ")}`,
     filesRead < FLOOR.files && `read ${filesRead} narrative files (floor ${FLOOR.files})`,
     stats.linesScanned < FLOOR.lines &&
       `scanned ${stats.linesScanned} narrative lines (floor ${FLOOR.lines})`,
@@ -349,7 +365,8 @@ function main(): void {
   process.stderr.write(`\nFAIL: narrative fact drift (THE-566), current facts: ${counts}\n`);
   for (const { file, v } of all) {
     process.stderr.write(
-      `  ${file}:${v.line}  ${v.fact} — found ${v.found} in "${v.snippet}", expected ${v.expected}\n`,
+      `  ${file}:${v.line}  ${v.fact} — found ${v.found} in "${v.snippet}", ` +
+        `${v.expected === null ? "expected no count here (say 'every tool' / 'the full surface'; the number lives in generated regions)" : `expected ${v.expected}`}\n`,
     );
   }
   process.stderr.write(

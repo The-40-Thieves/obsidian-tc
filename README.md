@@ -15,8 +15,9 @@ filesystem access to years of notes, every tool call runs through one pipeline �
 ACLs, a read-only kill switch, HITL confirmation on destructive ops, and an audit log. It also
 adds fused retrieval (full-text, vector, graph) and a memory tier — episodes, decay, forgetting —
 living *inside* your vault under that same ACL.
-**167 tools across 31 domains** (all visible by default; 97 with opt-in `profile: "core"`), via a
-3-tool facade. Pitch: [docs/WHY.md](./docs/WHY.md).
+**A full tool surface across every domain** (all visible by default; a smaller set with opt-in
+`profile: "core"`), via a 3-tool facade, listed in the
+[tool catalog](https://obsidian-tc.the40thieves.io/tools/tool-catalog/). Pitch: [docs/WHY.md](./docs/WHY.md).
 
 ## 60-second start
 
@@ -69,7 +70,7 @@ win"](https://obsidian-tc.the40thieves.io/getting-started/compare/).
 
 | | Tools | Group | What it's for |
 |---|---|---|---|
-| **obsidian-tc** | 167 (3-tool facade) | all three | governed access + retrieval + in-vault memory |
+| **obsidian-tc** | full surface (3-tool facade) | all three | governed access + retrieval + in-vault memory |
 | [obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api) | 18 | access | Obsidian's own built-in MCP server; one bearer key, no ACL |
 | [basic-memory](https://github.com/basicmachines-co/basic-memory) | ~35 | memory | entities/relations in a separate, portable markdown KB |
 
@@ -82,7 +83,7 @@ win"](https://obsidian-tc.the40thieves.io/getting-started/compare/).
 [TC Bridge](#tc-bridge-the-companion-obsidian-plugin) ·
 [Status](#status) ·
 [Architecture](#architecture) ·
-[The interface](#the-interface-3-tools-164-governed-capabilities) ·
+[The interface](#the-interface-3-tools-every-governed-capability) ·
 [Cursor / VS Code](#install-in-cursor--vs-code) ·
 [Docs](#docs) ·
 [Trademark](#trademark) ·
@@ -148,7 +149,7 @@ Dispatch-pipeline and package-layout detail: [ARCHITECTURE.md](./ARCHITECTURE.md
 **admin** (10) — `add_vault`, `get_metrics`, `get_server_config`, `index_vault`, `inspect_acl`, `inspect_visibility`, `refresh_plugin_capabilities`, `reload_vault`, `reset_vault_cache`, `session_rerun`
 <!-- END GENERATED: tools-summary -->
 
-### The interface: 3 tools, ~167 governed capabilities
+### The interface: 3 tools, every governed capability
 
 By default the server advertises just **three meta-tools** instead of a wall of 164:
 `find_capability`, `describe_capability`, `call_capability` (invoke by name, same pipeline as a

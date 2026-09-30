@@ -2,9 +2,9 @@
 // gate was measured PASSING on a broken configuration (2026-08-01).
 //
 // The gate exists to catch a silently-vacuous merge-driver setup. It had the same defect it was
-// written to detect: it asserted only that `merge.regenerate.driver` was non-empty, so a command
-// pointing into a deleted worktree reported OK while git fell back to ordinary text merges. TREE.md
-// then conflicted by hand on PR #633.
+// written to detect: it asserted only that `merge.regen.driver` was non-empty, so a command
+// pointing into a deleted worktree reported OK while git fell back to ordinary text merges. the generated
+// file then conflicted by hand (TREE.md, on PR #633).
 //
 // `driverProblems` takes injected `exists` / `isAbsolute`, so these cases run without a filesystem
 // and a POSIX host can still exercise a Windows-shaped path.
@@ -13,15 +13,15 @@ import { test } from "node:test";
 import { driverProblems, driverScriptPath } from "./check-merge-driver.mjs";
 
 const REPO = "/repo";
-const RELATIVE_CMD = 'node "scripts/merge-drivers/defer-regeneration.mjs" %O %A %B %P';
+const RELATIVE_CMD = 'node "scripts/merge-drivers/regen.mjs" %O %A %B %P';
 const ABSOLUTE_CMD =
-  'node "/gone/otc-task8/scripts/merge-drivers/defer-regeneration.mjs" %O %A %B %P';
+  'node "/gone/otc-task8/scripts/merge-drivers/regen.mjs" %O %A %B %P';
 
 const never = () => false;
 const always = () => true;
 
 test("driverScriptPath: extracts the quoted path the setup script writes", () => {
-  assert.equal(driverScriptPath(RELATIVE_CMD), "scripts/merge-drivers/defer-regeneration.mjs");
+  assert.equal(driverScriptPath(RELATIVE_CMD), "scripts/merge-drivers/regen.mjs");
 });
 
 test("driverScriptPath: accepts an unquoted path so a hand-written config is diagnosed", () => {
@@ -52,7 +52,7 @@ test("a dangling RELATIVE path is also a failure, and reports what it resolved t
   const problems = driverProblems({ driverCmd: RELATIVE_CMD, repoRoot: REPO, exists: never });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /does not exist/);
-  assert.match(problems[0], /\/repo\/scripts\/merge-drivers\/defer-regeneration\.mjs/);
+  assert.match(problems[0], /\/repo\/scripts\/merge-drivers\/regen\.mjs/);
 });
 
 // An absolute path that happens to exist today is still wrong: .git/config is shared, so it breaks
@@ -83,7 +83,7 @@ test("an unparseable command is reported rather than silently passing", () => {
 // platform would silently accept a config that is fragile on another.
 test("a Windows-shaped absolute path is detected as absolute on any host", () => {
   const problems = driverProblems({
-    driverCmd: 'node "C:\\dev\\otc\\scripts\\merge-drivers\\defer-regeneration.mjs" %O %A %B %P',
+    driverCmd: 'node "C:\\dev\\otc\\scripts\\merge-drivers\\regen.mjs" %O %A %B %P',
     repoRoot: REPO,
     exists: always,
     isAbsolute: (p) => /^[A-Za-z]:[\\/]/.test(p),
