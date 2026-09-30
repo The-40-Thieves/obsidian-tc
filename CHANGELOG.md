@@ -8,6 +8,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Memory orphan sweep: `maintenance.memoryOrphans`.** `memory_entities` / `memory_relations` had no
+  cleanup at all ("not auto-swept"), so rows nothing can read accumulated. A new `memory-orphan-sweep`
+  job (own interval, daily by default) removes, by default, only **dangling relations** (source or target
+  entity row gone) and **dangling observation-interval rows** (entity row gone; `delete_entity` leaves those
+  to the foreign-key cascade, which a connection without `foreign_keys = ON` never runs). An entity with no
+  relations is valid and is never deleted. Two further classes are **opt-in**, off until a retention window
+  is set: `retiredRetentionDays` (a `status = 'retired'` entity that is also empty: blank observations, no
+  intervals, no relations, no materialized note) and `removedVaultRetentionDays` (entities whose vault is not
+  in the live registry, with their relations and intervals; never runs against an empty registry). Deletes
+  run in bounded write transactions (`batchSize`, default 500), `dryRun` reports counts without deleting,
+  each sweep logs its per-class counts once (never row content), and
+  `obsidian_tc_memory_orphans_swept_total{class}` counts what was removed. See `docs/G2.3-storage.md`.
+
 - **`auth.mode: "oidc"`: verify tokens from your own OpenID Connect provider.** `auth.oidc` takes an
   https `issuer`, a required `audience`, and optionally `clientId`, a `jwksUri` override, `allowedAlgs`
   (asymmetric only, default RS256/ES256/EdDSA; HS* and `none` cannot be configured),

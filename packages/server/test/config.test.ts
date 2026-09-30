@@ -170,6 +170,14 @@ describe("maintenance config (THE-292)", () => {
       // Days a COMMITTED capture_queue row is retained before the maintenance sweep prunes it —
       // a PENDING row is never pruned by this sweep at any age, see db/maintenance.ts.
       captureQueueRetentionDays: 30,
+      // Only the dangling-row class is on by default; retiredRetentionDays and
+      // removedVaultRetentionDays are ABSENT (off) — memory rows are user data.
+      memoryOrphans: {
+        enabled: true,
+        intervalMs: 86_400_000,
+        batchSize: 500,
+        dryRun: false,
+      },
       // THE-458 item 6: reconcileIntervalMinutes is ABSENT by default, not 0 — a healthy server
       // with a working watcher does not need a periodic full vault walk, and 0 would parse as
       // "set" while meaning "off".
@@ -209,7 +217,38 @@ describe("maintenance config (THE-292)", () => {
       episodesRetentionDays: 90,
       retrievalsRetentionDays: 365,
       captureQueueRetentionDays: 30,
+      memoryOrphans: {
+        enabled: true,
+        intervalMs: 86_400_000,
+        batchSize: 500,
+        dryRun: false,
+      },
     });
+  });
+
+  it("memoryOrphans: opt-in classes are absent by default, and the knobs are validated", () => {
+    const parse = (memoryOrphans: unknown) =>
+      ServerConfigSchema.safeParse({
+        vaults: [{ id: "main", path: "/v" }],
+        maintenance: { memoryOrphans },
+      });
+    const defaults = parse({});
+    expect(defaults.success).toBe(true);
+    if (defaults.success) {
+      expect(defaults.data.maintenance.memoryOrphans.retiredRetentionDays).toBeUndefined();
+      expect(defaults.data.maintenance.memoryOrphans.removedVaultRetentionDays).toBeUndefined();
+    }
+    expect(
+      parse({ retiredRetentionDays: 90, removedVaultRetentionDays: 365, dryRun: true }).success,
+    ).toBe(true);
+    for (const bad of [
+      { retiredRetentionDays: 0 },
+      { removedVaultRetentionDays: -1 },
+      { batchSize: 0 },
+      { batchSize: 5001 },
+      { intervalMs: 1000 },
+    ])
+      expect(parse(bad).success).toBe(false);
   });
 });
 

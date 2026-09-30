@@ -12,6 +12,13 @@
 // routing are unchanged from the inline block in cli.ts.
 import { writeEvent } from "../audit";
 import { registerMaintenanceSweep, type SweepCounts } from "../db/maintenance";
+import {
+  MEMORY_ORPHAN_CLASSES,
+  type MemoryOrphanClass,
+  type MemoryOrphanCounts,
+  registerMemoryOrphanSweep,
+} from "../db/memory-orphans";
+import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import type { Scheduler } from "../scheduler/scheduler";
@@ -31,6 +38,15 @@ export interface MaintenanceWiringDeps {
     retrievalsRetentionDays: number;
     /** maintenance.captureQueueRetentionDays — see db/maintenance.ts's sweepCaptureQueue. */
     captureQueueRetentionDays: number;
+    /** maintenance.memoryOrphans — see db/memory-orphans.ts. Absent -> that job is not registered. */
+    memoryOrphans?: {
+      enabled: boolean;
+      intervalMs: number;
+      batchSize: number;
+      retiredRetentionDays?: number | undefined;
+      removedVaultRetentionDays?: number | undefined;
+      dryRun: boolean;
+    };
   };
   /** config.observability.retention */
   retention: { eventLogDays: number; tracesDays: number };
@@ -65,6 +81,13 @@ export interface MaintenanceWiringDeps {
    *  experiential arms skip and report 0, which is correct when there is nothing to sweep. */
   edb?: Database;
   morgiana: MorgianaEmitter;
+  /** The LIVE vault ids (config vaults plus any added by add_vault), read at each memory orphan
+   *  sweep. Absent -> the removed-vault class never runs. */
+  listVaultIds?: () => readonly string[];
+  /** Write-lock hooks for the memory orphan sweep's batches. */
+  memoryOrphanSqlHooks?: WriteTxnHooks;
+  /** Counter sink for the memory orphan sweep. Absent -> counts are logged but not exported. */
+  metrics?: { incMemoryOrphansSwept(cls: MemoryOrphanClass, n: number): void };
   /** Vault id the process-wide sweep event is attributed to (run_serve's first vault). */
   eventVaultId: string;
   now?: () => number;
@@ -93,6 +116,7 @@ export function sweepTotal(counts: SweepCounts): number {
  */
 export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiringDeps): boolean {
   if (!deps.maintenance.enabled) return false;
+  configureMemoryOrphanSweep(scheduler, deps);
   registerMaintenanceSweep(scheduler, {
     db: deps.db,
     intervalMs: deps.maintenance.intervalMinutes * 60_000,
@@ -167,4 +191,44 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     },
   });
   return true;
+}
+
+/** One stderr line per sweep: counts and mode only, never row content. */
+function logMemoryOrphanSweep(c: MemoryOrphanCounts): void {
+  const parts = MEMORY_ORPHAN_CLASSES.map((k) => `${k}=${c[k]}`).join(" ");
+  process.stderr.write(
+    `[maintenance] memory orphan sweep${c.dry_run ? " (dry run)" : ""}: ${parts} batches=${c.batches}${c.truncated ? " truncated" : ""}\n`,
+  );
+}
+
+/** Register the memory orphan sweep as its own job. Not registered when
+ *  `maintenance.memoryOrphans.enabled` is false or the block is absent. */
+function configureMemoryOrphanSweep(scheduler: Scheduler, deps: MaintenanceWiringDeps): void {
+  const cfg = deps.maintenance.memoryOrphans;
+  if (cfg === undefined || !cfg.enabled) return;
+  registerMemoryOrphanSweep(scheduler, {
+    db: deps.db,
+    intervalMs: cfg.intervalMs,
+    batchSize: cfg.batchSize,
+    dryRun: cfg.dryRun,
+    ...(cfg.retiredRetentionDays !== undefined
+      ? { retiredRetentionDays: cfg.retiredRetentionDays }
+      : {}),
+    ...(cfg.removedVaultRetentionDays !== undefined
+      ? { removedVaultRetentionDays: cfg.removedVaultRetentionDays }
+      : {}),
+    ...(deps.listVaultIds !== undefined ? { listVaultIds: deps.listVaultIds } : {}),
+    ...(deps.memoryOrphanSqlHooks !== undefined ? { hooks: deps.memoryOrphanSqlHooks } : {}),
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+    onSweep: (counts) => {
+      logMemoryOrphanSweep(counts);
+      if (counts.dry_run) return;
+      for (const k of MEMORY_ORPHAN_CLASSES) deps.metrics?.incMemoryOrphansSwept(k, counts[k]);
+    },
+    onError: (e) => {
+      process.stderr.write(
+        `[maintenance] memory orphan sweep failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    },
+  });
 }

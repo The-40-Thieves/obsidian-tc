@@ -497,6 +497,7 @@ export async function buildServerRuntime(
         ...(v.workspace !== undefined ? { workspace: v.workspace } : {}),
       })),
       eventVaultId: firstVault.id,
+      listVaultIds: () => vaultRegistry.list().map((v) => v.id),
       ...(transports.authRegistry ? { authRegistry: transports.authRegistry } : {}),
       experientialOpen,
       experientialDb,

@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 556,
-    "dependencies": 2691,
+    "modules": 557,
+    "dependencies": 2698,
     "subsystemPairs": 160,
-    "crossSubsystemImports": 1196
+    "crossSubsystemImports": 1200
   },
   "subsystems": {
     "auth": 12,
@@ -14,7 +14,7 @@
     "capture": 5,
     "cli": 60,
     "config": 14,
-    "db": 16,
+    "db": 17,
     "doctor": 23,
     "embeddings": 8,
     "experiential": 29,
@@ -83,7 +83,7 @@
     {
       "from": "runtime",
       "to": "db",
-      "weight": 27
+      "weight": 29
     },
     {
       "from": "experiential",
@@ -366,6 +366,11 @@
       "weight": 4
     },
     {
+      "from": "metrics",
+      "to": "db",
+      "weight": 4
+    },
+    {
       "from": "runtime",
       "to": "auth",
       "weight": 4
@@ -442,11 +447,6 @@
     },
     {
       "from": "metrics",
-      "to": "db",
-      "weight": 3
-    },
-    {
-      "from": "metrics",
       "to": "search",
       "weight": 3
     },
@@ -503,6 +503,11 @@
     {
       "from": "cli",
       "to": "mcp",
+      "weight": 2
+    },
+    {
+      "from": "db",
+      "to": "scheduler",
       "weight": 2
     },
     {
@@ -628,11 +633,6 @@
     {
       "from": "db",
       "to": "memory",
-      "weight": 1
-    },
-    {
-      "from": "db",
-      "to": "scheduler",
       "weight": 1
     },
     {

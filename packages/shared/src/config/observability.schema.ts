@@ -110,6 +110,58 @@ export const SnapshotsConfigSchema = z
       .describe("Maximum snapshot versions kept per note. Older versions are pruned."),
   })
   .prefault({});
+// Orphan sweep for the memory graph (memory_entities / memory_relations /
+// memory_observation_intervals). Memory rows are user data, so only the dangling-row class is on
+// by default; the two age-gated classes are off until their retention window is set. See
+// db/memory-orphans.ts for the exact definition of each class.
+export const MemoryOrphansConfigSchema = z
+  .object({
+    enabled: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Run the memory orphan sweep. With only this on, it removes DANGLING rows: a memory_relations row whose source or target entity no longer exists, and a memory_observation_intervals row whose entity no longer exists. Both are unreachable by every reader. It never deletes an entity that merely has no relations. Set false to turn the whole sweep off, including the opt-in classes below. Also requires maintenance.enabled.",
+      ),
+    intervalMs: z
+      .number()
+      .int()
+      .min(60_000)
+      .default(86_400_000)
+      .describe("Milliseconds between memory orphan sweeps (default: daily)."),
+    batchSize: z
+      .number()
+      .int()
+      .positive()
+      .max(5000)
+      .default(500)
+      .describe(
+        "Maximum rows deleted per write transaction, so a large backlog is drained in short lock holds rather than one long one. A class stops after 100 batches per run and resumes on the next run.",
+      ),
+    retiredRetentionDays: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "OPT-IN, off when absent. Days after retirement (measured from updated_at) before a status=retired entity is deleted, and only when it is empty: blank observations, no interval rows, no relation in either direction, and no materialized note (vault_path unset). A retired entity that still holds any fact, edge or note is never deleted.",
+      ),
+    removedVaultRetentionDays: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "OPT-IN, off when absent. Days since an entity was last updated before it is deleted, together with its relations and intervals, when its vault_id is not in the live vault registry (the configured vaults plus any added with add_vault). Off by default because a vault missing from the registry can also be a config typo or an unmounted drive; never runs when the registry is empty. Keep it long.",
+      ),
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Count what each class WOULD delete, log it, and delete nothing. The metric counter is not incremented for a dry run.",
+      ),
+  })
+  .prefault({});
+
 // THE-292 — periodic cache.db maintenance sweep (expired idempotency/elicit rows + event_log
 // retention + PRAGMA optimize). Fully defaulted: a config predating it validates unchanged.
 export const MaintenanceConfigSchema = z
@@ -195,6 +247,7 @@ export const MaintenanceConfigSchema = z
       .describe(
         "Days a COMMITTED capture_queue row (committed_at IS NOT NULL) is retained before the maintenance sweep prunes it, measured from committed_at. A row still awaiting review (committed_at IS NULL) is never pruned by this sweep, at any age. An operator can also purge every committed row for one vault immediately (independent of age, matching that tool's other include flags) via reset_vault_cache's include.capture_committed. commit_capture's default (delete_from_queue: true) removes the row at commit time, before this window is ever reached; a caller that opts to KEEP a committed row (delete_from_queue: false) — the only shape this sweep can still find and prune — should keep this value above the longest highlight-import/ambient-import re-sync window (listCaptureTags reads a committed row's import-dedupe:/ambient-dedupe: tag as its dedup identity), or a purged row can be re-imported as a duplicate (see the highlight-import/ambient-import dedup tags noted on commit_capture).",
       ),
+    memoryOrphans: MemoryOrphansConfigSchema,
   })
   .prefault({});
 

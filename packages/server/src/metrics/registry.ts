@@ -8,6 +8,7 @@
 import { Counter, Gauge, Histogram, Registry } from "prom-client";
 // Type-only: the label unions are DEFINED at the write-transaction seam that produces them, so a
 // new transaction site cannot add a Prometheus series without widening the union there first.
+import type { MemoryOrphanClass } from "../db/memory-orphans";
 import type { BusyReason, WriteTxnLabel } from "../db/txn";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { RerankOutcome } from "../search/rerank";
@@ -136,6 +137,7 @@ export class MetricsRecorder {
   private readonly indexFrontmatterFailed: Counter<string>;
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
+  private readonly memoryOrphansSwept: Counter<string>;
   private readonly outputSchemaDrift: Counter<string>;
   private readonly activationRecomputeChunks: Counter<string>;
   private readonly vecRebuild: Counter<string>;
@@ -294,6 +296,12 @@ export class MetricsRecorder {
       name: "obsidian_tc_sql_busy_total",
       help: "Write transactions that failed on a busy database, by vault, transaction, and reason. reason=busy means contention outlived busy_timeout (5s) — the writers genuinely overlap that long. reason=snapshot is a BUG REPORT, not tuning: it can only be produced by a deferred BEGIN that read and then tried to write, a failure busy_timeout cannot retry, so any non-zero count names a write path still using BEGIN where it should use inWriteTransaction.",
       labelNames: ["vault", "txn", "reason"],
+      registers,
+    });
+    this.memoryOrphansSwept = new Counter({
+      name: "obsidian_tc_memory_orphans_swept_total",
+      help: "Memory rows deleted by the periodic orphan sweep, by class (dangling_relations, dangling_intervals, retired_entities, removed_vault_entities, removed_vault_relations, removed_vault_intervals). Cumulative. Only the two dangling_* classes are on by default; the other four move only when the operator sets their retention window. A dry run does not increment it.",
+      labelNames: ["class"],
       registers,
     });
     this.idempotencyHits = new Counter({
@@ -674,6 +682,11 @@ export class MetricsRecorder {
   }
   incSqlBusy(vault: string, txn: WriteTxnLabel, reason: BusyReason): void {
     this.sqlBusy.inc({ vault, txn, reason });
+  }
+  /** Rows the memory orphan sweep deleted for one class. Guarded on n > 0 like the ingest counters,
+   *  so a sweep that found nothing creates no series. */
+  incMemoryOrphansSwept(cls: MemoryOrphanClass, n: number): void {
+    if (n > 0) this.memoryOrphansSwept.inc({ class: cls }, n);
   }
   /** THE-585 (#6): one completed retrieval stage. Takes the whole StageMetric rather than three
    *  loose numbers so a caller cannot pair a duration with the wrong stage's counts. */
