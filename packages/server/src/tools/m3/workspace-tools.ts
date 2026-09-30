@@ -78,7 +78,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
       requiredScopes: ["read:workspaces"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforcePathAcl(ctx.acl, "read", WORKSPACES_PATH, v.root);
+        enforcePathAcl(ctx.acl, "read", WORKSPACES_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
         const names = Object.keys(workspacesOf(file.data));
@@ -107,7 +107,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
       requiredScopes: ["write:workspaces"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root);
+        enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
@@ -157,7 +157,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
       conditionallyDestructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root);
+        enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)

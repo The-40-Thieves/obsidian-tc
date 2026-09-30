@@ -240,6 +240,26 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   permitted-path sets and prewarm bundles built by the old predicate become unreachable instead of
   trusted. A caller that holds every scope its rules require sees no change.
 
+- **The same rule-scope hole is closed on every handler that reads a note, not just on search.**
+  `enforcePathAcl` took the caller's granted scopes as an optional argument, so about 120
+  handler-side calls checked the folder whitelist only, and every tool without a central `pathAcl`
+  extractor returned a rule-scoped note to a caller `read_notes` refuses. The parameter is now
+  required (a call that omits it does not compile) and every call passes `ctx.grantedScopes`, which
+  closes `bundle_files`, `read_snapshot`, `get_periodic_note` and `session_bootstrap` (a denied
+  bootstrap path is now omitted from `skipped` rather than named). Plugin passthroughs filter
+  what they return: `query_datacore` and `search_omnisearch` keep only rows whose note the caller can
+  read, recount `total`, drop the plugin's unfiltered sibling fields and refuse a row they cannot
+  attribute to a path; `resolve_daily_note` is refused for a daily-note path the caller cannot read.
+  `index_vault` no longer lists notes the caller cannot read in `frontmatter_failures` (the shared
+  index itself is still built caller-independently), and `notes_frontmatter_failed` follows the
+  filtered list. Aggregates count what the caller can see: `list_vaults` and `get_vault`
+  `chunk_count` are the caller's own readable chunks, `gap_report` recomputes each item's
+  `top_score`, `results`, `gap` and the pass's `gaps`/`gap_rate` from the nearest hits the caller can
+  read (`results` is then a floor: only the top hits are stored), and `get_index_status`
+  (`chunks_upserted`, `in_flight`) and `server_health` (`index.detail`, whose reconcile errors name
+  notes by path) are withheld from a caller without unrestricted read on every vault it can see. A
+  caller that holds every scope its rules require, on an ACL with no whitelist, sees no change.
+
 - **The registry row, not the token header, chooses the verification algorithm.** A token naming a
   registry `kid` must carry that key's algorithm: an HS256 header against an asymmetric key (public
   key as HMAC secret), an asymmetric header against an HS256 key, a mismatched asymmetric algorithm

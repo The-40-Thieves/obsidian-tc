@@ -5,6 +5,7 @@
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { filterBridgeResultItems } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
@@ -31,7 +32,7 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
       // verbatim (`{ vault, ...result }`); only `vault` is structurally guaranteed here.
       outputSchema: z.object({ vault: z.string() }).passthrough(),
       requiredScopes: ["read:datacore"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "datacore");
         const result = await client.request<Record<string, unknown>>({
@@ -41,7 +42,14 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
           plugin: "datacore",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        // Rows are attributable to a note path: keep the ones this caller may read (rule-scopes
+        // included), refuse an unattributable row under a restricted read.
+        return {
+          vault: v.id,
+          ...filterBridgeResultItems(ctx.acl, ctx.grantedScopes, result, {
+            tool: "query_datacore",
+          }),
+        };
       },
     }),
   ];

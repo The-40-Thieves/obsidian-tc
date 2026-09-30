@@ -31,7 +31,9 @@ describe("C-1b hard-link folder-ACL bypass", () => {
       linkSync(join(root, "private", "secret.md"), join(root, "public", "hl.md"));
       const acl = restrictedAcl();
       // The glob allows public/hl.md, but the inode gate fails it closed.
-      expect(() => enforcePathAcl(acl, "read", "public/hl.md", root)).toThrow(/hard-link|inode/i);
+      expect(() => enforcePathAcl(acl, "read", "public/hl.md", root, [])).toThrow(
+        /hard-link|inode/i,
+      );
       // The fd-based readers independently reject the alias (TOCTOU-safe, on the open fd).
       expect(() => readNote(join(root, "public", "hl.md"))).toThrow(/hard-link|inode/i);
       expect(() => readFileChecked(join(root, "public", "hl.md"))).toThrow(/hard-link|inode/i);
@@ -48,7 +50,9 @@ describe("C-1b hard-link folder-ACL bypass", () => {
       writeFileSync(secret, '{"apiKey":"OBSIDIAN-SECRET"}');
       linkSync(secret, join(root, "public", "hlob.md"));
       const acl = restrictedAcl();
-      expect(() => enforcePathAcl(acl, "read", "public/hlob.md", root)).toThrow(/hard-link|inode/i);
+      expect(() => enforcePathAcl(acl, "read", "public/hlob.md", root, [])).toThrow(
+        /hard-link|inode/i,
+      );
       expect(() => readNote(join(root, "public", "hlob.md"))).toThrow(/hard-link|inode/i);
     } finally {
       rmTemp(root);
@@ -60,7 +64,7 @@ describe("C-1b hard-link folder-ACL bypass", () => {
     try {
       writeFileSync(join(root, "public", "ok.md"), "hello\n");
       const acl = restrictedAcl();
-      expect(() => enforcePathAcl(acl, "read", "public/ok.md", root)).not.toThrow();
+      expect(() => enforcePathAcl(acl, "read", "public/ok.md", root, [])).not.toThrow();
       expect(readNote(join(root, "public", "ok.md")).raw).toBe("hello\n");
     } finally {
       rmTemp(root);

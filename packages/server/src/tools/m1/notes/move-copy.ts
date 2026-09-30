@@ -128,8 +128,8 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       if (fromRel === toRel) throw err.invalidInput("from and to are identical", { path: fromRel });
       const fromAbs = resolveVaultPath(v.root, fromRel);
       const toAbs = resolveVaultPath(v.root, toRel);
-      enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
-      enforcePathAcl(ctx.acl, "write", toRel, v.root);
+      enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
+      enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
       // item 1 sibling writer (GH #994 follow-up): a caller-chosen destination path can itself be
       // secret-shaped — mirrors commit_capture's own target_path refusal, before anything else
@@ -234,8 +234,8 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
       const toRel = normalizeVaultPath(input.to);
       const fromAbs = resolveVaultPath(v.root, fromRel);
       const toAbs = resolveVaultPath(v.root, toRel);
-      enforcePathAcl(ctx.acl, "read", fromRel, v.root);
-      enforcePathAcl(ctx.acl, "write", toRel, v.root);
+      enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
+      enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
       // item 1 sibling writer: see move_note's identical comment above.
       refusePathIfSecretShaped(mdConfig, "to", toRel, { metrics: deps.metrics });

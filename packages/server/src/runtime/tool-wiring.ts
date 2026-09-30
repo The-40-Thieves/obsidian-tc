@@ -117,6 +117,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       nativeLoaded: nativeBindingActive,
       vecEnabled: deps.hasVec,
       ftsEnabled: deps.hasFts,
+      aclFor: (id) => deps.registry.aclFor(id),
       getIndexHealth: (authenticated) => ({
         reconcile: deps.indexHealth.reconcile,
         reconcile_at: deps.indexHealth.reconcileAt,
@@ -167,6 +168,9 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       }),
       getLastChunksUpserted: () => deps.indexHealth.lastChunksUpserted,
       getInFlightProgress: () => deps.indexHealth.inFlight,
+      // Per-vault read ACLs decide who may see the shared index's folder-walk counters.
+      aclFor: (id) => deps.registry.aclFor(id),
+      vaultIds: () => deps.vaults.map((v) => v.id),
     }),
   );
 }

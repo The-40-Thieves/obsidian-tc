@@ -96,10 +96,11 @@ export function enforcePathAcl(
   op: AclOp,
   rel: string,
   root: string,
-  // P1.4: when the central dispatch stage passes the caller's granted scopes, a path's declared
-  // rule-scopes are enforced too. Omitted (undefined) by the ~120 handler-side defense-in-depth
-  // calls, which stay folder-only — the central runDispatch stage is the authoritative scope gate.
-  grantedScopes?: Iterable<string>,
+  // P1.4: a path's declared rule-scopes are enforced against the caller's granted scopes. REQUIRED
+  // (no default, not optional), like readableRel's: an optional parameter let ~120 handler-side calls
+  // stay folder-only, so a rule-scoped note was refused by read_note yet returned by every handler
+  // that forgot to thread scopes. A caller that omits it must fail to compile.
+  grantedScopes: Iterable<string>,
 ): void {
   // THE-286: `root` is mandatory, so enforcement can never silently fall back to a lexical-only
   // check. We always gate on the REAL (symlink-resolved) vault-relative path (THE-269): an
@@ -122,8 +123,8 @@ export function enforcePathAcl(
   }
   // P1.4: rule-scopes are load-bearing. Checked on the RESOLVED path (so an in-vault symlink cannot
   // reach a scope-gated target through an unscoped folder), and only when the caller's scopes were
-  // threaded in (the central dispatch stage). fail-closed: caller must hold the path's scope(s).
-  if (grantedScopes !== undefined && !pathScopesSatisfied(acl, path, grantedScopes)) {
+  // fail-closed: caller must hold the path's scope(s).
+  if (!pathScopesSatisfied(acl, path, grantedScopes)) {
     throw err.aclDenied("caller lacks the scope(s) required for this path", {
       path: redactedPath,
       op,

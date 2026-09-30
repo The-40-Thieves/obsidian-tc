@@ -299,8 +299,8 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const from = normalizeVaultPath(input.from);
         const to = normalizeVaultPath(input.to);
-        enforcePathAcl(ctx.acl, "read", from, v.root);
-        enforcePathAcl(ctx.acl, "read", to, v.root);
+        enforcePathAcl(ctx.acl, "read", from, v.root, ctx.grantedScopes);
+        enforcePathAcl(ctx.acl, "read", to, v.root, ctx.grantedScopes);
         const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
         if (!g.out.has(from)) throw err.noteNotFound("note not found", { path: from });
         if (!g.out.has(to)) throw err.noteNotFound("note not found", { path: to });
@@ -345,7 +345,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const p = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", p, v.root);
+        enforcePathAcl(ctx.acl, "read", p, v.root, ctx.grantedScopes);
         const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
         if (!g.out.has(p)) throw err.noteNotFound("note not found", { path: p });
         const already = new Set<string>(g.out.get(p) ?? []);

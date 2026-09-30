@@ -58,7 +58,7 @@ export function createNoteExistsTool(deps: M1Deps): ToolDefinition {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
-      enforcePathAcl(ctx.acl, "read", rel, v.root);
+      enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
       const ex = noteExists(abs);
       return { vault: v.id, path: rel, exists: ex.exists, type: ex.type ?? null };
     },

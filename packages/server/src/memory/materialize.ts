@@ -184,7 +184,7 @@ export interface MaterializeInput {
   // declared via a central pathAcl extractor (which only sees raw input). Threading the caller's
   // granted scopes through to this handler-side enforcePathAcl call closes that P1.4 gap here
   // instead — the rule-scope gate is enforced, not skipped, just not at the central stage.
-  grantedScopes?: Iterable<string>;
+  grantedScopes: Iterable<string>;
 }
 
 /**

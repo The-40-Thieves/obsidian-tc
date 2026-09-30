@@ -35,8 +35,9 @@ and, optionally, a per-vault `acl` that overrides it. Both share the same shape:
 - **`rules`** — `{ "glob": "…", "scopes": [ … ] }` entries. A rule's `scopes` are the
   scopes a caller must hold — **in addition to the tool's own required scopes** — to
   read/write/delete a matching path (P1.4). The **last** matching rule wins (replacing,
-  not merging). Enforced centrally at dispatch on tool *operations*; rule-scopes do **not**
-  filter search/enumeration result visibility, which is governed by `readPaths`.
+  not merging). Enforced centrally at dispatch on tool *operations*, and by every handler that
+  reads a note itself. Search, listing, graph and plugin-passthrough results, and the counts derived
+  from them, drop a path whose rule-scopes the caller lacks, exactly as `read_notes` would refuse it.
 - **`readPaths` / `writePaths` / `deletePaths`** — optional glob whitelists. When a
   list is **omitted**, that operation is unrestricted (the M0 default); when
   **present**, a path must match at least one entry or the call is denied.

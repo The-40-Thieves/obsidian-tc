@@ -5,6 +5,7 @@
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { assertBridgePathReadable } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openCompanionBridge } from "./shared";
 
@@ -20,7 +21,7 @@ export function buildDailyNotesTools(deps: M4Deps): ToolDefinition[] {
       // verbatim (`{ vault, ...result }`); only `vault` is structurally guaranteed here.
       outputSchema: z.object({ vault: z.string() }).passthrough(),
       requiredScopes: ["read:daily-notes"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openCompanionBridge(deps, v.id);
         const result = await client.request<Record<string, unknown>>({
@@ -29,6 +30,11 @@ export function buildDailyNotesTools(deps: M4Deps): ToolDefinition[] {
           body: { ...(input.date ? { date: input.date } : {}) },
           plugin: "obsidian-tc-companion",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
+        });
+        // The resolved path (and whether it exists) is what read_note would refuse for a path the
+        // caller cannot read: an existence oracle for a rule-scoped daily-notes folder.
+        assertBridgePathReadable(ctx.acl, ctx.grantedScopes, result, {
+          tool: "resolve_daily_note",
         });
         return { vault: v.id, ...result };
       },

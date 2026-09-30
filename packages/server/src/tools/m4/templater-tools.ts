@@ -78,8 +78,8 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const template = normalizeVaultPath(input.template);
         const target = normalizeVaultPath(input.target);
-        enforcePathAcl(ctx.acl, "read", template, v.root);
-        enforcePathAcl(ctx.acl, "write", target, v.root);
+        enforcePathAcl(ctx.acl, "read", template, v.root, ctx.grantedScopes);
+        enforcePathAcl(ctx.acl, "write", target, v.root, ctx.grantedScopes);
         // THE-289: Templater writes <target>.md and its create API silently clobbers/dups an
         // existing file, so honor overwrite server-side (authoritative, independent of the
         // companion version): refuse when the resolved target already exists and overwrite is off.

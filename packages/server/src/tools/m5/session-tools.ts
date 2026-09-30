@@ -53,7 +53,8 @@ function traceAbsFor(
   ctx: CallerContext,
   op: "read" | "write",
 ): string {
-  if (s.trace_store === "vault") enforcePathAcl(ctx.acl, op, s.trace_path, v.root);
+  if (s.trace_store === "vault")
+    enforcePathAcl(ctx.acl, op, s.trace_path, v.root, ctx.grantedScopes);
   return resolveTraceAbs({
     store: s.trace_store,
     tracePath: s.trace_path,

@@ -220,7 +220,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             .slice(0, 48) || "reflection";
         const nowMs = (ctx.now ?? Date.now)();
         const rel = `${folder}/reflections/${new Date(nowMs).toISOString().slice(0, 10)}-${slug}.md`;
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const content = [
           "---",
           `generated_at: ${new Date(nowMs).toISOString()}`,

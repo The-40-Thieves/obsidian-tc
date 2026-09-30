@@ -294,7 +294,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           (item) => {
             const rel = normalizeVaultPath(item.path);
             const abs = resolveVaultPath(v.root, rel);
-            enforcePathAcl(ctx.acl, "write", rel, v.root);
+            enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
             const ex = noteExists(abs);
             if (ex.exists && ex.type === "folder")
               throw err.invalidInput("path is a folder", { path: rel });
@@ -348,7 +348,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           (path) => {
             const rel = normalizeVaultPath(path);
             const abs = resolveVaultPath(v.root, rel);
-            enforcePathAcl(ctx.acl, "write", rel, v.root);
+            enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
             const ex = noteExists(abs);
             if (!ex.exists || ex.type === "folder")
               throw err.noteNotFound("note not found", { path: rel });
@@ -425,8 +425,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const toRel = normalizeVaultPath(m.to);
             if (fromRel === toRel)
               throw err.invalidInput("from and to are identical", { path: fromRel });
-            enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
-            enforcePathAcl(ctx.acl, "write", toRel, v.root);
+            enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
+            enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
             // same as move_note's own destination-path refusal — a caller-chosen
             // destination can itself be secret-shaped, before anything else touches the filesystem.
             refusePathIfSecretShaped(mdConfig, "to", toRel, { metrics: deps.metrics });

@@ -30,7 +30,7 @@ import {
 import { readNoteQuality } from "../../experiential/note-quality";
 import { UNSTAMPED_DEBT_CLAUSES } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { activationConflict, maxActivationByPath } from "./activation-conflict";
 import {
@@ -483,23 +483,41 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         // Null when no pass has ever been persisted for this vault — every field below falls
         // back to an honest "nothing measured yet" zero rather than throwing.
         const existing = readLatestGapReport(deps.edb, input.vault);
-        const allItems = existing?.items ?? [];
+        const threshold = existing?.threshold ?? DEFAULT_GAP_THRESHOLD;
+        const minResults = existing?.min_results ?? DEFAULT_GAP_MIN_RESULTS;
+        // THE-563/564: a gap report naming notes the caller cannot read is a disclosure. `nearest`
+        // is filtered, and — because top_score / results / gap were computed over the FULL pass,
+        // hidden hits included — a restricted caller gets them recomputed from the hits it can see.
+        // (`nearest` holds only the pass's top-N hits, so `results` is then a floor, not a count.)
+        const restricted = !readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes);
+        const allItems = (existing?.items ?? []).map((i) => {
+          const nearest = i.nearest.filter((n) => readableRel(ctx.acl, n.path, ctx.grantedScopes));
+          if (!restricted) return { ...i, nearest };
+          const top = nearest[0];
+          return {
+            ...i,
+            top_score: top?.score ?? null,
+            results: nearest.length,
+            gap: top === undefined || top.score < threshold || nearest.length < minResults,
+            nearest,
+          };
+        });
         const filtered = input.gaps_only ? allItems.filter((i) => i.gap) : allItems;
-        const items = filtered.slice(0, input.limit).map((i) => ({
-          ...i,
-          // THE-563/564: a gap report naming notes the caller cannot read is a disclosure — the
-          // item itself (query/score/gap) carries no path, so only `nearest` needs filtering.
-          nearest: i.nearest.filter((n) => readableRel(ctx.acl, n.path, ctx.grantedScopes)),
-        }));
+        const items = filtered.slice(0, input.limit);
+        const gaps = restricted ? allItems.filter((i) => i.gap).length : (existing?.gaps ?? 0);
         return {
           available: true,
           vault: existing?.vault_id ?? input.vault,
           computed_at: existing?.computed_at ?? null,
-          threshold: existing?.threshold ?? DEFAULT_GAP_THRESHOLD,
-          min_results: existing?.min_results ?? DEFAULT_GAP_MIN_RESULTS,
+          threshold,
+          min_results: minResults,
           total: existing?.total ?? 0,
-          gaps: existing?.gaps ?? 0,
-          gap_rate: existing?.gap_rate ?? 0,
+          gaps,
+          gap_rate: restricted
+            ? allItems.length === 0
+              ? 0
+              : gaps / allItems.length
+            : (existing?.gap_rate ?? 0),
           returned: items.length,
           items,
         };

@@ -210,6 +210,7 @@ describe("materializeEntity", () => {
       const args = {
         root: v.root,
         acl: acl(),
+        grantedScopes: [],
         folder: "memory",
         id: "ent_1",
         entityType: "person",
@@ -241,6 +242,7 @@ describe("materializeEntity", () => {
       const r = materializeEntity({
         root: v.root,
         acl: acl(),
+        grantedScopes: [],
         folder: "memory",
         id: "ent_1",
         entityType: "person",
@@ -275,6 +277,7 @@ describe("materializeEntity", () => {
         materializeEntity({
           root: v.root,
           acl: acl({ writePaths: ["allowed/**"] }),
+          grantedScopes: [],
           folder: "memory",
           id: "ent_1",
           entityType: "person",

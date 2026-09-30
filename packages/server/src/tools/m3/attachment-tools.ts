@@ -157,7 +157,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
         const exts = (input.extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());
         const entries = walkVault(v.root, { sub, recursive: true, extensions: exts }).filter((e) =>
           readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
@@ -202,7 +202,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         // N-1: read:attachments grants binary attachment reads, not arbitrary file reads — reject a
         // path whose extension is not in the attachment allowlist (list_attachments already filters);
         // notes are read with read_note under read:notes.
@@ -272,8 +272,8 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           throw err.invalidInput("from and to are identical", { path: fromRel });
         const fromAbs = resolveVaultPath(v.root, fromRel);
         const toAbs = resolveVaultPath(v.root, toRel);
-        enforcePathAcl(ctx.acl, "delete", fromRel, v.root);
-        enforcePathAcl(ctx.acl, "write", toRel, v.root);
+        enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
+        enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
 
         const fromEx = noteExists(fromAbs);
         if (!fromEx.exists || fromEx.type === "folder")
@@ -334,7 +334,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "delete", rel, v.root);
+        enforcePathAcl(ctx.acl, "delete", rel, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, rel);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")

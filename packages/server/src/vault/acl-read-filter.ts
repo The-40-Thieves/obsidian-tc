@@ -105,3 +105,57 @@ export function filterBridgeItemsByAcl(
   }
   return out;
 }
+
+/**
+ * Filter a bridge result shaped `{ items: [...], total, ... }` (Datacore, Omnisearch). Unrestricted
+ * callers get the result untouched. Otherwise the rows are filtered by note path (fail closed on an
+ * unattributable row), `total` is recounted, and every sibling field is DROPPED: they are computed
+ * over the unfiltered set by the plugin and can carry a hidden note's path or text (THE-270).
+ */
+export function filterBridgeResultItems(
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+  result: Record<string, unknown>,
+  opts: { tool: string; keys?: readonly string[] },
+): Record<string, unknown> {
+  if (readEnumerationUnrestricted(acl, grantedScopes)) return result;
+  const rows = Array.isArray(result.items) ? (result.items as unknown[]) : [];
+  const items = filterBridgeItemsByAcl(acl, grantedScopes, rows, opts);
+  return { items, total: items.length };
+}
+
+/**
+ * Gate a bridge result that names exactly one vault path (resolve_daily_note): the caller must be
+ * able to read it, exactly as read_note would require. An unattributable path fails closed for a
+ * restricted caller.
+ */
+export function assertBridgePathReadable(
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+  result: unknown,
+  opts: { tool: string },
+): void {
+  const rel = bridgeItemPath(result);
+  const readable =
+    rel === undefined
+      ? readEnumerationUnrestricted(acl, grantedScopes)
+      : readableRel(acl, rel, grantedScopes);
+  if (!readable) throw err.aclDenied("path is not readable by this caller", { tool: opts.tool });
+}
+
+/**
+ * Unrestricted read for this caller on its own ACL AND on every vault it can see (all of `vaultIds`,
+ * or just its own for a vault-bound caller). Gates state counted or worded over the SHARED index,
+ * which holds notes a read rule hides. `aclFor` absent -> the caller's `ctx.acl` stands in.
+ */
+export function readUnrestrictedOnEveryVault(
+  ctx: { acl?: FolderAcl; grantedScopes: Iterable<string>; vaultBound?: boolean; vaultId: string },
+  vaultIds: readonly string[],
+  aclFor: ((vaultId: string) => FolderAcl | undefined) | undefined,
+): boolean {
+  const visible = ctx.vaultBound === true ? [ctx.vaultId] : vaultIds;
+  return (
+    readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes) &&
+    visible.every((id) => readEnumerationUnrestricted(aclFor?.(id) ?? ctx.acl, ctx.grantedScopes))
+  );
+}

@@ -241,7 +241,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -296,7 +296,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -439,7 +439,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
 
         if (!input.dry_run) {
-          for (const e of edits) enforcePathAcl(ctx.acl, "write", e.rel, v.root);
+          for (const e of edits) enforcePathAcl(ctx.acl, "write", e.rel, v.root, ctx.grantedScopes);
           requireConfirmation(ctx, "rewrite_link", input, true, {
             from_target: input.from_target,
             to_target: input.to_target,
@@ -495,7 +495,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -521,7 +521,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         // were never persisted.
         let finalText = text;
         if (!input.dry_run && removed.length > 0) {
-          enforcePathAcl(ctx.acl, "write", rel, v.root);
+          enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
           requireConfirmation(ctx, "prune_hub_links", input, true, {
             path: rel,
             removed: removed.length,
