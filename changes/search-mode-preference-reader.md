@@ -14,4 +14,4 @@ type: Added
   before. Extraction stays CLI-only on purpose: it re-counts unchanged evidence on every run, so scheduling it
   would inflate weights without new evidence. The eval recorded with this change (the preference arm
   regresses retrieval on every corpus measured) and the ADR-0007 verdict are in the ADR's status section; the
-  flag stays off.
+  flag stays off (#1066).
