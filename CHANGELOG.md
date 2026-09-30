@@ -28,6 +28,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   any other write. To support this, `pathAcl` extractors now receive the effective vault root as an
   optional second argument, and `notes-io` gains a binary `writeFileAtomic` that `writeNoteAtomic` now
   delegates to.
+- **A reference page per MCP tool on the docs site.** Each of the registered tools now has its own page
+  (name, description, domain, scopes, read-only / destructive / idempotent annotations, human-confirmation
+  behaviour and what it binds to, the input schema as a parameter table with types, required flags,
+  defaults, enums and nested objects, an output summary, and related tools in the same domain), and every
+  row of the tool catalog links to it. The pages are generated from the live tool registry during the
+  docs build into a gitignored directory, so nothing per-tool is committed and adding a tool needs no
+  page edit. `docgen:tool-pages-check` (and `bun run check:tool-pages` in `docs/`, run by the `ci-docs`
+  workflow after the build) fails if the page count differs from the registry, a page is stale, or a
+  catalog row links to a page that does not exist. `docs/G2.5-release-engineering.md` no longer claims a
+  `scripts/gen-tool-docs.ts`, and the roadmap moves per-tool pages out of Deferred.
 - **OpenTelemetry child spans: `observability.otel.detail`.** Tracing emitted one flat root span per tool
   call with no way to see where the time went. `observability.otel.detail` is `"root"` (default: the
   current single root span, exactly, with no child span created and no attribute allocated),

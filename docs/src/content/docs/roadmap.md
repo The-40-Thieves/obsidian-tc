@@ -32,6 +32,10 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
 - CycloneDX SBOMs, generated per package on release (`npm sbom`, THE-299) and uploaded as
   build artifacts (non-blocking).
 
+- **A reference page per tool**, generated from the live tool registry at docs build time
+  (scopes, annotations, confirmation behaviour, parameter tables, output summary, related tools) and
+  linked from the [tool catalog](/tools/tool-catalog/).
+
 ## Next
 
 Themes under active work, in no particular order — see the tool reference and
@@ -52,7 +56,6 @@ configuration docs for what already ships today:
 
 ## Deferred
 
-- Per-tool reference pages auto-generated from the live tool registry.
 - A per-scope HITL-raise (today per-scope overrides only tighten; isolate unattended
   automation on a second instance instead).
 

@@ -41,3 +41,12 @@ Any hand-authored doc opts in to a generated block by adding a marker pair:
 `injectGenerated` fills only between the markers; everything else stays as written. The docs-drift CI
 gate (THE-476) regenerates and `git diff --exit-code`s these regions, so a PR that changes a tool or
 config key without regenerating fails.
+
+## Per-tool pages (build time, not committed)
+
+`tool-pages.ts` writes one Starlight page per registered tool into the gitignored
+`docs/src/content/docs/tools/reference/`; `docs/package.json` runs it before `astro build`/`dev`.
+Only the combined catalog is committed (its rows link to the pages), so a new tool never conflicts
+on ~170 generated files. `bun run docgen:tool-pages-check` (here) or `bun run check:tool-pages`
+(in `docs/`, after a build, also counts the built pages) fails if pages, registry and catalog
+disagree.
