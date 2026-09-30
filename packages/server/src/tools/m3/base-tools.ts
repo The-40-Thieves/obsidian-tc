@@ -233,7 +233,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         // THE-572: keyed via WriteOptions' nested idempotency_key; mark at the durable write so a
         // fault anywhere after it resolves a retry to indeterminate rather than re-executing.
         ctx.markEffectCommitted?.();
-        writeNoteAtomic(abs, content, input.options.create_dirs);
+        writeNoteAtomic(abs, content, input.options.create_dirs, { exclusive: !ex.exists });
         // THE-280: surface the obsidian-tc aliases as deprecations (removal at v2.0) so authors
         // migrate toward real Bases shapes (top-level filters; per-view order/groupBy).
         const deprecations: string[] = [];

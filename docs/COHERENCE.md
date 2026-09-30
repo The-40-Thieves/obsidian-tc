@@ -31,6 +31,31 @@ process (Obsidian indexing, an AV scanner) has the file open. obsidian-tc curren
 that as the write error rather than retrying — deliberate, so failures are visible; a bounded
 retry is a possible future hardening.
 
+## Names a write refuses (every platform)
+
+A vault syncs across operating systems, so a write that would **create** a Windows-hostile name
+is refused with `path_invalid` everywhere: a `:` in any segment (on NTFS `report.md:.png` names
+the `.png` alternate data stream of `report.md`), a trailing `.` or space (Win32 strips it, so
+`a.md.` aliases `a.md`), and the reserved device names `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`,
+`LPT1`-`LPT9` with any extension. Reads are not narrowed: a file that already exists under such
+a name (synced from Linux, say) stays readable and can be updated in place; only creating,
+moving or renaming **to** the name is refused.
+
+Create-only writes (`overwrite: false`, `mode: create`, `create_canvas`, and the like) commit with
+a no-replace rename, so a file another process creates between the existence check and the write
+is never replaced: the loser gets `note_exists`. Linux uses `renameat2(RENAME_NOREPLACE)`, macOS
+`RENAME_EXCL`; the pure-JS path (and Windows, where the native module has no safe-I/O) uses a hard
+link then unlink. Parent directories are created one component at a time and a symlinked
+component is refused, as is a symlinked `.trash`.
+
+An overwrite (`move_note`, `copy_note`, `move_attachment`, `bulk_move_notes`, `write_attachment` with
+`overwrite: true`) is soft-delete then exclusive create, as one step: every refusal, including the
+memory-defense scan, runs before the destination is moved to `.trash`; a failed write puts the
+destination back at the path it came from (never a new name); and an existing grandfathered name
+(`a:b.md`) is replaced in place, since the name already existed. Where hard links are unavailable
+(FAT/exFAT, some network mounts) the pure-JS move copies with an exclusive create and then unlinks
+the source rather than renaming over the target.
+
 ## Deferred: companion refresh nudge
 
 An opt-in companion route that asks a live Obsidian to re-read an externally-modified file

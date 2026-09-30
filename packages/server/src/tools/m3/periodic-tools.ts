@@ -389,6 +389,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           // content actually about to be persisted, same guard every note-content writer gets.
           const scan = writeNoteAtomicGuarded(abs, resolved.path, content, true, mdConfig, {
             metrics: deps.metrics,
+            exclusive: true,
           });
           deps.reindex?.(v.id, resolved.path, scan.content);
           return {
@@ -473,11 +474,19 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           // same template-can-carry-a-secret guard as create_periodic_note above.
           const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
           if (!expanded) {
-            const scan = writeNoteAtomicGuarded(abs, resolved.path, content, true, mdConfig, {
-              metrics: deps.metrics,
-            });
-            deps.reindex?.(v.id, resolved.path, scan.content);
-            redactions = scan.redactions;
+            // Exclusive: a note another process created after the noteExists check above is FOUND,
+            // never replaced by the template (create_periodic_note commits the same way).
+            try {
+              const scan = writeNoteAtomicGuarded(abs, resolved.path, content, true, mdConfig, {
+                metrics: deps.metrics,
+                exclusive: true,
+              });
+              deps.reindex?.(v.id, resolved.path, scan.content);
+              redactions = scan.redactions;
+              created = true;
+            } catch (e) {
+              if (!(e instanceof ObsidianTcError && e.code === "note_exists")) throw e;
+            }
           } else {
             // Review finding: Templater's own write above skipped the guard entirely — scan
             // what it actually wrote before this tool reports success or echoes it back below.
@@ -491,8 +500,8 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
               deps.reindex?.(v.id, resolved.path, templaterScan.content);
               redactions = templaterScan.redactions;
             }
+            created = true;
           }
-          created = true;
         } else {
           enforcePathAcl(ctx.acl, "read", resolved.path, v.root, ctx.grantedScopes);
         }
@@ -549,18 +558,38 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         // scan the RESULTING note body (existing bytes + appended content) — same guard
         // append_note applies — before it reaches disk.
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
-        const scan = writeNoteAtomicGuarded(abs, resolved.path, next, true, mdConfig, {
-          metrics: deps.metrics,
-        });
+        let base = existing;
+        let created = !ex.exists;
+        let scan: { content: string; redactions: number };
+        try {
+          // A create is exclusive: a note another process made after the noteExists check is never
+          // replaced by the appended text alone.
+          scan = writeNoteAtomicGuarded(abs, resolved.path, next, true, mdConfig, {
+            metrics: deps.metrics,
+            exclusive: created,
+          });
+        } catch (e) {
+          if (!created || !(e instanceof ObsidianTcError && e.code === "note_exists")) throw e;
+          // Lost the create race: append to the winner's note instead (a normal update).
+          base = readNote(abs).raw;
+          created = false;
+          scan = writeNoteAtomicGuarded(
+            abs,
+            resolved.path,
+            appendContent(base, input.content, input.ensure_newline, input.heading),
+            true,
+            mdConfig,
+            { metrics: deps.metrics },
+          );
+        }
         deps.reindex?.(v.id, resolved.path, scan.content);
         return {
           period: input.period,
           date: toISODate(date),
           path: resolved.path,
           updated_at: new Date().toISOString(),
-          appended_bytes:
-            Buffer.byteLength(scan.content, "utf8") - Buffer.byteLength(existing, "utf8"),
-          created: !ex.exists,
+          appended_bytes: Buffer.byteLength(scan.content, "utf8") - Buffer.byteLength(base, "utf8"),
+          created,
           ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
         };
       },

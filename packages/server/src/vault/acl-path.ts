@@ -17,7 +17,7 @@ import { type FolderAcl, isDefaultDenied } from "../acl";
 // path gets redacted, rather than a second copy that could drift.
 import { redactSecrets } from "../experiential/redact";
 import { recordAclCheck } from "./acl-audit";
-import { resolveVaultPathChecked } from "./paths";
+import { assertWritableVaultPath, resolveVaultPathChecked } from "./paths";
 
 export type AclOp = "read" | "write" | "delete";
 
@@ -108,6 +108,10 @@ export function enforcePathAcl(
   // the ACL. For a non-symlink path the canonical form equals the lexical one (a no-op there).
   const resolved = resolveVaultPathChecked(root, rel);
   const path = resolved.aclRel;
+  // A write that would CREATE a Windows-hostile name (`:`, trailing dot/space, reserved device
+  // name) is refused before any ACL decision or side effect; existing names stay writable in place.
+  // Checked on the LEXICAL request (the name the caller is about to create), not the realpath.
+  if (op === "write") assertWritableVaultPath(root, rel);
   // GH #994 second security review, M1: every throw below carries `path` in its `details` for a
   // caller/operator to read back — but this function runs BEFORE memoryDefense (it gates the
   // write itself), so a secret-shaped `path` that also happens to be denied (hard-denied

@@ -40,6 +40,19 @@ export declare function safeReadNote(abs: string): Buffer;
  *  followed in any component). The parent directory must exist. Native module only. */
 export declare function safeWriteNoteAtomic(abs: string, data: Buffer): void;
 
+/** Symlink-safe atomic note write that REFUSES to replace an existing target: the same safe open and
+ *  randomized temp as {@link safeWriteNoteAtomic}, with a no-replace final rename (Linux
+ *  `renameat2(RENAME_NOREPLACE)`, macOS `renameatx_np(RENAME_EXCL)`, else `linkat` + `unlinkat`),
+ *  closing the check-then-rename race an `overwrite: false` caller otherwise loses. An existing
+ *  target throws an error whose message starts with `exists:`. Unix native module only. */
+export declare function safeWriteNoteExclusive(abs: string, data: Buffer): void;
+
+/** Symlink-safe no-replace rename of `fromAbs` onto `toAbs` (each parent opened following no symlink
+ *  in any component). Moves a note into `.trash/` and back without a planted symlink redirecting
+ *  either leg. An existing target throws an error whose message starts with `exists:`. Unix native
+ *  module only. */
+export declare function safeRenameNoReplace(fromAbs: string, toAbs: string): void;
+
 /** True when the compiled native binary is active; false when on the pure-JS fallback. */
 export declare const nativeLoaded: boolean;
 

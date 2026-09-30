@@ -61,13 +61,18 @@ const MIME: Record<string, string> = {
   ".ogv": "video/ogg",
 };
 
-function extOf(rel: string): string {
-  const i = rel.lastIndexOf(".");
-  return i < 0 ? "" : rel.slice(i).toLowerCase();
-}
-
 function baseOf(rel: string): string {
   return rel.includes("/") ? rel.slice(rel.lastIndexOf("/") + 1) : rel;
+}
+
+/** Lowercased extension of the last path SEGMENT. Taken from the segment, not the whole path: a
+ *  dot in a folder name (`a.png/readme`) must not read as the file's extension. */
+export function extOf(rel: string): string {
+  // Cut at the first `:` too: on NTFS everything after it names a stream OF the file before it, so
+  // `report.md:.png` is a `.md` file, never a `.png` one.
+  const base = baseOf(rel).split(":")[0] ?? "";
+  const i = base.lastIndexOf(".");
+  return i < 0 ? "" : base.slice(i).toLowerCase();
 }
 
 /** MIME type for an attachment path, or application/octet-stream when unknown. */
@@ -231,12 +236,19 @@ export function isAttachment(rel: string, extensions?: string[]): boolean {
   return e !== "" && exts.includes(e);
 }
 
+/** True for a bare filename (no folder, no explicit leading `./`): the only input whose real
+ *  destination depends on the vault's configured attachment folder, which only the root can say. */
+export function isBareAttachmentName(raw: string): boolean {
+  const rel = normalizeVaultPath(raw);
+  return !(rel.includes("/") || /^\.[\\/]/.test(raw));
+}
+
 /** Where write_attachment puts `raw`: a bare filename goes into the vault's configured attachment
  *  folder (Obsidian's own default for a pasted file), a path with a folder is used as given, and a
  *  leading `./` says "the vault root" explicitly. Returns the normalized vault-relative path. */
 export function resolveAttachmentWritePath(root: string, raw: string): string {
   const rel = normalizeVaultPath(raw);
-  if (rel.includes("/") || /^\.[\\/]/.test(raw)) return rel;
+  if (!isBareAttachmentName(raw)) return rel;
   const folder = resolveAttachmentFolder(root);
   return folder ? normalizeVaultPath(`${folder}/${rel}`) : rel;
 }

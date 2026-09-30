@@ -71,7 +71,9 @@ export function persistGovernedNote(
       deps.now ?? Date.now,
     );
   }
-  writeNoteAtomic(abs, content, params.createDirs);
+  // A path that did not exist at the check above is created EXCLUSIVELY: a concurrent creator
+  // (another process) wins the name and this write fails note_exists instead of clobbering it.
+  writeNoteAtomic(abs, content, params.createDirs, { exclusive: !ex.exists });
   deps.reindex?.(params.vaultId, params.rel, content);
   return { content, redactions: scan.redactions };
 }

@@ -5,7 +5,8 @@
 import { createHash } from "node:crypto";
 import { type Dirent, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, windowsNameProblem } from "@the-40-thieves/obsidian-tc-shared";
+import { existsNoFollow } from "../auth/key-files";
 // GH #994 second security review, M1: every path_invalid throw below carries the caller's raw,
 // unscanned relPath in `details.path` — reached before memoryDefense ever runs (this is the
 // traversal/containment guard every path-based tool funnels through first). A caller-supplied
@@ -32,11 +33,50 @@ export function normalizeVaultPath(relPath: string): string {
   const parts = relPath.split(/[\\/]+/);
   if (parts.some((p) => p === ".."))
     throw err.pathInvalid("path traversal is not allowed", { path: redactSecrets(relPath).text });
-  if (parts.some((p) => /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i.test(p)))
+  if (parts.some((p) => windowsNameProblem(p) === "reserved_name"))
     throw err.pathInvalid("Windows reserved names are not allowed", {
       path: redactSecrets(relPath).text,
     });
   return parts.filter((p) => p !== "" && p !== ".").join("/");
+}
+
+const WINDOWS_NAME_MESSAGE: Record<NonNullable<ReturnType<typeof windowsNameProblem>>, string> = {
+  reserved_name: "Windows reserved names are not allowed",
+  colon: "a colon in a path segment is not allowed (NTFS alternate data stream)",
+  trailing_dot_or_space: "a path segment may not end in a dot or a space (Windows strips it)",
+};
+
+/**
+ * Refuse a WRITE that would create a Windows-hostile name, on every platform (a vault syncs across
+ * operating systems): `:` in a segment (NTFS alternate data stream — `report.md:.png` writes the
+ * `.png` stream of `report.md`), a trailing `.`/space, or a reserved device name.
+ *
+ * Only segments that do NOT yet exist are judged, so this is a rule about creating / moving /
+ * renaming TO a name. A file or folder already on disk under such a name (synced from Linux) stays
+ * readable and is updatable in place — reads go through normalizeVaultPath, which is unchanged.
+ * Called from enforcePathAcl("write") (every handler + the central dispatch stage) and as a
+ * backstop from the notes-io writers, which also see paths no handler enforced.
+ */
+export function assertWritableVaultPath(root: string, relPath: string): void {
+  const clean = normalizeVaultPath(relPath);
+  let cur = resolve(root);
+  let onDisk = true;
+  for (const seg of clean === "" ? [] : clean.split("/")) {
+    cur = join(cur, seg);
+    if (onDisk) {
+      onDisk = existsNoFollow(cur);
+      if (onDisk) continue;
+    }
+    assertCreatableName(seg, relPath);
+  }
+}
+
+/** Refuse one NEW path segment that is Windows-hostile (see assertWritableVaultPath). `shown` is
+ *  the caller's path for the error detail; it is redacted here, never echoed raw. */
+export function assertCreatableName(segment: string, shown: string): void {
+  const problem = windowsNameProblem(segment);
+  if (problem !== null)
+    throw err.pathInvalid(WINDOWS_NAME_MESSAGE[problem], { path: redactSecrets(shown).text });
 }
 
 /** realpathSync that returns null when the path can't be resolved (e.g. doesn't exist yet). */

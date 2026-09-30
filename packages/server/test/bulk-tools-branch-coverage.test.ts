@@ -35,18 +35,18 @@ vi.mock("../src/vault/notes-io", async (importOriginal) => {
       }
       return actual.readNote(abs);
     },
-    // Real trashNote only ever throws raw fs errors, never an ObsidianTcError — this stand-in
-    // simulates a domain error surfacing mid-move (e.g. a lower layer that DOES throw one) to
-    // prove the phase-2 catch passes an already-ObsidianTcError through unchanged instead of
-    // re-wrapping it as internal_error.
-    trashNote: (root: string, relPath: string) => {
-      if (trashNoteThrowFor && relPath.includes(trashNoteThrowFor)) {
+    // The real destructive step only ever throws raw fs errors, never an ObsidianTcError — this
+    // stand-in simulates a domain error surfacing mid-move (e.g. a lower layer that DOES throw one)
+    // to prove the phase-2 catch passes an already-ObsidianTcError through unchanged instead of
+    // re-wrapping it as internal_error. (Fires before anything is trashed.)
+    replaceDestination: (args: Parameters<typeof actual.replaceDestination>[0]) => {
+      if (trashNoteThrowFor && args.toRel.includes(trashNoteThrowFor)) {
         throw new ObsidianTcError(
           "vault_not_found",
           `simulated vault loss on ${trashNoteThrowFor}`,
         );
       }
-      return actual.trashNote(root, relPath);
+      return actual.replaceDestination(args);
     },
   };
 });
@@ -308,7 +308,7 @@ describe("bulk_move_notes — non-ObsidianTcError wrapping", () => {
 
   it("passes an already-ObsidianTcError thrown mid-move through unchanged (not re-wrapped)", async () => {
     v = makeM6Vault({ files: { "A.md": "AA", "C.md": "old-C" }, register });
-    trashNoteThrowFor = "C.md"; // fires inside the destExists+overwrite trash step
+    trashNoteThrowFor = "C.md"; // fires inside the destExists+overwrite replace step
     const out = data<{ results: { from: string; ok: boolean; error?: { code: string } }[] }>(
       await v.callConfirmed("bulk_move_notes", {
         vault: "test",

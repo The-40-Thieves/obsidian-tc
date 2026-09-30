@@ -8,8 +8,7 @@
 // (dispatch-gated HITL) and soft-deletes to .trash unless permanent, reporting the
 // notes that still reference it so the caller can see what it is about to break.
 import { createHash } from "node:crypto";
-import { copyFileSync, lstatSync, mkdirSync, renameSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { lstatSync } from "node:fs";
 import {
   ElicitToken,
   err,
@@ -28,8 +27,10 @@ import { redactSecrets } from "../../experiential/redact";
 import {
   checkBase64Payload,
   DEFAULT_ATTACHMENT_EXTS,
+  extOf,
   findAttachmentReferences,
   isAttachment,
+  isBareAttachmentName,
   mimeOf,
   resolveAttachmentFolder,
   resolveAttachmentWritePath,
@@ -43,11 +44,17 @@ import {
   hardDelete,
   noteExists,
   readFileChecked,
+  replaceDestination,
   statNote,
   trashNote,
   writeFileAtomic,
 } from "../../vault/notes-io";
-import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import {
+  normalizeVaultPath,
+  resolveVaultPath,
+  resolveVaultPathChecked,
+  walkVault,
+} from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./shared";
 
@@ -297,14 +304,25 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       domain: "attachments",
       vaultArg: "vault",
       acceptsIdempotencyKey: true,
-      // A bare filename resolves against the vault's attachment folder, which only the root can say;
-      // env.root is absent outside dispatch, where the input-only answer is all there is.
-      pathAcl: (input, env) => [
-        {
-          op: "write",
-          path: env ? resolveAttachmentWritePath(env.root, input.path) : input.path,
-        },
-      ],
+      // A bare filename resolves against the vault's attachment folder, which only the root can say.
+      // Dispatch always passes env.root. Without it a bare name's real destination is unknowable, so
+      // the extractor FAILS CLOSED (throws) rather than return the raw name and let the ACL judge a
+      // path the handler will not write; a path that already carries a folder needs no root.
+      pathAcl: (input, env) => {
+        if (!env && isBareAttachmentName(input.path))
+          throw err.invalidInput(
+            "a bare attachment filename cannot be ACL-checked without the vault root",
+            { path: redactSecrets(input.path).text },
+          );
+        return [
+          {
+            op: "write",
+            path: env
+              ? resolveAttachmentWritePath(env.root, input.path)
+              : normalizeVaultPath(input.path),
+          },
+        ];
+      },
       description:
         "Write a binary attachment (image, PDF, audio, video) into the vault from base64 content. A bare filename goes to the vault's attachment folder; a path with a folder is used as given. Refuses existing files unless overwrite is set, which requires confirmation and soft-deletes the prior bytes to .trash. Capped by writes.maxAttachmentBytes (default 25 MB decoded).",
       inputSchema: WriteInput,
@@ -316,7 +334,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = resolveAttachmentWritePath(v.root, input.path);
-        const ext = rel.includes(".") ? rel.slice(rel.lastIndexOf(".")).toLowerCase() : "";
+        const ext = extOf(rel);
         if (OWN_TOOL_EXTS.has(ext))
           throw err.invalidInput(
             "notes, canvases and bases have their own tools (write_note, create_canvas, create_base); write_attachment is for binary attachments",
@@ -328,8 +346,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
             extensions: DEFAULT_ATTACHMENT_EXTS,
           });
         // enforcePathAcl covers this too, but only when an ACL is present; a control directory is
-        // never an attachment destination, ACL or not.
-        if (isDefaultDenied(rel))
+        // never an attachment destination, ACL or not. Judged on the REAL (symlink-resolved) path:
+        // an in-vault `pics -> .obsidian` symlink must not turn a lexically innocent destination
+        // into a write under a control directory when no ACL is there to catch it.
+        if (isDefaultDenied(rel) || isDefaultDenied(resolveVaultPathChecked(v.root, rel).aclRel))
           throw err.aclDenied("path is in a protected vault directory", {
             path: redactSecrets(rel).text,
             op: "write",
@@ -372,17 +392,17 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         });
 
         const bytes = Buffer.from(input.content, "base64");
-        // Trash + write is two steps, so the retry after a failed write must not read as a clean
-        // "nothing happened" (THE-572, as in move_attachment).
-        ctx.markEffectCommitted?.();
-        const trashedPrevTo = replacing ? trashNote(v.root, rel) : null;
-        try {
-          writeFileAtomic(abs, bytes, input.options.create_dirs);
-        } catch (e) {
-          // Put the prior bytes back rather than leave the path empty with the file in .trash.
-          if (trashedPrevTo) renameSync(join(v.root, trashedPrevTo), abs);
-          throw e;
-        }
+        // Trash + write is two steps; replaceDestination rolls a failed write back (no-replace,
+        // no-follow — a planted `.trash` symlink must not redirect either leg) and marks the effect
+        // committed only once it is NOT undone (THE-572, as in move_attachment).
+        const { trashedTo: trashedPrevTo } = replaceDestination({
+          root: v.root,
+          toRel: rel,
+          toAbs: abs,
+          replacing,
+          write: (o) => writeFileAtomic(abs, bytes, input.options.create_dirs, o),
+          markEffectCommitted: ctx.markEffectCommitted,
+        });
         return {
           vault: v.id,
           path: rel,
@@ -444,15 +464,24 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           overwrite: overwriteExisting,
         });
 
+        // The source is read BEFORE the destination is touched, so an unreadable source (a
+        // hard-linked or non-regular file) refuses while the destination is still in place.
+        const bytes = readFileChecked(fromAbs);
         // THE-572: copy + hardDelete + rewriteAttachmentReferences is multi-step, and the reference
-        // rewrite at the end is fallible. A throw there released the claim, and the retry found the
-        // source already gone and reported not-found rather than the accurate "may have applied".
-        ctx.markEffectCommitted?.();
-        // On overwrite, soft-delete the destination first so its prior bytes are recoverable.
-        let trashedDestTo: string | null = null;
-        if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
-        if (input.options.create_dirs) mkdirSync(dirname(toAbs), { recursive: true });
-        copyFileSync(fromAbs, toAbs);
+        // rewrite at the end is fallible. replaceDestination marks the effect committed once the
+        // copy landed, so a throw after that point is an accurate indeterminate_outcome on retry
+        // instead of a not-found for the source that already moved. On overwrite the destination is
+        // soft-deleted first (recoverable) and restored if the copy fails. The copy goes through
+        // the shared safe writer (component-wise no-follow mkdir, no-follow temp open, exclusive
+        // no-replace commit).
+        const { trashedTo: trashedDestTo } = replaceDestination({
+          root: v.root,
+          toRel,
+          toAbs,
+          replacing: overwriteExisting,
+          write: (o) => writeFileAtomic(toAbs, bytes, input.options.create_dirs, o),
+          markEffectCommitted: ctx.markEffectCommitted,
+        });
         hardDelete(fromAbs);
         // the rewritten link text lands in referencing notes' bodies — same guard every
         // other note-content writer gets (see rewriteAttachmentReferences's own doc comment).

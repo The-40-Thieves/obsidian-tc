@@ -248,7 +248,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         // THE-572: keyed via WriteOptions' nested idempotency_key; mark at the durable write so a
         // fault anywhere after it resolves a retry to indeterminate rather than re-executing.
         ctx.markEffectCommitted?.();
-        writeNoteAtomic(abs, content, input.options.create_dirs);
+        writeNoteAtomic(abs, content, input.options.create_dirs, { exclusive: !ex.exists });
         return {
           vault: v.id,
           path: rel,

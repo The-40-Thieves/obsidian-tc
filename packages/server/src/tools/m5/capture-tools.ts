@@ -369,7 +369,8 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
           if (contentAssessment.risk === "high") rejectPoison(contentAssessment.signals);
         }
 
-        writeNoteAtomic(abs, content, true);
+        // The target was checked absent above ("Refuses to overwrite"): exclusive keeps that true.
+        writeNoteAtomic(abs, content, true, { exclusive: true });
         deps.reindex?.(v.id, rel, content);
         const now = (ctx.now ?? Date.now)();
         if (input.delete_from_queue) deleteCapture(ctx.db, cap.id);

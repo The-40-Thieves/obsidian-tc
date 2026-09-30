@@ -26,6 +26,33 @@ export const VaultPath = z
     "absolute paths rejected",
   );
 
+/** Why a single path segment is unsafe on Windows (and so refused on EVERY platform when a write
+ *  would create it: a vault syncs across operating systems). */
+export type WindowsNameProblem = "reserved_name" | "colon" | "trailing_dot_or_space";
+
+// CON/PRN/AUX/NUL/COM1-9/LPT1-9 with any extension; Win32 also ignores spaces between the device
+// name and the extension ("NUL .txt").
+const WINDOWS_RESERVED = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]) *(?:\..*)?$/i;
+
+/**
+ * Classify one vault path segment against the Windows name rules, or null when it is fine.
+ * `:` anywhere in a segment (on NTFS `report.md:.png` names the `.png` alternate data stream of
+ * `report.md`), a trailing `.` or space (Win32 strips it, so `a.md.` aliases `a.md`), and the
+ * reserved device names. `.`/`..`/empty segments are path syntax, not names, and are not judged.
+ *
+ * NOT part of {@link VaultPath}: that schema also guards READS, and a vault synced from Linux can
+ * already hold such a name on this filesystem — refusing it there would make an existing note
+ * unreadable. The server applies this to a write that would CREATE the name (see
+ * `assertWritableVaultPath`).
+ */
+export function windowsNameProblem(segment: string): WindowsNameProblem | null {
+  if (segment === "" || segment === "." || segment === "..") return null;
+  if (segment.includes(":")) return "colon";
+  if (segment.endsWith(".") || segment.endsWith(" ")) return "trailing_dot_or_space";
+  if (WINDOWS_RESERVED.test(segment)) return "reserved_name";
+  return null;
+}
+
 /** 32-char hex HITL elicit token (matches issueElicitToken: randomBytes(16).hex). */
 export const ElicitToken = z.string().regex(/^[a-f0-9]{32}$/, "malformed elicit token");
 
