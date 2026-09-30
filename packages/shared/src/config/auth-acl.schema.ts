@@ -264,7 +264,7 @@ export const AuthConfigSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry; `obsidian-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).",
+      'Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry, but `securityProfile: "hardened"` sets it true (an explicit value still wins); the default itself is planned to flip to true at the next major release. `obsidian-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).',
     ),
   // THE-297 — asymmetric verification (RS256/ES256/EdDSA) behind the TokenVerifier seam.
   // `jwks` is an inline JWKS document; `jwksFile` a path loaded once at transport boot (file
@@ -307,7 +307,7 @@ export const AuthConfigSchema = z.object({
     .array(z.string())
     .optional()
     .describe(
-      "Explicit allowlist of accepted JWT algorithms. Algorithm confusion is structurally impossible regardless: HS256 verifies only against jwtSecret and asymmetric algorithms only against the JWKS.",
+      'Explicit allowlist of accepted JWT algorithms, applied to every verify path: HS256 (the configured secret and registry keys), registry asymmetric keys, the JWKS and `/metrics`. Leaving HS256 out refuses HS256 tokens everywhere (`["EdDSA"]` is asymmetric-only). Absent, HS256 plus RS256/ES256/EdDSA are accepted. Algorithm confusion is structurally impossible regardless: HS256 verifies only against jwtSecret (or an HS256 registry key) and asymmetric algorithms only against the JWKS. Not used under `mode: oidc`, which has its own `oidc.allowedAlgs`.',
     ),
   // THE-456 — audience/issuer binding. When set, the JWT verifier enforces them (jose rejects a
   // token whose `aud`/`iss` does not match), closing the confused-deputy / token-passthrough gap

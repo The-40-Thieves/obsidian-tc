@@ -32,8 +32,10 @@ keeps the private key. Provide a JWKS in place of (or alongside) `jwtSecret`:
 - **`auth.jwks`** — an inline JWKS document (`{ "keys": [ … ] }`).
 - **`auth.jwksFile`** — a path to a JWKS document, loaded **once** at transport boot.
   File or inline only — there is no URL fetch, so no new network attack surface.
-- **`auth.algorithms`** — an allowlist of asymmetric algorithms. Defaults to
-  `["RS256", "ES256", "EdDSA"]` when omitted.
+- **`auth.algorithms`** — an allowlist of JWT algorithms, applied to every verify path (HS256,
+  registry keys, the JWKS and `/metrics`). Omitted, HS256 plus `RS256`, `ES256` and `EdDSA` are
+  accepted; a list that leaves HS256 out (such as `["RS256", "EdDSA"]`) refuses HS256 tokens
+  everywhere, including the configured `jwtSecret` and any HS256 registry key.
 
 ```json
 {
@@ -133,7 +135,15 @@ GET /.well-known/jwks.json
 ```
 
 It lists the **active** key and every **retiring** key still inside its window (a key drops out the
-instant its window ends), public members only, and never an HS256 key. It is unauthenticated, like
+instant its window ends), public members only, and never an HS256 key. The response carries an
+`ETag` over the key set (and answers `If-None-Match` with `304`), and its `Cache-Control` is bound
+to key retirement: `max-age` is 60 seconds, capped at the whole seconds left until the earliest
+`retire_after` among the published keys, and `no-cache` when that is under a second away. A cache
+that honours it therefore never serves a retiring key past the moment this server stops verifying
+it. The bound covers retirements already scheduled when the cache fetched; an immediate retirement
+(`rotate-key --grace 0`) made afterwards can still be served from a cache for up to 60 seconds, so
+a verifier that must see a rotation at once should revalidate (`no-cache`) rather than rely on
+`max-age`. It is unauthenticated, like
 the Protected Resource Metadata document, and is served whenever `auth.mode` is `jwt`; it is not
 advertised as the PRM's `jwks_uri` (RFC 9728 means that field for keys the resource signs
 *responses* with, which is not what these are).
@@ -143,7 +153,8 @@ advertised as the PRM's `jwks_uri` (RFC 9728 means that field for keys the resou
 ES256/EdDSA key (the classic public-key-as-HMAC-secret attack), or an ES256/EdDSA header naming an
 HS256 key, or the wrong asymmetric algorithm, is refused `unsupported_alg` before any signature is
 checked, and `alg: none` is refused everywhere. A configured `auth.algorithms` list narrows the
-registry algorithms too.
+registry algorithms too, and it applies to HS256 as well: `["EdDSA"]` refuses HS256 on the MCP edge
+and on `/metrics` alike.
 
 ### Removing `auth.jwtSecret`
 
@@ -159,9 +170,11 @@ per-process (a cursor does not survive a restart).
 
 A token with no `jti` (minted before this feature, or by another tool) cannot be revoked
 individually; only rotating its signing key kills it. Set `auth.requireJti: true` to reject
-such tokens outright on every path (HS256, JWKS, `/metrics`); it defaults to `false` so
-existing tokens keep working, and `obsidian-tc doctor` recommends `true` once the registry
-is in use (`token mint` always sets a `jti`).
+such tokens outright on every path (HS256, JWKS, `/metrics`). `securityProfile: "hardened"` sets
+it to `true` (an explicit `auth.requireJti: false` still wins). The schema default stays `false`
+for now so existing tokens keep working; it is planned to flip to `true` at the next major
+release. `obsidian-tc doctor` recommends `true` once the registry is in use (`token mint` always
+sets a `jti`).
 
 ### Back up `<cacheDir>/auth.db`: it is not a cache
 

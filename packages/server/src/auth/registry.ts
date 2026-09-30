@@ -237,6 +237,8 @@ export interface AuthRegistry {
   keyCounts(): Record<KeyState, number>;
   /** The JWKS of every active, and every in-window retiring, ES256/EdDSA key: public members only. */
   publicJwks(): { keys: PublishedJwk[] };
+  /** `publicJwks()` plus whole seconds to the earliest published `retire_after` (null: none). */
+  publishedJwks(): { jwks: { keys: PublishedJwk[] }; secondsUntilRetirement: number | null };
   /** Is the registry usable, never used, or lost? */
   health(): RegistryHealth;
 }
@@ -272,6 +274,7 @@ export function createLostAuthRegistry(
     reapRetired: refuse,
     keyCounts: refuse,
     publicJwks: refuse,
+    publishedJwks: refuse,
     health: () => ({ state: "lost", detail: message }),
   };
 }
@@ -658,14 +661,20 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
     },
 
     publicJwks() {
+      return this.publishedJwks().jwks;
+    },
+
+    publishedJwks() {
       assertNotLost();
+      const t = now();
       const rows = q(
         `SELECT ${KEY_COLS} FROM auth_keys
           WHERE alg <> 'HS256' AND public_jwk IS NOT NULL
             AND (state = 'active' OR (state = 'retiring' AND retire_after > ?))
           ORDER BY created_at, kid`,
-      ).all(now()) as KeyRow[];
+      ).all(t) as KeyRow[];
       const keys: PublishedJwk[] = [];
+      let earliestRetireAfter: number | null = null;
       for (const r of rows) {
         const key = toKey(r);
         if (!isAsymmetricAlg(key.alg) || key.publicJwk === null) continue;
@@ -677,11 +686,24 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
             alg: key.alg,
             use: "sig",
           });
+          if (
+            key.state === "retiring" &&
+            key.retireAfter !== null &&
+            (earliestRetireAfter === null || key.retireAfter < earliestRetireAfter)
+          ) {
+            earliestRetireAfter = key.retireAfter;
+          }
         } catch {
           /* a stored key that does not fit its algorithm is not published */
         }
       }
-      return { keys };
+      return {
+        jwks: { keys },
+        secondsUntilRetirement:
+          earliestRetireAfter === null
+            ? null
+            : Math.max(0, Math.floor((earliestRetireAfter - t) / 1000)),
+      };
     },
   };
 }
