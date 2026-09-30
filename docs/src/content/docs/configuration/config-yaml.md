@@ -247,7 +247,8 @@ until this generator existed, by which point five entire defaulted blocks had go
     "jobsCompleteRetentionDays": 7,
     "episodesRetentionDays": 90,
     "retrievalsRetentionDays": 365,
-    "jobsFailedRetentionDays": 30
+    "jobsFailedRetentionDays": 30,
+    "captureQueueRetentionDays": 30
   },
   "scheduler": {},
   "watch": {

@@ -319,6 +319,7 @@ describe("THE-602 registry-tools branch coverage", () => {
             embeddings: number;
             idempotency_keys: number;
             event_log: number;
+            capture_committed: number;
           };
         };
         expect(d.rows_dropped).toEqual({
@@ -330,6 +331,8 @@ describe("THE-602 registry-tools branch coverage", () => {
           embeddings: 0,
           idempotency_keys: 0,
           event_log: 0,
+          // capture_committed defaults false (not requested here), same as event_log.
+          capture_committed: 0,
         });
       }
       // The idempotency key inserted above really does survive (include opted it out).
@@ -337,6 +340,57 @@ describe("THE-602 registry-tools branch coverage", () => {
         .prepare("SELECT COUNT(*) AS n FROM idempotency_keys WHERE vault_id = ?")
         .get("test") as { n: number };
       expect(row.n).toBe(1);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("reset_vault_cache drops only COMMITTED capture_queue rows for THIS vault when include.capture_committed is true", async () => {
+    const v = makeTestVault();
+    try {
+      const insert = (
+        id: string,
+        vaultId: string,
+        committedAt: number | null,
+        committedPath: string | null,
+      ) =>
+        v.db
+          .prepare(
+            "INSERT INTO capture_queue (id, vault_id, title, content, captured_at, committed_at, committed_path) VALUES (?,?,NULL,'c',1,?,?)",
+          )
+          .run(id, vaultId, committedAt, committedPath);
+      insert("cap-committed", "test", 5, "n.md");
+      insert("cap-pending", "test", null, null);
+      // A committed row that belongs to a DIFFERENT vault must survive — the DELETE is
+      // vault-scoped, not just committed_at-scoped.
+      const other = await v.call("add_vault", {
+        vault_id: "other",
+        path: mkdtempSync(join(tmpdir(), "obtc-regcov-other-")),
+      });
+      expect(other.ok).toBe(true);
+      insert("cap-other-vault", "other", 5, "n.md");
+
+      const input = { vault: "test", include: { capture_committed: true } };
+      const need = await v.call("reset_vault_cache", input);
+      expect(need.ok).toBe(false);
+      if (!need.ok) expect(need.error.code).toBe("elicit_required");
+
+      const token = issueElicitToken(v.db, {
+        vaultId: "test",
+        toolName: "reset_vault_cache",
+        argsHash: argsHash("reset_vault_cache", input),
+        caller: "test",
+      });
+      const ok = await v.call("reset_vault_cache", input, { elicitToken: token });
+      expect(ok.ok).toBe(true);
+      if (ok.ok) {
+        const d = ok.data as { rows_dropped: { capture_committed: number } };
+        expect(d.rows_dropped.capture_committed).toBe(1);
+      }
+      const remaining = v.db.prepare("SELECT id FROM capture_queue ORDER BY id").all() as {
+        id: string;
+      }[];
+      expect(remaining.map((r) => r.id).sort()).toEqual(["cap-other-vault", "cap-pending"]);
     } finally {
       v.cleanup();
     }

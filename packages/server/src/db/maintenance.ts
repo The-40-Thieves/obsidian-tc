@@ -49,6 +49,10 @@ export interface SweepCounts {
    *  index). Not a row count: `'merge'` does not report one, and the point is observability of
    *  WHICH tables were touched, not how much. */
   fts_merged: string[];
+  /** capture_queue rows pruned: COMMITTED (committed_at IS NOT NULL) and past
+   *  maintenance.captureQueueRetentionDays, measured from committed_at. A PENDING row
+   *  (committed_at IS NULL) is never counted here, at any age — see sweepCaptureQueue. */
+  capture_queue: number;
 }
 
 /** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
@@ -135,6 +139,32 @@ function sweepJobs(
   const complete = del.run("complete", opts.now - opts.completeDays * 86_400_000).changes;
   const failed = del.run("failed", opts.now - opts.failedDays * 86_400_000).changes;
   return complete + failed;
+}
+
+/**
+ * docs/G2.3-storage.md ("Not auto-swept") — capture_queue was committed_at soft-delete only, with
+ * purging deferred to a tool that never shipped, so a long-running server's queue grew unbounded
+ * even after every row was reviewed and committed to the vault.
+ *
+ * TERMINAL-ONLY, same discipline as sweepJobs above: only a COMMITTED row (`committed_at IS NOT
+ * NULL`) is eligible, and age is measured from `committed_at`, never `captured_at`. A row still
+ * awaiting review (`committed_at IS NULL`) is live work — a reviewer has not yet decided whether
+ * to commit_capture it — and is never touched here, however old; deleting one would silently drop
+ * content nobody ever acted on. `capture_queue` carries no vault-scoping filter on the DELETE
+ * itself: every row in cache.db is a candidate, mirroring the age-based idempotency/elicit/jobs
+ * arms above (per-vault, on-demand purging instead lives in reset_vault_cache's
+ * include.capture_committed, which DOES scope to one vault_id).
+ *
+ * Guarded on table existence like every other arm in this file, though capture_queue has existed
+ * since the initial migration (20260519_001) — kept for symmetry and so a hand-built test schema
+ * that omits it does not take the whole sweep down.
+ */
+function sweepCaptureQueue(db: Database, opts: { now: number; retentionDays: number }): number {
+  if (!tableExists(db, "capture_queue")) return 0;
+  const cutoff = opts.now - opts.retentionDays * 86_400_000;
+  return db
+    .prepare("DELETE FROM capture_queue WHERE committed_at IS NOT NULL AND committed_at < ?")
+    .run(cutoff).changes;
 }
 
 /**
@@ -252,6 +282,10 @@ export function runMaintenanceSweep(
     /** THE-891 item 1: experiential.captureRetentionDays. Omitted (same guard as edb above) ->
      *  the redaction arm is skipped and `episode_content_redacted` is 0. */
     captureRetentionDays?: number;
+    /** maintenance.captureQueueRetentionDays. Omitted -> the capture_queue arm is skipped and
+     *  `capture_queue` is 0, same idiom as every other optional arm here (captureRetentionDays,
+     *  sessionWindowSeconds, ...). See sweepCaptureQueue's own doc comment for what it deletes. */
+    captureQueueRetentionDays?: number;
     /** THE-610: count what would be pruned without deleting. Applies to the trace arm only —
      *  the row deletes above predate it and are not made conditional here. */
     dryRun?: boolean;
@@ -370,6 +404,10 @@ export function runMaintenanceSweep(
             : {}),
         })
       : 0;
+  const captureQueue =
+    opts.captureQueueRetentionDays !== undefined
+      ? sweepCaptureQueue(db, { now: t, retentionDays: opts.captureQueueRetentionDays })
+      : 0;
   return {
     idempotency_keys: idem,
     elicit_tokens: elicit,
@@ -383,6 +421,7 @@ export function runMaintenanceSweep(
     sessions_expired: sessionsExpired,
     orphan_schedule_rows: orphanScheduleRows,
     fts_merged: ftsMerged,
+    capture_queue: captureQueue,
   };
 }
 
@@ -402,6 +441,8 @@ export interface MaintenanceDeps {
   retrievalsDays?: number;
   /** THE-891 item 1: see runMaintenanceSweep's option of the same name. */
   captureRetentionDays?: number;
+  /** see runMaintenanceSweep's option of the same name. */
+  captureQueueRetentionDays?: number;
   /** THE-726: see runMaintenanceSweep's option of the same name. */
   sessionWindowSeconds?: number;
   /** THE-1108: see runMaintenanceSweep's option of the same name. */
@@ -434,6 +475,9 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
         ...(deps.retrievalsDays !== undefined ? { retrievalsDays: deps.retrievalsDays } : {}),
         ...(deps.captureRetentionDays !== undefined
           ? { captureRetentionDays: deps.captureRetentionDays }
+          : {}),
+        ...(deps.captureQueueRetentionDays !== undefined
+          ? { captureQueueRetentionDays: deps.captureQueueRetentionDays }
           : {}),
         ...(deps.sessionWindowSeconds !== undefined
           ? { sessionWindowSeconds: deps.sessionWindowSeconds }

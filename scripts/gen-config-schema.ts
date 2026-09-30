@@ -437,7 +437,29 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // none existed and exactly one vault was found; never set by an interactive `obsidian-tc setup`
   // run. See server.schema.ts's own comment on the field for the full description text. No
   // existing key, type, default or constraint moved.
-  "f488e4a18a56c24849b2935c8eeb987b0ff858d46a019caa59c4713bca04936e";
+  //
+  // capture_queue purge: rebaselined deliberately. Adds ONE new key,
+  // `maintenance.captureQueueRetentionDays` (int, positive, default 30) — days a COMMITTED
+  // capture_queue row is retained before the maintenance sweep prunes it; see
+  // packages/shared/src/config/observability.schema.ts's MaintenanceConfigSchema for the full
+  // description text. No existing key, type, default or constraint moved.
+  //
+  // capture_queue purge, cross-vendor review round 1 (LOW): rebaselined again, text only. The
+  // SAME key's .describe() gained a clause on the THE-650/THE-175 dedup interaction — a
+  // committed row kept past commit_capture (delete_from_queue: false) is still the re-sync
+  // identity listCaptureTags reads, so this window should outlive the longest import re-sync
+  // period or a purged row can be re-imported as a duplicate. No key, type, default or
+  // constraint moved.
+  //
+  // check:public-text fix (this repo is public): rebaselined again, text only. The SAME key's
+  // .describe() drops the bare "THE-650/THE-175" ticket ids the dedup clause above named —
+  // check:public-text flags any bare ticket id that reaches a reader-facing surface, and this
+  // description propagates into docs/src/content/docs/configuration/config-reference.md and
+  // docs/wiki/Configuration.md via docgen. The re-sync identity itself (listCaptureTags reads a
+  // committed row's import-dedupe:/ambient-dedupe: tag) is unchanged and still named; only the
+  // ticket ids are removed, replaced with a pointer to the dedup tags noted on commit_capture. No
+  // key, type, default or constraint moved.
+  "fa81cd64f1a12e76fbee480e2cd96d4d86683dbb4edaa64d5fffb141b995595f";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
