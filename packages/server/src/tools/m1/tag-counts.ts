@@ -12,7 +12,7 @@ export interface TagCounts {
 }
 
 /**
- * THE-291 (3B): aggregate from the notes table when the metadata index is ready — no per-query
+ * Aggregate from the notes table when the metadata index is ready — no per-query
  * full-vault disk scan. ACL + folder filtering stay query-time; the cap applies in ORDER BY path
  * order (the disk path used walk order — documented drift).
  */
