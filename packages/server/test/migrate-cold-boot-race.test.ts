@@ -15,9 +15,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { applyConnectionPragmas } from "../src/db/apply-pragmas";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES } from "../src/db/migration-manifest";
-import { applyConnectionPragmas } from "../src/db/pragmas";
 import { AUTH_MIGRATIONS, CACHE_MIGRATIONS } from "../src/db/provision";
 import { rmTemp } from "./tmp";
 

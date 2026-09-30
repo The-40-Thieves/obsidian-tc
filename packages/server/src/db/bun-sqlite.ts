@@ -1,11 +1,8 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  applyConnectionPragmas,
-  openReadonlyWithFallback,
-  readonlyConnectionPragmas,
-} from "./pragmas";
+import { applyConnectionPragmas } from "./apply-pragmas";
+import { openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 

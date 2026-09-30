@@ -1,8 +1,5 @@
-import {
-  applyConnectionPragmas,
-  openReadonlyWithFallback,
-  readonlyConnectionPragmas,
-} from "./pragmas";
+import { applyConnectionPragmas } from "./apply-pragmas";
+import { openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 /**
