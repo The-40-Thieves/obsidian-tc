@@ -35,12 +35,16 @@ export function parseFragment(text, file) {
   }
   for (const key of fields.keys()) {
     if (key !== "type" && key !== "config-schema-change") {
-      throw new Error(`${file}: unknown front matter key "${key}" (allowed: type, config-schema-change)`);
+      throw new Error(
+        `${file}: unknown front matter key "${key}" (allowed: type, config-schema-change)`,
+      );
     }
   }
   const type = fields.get("type");
   if (!type || !CHANGE_TYPES.includes(type)) {
-    throw new Error(`${file}: type must be one of ${CHANGE_TYPES.join(", ")} (got "${type ?? ""}")`);
+    throw new Error(
+      `${file}: type must be one of ${CHANGE_TYPES.join(", ")} (got "${type ?? ""}")`,
+    );
   }
   const body = m[2].trim();
   if (body === "") throw new Error(`${file}: empty body`);
@@ -66,7 +70,7 @@ export function readFragments(root = ".", dir = FRAGMENT_DIR) {
 function splitSections(body) {
   const lines = body.split("\n");
   const sections = [];
-  let preamble = [];
+  const preamble = [];
   let cur = null;
   for (const line of lines) {
     const h = /^###\s+(.+?)\s*$/.exec(line);

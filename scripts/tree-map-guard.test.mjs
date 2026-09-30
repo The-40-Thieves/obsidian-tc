@@ -15,7 +15,8 @@ test("clean: prose-only TREE.md and no tracked generator output", () => {
 });
 
 test("RED: a re-committed GENERATED region in TREE.md is reported with its line", () => {
-  const treeText = "a\nb\n<!-- BEGIN GENERATED: tree-scale -->\n**1 modules**\n<!-- END GENERATED: tree-scale -->\n";
+  const treeText =
+    "a\nb\n<!-- BEGIN GENERATED: tree-scale -->\n**1 modules**\n<!-- END GENERATED: tree-scale -->\n";
   const problems = committedGeneratedProblems({ treeText, tracked: [] });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /^TREE\.md:3 /);
@@ -30,10 +31,16 @@ test("RED: tracking the old docs/dependency-graph.json or anything under generat
 });
 
 test("the committed TREE.md and the real index are clean (map:check itself runs in ci-docgen)", () => {
-  const tracked = spawnSync("git", ["ls-files", "--", "TREE.md", "generated", "docs/dependency-graph.json"], {
-    cwd: root,
-    encoding: "utf8",
-  }).stdout.split("\n").filter(Boolean);
+  const tracked = spawnSync(
+    "git",
+    ["ls-files", "--", "TREE.md", "generated", "docs/dependency-graph.json"],
+    {
+      cwd: root,
+      encoding: "utf8",
+    },
+  )
+    .stdout.split("\n")
+    .filter(Boolean);
   assert.deepEqual(
     committedGeneratedProblems({ treeText: readFileSync(join(root, "TREE.md"), "utf8"), tracked }),
     [],

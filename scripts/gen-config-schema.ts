@@ -105,11 +105,15 @@ if (process.argv.includes("--check")) {
     const head = flattenSchema(schema);
     // Floor: an empty flattening means the walk broke, not that nothing changed.
     if (base.size < 100 || head.size < 100) {
-      console.error(`config schema: structural walk saw ${base.size}/${head.size} nodes (floor 100)`);
+      console.error(
+        `config schema: structural walk saw ${base.size}/${head.size} nodes (floor 100)`,
+      );
       process.exit(1);
     }
     const diff = diffStructure(base, head);
-    const acknowledged = readFragments(ROOT).flatMap((f: { schemaChange: string[] }) => f.schemaChange);
+    const acknowledged = readFragments(ROOT).flatMap(
+      (f: { schemaChange: string[] }) => f.schemaChange,
+    );
     const bad = unacknowledged(diff, acknowledged);
     if (bad.length > 0) {
       console.error(

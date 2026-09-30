@@ -14,8 +14,7 @@ import { driverProblems, driverScriptPath } from "./check-merge-driver.mjs";
 
 const REPO = "/repo";
 const RELATIVE_CMD = 'node "scripts/merge-drivers/regen.mjs" %O %A %B %P';
-const ABSOLUTE_CMD =
-  'node "/gone/otc-task8/scripts/merge-drivers/regen.mjs" %O %A %B %P';
+const ABSOLUTE_CMD = 'node "/gone/otc-task8/scripts/merge-drivers/regen.mjs" %O %A %B %P';
 
 const never = () => false;
 const always = () => true;

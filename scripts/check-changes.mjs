@@ -8,9 +8,7 @@ const root = process.argv[2] ?? ".";
 try {
   const fragments = readFragments(root);
   const stray = existsSync(`${root}/${FRAGMENT_DIR}`)
-    ? readdirSync(`${root}/${FRAGMENT_DIR}`).filter(
-        (f) => !f.endsWith(".md") && f !== ".gitkeep",
-      )
+    ? readdirSync(`${root}/${FRAGMENT_DIR}`).filter((f) => !f.endsWith(".md") && f !== ".gitkeep")
     : [];
   if (stray.length > 0) {
     console.error(`changes: non-markdown file(s) in ${FRAGMENT_DIR}/: ${stray.join(", ")}`);

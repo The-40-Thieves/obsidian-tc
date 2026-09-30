@@ -37,8 +37,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { changelogWithFragments, readFragments } from "./lib/changes.mjs";
 
@@ -315,7 +314,9 @@ function main() {
       );
       process.exit(1);
     }
-    console.log(`gen-decisions-index: OK (${rows.length} tickets, ${resolved} resolved; none committed)`);
+    console.log(
+      `gen-decisions-index: OK (${rows.length} tickets, ${resolved} resolved; none committed)`,
+    );
     return;
   }
   const outIdx = process.argv.indexOf("--out");

@@ -57,8 +57,12 @@ export function parseEmbedded(text) {
   const open = text.indexOf("export const EMBEDDED_MIGRATIONS");
   const start = open === -1 ? -1 : text.indexOf("= {\n", open);
   const end = start === -1 ? -1 : text.indexOf("\n};\n", start);
-  if (start === -1 || end === -1) throw new Error("migrations-embedded.ts: EMBEDDED_MIGRATIONS block not found");
-  const lines = text.slice(start + 4, end).split("\n").filter((l) => l !== "");
+  if (start === -1 || end === -1)
+    throw new Error("migrations-embedded.ts: EMBEDDED_MIGRATIONS block not found");
+  const lines = text
+    .slice(start + 4, end)
+    .split("\n")
+    .filter((l) => l !== "");
   return lines.map((line) => {
     const m = ENTRY_LINE.exec(line);
     if (!m) throw new Error(`migrations-embedded.ts: unparseable entry line: ${line.slice(0, 80)}`);

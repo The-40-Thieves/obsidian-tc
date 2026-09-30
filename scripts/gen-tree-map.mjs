@@ -468,14 +468,18 @@ const problems = committedGeneratedProblems({
     .filter(Boolean),
 });
 if (problems.length > 0) {
-  console.error(`gen-tree-map: generated content is committed again:\n  - ${problems.join("\n  - ")}`);
+  console.error(
+    `gen-tree-map: generated content is committed again:\n  - ${problems.join("\n  - ")}`,
+  );
   process.exit(1);
 }
 
 if (CHECK) {
   // The generator ran to completion above (every refusal is a process.exit(1) before this point),
   // and nothing generated is committed. There is no committed copy to be stale against.
-  console.log(`gen-tree-map: OK (${modules.length} modules, ${totalDeps} dependencies; nothing generated is committed)`);
+  console.log(
+    `gen-tree-map: OK (${modules.length} modules, ${totalDeps} dependencies; nothing generated is committed)`,
+  );
   process.exit(0);
 }
 mkdirSync(OUT_DIR, { recursive: true });

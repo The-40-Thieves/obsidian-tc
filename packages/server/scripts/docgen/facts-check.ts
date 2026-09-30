@@ -169,8 +169,8 @@ export function factRules(goldenSetSize: number, domainCount: number): FactRule[
         new RegExp(`${STANDALONE}(\\d+)\\s+tools\\s+across\\s+modules`, "i"),
         // The opt-in core profile's count moves with the same PRs ("97 with opt-in profile: core").
         new RegExp(`${STANDALONE}(\\d+)\\s+(?:tools\\s+)?with\\s+the\\s+opt-in\\s+\`profile`, "i"),
-        new RegExp(`\\((?:all\\s+visible\\s+by\\s+default;\\s+)?(\\d+)\\s+with\\s+opt-in\\s+\`profile`, "i"),
-        new RegExp(`(?:^|[\\s(*~])~?(\\d{3,})\\s+\\(3-tool\\s+facade\\)`, "i"),
+        /\((?:all\s+visible\s+by\s+default;\s+)?(\d+)\s+with\s+opt-in\s+`profile/i,
+        /(?:^|[\s(*~])~?(\d{3,})\s+\(3-tool\s+facade\)/i,
       ],
     },
     {
@@ -298,7 +298,7 @@ const CANARIES = [
   "999 typed tools",
   "across the 999 tool impls",
   "all 999 tools",
-  "999 with the opt-in `profile: \"core\"`",
+  '999 with the opt-in `profile: "core"`',
 ] as const;
 
 function main(): void {
@@ -330,9 +330,7 @@ function main(): void {
   const counts = rules.map((r) => `${r.name}=${r.value ?? "forbidden"}`).join(", ");
 
   const toolRule = rules.find((r) => r.name === "toolCount");
-  const deadCanaries = CANARIES.filter(
-    (c) => !toolRule || scanFacts(c, [toolRule]).length === 0,
-  );
+  const deadCanaries = CANARIES.filter((c) => !toolRule || scanFacts(c, [toolRule]).length === 0);
 
   const shortfalls = [
     deadCanaries.length > 0 &&

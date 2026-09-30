@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
   assembleUnreleased,
@@ -21,7 +21,10 @@ test("parseFragment accepts a typed bullet and rejects every malformed shape", (
   assert.throws(() => parseFragment("- no front matter", "changes/x.md"), /front matter/);
   assert.throws(() => parseFragment(frag("Bogus", "- x"), "changes/x.md"), /type must be/);
   assert.throws(() => parseFragment(frag("Added", ""), "changes/x.md"), /empty body/);
-  assert.throws(() => parseFragment(frag("Added", "prose, not a bullet"), "changes/x.md"), /bullet/);
+  assert.throws(
+    () => parseFragment(frag("Added", "prose, not a bullet"), "changes/x.md"),
+    /bullet/,
+  );
   assert.throws(
     () => parseFragment("---\ntype: Added\nwho: me\n---\n- x\n", "changes/x.md"),
     /unknown front matter key "who"/,
@@ -66,7 +69,8 @@ test("assembleUnreleased is order independent for fragments (sorted by the reade
   }
 });
 
-const CL = "# Changelog\n\nintro\n\n## [Unreleased]\n\n### Added\n\n- **legacy.**\n\n## [1.0.0] - 2026-01-01\n\n### Added\n\n- **first.**\n";
+const CL =
+  "# Changelog\n\nintro\n\n## [Unreleased]\n\n### Added\n\n- **legacy.**\n\n## [1.0.0] - 2026-01-01\n\n### Added\n\n- **first.**\n";
 
 test("rollUnreleased folds fragments into a dated section and leaves history untouched", () => {
   const { text, body } = rollUnreleased(
@@ -100,7 +104,10 @@ test("changelogWithFragments is the read-only view used by the index and the lag
   const view = changelogWithFragments(CL, [
     parseFragment(frag("Fixed", "- **frag fix.**"), "changes/f.md"),
   ]);
-  assert.match(view, /## \[Unreleased\]\n\n### Added\n\n- \*\*legacy\.\*\*\n\n### Fixed\n\n- \*\*frag fix\.\*\*\n\n## \[1\.0\.0\]/);
+  assert.match(
+    view,
+    /## \[Unreleased\]\n\n### Added\n\n- \*\*legacy\.\*\*\n\n### Fixed\n\n- \*\*frag fix\.\*\*\n\n## \[1\.0\.0\]/,
+  );
   assert.equal(changelogWithFragments(CL, []), CL);
 });
 
@@ -130,7 +137,9 @@ test("with no fragments, rolling the REAL CHANGELOG is byte-identical to the pre
   const at = cl.indexOf(marker);
   const afterMarker = at + marker.length;
   const nextHeading = cl.indexOf("\n## [", afterMarker);
-  const body = (nextHeading === -1 ? cl.slice(afterMarker) : cl.slice(afterMarker, nextHeading)).trim();
+  const body = (
+    nextHeading === -1 ? cl.slice(afterMarker) : cl.slice(afterMarker, nextHeading)
+  ).trim();
   const legacy =
     cl.slice(0, at) +
     `## [Unreleased]\n\n## [9.9.9] - 2030-01-01\n\n${body}\n` +
