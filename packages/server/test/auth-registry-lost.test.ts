@@ -1,6 +1,6 @@
 // The auth registry (signing-key states, token revocations) lives in its OWN file, auth.db, because
 // cache.db is documented as regenerable and operators are told to `rm cache.db*`. Losing the
-// registry must FAIL CLOSED: once it has ever been initialised (a sentinel and the key files sit
+// registry must FAIL CLOSED: once it has ever been initialised (markers and the key files sit
 // OUTSIDE the database) an empty or missing auth.db is refused, never read as "never rotated, so
 // the configured secret verifies everything" — that reading would un-retire keys and un-revoke
 // tokens for every vault.
@@ -26,7 +26,7 @@ import {
   authKeysDir,
   createAuthRegistry,
   registryInitialized,
-  registrySentinelPath,
+  registryMarkerPath,
 } from "../src/auth/registry";
 import { openAuthRegistry } from "../src/auth/registry-open";
 import { createTokenVerifier } from "../src/auth/verifier";
@@ -102,19 +102,21 @@ describe("auth tables live in auth.db, not cache.db", () => {
 });
 
 describe("fail closed when the registry is lost", () => {
-  it("first rotation writes the sentinel; an empty replacement registry then refuses everything", async () => {
+  it("first rotation writes the keys marker; an empty replacement registry then refuses everything", async () => {
     const dir = freshDir();
     const original = registryOver(dir);
     expect(registryInitialized(authKeysDir(dir))).toBe(false);
     original.rotateKey();
-    expect(existsSync(registrySentinelPath(authKeysDir(dir)))).toBe(true);
+    expect(existsSync(registryMarkerPath(authKeysDir(dir), "keys"))).toBe(true);
 
-    // auth.db deleted and re-provisioned empty: same key files + sentinel, no rows.
+    // auth.db deleted and re-provisioned empty: same key files + markers, no rows.
     const lost = registryOver(dir);
     expect(lost.health().state).toBe("lost");
     const verifier = createTokenVerifier({ secret: SECRET, registry: lost });
     expect(await reasonOf(verifier.verify(await legacyToken()))).toBe("registry_lost");
-    expect(() => lost.isRevoked("any")).toThrow(/registry_lost/);
+    // Only keys were ever written: no revocation existed to lose, so a jti lookup is not refused
+    // (the verifier already refused above, on the lost keys table).
+    expect(lost.isRevoked("any")).toBe(false);
     expect(() => lost.signingKey()).toThrow(/auth\.db/);
     expect(() => lost.rotateKey()).toThrow(/auth\.db/);
     expect(() => lost.revoke("x", null)).toThrow(/auth\.db/);
@@ -130,20 +132,21 @@ describe("fail closed when the registry is lost", () => {
     ).toThrow(/auth\.db/);
   });
 
-  it("recording the first token (no rotation at all) also arms the sentinel", async () => {
+  it("recording the first token (no rotation at all) arms the tokens marker", async () => {
     const dir = freshDir();
     const original = registryOver(dir);
-    await signAndRecord(original, claims());
+    const minted = await signAndRecord(original, claims());
     expect(registryInitialized(authKeysDir(dir))).toBe(true);
     const lost = registryOver(dir);
+    expect(lost.health().state).toBe("lost");
+    // Keys were never rotated, so the configured secret still verifies signatures; what is lost is
+    // the revocation list, so a token that carries a jti (all minted ones do) is refused.
     expect(
-      await reasonOf(
-        createTokenVerifier({ secret: SECRET, registry: lost }).verify(await legacyToken()),
-      ),
+      await reasonOf(createTokenVerifier({ secret: SECRET, registry: lost }).verify(minted)),
     ).toBe("registry_lost");
   });
 
-  it("a key file alone, without the sentinel, counts as initialised", async () => {
+  it("a key file alone, without the keys marker, counts as initialised", async () => {
     const dir = freshDir();
     mkdirSync(authKeysDir(dir), { mode: 0o700 });
     writeFileSync(join(authKeysDir(dir), "k_abc.key"), "x".repeat(43), { mode: 0o600 });
@@ -177,7 +180,7 @@ describe("fail closed when the registry is lost", () => {
     ).toBe("accepted");
   });
 
-  it("a failed first write does not leave a sentinel that would lock the deployment out", () => {
+  it("a failed first write does not leave a marker that would lock the deployment out", () => {
     const dir = freshDir();
     const db = openMemoryDb();
     provisionAuthDb(db);
@@ -215,7 +218,7 @@ describe("openAuthRegistry (what serve and the CLI call)", () => {
     }
   });
 
-  it("sentinel present but auth.db MISSING: lost, and auth.db is NOT re-created", async () => {
+  it("markers present but auth.db MISSING: lost, and auth.db is NOT re-created", async () => {
     const cacheDir = freshDir();
     const first = await openAuthRegistry(cfgFor(cacheDir) as never);
     first.registry.rotateKey();

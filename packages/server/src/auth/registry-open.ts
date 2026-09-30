@@ -1,7 +1,7 @@
 // The one place that opens `<cacheDir>/auth.db` for the server and the CLI, so serve, `token mint`
 // and `auth *` cannot disagree about what a lost registry means.
 //
-// Order matters: whether the registry WAS initialised is decided from the sentinel/key files BEFORE
+// Order matters: whether the registry WAS initialised is decided from the markers/key files BEFORE
 // the database is opened, because opening a missing SQLite file creates an empty one. A lost auth.db
 // must never be silently replaced by a fresh empty database that then looks healthy.
 import { existsSync, mkdirSync } from "node:fs";
@@ -11,7 +11,13 @@ import { version as VERSION } from "../../package.json";
 import { openConfiguredDatabase } from "../db/open";
 import { provisionAuthDb } from "../db/provision";
 import type { Database } from "../db/types";
-import { ensureKeysDir, KeyFileError, keyFileNames, readKeyFile } from "./key-files";
+import {
+  ensureKeysDir,
+  KeyFileError,
+  keyFileNames,
+  keysDirProblem,
+  readKeyFile,
+} from "./key-files";
 import {
   type AuthRegistry,
   authDbPath,
@@ -19,8 +25,8 @@ import {
   createAuthRegistry,
   createLostAuthRegistry,
   type RegistryHealth,
-  registryInitialized,
-  registryLostMessage,
+  registryInitState,
+  registryLostMessageFor,
 } from "./registry";
 
 type RegistryCfg = Pick<ServerConfig, "cacheDir" | "db" | "auth">;
@@ -41,8 +47,14 @@ export async function openAuthRegistry(
   opts: { now?: () => number } = {},
 ): Promise<OpenedAuthRegistry> {
   const keysDir = authKeysDir(cfg.cacheDir);
-  if (!existsSync(authDbPath(cfg.cacheDir)) && registryInitialized(keysDir)) {
-    return { registry: createLostAuthRegistry(keysDir), close: () => undefined };
+  // `registryInitState` lstats auth-keys/ first: a symlink (even to an empty directory) counts as
+  // initialised, so it is refused here instead of being recreated as a fresh, healthy-looking auth.db.
+  const state = registryInitState(keysDir);
+  if (!existsSync(authDbPath(cfg.cacheDir)) && (state.keys || state.tokens)) {
+    return {
+      registry: createLostAuthRegistry(keysDir, registryLostMessageFor(keysDir, state)),
+      close: () => undefined,
+    };
   }
   mkdirSync(cfg.cacheDir, { recursive: true });
   const db = await openConfiguredDatabase(cfg, "auth.db");
@@ -74,10 +86,11 @@ export interface AuthRegistryProbe {
 export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryProbe> {
   const keysDir = authKeysDir(cfg.cacheDir);
   const dbPath = authDbPath(cfg.cacheDir);
-  const initialised = registryInitialized(keysDir);
-  let health: RegistryHealth = initialised
-    ? { state: "lost", detail: registryLostMessage(keysDir) }
-    : { state: "uninitialised" };
+  const state = registryInitState(keysDir);
+  let health: RegistryHealth =
+    state.keys || state.tokens
+      ? { state: "lost", detail: registryLostMessageFor(keysDir, state) }
+      : { state: "uninitialised" };
   if (existsSync(dbPath)) {
     let db: Database | undefined;
     try {
@@ -93,6 +106,9 @@ export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryP
 }
 
 function keyFileIssues(keysDir: string): string[] {
+  // Before the empty-listing shortcut below: an empty directory behind a symlink lists as empty.
+  const problem = keysDirProblem(keysDir);
+  if (problem !== undefined) return [problem];
   const names = keyFileNames(keysDir);
   if (names.length === 0) return [];
   const issues: string[] = [];

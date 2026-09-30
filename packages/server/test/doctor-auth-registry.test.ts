@@ -40,6 +40,13 @@ describe("auth.registry doctor check", () => {
     expect(r.remediation).toContain("/c/auth-keys");
   });
 
+  it("names the destructive escape hatch (BOTH auth.db and the keys directory) and carries the loss detail", async () => {
+    const r = await run({ state: "lost", detail: "the keys directory is unusable (symlink)" });
+    expect(r.remediation).toMatch(/BOTH \/c\/auth\.db and \/c\/auth-keys/);
+    expect(r.remediation).toMatch(/destructive/);
+    expect(r.details).toMatchObject({ detail: "the keys directory is unusable (symlink)" });
+  });
+
   it("FAILS on a key file that breaks the trust check, naming it", async () => {
     const r = await run({ keyFileIssues: ["k_ab.key: mode 0644 is readable by group/other"] });
     expect(r.status).toBe("fail");

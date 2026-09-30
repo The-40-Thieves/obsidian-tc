@@ -179,11 +179,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `auth.db` and `auth-keys/` are now documented everywhere as NOT regenerable and to be backed up;
   `reset_vault_cache`, `compact`, the maintenance sweep and the sandbox never touch them, and the
   `cacheDir` description no longer says everything in it is regenerable. Once the registry has ever
-  been used (a marker at `auth-keys/.registry-initialized`, or any `*.key` file, outside the database),
-  a missing or empty `auth.db` makes the verifier refuse every HS256 bearer (`registry_lost`) and
+  been used, judged per table from two markers outside the database (`auth-keys/.keys-initialized`,
+  or any `*.key` file, and `auth-keys/.tokens-initialized`), a missing `auth.db`, or one table that is
+  initialised but empty, makes the verifier refuse every HS256 bearer (`registry_lost`) and
   `token mint`/`auth *` refuse to run, with the recovery (restore `auth.db` from backup) in the startup
-  log, every rejection line and `doctor`; only a deployment that never initialised the registry keeps
-  the "configured secret verifies" path.
+  log, every rejection line and `doctor`. That closes the partial-restore hole: an emptied `auth_keys`
+  no longer revives the configured secret's retired key, and an emptied `auth_tokens` no longer
+  un-revokes every revoked token. A symlinked (even empty) or non-directory `auth-keys/` is refused the
+  same way, and a failed first write can no longer remove a marker another process committed a row
+  under. Only a table that was never initialised keeps the "configured secret verifies" path; the
+  destructive way back is removing BOTH `auth.db` and `auth-keys/`.
 - **Signing-key files are trusted only through the open descriptor.** The key is opened
   `O_RDONLY|O_NOFOLLOW` and judged by `fstat` on that descriptor (regular file, owned by the server
   user, no group/other bits) instead of `stat`-then-read, which followed symlinks; the `auth-keys/`

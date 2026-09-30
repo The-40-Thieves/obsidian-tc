@@ -2,13 +2,15 @@
 // and are its key files trusted? Offline; the view is built by `probeAuthRegistry`.
 //
 // FAIL, not warn, on a lost registry: every HS256 bearer is being refused, and the only "fix" that
-// looks easy (recreate an empty auth.db, or delete the sentinel) silently makes every revoked token
+// looks easy (recreate an empty auth.db, or delete a marker) silently makes every revoked token
 // and retired key valid again.
 import type { Check, CheckResult, CheckStatus } from "./types";
 
 export interface AuthRegistryView {
   authMode: "none" | "jwt";
   state: "uninitialised" | "ok" | "lost";
+  /** Why the registry is lost (which table, or an unusable keys directory), when it is. */
+  detail?: string;
   dbPath: string;
   keysDir: string;
   /** Key files (or the directory) failing the trust check. */
@@ -22,7 +24,12 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
     id: "auth.registry",
     category: "config",
     run: (): CheckResult => {
-      const details = { dbPath: view.dbPath, keysDir: view.keysDir, state: view.state };
+      const details = {
+        dbPath: view.dbPath,
+        keysDir: view.keysDir,
+        state: view.state,
+        ...(view.detail !== undefined ? { detail: view.detail } : {}),
+      };
       if (view.authMode !== "jwt") {
         return {
           status: "ok",
@@ -33,11 +40,11 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
       if (view.state === "lost") {
         return {
           status: "fail",
-          summary: `auth registry LOST: initialised before (${view.keysDir}) but ${view.dbPath} is missing or empty; every bearer is refused`,
+          summary: `auth registry LOST: initialised before (${view.keysDir}) but ${view.dbPath} is missing, or a registry table or the keys directory is empty or unusable; every bearer is refused`,
           details,
           remediation:
             `restore auth.db from backup (it is NOT regenerable, and \`rm cache.db*\` never touches it). ` +
-            `Only if you accept that revoked tokens and retired keys become valid again, remove ${view.keysDir} to return to auth.jwtSecret alone.`,
+            `Only if you accept that revoked tokens and retired keys become valid again, remove BOTH ${view.dbPath} and ${view.keysDir} to return to auth.jwtSecret alone (destructive).`,
         };
       }
       if (view.keyFileIssues.length > 0) {

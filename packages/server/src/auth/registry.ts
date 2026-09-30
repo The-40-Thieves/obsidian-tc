@@ -4,23 +4,36 @@
 //
 // auth.db is NOT cache.db. cache.db is disposable (operators are told to `rm cache.db*`), and this
 // registry is authored operator state: deleting it would un-retire keys and un-revoke tokens for
-// every vault. So the registry lives in its own file, and losing that file FAILS CLOSED: once the
-// registry has ever been initialised (a sentinel file, or any `*.key` file, in `<cacheDir>/auth-keys/`
-// -- both OUTSIDE the database), an auth.db that is missing or holds no rows is refused with
-// `registry_lost` instead of being read as "never rotated, the configured secret verifies
-// everything". Only a deployment that has never initialised the registry keeps that legacy path.
+// every vault. So the registry lives in its own file, and losing it FAILS CLOSED.
+//
+// Health is judged PER TABLE from two durable markers in `<cacheDir>/auth-keys/`, OUTSIDE the
+// database: `.keys-initialized` (a key was ever rotated in; any `*.key` file also counts) and
+// `.tokens-initialized` (a token or revocation was ever written). A table whose marker exists but
+// which now holds no rows is refused with `registry_lost`. Judging the two together ("either table
+// has a row") let a partial restore through: an emptied `auth_keys` fell back to the configured
+// secret and revived the retired key; an emptied `auth_tokens` read every revoked jti as live. Only
+// a table never initialised keeps the legacy reading (no keys: the configured secret verifies
+// everything; no tokens: nothing is revoked). The one deliberate way back is destructive: remove
+// BOTH auth.db and `auth-keys/` (the markers live in it).
+//
+// A marker is created INSIDE the transaction of the first write it protects (under `BEGIN
+// IMMEDIATE`, fsync'd), so no committed row exists without its marker. It is never deleted blindly:
+// after a failed write it is removed only once, under the write lock, no other connection is found
+// to have committed a row. A marker with no rows fails closed, which is why keeping one is the safe
+// direction; a process that dies between creating it and committing leaves exactly that, cleared
+// by restoring auth.db or by the destructive recovery above.
 //
 // Two lookups happen on EVERY authenticated request, both primary-key reads on auth.db: the token's
 // `kid` (which key verifies it) and its `jti` (is it revoked). Nothing about the database is cached
-// in process, so a revocation written by one process is visible to every other process sharing the
-// file on their next request. A key file's secret is not cached either: it is re-read, and its
-// trust re-checked on the open descriptor, on every verify (auth/key-files.ts).
+// in process, so a revocation written by one process is seen by every other process sharing the
+// file on its next request. A key file's secret is cached for at most KEY_FILE_CACHE_TTL_MS and
+// re-read, trust re-checked on the open descriptor (auth/key-files.ts).
 //
 // No key material lives in the database. See the `auth_keys` migration header.
 import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { inTransaction } from "../db/txn";
+import { inWriteTransaction } from "../db/txn";
 import { cachedPrepare, type Database } from "../db/types";
 import { AuthRejection } from "./jwt";
 import {
@@ -29,6 +42,7 @@ import {
   existsNoFollow,
   KeyFileError,
   keyFileNames,
+  keysDirProblem,
   readKeyFile,
 } from "./key-files";
 
@@ -52,7 +66,7 @@ const FILE_REF = /^file:([A-Za-z0-9_-]+\.key)$/;
 export type KeyState = "active" | "retiring" | "retired";
 
 /** `uninitialised`: never used, the configured secret is the only key. `ok`: rows present.
- *  `lost`: initialised before (sentinel / key files exist) but auth.db holds nothing. */
+ *  `lost`: a table was initialised before (marker / key files exist) but now holds nothing. */
 export type RegistryHealth =
   | { state: "uninitialised" }
   | { state: "ok" }
@@ -97,26 +111,62 @@ export function authDbPath(cacheDir: string): string {
   return join(cacheDir, "auth.db");
 }
 
-/** Marker written the first time the registry is used (first key rotation, first recorded token,
- *  first revocation). Lives beside the key files, outside the database, so that losing the database
- *  is detectable. */
-export function registrySentinelPath(keysDir: string): string {
-  return join(keysDir, ".registry-initialized");
+/** Which registry table a durable marker protects. */
+export type RegistryTable = "keys" | "tokens";
+
+/** Marker written with the first key rotation (`keys`) or the first recorded token or revocation
+ *  (`tokens`). Lives beside the key files, outside the database, so that losing a table is
+ *  detectable. */
+export function registryMarkerPath(keysDir: string, table: RegistryTable): string {
+  return join(keysDir, table === "keys" ? ".keys-initialized" : ".tokens-initialized");
 }
 
-/** Has this deployment ever used the registry? The sentinel, or any key file, says yes. */
+export interface RegistryInitState {
+  /** A key was ever rotated in: the keys marker, or any `*.key` file. */
+  keys: boolean;
+  /** A token or revocation was ever written: the tokens marker. */
+  tokens: boolean;
+  /** Set when `keysDir` is a symlink or not a directory. Both tables then count as initialised: an
+   *  unusable directory is refused, never read as "nothing was ever here". */
+  dirProblem?: string;
+}
+
+/** What the durable markers say about this deployment. `lstat` first: a symlink (even to an empty
+ *  directory) is a refusal, and is never followed to look for markers or key files. */
+export function registryInitState(keysDir: string): RegistryInitState {
+  const dirProblem = keysDirProblem(keysDir);
+  if (dirProblem !== undefined) return { keys: true, tokens: true, dirProblem };
+  return {
+    keys: existsNoFollow(registryMarkerPath(keysDir, "keys")) || keyFileNames(keysDir).length > 0,
+    tokens: existsNoFollow(registryMarkerPath(keysDir, "tokens")),
+  };
+}
+
+/** Has this deployment ever used the registry (either table)? */
 export function registryInitialized(keysDir: string): boolean {
-  return existsNoFollow(registrySentinelPath(keysDir)) || keyFileNames(keysDir).length > 0;
+  const s = registryInitState(keysDir);
+  return s.keys || s.tokens;
 }
 
-/** The operator-facing explanation of a lost registry, naming the recovery. */
-export function registryLostMessage(keysDir: string): string {
+/** The operator-facing explanation of a lost registry, naming the recovery. `cause` says what is
+ *  wrong; it defaults to a missing or empty auth.db. */
+export function registryLostMessage(
+  keysDir: string,
+  cause = "auth.db is missing or empty",
+): string {
   return (
-    `the auth registry was initialised (${keysDir}) but auth.db is missing or empty: revocations and ` +
-    "key retirements are gone, so every token is refused rather than trusted. restore auth.db from " +
-    `backup. Only if you accept that revoked tokens and retired keys become valid again, remove ${keysDir} ` +
-    "to return to the configured auth.jwtSecret alone."
+    `the auth registry was initialised (${keysDir}) but ${cause}: revocations and key retirements ` +
+    "are gone, so every token is refused rather than trusted. restore auth.db from backup. " +
+    "Only if you accept that revoked tokens and retired keys become valid again, remove BOTH " +
+    `auth.db and ${keysDir} to return to the configured auth.jwtSecret alone (destructive).`
   );
+}
+
+/** The lost-registry message for a state read from `registryInitState`. */
+export function registryLostMessageFor(keysDir: string, state: RegistryInitState): string {
+  return state.dirProblem !== undefined
+    ? registryLostMessage(keysDir, `the keys directory is unusable (${state.dirProblem})`)
+    : registryLostMessage(keysDir);
 }
 
 export function summarizeScopes(scopes: readonly string[]): string {
@@ -192,9 +242,11 @@ export interface AuthRegistry {
 }
 
 /** A registry whose database is gone: every operation refuses with the recovery in the message.
- *  Used at serve time when the sentinel says the registry existed but auth.db is missing. */
-export function createLostAuthRegistry(keysDir: string): AuthRegistry {
-  const message = registryLostMessage(keysDir);
+ *  Used at serve time when the markers say the registry existed but auth.db is missing. */
+export function createLostAuthRegistry(
+  keysDir: string,
+  message = registryLostMessage(keysDir),
+): AuthRegistry {
   const refuse = (): never => {
     throw new Error(message);
   };
@@ -256,70 +308,100 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
     return readKeyCached(join(keysDir, m[1] as string));
   };
 
-  const hasRows = (): boolean =>
-    q("SELECT 1 AS x FROM auth_keys LIMIT 1").get() !== undefined ||
-    q("SELECT 1 AS x FROM auth_tokens LIMIT 1").get() !== undefined;
-  // Rows in a database we hold open cannot vanish under us (a deleted file stays readable through
-  // this connection), so once rows have been seen there is nothing left to re-check.
-  let sawRows = false;
-  // A never-initialised deployment would otherwise pay two SELECTs, an lstat and a readdir on every
-  // request to re-learn that nothing exists. `uninitialised` is remembered for a second: it can only
-  // turn into `lost` if the database file under this connection is replaced by an empty one WHILE
-  // the sentinel appears, which a one-second detection delay does not change. Our own writes clear it.
-  let uninitialisedUntil = 0;
-  const health = (): RegistryHealth => {
-    if (sawRows) return { state: "ok" };
-    if (uninitialisedUntil > Date.now()) return { state: "uninitialised" };
-    if (hasRows()) {
-      sawRows = true;
-      return { state: "ok" };
-    }
-    if (keysDir !== undefined && registryInitialized(keysDir)) {
-      return { state: "lost", detail: registryLostMessage(keysDir) };
-    }
-    uninitialisedUntil = Date.now() + UNINITIALISED_TTL_MS;
-    return { state: "uninitialised" };
+  const rowSql: Record<RegistryTable, string> = {
+    keys: "SELECT 1 AS x FROM auth_keys LIMIT 1",
+    tokens: "SELECT 1 AS x FROM auth_tokens LIMIT 1",
   };
-  /** Refuse (throw the operator message) when the registry is lost; the guard in front of every
+  const hasRows = (table: RegistryTable): boolean => q(rowSql[table]).get() !== undefined;
+  // A never-initialised table would otherwise pay a SELECT, an lstat and a readdir on every miss to
+  // re-learn that nothing exists. `uninitialised` is remembered for a second: it can only turn into
+  // `lost` if the database is replaced by an empty one WHILE the marker appears, which a one-second
+  // detection delay does not change. Our own writes clear it. Nothing else is cached: a table that
+  // empties under a live connection is noticed on the next miss.
+  const uninitialisedUntil: Record<RegistryTable, number> = { keys: 0, tokens: 0 };
+  /** Re-read the emptiness of `table` while holding the write lock. A marker is created inside the
+   *  first write's transaction, BEFORE its commit, so a reader can see "marker, no rows" for the
+   *  length of that commit; waiting for the lock resolves it to either committed rows or a real
+   *  loss. A lock that cannot be taken (read-only handle, busy timeout) is read as lost: fail closed. */
+  const emptyUnderLock = (table: RegistryTable): boolean => {
+    try {
+      return inWriteTransaction(db, "auth_registry", () => !hasRows(table));
+    } catch {
+      return true;
+    }
+  };
+  /** The operator message when `table` was initialised but is now empty; undefined otherwise. */
+  const lostCause = (table: RegistryTable): string | undefined => {
+    if (keysDir === undefined || hasRows(table)) return undefined;
+    if (uninitialisedUntil[table] > Date.now()) return undefined;
+    const state = registryInitState(keysDir);
+    if (!state[table]) {
+      uninitialisedUntil[table] = Date.now() + UNINITIALISED_TTL_MS;
+      return undefined;
+    }
+    if (!emptyUnderLock(table)) return undefined;
+    if (state.dirProblem !== undefined) return registryLostMessageFor(keysDir, state);
+    return registryLostMessage(
+      keysDir,
+      table === "keys"
+        ? "auth.db holds no signing keys"
+        : "auth.db holds no token or revocation rows",
+    );
+  };
+  const health = (): RegistryHealth => {
+    const detail = lostCause("keys") ?? lostCause("tokens");
+    if (detail !== undefined) return { state: "lost", detail };
+    return hasRows("keys") || hasRows("tokens") ? { state: "ok" } : { state: "uninitialised" };
+  };
+  /** Refuse (throw the operator message) when either table is lost; the guard in front of every
    *  path that would otherwise read an empty table as "never used". */
   const assertNotLost = (): void => {
-    const h = health();
-    if (h.state === "lost") throw new Error(h.detail);
+    const detail = lostCause("keys") ?? lostCause("tokens");
+    if (detail !== undefined) throw new Error(detail);
   };
-  const keysEmpty = (): boolean => q("SELECT 1 AS x FROM auth_keys LIMIT 1").get() === undefined;
+  const keysEmpty = (): boolean => !hasRows("keys");
 
-  /** Write the sentinel. Returns true when THIS call created it, so a failed write can undo it. */
-  const markInitialized = (): boolean => {
+  /** Write the marker for `table`. Returns true when THIS call created it. */
+  const markInitialized = (table: RegistryTable): boolean => {
     if (keysDir === undefined) return false;
     ensureKeysDir(keysDir, { create: true });
-    const path = registrySentinelPath(keysDir);
+    const path = registryMarkerPath(keysDir, table);
     if (existsNoFollow(path)) return false;
     createKeyFile(path, `${new Date(now()).toISOString()}\n`);
     return true;
   };
-  const undoSentinel = (created: boolean): void => {
+  /** After a failed first write: remove the marker THIS call created, but only if no row landed
+   *  under it. The check and the unlink share one write lock, and every other writer creates or
+   *  observes its marker under that same lock, so a row committed by another connection is always
+   *  seen here and the marker stays. If the check itself cannot run the marker stays: a marker with
+   *  no rows fails closed, a missing marker over committed rows would not. */
+  const releaseMarker = (table: RegistryTable, created: boolean): void => {
     if (!created || keysDir === undefined) return;
     try {
-      unlinkSync(registrySentinelPath(keysDir));
+      inWriteTransaction(db, "auth_registry", () => {
+        if (!hasRows(table)) unlinkSync(registryMarkerPath(keysDir, table));
+      });
     } catch {
       /* the original error is the one worth reporting */
     }
   };
-  /** Run a first-or-later registry write and arm the sentinel in the same unit: if either fails the
-   *  database change rolls back and a sentinel this call created is removed, so a failed first
-   *  write can never lock a deployment out of its own configured secret. */
-  const writeAndArm = <T>(write: () => T): T => {
+  /** Run a registry write and arm `table`'s marker in the same unit. `BEGIN IMMEDIATE`, so the
+   *  marker is created under the write lock. A failure rolls the rows back and releases the marker
+   *  only when nothing else committed under it, so a failed first write never locks a deployment out
+   *  of its own configured secret and never strips the marker from another writer's row. */
+  const writeAndArm = <T>(table: RegistryTable, write: () => T): T => {
     let created = false;
     try {
-      const out = inTransaction(db, () => {
+      const out = inWriteTransaction(db, "auth_registry", () => {
         const written = write();
-        created = markInitialized();
+        created = markInitialized(table);
         return written;
       });
-      uninitialisedUntil = 0;
+      uninitialisedUntil.keys = 0;
+      uninitialisedUntil.tokens = 0;
       return out;
     } catch (e) {
-      undoSentinel(created);
+      releaseMarker(table, created);
       throw e;
     }
   };
@@ -335,9 +417,9 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         | { revoked_at: number | null }
         | undefined;
       if (r !== undefined) return r.revoked_at != null;
-      // No row for this jti. In a lost registry that means nothing (every revocation is gone), so
-      // it must not read as "not revoked".
-      if (health().state === "lost") throw new AuthRejection("registry_lost");
+      // No row for this jti. Once revocations were ever written, an empty auth_tokens means every
+      // revocation is gone, so it must not read as "not revoked".
+      if (lostCause("tokens") !== undefined) throw new AuthRejection("registry_lost");
       return false;
     },
 
@@ -347,16 +429,15 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         | undefined;
       try {
         if (row === undefined) {
-          // Empty AND never initialised: a deployment that never rotated, so the configured secret
-          // verifies everything it always did, whatever `kid` (if any) the token names. Empty but
-          // initialised is a lost registry, which is refused, not trusted.
+          // Empty AND keys never initialised: a deployment that never rotated, so the configured
+          // secret verifies everything it always did, whatever `kid` (if any) the token names.
+          // Empty but initialised is a lost table, which is refused, not trusted.
           if (keysEmpty()) {
-            if (health().state === "lost") throw new AuthRejection("registry_lost");
+            if (lostCause("keys") !== undefined) throw new AuthRejection("registry_lost");
             return new TextEncoder().encode(loadSecret(configKey()));
           }
           throw new AuthRejection("unknown_key");
         }
-        sawRows = true;
         const key = toKey(row);
         // A `retiring` key verifies only inside its window; one with no window at all is treated as
         // retired (fail closed), never as live forever.
@@ -385,7 +466,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
 
     recordToken(t) {
       assertNotLost();
-      writeAndArm(() =>
+      writeAndArm("tokens", () =>
         q(
           "INSERT INTO auth_tokens (jti, kid, sub, scopes_summary, issued_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
         ).run(t.jti, t.kid, t.sub, t.scopesSummary, t.issuedAt, t.expiresAt),
@@ -394,7 +475,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
 
     revoke(jti, reason) {
       assertNotLost();
-      return writeAndArm(() => {
+      return writeAndArm("tokens", () => {
         const res = q(
           "UPDATE auth_tokens SET revoked_at = ?, revoked_reason = ? WHERE jti = ? AND revoked_at IS NULL",
         ).run(now(), reason, jti);
@@ -432,7 +513,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
       const path = join(keysDir, file);
       createKeyFile(path, randomBytes(32).toString("base64url"));
       try {
-        return writeAndArm(() => {
+        return writeAndArm("keys", () => {
           // First rotation of a deployment that has only ever used the configured secret: enrol it
           // as the `config` key so it is the one being retired, not silently forgotten.
           if (keysEmpty() && opts.configSecret) {

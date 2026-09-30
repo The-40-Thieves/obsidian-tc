@@ -2,20 +2,20 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 533,
-    "dependencies": 2550,
-    "subsystemPairs": 157,
-    "crossSubsystemImports": 1153
+    "modules": 539,
+    "dependencies": 2593,
+    "subsystemPairs": 160,
+    "crossSubsystemImports": 1169
   },
   "subsystems": {
-    "auth": 4,
+    "auth": 7,
     "bridge": 8,
     "capability": 6,
     "capture": 5,
-    "cli": 58,
+    "cli": 60,
     "config": 14,
     "db": 16,
-    "doctor": 21,
+    "doctor": 22,
     "embeddings": 8,
     "experiential": 29,
     "formats": 6,
@@ -58,7 +58,7 @@
     {
       "from": "cli",
       "to": "db",
-      "weight": 58
+      "weight": 61
     },
     {
       "from": "search",
@@ -271,6 +271,11 @@
       "weight": 6
     },
     {
+      "from": "auth",
+      "to": "db",
+      "weight": 5
+    },
+    {
       "from": "cli",
       "to": "workspace",
       "weight": 5
@@ -326,6 +331,11 @@
       "weight": 5
     },
     {
+      "from": "transports",
+      "to": "auth",
+      "weight": 5
+    },
+    {
       "from": "vault",
       "to": "db",
       "weight": 5
@@ -338,6 +348,11 @@
     {
       "from": "capture",
       "to": "experiential",
+      "weight": 4
+    },
+    {
+      "from": "cli",
+      "to": "auth",
       "weight": 4
     },
     {
@@ -363,11 +378,6 @@
     {
       "from": "tools",
       "to": "embeddings",
-      "weight": 4
-    },
-    {
-      "from": "transports",
-      "to": "auth",
       "weight": 4
     },
     {
@@ -433,6 +443,11 @@
     {
       "from": "metrics",
       "to": "search",
+      "weight": 3
+    },
+    {
+      "from": "metrics",
+      "to": "auth",
       "weight": 3
     },
     {
@@ -702,11 +717,6 @@
     },
     {
       "from": "metrics",
-      "to": "auth",
-      "weight": 1
-    },
-    {
-      "from": "metrics",
       "to": "transports",
       "weight": 1
     },
@@ -758,6 +768,11 @@
     {
       "from": "runtime",
       "to": "plur",
+      "weight": 1
+    },
+    {
+      "from": "runtime",
+      "to": "auth",
       "weight": 1
     },
     {

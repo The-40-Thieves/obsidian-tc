@@ -148,8 +148,28 @@ export function createKeyFile(path: string, contents: string): void {
   }
 }
 
-/** Every `*.key` file name in `dir`; empty when the directory does not exist. */
+/**
+ * Why `dir` is not a usable keys directory, or undefined when it is absent or a real directory.
+ * `lstat`, so a symlink is judged as a symlink and never by what it points at: an empty directory
+ * behind a link must not read as "no keys here".
+ */
+export function keysDirProblem(dir: string): string | undefined {
+  let st: ReturnType<typeof lstatSync> | undefined;
+  try {
+    st = lstatOrUndefined(dir);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOTDIR") return undefined; // a parent is a file: nothing is at `dir`
+    return `${dir} cannot be inspected (${code ?? "error"})`;
+  }
+  if (st === undefined || (st.isDirectory() && !st.isSymbolicLink())) return undefined;
+  return `${dir} must be a real directory, not a symlink or file`;
+}
+
+/** Every `*.key` file name in `dir`; empty when the directory does not exist or is not a real
+ *  directory (a symlink is never followed; see `keysDirProblem`). */
 export function keyFileNames(dir: string): string[] {
+  if (keysDirProblem(dir) !== undefined) return [];
   try {
     return readdirSync(dir).filter((f) => f.endsWith(".key"));
   } catch {

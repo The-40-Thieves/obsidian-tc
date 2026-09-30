@@ -578,6 +578,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       authRegistry: {
         authMode: config.auth.mode,
         state: authProbe.health.state,
+        ...(authProbe.health.state === "lost" ? { detail: authProbe.health.detail } : {}),
         dbPath: authProbe.dbPath,
         keysDir: authProbe.keysDir,
         keyFileIssues: authProbe.keyFileIssues,

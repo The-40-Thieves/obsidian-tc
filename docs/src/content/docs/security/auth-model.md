@@ -112,14 +112,21 @@ retire a key. `rm <cacheDir>/cache.db*` (the documented way to reset the index),
 `reset_vault_cache` and every other cache wipe leave them alone; back both up with your other
 operator state.
 
-The server fails closed if the registry is lost. Once it has ever been used (the first
-`rotate-key`, `token mint` or `revoke` writes a marker, `auth-keys/.registry-initialized`,
-outside the database), an `<cacheDir>/auth.db` that is missing or empty makes the verifier refuse every
-HS256 bearer (reason `registry_lost`), the startup log and `doctor` name the problem, and `auth *`
-and `token mint` refuse to run, instead of quietly trusting `auth.jwtSecret` again and reviving
-revoked tokens. Recover by restoring `<cacheDir>/auth.db` from backup. Only if you accept that revoked
-tokens and retired keys become valid again, remove the `auth-keys/` directory to return to
-`auth.jwtSecret` alone.
+The server fails closed if the registry is lost, and it judges the two tables separately. Two marker
+files sit in `auth-keys/`, outside the database: `.keys-initialized` (the first `rotate-key`; any `*.key`
+file counts too) and `.tokens-initialized` (the first `token mint` or `revoke`). A table whose marker
+exists but which now holds no rows, or an `<cacheDir>/auth.db` that is missing altogether, makes the
+verifier refuse every HS256 bearer (reason `registry_lost`), the startup log and `doctor` name the
+problem, and `auth *` and `token mint` refuse to run. That covers a partial restore too: an emptied
+`auth_keys` no longer falls back to `auth.jwtSecret` (which would revive a retired key), and an emptied
+`auth_tokens` no longer reads every revoked token as live. An `auth-keys/` that is a symlink (even to an
+empty directory) or a plain file is refused the same way, and `doctor` names it. Recover by restoring
+`<cacheDir>/auth.db` from backup.
+
+**Destructive escape hatch.** If you accept that revoked tokens and retired keys become valid again,
+remove BOTH `<cacheDir>/auth.db` and the `auth-keys/` directory (the markers live in it) to return to
+`auth.jwtSecret` alone. This is intended, and it is the only way back to that state: there is no
+setting that skips the check. Removing only one of the two leaves the registry lost.
 
 ### Signing-key files
 
