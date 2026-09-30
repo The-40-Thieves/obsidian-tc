@@ -3,9 +3,9 @@ name: ci-docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**', '.github/workflows/ci-docs.yml']
+    paths: ['docs/**', 'packages/server/scripts/docgen/**', '.github/workflows/ci-docs.yml']
   pull_request:
-    paths: ['docs/**', '.github/workflows/ci-docs.yml']
+    paths: ['docs/**', 'packages/server/scripts/docgen/**', '.github/workflows/ci-docs.yml']
 
 permissions:
   contents: read
@@ -21,15 +21,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.2
+      # bun + the ROOT install: the build's first step generates the per-tool pages from the live
+      # tool registry, which needs the server package's dependencies. bun-version is the action's
+      # default (1.4.2), the value this job pinned before.
+      - uses: ./.github/actions/setup-repo
       - name: Install
         working-directory: docs
         run: bun install --frozen-lockfile
-      - name: Build (astro check && astro build)
+      - name: Build (generate tool pages && astro check && astro build)
         working-directory: docs
         run: bun run build
+      # Invariant: one generated page per registered tool (count == registry), no stale page, every
+      # catalog row links to an existing page, and the built site has all of them.
+      - name: tool pages match the registry (count, links, built site)
+        working-directory: docs
+        run: bun run check:tool-pages
       # Link-check the BUILT site, which is the only place these links can be resolved at all.
       # ci-quality's lychee job checks source markdown and deliberately EXCLUDES docs/src, because
       # a root-relative link like /tools/api-reference/ has no meaning relative to a .md file — it

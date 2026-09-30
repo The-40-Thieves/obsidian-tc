@@ -6,15 +6,16 @@
 // updates this table on the next `docgen:render`, not by someone remembering to edit prose.
 import { isNonCoreTool } from "../../src/mcp/tool-profiles";
 import type { ToolDoc } from "./model";
+import { toolPageSlug } from "./tool-page-slug";
 
 // Escape backslashes THEN pipes (order matters — a bare `\|` must not become an unescaped pipe that
 // breaks the markdown table).
-function cell(v: string): string {
+export function cell(v: string): string {
   return v.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").trim();
 }
 
 /** Coarse access label from scopes + the destructive flag, for an at-a-glance column. */
-function access(t: ToolDoc): string {
+export function access(t: ToolDoc): string {
   if (t.destructive) return "destructive";
   const mutating = t.requiredScopes.some((s) => /^(write|admin|delete|bulk|execute):/.test(s));
   return mutating ? "write" : "read";
@@ -22,12 +23,18 @@ function access(t: ToolDoc): string {
 
 /** "full only" for the tools `toolFacade.profile: "core"` hides; "core, full" (visible/callable
  *  under both) otherwise. */
-function profileCell(name: string): string {
+export function profileCell(name: string): string {
   return isNonCoreTool(name) ? "full only" : "core, full";
 }
 
-/** Render the tool reference table (tools sorted by name). */
-export function renderTools(tools: ToolDoc[]): string {
+function nameCell(name: string, pageLinkBase: string | undefined): string {
+  const code = `\`${cell(name)}\``;
+  return pageLinkBase === undefined ? code : `[${code}](${pageLinkBase}${toolPageSlug(name)}/)`;
+}
+
+/** Render the tool reference table (tools sorted by name). With `pageLinkBase` (a URL prefix ending
+ *  in `/`) each name links to its generated per-tool page at `<base><name>/`. */
+export function renderTools(tools: ToolDoc[], pageLinkBase?: string): string {
   const rows = tools.slice().sort((a, b) => a.name.localeCompare(b.name));
   const parts: string[] = [
     `_${rows.length} tools. Access is a coarse hint; the required scopes are authoritative. Profile ` +
@@ -40,7 +47,7 @@ export function renderTools(tools: ToolDoc[]): string {
     const scopes =
       t.requiredScopes.length > 0 ? t.requiredScopes.map((s) => `\`${s}\``).join(", ") : "—";
     parts.push(
-      `| \`${cell(t.name)}\` | ${access(t)} | ${profileCell(t.name)} | ${scopes} | ${cell(t.description)} |`,
+      `| ${nameCell(t.name, pageLinkBase)} | ${access(t)} | ${profileCell(t.name)} | ${scopes} | ${cell(t.description)} |`,
     );
   }
   return parts.join("\n");

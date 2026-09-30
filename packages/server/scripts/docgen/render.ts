@@ -22,6 +22,7 @@ import { renderMetrics } from "./render-metrics";
 import { renderStats } from "./render-stats";
 import { renderToolSummary, renderTools } from "./render-tools";
 import { GENERATED_DOC_FILES } from "./targets";
+import { TOOL_PAGES_URL_BASE } from "./tool-page-slug";
 
 const check = process.argv.includes("--check");
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url)).replace(/\/$/, "");
@@ -29,7 +30,11 @@ const repo = (rel: string): string => `${repoRoot}/${rel}`;
 
 // Render each surface once; the same content fills every target that hosts it.
 const toolDocs = extractTools();
-const toolsMd = renderTools(toolDocs);
+// The docs-site catalog links each row to its per-tool page root-relatively (so the built-site link
+// check resolves it); the wiki lives on another host, so its copy links absolutely.
+const SITE_ORIGIN = "https://obsidian-tc.the40thieves.io";
+const toolsMd = renderTools(toolDocs, TOOL_PAGES_URL_BASE);
+const toolsWikiMd = renderTools(toolDocs, `${SITE_ORIGIN}${TOOL_PAGES_URL_BASE}`);
 // THE-473: README/ARCHITECTURE get the COMPACT summary, not the ~30KB reference table — injecting
 // the full catalog into a 260-line README would bury the prose it supports. THE-469's root cause
 // was that these two files named none of the write tools, so the summary names them explicitly.
@@ -47,7 +52,7 @@ const targets: Array<{ rel: string; file: string; marker: string; content: strin
     rel: "docs/wiki/Tool-Reference.md",
     file: repo("docs/wiki/Tool-Reference.md"),
     marker: "tools",
-    content: toolsMd,
+    content: toolsWikiMd,
   },
   {
     rel: "docs/wiki/Configuration.md",

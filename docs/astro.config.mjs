@@ -16,7 +16,17 @@ export default defineConfig({
       sidebar: [
         { label: 'Getting Started', items: [{ autogenerate: { directory: 'getting-started' } }] },
         { label: 'Guides', items: [{ autogenerate: { directory: 'guides' } }] },
-        { label: 'Tools', items: [{ autogenerate: { directory: 'tools' } }] },
+        {
+          label: 'Tools',
+          items: [
+            { slug: 'tools' },
+            { slug: 'tools/api-reference' },
+            { slug: 'tools/tool-catalog' },
+            { slug: 'tools/error-catalog' },
+            // One page per tool, generated from the registry at build time (see docs/package.json).
+            { label: 'Per-tool pages', collapsed: true, autogenerate: { directory: 'tools/reference' } },
+          ],
+        },
         { label: 'Deployment', items: [{ autogenerate: { directory: 'deployment' } }] },
         { label: 'Security', items: [{ autogenerate: { directory: 'security' } }] },
         { label: 'Observability', items: [{ autogenerate: { directory: 'observability' } }] },
