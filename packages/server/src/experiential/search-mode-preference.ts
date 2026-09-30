@@ -1,6 +1,6 @@
 // The reader for `preferred.search_mode` (retrieval.useSearchModePreference, default off).
 //
-// `extractPreferences` (reflect.ts) has written this key since THE-673 but nothing on the serve path
+// `extractPreferences` (reflect.ts) has written this key for some time but nothing on the serve path
 // read it. This is the one consumer: a `search_vault` call that named no `mode` may take the
 // caller's learned mode instead of `auto`. It is a DEFAULT-SELECTOR, never an override — an
 // explicit `mode` (including an explicit "auto") always wins — and it is ranking-adjacent, so it
