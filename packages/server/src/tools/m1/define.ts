@@ -43,7 +43,10 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
    *  stays as defense-in-depth). See ToolDefinition.pathAcl. Extractors must mirror the handler's
    *  own enforcePathAcl calls; paths a handler computes at runtime (not derivable from input, e.g.
    *  backlink-rewrite targets) stay handler-enforced only. */
-  pathAcl?: (input: z.infer<S>) => ReadonlyArray<{ op: AclOp; path: string }>;
+  pathAcl?: (
+    input: z.infer<S>,
+    env?: { root: string },
+  ) => ReadonlyArray<{ op: AclOp; path: string }>;
   /** See ToolDefinition.confirmationTargets. */
   confirmationTargets?: ToolDefinition<z.infer<S>>["confirmationTargets"];
   /** See ToolDefinition.deniedItems. */

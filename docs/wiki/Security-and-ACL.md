@@ -14,7 +14,7 @@ Scopes are op-on-path: `read:vault`, `write:vault/02-projects/**`, `delete:vault
 
 The root `acl` is the inherited default; each `vaults[]` entry may carry its own `acl` block (same shape) to override it **per vault** — e.g. writable in vault A, read-only in vault B, enforced at dispatch in one process. Set `strictReadDefault: true` to make an undefined `readPaths` fail **closed** on reads.
 
-The scope check fires in the **ACL layer only** — never scattered across the 167 tool impls — so adding a scope class is a single parser change.
+The scope check fires in the **ACL layer only** — never scattered across the 168 tool impls — so adding a scope class is a single parser change.
 
 Path enforcement is inode-aware: an in-vault symlink pointing outside the vault is rejected by realpath canonicalization, and a **hard-linked** file (`st_nlink > 1`) is rejected under a folder ACL (a hard link aliases an inode realpath cannot dereference). Reads run on the opened fd. The .obsidian/.git/.trash default-deny folds case, so a case-variant control-directory path cannot evade it on a case-insensitive filesystem (Windows/macOS).
 
@@ -40,6 +40,7 @@ This is a custom token pattern, **not** MCP's native `elicitation` capability, s
 | Cross-folder copy / move | required when crossing a top-level folder boundary |
 | Task `done → todo` flip | required if it was done `> 7` days ago |
 | `write_note` overwrite | required when overwriting a non-empty existing file |
+| `write_attachment` overwrite | required when replacing an existing attachment (the prior bytes go to `.trash`) |
 | `reset_vault_cache` | always required |
 
 These conditions are **hardcoded floors — a client cannot configure them away**, which keeps the confirmation gate present even under a permissive config. There is no per-vault or global threshold key in the config schema; the only elicitation-related setting is `elicitTtlSeconds`, which controls how long an issued token stays valid, not when confirmation is demanded. Execute-family tools (`git_commit`, command execution, bulk-destructive paths) sit on the same floor and always require confirmation.

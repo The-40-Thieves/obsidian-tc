@@ -29,7 +29,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `experiential` | object (see below) | The quarantined work-memory tier's knobs |
 | `transports` | object | `stdio` (default on) and `http` (default off, loopback) |
 | `governor` | `{ "maxResponseBytes": 1000000, "regexTimeoutMs": 2000 }` | Response size ceiling + regex worker-time budget (ReDoS guard) |
-| `writes` | `{ "requireCas": false }` | When true, destructive note writes REQUIRE `prev_hash` (compare-and-swap) and fail closed without it |
+| `writes` | `{ "requireCas": false, "maxAttachmentBytes": 25000000 }` | `requireCas`: when true, destructive note writes REQUIRE `prev_hash` (compare-and-swap) and fail closed without it. `maxAttachmentBytes`: decoded-byte cap on one `write_attachment` payload |
 | `snapshots` | `{ "enabled": true, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back (on by default under `trusted-local`; retention is pruned inline) |
 | `bootstrap` | `{ "domains": [], "deepPaths": [], "maxPaths": 10 }` | Session-bootstrap routing table (signals → context notes; deep-mode phrases) |
 | `throttle` | object | Per-class rate tiers (read 600/100 … admin 5/1) + max concurrent writes/vault (16) |
@@ -651,5 +651,6 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
+| `writes.maxAttachmentBytes` | `number` | `25000000` |  | Ceiling in decoded bytes on one write_attachment payload, enforced from the base64 length before anything is decoded. The payload travels inline as base64 (about 4/3 of this in the request), so lower it if an MCP client or reverse proxy in front of the server limits message size. The server enforces no request-body limit of its own beyond this cap. |
 | `writes.requireCas` | `boolean` | `false` |  | Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber. |
 <!-- END GENERATED: config -->

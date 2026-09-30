@@ -492,5 +492,6 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
+| `writes.maxAttachmentBytes` | `number` | `25000000` |  | Ceiling in decoded bytes on one write_attachment payload, enforced from the base64 length before anything is decoded. The payload travels inline as base64 (about 4/3 of this in the request), so lower it if an MCP client or reverse proxy in front of the server limits message size. The server enforces no request-body limit of its own beyond this cap. |
 | `writes.requireCas` | `boolean` | `false` |  | Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber. |
 <!-- END GENERATED: config -->

@@ -174,7 +174,8 @@ until this generator existed, by which point five entire defaulted blocks had go
     "regexTimeoutMs": 2000
   },
   "writes": {
-    "requireCas": false
+    "requireCas": false,
+    "maxAttachmentBytes": 25000000
   },
   "toolFacade": {
     "mode": "triad",

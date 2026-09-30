@@ -220,8 +220,10 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  defense-in-depth. Every path-touching tool MUST declare this (or sit in the
    *  acl-extraction-coverage guarantee test's documented exemption set). Extractors must mirror the
    *  handler's own enforcePathAcl calls exactly so central enforcement never denies a call the
-   *  handler would have allowed. */
-  pathAcl?: (input: I) => ReadonlyArray<{ op: AclOp; path: string }>;
+   *  handler would have allowed. `env.root` is the effective vault's root, for a tool whose target
+   *  depends on vault config (write_attachment's default folder); absent outside dispatch, so such
+   *  an extractor must degrade to the input-only answer. */
+  pathAcl?: (input: I, env?: { root: string }) => ReadonlyArray<{ op: AclOp; path: string }>;
   /** What a HITL confirmation of this tool is ABOUT, for tools whose targets are not vault paths
    *  named in the input (`pathAcl` covers those). A function returns the fingerprint of the state
    *  the human is approving, or null when there is nothing to bind; `"none"` declares that the

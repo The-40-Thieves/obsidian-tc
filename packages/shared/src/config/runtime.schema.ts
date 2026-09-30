@@ -174,6 +174,17 @@ export const WritesConfigSchema = z
       .describe(
         "Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
       ),
+    // write_attachment carries its bytes inline as base64 (4/3 of the decoded size) in one request,
+    // so this is also the knob that keeps a call under an MCP client's or proxy's message limit.
+    maxAttachmentBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(50_000_000)
+      .default(25_000_000)
+      .describe(
+        "Ceiling in decoded bytes on one write_attachment payload, enforced from the base64 length before anything is decoded. The payload travels inline as base64 (about 4/3 of this in the request), so lower it if an MCP client or reverse proxy in front of the server limits message size. The server enforces no request-body limit of its own beyond this cap.",
+      ),
   })
   .prefault({});
 

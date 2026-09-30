@@ -82,6 +82,10 @@ const MEMORY_DEFENSE_COVERED = new Set<string>([
   // text), not just the binary attachment file, so it needs the same guard every other backlink
   // rewrite gets (move_note/bulk_move_notes' own rewriteForMoves).
   "move_attachment",
+  // write_attachment persists caller-supplied BYTES, which have no text to scan, so its content is
+  // deliberately unscanned; the caller-controlled PATH is refused if secret-shaped, same as
+  // write_note's (enforceMemoryDefenseOnNoteWrite with empty content).
+  "write_attachment",
 ]);
 
 // Mutating tools that write NO new caller-influenced free text into the vault, so there is nothing

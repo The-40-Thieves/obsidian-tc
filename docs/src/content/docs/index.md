@@ -21,7 +21,7 @@ A static storyboard for now — `docs/demo/quickstart.tape` renders the animated
 
 ## What is obsidian-tc?
 
-obsidian-tc is a Model Context Protocol server that exposes an Obsidian vault to AI agents through ~167 typed tools, presented via a configurable tool-surface facade (a compact triad of meta-tools by default, or the full surface in flat mode). It runs locally or remotely, and supports multi-vault setups and signed-JWT auth. An optional companion plugin, TC Bridge, extends it with live-Obsidian features (command-palette dispatch, Templater, Dataview, and more) over the Obsidian Local REST API — the server runs without it, degrading bridge-only tools gracefully.
+obsidian-tc is a Model Context Protocol server that exposes an Obsidian vault to AI agents through ~168 typed tools, presented via a configurable tool-surface facade (a compact triad of meta-tools by default, or the full surface in flat mode). It runs locally or remotely, and supports multi-vault setups and signed-JWT auth. An optional companion plugin, TC Bridge, extends it with live-Obsidian features (command-palette dispatch, Templater, Dataview, and more) over the Obsidian Local REST API — the server runs without it, degrading bridge-only tools gracefully.
 
 Memory you write with obsidian-tc is plain Markdown in your own vault, not a vendor-hosted
 feature — see [Memory you own](/getting-started/memory-you-own/) for the on-disk shape, the ACL/
