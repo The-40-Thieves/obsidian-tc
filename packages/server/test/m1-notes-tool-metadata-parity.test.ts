@@ -85,14 +85,15 @@ const EXPECTED: ToolSnapshot[] = [
   },
   {
     name: "read_notes",
-    description: "Batch-read notes. Returns successful notes and a per-path error list (partial).",
+    description:
+      "Batch-read notes. Returns successful notes and a per-path error list (partial). The response is held under the server's byte budget: when the batch does not fit, the notes that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single note too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires.",
     domain: "notes",
     requiredScopes: ["read:notes"],
     tags: [],
     hasPathAcl: true,
     destructive: false,
-    inputKeys: ["paths", "vault"],
-    outputKeys: ["errors", "notes", "vault"],
+    inputKeys: ["cursor", "paths", "vault"],
+    outputKeys: ["errors", "next_cursor", "notes", "vault"],
   },
   {
     name: "list_notes",

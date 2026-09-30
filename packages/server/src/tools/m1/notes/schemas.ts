@@ -73,12 +73,22 @@ export const ReadNotesEntry = z.object({
   content_hash: z.string(),
 });
 
-export const ReadNotesError = z.object({ path: z.string(), code: z.string(), message: z.string() });
+/** `size` + `budget` (bytes) accompany a `too_large` entry: the note's serialized entry size and
+ *  the server byte budget it could not fit under. */
+export const ReadNotesError = z.object({
+  path: z.string(),
+  code: z.string(),
+  message: z.string(),
+  size: z.number().optional(),
+  budget: z.number().optional(),
+});
 
 export const ReadNotesOutput = z.object({
   vault: z.string(),
   notes: z.array(ReadNotesEntry),
   errors: z.array(ReadNotesError),
+  /** Present-and-non-null when the batch did not fit the byte budget: pass it back as `cursor`. */
+  next_cursor: z.string().nullable(),
 });
 
 export const ListNotesOutput = z.object({

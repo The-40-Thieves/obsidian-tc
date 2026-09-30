@@ -4,6 +4,7 @@
 // import cycle through ./index).
 import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../../db/types";
+import type { PagingDeps } from "../../mcp/byte-page";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { VaultRegistry } from "../../vault/registry";
 
@@ -45,4 +46,7 @@ export interface M1Deps {
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   /** GH #994 follow-up: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
   metrics?: MetricsRecorder;
+  /** Continuation-cursor signing codec + live byte budget for bulk reads (mcp/byte-page.ts). Absent
+   *  (tests, bare registries) -> a per-process random key and the registry's 1 MB default budget. */
+  paging?: PagingDeps;
 }

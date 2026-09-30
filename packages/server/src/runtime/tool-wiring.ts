@@ -16,6 +16,7 @@ import type { EmbeddingProvider } from "../embeddings";
 import type { RetrievalLogger } from "../experiential/log";
 import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import { createGatewayClient, type GatewayClient } from "../gateway";
+import { createPagingDeps } from "../mcp/byte-page";
 import { toolFacadeHealthView } from "../mcp/facade-auto";
 import type { ToolRegistry } from "../mcp/registry";
 import type { MetricsRecorder } from "../metrics/registry";
@@ -448,6 +449,12 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     // GH #994 follow-up: write_note/append_note/patch_note's memoryDefense guard.
     ...(deps.memoryDefense ? { memoryDefense: deps.memoryDefense } : {}),
     ...(deps.metrics ? { metrics: deps.metrics } : {}),
+    // Bulk-read continuation cursors: HMAC key from auth.jwtSecret (random per process without
+    // one) and the registry's live byte budget, so a lowered maxResponseBytes shrinks the pages.
+    paging: createPagingDeps({
+      secret: config.auth.jwtSecret,
+      budgetBytes: () => deps.registry.maxResponseBytes,
+    }),
     // THE-376: runtime add_vault triggers a full index of the newly registered vault (mirrors the
     // boot reconcile).
     indexVault: async (vaultId) => {
