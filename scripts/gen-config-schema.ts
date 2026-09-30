@@ -474,7 +474,7 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // says everything in the directory is regenerable, because `auth.db` and `auth-keys/` (the auth
   // registry: revocations, key retirements, signing-key files) are not. No existing key, type,
   // default or constraint moved.
-  "75753085b4649a9498ded578dce02807e8c69d147ab305af4a94d5623cfe6d4c";
+  "14ef7c3c34caaa23c389fdbf7f9d348affe297574c87721f7c343bdf3fac1718";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
