@@ -17,7 +17,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Supply-chain + secret gates that complement the always-on CodeQL (default setup, 4 languages)
+# Supply-chain + secret gates that complement the always-on CodeQL (codeql.yml, 4 languages)
 # and Semgrep. gitleaks GATES (a committed secret must block) and scans the working tree (--no-git):
 # the PR gate is about what ships, not 483 commits of immutable history. Benign secret-shaped content
 # (scanner regexes, fake test fixtures, doc examples, build output) is allowlisted in .gitleaks.toml.

@@ -349,7 +349,7 @@ The policy that set governs, which is stabler than the set itself:
 | -- | -- |
 | tests | the **whole `build-test` matrix** — ubuntu, ubuntu-24.04-arm, macos, windows — plus `bun-smoke` |
 | static analysis | `lint`, `typecheck`, `drift-gate` |
-| CodeQL (default setup, all languages) | `CodeQL` and every `Analyze (…)` leg |
+| CodeQL (advanced setup, `codeql.yml`) | `CodeQL` and every `Analyze (…)` leg |
 | supply chain | both `Socket Security` checks, `cargo-deny` |
 | secrets / leaks | `gitleaks`, `vault leak (structural)` |
 | workflow safety | `actionlint (…)`, `no untrusted context in shell steps` |
@@ -395,10 +395,12 @@ Prerequisites, already in this repo: every workflow that owns a required check l
 next to `pull_request:` (`ci-server`, `ci-docgen`, `ci-quality`, `ci-security`, `ci-version`,
 `dco`). A required check whose workflow does not fire on `merge_group` never reports and stalls the
 queue entry until it times out. `dco-check` is skipped on `merge_group` (there is no PR range to
-check) and a skipped job satisfies a required check. **Not covered by this repo:** the `CodeQL`,
-`Analyze (...)` and `Socket Security` checks come from GitHub's default CodeQL setup and the Socket
-app, so confirm on the first queue entry that they report on the `gh-readonly-queue/main/*` ref; if
-one does not, remove it from the required list before enabling the queue rather than after.
+check) and a skipped job satisfies a required check. CodeQL runs from `codeql.yml` (advanced
+setup, because default setup cannot run on `merge_group`); its job name `Analyze (<language>)` must
+keep matching the four required `Analyze (...)` contexts. **Not covered by this repo:** the `CodeQL`
+results check (created by GitHub when the SARIF uploads) and `Socket Security` (the Socket app), so
+confirm on the first queue entry that they report on the `gh-readonly-queue/main/*` ref; if one
+does not, remove it from the required list before enabling the queue rather than after.
 
 Steps (repository admin, GitHub web UI; labels move, so match by name):
 
