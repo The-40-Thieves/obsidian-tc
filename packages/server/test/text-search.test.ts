@@ -143,13 +143,17 @@ describe("searchRegex", () => {
       v.cleanup();
     });
 
-    it("admitted disjoint-atom patterns are genuinely linear, not just no-longer-rejected", async () => {
+    it("admitted disjoint-atom patterns do not backtrack EXPONENTIALLY (polynomial, bounded by the worker budget)", async () => {
       // `a+b+c+` against a long run of pure 'a' (never matching, since no 'b'/'c' follows) is the
       // adversarial shape for THIS pattern: if disjoint atoms still backtracked exponentially, an
-      // ADMIT would just be moving the false-reject line rather than fixing the guard. Disjoint
-      // character classes give the engine nothing to backtrack over, so this resolves in
-      // milliseconds regardless of engine/worker-availability path.
-      const v = makeM2Vault({ files: { "big.md": "a".repeat(20_000) } });
+      // ADMIT would just be moving the false-reject line rather than fixing the guard. They do
+      // not, but they are not linear either: every start position re-scans the run, so the cost
+      // is quadratic (measured ~8 ms at 2k, 150 ms at 8k, 870 ms at 20k, 14 s at 80k). The
+      // property worth pinning is the exponential/polynomial line, and a 5k run sits ~30x under
+      // the bound (tens of ms) where an exponential blowup would exhaust the 2 s worker budget
+      // and throw. A larger run made the bound a coin flip on a loaded runner: the 20k run
+      // measured 0.9-1.2 s against a 1.5 s ceiling.
+      const v = makeM2Vault({ files: { "big.md": "a".repeat(5_000) } });
       const start = Date.now();
       const hits = await searchRegex(v.root, { pattern: "a+b+c+", timeoutMs: 2000, limit: 10 });
       const elapsed = Date.now() - start;
