@@ -7,6 +7,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { z } from "zod";
 import {
   finalizeConfig,
   isEmbeddingsProviderExplicit,
@@ -23,6 +24,23 @@ import { CliError } from "./cli-error";
  *  comment) — one definition, not two that could drift apart. */
 export function defaultSetupConfigPath(): string {
   return join(homedir(), ".obsidian-tc", "config.json");
+}
+
+/** Render a schema-validation failure of the config FILE at `target` as one actionable line: the
+ *  file, each offending field, and what to do next — instead of the raw Zod issue array
+ *  `ServerConfigSchema.parse` throws (which named neither the file nor the way out). A missing
+ *  required key reads "<path> is required" (Zod's own text for it is "expected array, received
+ *  undefined"); anything else keeps Zod's message under the dotted field path. */
+function invalidConfigError(target: string, error: z.ZodError): CliError {
+  const problems = error.issues.map((issue) => {
+    const field = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+    return issue.code === "invalid_type" && issue.message.endsWith("received undefined")
+      ? `${field} is required`
+      : `${field}: ${issue.message}`;
+  });
+  return new CliError(
+    `${target} is not a valid config: ${problems.join("; ")} — fix that file, run \`obsidian-tc setup\`, or pass a vault folder.`,
+  );
 }
 
 /** Build a single-vault config from a vault directory, applying every schema default.
@@ -161,8 +179,18 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
     }
     throw e;
   }
+  // The ONE place every file target (explicit path, OBSIDIAN_TC_CONFIG, the default-path fallback)
+  // is validated for `serve`/`index`/etc., so a bad file gets the same actionable error whichever
+  // way it was named. Only the FILE is blamed: a directory target (zero-config) returned above.
+  let config: ServerConfig;
+  try {
+    config = finalizeConfig(raw);
+  } catch (e) {
+    if (e instanceof z.ZodError) throw invalidConfigError(target, e);
+    throw e;
+  }
   return {
-    config: finalizeConfig(raw),
+    config,
     planeEnabledExplicit: isPlaneEnabledExplicit(raw),
     embeddingsProviderExplicit: isEmbeddingsProviderExplicit(raw),
     configFilePath: target,
