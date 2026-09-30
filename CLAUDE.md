@@ -106,28 +106,32 @@ A `PreToolUse` hook blocks these; the message names the regeneration command.
 
 | file | regenerate with |
 |---|---|
-| `TREE.md`, `docs/dependency-graph.json` | `bun run map` |
 | `docs/obsidian-tc.config.schema.json` | `bun run config:schema` |
 | `packages/server/src/db/migrations-embedded.ts` | `bun run migrations:embed` |
 
-**Run `bun run map` AFTER `git add`, and make it the LAST thing before commit.**
-`gen-tree-map.mjs` derives its counts from `git ls-files`, which sees only *tracked* files — so
-regenerating before you stage a new `.ts`/`.sql`/etc. file leaves that file uncounted, and
-`drift-gate` (`bun run map:check`) then fails on CI with `TREE.md is STALE` even though you "ran
-map." Same trap the other way: any edit that changes a file's line count after the last `map` run
-re-stales it. This bit two PRs on 2026-08-19 (a new migration; a new source file plus a later
-`.mjs` edit), each map-generated before the final `git add`. Sequence: stage everything, `bun run
-map`, `bun run map:check`, then commit.
+**Most generated content is no longer committed at all**, because anything that moves whenever an
+unrelated file moves makes every pair of PRs conflict on it. Nothing to hand-edit, nothing to
+regenerate before a commit:
 
-**Twelve** doc files additionally carry docgen **marker regions** (`<!-- BEGIN GENERATED: ... -->`).
-Those are only partly generated — edit the prose around them freely, never inside them, and re-run
-`docgen:render -- --check`.
+| what | where it lives now |
+|---|---|
+| structural map: scale, per-subsystem counts, largest files, import graph | `bun run map` writes the gitignored `generated/tree-map.md` + `generated/dependency-graph.json`. `TREE.md` is hand-written prose. `bun run map:check` (drift-gate) only proves the generator runs and that nothing generated is committed again. Run it with no `packages/*/dist` present. |
+| decisions index | gitignored `docs/src/content/docs/contributing/decisions-index.md`, written by `bun run docs:decisions-index` (docs `gen` does it). `docs:decisions-index:check` fails if a committed copy exists. |
+| docgen marker regions (`<!-- BEGIN GENERATED: ... -->`) | committed **canonical-empty**. `bun run docgen:render` fills them (docs build, wiki publish), `-- --reset` empties them, `-- --check` is the gate and fails on any filled region. Never commit a filled one. |
+| tool and domain counts in prose | not stated anywhere; `docgen:facts-check` forbids the count. Tool names: `packages/server/test/registered-tools.txt`. |
+| release notes | `changes/<slug>.md` fragments, folded into `CHANGELOG.md` at release (`bun run check:changes`). Do not edit `[Unreleased]`. |
 
-Do not count them by grepping for `BEGIN GENERATED`: that also hits this file (which names the
-string in prose), `TREE.md` (a different generator), and docgen's own README, which is how the
-figure here read "ten" for a while. The authoritative list is **`GENERATED_DOC_FILES`** in
-`packages/server/scripts/docgen/targets.ts` — `render.ts` asserts its own targets against it, so
-that constant is the one thing that cannot drift from reality.
+`migrations-embedded.ts` and the config JSON Schema stay committed. `migrations-embedded.ts` is the
+one generated file two PRs can still both change; `.gitattributes` gives it the `regen` merge driver
+(`scripts/merge-drivers/regen.mjs`, registered by `bun install`'s `prepare`, checked by
+`bun run check:merge-driver`). GitHub's own conflict check ignores merge drivers, so merge or rebase
+`main` locally to resolve such a conflict. A change to an existing config key's type, default or
+constraint needs `config-schema-change: <key>` in its `changes/` fragment.
+
+Which docs carry marker regions is **`GENERATED_DOC_FILES`** in
+`packages/server/scripts/docgen/targets.ts`; `render.ts` asserts its own targets against it. Do not
+count them by grepping for `BEGIN GENERATED` (that also hits this file, which names the string in
+prose). Edit the prose around a region freely; never put content inside one.
 
 ## Conventions that bite
 
@@ -166,14 +170,14 @@ on an eighth nobody had written down.
 
 **Always:**
 
-1. **`REGISTERED_TOOL_COUNT`** — `test/registered-tool-count.ts`. Parsed by
-   `scripts/check-version-coherence.mjs`, so the declaration must stay a plain
-   `export const REGISTERED_TOOL_COUNT = <digits>;`.
+1. **The registered-tool names manifest** — `test/registered-tools.txt`, one name per line, sorted.
+   `test/tool-count.test.ts` diffs the live registry against it and names the tool that is missing
+   or extra. There is no count literal to bump: `REGISTERED_TOOL_COUNT` is derived from the file.
 2. **The facade domain map** — `test/tool-facade-domain-coverage.test.ts`. Reusing an existing
-   `domain` only trips its count assertion (it imports `REGISTERED_TOOL_COUNT`); a **new** domain is
+   `domain` only trips its count assertion (its count is derived from `registered-tools.txt`); a **new** domain is
    what makes the map itself load-bearing.
 3. **`boot.tools_registered`** — `eval/perf/baseline.small.json`, hard/exact. Pinned **2 lower**
-   than `REGISTERED_TOOL_COUNT`, since `health` and `index_status` register inline in `cli.ts`.
+   than the number of names in `registered-tools.txt`, since `health` and `index_status` register inline in `cli.ts`.
 
    **Do NOT hand-edit it. RE-RECORD the baseline** — dispatch `perf-baseline.yml`, download the
    artifact, commit all three files. Editing this key in place now fails the coherence check
@@ -187,12 +191,11 @@ on an eighth nobody had written down.
    against a 148-tool figure for 13 days, and read +70.6% when finally re-recorded — none of it a
    regression. An `exact` key fails loudly so it stays current and *looks* like evidence; the `warn`
    keys beside it rot silently.
-4. **Docs prose — two separate gates, and running one is not running the other.**
-   `docgen:facts-check` finds narrative counts (25 sites across 14 files last time),
-   `check-version-coherence.mjs` separately pins ~9 *headline* anchors, and **`docgen:render`** owns
-   the generated marker regions (it rewrote 8 files last time). Running `docgen:facts-check` and
-   skipping `docgen:render` is what failed `drift-gate` — `docgen:render -- --check` is the one that
-   tells you.
+4. **Docs: nothing to edit, two gates to run.** No doc prose states the tool count any more, and the
+   tool catalog and its marker regions are generated at build. Still run **`docgen:facts-check`**
+   (forbids a count creeping back in) and **`docgen:render -- --check`** (regions still
+   canonical-empty, every target still renders): they are separate gates and running one is not
+   running the other.
 5. **The m7 metadata parity snapshot**, *if the tool lives in `m7/knowledge`* —
    `test/m7-tool-metadata-parity.test.ts` pins an ordered, **byte-identical** snapshot of every m7
    tool's public metadata (name, description, domain, scopes, tags, `hasPathAcl`, and the top-level

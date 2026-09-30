@@ -13,19 +13,13 @@
 *.woff2 binary
 bun.lock -text
 
-# Whole-file regenerations of the module graph (scripts/gen-tree-map.mjs / `just map`). Any two
-# PRs that add or move a module conflict here by construction — the leading "scale" line and the
-# full edge list are recomputed from EVERY tracked module, not just the ones a given PR touched.
-# `merge=regenerate` only NAMES the driver; its definition lives in this clone's local git config,
-# set by scripts/setup-git-merge-driver.mjs (runs automatically via `bun install`'s `prepare`
-# script) — see scripts/check-merge-driver.mjs for why a .gitattributes-only change here would be
-# silently vacuous. The driver (scripts/merge-drivers/defer-regeneration.mjs) does NOT re-run the
-# generator itself — see that file's header for why that's unsafe mid-merge — it just avoids
-# leaving conflict markers in machine-generated content; `just map-check` (CI's ci-docgen) is what
-# actually catches the resulting staleness and forces a `just map` + commit. docgen's own generated
-# marker regions (README.md, docs/wiki/*.md, etc.) are deliberately NOT listed here: they carry the
-# same shape of aggregate summary line, but are keyed to a much narrower, much less frequently
-# touched namespace (tools/config keys/metrics) and have not been a measured source of conflicts
-# the way this pair has.
-TREE.md merge=regenerate
-docs/dependency-graph.json merge=regenerate
+# Generated file that stays committed: it is compiled into the standalone binaries, which cannot
+# read .sql from disk. Two PRs that each add a migration both append to the same object literal, so
+# a text merge can only conflict. `merge=regen` names the `regen` driver
+# (scripts/merge-drivers/regen.mjs), which merges the three versions as DATA (filename -> SQL) and
+# re-renders through the generator's own renderer. Only a LOCAL `git merge` / `git rebase` runs it:
+# GitHub's server-side mergeability check ignores .gitattributes merge drivers entirely. The
+# driver's definition lives in this clone's git config, set by scripts/setup-git-merge-driver.mjs
+# (runs automatically via `bun install`'s `prepare` script); scripts/check-merge-driver.mjs asserts
+# it took, because a .gitattributes-only change is silently vacuous.
+packages/server/src/db/migrations-embedded.ts merge=regen

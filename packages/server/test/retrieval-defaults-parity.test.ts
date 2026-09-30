@@ -153,6 +153,30 @@ async function kViaBuilder(
   return { built: built as unknown as Record<string, unknown>, k };
 }
 
+// The shapes main used: `opts.rrfK ?? 10`, `deps.retrieval?.rrfK ?? 10`, and the named
+// constants `DEFAULT_FAN_OUT_RRF_K = 10` / `DEFAULT_RRF_K = 10` / `FEDERATED_RRF_K`.
+const BARE = /rrfK\s*\?\?\s*\d|(?:FAN_OUT_)?RRF_K\s*=\s*\d|FEDERATED_RRF_K/;
+const RESOLVER = "search/retrieval-defaults.ts";
+
+/** Offenders as `rel/path.ts:line: text`, skipping the resolver itself. `join`/`readdirSync` yield
+ *  `\` separators and a checkout can carry CRLF on Windows, so paths are normalised to "/" and lines
+ *  split on `\r?\n` before anything is compared (the resolver skip failed on Windows without this). */
+function findBareRrfK(files: Array<{ path: string; text: string }>, srcRoot: string): string[] {
+  const root = `${srcRoot.replaceAll("\\", "/").replace(/\/+$/, "")}/`;
+  const offenders: string[] = [];
+  for (const f of files) {
+    const path = f.path.replaceAll("\\", "/");
+    if (path.endsWith(RESOLVER)) continue;
+    f.text.split(/\r?\n/).forEach((line, i) => {
+      if (BARE.test(line))
+        offenders.push(
+          `${path.startsWith(root) ? path.slice(root.length) : path}:${i + 1}: ${line.trim()}`,
+        );
+    });
+  }
+  return offenders;
+}
+
 describe("structural: no bare rrfK literal outside the resolver", () => {
   const SRC = fileURLToPath(new URL("../src", import.meta.url));
   const files: string[] = [];
@@ -168,21 +192,32 @@ describe("structural: no bare rrfK literal outside the resolver", () => {
     expect(files.length).toBeGreaterThan(200);
   });
 
-  // The shapes main used: `opts.rrfK ?? 10`, `deps.retrieval?.rrfK ?? 10`, and the named
-  // constants `DEFAULT_FAN_OUT_RRF_K = 10` / `DEFAULT_RRF_K = 10` / `FEDERATED_RRF_K`.
-  const BARE = /rrfK\s*\?\?\s*\d|(?:FAN_OUT_)?RRF_K\s*=\s*\d|FEDERATED_RRF_K/;
   it("graph_search, federated_search, multi_query, the federated tool, the episode fuser and the policy record all route through the resolver", () => {
-    const offenders: string[] = [];
-    for (const f of files) {
-      if (f.endsWith("search/retrieval-defaults.ts")) continue;
-      readFileSync(f, "utf8")
-        .split("\n")
-        .forEach((line, i) => {
-          if (BARE.test(line))
-            offenders.push(`${f.slice(SRC.length + 1)}:${i + 1}: ${line.trim()}`);
-        });
-    }
-    expect(offenders).toEqual([]);
+    expect(
+      findBareRrfK(
+        files.map((path) => ({ path, text: readFileSync(path, "utf8") })),
+        SRC,
+      ),
+    ).toEqual([]);
+  });
+
+  // Off-Windows coverage of the Windows-only failure: the resolver's own `DEFAULT_RRF_K = 10` was
+  // reported because `endsWith("search/retrieval-defaults.ts")` never matched a `\` path.
+  it("skips the resolver whatever the separator, and still reports a real offender", () => {
+    const resolver = "export const DEFAULT_RRF_K = 10;\r\n";
+    const bare = "const a = 1;\r\nconst k = opts.rrfK ?? 10;\r\n";
+    expect(
+      findBareRrfK(
+        [{ path: "C:\\r\\src\\search\\retrieval-defaults.ts", text: resolver }],
+        "C:\\r\\src",
+      ),
+    ).toEqual([]);
+    expect(
+      findBareRrfK([{ path: "/r/src/search/retrieval-defaults.ts", text: resolver }], "/r/src"),
+    ).toEqual([]);
+    expect(
+      findBareRrfK([{ path: "C:\\r\\src\\search\\graph_search.ts", text: bare }], "C:\\r\\src"),
+    ).toEqual(["search/graph_search.ts:2: const k = opts.rrfK ?? 10;"]);
   });
 });
 

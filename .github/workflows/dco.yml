@@ -1,12 +1,18 @@
 name: dco
 on:
   pull_request:
+  # Merge queue: a queue entry runs the required checks on gh-readonly-queue/* merge commits,
+  # which only fire workflows that list merge_group. See CONTRIBUTING.md "Merge queue".
+  merge_group:
 
 permissions:
   contents: read
 
 jobs:
   dco-check:
+    # A queue entry is a merge commit of already-signed PR commits; there is no PR base/head to
+    # range over. A skipped job satisfies the required check.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

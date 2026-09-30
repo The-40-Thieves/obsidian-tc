@@ -37,3 +37,13 @@ export function hasMarkers(source: string, name: string): boolean {
   const e = source.indexOf(end);
   return b !== -1 && e !== -1 && e > b;
 }
+
+/**
+ * True when the named region is in its canonical EMPTY form — exactly what
+ * `injectGenerated(source, name, "")` produces. Generated content is not committed: the docs build
+ * (and the wiki publisher) fill regions in place, so a committed region with content is a tool-count
+ * or config-table line that two PRs will conflict on. Throws, like injectGenerated, on a missing pair.
+ */
+export function isCanonicalEmpty(source: string, name: string): boolean {
+  return injectGenerated(source, name, "") === source;
+}

@@ -6,9 +6,13 @@
 # does not say which edit caused it. Worse, a hand-edit that happens to match what the generator
 # would have produced passes, teaching the next person that hand-editing is fine.
 #
-# PARTIALLY generated files (docgen marker regions in README.md, ARCHITECTURE.md, docs/wiki/*)
-# are deliberately NOT blocked here: most of their content is hand-written prose and blocking them
-# would stop legitimate work. They get a PostToolUse reminder instead (remind-regenerate.sh).
+# Only artifacts that are still COMMITTED in full belong here. Everything that changes whenever any
+# source file changes (TREE.md's counts, the dependency graph, the decisions index, the docgen
+# marker regions) is no longer committed at all: it is generated at build time into gitignored
+# paths (generated/, docs/src/content/docs/contributing/decisions-index.md) or committed
+# canonical-empty, so there is nothing to hand-edit and nothing to block. TREE.md is hand-written
+# prose. docs/wiki/* and the other docgen target files are prose around empty marker regions and get
+# a PostToolUse reminder instead (remind-regenerate.sh).
 #
 # Anchoring note, learned from ~/.claude/hooks/block-cave-footguns.sh: match the exact
 # repo-relative path, never a substring. "TREE.md" as a substring also matches
@@ -33,16 +37,6 @@ block() {
 }
 
 case "$REL" in
-  TREE.md|docs/dependency-graph.json)
-    block "Both files are produced together by scripts/gen-tree-map.mjs from the module graph.
-Regenerate instead:
-    bun run map          # writes both
-    bun run map:check    # what CI runs (drift-gate step 4)
-
-If you are resolving a merge conflict here, the repo configures a merge driver for exactly this
-(scripts/merge-drivers/defer-regeneration.mjs) — run 'bun install' so the driver is registered,
-then re-attempt the merge." ;;
-
   docs/obsidian-tc.config.schema.json)
     block "Generated from the Zod schema in packages/shared/src/config.schema.ts.
 Edit the Zod schema, then:
@@ -61,7 +55,12 @@ Edit the .sql file, then:
     bun run migrations:embed:check    # what CI runs (drift-gate step 5)
 
 Migrations are append-only, hand-registered in db/migration-manifest.ts, and checksum-pinned —
-editing a SHIPPED migration is a hard error at startup, not a warning." ;;
+editing a SHIPPED migration is a hard error at startup, not a warning.
+
+If you are resolving a merge conflict here, the repo configures a merge driver for exactly this
+(scripts/merge-drivers/regen.mjs, named by .gitattributes) — it merges the two sides as data and
+re-renders. Run 'bun install' so the driver is registered, then re-attempt the merge. GitHub's own
+mergeability check ignores merge drivers, so a PR-page conflict still needs a local merge." ;;
 esac
 
 exit 0

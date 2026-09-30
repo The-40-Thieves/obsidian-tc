@@ -5,9 +5,10 @@ import { execSync } from "node:child_process";
 // Sets the version across every package.json + distribution file, refreshes
 // bun.lock, rolls the CHANGELOG, and runs the coherence gate. Does NOT commit,
 // push, or tag — branch + PR + review + human tag stay manual by design.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { updateBunLockWorkspaceVersions } from "./lib/bun-lock-workspace-versions.mjs";
+import { FRAGMENT_DIR, readFragments, rollUnreleased } from "./lib/changes.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads/writes provably contained to the repo root (defense in depth).
@@ -64,24 +65,20 @@ const setVersion = (path, mutate) => {
 
 // CHANGELOG: validate up front, before any file is mutated, so a bad
 // [Unreleased] state can't leave the working tree partially written.
-// Fail if [Unreleased] is missing or has no notes (no silent version).
+// The release notes are CHANGELOG.md's [Unreleased] block (legacy hand-written entries) PLUS every
+// changes/*.md fragment (one file per change, so concurrent PRs never share a line). Fail if both
+// are empty (no silent version).
 const date = new Date().toISOString().slice(0, 10);
 const cl = readFileSync("CHANGELOG.md", "utf8");
-const marker = "## [Unreleased]";
-const at = cl.indexOf(marker);
-if (at === -1) {
-  console.error("CHANGELOG.md has no [Unreleased] section.");
+const fragments = readFragments(ROOT);
+let rolled;
+try {
+  rolled = rollUnreleased(cl, fragments, next, date);
+} catch (err) {
+  console.error(err.message);
   process.exit(1);
 }
-const afterMarker = at + marker.length;
-const nextHeading = cl.indexOf("\n## [", afterMarker);
-const body = (
-  nextHeading === -1 ? cl.slice(afterMarker) : cl.slice(afterMarker, nextHeading)
-).trim();
-if (!body) {
-  console.error("CHANGELOG [Unreleased] is empty; add release notes before releasing.");
-  process.exit(1);
-}
+const body = rolled.body;
 
 // Conventional-commit type is a coarse proxy for "user-visible" and it over-selects: a `fix(` on a
 // CI script, the typechecker config or the merge driver changes nothing an operator can observe.
@@ -313,13 +310,13 @@ writeFileSync(inRepo("manifest.json"), readFileSync(inRepo("packages/plugin/mani
 console.log("  set manifest.json (mirrors packages/plugin/manifest.json)");
 
 // Roll the CHANGELOG now that the JSON files are written: rename [Unreleased]
-// -> [next] - date and prepend a fresh [Unreleased].
-const rebuilt =
-  cl.slice(0, at) +
-  `## [Unreleased]\n\n## [${next}] - ${date}\n\n${body}\n` +
-  (nextHeading === -1 ? "\n" : `\n${cl.slice(nextHeading + 1)}`);
-writeFileSync("CHANGELOG.md", rebuilt);
-console.log(`  rolled CHANGELOG -> [${next}] - ${date}`);
+// -> [next] - date (fragments folded in) and prepend a fresh [Unreleased]. The fragments are
+// consumed, so a fragment can never ship in two releases.
+writeFileSync("CHANGELOG.md", rolled.text);
+for (const f of fragments) unlinkSync(inRepo(f.file));
+console.log(
+  `  rolled CHANGELOG -> [${next}] - ${date} (${fragments.length} fragment(s) from ${FRAGMENT_DIR}/)`,
+);
 
 // Bump the "current version" prose in the docs that reference the shipped version literally — the
 // README status badge/line and the docs-site current-release line + ghcr example tags. These are the

@@ -68,22 +68,24 @@ check-version:
 release:
     bun run release
 
-# Regenerate TREE.md's dependency-graph sections (scale, subsystem mermaid, fan-in/out) from the
-# real module graph. TREE.md's prose stays hand-written; only the marker regions are rewritten.
-# Closes the half of THE-470 that is machine-derivable — the file used to carry a standing
-# "hand-generated and will drift" warning, and it had: 232 -> 246 modules, 785 -> 978 dependencies.
+# Write the whole-tree structural map (scale, per-subsystem table, largest files, import graph) to
+# the gitignored generated/ directory: generated/tree-map.md + generated/dependency-graph.json.
+# Nothing here is committed any more -- it moved on every PR, so any two PRs conflicted on it.
+# TREE.md keeps only hand-written prose. Needs no built packages/*/dist (see gen-tree-map.mjs).
 map:
     node scripts/gen-tree-map.mjs
 
-# Drift gate for `just map`. Fails if TREE.md's generated regions are stale. Run in ci-docgen.
+# Gate for `just map`. Fails if the generator cannot run, or if a generated region / file is
+# committed again (a BEGIN GENERATED region in TREE.md, a tracked generated/ file). Run in ci-docgen.
 map-check:
     node scripts/gen-tree-map.mjs --check
 
-# Asserts the "regenerate" merge driver for TREE.md / docs/dependency-graph.json (gitattr) is
-# actually configured in THIS clone's .git/config, not just named in .gitattributes — a
+# Asserts the "regen" merge driver for packages/server/src/db/migrations-embedded.ts (gitattr) is
+# actually configured in THIS clone's .git/config, not just named in .gitattributes -- a
 # .gitattributes-only change is silently vacuous (see scripts/check-merge-driver.mjs). `bun
 # install` configures it automatically via the `prepare` script; run this on its own to confirm,
-# or after suspecting your git config drifted.
+# or after suspecting your git config drifted. GitHub's server-side merge check ignores merge
+# drivers, so this only governs local merges and rebases.
 #
 # Deliberately a LOCAL recipe, not CI, for the same reason ticket-drift above is: CI never runs
 # `git merge` against a conflicting branch, so this would either always fail (the Dockerfile's

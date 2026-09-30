@@ -1,9 +1,8 @@
 // THE-306: pin the registered tool count so a tool added or removed without updating the documented
 // headline fails CI. This assembles the full registry exactly as cli.ts does (server_health + M1–M8)
 // against cheap stubs — registration only builds tool definitions (handlers close over deps), so no
-// live backends are needed. Bump REGISTERED_TOOL_COUNT together with the docs headline when the
-// surface changes; the docs side is asserted by scripts/check-version-coherence.mjs, which since
-// THE-580 READS this constant rather than keeping its own copy.
+// live backends are needed. Add or remove the tool's line in registered-tools.txt (sorted, one name
+// per line) when the surface changes; the docs state no count, so nothing else needs bumping.
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,7 +26,7 @@ import { openMemoryDb } from "./helpers";
 // The count lives in its own module so tool-facade-domain-coverage.test.ts can share it rather
 // than keeping a second literal in step by remembering (THE-548). See that file for the parsing
 // contract check-version-coherence.mjs depends on.
-import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
+import { REGISTERED_TOOL_COUNT, REGISTERED_TOOL_NAMES } from "./registered-tool-count";
 import { rmTemp } from "./tmp";
 
 const NO_THROTTLE = {
@@ -139,6 +138,21 @@ describe("THE-306 registered tool count", () => {
     });
     registerM8Tools(registry, {});
 
-    expect(registry.list().length).toBe(REGISTERED_TOOL_COUNT);
+    const actual = registry.list().map((t) => t.name);
+    // Name the tools, not just a number: "expected 168, got 167" says nothing about which one.
+    expect({
+      inRegistryButNotListed: actual.filter((n) => !REGISTERED_TOOL_NAMES.includes(n)).sort(),
+      listedButNotRegistered: REGISTERED_TOOL_NAMES.filter((n) => !actual.includes(n)),
+    }).toEqual({ inRegistryButNotListed: [], listedButNotRegistered: [] });
+    expect(actual.length).toBe(REGISTERED_TOOL_COUNT);
+  });
+
+  it("registered-tools.txt is well formed: sorted, unique, no blank or padded lines, non-trivial", () => {
+    // Sorted so a new tool lands at its alphabetical position (two PRs only conflict when they add
+    // neighbouring names); the floor stops a truncated or emptied file passing every other check.
+    expect(REGISTERED_TOOL_NAMES.length).toBeGreaterThan(100);
+    expect([...REGISTERED_TOOL_NAMES]).toEqual([...REGISTERED_TOOL_NAMES].sort());
+    expect(new Set(REGISTERED_TOOL_NAMES).size).toBe(REGISTERED_TOOL_NAMES.length);
+    for (const n of REGISTERED_TOOL_NAMES) expect(n).toMatch(/^[a-z][a-z0-9_]*$/);
   });
 });
