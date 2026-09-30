@@ -20,6 +20,7 @@ Extends the Local REST API plugin with namespaced endpoints for:
 - Obsidian Git status/diff/log/stage
 - Remotely Save status/trigger
 - Opening an existing vault file in the workspace (`/files/open`)
+- Reporting which file is active in the workspace (`GET /files/active`: a path and extension, never content)
 
 (The route families above are `src/routes/*.ts`; the list is what ships, not a roadmap.)
 

@@ -18,6 +18,27 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   workflow after the build) fails if the page count differs from the registry, a page is stale, or a
   catalog row links to a page that does not exist. `docs/G2.5-release-engineering.md` no longer claims a
   `scripts/gen-tool-docs.ts`, and the roadmap moves per-tool pages out of Deferred.
+- **`get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file`, `delete_active_file`:
+  act on the note open in the live Obsidian session.** The retired mcp-tools surface had active-file tools
+  and `docs/CUTOVER.md` listed them as the one uncovered workflow. Each tool asks the companion plugin
+  (new `GET /files/active` route, plugin route table 29 to 30; it takes no input and returns only a path
+  and extension) which note is active, then runs the existing `read_note` / `write_note` (overwrite) /
+  `append_note` / `patch_note` / `delete_note` handler on that path, so scopes, the per-vault folder ACL,
+  memoryDefense, snapshots, `prev_hash` compare-and-swap and the human confirmations apply unchanged; the
+  input schemas are derived from those tools' own minus `path`. The target is resolved once per call by a
+  new dispatch stage, `ToolDefinition.resolveTarget`, which runs after the auth, scope, vault-binding,
+  read-only and vault-kind gates and before precheck, idempotency and confirmation. The resolved path is
+  merged into the input that `pathAcl`, `confirmationTargets` and the handler see, is folded into the
+  args hash that keys confirmations, idempotency claims and the audit row, and is checked against the
+  folder ACL right there, with the path left out of a denial (the caller did not name it). A
+  confirmation raised while note A was open therefore cannot be redeemed once focus moves to note B.
+  With no open note the tools return `note_not_found` (`details.reason: no_active_file`), with no live
+  session `plugin_unreachable` or `requires_live_obsidian`, each with a hint; nothing falls back to a
+  default path. Only markdown notes are changed: an active canvas, PDF or image is refused for
+  update/append/patch/delete and `get_active_file` returns its path, extension and stat only. Needs a
+  companion that ships the new route (an older one answers with an update hint). Registered tools:
+  167 to 172.
+
 - **OpenTelemetry child spans: `observability.otel.detail`.** Tracing emitted one flat root span per tool
   call with no way to see where the time went. `observability.otel.detail` is `"root"` (default: the
   current single root span, exactly, with no child span created and no attribute allocated),

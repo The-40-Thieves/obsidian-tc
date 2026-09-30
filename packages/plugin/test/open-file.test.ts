@@ -51,7 +51,10 @@ const handler = (app: InternalApp) => {
 describe("POST /files/open", () => {
   it("is a POST route at /files/open", () => {
     const { app } = makeApp();
-    expect(buildFilesRoutes(app).map((r) => `${r.method} ${r.path}`)).toEqual(["post /files/open"]);
+    expect(buildFilesRoutes(app).map((r) => `${r.method} ${r.path}`)).toEqual([
+      "post /files/open",
+      "get /files/active",
+    ]);
   });
 
   it("opens an existing file in the active leaf and reveals it", async () => {
