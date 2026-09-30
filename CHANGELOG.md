@@ -68,6 +68,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `--sandbox` path both stage into the same directory shape) sweeps any stale `obtc-rerun-*`
   directory left over an hour ago before staging a new one.
 
+### Security
+
+- **Two dependency advisories cleared across both install roots.** `fast-uri` 3.1.7 to 3.1.8
+  (GHSA-hrr3-gc8f-f4qj, in the root and `docs/` lockfiles) and `moment` 2.29.4 to 2.31.0
+  (GHSA-4p3w-j4w9-5jqw, pulled in through the `obsidian` package). The `fast-uri` override floor
+  rises inside its existing `<4` bound, and `moment` gains a bounded `>=2.31.0 <3` override, so
+  neither can drag a dependent across a major. `moment` is a dev-time transitive only; the plugin
+  bundle reads the host's `moment` at runtime and does not ship it.
+
 ## [1.31.8] - 2026-09-29
 
 ### Added
