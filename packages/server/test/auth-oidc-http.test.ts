@@ -12,7 +12,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
-import { AUDIENCE, ISSUER, type MockIdp, startMockIdp } from "./oidc-mock-provider";
+import { AUDIENCE, ISSUER, type MockIdp, publicResolver, startMockIdp } from "./oidc-mock-provider";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -64,7 +64,10 @@ async function bootOidc(
       ...extraAuth,
     },
   });
-  const verifier = await createOidcVerifier(parsed.auth, { fetch: idp.fetch });
+  const verifier = await createOidcVerifier(parsed.auth, {
+    fetch: idp.fetch,
+    resolveHost: publicResolver,
+  });
   return boot(parsed, { verifier, ...(onAuthRejected ? { onAuthRejected } : {}) });
 }
 
@@ -218,13 +221,13 @@ describe("oidc over HTTP", () => {
         name: "vault binding",
         jwt: { sub: "u", scopes: ["read:notes"], vault: "scratch" },
         oidc: { sub: "u", scope: "read:notes", obsidian_vault: "scratch" },
-        oidcCfg: { claimMapping: { vault: "obsidian_vault" } },
+        oidcCfg: { claimMapping: { vault: "obsidian_vault", allowedVaults: ["scratch"] } },
       },
       {
         name: "persona replaces scopes",
         jwt: { sub: "u", persona: "researcher", scopes: ["admin:everything"] },
         oidc: { sub: "u", obsidian_persona: "researcher", scope: "admin:everything" },
-        oidcCfg: { claimMapping: { persona: "obsidian_persona" } },
+        oidcCfg: { claimMapping: { persona: "obsidian_persona", allowedPersonas: ["researcher"] } },
       },
       { name: "no scopes", jwt: { sub: "u" }, oidc: { sub: "u" } },
     ];
@@ -250,7 +253,14 @@ describe("oidc over HTTP", () => {
 
     it("a persona outside the bound vault is refused identically", async () => {
       const j = await bootJwt();
-      const o = await bootOidc({ claimMapping: { persona: "p", vault: "v" } });
+      const o = await bootOidc({
+        claimMapping: {
+          persona: "p",
+          allowedPersonas: ["researcher"],
+          vault: "v",
+          allowedVaults: ["scratch"],
+        },
+      });
       try {
         const a = await whoami(
           j.port,
@@ -313,7 +323,10 @@ describe("oidc on /metrics", () => {
       ...CONFIG_BASE,
       auth: { mode: "oidc", oidc: { issuer: ISSUER, audience: AUDIENCE } },
     });
-    const verifier = await createOidcVerifier(parsed.auth, { fetch: idp.fetch });
+    const verifier = await createOidcVerifier(parsed.auth, {
+      fetch: idp.fetch,
+      resolveHost: publicResolver,
+    });
     const app = createMetricsApp({
       recorder: { metrics: async () => "m 1\n", contentType: "text/plain" } as never,
       bind: "0.0.0.0",

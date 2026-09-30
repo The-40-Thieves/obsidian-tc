@@ -2,7 +2,10 @@
 // network peer, so every fetch here is https-only, refuses redirects, has a timeout and a byte cap,
 // and the discovery document is accepted only when its `issuer` equals the configured one EXACTLY
 // (OpenID Connect Discovery 1.0 §4.3; a mismatch is the mix-up attack this check exists to stop).
+// Where it may point is bounded too: the discovered `jwks_uri` stays on the issuer's origin (or a host
+// the operator listed), carries no credentials, and no fetch is made to a non-public address.
 import type { FetchImplementation } from "jose";
+import { assertPublicHost, type IdpNetworkPolicy } from "./oidc-network";
 
 /** Discovery documents are a few KiB; 64 KiB is generous and bounds memory per fetch. */
 export const DISCOVERY_MAX_BYTES = 64 * 1024;
@@ -26,6 +29,7 @@ export interface FetchBoundedOpts {
   what: string;
   accept?: string;
   signal?: AbortSignal;
+  network?: IdpNetworkPolicy;
 }
 
 function requireHttps(url: string, what: string): URL {
@@ -34,6 +38,11 @@ function requireHttps(url: string, what: string): URL {
     u = new URL(url);
   } catch {
     throw new OidcFetchError(`${what}: ${JSON.stringify(url)} is not a valid URL`);
+  }
+  if (u.username !== "" || u.password !== "") {
+    throw new OidcFetchError(
+      `${what}: ${u.origin}${u.pathname} must not carry credentials in the URL`,
+    );
   }
   if (u.protocol !== "https:") {
     throw new OidcFetchError(
@@ -46,6 +55,12 @@ function requireHttps(url: string, what: string): URL {
 /** GET a URL as text: https only, no redirects, timeout, and a hard cap on the body size. */
 export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promise<string> {
   const u = requireHttps(url, o.what);
+  await assertPublicHost(
+    u.hostname,
+    o.network ?? {},
+    (message, cause) => new OidcFetchError(message, cause === undefined ? undefined : { cause }),
+    o.what,
+  );
   const doFetch = o.fetch ?? fetch;
   const timeoutMs = o.timeoutMs ?? IDP_FETCH_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
@@ -117,10 +132,14 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
  * Any failure is thrown as an OidcFetchError (a timeout keeps jose's own TimeoutError so it is
  * reported as a timeout), so the caller can tell "the IdP failed" from "the token is bad".
  */
-export function boundedJwksFetch(o: { fetch?: typeof fetch }): FetchImplementation {
+export function boundedJwksFetch(o: {
+  fetch?: typeof fetch;
+  network?: IdpNetworkPolicy;
+}): FetchImplementation {
   return async (url, init) => {
     const text = await fetchBoundedText(url, {
       ...(o.fetch !== undefined ? { fetch: o.fetch } : {}),
+      ...(o.network !== undefined ? { network: o.network } : {}),
       // jose owns the timeout for the JWKS request (its `timeoutDuration`); honour its signal.
       timeoutMs: 60_000,
       signal: init.signal,
@@ -143,14 +162,37 @@ export function discoveryUrl(issuer: string): string {
   return `${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`;
 }
 
+/** What `auth.oidc` says about where discovery may lead. */
+export interface DiscoveryPolicy extends IdpNetworkPolicy {
+  /** Hostnames a discovered `jwks_uri` may use besides the issuer's own origin. */
+  allowedJwksHosts?: readonly string[];
+  /** Default true: the discovered `jwks_uri` must share the issuer's origin or be an allowed host.
+   *  False when the operator configured `jwksUri` explicitly (the discovered value is then unused). */
+  pinJwksUri?: boolean;
+}
+
+/** The discovery policy an `auth.oidc` block implies; the server and `doctor` both build it here. */
+export function discoveryPolicyOf(cfg: {
+  jwksUri?: string | undefined;
+  allowedJwksHosts?: readonly string[] | undefined;
+  allowPrivateNetwork?: boolean | undefined;
+}): DiscoveryPolicy {
+  return {
+    pinJwksUri: cfg.jwksUri === undefined,
+    ...(cfg.allowedJwksHosts !== undefined ? { allowedJwksHosts: cfg.allowedJwksHosts } : {}),
+    allowPrivateNetwork: cfg.allowPrivateNetwork === true,
+  };
+}
+
 export async function discoverOidc(
   issuer: string,
-  o: { fetch?: typeof fetch; timeoutMs?: number } = {},
+  o: { fetch?: typeof fetch; timeoutMs?: number } & DiscoveryPolicy = {},
 ): Promise<OidcDiscovery> {
   const url = discoveryUrl(issuer);
   const text = await fetchBoundedText(url, {
     ...(o.fetch !== undefined ? { fetch: o.fetch } : {}),
     ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}),
+    network: o,
     maxBytes: DISCOVERY_MAX_BYTES,
     what: "OIDC discovery",
   });
@@ -173,7 +215,15 @@ export async function discoverOidc(
     throw new OidcFetchError(`OIDC discovery: the document at ${url} has no jwks_uri`);
   }
   try {
-    requireHttps(d.jwks_uri, "OIDC discovery: jwks_uri");
+    const jwks = requireHttps(d.jwks_uri, "OIDC discovery: jwks_uri");
+    if (o.pinJwksUri !== false) {
+      const sameOrigin = jwks.origin === new URL(issuer).origin;
+      if (!sameOrigin && !(o.allowedJwksHosts ?? []).includes(jwks.hostname)) {
+        throw new OidcFetchError(
+          `OIDC discovery: jwks_uri ${jwks.origin} is not on the issuer's origin ${new URL(issuer).origin}; list its hostname in auth.oidc.allowedJwksHosts (or set auth.oidc.jwksUri) if the identity provider really serves its keys from there`,
+        );
+      }
+    }
   } catch (e) {
     throw new OidcFetchError(
       `OIDC discovery: the document at ${url} has an unusable jwks_uri: ${(e as Error).message}`,

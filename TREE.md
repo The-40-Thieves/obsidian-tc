@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,594 tracked code files · 297,488 lines.
+**Scale:** 1,596 tracked code files · 298,626 lines.
 
-TypeScript 273,740 · JavaScript 17,805 · Python 2,406 · SQL 2,232 · Rust 753 · Shell 552.
+TypeScript 274,878 · JavaScript 17,805 · Python 2,406 · SQL 2,232 · Rust 753 · Shell 552.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -94,7 +94,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `runtime/` | 25 | 6,007 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 23 | 3,839 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 20 | 3,339 | filesystem primitives — paths, links, ACL, snapshots, prune |
-| `auth/` | 11 | 2,287 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
+| `auth/` | 12 | 2,562 | JWT verification, JWKS, RFC 9728 protected-resource metadata |
 | `db/` | 16 | 2,266 | provisioning, migrate runner, experiential store |
 | `migrations/` | 62 | 2,232 | hand-registered SQL. **Two chains** — see below |
 | `providers/` | 8 | 1,749 |  |
@@ -121,7 +121,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 123 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 553 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 554 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -306,7 +306,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**548 modules · 2648 dependencies · 160 distinct subsystem pairs · 1184 cross-subsystem imports.**
+**551 modules · 2655 dependencies · 160 distinct subsystem pairs · 1184 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -338,7 +338,7 @@ flowchart LR
   vault[vault<br/>20 files]
   db[(db<br/>16 files)]
   config[config<br/>14 files]
-  auth[auth<br/>11 files]
+  auth[auth<br/>12 files]
   plane[plane<br/>9 files]
   bridge[bridge<br/>8 files]
   embeddings[embeddings<br/>8 files]

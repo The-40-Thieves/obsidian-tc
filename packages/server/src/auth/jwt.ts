@@ -1,3 +1,4 @@
+import { isQualifiedScope } from "@the-40-thieves/obsidian-tc-shared";
 import {
   createLocalJWKSet,
   createRemoteJWKSet,
@@ -29,6 +30,7 @@ export type AuthRejectionReason =
   | "token_not_yet_valid" // `nbf` (or an `iat`) is in the future beyond the clock tolerance
   | "invalid_token_type" // oidc: the JOSE `typ` header is not an access-token type
   | "client_mismatch" // oidc: auth.oidc.clientId is set and the token's client_id/azp differs or is absent
+  | "claim_not_allowed" // oidc: a mapped persona/vault claim is not a string or is outside its allowlist
   | "idp_unavailable" // oidc: discovery or the JWKS could not be fetched/validated, so nothing can be verified
   | "persona_denied"; // THE-647 item 2: `persona` claim named an unconfigured persona, or a
 // vault outside that persona's `vaults` — resolved one layer up in auth/persona.ts, not by
@@ -117,6 +119,9 @@ export interface RevocationOpts {
   /** Reject a token that carries no `jti` (auth.requireJti). A jti-less token can only be killed
    *  by rotating its signing key. */
   requireJti?: boolean;
+  /** Throws `registry_lost` when the registry is lost or partly lost. Runs for EVERY verified token,
+   *  jti or not: a jti-less token is never looked up, so a wiped registry would still admit it. */
+  assertRegistryUsable?: () => void;
 }
 
 /** Resolves the HS256 key for a token from its protected header (`kid`). Throws `AuthRejection`
@@ -205,22 +210,33 @@ export async function verifyJwtJwks(
  * `scopes` or `persona` claim an IdP happens to emit can never grant anything.
  */
 export interface ClaimMapping {
-  subject: string;
-  scopes: string;
-  principal?: string;
-  vault?: string;
-  persona?: string;
+  subject: ClaimPath;
+  scopes: ClaimPath;
+  /** Role/group value -> the obsidian-tc scopes it grants. Own keys only. */
+  scopeMap?: Record<string, readonly string[]>;
+  principal?: ClaimPath;
+  vault?: ClaimPath;
+  /** Vault ids the `vault` claim may carry; a value outside it (or a non-string) refuses the token. */
+  allowedVaults?: readonly string[];
+  persona?: ClaimPath;
+  /** Persona names the `persona` claim may carry; a value outside it (or a non-string) refuses the token. */
+  allowedPersonas?: readonly string[];
+  /** Told of each scope-claim value that was dropped for not being fully qualified or mapped. */
+  onDroppedScope?: (value: string) => void;
 }
 
+/** A claim location: a dotted path (string) into nested objects, or literal segments (array). */
+export type ClaimPath = string | readonly string[];
+
 /**
- * A claim by name or dotted path. An exact top-level name wins first, so a namespaced claim such as
- * `https://app.example.com/roles` (dots and slashes in its NAME) resolves; otherwise `a.b.c` walks
- * nested objects. Own properties only, so `__proto__`/`constructor` never resolve.
+ * A claim by dotted path (`a.b.c`, walking NESTED objects only) or by array of literal segments.
+ * A top-level claim whose own name contains dots is reachable only through the array form, never
+ * through the dotted string, so a forged `realm_access.roles` claim cannot shadow the nested one.
+ * Own properties only, so `__proto__`/`constructor` never resolve.
  */
-export function claimAt(payload: Record<string, unknown>, path: string): unknown {
-  if (Object.hasOwn(payload, path)) return payload[path];
+export function claimAt(payload: Record<string, unknown>, path: ClaimPath): unknown {
   let cur: unknown = payload;
-  for (const part of path.split(".")) {
+  for (const part of typeof path === "string" ? path.split(".") : path) {
     if (typeof cur !== "object" || cur === null) return undefined;
     const own = Object.getOwnPropertyDescriptor(cur, part);
     if (own === undefined) return undefined;
@@ -262,6 +278,7 @@ export function identityFrom(
     });
   const jti = typeof payload.jti === "string" ? payload.jti : undefined;
   const caller = subject ?? null;
+  revocation.assertRegistryUsable?.();
   if (jti === undefined && revocation.requireJti === true) {
     throw new AuthRejection("jti_required", { caller });
   }
@@ -272,11 +289,10 @@ export function identityFrom(
       mapping.principal === undefined ? undefined : asString(claimAt(payload, mapping.principal));
     return {
       caller: principal ?? caller,
-      scopes: scopesFromClaim(claimAt(payload, mapping.scopes)),
+      scopes: scopesFromClaim(claimAt(payload, mapping.scopes), mapping),
       ...(jti !== undefined ? { jti } : {}),
-      vault: mapping.vault === undefined ? undefined : asString(claimAt(payload, mapping.vault)),
-      persona:
-        mapping.persona === undefined ? undefined : asString(claimAt(payload, mapping.persona)),
+      vault: allowlistedClaim(payload, mapping.vault, mapping.allowedVaults, caller),
+      persona: allowlistedClaim(payload, mapping.persona, mapping.allowedPersonas, caller),
     };
   }
   return {
@@ -288,11 +304,42 @@ export function identityFrom(
   };
 }
 
-/** A space-delimited string or an array of strings; anything else grants nothing. */
-function scopesFromClaim(v: unknown): Set<string> {
-  if (Array.isArray(v)) return new Set(v.filter((s): s is string => typeof s === "string"));
-  if (typeof v === "string") return new Set(v.split(/\s+/).filter(Boolean));
-  return new Set();
+/** A persona/vault claim is a bearer capability: absent -> undefined; present but not a string or
+ *  not on the operator's list -> the token is refused (ignoring it would fall through to a wider grant). */
+function allowlistedClaim(
+  payload: Record<string, unknown>,
+  path: ClaimPath | undefined,
+  allowed: readonly string[] | undefined,
+  caller: string | null,
+): string | undefined {
+  if (path === undefined) return undefined;
+  const v = claimAt(payload, path);
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || allowed === undefined || !allowed.includes(v)) {
+    throw new AuthRejection("claim_not_allowed", { caller });
+  }
+  return v;
+}
+
+/** The scopes an `oidc` token grants: a `scopeMap` value grants exactly its list, else only a
+ *  fully-qualified scope passes. A bare IdP role like `admin` would read as a family wildcard: dropped. */
+function scopesFromClaim(v: unknown, mapping: ClaimMapping): Set<string> {
+  const raw = Array.isArray(v)
+    ? v.filter((s): s is string => typeof s === "string")
+    : typeof v === "string"
+      ? v.split(/\s+/).filter(Boolean)
+      : [];
+  const out = new Set<string>();
+  for (const value of raw) {
+    const mapped =
+      mapping.scopeMap !== undefined && Object.hasOwn(mapping.scopeMap, value)
+        ? mapping.scopeMap[value]
+        : undefined;
+    if (mapped !== undefined) for (const scope of mapped) out.add(scope);
+    else if (isQualifiedScope(value)) out.add(value);
+    else mapping.onDroppedScope?.(value);
+  }
+  return out;
 }
 
 function extractScopes(payload: Record<string, unknown>): Set<string> {

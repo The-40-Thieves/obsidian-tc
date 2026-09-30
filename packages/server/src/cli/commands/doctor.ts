@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { makeIndexReadable } from "../../acl";
-import { discoverOidc } from "../../auth/oidc-discovery";
+import { discoverOidc, discoveryPolicyOf } from "../../auth/oidc-discovery";
 import { probeAuthRegistry } from "../../auth/registry-open";
 import {
   bridgeState,
@@ -612,7 +612,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
                 prmConfigured: !!config.auth.resource,
                 requireJti: config.auth.requireJti,
                 probe: async () => {
-                  const d = await discoverOidc(oidc.issuer);
+                  const d = await discoverOidc(oidc.issuer, discoveryPolicyOf(oidc));
                   return { ok: true as const, jwksUri: oidc.jwksUri ?? d.jwksUri };
                 },
               };

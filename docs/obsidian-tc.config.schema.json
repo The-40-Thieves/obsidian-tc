@@ -389,6 +389,19 @@
               "description": "Optional override for the key set location. Discovery still runs (it validates the issuer); this replaces only the discovered `jwks_uri`. https only.",
               "type": "string"
             },
+            "allowedJwksHosts": {
+              "description": "Optional. Hostnames a DISCOVERED `jwks_uri` may name besides the issuer's own origin. Without it the discovered `jwks_uri` must be on the same origin as `issuer` (a discovery document cannot redirect key material to another host). Needed for IdPs that serve keys from another host (Google: `www.googleapis.com`). Ignored when `jwksUri` is set. It never lifts the private-network block.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+              }
+            },
+            "allowPrivateNetwork": {
+              "default": false,
+              "description": "Default false: the issuer and the JWKS host are resolved before every fetch and refused when any address is loopback, link-local (including the cloud metadata address), private (RFC 1918, unique-local) or otherwise non-public. Set true only for a self-hosted identity provider on a LAN or loopback.",
+              "type": "boolean"
+            },
             "allowedAlgs": {
               "default": [
                 "RS256",
@@ -430,7 +443,7 @@
             },
             "requireAtJwtType": {
               "default": false,
-              "description": "Require the JOSE `typ` header to be `at+jwt` (RFC 9068), rejecting `JWT` and a missing `typ`. Default false, because several IdPs emit pre-RFC-9068 access tokens (Entra `JWT`, Keycloak `Bearer`); with it off, `at+jwt`, `JWT`, `Bearer` and an absent `typ` are accepted and every other `typ` (for example `id_token+jwt`) is refused. Turn it on when your IdP issues RFC 9068 tokens.",
+              "description": "Require the JOSE `typ` header to be `at+jwt` (RFC 9068), rejecting `JWT` and a missing `typ`. Default false, because several IdPs emit pre-RFC-9068 access tokens (Entra and Keycloak send `JWT`); with it off, `at+jwt`, `JWT`, `Bearer` and an absent `typ` are accepted and every other header `typ` (for example `id_token+jwt`) is refused. Independently of this flag, a token that names itself a non-access token is refused: a payload `typ` other than `Bearer`/`Access` (Keycloak ID and Refresh tokens), a `nonce`, `at_hash` or `c_hash` claim (ID-token markers), or a `token_use` other than `access` (Cognito). Turn the flag on when your IdP issues RFC 9068 tokens.",
               "type": "boolean"
             },
             "claimMapping": {
@@ -438,46 +451,167 @@
                 "subject": "sub",
                 "scopes": "scope"
               },
-              "description": "Where the identity comes from. A value is a claim name, or a dotted path into nested claims (`realm_access.roles`); a claim whose own name contains dots (a namespaced URL) is matched exactly first.",
+              "description": "Where the identity comes from. A string value is a claim name or a dotted path into NESTED claims (`realm_access.roles`); a claim whose own name contains dots (a namespaced URL) is written as an array of literal segments, `[\"https://app.example.com/roles\"]`.",
               "type": "object",
               "properties": {
                 "subject": {
                   "default": "sub",
                   "description": "Claim naming the caller. Required on every token.",
-                  "type": "string",
-                  "minLength": 1
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  ]
                 },
                 "scopes": {
                   "default": "scope",
-                  "description": "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings. Only this claim grants scopes. The values must be obsidian-tc scope names (e.g. `read:notes`); define them at the IdP.",
-                  "type": "string",
-                  "minLength": 1
+                  "description": "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings (`permissions`, `realm_access.roles`). Only this claim grants scopes, and only FULLY-QUALIFIED values (`read:notes`, `write:*`) are taken from it: a bare value such as the role `admin` is dropped (and logged once) unless `scopeMap` maps it, because obsidian-tc reads a bare family name as a wildcard over every resource.",
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  ]
+                },
+                "scopeMap": {
+                  "description": "Optional. Maps a value of the scopes claim (an IdP role or group name) to the obsidian-tc scopes it grants, e.g. `{ vault_admin: [\"admin:auth\"], reader: [\"read:notes\", \"read:search\"] }`. A mapped value grants exactly its list; an unmapped, non-qualified value grants nothing.",
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
                 },
                 "principal": {
                   "description": "Optional claim used as the caller label in audit and logs instead of the subject (for example `email`). It does not affect authentication.",
-                  "type": "string",
-                  "minLength": 1
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  ]
                 },
                 "vault": {
-                  "description": "Optional claim binding the caller to one vault, as the `vault` claim does in jwt mode. Unset: no vault claim is read.",
-                  "type": "string",
-                  "minLength": 1
+                  "description": "Optional claim binding the caller to one vault, as the `vault` claim does in jwt mode. Requires `allowedVaults`: a value outside it refuses the token. Unset: no vault claim is read.",
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  ]
+                },
+                "allowedVaults": {
+                  "description": "Vault ids the `vault` claim may name. Required when `vault` is set; a token naming any other vault (or a non-string) is refused, not ignored.",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 },
                 "persona": {
-                  "description": "Optional claim naming a configured persona, as the `persona` claim does in jwt mode (the persona's scopes replace the token's). Unset: no persona claim is read.",
-                  "type": "string",
-                  "minLength": 1
+                  "description": "Optional claim naming a configured persona, as the `persona` claim does in jwt mode (the persona's scopes replace the token's). Requires `allowedPersonas`. Unset: no persona claim is read.",
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  ]
+                },
+                "allowedPersonas": {
+                  "description": "Persona names the `persona` claim may name. Required when `persona` is set; a token naming any other persona (or a non-string) is refused, not ignored.",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 }
               },
               "additionalProperties": false
             },
             "requiredClaims": {
-              "description": "Extra claims that must be present. `exp`, `iat`, `iss`, `aud` and the subject claim are always required.",
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
+              "description": "Extra claims a token must carry. An array of claim names requires a truthy, non-empty value (`null`, `false`, `0`, `\"\"`, `[]` and `{}` fail, so `email_verified: false` does not satisfy `[\"email_verified\"]`). An object maps a claim to the exact value it must have (`{ email_verified: true, hd: \"example.com\" }`; an array claim satisfies it when it contains the value). `exp`, `iat`, `iss`, `aud` and the subject claim are always required.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean"
+                    ]
+                  }
+                }
+              ]
             }
           },
           "required": [

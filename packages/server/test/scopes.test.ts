@@ -1,6 +1,7 @@
 import {
   grantsAll,
   grantsScope,
+  isQualifiedScope,
   scopeClassOf,
   scopeRequiresHitl,
 } from "@the-40-thieves/obsidian-tc-shared";
@@ -46,5 +47,30 @@ describe("scopeClassOf precedence (THE-210 / THE-212)", () => {
   });
   it("returns unknown for an empty scope list", () => {
     expect(scopeClassOf([])).toBe("unknown");
+  });
+});
+
+describe("isQualifiedScope", () => {
+  it("accepts family:resource for a known family, wildcard resource included", () => {
+    for (const s of ["read:notes", "write:*", "admin:auth", "bulk:notes"]) {
+      expect(isQualifiedScope(s)).toBe(true);
+    }
+  });
+
+  it("refuses bare names, global or family wildcards spelled with a colon, and unknown families", () => {
+    for (const s of [
+      "admin",
+      "read",
+      "*",
+      "*:*",
+      "*:notes",
+      ":notes",
+      "read:",
+      "foo:bar",
+      "read:a b",
+      "",
+    ]) {
+      expect(isQualifiedScope(s)).toBe(false);
+    }
   });
 });

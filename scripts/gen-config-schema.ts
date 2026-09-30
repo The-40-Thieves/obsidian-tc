@@ -485,8 +485,10 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // allowedAlgs, clockToleranceSeconds, discoveryCacheSeconds, requireAtJwtType, claimMapping,
   // requiredClaims), for verifying access tokens from an external OpenID Connect provider. The
   // block is refused under any other mode and vice versa (server.schema.ts superRefine). No
-  // existing key, type, default or constraint moved.
-  "ded460f54d8ce79db71e3ed03ec28ab838ad6d539b64d5f2f325221ddd036a6f";
+  // existing key, type, default or constraint moved. Security review of that block, same PR: adds
+  // `auth.oidc.allowedJwksHosts` / `allowPrivateNetwork`, `claimMapping.scopeMap` /
+  // `allowedPersonas` / `allowedVaults`, array-form claim paths, and object-form `requiredClaims`.
+  "4c26c2535c4a9ebe84057d9c443edb92afdde046802e989e119ee8c0d5d238ff";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

@@ -180,3 +180,77 @@ describe("oidc mode and Protected Resource Metadata (RFC 9728)", () => {
     expect(effectiveAudience(auth)).toBe("api://vault");
   });
 });
+
+describe("auth.oidc review fixes: schema", () => {
+  const oidc = (o: Record<string, unknown>) => ({ mode: "oidc", oidc: { ...OIDC, ...o } });
+
+  it("defaults: allowPrivateNetwork is false and allowedJwksHosts is unset", () => {
+    const o = ok(oidc({})).auth.oidc;
+    expect(o?.allowPrivateNetwork).toBe(false);
+    expect(o?.allowedJwksHosts).toBeUndefined();
+  });
+
+  it.each([
+    "https://cdn.example.com",
+    "cdn.example.com/path",
+    "user@cdn.example.com",
+    "cdn.example.com:8443",
+    "",
+    "*.example.com",
+  ])("allowedJwksHosts refuses %j (bare hostnames only)", (h) => {
+    refused(oidc({ allowedJwksHosts: [h] }), /allowedJwksHosts/);
+  });
+
+  it("allowedJwksHosts accepts bare hostnames", () => {
+    expect(
+      ok(oidc({ allowedJwksHosts: ["www.googleapis.com"] })).auth.oidc?.allowedJwksHosts,
+    ).toEqual(["www.googleapis.com"]);
+  });
+
+  it("a persona or vault mapping without its allowlist is refused", () => {
+    refused(oidc({ claimMapping: { persona: "p" } }), /allowedPersonas/);
+    refused(oidc({ claimMapping: { persona: "p", allowedPersonas: [] } }), /allowedPersonas/);
+    refused(oidc({ claimMapping: { vault: "v" } }), /allowedVaults/);
+    refused(oidc({ claimMapping: { vault: "v", allowedVaults: [] } }), /allowedVaults/);
+    const m = ok(
+      oidc({
+        claimMapping: { persona: "p", allowedPersonas: ["a"], vault: "v", allowedVaults: ["v1"] },
+      }),
+    ).auth.oidc?.claimMapping;
+    expect(m?.allowedPersonas).toEqual(["a"]);
+    expect(m?.allowedVaults).toEqual(["v1"]);
+  });
+
+  it("scopeMap values must be fully-qualified scopes", () => {
+    expect(
+      ok(oidc({ claimMapping: { scopeMap: { admin: ["admin:auth"], r: ["read:*"] } } })).auth.oidc
+        ?.claimMapping.scopeMap,
+    ).toEqual({ admin: ["admin:auth"], r: ["read:*"] });
+    for (const bad of ["admin", "*", "*:*", "foo:bar", "read:", ":notes"]) {
+      refused(oidc({ claimMapping: { scopeMap: { role: [bad] } } }), /scopeMap/);
+    }
+    refused(oidc({ claimMapping: { scopeMap: { role: [] } } }), /scopeMap/);
+  });
+
+  it("claim names accept a dotted string or an array of literal segments", () => {
+    const m = ok(
+      oidc({
+        claimMapping: { scopes: ["https://x.example/roles"], subject: ["a.b", "c"] },
+        requiredClaims: ["email_verified", ["https://x.example/uid"]],
+      }),
+    ).auth.oidc;
+    expect(m?.claimMapping.scopes).toEqual(["https://x.example/roles"]);
+    refused(oidc({ claimMapping: { scopes: [] } }), /scopes/);
+    refused(oidc({ claimMapping: { scopes: [""] } }), /scopes/);
+  });
+
+  it("requiredClaims accepts an object of expected primitive values, nothing else", () => {
+    expect(
+      ok(oidc({ requiredClaims: { email_verified: true, hd: "x.com", n: 1 } })).auth.oidc
+        ?.requiredClaims,
+    ).toEqual({ email_verified: true, hd: "x.com", n: 1 });
+    refused(oidc({ requiredClaims: { a: null } }), /requiredClaims/);
+    refused(oidc({ requiredClaims: { a: { b: 1 } } }), /requiredClaims/);
+    refused(oidc({ requiredClaims: {} }), /requiredClaims/);
+  });
+});

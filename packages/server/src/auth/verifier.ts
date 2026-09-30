@@ -3,6 +3,7 @@ import {
   AuthRejection,
   createRemoteJwks,
   type JwtIdentity,
+  type RevocationOpts,
   verifyJwt,
   verifyJwtJwks,
   verifyJwtWithKeySet,
@@ -37,6 +38,25 @@ export function createJwtVerifier(
 ): TokenVerifier {
   return {
     verify: (token) => verifyJwt(token, secret, opts),
+  };
+}
+
+/**
+ * The revocation half of every verify path, from the registry (or none). `assertRegistryUsable` runs
+ * for every verified token so a lost or partly lost registry refuses jti-less tokens too: only a
+ * token with a `jti` is ever looked up, and the rest would otherwise sail through a wiped registry.
+ */
+export function revocationOptsFor(
+  registry: AuthRegistry | undefined,
+  requireJti: boolean | undefined,
+): RevocationOpts {
+  if (registry === undefined) return { requireJti };
+  return {
+    isRevoked: (jti) => registry.isRevoked(jti),
+    assertRegistryUsable: () => {
+      if (registry.health().state === "lost") throw new AuthRejection("registry_lost");
+    },
+    requireJti,
   };
 }
 
@@ -91,7 +111,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
   // request and defeat the cache entirely.
   const remote = o.jwksUri === undefined ? undefined : createRemoteJwks(o.jwksUri);
   const registry = o.registry;
-  const isRevoked = registry === undefined ? undefined : (jti: string) => registry.isRevoked(jti);
+  const revocation = revocationOptsFor(registry, o.requireJti);
   return {
     verify: async (token) => {
       const header = decodeProtectedHeader(token);
@@ -103,8 +123,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
           token,
           registry ? (h) => registry.verificationKey(h.kid) : (o.secret as string),
           {
-            isRevoked,
-            requireJti: o.requireJti,
+            ...revocation,
             maxAgeSeconds: o.maxAgeSeconds,
             audience: o.audience,
             issuer: o.issuer,
@@ -127,8 +146,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
           token,
           await importVerificationKey(material.alg, material.publicJwk),
           {
-            isRevoked,
-            requireJti: o.requireJti,
+            ...revocation,
             maxAgeSeconds: o.maxAgeSeconds,
             algorithms: [material.alg],
             audience: o.audience,
@@ -138,8 +156,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
       }
       if (remote !== undefined) {
         return verifyJwtWithKeySet(token, remote, {
-          isRevoked,
-          requireJti: o.requireJti,
+          ...revocation,
           maxAgeSeconds: o.maxAgeSeconds,
           algorithms: o.algorithms,
           audience: o.audience,
@@ -148,8 +165,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
       }
       if (!o.jwks) throw new Error(`${String(header.alg)} token but no JWKS configured`);
       return verifyJwtJwks(token, o.jwks, {
-        isRevoked,
-        requireJti: o.requireJti,
+        ...revocation,
         maxAgeSeconds: o.maxAgeSeconds,
         algorithms: o.algorithms,
         audience: o.audience,

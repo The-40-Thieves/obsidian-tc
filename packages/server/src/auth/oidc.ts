@@ -32,11 +32,13 @@ import {
 import {
   boundedJwksFetch,
   discoverOidc,
+  discoveryPolicyOf,
   IDP_FETCH_TIMEOUT_MS,
   OidcFetchError,
 } from "./oidc-discovery";
+import type { IdpNetworkPolicy } from "./oidc-network";
 import type { AuthRegistry } from "./registry";
-import type { TokenVerifier } from "./verifier";
+import { revocationOptsFor, type TokenVerifier } from "./verifier";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -49,6 +51,10 @@ export interface OidcDeps {
   now?: () => number;
   /** Per-request timeout for discovery and the JWKS. Default 5000. */
   timeoutMs?: number;
+  /** Test seam: the addresses a host resolves to (default: the system resolver). */
+  resolveHost?: (hostname: string) => Promise<string[]>;
+  /** Where the once-per-value "dropped scope" notice goes. Default: stderr. */
+  warn?: (message: string) => void;
   /** jose's minimum gap between JWKS refetches triggered by an unknown `kid`. Default 30000. */
   jwksCooldownMs?: number;
 }
@@ -73,6 +79,51 @@ const ACCESS_TOKEN_TYPES = new Set(["at+jwt", "application/at+jwt"]);
  *  accepted unless strict. Keycloak's ID and refresh tokens are `ID` and `Refresh`, so they stay refused. */
 const LEGACY_TYPES = new Set(["jwt", "application/jwt", "bearer"]);
 
+const MAX_DROPPED_REPORTS = 100;
+
+/** Keycloak's access token is `Bearer`; its ID, Refresh and Offline tokens carry another payload `typ`. */
+const ACCESS_PAYLOAD_TYPES = new Set(["bearer", "access", "at+jwt", "access_token"]);
+/** Claims only an ID token carries (OIDC Core §2, §3.1.3.6). An access token has no `nonce`. */
+const ID_TOKEN_MARKERS = ["nonce", "at_hash", "c_hash"] as const;
+
+/**
+ * The JOSE header cannot tell an ID or refresh token from an access token (Keycloak, Entra and Auth0
+ * all put `JWT` there), so the payload is read for what the token says it is. Signed by the same
+ * issuer for the same audience is not enough: an ID token whose `aud` is the client id that is also
+ * this server's audience would otherwise verify.
+ */
+function isNonAccessToken(payload: Record<string, unknown>): boolean {
+  if (payload.typ !== undefined) {
+    if (typeof payload.typ !== "string" || !ACCESS_PAYLOAD_TYPES.has(payload.typ.toLowerCase())) {
+      return true;
+    }
+  }
+  if (payload.token_use !== undefined && payload.token_use !== "access") return true; // Cognito
+  return ID_TOKEN_MARKERS.some((m) => Object.hasOwn(payload, m));
+}
+
+/** Present with a value that means something: not null, false, 0, "", NaN, an empty array or object. */
+function hasValue(v: unknown): boolean {
+  if (v === undefined || v === null || v === false || v === 0 || v === "") return false;
+  if (typeof v === "number" && Number.isNaN(v)) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v).length > 0;
+  return true;
+}
+
+/** `[names]`: each must hold a value. `{name: expected}`: each must equal it (or, for an array claim, contain it). */
+function requiredClaimsMet(
+  payload: Record<string, unknown>,
+  required: NonNullable<AuthConfig["oidc"]>["requiredClaims"],
+): boolean {
+  if (required === undefined) return true;
+  if (Array.isArray(required)) return required.every((path) => hasValue(claimAt(payload, path)));
+  return Object.entries(required).every(([path, expected]) => {
+    const v = claimAt(payload, path);
+    return v === expected || (Array.isArray(v) && v.includes(expected));
+  });
+}
+
 function isIdpFailure(e: unknown): boolean {
   if (e instanceof OidcFetchError) return true;
   const code = (e as { code?: string } | null)?.code;
@@ -91,11 +142,28 @@ export async function createOidcVerifier(
   const timeoutMs = deps.timeoutMs ?? IDP_FETCH_TIMEOUT_MS;
   const ttlMs = cfg.discoveryCacheSeconds * 1000;
   const allowed = cfg.allowedAlgs as string[];
-  const mapping: ClaimMapping = { ...cfg.claimMapping };
-  const registry = deps.registry;
-  const isRevoked = registry === undefined ? undefined : (jti: string) => registry.isRevoked(jti);
+  const warn = deps.warn ?? ((m: string) => void process.stderr.write(`${m}\n`));
+  // Each dropped scope value is reported once per verifier (bounded, so a stream of distinct values
+  // cannot grow it): a role called `admin` in a token is an operator-config problem, not per-request news.
+  const droppedSeen = new Set<string>();
+  const mapping: ClaimMapping = {
+    ...cfg.claimMapping,
+    onDroppedScope: (value) => {
+      if (droppedSeen.size >= MAX_DROPPED_REPORTS || droppedSeen.has(value)) return;
+      droppedSeen.add(value);
+      warn(
+        `auth: oidc scope claim value ${JSON.stringify(value)} is not a fully-qualified scope (family:resource) and is not in auth.oidc.claimMapping.scopeMap, so it grants nothing`,
+      );
+    },
+  };
+  const revocation = revocationOptsFor(deps.registry, auth.requireJti);
   // jose only sees top-level names; the operator's `requiredClaims` may be dotted paths, checked below.
   const requiredClaims = ["exp", "iat"];
+  const network: IdpNetworkPolicy = {
+    allowPrivateNetwork: cfg.allowPrivateNetwork,
+    ...(deps.resolveHost !== undefined ? { resolveHost: deps.resolveHost } : {}),
+  };
+  const policy = { ...discoveryPolicyOf(cfg), ...network };
 
   interface State {
     jwksUri: string;
@@ -103,7 +171,7 @@ export async function createOidcVerifier(
     fetchedAt: number;
   }
   const load = async (): Promise<Omit<State, "keys">> => {
-    const d = await discoverOidc(cfg.issuer, { fetch: deps.fetch, timeoutMs });
+    const d = await discoverOidc(cfg.issuer, { fetch: deps.fetch, timeoutMs, ...policy });
     const jwksUri = cfg.jwksUri ?? d.jwksUri;
     return { jwksUri, fetchedAt: now() };
   };
@@ -111,7 +179,7 @@ export async function createOidcVerifier(
     createRemoteJwks(jwksUri, {
       timeoutDuration: timeoutMs,
       ...(deps.jwksCooldownMs !== undefined ? { cooldownDuration: deps.jwksCooldownMs } : {}),
-      [customFetch]: boundedJwksFetch({ fetch: deps.fetch }),
+      [customFetch]: boundedJwksFetch({ fetch: deps.fetch, network }),
     });
 
   // Boot discovery: any failure propagates as a clear, issuer-naming error and the caller refuses to start.
@@ -176,28 +244,25 @@ export async function createOidcVerifier(
           typeof payload.iat === "number" ? "token_not_yet_valid" : "missing_claim",
         );
       }
-      const typ =
-        typeof protectedHeader.typ === "string" ? protectedHeader.typ.toLowerCase() : undefined;
+      // A header `typ` of another type (a number, an array, null) is not "absent": refuse it.
+      const rawTyp = protectedHeader.typ;
+      if (rawTyp !== undefined && typeof rawTyp !== "string") {
+        throw new AuthRejection("invalid_token_type");
+      }
+      const typ = rawTyp?.toLowerCase();
       const typOk =
         typ !== undefined && ACCESS_TOKEN_TYPES.has(typ)
           ? true
           : !cfg.requireAtJwtType && (typ === undefined || LEGACY_TYPES.has(typ));
-      if (!typOk) throw new AuthRejection("invalid_token_type");
+      if (!typOk || isNonAccessToken(payload)) throw new AuthRejection("invalid_token_type");
       if (cfg.clientId !== undefined) {
         const client = payload.client_id ?? payload.azp;
         if (client !== cfg.clientId) throw new AuthRejection("client_mismatch");
       }
-      for (const claim of cfg.requiredClaims ?? []) {
-        if (claimAt(payload, claim) === undefined) throw new AuthRejection("missing_claim");
-      }
+      if (!requiredClaimsMet(payload, cfg.requiredClaims)) throw new AuthRejection("missing_claim");
       if (subjectOf(payload, mapping) === undefined) throw new AuthRejection("missing_claim");
 
-      return identityFrom(
-        payload,
-        auth.tokenTtlSeconds,
-        { isRevoked, requireJti: auth.requireJti },
-        mapping,
-      );
+      return identityFrom(payload, auth.tokenTtlSeconds, revocation, mapping);
     } catch (e) {
       if (isIdpFailure(e)) {
         throw new AuthRejection("idp_unavailable", { cause: e });

@@ -10,7 +10,7 @@ import { discoverOidc } from "../src/auth/oidc-discovery";
 import { createAuthRegistry } from "../src/auth/registry";
 import { provisionAuthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
-import { AUDIENCE, ISSUER, type MockIdp, startMockIdp } from "./oidc-mock-provider";
+import { AUDIENCE, ISSUER, type MockIdp, publicResolver, startMockIdp } from "./oidc-mock-provider";
 
 let idp: MockIdp;
 beforeEach(async () => {
@@ -31,7 +31,13 @@ const build = (
   oidc?: Record<string, unknown>,
   deps: Record<string, unknown> = {},
   auth?: Record<string, unknown>,
-) => createOidcVerifier(authOf(oidc, auth), { fetch: idp.fetch, jwksCooldownMs: 0, ...deps });
+) =>
+  createOidcVerifier(authOf(oidc, auth), {
+    fetch: idp.fetch,
+    jwksCooldownMs: 0,
+    resolveHost: publicResolver,
+    ...deps,
+  });
 
 async function reasonOf(p: Promise<unknown>): Promise<AuthRejectionReason | "accepted" | "other"> {
   try {
@@ -293,9 +299,9 @@ describe("oidc: claim mapping", () => {
     expect([...id.scopes]).toEqual(["read:notes"]);
   });
 
-  it("a namespaced claim whose NAME contains dots and slashes matches exactly first", async () => {
+  it("a namespaced claim whose NAME contains dots and slashes is reached through the array form", async () => {
     const name = "https://vault.example.com/scopes";
-    const v = await build({ claimMapping: { scopes: name } });
+    const v = await build({ claimMapping: { scopes: [name] } });
     const id = await v.verify(await idp.sign({ [name]: ["write:notes"] }));
     expect([...id.scopes]).toEqual(["write:notes"]);
   });
@@ -319,7 +325,13 @@ describe("oidc: claim mapping", () => {
     expect(p.vault).toBeUndefined();
     expect(p.persona).toBeUndefined();
     const mapped = await build({
-      claimMapping: { principal: "email", vault: "obsidian_vault", persona: "obsidian_persona" },
+      claimMapping: {
+        principal: "email",
+        vault: "obsidian_vault",
+        allowedVaults: ["v1"],
+        persona: "obsidian_persona",
+        allowedPersonas: ["researcher"],
+      },
     });
     const m = await mapped.verify(
       await idp.sign({ email: "a@b.c", obsidian_vault: "v1", obsidian_persona: "researcher" }),
@@ -370,7 +382,7 @@ describe("oidc: discovery", () => {
     build(over, deps);
 
   it("fetches <issuer>/.well-known/openid-configuration and validates the document issuer EXACTLY", async () => {
-    const d = await discoverOidc(ISSUER, { fetch: idp.fetch });
+    const d = await discoverOidc(ISSUER, { fetch: idp.fetch, resolveHost: publicResolver });
     expect(d.issuer).toBe(ISSUER);
     expect(d.jwksUri).toBe(`${ISSUER}/jwks`);
     idp.setDiscovery({ issuer: `${ISSUER}/` });
@@ -390,7 +402,10 @@ describe("oidc: discovery", () => {
         },
       );
     };
-    await discoverOidc("https://idp.test/realms/x/", { fetch: spy }).catch(() => undefined);
+    await discoverOidc("https://idp.test/realms/x/", {
+      fetch: spy,
+      resolveHost: publicResolver,
+    }).catch(() => undefined);
     expect(seen).toEqual(["https://idp.test/realms/x/.well-known/openid-configuration"]);
   });
 

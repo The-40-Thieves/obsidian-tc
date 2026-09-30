@@ -6,6 +6,7 @@
 // move here with their schema; a refinement that reads ANOTHER domain (e.g. the http/auth
 // interlock in ServerConfigSchema.superRefine) stays in config.schema.ts.
 import { z } from "zod";
+import { isQualifiedScope } from "../scopes";
 
 // `auth.oidc`: verify access tokens issued by an EXTERNAL OpenID Connect provider (bring your own
 // IdP). Verification only — obsidian-tc stays a resource server; the bundled authorization server
@@ -40,6 +41,15 @@ const isHttpsUrl = (v: string, o: { allowQueryFragment: boolean }): boolean => {
   }
 };
 
+// A claim location: a dotted path into NESTED objects (`realm_access.roles`), or an array of literal
+// segments. A top-level claim whose own NAME contains dots (`https://app.example.com/roles`, the
+// Auth0 namespaced form) can only be written as the array `["https://app.example.com/roles"]`: a
+// string is always walked, so a forged top-level `realm_access.roles` never shadows the nested claim.
+const ClaimPathSchema = z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]);
+
+const HOSTNAME_RE =
+  /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
 const OidcConfigSchema = z
   .strictObject({
     issuer: z
@@ -71,6 +81,22 @@ const OidcConfigSchema = z
       .describe(
         "Optional override for the key set location. Discovery still runs (it validates the issuer); this replaces only the discovered `jwks_uri`. https only.",
       ),
+    allowedJwksHosts: z
+      .array(
+        z
+          .string()
+          .regex(HOSTNAME_RE, "must be a bare lowercase hostname (no scheme, port or path)"),
+      )
+      .optional()
+      .describe(
+        "Optional. Hostnames a DISCOVERED `jwks_uri` may name besides the issuer's own origin. Without it the discovered `jwks_uri` must be on the same origin as `issuer` (a discovery document cannot redirect key material to another host). Needed for IdPs that serve keys from another host (Google: `www.googleapis.com`). Ignored when `jwksUri` is set. It never lifts the private-network block.",
+      ),
+    allowPrivateNetwork: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Default false: the issuer and the JWKS host are resolved before every fetch and refused when any address is loopback, link-local (including the cloud metadata address), private (RFC 1918, unique-local) or otherwise non-public. Set true only for a self-hosted identity provider on a LAN or loopback.",
+      ),
     allowedAlgs: z
       .array(z.enum(OIDC_ALLOWED_ALGS))
       .min(1)
@@ -100,53 +126,95 @@ const OidcConfigSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Require the JOSE `typ` header to be `at+jwt` (RFC 9068), rejecting `JWT` and a missing `typ`. Default false, because several IdPs emit pre-RFC-9068 access tokens (Entra `JWT`, Keycloak `Bearer`); with it off, `at+jwt`, `JWT`, `Bearer` and an absent `typ` are accepted and every other `typ` (for example `id_token+jwt`) is refused. Turn it on when your IdP issues RFC 9068 tokens.",
+        "Require the JOSE `typ` header to be `at+jwt` (RFC 9068), rejecting `JWT` and a missing `typ`. Default false, because several IdPs emit pre-RFC-9068 access tokens (Entra and Keycloak send `JWT`); with it off, `at+jwt`, `JWT`, `Bearer` and an absent `typ` are accepted and every other header `typ` (for example `id_token+jwt`) is refused. Independently of this flag, a token that names itself a non-access token is refused: a payload `typ` other than `Bearer`/`Access` (Keycloak ID and Refresh tokens), a `nonce`, `at_hash` or `c_hash` claim (ID-token markers), or a `token_use` other than `access` (Cognito). Turn the flag on when your IdP issues RFC 9068 tokens.",
       ),
     claimMapping: z
       .strictObject({
-        subject: z
-          .string()
-          .min(1)
-          .default("sub")
-          .describe("Claim naming the caller. Required on every token."),
-        scopes: z
-          .string()
-          .min(1)
-          .default("scope")
-          .describe(
-            "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings. Only this claim grants scopes. The values must be obsidian-tc scope names (e.g. `read:notes`); define them at the IdP.",
-          ),
-        principal: z
-          .string()
-          .min(1)
+        subject: ClaimPathSchema.default("sub").describe(
+          "Claim naming the caller. Required on every token.",
+        ),
+        scopes: ClaimPathSchema.default("scope").describe(
+          "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings (`permissions`, `realm_access.roles`). Only this claim grants scopes, and only FULLY-QUALIFIED values (`read:notes`, `write:*`) are taken from it: a bare value such as the role `admin` is dropped (and logged once) unless `scopeMap` maps it, because obsidian-tc reads a bare family name as a wildcard over every resource.",
+        ),
+        scopeMap: z
+          .record(
+            z.string().min(1),
+            z
+              .array(
+                z.string().refine(isQualifiedScope, {
+                  message:
+                    "must be a fully-qualified scope: a family (read, write, delete, execute, admin, bulk), a colon, a resource (for example `read:notes`)",
+                }),
+              )
+              .min(1),
+          )
           .optional()
           .describe(
-            "Optional claim used as the caller label in audit and logs instead of the subject (for example `email`). It does not affect authentication.",
+            'Optional. Maps a value of the scopes claim (an IdP role or group name) to the obsidian-tc scopes it grants, e.g. `{ vault_admin: ["admin:auth"], reader: ["read:notes", "read:search"] }`. A mapped value grants exactly its list; an unmapped, non-qualified value grants nothing.',
           ),
-        vault: z
-          .string()
-          .min(1)
+        principal: ClaimPathSchema.optional().describe(
+          "Optional claim used as the caller label in audit and logs instead of the subject (for example `email`). It does not affect authentication.",
+        ),
+        vault: ClaimPathSchema.optional().describe(
+          "Optional claim binding the caller to one vault, as the `vault` claim does in jwt mode. Requires `allowedVaults`: a value outside it refuses the token. Unset: no vault claim is read.",
+        ),
+        allowedVaults: z
+          .array(z.string().min(1))
           .optional()
           .describe(
-            "Optional claim binding the caller to one vault, as the `vault` claim does in jwt mode. Unset: no vault claim is read.",
+            "Vault ids the `vault` claim may name. Required when `vault` is set; a token naming any other vault (or a non-string) is refused, not ignored.",
           ),
-        persona: z
-          .string()
-          .min(1)
+        persona: ClaimPathSchema.optional().describe(
+          "Optional claim naming a configured persona, as the `persona` claim does in jwt mode (the persona's scopes replace the token's). Requires `allowedPersonas`. Unset: no persona claim is read.",
+        ),
+        allowedPersonas: z
+          .array(z.string().min(1))
           .optional()
           .describe(
-            "Optional claim naming a configured persona, as the `persona` claim does in jwt mode (the persona's scopes replace the token's). Unset: no persona claim is read.",
+            "Persona names the `persona` claim may name. Required when `persona` is set; a token naming any other persona (or a non-string) is refused, not ignored.",
           ),
+      })
+      .superRefine((m, ctx) => {
+        // A persona or vault claim is a bearer capability (a persona REPLACES the token's scopes; a
+        // vault claim picks the vault): reading one without an operator-written allowlist would let
+        // the IdP's claim, not the operator, decide what exists.
+        if (
+          m.persona !== undefined &&
+          (m.allowedPersonas === undefined || m.allowedPersonas.length === 0)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["allowedPersonas"],
+            message:
+              "claimMapping.persona is set: list the persona names it may carry in claimMapping.allowedPersonas",
+          });
+        }
+        if (
+          m.vault !== undefined &&
+          (m.allowedVaults === undefined || m.allowedVaults.length === 0)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["allowedVaults"],
+            message:
+              "claimMapping.vault is set: list the vault ids it may carry in claimMapping.allowedVaults",
+          });
+        }
       })
       .default({ subject: "sub", scopes: "scope" })
       .describe(
-        "Where the identity comes from. A value is a claim name, or a dotted path into nested claims (`realm_access.roles`); a claim whose own name contains dots (a namespaced URL) is matched exactly first.",
+        'Where the identity comes from. A string value is a claim name or a dotted path into NESTED claims (`realm_access.roles`); a claim whose own name contains dots (a namespaced URL) is written as an array of literal segments, `["https://app.example.com/roles"]`.',
       ),
     requiredClaims: z
-      .array(z.string().min(1))
+      .union([
+        z.array(ClaimPathSchema),
+        z
+          .record(z.string().min(1), z.union([z.string(), z.number(), z.boolean()]))
+          .refine((r) => Object.keys(r).length > 0, { message: "must name at least one claim" }),
+      ])
       .optional()
       .describe(
-        "Extra claims that must be present. `exp`, `iat`, `iss`, `aud` and the subject claim are always required.",
+        'Extra claims a token must carry. An array of claim names requires a truthy, non-empty value (`null`, `false`, `0`, `""`, `[]` and `{}` fail, so `email_verified: false` does not satisfy `["email_verified"]`). An object maps a claim to the exact value it must have (`{ email_verified: true, hd: "example.com" }`; an array claim satisfies it when it contains the value). `exp`, `iat`, `iss`, `aud` and the subject claim are always required.',
       ),
   })
   .describe(

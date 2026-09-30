@@ -9,6 +9,9 @@ import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
 export const ISSUER = "https://idp.test";
 export const AUDIENCE = "https://vault.example.com/mcp";
 
+/** The mock IdP's `idp.test` is not real DNS: a resolver that answers with a public address. */
+export const publicResolver = async (): Promise<string[]> => ["93.184.216.34"];
+
 type SignKey = Awaited<ReturnType<typeof generateKeyPair>>["privateKey"];
 
 export interface MockIdp {
@@ -21,7 +24,9 @@ export interface MockIdp {
   /** Replace the discovery document (merged over the default one). */
   setDiscovery(patch: Record<string, unknown> | null): void;
   /** Serve this raw body (instead of the JWKS) with this status, or restore with `null`. */
-  setJwksResponse(r: { status?: number; body?: string; hang?: boolean } | null): void;
+  setJwksResponse(
+    r: { status?: number; body?: string; hang?: boolean; headers?: Record<string, string> } | null,
+  ): void;
   setDiscoveryResponse(
     r: { status?: number; body?: string; headers?: Record<string, string>; hang?: boolean } | null,
   ): void;
@@ -43,7 +48,12 @@ export async function startMockIdp(): Promise<MockIdp> {
   const publicJwk: JWK = { ...(await exportJWK(publicKey)), kid: "k1", alg: "ES256", use: "sig" };
   const extra: JWK[] = [];
   let discoveryPatch: Record<string, unknown> | null = null;
-  let jwksResp: { status?: number; body?: string; hang?: boolean } | null = null;
+  let jwksResp: {
+    status?: number;
+    body?: string;
+    hang?: boolean;
+    headers?: Record<string, string>;
+  } | null = null;
   let discoveryResp: {
     status?: number;
     body?: string;
@@ -80,7 +90,10 @@ export async function startMockIdp(): Promise<MockIdp> {
       hits.jwks++;
       if (jwksResp?.hang) return;
       if (jwksResp) {
-        res.writeHead(jwksResp.status ?? 200, { "content-type": "application/json" });
+        res.writeHead(jwksResp.status ?? 200, {
+          "content-type": "application/json",
+          ...jwksResp.headers,
+        });
         res.end(jwksResp.body ?? "");
         return;
       }

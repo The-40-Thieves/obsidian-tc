@@ -21,7 +21,10 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `auth.requireJti` cover them through the same registry. With `auth.resource` set, Protected Resource
   Metadata advertises the issuer as the authorization server. Verification only: there is still no
   authorization server. New rejection reasons: `token_not_yet_valid`, `invalid_token_type`,
-  `client_mismatch`, `idp_unavailable`. See `docs/src/content/docs/security/auth-model.md`.
+  `client_mismatch`, `idp_unavailable`, `claim_not_allowed`. See `docs/src/content/docs/security/auth-model.md`.
+  Review hardening of the same block: `claimMapping.scopeMap` (role to scopes), `allowedPersonas` /
+  `allowedVaults`, array-form claim paths, object-form `requiredClaims`, `allowedJwksHosts` and
+  `allowPrivateNetwork`.
 
 - **Signing-key rotation grace window, asymmetric keys and a JWKS.** `auth.rotationGraceSeconds`
   (default 0, maximum 7 days) is the grace window `auth rotate-key` uses when `--grace` is omitted;
@@ -128,6 +131,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   refused once it carries that jti.
 
 ### Security
+
+- **OIDC review fixes (before first release of `auth.mode: "oidc"`).** (1) A lost or partly lost auth
+  registry now refuses every token in `oidc` AND `jwt` mode, including tokens with no `jti`, which were
+  never looked up. (2) ID and refresh tokens are refused by payload as well as header: a `typ` other than
+  `Bearer`, a `nonce`/`at_hash`/`c_hash` claim, or a Cognito `token_use` other than `access`; a non-string
+  header `typ` is refused. (3) Only fully-qualified scopes (`read:notes`) are taken from the scopes claim,
+  so an IdP role named `admin` or `read` no longer becomes a family wildcard; map roles with
+  `claimMapping.scopeMap`. (4) The discovered `jwks_uri` must share the issuer's origin (or be in
+  `allowedJwksHosts`), carry no credentials, and no provider fetch goes to a loopback, link-local, private or
+  reserved address unless `allowPrivateNetwork` is true. (5) A dotted claim path walks nested objects only;
+  a top-level claim with dots in its name needs the array form. (6) `claimMapping.persona` / `vault` require
+  `allowedPersonas` / `allowedVaults`, and any other value refuses the token. (7) `requiredClaims` checks
+  values: a name list needs a truthy, non-empty value, an object needs an exact one. Breaking for
+  unreleased configs only: a `scopes` mapping that relied on bare role names, a namespaced claim written as a
+  string, or a `persona`/`vault` mapping without an allowlist now needs the forms above.
 
 - **OIDC verification is fail-closed.** The `oidc` mode refuses to boot without a discoverable identity
   provider, accepts only algorithms from an asymmetric allowlist chosen by configuration (an HS256 token
