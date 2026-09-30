@@ -19,7 +19,8 @@ function burnQuadratic(s: string): void {
   sink.n = (sink.n + acc) & 0xffff;
 }
 
-describe("expectLinear", () => {
+// The quadratic case burns ~1 s at its largest size (more on a slow runner): past the 5 s default.
+describe("expectLinear", { timeout: 60_000 }, () => {
   it("accepts a linear subject", () => {
     expectLinear("x", burnLinear, { baseBytes: 1024, boundMsPer80KB: null });
   });
