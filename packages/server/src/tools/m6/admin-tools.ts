@@ -12,8 +12,10 @@ import { z } from "zod";
 import type { Database } from "../../db/types";
 import { fingerprintTargets } from "../../elicit-drift";
 import { argsHash } from "../../hash";
-import type { ToolDefinition } from "../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { explainVisibility } from "../../mcp/visibility";
+import { deriveRrfK, resolveRetrievalDefaults } from "../../search/retrieval-defaults";
+import { readVaultIndexStats } from "../../search/vault-index-stats";
 import { evaluatePathAcl, pathScopesSatisfied } from "../../vault/acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
 import { intersectReplayScopes } from "../../workspace/rerun";
@@ -135,6 +137,11 @@ function scopeFamilyGranted(scopes: string[], op: string): boolean {
 // is t.tiers.bulk.burst, not a distinct config value).
 const TierLimits = z.object({ perMinute: z.number(), burst: z.number() });
 
+const DefaultResolution = z.object({
+  value: z.number(),
+  source: z.enum(["call", "config", "derived", "default"]),
+});
+
 const GetServerConfigOutput = z.object({
   version: z.string(),
   auth_mode: z.enum(["none", "jwt"]),
@@ -167,6 +174,26 @@ const GetServerConfigOutput = z.object({
     morgiana_enabled: z.boolean(),
   }),
   plugins_detected: z.record(z.string(), z.array(z.string())),
+  retrieval_defaults: z.object({
+    derived_defaults_enabled: z.boolean(),
+    knn_min_sim: DefaultResolution,
+    vaults: z.array(
+      z.object({
+        id: z.string(),
+        rrf_k: DefaultResolution,
+        derived_rrf_k: z.number().nullable(),
+        index_stats: z
+          .object({
+            chunk_count: z.number(),
+            note_count: z.number(),
+            edge_count: z.number(),
+            avg_chunks_per_note: z.number(),
+            edges_per_note: z.number(),
+          })
+          .nullable(),
+      }),
+    ),
+  }),
 });
 
 /** inspect_acl: five early returns that TypeScript widens to one shape (same pattern as m7/m8's
@@ -295,6 +322,37 @@ const SessionRerunOutput = z.object({
   }),
 });
 
+/** retrieval_defaults: per vault, the rrfK in effect and which source won, the measured stats, and
+ *  what the derivation would give with the flag on. Uses the SAME resolver graphSearch does. */
+function retrievalDefaultsReport(
+  cfg: M6Deps["retrieval"],
+  db: CallerContext["db"],
+  vaults: Array<{ id: string }>,
+) {
+  const knn = resolveRetrievalDefaults(null, { knnMinSim: cfg?.knnMinSim }).knnMinSim;
+  return {
+    derived_defaults_enabled: cfg?.derivedDefaults === true,
+    knn_min_sim: knn,
+    vaults: vaults.map((v) => {
+      const stats = readVaultIndexStats(db, v.id);
+      return {
+        id: v.id,
+        rrf_k: resolveRetrievalDefaults(stats, cfg).rrfK,
+        derived_rrf_k: deriveRrfK(stats),
+        index_stats: stats
+          ? {
+              chunk_count: stats.chunkCount,
+              note_count: stats.noteCount,
+              edge_count: stats.edgeCount,
+              avg_chunks_per_note: stats.avgChunksPerNote,
+              edges_per_note: stats.edgesPerNote,
+            }
+          : null,
+      };
+    }),
+  };
+}
+
 export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -351,6 +409,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
             morgiana_enabled: deps.observability.morgiana,
           },
           plugins_detected: pluginsDetected,
+          retrieval_defaults: retrievalDefaultsReport(deps.retrieval, ctx.db, vaultsForOutput),
         };
       },
     }),

@@ -84,7 +84,7 @@ export function createKnowledgeSearchTool(
       if (asOf !== undefined && route.class === "lexical") {
         route = { class: "standard", signals: route.signals };
       }
-      const policy = capturePolicy(deps, v.id, route.class);
+      const policy = capturePolicy(v.id, route.class);
       const coverage = captureCoverage();
       if (route.class === "lexical") {
         // THE-853: resolve the caller's ACL partition so the lexical-route bm25Chunks call takes

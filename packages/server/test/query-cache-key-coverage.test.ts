@@ -80,6 +80,9 @@ const BASE: Omit<GraphSearchOptions, "queryVec"> = {
   densify: { includeInWalk: true, derivedWeight: 0.5 },
   fusionMode: "graph_rrf",
   rrfK: 10,
+  // ADR-0007: a stat-derived k changes the fused order, so the flag is part of the key (the stats it
+  // reads are already covered by the vault generation).
+  derivedDefaults: true,
   rerankPool: 40,
   adaptiveRrf: { enabled: true, gain: 0.5 },
   lexical: { enabled: true, count: 30 },
@@ -120,6 +123,7 @@ const MUTATIONS: Array<[string, Partial<Omit<GraphSearchOptions, "queryVec">>]> 
   ["densify", { densify: { includeInWalk: false, derivedWeight: 0.5 } }],
   ["fusionMode", { fusionMode: "convex" }],
   ["rrfK", { rrfK: 60 }],
+  ["derivedDefaults", { derivedDefaults: false }],
   ["rerankPool", { rerankPool: 41 }],
   ["adaptiveRrf", { adaptiveRrf: { enabled: true, gain: 0.4 } }],
   ["lexical", { lexical: { enabled: false, count: 30 } }],

@@ -145,7 +145,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
             readUnrestricted: readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes),
           })
         : { class: "standard" as const, signals: [] as string[] };
-      const policy = capturePolicy(deps, v.id, route.class);
+      const policy = capturePolicy(v.id, route.class);
       let results: GraphSearchResult[];
       if (route.class === "lexical") {
         results = lexicalRouteResults(

@@ -39,6 +39,22 @@ describe("THE-518 config provenance", () => {
     expect(find(e, "retrieval.rrfK")).toMatchObject({ value: 10, source: "default" });
   });
 
+  it("ADR-0007: an unset rrfK under retrieval.derivedDefaults is attributed to derivation, not to a constant", () => {
+    const e = explainConfig(base({ retrieval: { derivedDefaults: true } }), { env: {} });
+    expect(find(e, "retrieval.rrfK")).toMatchObject({ source: "derived" });
+    expect(find(e, "retrieval.derivedDefaults")).toMatchObject({ value: true, source: "file" });
+    // An explicit value still wins over the flag.
+    const explicit = explainConfig(base({ retrieval: { derivedDefaults: true, rrfK: 60 } }), {
+      env: {},
+    });
+    expect(find(explicit, "retrieval.rrfK")).toMatchObject({ value: 60, source: "file" });
+  });
+
+  it("ADR-0007: knnMinSim, also unset-by-default now, is still explained", () => {
+    const e = explainConfig(base(), { env: {} });
+    expect(find(e, "retrieval.densify.knnMinSim")).toMatchObject({ value: 0, source: "default" });
+  });
+
   it("attributes an env-supplied value to the env, naming the variable", () => {
     const e = explainConfig(base(), { env: { OBSIDIAN_TC_JWT_SECRET: SECRET_A } });
     const entry = find(e, "auth.jwtSecret");

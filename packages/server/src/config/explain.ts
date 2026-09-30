@@ -19,6 +19,7 @@
 
 import { isAbsolute } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { DEFAULT_KNN_MIN_SIM, DEFAULT_RRF_K } from "../search/retrieval-defaults";
 import { applyEnvOverlays, finalizeConfig } from "./load";
 import { applySecurityProfile } from "./security-profile";
 
@@ -150,6 +151,29 @@ export function explainConfig(
       source,
       ...(detail !== undefined ? { detail } : {}),
       ...(secret ? { redacted: true } : {}),
+    });
+  }
+
+  // ADR-0007 class (b): these keys have no schema default — an unset value is a RESOLVER decision
+  // (explicit > derived > constant), so the resolved config simply omits them and the loop above
+  // never sees them. Report them anyway: "why is rrfK 10 when my config never mentions it" must
+  // still get an answer, and under retrieval.derivedDefaults the honest answer is "it depends on
+  // the vault" (get_server_config's retrieval_defaults block gives the per-vault value).
+  const present = new Set(entries.map((e) => e.path));
+  if (!present.has("retrieval.rrfK")) {
+    const derived = resolved.retrieval?.derivedDefaults === true;
+    entries.push({
+      path: "retrieval.rrfK",
+      value: derived ? "derived per vault from index stats" : DEFAULT_RRF_K,
+      source: derived ? "derived" : "default",
+      ...(derived ? { detail: "retrieval.derivedDefaults is on; see get_server_config" } : {}),
+    });
+  }
+  if (!present.has("retrieval.densify.knnMinSim")) {
+    entries.push({
+      path: "retrieval.densify.knnMinSim",
+      value: DEFAULT_KNN_MIN_SIM,
+      source: "default",
     });
   }
 

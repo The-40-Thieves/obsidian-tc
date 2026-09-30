@@ -64,6 +64,7 @@ export async function run_gaps(cmd: Cmd<"gaps">): Promise<void> {
     provider,
     vaultId,
     ...(cfg.retrieval?.rrfK !== undefined ? { rrfK: cfg.retrieval.rrfK } : {}),
+    ...(cfg.retrieval?.derivedDefaults ? { derivedDefaults: true } : {}),
   });
   try {
     if (cmd.calibrate) {

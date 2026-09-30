@@ -660,6 +660,13 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     },
     embeddingsProvider: config.embeddings.provider,
     governorMaxResponseBytes: config.governor.maxResponseBytes,
+    retrieval: {
+      ...(config.retrieval.rrfK !== undefined ? { rrfK: config.retrieval.rrfK } : {}),
+      ...(config.retrieval.densify.knnMinSim !== undefined
+        ? { knnMinSim: config.retrieval.densify.knnMinSim }
+        : {}),
+      derivedDefaults: config.retrieval.derivedDefaults,
+    },
     capabilities: (vaultId) => deps.capabilities.get(vaultId),
     registeredTools: () => registry.list().length,
     // THE-645 item 2. Lazy for the same reason registeredTools is: M6 is registered onto this

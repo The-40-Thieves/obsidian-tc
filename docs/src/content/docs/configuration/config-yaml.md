@@ -78,7 +78,7 @@ until this generator existed, by which point five entire defaulted blocks had go
     }
   },
   "retrieval": {
-    "rrfK": 10,
+    "derivedDefaults": false,
     "classRouter": false,
     "sparse": false,
     "colbert": false,
@@ -100,7 +100,6 @@ until this generator existed, by which point five entire defaulted blocks had go
       "maxTagFanout": 25,
       "knnEdges": false,
       "knnK": 8,
-      "knnMinSim": 0,
       "includeInWalk": false,
       "derivedWeight": 0.5,
       "llmEdges": false,

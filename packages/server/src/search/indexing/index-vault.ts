@@ -39,6 +39,7 @@ import {
 } from "../fts";
 import { bumpGeneration } from "../generation";
 import { deleteNoteSummary } from "../note-summaries";
+import { resolveRetrievalDefaults } from "../retrieval-defaults";
 import { ensureChunkSparse } from "../sparse";
 import { ensureVecChunks } from "../vec";
 import {
@@ -642,7 +643,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
         }
       }
 
-      const knnOpts = { k: args.densify?.knnK ?? 8, minSim: args.densify?.knnMinSim ?? 0 };
+      // ADR-0007: the floor's constant lives in retrieval-defaults.ts. No stat derives it (the index
+      // records no neighbour-similarity distribution), so this resolves config > constant only.
+      const knnOpts = {
+        k: args.densify?.knnK ?? 8,
+        minSim: resolveRetrievalDefaults(null, { knnMinSim: args.densify?.knnMinSim }).knnMinSim
+          .value,
+      };
       if (!densifyKnnRequested) {
         reconcileDerivedEdges(args.db, args.vaultId, [], ["similar_to"], now);
       } else if (countDerivedEdges(args.db, args.vaultId, "similar_to") === 0) {

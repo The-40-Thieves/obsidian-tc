@@ -30,6 +30,7 @@ import type { EmbeddingProvider } from "../embeddings/provider";
 import { EgressViolationError } from "../plane/egress-filter";
 import { cosineSimilarity } from "../search/native";
 import { createQueryEncoder } from "../search/query-encoder";
+import { DEFAULT_RRF_K } from "../search/retrieval-defaults";
 
 export interface EpisodeSemanticCandidate {
   id: string;
@@ -105,8 +106,6 @@ export async function semanticRankEpisodes(
   scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return scored.map((s) => s.id);
 }
-
-const DEFAULT_RRF_K = 10;
 
 /**
  * Reciprocal Rank Fusion over N ranked id lists (rank is 1-based position within each list): every

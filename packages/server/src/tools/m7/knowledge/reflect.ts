@@ -64,7 +64,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             readUnrestricted: readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes),
           })
         : { class: "standard" as const, signals: [] as string[] };
-      const policy = capturePolicy(deps, v.id, route.class);
+      const policy = capturePolicy(v.id, route.class);
       let results: GraphSearchResult[];
       if (route.class === "lexical") {
         // THE-853: resolve the caller's ACL partition so the lexical-route bm25Chunks call takes

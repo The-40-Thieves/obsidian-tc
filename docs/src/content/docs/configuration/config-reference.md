@@ -330,10 +330,11 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `retrieval.densify.includeInWalk` | `boolean` | `false` |  | Let the graph walk traverse derived edges, down-weighted against authored links. |
 | `retrieval.densify.knnEdges` | `boolean` | `false` |  | Emit vec0 kNN semantic-neighbour edges (edge_type similar_to). |
 | `retrieval.densify.knnK` | `number` | `8` |  | Number of neighbours per note when knnEdges is enabled. |
-| `retrieval.densify.knnMinSim` | `number` | `0` |  | Drop kNN edges below this cosine similarity. 0 keeps every neighbour the kNN returns. |
+| `retrieval.densify.knnMinSim` | `number` | — |  | Drop kNN edges below this cosine similarity. Unset means 0, which keeps every neighbour the kNN returns. |
 | `retrieval.densify.llmEdges` | `boolean` | `false` |  | Build LLM-inferred semantic edges (semantically_similar_to) via the configured gateway. Batch-only, and it sends note content to the model — local by default. |
 | `retrieval.densify.maxTagFanout` | `number` | `25` |  | A tag applied to more notes than this is treated as a hub rather than a signal and emits no edges. |
 | `retrieval.densify.tagEdges` | `boolean` | `false` |  | Emit shared-frontmatter-tag co-occurrence edges (edge_type shared_tag). |
+| `retrieval.derivedDefaults` | `boolean` | `false` |  | Derive stat-conditional retrieval defaults (today: rrfK, from the vault's chunk count versus the seed-stream depth) from each vault's measured index statistics instead of one constant. An explicit rrfK always wins. Ships dark pending multi-shape evidence (ADR-0007); off is byte-identical to the shipped constants. |
 | `retrieval.gatedRerank` | `boolean` | `false` |  | Gate a cross-encoder rerank of the fused top-K onto hard queries only (weak top-1 seed, router silent). A no-op without a configured reranker (model-tier BGE or the gateway /rerank passthrough). |
 | `retrieval.gatedRerankHardness.hardTop1` | `number` | `0.55` |  | Cosine mode: a query is hard when the top-1 seed cosine is below this. |
 | `retrieval.gatedRerankHardness.hardZ` | `number` | `1` |  | z-margin mode: a query is hard when the top-1 z-score over the seed-cosine pool is below this. 1.0 matches the eval harness's long-standing default. |
@@ -343,7 +344,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `retrieval.graphStream.expansionSeeds` | `number` | `8` |  | Expand only from the top-N seeds by score. |
 | `retrieval.graphStream.hubDegreeCap` | `number` | `40` |  | Drop expansion candidates whose authored degree exceeds this, so index and dashboard pages cannot flood the fused ranking. Counts literal edges only — counting derived edges would let densification inflate every degree and suppress the bridges it exists to surface. |
 | `retrieval.graphStream.perSeedCap` | `number` | `3` |  | Maximum expansion candidates any single seed may contribute. |
-| `retrieval.rrfK` | `number` | `10` |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. |
+| `retrieval.rrfK` | `number` | — |  | Reciprocal-rank-fusion constant for graph_rrf. Keep BELOW the stream pool size (~30): a larger k lets overlapping low-rank noise outrank confident single-stream hits. Unset means 10, or the value derived from the vault's measured index stats when derivedDefaults is on; setting it always wins over both. |
 | `retrieval.sparse` | `boolean` | `false` |  | Fuse a bge-m3 learned-sparse stream into RRF at serve time. A no-op unless the embeddings provider emits the multi-vector heads (bge-m3 or model-tier). |
 | `retrieval.summaries.clusters.enabled` | `boolean` | `false` |  | Generate + retrieve cluster-level (tier-2/RAPTOR) summaries. Off ships the mechanism dark: zero gateway/embed calls at the offline cluster pass, no cluster_summary candidates at retrieval time. Gated on the SAME pre-registered global-query eval as the note-level tier. |
 | `retrieval.summaries.clusters.maxConcurrency` | `number` | `12` |  | In-flight extract() calls across clusters during a cluster-summary pass. Same 8-16 recommended range as the note-level tier. |

@@ -100,7 +100,7 @@ export async function searchOneVault(
   if (query.asOf !== undefined && route.class === "lexical") {
     route = { class: "standard", signals: route.signals };
   }
-  const policy = capturePolicy(deps, vaultId, route.class);
+  const policy = capturePolicy(vaultId, route.class);
   const coverage = captureCoverage();
   if (route.class === "lexical") {
     // THE-853: resolve THIS LEG's own ACL partition (never ctx.acl — see this file's header,
@@ -186,11 +186,6 @@ export async function searchOneVault(
     ...(fanOut && failedVariants > 0 ? { failedVariants } : {}),
   };
 }
-
-// THE-630 fan-out convention (same rrfK default as THE-448's fuseVariants, kept local so this
-// tool's cross-vault fusion does not silently drift from graph_search's own in-query rrfK default
-// without a deliberate override).
-const FEDERATED_RRF_K = 10;
 
 export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime): ToolDefinition {
   return defineTool({
@@ -346,7 +341,9 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
       const { legOutcomes, fused } = await federatedGraphSearch(
         legs,
         input.final_top_k,
-        { rrfK: FEDERATED_RRF_K },
+        // No rrfK: federatedGraphSearch resolves the same shared constant (retrieval-defaults.ts) as
+        // THE-448's fuseVariants, so the tool's cross-vault fusion cannot drift from it.
+        undefined,
         (event) => {
           if (event.outcome === "swallowed_error") failedVaults += 1;
         },

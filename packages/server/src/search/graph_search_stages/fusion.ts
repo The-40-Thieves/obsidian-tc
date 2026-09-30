@@ -91,6 +91,7 @@ export function fuseScores(input: FusionInput): FusionResult {
     dense: denseW,
     lex: lexW,
     sparse: sparseW,
+    rrfK,
   });
 
   // Expansion carries the SEMANTIC-side weight, same as the seeds: both are cosine evidence on

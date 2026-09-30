@@ -24,6 +24,9 @@ export interface M7Deps {
   /** THE-397: config-driven retrieval knobs (config.retrieval); absent -> graphSearch defaults. */
   retrieval?: {
     rrfK?: number;
+    /** ADR-0007 class (b): derive stat-conditional defaults (rrfK) from measured index stats.
+     *  Absent/false -> the shipped constants. */
+    derivedDefaults?: boolean;
     sparse?: boolean;
     colbert?: boolean;
     densify?: { includeInWalk?: boolean; derivedWeight?: number };
