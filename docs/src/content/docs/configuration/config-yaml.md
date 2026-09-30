@@ -146,6 +146,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `snapshots.retention` | 10 | Versions kept per note (max 1000). |
 | `toolFacade.mode` | `triad` | What `tools/list` advertises: `triad` (3 meta-tools), `domain` (~a dozen domain meta-tools), `flat` (everything), `auto` (per-client, provisional — see Tool Reference). All tools stay callable by name in every mode. |
 | `toolFacade.autoClients` | *(optional)* | Only used when `mode` is `auto`: substring-of-clientInfo.name -> mode overrides, checked before the built-in table. |
+| `toolFacade.explainAutoMode` | `false` | Only used when `mode` is `auto`: log one structured explain line per resolution and return it as the `explanation` field of `server_health`'s `toolFacade` block. Observability only; the chosen mode is unchanged. |
 | `toolVisibility.allowed` | *(optional)* | Name allowlist for `tools/list` (absent = all; `[]` = none). |
 | `toolVisibility.hidden` / `hiddenTags` | `[]` | Drop from `tools/list` but keep callable (lean surface, not a security boundary). Tags are the fixed vocabulary in [Tool tags](/tools/#tool-tags), e.g. `destructive`, `bulk`, `external-network`. |
 | `toolVisibility.disabled` / `disabledTags` | `[]` | Drop from the list **and** reject at dispatch. Same tag vocabulary. |

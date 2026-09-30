@@ -55,6 +55,8 @@ export function createMetricsApp(opts: MetricsEndpointOptions): Hono {
             // service, or by another issuer, must not scrape this one.
             audience: effectiveAudience(opts.auth),
             issuer: opts.auth.issuer,
+            // The same algorithm allowlist as the MCP edge: `["EdDSA"]` refuses HS256 here too.
+            algorithms: opts.auth.algorithms,
             requireJti: opts.auth.requireJti,
           })
         : undefined;

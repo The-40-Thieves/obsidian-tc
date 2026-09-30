@@ -17,7 +17,7 @@ import type { RateLimiter } from "../../throttle";
 import type { AclOp } from "../../vault/acl-path";
 import type { TraceRecord } from "../../workspace/sessions";
 import type { ClientInfo } from "../client-info";
-import type { FacadeMode } from "../facade-mode";
+import type { AutoFacadeExplanation, FacadeMode } from "../facade-mode";
 import type { EffectiveToolVisibilityConfig } from "../visibility";
 
 // WP4.1: this file holds registry.ts's public types and pure declarations — no behaviour, no
@@ -113,6 +113,10 @@ export interface CallerContext {
    *  same connection. Read by server_health's `toolFacade.effective`; absent only for a caller that
    *  never went through that handler (e.g. a bare unit test of a tool's own handler). */
   effectiveFacadeMode?: FacadeMode;
+  /** `toolFacade.explainAutoMode`: why `effectiveFacadeMode` was chosen for this connection. Set by
+   *  the same `tools/call` handler, and ONLY when the flag is on and the mode is "auto"; read by
+   *  server_health's `toolFacade.explanation`. Pure observability, never an input to dispatch. */
+  facadeExplanation?: AutoFacadeExplanation;
   /** THE-647 item 2: the resolved persona name, when the token carried a `persona` claim that
    *  resolved against the server's `personas` config (auth/persona.ts). Present for tracing/audit
    *  only — dispatch never branches on the STRING; `grantedScopes`/`vaultId`/`toolVisibility`

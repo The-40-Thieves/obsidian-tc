@@ -93,6 +93,17 @@ export const ToolFacadeConfigSchema = z.object({
     .describe(
       'Only used when mode is "auto". Maps a case-insensitive substring of the connecting client\'s clientInfo.name to a facade mode; checked in this object\'s own key order, before the server\'s built-in table, so an entry here overrides the same substring there. Absent clientInfo.name (most callers today) always falls back to "triad".',
     ),
+  // Pure observability over `mode: "auto"` — never changes which mode a client gets. When true, each
+  // auto resolution writes one structured `toolFacade.explain` JSON line to stderr and
+  // server_health's `toolFacade.explanation` returns the calling client's explanation (signals
+  // consulted, the rule that fired, the mode chosen). Server-level like the rest of `toolFacade`:
+  // the facade decision is per connecting client, not per vault.
+  explainAutoMode: z
+    .boolean()
+    .default(false)
+    .describe(
+      'Only meaningful when mode is "auto". Explain the auto-mode decision without changing it: one structured `toolFacade.explain` log line per resolution (client name, matched rule, chosen mode) and `server_health`\'s `toolFacade.explanation` for the calling client. Default false.',
+    ),
   // Deployment-level and orthogonal to `mode` above: `mode` picks what a given SESSION is
   // advertised, `profile` picks which tools are VISIBLE and CALLABLE at all, resolved once
   // when the registry is built. Registration itself is profile-invariant — every tool is always

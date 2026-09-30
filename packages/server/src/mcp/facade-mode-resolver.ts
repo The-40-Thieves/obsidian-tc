@@ -22,27 +22,45 @@
 import type { Server } from "@modelcontextprotocol/server";
 import { clientInfoFromFields, extractClientInfo } from "./client-info";
 import { sanitizeDisplayText } from "./elicit-form";
-import { resolveAutoFacadeMode } from "./facade-auto";
-import type { FacadeMode } from "./facade-mode";
+import { explainAutoFacadeMode, resolveAutoFacadeMode } from "./facade-auto";
+import type { AutoFacadeExplanation, FacadeMode } from "./facade-mode";
 
 /**
- * De-duplicates the info-level resolution log across every `createFacadeModeResolver` call in this
+ * De-duplicates a process-wide stderr log across every `createFacadeModeResolver` call in this
  * PROCESS (module scope, not per-resolver-instance) — HTTP constructs a fresh resolver per request,
  * so a per-instance set would still emit one line per request for the same client. Bounded on TWO
- * axes: each entry is capped at MAX_LOGGED_CLIENT_NAME_LEN bytes (the per-entry length), and the
- * SET ITSELF is capped at MAX_LOGGED_RESOLUTIONS entries (THE-1123 review fix — the per-entry cap
- * alone does not bound the COUNT of entries: an authenticated HTTP caller sending a fresh forged
- * clientInfo.name on every request grows this Set by one ~160-byte entry per request, unbounded,
- * for the life of the process — a memory-growth DoS). 256 is plenty: the key space that matters in
- * practice is a handful of real clients x a handful of configured/effective-mode combinations: once
- * hit, adding and logging both stop (an already-logged key still dedupes silently, same as always),
- * and ONE final notice line is written so an operator sees the log went quiet rather than assuming
- * nothing more happened.
+ * axes: each key is built by the caller from length-capped parts, and the SET ITSELF is capped at
+ * MAX_LOGGED_RESOLUTIONS entries (THE-1123 review fix — the per-entry cap alone does not bound the
+ * COUNT of entries: an authenticated HTTP caller sending a fresh forged clientInfo.name on every
+ * request grows this Set by one entry per request, unbounded, for the life of the process — a
+ * memory-growth DoS). 256 is plenty: the key space that matters in practice is a handful of real
+ * clients x a handful of configured/effective-mode combinations: once hit, adding and logging both
+ * stop (an already-logged key still dedupes silently, same as always), and ONE final notice line is
+ * written so an operator sees the log went quiet rather than assuming nothing more happened.
  */
-const loggedFacadeResolutions = new Set<string>();
 const MAX_LOGGED_CLIENT_NAME_LEN = 128; // matches client-info.ts's own MAX_LEN
 const MAX_LOGGED_RESOLUTIONS = 256;
-let loggedResolutionsCapNoticeWritten = false;
+
+function createOnceLogger(label: string): (key: string, line: string) => void {
+  const seen = new Set<string>();
+  let capNoticeWritten = false;
+  return (key, line) => {
+    if (seen.has(key)) return;
+    if (seen.size >= MAX_LOGGED_RESOLUTIONS) {
+      if (capNoticeWritten) return;
+      capNoticeWritten = true;
+      process.stderr.write(
+        `obsidian-tc toolFacade: ${label} log capped at ${MAX_LOGGED_RESOLUTIONS} distinct keys\n`,
+      );
+      return;
+    }
+    seen.add(key);
+    process.stderr.write(line);
+  };
+}
+
+const logResolutionOnce = createOnceLogger("resolution");
+const logExplanationOnce = createOnceLogger("explanation");
 
 function logFacadeResolutionOnce(
   configured: string,
@@ -56,20 +74,19 @@ function logFacadeResolutionOnce(
   // and the HITL confirmation text) strips exactly that class and caps the length.
   const name =
     rawName === undefined ? "(none)" : sanitizeDisplayText(rawName, MAX_LOGGED_CLIENT_NAME_LEN);
-  const key = `${configured}\u0000${name}\u0000${effective}`;
-  if (loggedFacadeResolutions.has(key)) return;
-  if (loggedFacadeResolutions.size >= MAX_LOGGED_RESOLUTIONS) {
-    if (loggedResolutionsCapNoticeWritten) return;
-    loggedResolutionsCapNoticeWritten = true;
-    process.stderr.write(
-      `obsidian-tc toolFacade: resolution log capped at ${MAX_LOGGED_RESOLUTIONS} distinct keys\n`,
-    );
-    return;
-  }
-  loggedFacadeResolutions.add(key);
-  process.stderr.write(
+  logResolutionOnce(
+    `${configured}\u0000${name}\u0000${effective}`,
     `obsidian-tc toolFacade: configured=${configured} client=${name} effective=${effective}\n`,
   );
+}
+
+/** `toolFacade.explainAutoMode`: the matcher's explanation with the client name bounded and
+ *  stripped of control characters (it is untrusted wire data, and this object is both logged and
+ *  returned to the caller via server_health). */
+function boundedExplanation(e: AutoFacadeExplanation): AutoFacadeExplanation {
+  return e.clientName === undefined
+    ? e
+    : { ...e, clientName: sanitizeDisplayText(e.clientName, MAX_LOGGED_CLIENT_NAME_LEN) };
 }
 
 export interface FacadeModeResolver {
@@ -82,25 +99,47 @@ export interface FacadeModeResolver {
    *  SDK's own per-connection cache, seeded from a LEGACY `initialize` handshake's `clientInfo`
    *  param on a connection that never sends a per-request envelope at all (stdio's common case). */
   requestClientName(envelope: unknown, meta: unknown): string | undefined;
+  /** `{ facadeExplanation }` for the last auto resolution when `explainAutoMode` is on; `{}`
+   *  otherwise — spread onto the caller ctx so the flag-off ctx is byte-identical to before. */
+  ctxExplanation(): { facadeExplanation?: AutoFacadeExplanation };
 }
 
 /** `opts` is the two `McpServerOptions` fields this needs — taken as an object (rather than two
  *  positional params) so the call site fits on one line under mcp/server.ts's own line budget. */
 export function createFacadeModeResolver(
   server: Server,
-  opts: { facadeMode?: FacadeMode | "auto"; autoClients?: Readonly<Record<string, FacadeMode>> },
+  opts: {
+    facadeMode?: FacadeMode | "auto";
+    autoClients?: Readonly<Record<string, FacadeMode>>;
+    explainAutoMode?: boolean;
+  },
 ): FacadeModeResolver {
-  const { facadeMode: configuredMode, autoClients } = opts;
+  const { facadeMode: configuredMode, autoClients, explainAutoMode } = opts;
   let autoFacadeResolution: FacadeMode | undefined;
+  let lastExplanation: AutoFacadeExplanation | undefined;
   return {
     resolveFacadeMode(clientName) {
       if (configuredMode !== "auto") return configuredMode ?? "flat";
       if (autoFacadeResolution !== undefined) return autoFacadeResolution;
-      const mode = resolveAutoFacadeMode(clientName, autoClients);
+      let mode: FacadeMode;
+      if (explainAutoMode) {
+        // Same matcher as the else branch (`resolveAutoFacadeMode` is `explainAutoFacadeMode(..).mode`);
+        // the flag only adds the record + log line, never a different decision.
+        const explanation = boundedExplanation(explainAutoFacadeMode(clientName, autoClients));
+        mode = explanation.mode;
+        lastExplanation = explanation;
+        logExplanationOnce(
+          JSON.stringify(explanation),
+          `obsidian-tc toolFacade.explain ${JSON.stringify(explanation)}\n`,
+        );
+      } else mode = resolveAutoFacadeMode(clientName, autoClients);
       // Cache only once a name was actually seen — see the module comment above.
       if (clientName !== undefined) autoFacadeResolution = mode;
       logFacadeResolutionOnce("auto", clientName, mode);
       return mode;
+    },
+    ctxExplanation() {
+      return lastExplanation ? { facadeExplanation: lastExplanation } : {};
     },
     requestClientName(envelope, meta) {
       return (

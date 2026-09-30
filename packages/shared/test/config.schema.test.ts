@@ -973,6 +973,22 @@ describe("ServerConfigSchema — toolFacade.profile (THE-1131)", () => {
   });
 });
 
+describe("ServerConfigSchema — toolFacade.explainAutoMode", () => {
+  it("defaults to false and accepts true", () => {
+    expect(ServerConfigSchema.parse(base).toolFacade.explainAutoMode).toBe(false);
+    expect(
+      ServerConfigSchema.parse({ ...base, toolFacade: { explainAutoMode: true } }).toolFacade
+        .explainAutoMode,
+    ).toBe(true);
+  });
+
+  it("rejects a non-boolean", () => {
+    expect(
+      ServerConfigSchema.safeParse({ ...base, toolFacade: { explainAutoMode: "yes" } }).success,
+    ).toBe(false);
+  });
+});
+
 describe("ObsidianTcError", () => {
   it("marks throttled retryable and forbidden non-retryable", () => {
     expect(new ObsidianTcError("throttled", "x").retryable).toBe(true);

@@ -27,14 +27,18 @@ function minimalTelemetryConfig(overrides: Partial<ServerConfig["telemetry"]>): 
 
 describe("defaultConfiguredFacadeMode", () => {
   it("passes through a concrete mode", () => {
-    expect(defaultConfiguredFacadeMode({ toolFacade: { mode: "domain", profile: "full" } })).toBe(
-      "domain",
-    );
+    expect(
+      defaultConfiguredFacadeMode({
+        toolFacade: { mode: "domain", profile: "full", explainAutoMode: false },
+      }),
+    ).toBe("domain");
   });
   it("collapses 'auto' to the same 'triad' fallback the resolver itself uses", () => {
-    expect(defaultConfiguredFacadeMode({ toolFacade: { mode: "auto", profile: "full" } })).toBe(
-      "triad",
-    );
+    expect(
+      defaultConfiguredFacadeMode({
+        toolFacade: { mode: "auto", profile: "full", explainAutoMode: false },
+      }),
+    ).toBe("triad");
   });
 });
 

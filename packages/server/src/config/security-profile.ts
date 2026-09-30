@@ -23,6 +23,10 @@ const HARDENED_BASE: Record<string, unknown> = {
   // NOT relied on as a schema default, for the reason THE-648 records two entries above — a
   // default that agrees today can be re-decided tomorrow, and the profile should not move with it.
   experiential: { captureContent: false },
+  // A jti-less bearer cannot be revoked individually (only rotating its signing key kills it), so the
+  // restrained posture refuses one on every verify path. The schema default stays false for now; it
+  // flips at the next major, at which point this line only becomes explicit rather than load-bearing.
+  auth: { requireJti: true },
   sessions: { traceContent: false },
 };
 
