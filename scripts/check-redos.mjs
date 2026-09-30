@@ -79,6 +79,16 @@ const ALLOWLIST = [
       "final group still trips recheck's fuzz checker but measured <50ms at 6.2MB of adversarial " +
       "input — the bound caps worst-case cost by construction",
   },
+  {
+    file: "packages/server/src/experiential/poison.ts",
+    pattern: "\\bcurl\\s+(?:-\\w+\\s+){0,20}https?:\\/\\/",
+    reason:
+      "the {0,20} bound caps the flag-repetition backtracking that the old unbounded form suffered; " +
+      "recheck's fuzz checker flags it only intermittently under CPU load (a CI-flaky false " +
+      "positive). Measured in V8: <=105ms at 3-9MB of adversarial input (long whitespace runs " +
+      "after each 'curl', a 3M-flag 'curl -a -a ...' line with no URL, 100k repeats of 19 flags), " +
+      "linear in input size",
+  },
 ];
 
 function listTsFiles(dir) {
