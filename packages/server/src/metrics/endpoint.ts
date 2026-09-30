@@ -1,6 +1,8 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
 import { verifyJwt } from "../auth/jwt";
+import { effectiveAudience } from "../auth/protected-resource";
+import type { AuthRegistry } from "../auth/registry";
 import type { ServerHandle } from "../transports/serve";
 import { serveHono } from "../transports/serve";
 import type { MetricsRecorder } from "./registry";
@@ -17,6 +19,8 @@ export interface MetricsEndpointOptions {
   bind: string;
   port: number;
   auth: AuthConfig;
+  /** When set, a scrape token must be signed by a live registry key and not be revoked. */
+  registry?: AuthRegistry;
 }
 
 export type MetricsHandle = ServerHandle;
@@ -39,7 +43,20 @@ export function createMetricsApp(opts: MetricsEndpointOptions): Hono {
         return c.text("unauthorized", 401);
       }
       try {
-        await verifyJwt(token, opts.auth.jwtSecret, { maxAgeSeconds: opts.auth.tokenTtlSeconds });
+        const registry = opts.registry;
+        await verifyJwt(
+          token,
+          registry ? (h) => registry.verificationKey(h.kid) : opts.auth.jwtSecret,
+          {
+            maxAgeSeconds: opts.auth.tokenTtlSeconds,
+            // Same audience/issuer binding as the MCP HTTP edge: a token minted for another
+            // service, or by another issuer, must not scrape this one.
+            audience: effectiveAudience(opts.auth),
+            issuer: opts.auth.issuer,
+            requireJti: opts.auth.requireJti,
+            isRevoked: registry ? (jti) => registry.isRevoked(jti) : undefined,
+          },
+        );
       } catch {
         return c.text("unauthorized", 401);
       }

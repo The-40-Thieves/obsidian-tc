@@ -19,11 +19,14 @@
 //     is. A token minted with a year-long `exp` under a 24h cap therefore dies after a day while
 //     LOOKING valid for a year, and the failure is a flat 401 with no hint. That exact
 //     misunderstanding took the MCP plane down for five days.
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { SignJWT } from "jose";
+import { type AuthRegistry, summarizeScopes } from "../../auth/registry";
+import { openAuthRegistry } from "../../auth/registry-open";
 import { applyEnvOverlays } from "../../config/load";
 import { CliError } from "../args";
-import type { Cmd } from "../shared";
+import { type Cmd, resolveOrUsageExit } from "../shared";
 
 /** The parsed `token mint` command — its shape lives in args.ts with every other command. */
 export type TokenMintCmd = Cmd<"token-mint">;
@@ -146,6 +149,31 @@ export function planMint(auth: AuthShape, cmd: TokenMintCmd, now: number): MintP
   return { claims, ttlSeconds };
 }
 
+/**
+ * Sign `claims` with the registry's active key (header `kid`, claim `jti`) and record the token
+ * before returning it. Exported so a test can mint through the real path without a config file.
+ */
+export async function signAndRecord(
+  registry: AuthRegistry,
+  claims: Record<string, unknown>,
+): Promise<string> {
+  const { kid, secret } = registry.signingKey();
+  const jti = randomUUID();
+  claims.jti = jti;
+  const token = await new SignJWT(claims)
+    .setProtectedHeader({ alg: "HS256", typ: "JWT", kid })
+    .sign(new TextEncoder().encode(secret));
+  registry.recordToken({
+    jti,
+    kid,
+    sub: typeof claims.sub === "string" ? claims.sub : null,
+    scopesSummary: summarizeScopes(claims.scopes as string[]),
+    issuedAt: (claims.iat as number) * 1000,
+    expiresAt: (claims.exp as number) * 1000,
+  });
+  return token;
+}
+
 export async function run_token_mint(cmd: TokenMintCmd): Promise<void> {
   const configPath = cmd.configPath ?? process.env.OBSIDIAN_TC_CONFIG;
   if (!configPath) {
@@ -154,9 +182,25 @@ export async function run_token_mint(cmd: TokenMintCmd): Promise<void> {
   const auth = readAuthBlock(configPath);
   const { claims, ttlSeconds } = planMint(auth, cmd, Math.floor(Date.now() / 1000));
 
-  const token = await new SignJWT(claims)
-    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-    .sign(new TextEncoder().encode(auth.jwtSecret as string));
+  // Every minted token is recorded in the registry (auth.db) BEFORE it is printed, and the mint
+  // fails if the record cannot be written: a token that cannot be found by jti cannot be revoked.
+  // The record holds the jti and the signing kid, never the token string.
+  const cfg = resolveOrUsageExit(configPath);
+  // The minted token's config secret is the one read from the raw auth block (env overlay applied).
+  const { registry, close } = await openAuthRegistry({
+    ...cfg,
+    auth: { ...cfg.auth, jwtSecret: auth.jwtSecret },
+  });
+  let token: string;
+  try {
+    // A lost registry (initialised before, auth.db now gone) refuses to sign: minting into a fresh
+    // empty registry would look healthy while every earlier revocation is missing.
+    const health = registry.health();
+    if (health.state === "lost") throw new CliError(health.detail);
+    token = await signAndRecord(registry, claims);
+  } finally {
+    close();
+  }
 
   if (cmd.json) {
     // The token on its own line in `token`, and the claims beside it so an operator can see what
@@ -167,7 +211,7 @@ export async function run_token_mint(cmd: TokenMintCmd): Promise<void> {
   // Bare token on stdout so it composes: `OBSIDIAN_TC_TOKEN=$(obsidian-tc token mint …)`.
   // Everything human-facing goes to stderr, which is why that redirect stays clean.
   process.stderr.write(
-    `minted sub=${claims.sub} aud=${claims.aud ?? "(none)"} vault=${claims.vault ?? "(unbound)"} ` +
+    `minted jti=${claims.jti} sub=${claims.sub} aud=${claims.aud ?? "(none)"} vault=${claims.vault ?? "(unbound)"} ` +
       `scopes=${JSON.stringify(claims.scopes)} ttl=${ttlSeconds}s\n`,
   );
   process.stdout.write(`${token}\n`);

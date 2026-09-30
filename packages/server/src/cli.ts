@@ -15,6 +15,7 @@
 
 import { parseCliArgs } from "./cli/args";
 import { run_activation_recompute } from "./cli/commands/activation-recompute";
+import { run_auth } from "./cli/commands/auth";
 import { run_citation_infer } from "./cli/commands/citation-infer";
 import { run_cluster } from "./cli/commands/cluster";
 import { run_compact } from "./cli/commands/compact";
@@ -121,7 +122,9 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // writes (cli/commands/forget.ts, `auditForgetEvent`), `elicit` because minting a HITL
 // confirmation token is itself the security-relevant event worth a record, independent of whether
 // the token is ever redeemed (cli/commands/elicit-mint.ts, `mintElicitAudited`),
-// `context-export`/`context-import` because they are the exfiltration and untrusted-input
+// `auth revoke` and `auth rotate-key` write `event_log` rows (`auth_token_revoked`,
+// `auth_key_rotated`): a revocation is an operator decision worth a record, and `auth list` reads
+// only. `context-export`/`context-import` because they are the exfiltration and untrusted-input
 // surfaces THE-636's design note names (cli/commands/context-export.ts / context-import.ts,
 // `auditContextExportEvent` / `auditContextImportEvent`), and `import-highlights`/`import-ambient`
 // because pulling external content (a read-later account, a remote screen-capture backend) in is
@@ -137,6 +140,8 @@ async function main(): Promise<void> {
       return run_token_mint(cmd);
     case "elicit-mint":
       return run_elicit_mint(cmd);
+    case "auth":
+      return run_auth(cmd);
     case "version":
       return run_version(cmd);
     case "help":

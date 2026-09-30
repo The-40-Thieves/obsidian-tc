@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { makeIndexReadable } from "../../acl";
+import { probeAuthRegistry } from "../../auth/registry-open";
 import {
   bridgeState,
   buildVaultCapabilities,
@@ -367,6 +368,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const dbSpace = await probeDbSpace(config.cacheDir, busyTimeoutMs);
   const telemetryEndpointRedacted =
     config.telemetry.endpoint !== undefined ? redactEndpoint(config.telemetry.endpoint) : undefined;
+  const authProbe = await probeAuthRegistry(config);
   const telemetryState = await probeTelemetryState(config.cacheDir, busyTimeoutMs, {
     enabled: config.telemetry.enabled,
     ...(telemetryEndpointRedacted !== undefined ? { endpointHost: telemetryEndpointRedacted } : {}),
@@ -573,6 +575,16 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ].filter((e) => e.names.length > 0),
       },
       telemetry: telemetryState,
+      authRegistry: {
+        authMode: config.auth.mode,
+        state: authProbe.health.state,
+        ...(authProbe.health.state === "lost" ? { detail: authProbe.health.detail } : {}),
+        dbPath: authProbe.dbPath,
+        keysDir: authProbe.keysDir,
+        keyFileIssues: authProbe.keyFileIssues,
+        requireJti: config.auth.requireJti,
+        platform: process.platform,
+      },
       sessions: {
         windowSeconds: config.sessions.windowSeconds,
         ...(sessionLiveness !== undefined ? { probe: () => sessionLiveness } : {}),

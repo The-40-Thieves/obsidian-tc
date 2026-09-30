@@ -30,6 +30,12 @@ export const AuthConfigSchema = z
       .describe(
         "Maximum accepted token AGE in seconds, measured from the token's `iat`. This caps age INDEPENDENTLY of `exp`: a token with a one-year expiry is still rejected once it is older than this, so a long-lived credential needs this raised to match.",
       ),
+    requireJti: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry; `obsidian-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti).",
+      ),
     // THE-297 — asymmetric verification (RS256/ES256/EdDSA) behind the TokenVerifier seam.
     // `jwks` is an inline JWKS document; `jwksFile` a path loaded once at transport boot (file
     // or inline only — no URL fetch: no new network attack surface). Key rotation = multiple

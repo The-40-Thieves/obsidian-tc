@@ -55,6 +55,25 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`grantedScopes ∩ RERUN_SCOPES`) rather than trusted as-is, so a rerun can never grant itself
   more than a caller already holds.
 
+- **Issued-token and signing-key registry, with `auth list`, `auth revoke` and `auth rotate-key`.**
+  `token mint` now gives every token a `jti` claim and a `kid` header and records it (jti, kid,
+  subject, issue and expiry time, a scope summary; never the token string) in a new `auth_tokens`
+  table in `<cacheDir>/auth.db`, its own database file. `obsidian-tc auth list` shows
+  jti/kid/sub/exp/state (`--all` adds expired tokens, `--keys` lists signing keys), `auth revoke
+  <jti> [--reason]` revokes one token before it expires, and `auth rotate-key [--grace <seconds>]`
+  generates a new active HS256 key. Signing keys live in an `auth_keys` table (kid, key reference,
+  created_at, state `active|retiring|retired`, retire_after), several of which can verify at once by
+  `kid`; secrets stay in 0600 files under `<cacheDir>/auth-keys/`, never in the database. An existing
+  `auth.jwtSecret` remains the initial key (kid `config`), and a deployment that never rotates
+  verifies exactly as before. `token mint` refuses to print a token it could not record. See
+  `docs/src/content/docs/security/auth-model.md`.
+- **`auth.requireJti` (default `false`).** Rejects a bearer token that carries no `jti` on every verify
+  path (HS256, JWKS, `/metrics`), since a jti-less token can only be killed by rotating its key.
+  `obsidian-tc doctor` (new `auth.registry` check) recommends turning it on once the registry is in use.
+- **`auth revoke` on a jti this registry never issued now records a tombstone** instead of doing
+  nothing, so a token minted before the registry existed, or issued by an external JWKS issuer, is
+  refused once it carries that jti.
+
 ### Security
 
 - **Every release artifact, and the GHCR image, is now signed keylessly with cosign (Sigstore).** A new
@@ -143,6 +162,41 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   confirmation. Tools with no declared target paths, and tokens minted with no raised request
   behind them, stay bound to the arguments alone. Adds migration `20260930_001`
   (`elicit_requests`, `elicit_tokens.state_fp`).
+- **A minted bearer token can now be revoked before it expires.** The HTTP edge and the `/metrics`
+  scrape check the verified token's `jti` against the registry on every request, so `auth revoke`
+  takes effect on the next request in every process sharing `auth.db` (no in-process cache). A
+  revoked token is refused with the operator-facing reason `token_revoked` (log and
+  `auth_rejections_total`); the client still sees the same undifferentiated 401. New refusal reasons
+  `unknown_key` and `key_retired` cover a `kid` outside the registry and a retired signing key
+  (a `retiring` key with no `retire_after` is treated as retired, and the schema refuses to store one),
+  `jti_required` covers `auth.requireJti`. `/metrics` now binds the same audience and issuer as the
+  HTTP edge: a scrape token without the configured `aud`/`iss` is refused. A token with no `jti`
+  cannot be revoked individually (rotate the key, or set `auth.requireJti`), and work already queued
+  as a background task keeps the scopes it was enqueued with.
+- **The auth registry is its own file, `<cacheDir>/auth.db`, and it fails closed when lost.** cache.db
+  is documented as disposable (`rm cache.db*` is the migration recovery step), so keeping revocations
+  and key retirements there meant deleting the cache silently un-revoked every token for every vault.
+  `auth.db` and `auth-keys/` are now documented everywhere as NOT regenerable and to be backed up;
+  `reset_vault_cache`, `compact`, the maintenance sweep and the sandbox never touch them, and the
+  `cacheDir` description no longer says everything in it is regenerable. Once the registry has ever
+  been used, judged per table from two markers outside the database (`auth-keys/.keys-initialized`,
+  or any `*.key` file, and `auth-keys/.tokens-initialized`), a missing `auth.db`, or one table that is
+  initialised but empty, makes the verifier refuse every HS256 bearer (`registry_lost`) and
+  `token mint`/`auth *` refuse to run, with the recovery (restore `auth.db` from backup) in the startup
+  log, every rejection line and `doctor`. That closes the partial-restore hole: an emptied `auth_keys`
+  no longer revives the configured secret's retired key, and an emptied `auth_tokens` no longer
+  un-revokes every revoked token. A symlinked (even empty) or non-directory `auth-keys/` is refused the
+  same way, and a failed first write can no longer remove a marker another process committed a row
+  under. Only a table that was never initialised keeps the "configured secret verifies" path; the
+  destructive way back is removing BOTH `auth.db` and `auth-keys/`.
+- **Signing-key files are trusted only through the open descriptor.** The key is opened
+  `O_RDONLY|O_NOFOLLOW` and judged by `fstat` on that descriptor (regular file, owned by the server
+  user, no group/other bits) instead of `stat`-then-read, which followed symlinks; the `auth-keys/`
+  directory must be a real 0700 directory (a symlink is refused, a too-open one is tightened on
+  `rotate-key`); keys are created `O_CREAT|O_EXCL|O_NOFOLLOW` 0600; and the check repeats at least
+  once a second (a validated secret is reused for at most 1 s, which is also the longest a later
+  `chmod`, symlink swap or file replacement can go unnoticed). Windows cannot enforce any of this and
+  `doctor` says so.
 
 - **Two dependency advisories cleared across both install roots.** `fast-uri` 3.1.7 to 3.1.8
   (GHSA-hrr3-gc8f-f4qj, in the root and `docs/` lockfiles) and `moment` 2.29.4 to 2.31.0

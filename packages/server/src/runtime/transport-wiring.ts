@@ -10,6 +10,7 @@
 // unwindReversed pattern for the boot-time layers.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import { openAuthRegistry } from "../auth/registry-open";
 import type { Database } from "../db/types";
 import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
 import type { ToolRegistry } from "../mcp/registry";
@@ -59,69 +60,93 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   // it is inert, not wrong; wireScheduler's own registration is what actually needs both.
   const advisoryBus = config.experiential.proactive.enabled ? createAdvisoryBus() : undefined;
 
-  if (config.transports.http.enabled) {
-    // THE-585 (#11): time the transport's construction + bind.
-    const httpT0 = performance.now();
-    const http = await startHttp({
-      name: "obsidian-tc",
-      version: deps.version,
-      registry: deps.registry,
-      vaultRegistry: deps.vaultRegistry,
-      auth: config.auth,
-      db: deps.db,
-      vaultId: deps.firstVaultId,
-      acl: deps.acl,
-      host: config.transports.http.host,
-      port: config.transports.http.port,
-      facadeMode: config.toolFacade.mode,
-      autoClients: config.toolFacade.autoClients,
-      // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
-      // there are no retrieval rows for feedback to update.
-      experientialLogRetrievals: config.experiential.logRetrievals,
-      jobQueue: deps.jobQueue,
+  // ONE registry (auth.db) for every bearer-checking listener, so the MCP edge and /metrics cannot
+  // disagree about which tokens are revoked or which signing keys are live. Opened only when a
+  // listener that checks bearers exists. A LOST registry (initialised before, auth.db now missing or
+  // empty) is not an error at boot: the verifier refuses every bearer with the recovery named, and
+  // the operator sees it here, in every rejection line and in `doctor`.
+  const needsRegistry =
+    config.auth.mode === "jwt" &&
+    (config.transports.http.enabled || config.observability.prometheus.enabled);
+  const opened = needsRegistry ? await openAuthRegistry(config) : undefined;
+  const authRegistry = opened?.registry;
+  const registryHealth = authRegistry?.health();
+  if (registryHealth?.state === "lost") {
+    process.stderr.write(`auth: ERROR ${registryHealth.detail}\n`);
+  }
+
+  try {
+    if (config.transports.http.enabled) {
+      // THE-585 (#11): time the transport's construction + bind.
+      const httpT0 = performance.now();
+      const http = await startHttp({
+        name: "obsidian-tc",
+        version: deps.version,
+        registry: deps.registry,
+        vaultRegistry: deps.vaultRegistry,
+        auth: config.auth,
+        db: deps.db,
+        authRegistry,
+        vaultId: deps.firstVaultId,
+        acl: deps.acl,
+        host: config.transports.http.host,
+        port: config.transports.http.port,
+        facadeMode: config.toolFacade.mode,
+        autoClients: config.toolFacade.autoClients,
+        // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
+        // there are no retrieval rows for feedback to update.
+        experientialLogRetrievals: config.experiential.logRetrievals,
+        jobQueue: deps.jobQueue,
+        ...(advisoryBus ? { advisoryBus } : {}),
+        enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
+        allowedHosts: config.transports.http.allowedHosts,
+        allowedOrigins: config.transports.http.allowedOrigins,
+        // THE-520: without this the auth_rejections_total counter exists but is never incremented.
+        metrics: deps.metrics,
+        // THE-726: server-opened sessions. Threaded here rather than read inside the transport so the
+        // transport stays a function of its options — and so `sessions.autoOpen: false` (the default)
+        // reaches it as an explicit false rather than as an absent key nobody wired.
+        sessions: config.sessions,
+        traceFolderFor: (vaultId) =>
+          config.vaults.find((v) => v.id === vaultId)?.workspace?.traceFolder ??
+          DEFAULT_TRACE_FOLDER,
+        // THE-647 item 2: named persona bundles a JWT `persona` claim resolves to. Absent (the
+        // default) means no persona claim can ever resolve — unchanged behaviour for every
+        // deployment that does not configure this block.
+        personas: config.personas,
+      });
+      httpConstructSeconds = (performance.now() - httpT0) / 1000;
+      httpHandle = http;
+      process.stderr.write(
+        `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
+      );
+    }
+
+    if (config.observability.prometheus.enabled) {
+      const m = await startMetricsEndpoint({
+        recorder: deps.metrics,
+        bind: config.observability.prometheus.bind,
+        port: config.observability.prometheus.port,
+        auth: config.auth,
+        registry: authRegistry,
+      });
+      metricsHandle = m;
+      process.stderr.write(
+        `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
+      );
+    }
+
+    return {
+      httpConstructSeconds,
       ...(advisoryBus ? { advisoryBus } : {}),
-      enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
-      allowedHosts: config.transports.http.allowedHosts,
-      allowedOrigins: config.transports.http.allowedOrigins,
-      // THE-520: without this the auth_rejections_total counter exists but is never incremented.
-      metrics: deps.metrics,
-      // THE-726: server-opened sessions. Threaded here rather than read inside the transport so the
-      // transport stays a function of its options — and so `sessions.autoOpen: false` (the default)
-      // reaches it as an explicit false rather than as an absent key nobody wired.
-      sessions: config.sessions,
-      traceFolderFor: (vaultId) =>
-        config.vaults.find((v) => v.id === vaultId)?.workspace?.traceFolder ?? DEFAULT_TRACE_FOLDER,
-      // THE-647 item 2: named persona bundles a JWT `persona` claim resolves to. Absent (the
-      // default) means no persona claim can ever resolve — unchanged behaviour for every
-      // deployment that does not configure this block.
-      personas: config.personas,
-    });
-    httpConstructSeconds = (performance.now() - httpT0) / 1000;
-    httpHandle = http;
-    process.stderr.write(
-      `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
-    );
+      close: async () => {
+        if (httpHandle) await httpHandle.close();
+        if (metricsHandle) await metricsHandle.close();
+        opened?.close();
+      },
+    };
+  } catch (e) {
+    opened?.close();
+    throw e;
   }
-
-  if (config.observability.prometheus.enabled) {
-    const m = await startMetricsEndpoint({
-      recorder: deps.metrics,
-      bind: config.observability.prometheus.bind,
-      port: config.observability.prometheus.port,
-      auth: config.auth,
-    });
-    metricsHandle = m;
-    process.stderr.write(
-      `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
-    );
-  }
-
-  return {
-    httpConstructSeconds,
-    ...(advisoryBus ? { advisoryBus } : {}),
-    close: async () => {
-      if (httpHandle) await httpHandle.close();
-      if (metricsHandle) await metricsHandle.close();
-    },
-  };
 }

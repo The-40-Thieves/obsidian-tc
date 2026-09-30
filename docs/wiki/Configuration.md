@@ -205,6 +205,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `auth.jwksUri` | `string` | — |  | URL of an authorization server's JWKS (its `jwks_uri`), fetched and cached for asymmetric verification. Opt-in: it adds a network dependency to token verification, which jwks/jwksFile do not. Use it when an external AS rotates keys. |
 | `auth.jwtSecret` | `string` | — |  | Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this, never against the JWKS. |
 | `auth.mode` | `enum(none\|jwt)` | `"none"` |  | Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` requires a jwtSecret or a JWKS. |
+| `auth.requireJti` | `boolean` | `false` |  | Reject any bearer token that carries no `jti` claim, on every verify path (HS256, JWKS, `/metrics`). A jti-less token cannot be revoked individually — only rotating its signing key kills it. Default false for compatibility with tokens minted before the registry; `obsidian-tc doctor` recommends true once `auth rotate-key` or `token mint` has initialised the registry (`token mint` always sets a jti). |
 | `auth.resource` | `string` | — |  | This server's canonical resource URI (RFC 9728). Set together with authorizationServers to advertise Protected Resource Metadata; also serves as the default bound audience. |
 | `auth.resourceName` | `string` | — |  | Human-readable resource name published in the Protected Resource Metadata document. |
 | `auth.scopesSupported` | `array<string>` | — |  | Scopes advertised as supported in the Protected Resource Metadata document. |
@@ -226,7 +227,7 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 
 | Key | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `cacheDir` | `string` | `".obsidian-tc"` |  | Directory holding the derived index and caches. Everything in it is regenerable — deleting it forces a full reindex, it is never the source of truth. This default only applies when `embeddings.provider` is not "local" — a config file must set `cacheDir` explicitly when the embeddings provider is "local" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you. |
+| `cacheDir` | `string` | `".obsidian-tc"` |  | Directory holding the derived index and caches. `cache.db`, `experiential.db` and the other index files are regenerable — deleting them forces a full reindex — EXCEPT `auth.db` and `auth-keys/`, the auth registry: revocations, key retirements and signing-key files that CANNOT be regenerated and must be backed up (delete only `cache.db*`, never the whole directory, when resetting the index). This default only applies when `embeddings.provider` is not "local" — a config file must set `cacheDir` explicitly when the embeddings provider is "local" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you. |
 
 ### `db`
 

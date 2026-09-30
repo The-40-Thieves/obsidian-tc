@@ -167,6 +167,9 @@ export type WriteTxnLabel =
   // The shared rate-limit bucket update (ratelimit.db, its own file — never cache.db). One tiny
   // read-modify-write per governed call.
   | "rate_limit"
+  // The auth registry (auth.db, its own file): a first-write marker arm/undo and the lost-registry
+  // confirmation read, all of which must serialise against another process's registry write.
+  | "auth_registry"
   | "memory_observation"
   // THE-1124 review round 2: rename_entity/unlink_entities/delete_entity each mutate more than
   // one row (an entity row, its relations, an ACL-checked filesystem write) — wrapped so a
