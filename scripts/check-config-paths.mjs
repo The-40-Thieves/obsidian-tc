@@ -10,12 +10,14 @@
  * prose — including inside a fenced ```json/```yaml config example — must resolve against the
  * REAL schema, so a doc cannot silently drift back onto a key that does not exist.
  *
- * Ground truth, not hand-maintained: `docs/wiki/Configuration.md`'s generated reference table
- * (`BEGIN GENERATED: config` .. `END GENERATED: config`) is rebuilt from
- * `packages/shared/src/config.schema.ts` by `bun run docgen:render` (`ci-docgen.yml` already fails
- * the build if it is stale). Parsing that table — rather than re-implementing Zod introspection in
- * a plain-node script — means this gate is automatically current with the schema and needs no
- * bun/TypeScript runtime, matching this repo's other `check:*` source-scan gates.
+ * Ground truth, not hand-maintained: `docs/obsidian-tc.config.schema.json`, the published JSON
+ * Schema, is generated from `packages/shared/src/config.schema.ts` and drift-gated by
+ * `bun scripts/gen-config-schema.ts --check` (ci-docgen). This gate walks that committed file
+ * rather than re-implementing Zod introspection in a plain-node script, so it is automatically
+ * current with the schema and needs no bun/TypeScript runtime, matching this repo's other
+ * `check:*` source-scan gates. (It used to parse the docgen-generated config table in
+ * docs/wiki/Configuration.md; generated tables are no longer committed -- the regions are filled
+ * at build time -- so there is nothing there to read on a checkout.)
  *
  * CANDIDATE DEFINITION (the false-positive problem). A huge number of backticked dotted-looking
  * strings in this repo are NOT config paths: `packages/server/src`, `node:sqlite`,
@@ -58,7 +60,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const CONFIG_DOC = resolve(ROOT, "docs/wiki/Configuration.md");
+const CONFIG_SCHEMA = resolve(ROOT, "docs/obsidian-tc.config.schema.json");
 
 const IGNORE_LINE = "config-path:ignore";
 const IGNORE_FILE = "config-path:ignore-file";
@@ -73,31 +75,34 @@ const IGNORE_FILE = "config-path:ignore-file";
 // (see this gate's PR description for the false-positive-rate report) — no other collision exists.
 const ALLOWLIST = new Set(["cache.db", "experiential.db"]);
 
-// ---- 1. Ground truth: parse the generated config reference table -----------------------------
+// ---- 1. Ground truth: walk the published JSON Schema ------------------------------------------
 
+/**
+ * Flatten the JSON Schema into the dotted paths the docs may cite. Mirrors docgen's extract-config
+ * shape: an object recurses, an array of objects is recorded AND recursed under `path[]`, anything
+ * else is a leaf. A leaf `object` with no declared properties is a `z.record` -- its sub-keys are
+ * caller-chosen (an HTTP header name, a scope-map entry) and must not be required to resolve.
+ */
 function extractValidPaths() {
-  const text = readFileSync(CONFIG_DOC, "utf8");
-  const start = text.indexOf("<!-- BEGIN GENERATED: config -->");
-  const end = text.indexOf("<!-- END GENERATED: config -->");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error(
-      `could not find the "BEGIN/END GENERATED: config" markers in ${CONFIG_DOC} — has the ` +
-        "generated-reference section been renamed or removed? This gate has no ground truth without it.",
-    );
-  }
-  const block = text.slice(start, end);
+  const schema = JSON.parse(readFileSync(CONFIG_SCHEMA, "utf8"));
   const paths = [];
   const recordPaths = [];
-  // Table rows look like: | `acl.rules[].scopes` | `array<string>` | `[]` |  | ... |
-  const ROW = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|/gm;
-  for (const m of block.matchAll(ROW)) {
-    paths.push(m[1]);
-    // A `record` leaf (e.g. observability.otel.headers, plur config's apiPrefix's siblings) is
-    // `z.record(string, string)`: the schema itself declares its keys are caller-chosen, so ANY
-    // sub-key beneath it (an HTTP header name like "Authorization") is legitimate and not itself
-    // part of the schema — do not require it to resolve.
-    if (m[2] === "record") recordPaths.push(m[1]);
-  }
+  const walk = (properties, prefix) => {
+    for (const [key, node] of Object.entries(properties ?? {})) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (node.type === "object" && node.properties) {
+        walk(node.properties, path);
+        continue;
+      }
+      paths.push(path);
+      if (node.type === "array" && node.items?.properties) {
+        walk(node.items.properties, `${path}[]`);
+      } else if (node.type === "object") {
+        recordPaths.push(path);
+      }
+    }
+  };
+  walk(schema.properties, "");
   return { paths, recordPaths };
 }
 
@@ -109,12 +114,12 @@ function segmentsOf(path) {
 
 const { paths: validPaths, recordPaths } = extractValidPaths();
 const recordSegmentPrefixes = recordPaths.map((p) => segmentsOf(p));
-const MIN_EXPECTED_PATHS = 100; // the real table carries ~160 rows; a broken parse looks nothing like this
+const MIN_EXPECTED_PATHS = 100; // the real schema carries ~290 paths; a broken walk looks nothing like this
 if (validPaths.length < MIN_EXPECTED_PATHS) {
   console.error(
-    `config-paths gate: only parsed ${validPaths.length} row(s) out of the generated config table ` +
-      `(expected >= ${MIN_EXPECTED_PATHS}). This almost certainly means the table format changed or ` +
-      "docgen:render is stale. Refusing to pass a check that saw (near-)nothing.",
+    `config-paths gate: only found ${validPaths.length} config path(s) in the published JSON Schema ` +
+      `(expected >= ${MIN_EXPECTED_PATHS}). This almost certainly means the JSON Schema layout ` +
+      "changed or the file is stale. Refusing to pass a check that saw (near-)nothing.",
   );
   process.exit(1);
 }

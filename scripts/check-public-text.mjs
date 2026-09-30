@@ -59,8 +59,7 @@ function listScannedFiles() {
 // Genuinely internal or historical documents that are allowed to name a ticket: CHANGELOG.md
 // (release history, not a user-facing guide — this is where provenance belongs instead),
 // EVALUATION.md (methodology doc that narrates its own history), the superpowers planning tree
-// (internal working notes, never the shipped surface), the generated decisions index (it exists
-// ONLY to list ticket references), and the pre-ship G2/MCP-COMPATIBILITY design docs. Most of
+// (internal working notes, never the shipped surface), and the pre-ship G2/MCP-COMPATIBILITY design docs. Most of
 // these currently fall outside listScannedFiles() above, so for them this allowlist is a
 // defensive floor for when the scan set widens — but `roadmap.md` below IS load-bearing today: it
 // falls inside the scanned `docs/src/content/docs/*` set and the entry actively suppresses real
@@ -68,14 +67,15 @@ function listScannedFiles() {
 const ALLOWLIST_EXACT = new Set([
   "CHANGELOG.md",
   "docs/EVALUATION.md",
-  "docs/decisions-index.md",
   // TEMPORARY — docs/src/content/docs/roadmap.md still carries several bare ticket ids and was
   // out of scope for this pass (it was being edited concurrently by a sibling change touching its
   // top section). Remove this entry in the follow-up that cleans that page's ticket references;
   // it is a real gap in this gate until then, called out explicitly rather than silently covered.
   "docs/src/content/docs/roadmap.md",
 ]);
-const ALLOWLIST_PREFIXES = ["docs/superpowers/"];
+// `changes/` holds the CHANGELOG fragments that scripts/release.mjs folds into CHANGELOG.md, so it is
+// CHANGELOG text and allowlisted for the same reason.
+const ALLOWLIST_PREFIXES = ["docs/superpowers/", "changes/"];
 const ALLOWLIST_GLOBS = [/^docs\/G2[^/]*\.md$/, /^docs\/MCP-[^/]*\.md$/];
 
 function isAllowlisted(path) {

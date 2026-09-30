@@ -35,26 +35,29 @@ Also required for a NEW migration: append it to CACHE_MIGRATION_FILES or
 EXPERIENTIAL_MIGRATION_FILES in packages/server/src/db/migration-manifest.ts. Append, never
 reorder. Never edit a migration that has already shipped — they are checksum-pinned." ;;
 
-  README.md|ARCHITECTURE.md|docs/G2.4-observability.md|docs/wiki/Configuration.md|docs/wiki/Home.md|docs/wiki/Plugin-Bridges.md|docs/wiki/Tool-Reference.md|docs/src/content/docs/configuration/config-reference.md|docs/src/content/docs/observability/prometheus.md|docs/src/content/docs/tools/tool-catalog.md)
+  docs/G2.4-observability.md|docs/wiki/Configuration.md|docs/wiki/Home.md|docs/wiki/Plugin-Bridges.md|docs/wiki/Tool-Reference.md|docs/src/content/docs/configuration/config-reference.md|docs/src/content/docs/observability/prometheus.md|docs/src/content/docs/tools/tool-catalog.md)
     note "$REL carries a docgen marker region (<!-- BEGIN GENERATED: ... -->)." \
-"If you edited INSIDE a marker region, your change will be overwritten — edit the generator or the
-source it reads instead. If you edited the surrounding prose, check the generated block still
-agrees with it:
-    cd packages/server && bun run docgen:render -- --check
-    cd packages/server && bun run docgen:facts-check
+"The region is committed EMPTY on purpose: it is filled at docs build / wiki publish and is never
+committed filled, so any content inside the markers fails the gate. Edit the prose around it, or
+the generator / the source it reads. Then:
+    cd packages/server && bun run docgen:render -- --check     # regions still canonical-empty
+    cd packages/server && bun run docgen:facts-check           # no hand-typed tool or domain count
 
-Prose that restates a generated number is the drift this repo keeps re-finding." ;;
+To SEE the filled output: bun run docgen:render, then bun run docgen:render -- --reset to put the
+tree back. Prose must not restate a generated number — that is the drift this repo keeps re-finding." ;;
 
   packages/server/src/tools/*/*.ts)
     note "Tool surface may have changed." \
-"Adding or removing a tool moves several counts at once:
-    packages/server/test/registered-tool-count.ts   (REGISTERED_TOOL_COUNT)
+"Adding or removing a tool moves:
+    packages/server/test/registered-tools.txt       (add/remove the tool's name, sorted, one per line)
     the facade domain map                            (tool-facade-domain-coverage.test.ts)
-    boot.tools_registered                            (eval/perf/collectors/boot.ts, hard/exact)
-    prose in ~15 doc files                           (docgen:facts-check is the strict gate)
+    boot.tools_registered                            (eval/perf/baseline.small.json, hard/exact; re-record)
 
-Note boot.tools_registered is pinned at the MODULE-REGISTRAR count, which is 2 lower than
-REGISTERED_TOOL_COUNT (health and index_status are registered inline in cli.ts)." ;;
+No doc prose carries the tool count any more (docgen:facts-check FORBIDS it), and the tool catalog is
+generated at build — so there is no count to chase through ~15 doc files.
+
+Note boot.tools_registered is pinned at the MODULE-REGISTRAR count, which is 2 lower than the
+number of names in registered-tools.txt (health and index_status are registered inline in cli.ts)." ;;
 
   .github/workflows/*.yml|.github/workflows/*.yaml)
     note "Workflow changed." \

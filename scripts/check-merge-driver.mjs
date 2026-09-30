@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * check-merge-driver — asserts the "regenerate" merge driver named in .gitattributes for
- * TREE.md / docs/dependency-graph.json is actually DEFINED in this clone's local git config.
+ * check-merge-driver — asserts the "regen" merge driver named in .gitattributes for
+ * packages/server/src/db/migrations-embedded.ts is actually DEFINED in this clone's local git config.
  *
- * .gitattributes can only NAME a merge driver (`merge=regenerate`); its *definition*
- * (merge.regenerate.driver) lives in .git/config, which git never commits or clones. Verified
+ * .gitattributes can only NAME a merge driver (`merge=regen`); its *definition*
+ * (merge.regen.driver) lives in .git/config, which git never commits or clones. Verified
  * empirically in a scratch repo: a `.gitattributes`-only change is silently vacuous — a fresh
  * clone still gets ordinary 3-way text conflicts on these files, exit 1, conflict markers and
  * all, exactly as if nothing had changed. This gate exists so that gap fails loudly instead of
@@ -26,8 +26,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const DRIVER_NAME = "regenerate";
-const ARTIFACTS = ["TREE.md", "docs/dependency-graph.json"];
+const DRIVER_NAME = "regen";
+const ARTIFACTS = ["packages/server/src/db/migrations-embedded.ts"];
 
 function git(args) {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
@@ -52,15 +52,15 @@ export function driverScriptPath(driverCmd) {
  * outlives that worktree's removal and leaves the WHOLE repo pointing at a path that no longer
  * exists. Git then silently falls back to an ordinary text merge.
  *
- * Measured 2026-08-01: this gate reported OK while `merge.regenerate.driver` pointed into a deleted
+ * Measured 2026-08-01: this gate reported OK while `merge.regen.driver` pointed into a deleted
  * worktree, and TREE.md had to be hand-resolved on PR #633. Asserting only that the key is
  * non-empty cannot detect that — the gate was vacuous for the exact failure it exists to catch.
  */
 export function driverProblems({ driverCmd, repoRoot, exists, isAbsolute = path.isAbsolute }) {
   if (!driverCmd) {
     return [
-      `merge.${DRIVER_NAME}.driver is not set in this clone's git config — a merge of TREE.md or ` +
-        "docs/dependency-graph.json will fall back to an ordinary (conflict-prone) text merge. Run " +
+      `merge.${DRIVER_NAME}.driver is not set in this clone's git config — a merge of the generated ` +
+        "embedded-migrations module will fall back to an ordinary (conflict-prone) text merge. Run " +
         "`bun run setup:git-merge-driver` (or `bun install`, which runs it automatically) to fix.",
     ];
   }

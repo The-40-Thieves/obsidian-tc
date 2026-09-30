@@ -72,9 +72,9 @@ test("docs/EVALUATION.md is allowlisted", () => {
   assert.deepEqual(violations, []);
 });
 
-test("docs/decisions-index.md is allowlisted — it exists only to index ticket references", () => {
+test("changes/ fragments are allowlisted — they are CHANGELOG text until the release folds them in", () => {
   const violations = findPublicTextViolations([
-    { path: "docs/decisions-index.md", content: "- THE-1 — some decision\n" },
+    { path: "changes/some-change.md", content: "- **A fix (THE-1).**\n" },
   ]);
   assert.deepEqual(violations, []);
 });

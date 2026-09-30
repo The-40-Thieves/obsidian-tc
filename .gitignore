@@ -138,3 +138,7 @@ open-tickets.json
 
 # Local agent planning artifacts (never publish)
 .superpowers/
+
+# Structural map + dependency graph (scripts/gen-tree-map.mjs, `bun run map`). Derived from the whole
+# tree, so committing it made any two PRs conflict; regenerated on demand.
+generated/

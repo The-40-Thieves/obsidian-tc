@@ -3,9 +3,33 @@ name: ci-docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'packages/server/scripts/docgen/**', '.github/workflows/ci-docs.yml']
+    paths:
+      - 'docs/**'
+      - 'packages/server/scripts/docgen/**'
+      # The build FILLS the generated regions (tool catalog, config reference, metrics, errors) and
+      # the decisions index from these, so a change to any of them changes the built site.
+      - 'packages/server/src/**'
+      - 'packages/shared/src/**'
+      - 'packages/server/test/registered-tools.txt'
+      - 'scripts/gen-decisions-index.mjs'
+      - 'scripts/lib/changes.mjs'
+      - 'CHANGELOG.md'
+      - 'changes/**'
+      - '.github/workflows/ci-docs.yml'
   pull_request:
-    paths: ['docs/**', 'packages/server/scripts/docgen/**', '.github/workflows/ci-docs.yml']
+    paths:
+      - 'docs/**'
+      - 'packages/server/scripts/docgen/**'
+      # The build FILLS the generated regions (tool catalog, config reference, metrics, errors) and
+      # the decisions index from these, so a change to any of them changes the built site.
+      - 'packages/server/src/**'
+      - 'packages/shared/src/**'
+      - 'packages/server/test/registered-tools.txt'
+      - 'scripts/gen-decisions-index.mjs'
+      - 'scripts/lib/changes.mjs'
+      - 'CHANGELOG.md'
+      - 'changes/**'
+      - '.github/workflows/ci-docs.yml'
 
 permissions:
   contents: read
@@ -28,7 +52,7 @@ jobs:
       - name: Install
         working-directory: docs
         run: bun install --frozen-lockfile
-      - name: Build (generate tool pages && astro check && astro build)
+      - name: Build (fill generated regions, decisions index, tool pages; astro check; astro build)
         working-directory: docs
         run: bun run build
       # Invariant: one generated page per registered tool (count == registry), no stale page, every

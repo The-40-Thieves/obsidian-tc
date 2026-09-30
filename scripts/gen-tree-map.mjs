@@ -6,16 +6,21 @@
 // (which never builds before map:check) for reasons that look unrelated to your change. If
 // `map:check` disagrees with a fresh `map`, delete packages/*/dist and regenerate.
 /**
- * TREE.md dependency-graph generator (THE-470, partial).
+ * Structural-map generator (THE-470, partial).
  *
- * TREE.md opens with "This file is hand-generated and **will drift**", and §7 spells out the exact
- * depcruise incantation to refresh it — which means the numbers were only ever as fresh as the last
- * time somebody ran it by hand. This generates the machine-derivable half (scale, subsystem graph,
- * fan-in/fan-out) into marker regions, so `just map` refreshes it and `just map-check` fails CI when
- * it drifts. The prose sections stay hand-written; only the bytes between markers are touched.
+ * TREE.md's machine-derivable half — scale, per-subsystem file/line table, largest files, subsystem
+ * graph, fan-in/fan-out — plus its machine-readable twin (the full edge list as JSON). All of it is
+ * a function of the WHOLE tracked tree (`git ls-files`, every line count, every import edge), so
+ * any PR that touches any source file moves it, and any two PRs therefore conflicted on it by
+ * construction. It is no longer committed: `bun run map` writes it to the gitignored `generated/`
+ * directory (tree-map.md + dependency-graph.json) for whoever wants the numbers, and TREE.md keeps
+ * only the hand-written prose.
  *
- * Reuses docgen's marker convention (<!-- BEGIN GENERATED: name --> … <!-- END GENERATED: name -->)
- * rather than inventing a second one.
+ * `bun run map:check` (ci-docgen) still gates two things: the generator must RUN to completion on
+ * a clean tree (it refuses an empty module set, a built dist/, an empty table or scale rather than
+ * reporting success over nothing), and nothing generated may be COMMITTED again — no
+ * `<!-- BEGIN GENERATED -->` region in TREE.md, no tracked file under `generated/` or at the old
+ * docs/dependency-graph.json path (scripts/lib/tree-map-guard.mjs).
  *
  * TWO TRAPS, both already documented in check-boundaries.mjs and TREE.md §7, both re-hit while
  * writing this — they are guarded here rather than merely commented:
@@ -29,7 +34,8 @@
  *      the real fix.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { committedGeneratedProblems } from "./lib/tree-map-guard.mjs";
 
 const CHECK = process.argv.includes("--check");
 
@@ -276,76 +282,6 @@ ${breakdown}.
 
 Counted from \`git ls-files\` over ${CODE_EXTENSIONS.map((e) => `\`.${e}\``).join(", ")} — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.`;
 
-// ── inject ───────────────────────────────────────────────────────────────────
-const markers = (name) => ({
-  begin: `<!-- BEGIN GENERATED: ${name} -->`,
-  end: `<!-- END GENERATED: ${name} -->`,
-});
-
-function inject(source, name, content) {
-  const { begin, end } = markers(name);
-  const b = source.indexOf(begin);
-  const e = source.indexOf(end);
-  if (b === -1 || e === -1 || e < b) {
-    throw new Error(`gen-tree-map: missing or mismatched marker pair for "${name}" in TREE.md`);
-  }
-  return `${source.slice(0, b + begin.length)}\n${content.trim()}\n${source.slice(e)}`;
-}
-
-/**
- * One-time bootstrap for the headline Scale line (THE-470).
- *
- * That line was hand-written and restated a machine-derivable fact, which is the drift this repo
- * keeps re-finding — `.claude/hooks/remind-regenerate.sh` says so in as many words. Measured
- * 2026-07-28: the committed headline was generated against f1360b8, 177 commits back, and had
- * drifted in BOTH directions at once (files 773 -> 767, total lines 124,033 -> 121,784, but LOC
- * 93,787 -> 96,233). You could not have guessed the sign, let alone the size.
- *
- * TREE.md cannot be hand-edited — a PreToolUse hook blocks it and the file is a generated
- * artifact — so the marker pair this generator needs has to be introduced BY the generator. This
- * does that once: it replaces the legacy `**Scale:** ...` line with a marked region. After the
- * first run the markers exist and `inject` takes over; this becomes a no-op.
- *
- * Deliberately narrow. It anchors on one exact pattern, rewrites nothing else, and REFUSES rather
- * than guesses if neither the markers nor the legacy line is present — a generator that relocates
- * prose it does not understand is worse than a stale number.
- */
-function ensureHeadlineRegion(source) {
-  let next = source;
-
-  // Applied unconditionally, NOT inside the marker-bootstrap branch below. The bootstrap runs
-  // exactly once (the markers exist forever after), so anything gated behind it can never be
-  // re-applied — and this correction was written after the markers already existed, so gating it
-  // would have made it dead code that silently never ran.
-  //
-  // The intro paragraph asserted a methodology for ALL counts in the file. That became false the
-  // moment the headline started coming from `git ls-files`, and a stale claim sitting directly
-  // above a generated block that contradicts it is worse than no claim. Narrow it to the
-  // hand-written sections, which it still describes accurately. Whitespace-tolerant because the
-  // sentence is hard-wrapped across three lines; idempotent because the regex cannot match its own
-  // replacement.
-  const staleMethod =
-    /Counts\s+come\s+from\s+`find`\s+\/\s+`wc -l`\s+\/\s+`tokei`,\s+excluding\s+`node_modules`,\s+`dist`,\s+and\s+`target`\./;
-  next = next.replace(
-    staleMethod,
-    "Counts in the hand-written sections come from\n" +
-      "`find` / `wc -l` / `tokei`, excluding `node_modules`, `dist`, and `target`. The generated\n" +
-      "regions state their own method.",
-  );
-
-  const { begin, end } = markers("tree-headline-scale");
-  if (next.includes(begin) && next.includes(end)) return next;
-
-  const legacy = /^\*\*Scale:\*\*.*$/m;
-  if (!legacy.test(next)) {
-    throw new Error(
-      "gen-tree-map: no tree-headline-scale markers AND no legacy '**Scale:** ...' line to " +
-        "replace. Refusing to guess where the headline belongs — add the marker pair by hand.",
-    );
-  }
-  return next.replace(legacy, `${begin}\n${end}`);
-}
-
 // ── §3 subsystem table ───────────────────────────────────────────────────────
 // This table was hand-maintained and carried its own "Last measured <date> against <sha>" stamp —
 // the honest form of a hand-written fact, and it still drifted within ONE DAY of being re-measured:
@@ -467,24 +403,46 @@ const largestTable = [
   `${largest.length} file(s) over ${LARGE_FILE_FLOOR} lines, from the same \`git ls-files\` source set as the module graph (\`.ts\` under packages/{server,shared,plugin}/src, tests excluded). The biome \`noExcessiveLinesPerFile\` cap of 700 counts CODE lines, so a file can appear here — raw \`wc -l\` — while sitting well under the cap.`,
 ].join("\n");
 
-const before = readFileSync("TREE.md", "utf8");
-let after = ensureHeadlineRegion(before);
-after = inject(after, "tree-headline-scale", headlineScale);
-after = inject(after, "tree-scale", scale);
-after = inject(after, "tree-subsystem-table", subsystemTable);
-after = inject(after, "tree-largest-files", largestTable);
-after = inject(after, "tree-subsystem-graph", graphBlock);
-after = inject(after, "tree-fan", fanTable);
+const mapMd = `# Structural map (generated)
+
+Generated by \`scripts/gen-tree-map.mjs\` (\`bun run map\`) from \`git ls-files\` and the real module
+graph. Not committed: every number here moves with every source change, so a committed copy made
+any two PRs conflict. TREE.md holds the hand-written prose; this file holds the derived numbers.
+
+## Scale
+
+${headlineScale}
+
+${scale}
+
+## Module boundaries — packages/server/src
+
+${subsystemTable}
+
+## Largest files
+
+${largestTable}
+
+## Subsystem graph
+
+${graphBlock}
+
+## Fan-in / fan-out
+
+${fanTable}
+`;
 
 // Machine-readable twin of the Mermaid diagram. The edge weights are already computed above for
 // the diagram, which only renders pairs at or above MIN_EDGE_WEIGHT — this emits the FULL set, so
 // a tool (or an agent) reading the graph is not limited to what happened to be legible in a
 // picture. Sorted so the file is diffable and the drift check below is stable.
-const GRAPH_JSON = "docs/dependency-graph.json";
+const OUT_DIR = "generated";
+const MAP_MD = `${OUT_DIR}/tree-map.md`;
+const GRAPH_JSON = `${OUT_DIR}/dependency-graph.json`;
 const graphJson = `${JSON.stringify(
   {
     generatedBy: "scripts/gen-tree-map.mjs",
-    note: "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
+    note: "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7; narrative in generated/tree-map.md).",
     scale: {
       modules: modules.length,
       dependencies: totalDeps,
@@ -501,30 +459,32 @@ const graphJson = `${JSON.stringify(
   null,
   2,
 )}\n`;
-let jsonBefore = "";
-try {
-  jsonBefore = readFileSync(GRAPH_JSON, "utf8");
-} catch {
-  // absent — treated as stale below, which is what a first run should be
-}
-const jsonStale = jsonBefore !== graphJson;
 
-// Both artifacts are checked together: TREE.md can be current while the JSON is not (only one of
-// them is rewritten when the other's inputs change), and an early exit on TREE.md alone would let
-// a stale graph.json pass the gate forever.
-if (after === before && !jsonStale) {
-  console.log(`gen-tree-map: up to date (${modules.length} modules, ${totalDeps} dependencies)`);
-  process.exit(0);
-}
-if (CHECK) {
-  const stale = [after !== before ? "TREE.md" : null, jsonStale ? GRAPH_JSON : null]
-    .filter(Boolean)
-    .join(" + ");
-  console.error(`gen-tree-map: ${stale} is STALE — run \`just map\``);
+const problems = committedGeneratedProblems({
+  treeText: readFileSync("TREE.md", "utf8"),
+  tracked: run("git", ["ls-files", "--", "TREE.md", "generated", "docs/dependency-graph.json"])
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean),
+});
+if (problems.length > 0) {
+  console.error(
+    `gen-tree-map: generated content is committed again:\n  - ${problems.join("\n  - ")}`,
+  );
   process.exit(1);
 }
-if (after !== before) writeFileSync("TREE.md", after);
-if (jsonStale) writeFileSync(GRAPH_JSON, graphJson);
+
+if (CHECK) {
+  // The generator ran to completion above (every refusal is a process.exit(1) before this point),
+  // and nothing generated is committed. There is no committed copy to be stale against.
+  console.log(
+    `gen-tree-map: OK (${modules.length} modules, ${totalDeps} dependencies; nothing generated is committed)`,
+  );
+  process.exit(0);
+}
+mkdirSync(OUT_DIR, { recursive: true });
+writeFileSync(MAP_MD, mapMd);
+writeFileSync(GRAPH_JSON, graphJson);
 console.log(
-  `gen-tree-map: wrote ${[after !== before ? "TREE.md" : null, jsonStale ? GRAPH_JSON : null].filter(Boolean).join(" + ")} (${modules.length} modules, ${totalDeps} dependencies)`,
+  `gen-tree-map: wrote ${MAP_MD} + ${GRAPH_JSON} (${modules.length} modules, ${totalDeps} dependencies)`,
 );

@@ -37,6 +37,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Merge queue: a queue entry runs the required checks on gh-readonly-queue/* merge commits,
+  # which only fire workflows that list merge_group. See CONTRIBUTING.md "Merge queue".
+  merge_group:
 
 permissions:
   contents: read

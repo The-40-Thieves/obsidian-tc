@@ -2,8 +2,9 @@ name: ci-wiki
 
 # GitHub wiki publisher (THE-475). On push to main, mirror the seed pages in docs/wiki/ (some
 # hand-authored, some docgen-generated) into the repo's wiki — a SEPARATE git repo at
-# <repo>.wiki.git. The drift gate (ci-docgen) guarantees the committed docs/wiki/ pages are fresh, so
-# this just syncs them.
+# <repo>.wiki.git. The generated regions (tool reference, config reference, stats, bridge matrix)
+# are NOT committed — the drift gate (ci-docgen) asserts they are canonical-empty — so this job
+# FILLS them from the live registry/schema (`docgen:render`) before copying the pages out.
 #
 # PREREQUISITES (one-time, manual):
 #   1. Enable Wikis: repo Settings -> Features -> Wikis.
@@ -17,6 +18,13 @@ on:
     branches: [main]
     paths:
       - 'docs/wiki/**'
+      # The published pages embed generated content, so a change to what feeds it republishes them.
+      - 'packages/server/src/**'
+      - 'packages/shared/src/**'
+      - 'packages/server/scripts/docgen/**'
+      - 'packages/server/test/registered-tools.txt'
+      - 'packages/server/package.json'
+      - 'docs/project-facts.json'
       - '.github/workflows/ci-wiki.yml'
   workflow_dispatch:
 
@@ -32,6 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-repo
+      - name: fill generated regions in docs/wiki
+        # Fails (non-zero) on a broken extractor or orphan marker, so a wiki page can never be
+        # published with an empty reference table.
+        working-directory: packages/server
+        run: bun run docgen:render
       - name: publish docs/wiki -> GitHub wiki
         env:
           # Prefer a dedicated wiki-write token; fall back to GITHUB_TOKEN (works on repos that allow it).

@@ -4,11 +4,14 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "gen:regions": "bun ../packages/server/scripts/docgen/render.ts",
+    "gen:decisions-index": "cd .. && node scripts/gen-decisions-index.mjs",
     "gen:tool-pages": "bun ../packages/server/scripts/docgen/tool-pages.ts",
+    "gen": "bun run gen:regions && bun run gen:decisions-index && bun run gen:tool-pages",
     "check:tool-pages": "bun ../packages/server/scripts/docgen/tool-pages.ts --check --dist dist",
-    "dev": "bun run gen:tool-pages && astro dev",
-    "start": "bun run gen:tool-pages && astro dev",
-    "build": "bun run gen:tool-pages && astro check && astro build",
+    "dev": "bun run gen && astro dev",
+    "start": "bun run gen && astro dev",
+    "build": "bun run gen && astro check && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },

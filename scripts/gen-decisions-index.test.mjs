@@ -287,3 +287,38 @@ test("generator CLI: --check exits 0 against a freshly regenerated docs/decision
   execFileSync("node", ["scripts/gen-decisions-index.mjs"], { cwd: ROOT });
   execFileSync("node", ["scripts/gen-decisions-index.mjs", "--check"], { cwd: ROOT });
 });
+
+test("renderDocument: site mode emits Starlight front matter instead of an H1", () => {
+  const rows = [{ ticket: "THE-1", summary: "s", location: "l", count: 1 }];
+  assert.match(renderDocument(rows, 1, { site: true }), /^---\ntitle: Decisions index\n/);
+  assert.match(renderDocument(rows, 1), /^# Decisions index\n/);
+});
+
+test("an Unreleased fragment resolves its ticket through the same view the release uses", async () => {
+  const { changelogWithFragments, parseFragment } = await import("./lib/changes.mjs");
+  const cl = "# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-01-01\n\n- **old.**\n";
+  const frag = parseFragment(
+    "---\ntype: Added\n---\n- **New thing (THE-4242).**\n",
+    "changes/n.md",
+  );
+  const { resolveChangelogLeads, parseChangelogEntries } = await import(
+    "./gen-decisions-index.mjs"
+  );
+  const resolved = resolveChangelogLeads(parseChangelogEntries(changelogWithFragments(cl, [frag])));
+  assert.match(resolved.get("4242").summary, /New thing/);
+  assert.match(resolved.get("4242").location, /Unreleased/);
+});
+
+test("--check passes on the real tree and reports that none is committed", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const ok = spawnSync(process.execPath, ["scripts/gen-decisions-index.mjs", "--check"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(ok.status, 0, ok.stderr.slice(-400));
+  assert.match(ok.stdout, /OK \(\d+ tickets, \d+ resolved; none committed\)/);
+  const { LEGACY_COMMITTED, FLOOR } = await import("./gen-decisions-index.mjs");
+  assert.equal(LEGACY_COMMITTED, "docs/decisions-index.md");
+  assert.ok(FLOOR.tickets > 0 && FLOOR.resolved > 0);
+});
