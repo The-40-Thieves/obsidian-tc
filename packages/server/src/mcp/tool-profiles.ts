@@ -94,10 +94,13 @@ const M3_STRUCTURED_DOCUMENTS = [
 
 // bundle_files/bundle_folder deliberately absent — see the module comment.
 const M4_PLUGIN_BRIDGE = [
+  "append_active_file",
   "create_excalidraw",
+  "delete_active_file",
   "eval_dataview_field",
   "execute_command",
   "execute_template",
+  "get_active_file",
   "git_commit",
   "git_diff",
   "git_log",
@@ -111,6 +114,7 @@ const M4_PLUGIN_BRIDGE = [
   "makemd_query",
   "ocr_attachment",
   "ocr_bulk",
+  "patch_active_file",
   "query_datacore",
   "read_excalidraw",
   "read_metadata_fields",
@@ -122,6 +126,7 @@ const M4_PLUGIN_BRIDGE = [
   "show_file_in_obsidian",
   "tasks_filter",
   "trigger_quickadd",
+  "update_active_file",
   "update_excalidraw",
   "update_task",
   "validate_dql",

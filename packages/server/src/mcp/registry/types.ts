@@ -231,6 +231,21 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  effect is opaque and the confirmation binds on args_hash alone. A HITL-gated tool must declare
    *  `pathAcl` or this (registration throws otherwise) — see registry/hitl-declaration.ts. */
   confirmationTargets?: ConfirmationTargets<I>;
+  /** Resolve call arguments the CALLER does not supply: a target picked by live external state
+   *  (the note open in Obsidian) rather than by an argument. The returned fields are merged into the
+   *  validated input, so `precheck`, `pathAcl`, `confirmationTargets` and the handler all see the
+   *  resolved target; and the resolved fields join the raw arguments in the args hash that keys the
+   *  HITL confirmation, the idempotency claim and the audit row. Without that a confirmation raised
+   *  for note A would still be redeemable after focus moved to note B, since both calls carry the
+   *  same arguments. Runs after auth, scopes, vault binding, the per-vault ACL swap and the
+   *  read-only / vault-kind gates (so a caller refused by those never probes the live session) and
+   *  before precheck, idempotency and HITL. The folder ACL is checked on the resolved path right
+   *  here, with the path left out of a denial's details: the caller did not name it. Throw an
+   *  ObsidianTcError to reject. Resolved fields must not collide with schema fields. */
+  resolveTarget?: (
+    input: I,
+    ctx: CallerContext,
+  ) => Promise<Readonly<Record<string, unknown>>> | Readonly<Record<string, unknown>>;
   /** THE-727: resolve authorization policy from the CALL rather than the definition — a tool that
    *  dispatches on an `action` argument cannot honestly declare one static scope set (unioning
    *  over-grants, intersecting under-governs). Same shape as `pathAcl` above, for the same reason.

@@ -12,7 +12,11 @@ import { type OtelDetail, openDispatchSpans } from "../../otel/dispatch-spans";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
 import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
-import { callStatusForError, type DispatchObservability } from "./dispatch-observability";
+import {
+  callStatusForError,
+  type DispatchObservability,
+  telemetryDetail,
+} from "./dispatch-observability";
 import {
   claimOrReplay,
   deleteIdempotency,
@@ -37,6 +41,7 @@ import {
   resolveOperationPolicy,
   runPrecheck,
 } from "./policy-gates";
+import { bindResolvedTarget } from "./resolve-target";
 import {
   checkOutputSchema,
   isOverflow,
@@ -53,20 +58,6 @@ import { VERDICT_TOOL_TAG } from "./types";
 // runDispatch delegates here via one DispatchDeps object built once in the constructor.
 // `ctx.now ?? Date.now` must be called at each existing call site, never hoisted into a
 // pre-sampled value. See docs/design/mcp-dispatch-and-transport.md.
-
-/** THE-1125: the `observeToolCall` `detail` argument, built once per call site from `ctx` — every
- *  one of the six sites below already has `ctx` in scope, so this is not a new read of anything.
- *  `errorCode` is passed only by the sites that have one; the two "ok" sites omit it. */
-function telemetryDetail(
-  ctx: CallerContext,
-  errorCode?: string,
-): { errorCode?: string; facadeMode?: string; clientName?: string } {
-  return {
-    ...(errorCode !== undefined ? { errorCode } : {}),
-    ...(ctx.effectiveFacadeMode !== undefined ? { facadeMode: ctx.effectiveFacadeMode } : {}),
-    ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
-  };
-}
 
 /** Everything runDispatch reads from ToolRegistry's construction-time config, bundled into one
  *  object so the function signature does not grow a positional parameter per field. Built once in
@@ -114,7 +105,9 @@ export async function runDispatch(
   // undefined at detail "root": nothing below then allocates or records anything for tracing.
   const spans = openDispatchSpans(deps.tracer, deps.otelDetail, rootSpan);
   const start = now();
-  const hash = argsHash(name, rawInput ?? {});
+  // `let`: bindResolvedTarget rebinds both to include a `resolveTarget` tool's resolved target.
+  let hash = argsHash(name, rawInput ?? {});
+  let recordedInput: unknown = rawInput;
   // Governing scope class for the limiter gate + `scope_class` metric label; resolved
   // once the tool definition is known (stays "unknown" for an unrecognized tool name).
   let scopeClass = "unknown";
@@ -155,7 +148,7 @@ export async function runDispatch(
       name,
       episodeKind(),
       hash,
-      rawInput,
+      recordedInput,
       status,
       durationMs,
       resultSize,
@@ -221,7 +214,7 @@ export async function runDispatch(
     // WP4.3: input-schema parse, THE-267 vault-binding guard, THE-295 per-vault ACL swap — see
     // registry/input-binding.ts for the full reasoning behind each (unchanged, only relocated).
     spans?.stage("input_parse");
-    const inputData = parseInput(def, rawInput);
+    let inputData = parseInput(def, rawInput);
 
     // THE-727: authorization is a property of the CALL, not only of the tool. Without
     // `def.resolvePolicy` this is the static declaration verbatim, so existing tools are untouched.
@@ -245,6 +238,10 @@ export async function runDispatch(
     const mutating = isMutatingCall(policy);
     enforceReadOnlyGate(ctx, mutating, name, deps.toolVisibility);
     enforceVaultKindGate(ctx, def, inputData, mutating, name, deps.vaultKindResolver);
+
+    // resolveTarget: after every gate that can refuse the caller, before precheck/idempotency/HITL.
+    const target = await bindResolvedTarget(def, inputData, rawInput, ctx, deps.rootResolver);
+    if (target) ({ input: inputData, recorded: recordedInput, hash } = target);
 
     await runPrecheck(def, inputData, ctx);
 
@@ -578,7 +575,7 @@ export async function runDispatch(
             name,
             episodeKind(),
             hash,
-            rawInput,
+            recordedInput,
             scopeClass,
             code,
             duration,

@@ -75,6 +75,9 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
   // buckets silently and must be added here by hand; the test below only catches the ones the
   // naming filter already surfaces.
   const DELIBERATELY_EXCLUDED_READ_TOOLS = [
+    // Reads whichever note is open in the live Obsidian session (no caller-named path), so it is not
+    // a "looked at a note the search found" signal.
+    "get_active_file",
     "get_attachment",
     "get_backlinks",
     "get_entity",

@@ -27,6 +27,8 @@ Obsidian app                 (always required for bridges)
 
 `show_file_in_obsidian` needs only the companion (`POST /files/open`), not a third-party plugin. With no live session it can use the OS URI handler instead, but only when `uri.allowOsLaunch` is `true` and the call comes in over stdio; otherwise it returns `available: false` with a reason and a hint.
 
+`get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file` and `delete_active_file` also need only the companion (`GET /files/active`). They ask the live Obsidian session which note is open, then run `read_note` / `write_note` / `append_note` / `patch_note` / `delete_note` on it, so scopes, the folder ACL, snapshots and confirmations apply exactly as for a path-addressed call. With no open note they return `note_not_found` (`details.reason: no_active_file`); with no live session, `plugin_unreachable` or `requires_live_obsidian`, each with a hint. Nothing falls back to a default path.
+
 A tool that fails any link in the chain returns `plugin_missing` with the specific plugin in `details.plugin` (or `plugin_unreachable` if the plugin is present but its endpoint times out).
 
 ## Git & sync bridges (v1.7)
