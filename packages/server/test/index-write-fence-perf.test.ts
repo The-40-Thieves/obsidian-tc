@@ -81,5 +81,7 @@ describe("write-fence commit-cost perf (GH #995 follow-up)", () => {
     rmTemp(rootBefore);
     rmTemp(rootAfter);
     expect(afterMs).toBeLessThan(beforeMs * 3 + 500);
-  });
+    // Two full 1000-note passes: ~1 s each on an idle core, 2-7 s each under load, which is
+    // past vitest's 5 s default (17 of 20 runs timed out beside a `tsc` loop, none on the ratio).
+  }, 60_000);
 });
