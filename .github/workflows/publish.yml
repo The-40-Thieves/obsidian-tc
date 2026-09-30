@@ -17,11 +17,12 @@ on:
         type: boolean
         default: true
 
+# Read-only by default. A job-level `permissions:` block REPLACES this one (it does not add to
+# it), so every job that writes anything or mints an OIDC token declares exactly what it needs;
+# scripts/publish-signing.test.mjs pins the whole table and that id-token is held only by jobs
+# with an OIDC step (npm provenance, the MCP Registry login, build attestation, cosign).
 permissions:
-  contents: write
-  packages: write
-  id-token: write
-  attestations: write
+  contents: read
 
 # M7 (THE-183) shipped a 4-platform native matrix with linux-arm64 deferred (G3 amendment,
 # THE-141); it is now an 8-platform matrix — linux/darwin/win each x64 + arm64, plus linux x64 +
@@ -242,8 +243,17 @@ jobs:
     # version this run or found it already published (its own F3-style preflight only skips the
     # publish STEP, never the job) — exactly the "the version exists on npm by the time we get
     # here" guarantee this needs, not "a new publish just happened."
-    needs: [build-native, publish-embedder-local, verify-tag]
+    #
+    # sign-artifacts added: npm versions are immutable, so nothing may be published until every
+    # release artifact (including the eight native prebuilds these packages carry) has been signed
+    # and its bundle verified. A Fulcio/Rekor outage then stops the release BEFORE the first
+    # irrevocable publish instead of after it.
+    needs: [build-native, publish-embedder-local, sign-artifacts, verify-tag]
     runs-on: ubuntu-latest
+    # id-token: `npm publish --provenance` mints an OIDC token for the provenance attestation.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -447,7 +457,7 @@ jobs:
   # explicit that it "must run only on v* tags" — `on.push.tags` already restricts
   # `github.event_name == 'push'` to exactly that.
   #
-  # `needs: publish-npm` ONLY, not a list — review question, ruled by the controller: server.json's
+  # `needs: publish-npm` (plus the sign-artifacts barrier) — review question, ruled by the controller: server.json's
   # `packages[]` today lists exactly one npm package (`obsidian-tc`), and `packages/reranker-local`
   # is deliberately NOT one of them — it is an optional add-on resolved at runtime (its own README),
   # not how the server is launched, so the registry validates nothing about it and no publish job
@@ -458,7 +468,7 @@ jobs:
   # RELEASING.md's "MCP Registry publish" section for the same note.
   publish-registry:
     if: github.event_name == 'push'
-    needs: publish-npm
+    needs: [publish-npm, sign-artifacts]
     runs-on: ubuntu-latest
     # Review finding M4: the comment here previously claimed this scopes the OIDC token's `sub`
     # claim — false. The registry's GitHub-OIDC handler
@@ -468,7 +478,7 @@ jobs:
     # can later attach required-reviewer / ref-protection rules to. It changes nothing about the
     # OIDC exchange itself today.
     environment: mcp-registry
-    # Job-scoped, narrower than the workflow-level block above: id-token mints the OIDC token
+    # Job-scoped (the workflow-level default is contents: read only): id-token mints the OIDC token
     # mcp-publisher exchanges for a short-lived registry credential (no stored PAT/secret — see
     # "GitHub OIDC (CI/CD)" in the registry's CLI docs). contents: read is only for checking out
     # server.json.
@@ -689,8 +699,11 @@ jobs:
   # is EXPECTED on every run before that one-time setup, not a defect in this job.
   publish-reranker-local:
     if: github.event_name == 'push' || !inputs.dry_run
-    needs: verify-tag
+    needs: [sign-artifacts, verify-tag]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm publish --provenance
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -748,8 +761,11 @@ jobs:
   # from-scratch registry until that manual step has happened, which is EXPECTED, not a defect.
   publish-embedder-local:
     if: github.event_name == 'push' || !inputs.dry_run
-    needs: verify-tag
+    needs: [sign-artifacts, verify-tag]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm publish --provenance
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -952,6 +968,12 @@ jobs:
     # carries this edge.
     needs: verify-tag
     runs-on: ubuntu-latest
+    # attest-build-provenance mints an OIDC token and writes the attestation; `gh attestation
+    # verify` reads it back.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -960,8 +982,8 @@ jobs:
         working-directory: packages/plugin
         run: bun run build
       # THE-963: the community-directory review recommends attestations for the plugin's three
-      # release assets; nothing here produced them (publish.yml already declares
-      # `attestations: write` at the top-level `permissions:` block, unused until now). Tag-only
+      # release assets; nothing here produced them (this job's `attestations: write` above is what
+      # allows it). Tag-only
       # `if:` is policy, not a mechanical need: `gh attestation verify` resolves by file digest and
       # would pass on any ref, but a workflow_dispatch dry run builds bytes that never ship, and an
       # attestation for those would be a signed statement about nothing anyone can download.
@@ -1047,8 +1069,17 @@ jobs:
     # artifact, so waiting on the 8-target matrix would just serialise the pipeline for nothing. An
     # unsigned tag still stops it, and draft-release still requires build-native to have succeeded
     # before a release is assembled.
-    needs: verify-tag
+    #
+    # sign-artifacts added: this job pushes a public image, so a signing failure upstream must stop
+    # it BEFORE the push. (The wait on the build matrices this implies is the price of that barrier;
+    # the image is signed in this job, below, once its digest exists.)
+    needs: [sign-artifacts, verify-tag]
     runs-on: ubuntu-latest
+    # packages: GHCR push. id-token: keyless cosign signature of the pushed image.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -1081,6 +1112,7 @@ jobs:
         run: echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
         shell: bash
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: push
         with:
           context: .
           file: Dockerfile
@@ -1096,6 +1128,28 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
             org.opencontainers.image.title=obsidian-tc
+      # Keyless cosign signature of the image, by DIGEST (a tag can be re-pointed after signing; the
+      # digest of the multi-arch index cannot). The signature is stored in the registry beside the
+      # image and verified straight away against this run's own workflow identity, so a misconfigured
+      # signer fails this job -- and with it draft-release, so no GitHub Release is published --
+      # rather than shipping an image nobody can verify. Same installer pin as sign-artifacts.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.3'
+      - name: sign the image by digest (keyless) and verify it
+        shell: bash
+        env:
+          IMAGE: ghcr.io/the-40-thieves/obsidian-tc
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::the push step produced no image digest (got '$DIGEST')"; exit 1; }
+          IDENTITY="${GITHUB_SERVER_URL}/${GITHUB_WORKFLOW_REF}"
+          ISSUER=https://token.actions.githubusercontent.com
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+          cosign verify "${IMAGE}@${DIGEST}" \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER"
       # An SBOM of the IMAGE, which nothing else produces. The THE-299 step in publish-npm runs
       # `npm sbom` over the three packages — npm dependency trees only. It cannot see what actually
       # ships in the container: the Debian base packages, the bun runtime, or the compiled native
@@ -1216,11 +1270,15 @@ jobs:
           IDENTITY="${GITHUB_SERVER_URL}/${GITHUB_WORKFLOW_REF}"
           ISSUER=https://token.actions.githubusercontent.com
 
-          # sign_family <label> <file>...  — the files come from the caller's globs (nullglob drops
+          # sign_family <key> <file>...  — the files come from the caller's globs (nullglob drops
           # a pattern that matched nothing), so an empty family is caught by the floor below rather
           # than passing vacuously. Every basename must be unique: the bundles share one directory.
+          # Each bundle is also recorded in the signature manifest as `<key><TAB><bundle>`: the native
+          # prebuilds are not release assets and are not in SHASUMS256.txt, so this manifest is the
+          # only record that names their bundles. check-release-assets.sh compares it, and per-family
+          # counts, against what the draft release actually holds before it is published.
           sign_family() {
-            local label=$1 n=0 f out
+            local key=$1 n=0 f out
             shift
             for f in "$@"; do
               [ -f "$f" ] || continue
@@ -1230,19 +1288,20 @@ jobs:
               cosign verify-blob --bundle "$out" \
                 --certificate-identity "$IDENTITY" \
                 --certificate-oidc-issuer "$ISSUER" "$f"
+              printf '%s\t%s\n' "$key" "$(basename "$out")" >> signatures/signature-manifest.tsv
               n=$((n + 1))
             done
-            [ "$n" -gt 0 ] || { echo "::error::no $label found to sign"; exit 1; }
-            echo "signed $n $label"
+            [ "$n" -gt 0 ] || { echo "::error::no $key artifact found to sign"; exit 1; }
+            echo "signed $n $key artifact(s)"
           }
 
-          sign_family "native prebuild(s)" artifacts/native-*/*.node
-          sign_family "standalone binary(ies)" artifacts/binary-*/obsidian-tc-*
-          sign_family "plugin zip(s)" artifacts/plugin/**/obsidian-tc-*.zip
-          sign_family "plugin main.js" artifacts/plugin/**/main.js
-          sign_family "plugin manifest.json" artifacts/plugin/**/manifest.json
-          sign_family "plugin styles.css" artifacts/plugin/**/styles.css
-          sign_family "mcpb bundle(s)" artifacts/mcpb/**/*.mcpb
+          sign_family native artifacts/native-*/*.node
+          sign_family binary artifacts/binary-*/obsidian-tc-*
+          sign_family plugin-zip artifacts/plugin/**/obsidian-tc-*.zip
+          sign_family plugin-main artifacts/plugin/**/main.js
+          sign_family plugin-manifest artifacts/plugin/**/manifest.json
+          sign_family plugin-styles artifacts/plugin/**/styles.css
+          sign_family mcpb artifacts/mcpb/**/*.mcpb
           ls -la signatures/
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -1260,6 +1319,9 @@ jobs:
     # this changes no scheduling, only which outputs this job can see.
     needs: [publish-npm, build-binaries, build-plugin, build-docker, build-mcpb, sign-artifacts, verify-tag]
     runs-on: ubuntu-latest
+    # contents: write creates the release, uploads its assets and finally publishes it.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1281,10 +1343,18 @@ jobs:
           cd artifacts
           find . -type f \( -name 'obsidian-tc-*' -o -name '*.mcpb' -o -name '*.zip' \) -exec sha256sum {} \; > SHASUMS256.txt
         shell: bash
+      # The release is created as a DRAFT and only published by the last step of this job, after
+      # check-release-assets.sh has confirmed every artifact and every cosign bundle is attached.
+      # Publishing at creation (this used to be `draft: false`) made a partial upload public, and an
+      # upload step that died half way skipped the completeness check entirely, because a failed
+      # step skips the steps after it. Now a failure anywhere leaves an unpublished draft (re-run
+      # the job: the action reuses the draft for the tag) and "Latest" never moves onto a half-built
+      # release. The earlier "releases were left as drafts, so Latest went stale" bug was a missing
+      # publish step; the publish step below is what keeps that from coming back.
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        id: release
         with:
-          # publish on tag (was draft: true — releases were left as drafts, so "Latest" went stale)
-          draft: false
+          draft: true
           generate_release_notes: true
           # THE-957: without these, an RC tag (e.g. v1.28.0-rc.1) published as a normal, Latest
           # GitHub release -- which /releases/latest, BRAT and the Obsidian directory all read --
@@ -1318,14 +1388,31 @@ jobs:
 
       # THE-731: the upload step's exit code is NOT sufficient evidence that the release is whole.
       # On v1.19.0 it exited non-zero having shipped 10 of 11 assets, and on v1.18.0 the same defect
-      # exited ZERO because the race happened to fall the other way. Assert by name against the
-      # generated manifest instead; the script explains why name-and-manifest rather than a
-      # hardcoded count. Tag pushes only — a workflow_dispatch has no release to inspect.
-      - name: verify every checksummed artifact is attached
+      # exited ZERO because the race happened to fall the other way. Assert by name instead: the
+      # script compares the draft's assets against the generated checksum manifest AND against the
+      # signature manifest sign-artifacts wrote (the only record that names the 8 native bundles),
+      # with per-family counts pinned. Tag pushes only — a workflow_dispatch has no release to
+      # inspect. The release is addressed by id: a draft cannot be looked up by tag.
+      - name: verify every artifact and cosign bundle is attached to the draft
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/check-release-assets.sh "${{ github.ref_name }}" artifacts/SHASUMS256.txt
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: ./scripts/check-release-assets.sh "$RELEASE_ID" artifacts/SHASUMS256.txt signatures/signature-manifest.tsv
+      # Last step, success-only by default: reached only when the upload and the completeness check
+      # both passed. `make_latest` is passed here because GitHub ignores it while a release is a
+      # draft; the values are the same verify-tag classification the create step used.
+      - name: publish the validated release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          PRERELEASE: ${{ needs.verify-tag.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [ "$PRERELEASE" = "true" ]; then latest=false; else latest=true; fi
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false -F prerelease="$PRERELEASE" -f make_latest="$latest"
 
   # THE-955: Obsidian's community-directory validator (and the community.obsidian.md self-service
   # submission form) reads the release whose TAG EQUALS manifest.json's version, not this repo's
@@ -1388,6 +1475,13 @@ jobs:
         with:
           name: plugin
           path: plugin-artifact
+      # The mirror carries the same three files as v<version>, so it carries their cosign bundles
+      # too (the bytes are re-uploaded, never rebuilt, so the bundles stay valid).
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.verify-tag.outputs.prerelease != 'true'
+        with:
+          name: signatures
+          path: signatures
       - name: mirror the un-prefixed plugin release (THE-955)
         if: needs.verify-tag.outputs.prerelease != 'true'
         env:
@@ -1399,6 +1493,7 @@ jobs:
           node scripts/mirror-plugin-release.mjs \
             --version "$version" \
             --assets-dir plugin-artifact/dist \
+            --signatures-dir signatures \
             --sha "$MIRROR_SHA"
         shell: bash
 
@@ -1428,10 +1523,10 @@ jobs:
   #
   # Least-privilege (fix round 1, review finding 1; still true after THE-966's rewrite): this job
   # is the only one in the file that talks to a live external registry with this repo's own
-  # `SMITHERY_API_KEY`, so it does NOT inherit the workflow-level `permissions:` block (`contents:
-  # write`, `packages: write`, `id-token: write`, `attestations: write`) the way an unscoped job
-  # otherwise would — job-level `permissions:` REPLACES that block, not adds to it, the same
-  # mechanism `publish-registry` above uses to narrow to just `id-token: write` + `contents: read`.
+  # `SMITHERY_API_KEY`, so it declares its own `permissions:` rather than relying on the
+  # workflow default (`contents: read`, now the only scope granted at workflow level) —
+  # job-level `permissions:` REPLACES that block, not adds to it, the same mechanism
+  # `publish-registry` above uses to hold just `id-token: write` + `contents: read`.
   # `id-token: write` in particular would let anything reachable from this step mint an OIDC token
   # this repo already trusts for the MCP Registry publish (`publish-registry` above) — narrowing
   # this job to `contents: read` removes that blast radius regardless of what runs here.

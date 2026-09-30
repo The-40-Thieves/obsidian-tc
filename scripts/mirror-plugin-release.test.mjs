@@ -14,12 +14,15 @@ import {
   mirrorPluginRelease,
   missingAssetNames,
   parseArgs,
+  RELEASE_ASSET_NAMES,
   readExistingRelease,
   tagExists,
 } from "./mirror-plugin-release.mjs";
 
 const VERSION = "1.27.0";
 const SHA = "e0647616abcdef0123456789abcdef0123456789";
+// what a fully mirrored release carries: the three plugin files and their three cosign bundles
+const ALL_ASSETS = `${RELEASE_ASSET_NAMES.join("\n")}\n`;
 
 let workDir;
 afterEach(() => {
@@ -32,6 +35,11 @@ function makeAssetsDir({ id = "tc-bridge", version = VERSION } = {}) {
   writeFileSync(join(workDir, "manifest.json"), JSON.stringify({ id, version }));
   writeFileSync(join(workDir, "main.js"), "// plugin build\n");
   writeFileSync(join(workDir, "styles.css"), "/* styles */\n");
+  // the cosign bundles for the three files (same directory; mirrorPluginRelease defaults
+  // signaturesDir to assetsDir)
+  for (const name of ["main.js", "manifest.json", "styles.css"]) {
+    writeFileSync(join(workDir, `${name}.sigstore.json`), "{}\n");
+  }
   return workDir;
 }
 
@@ -86,13 +94,38 @@ test("missingAssetNames: reports only what's absent", () => {
   assert.deepEqual(missingAssetNames(["main.js", "manifest.json"]), ["styles.css"]);
 });
 
-test("parseArgs: requires --version, --assets-dir and --sha", () => {
+test("parseArgs: requires --version, --assets-dir, --signatures-dir and --sha", () => {
   assert.throws(() => parseArgs(["--version", VERSION]), /--assets-dir is required/);
+  assert.throws(
+    () => parseArgs(["--version", VERSION, "--assets-dir", "x", "--sha", SHA]),
+    /--signatures-dir is required/,
+  );
+});
+
+test("RELEASE_ASSET_NAMES: the three plugin files plus one cosign bundle each", () => {
+  assert.deepEqual(RELEASE_ASSET_NAMES, [
+    "main.js",
+    "manifest.json",
+    "styles.css",
+    "main.js.sigstore.json",
+    "manifest.json.sigstore.json",
+    "styles.css.sigstore.json",
+  ]);
 });
 
 test("parseArgs: --dry-run is optional and defaults to false", () => {
-  const args = parseArgs(["--version", VERSION, "--assets-dir", "x", "--sha", SHA]);
+  const args = parseArgs([
+    "--version",
+    VERSION,
+    "--assets-dir",
+    "x",
+    "--signatures-dir",
+    "y",
+    "--sha",
+    SHA,
+  ]);
   assert.equal(args.dryRun, false);
+  assert.equal(args.signaturesDir, "y");
 });
 
 test("parseArgs: rejects an unrecognized flag", () => {
@@ -194,7 +227,7 @@ test("prerelease: also skips in --dry-run", () => {
   assert.equal(calls.length, 0);
 });
 
-test("fresh path: creates the tag via git ls-remote check, creates the release with 3 assets, verifies Latest", () => {
+test("fresh path: creates the tag via git ls-remote check, creates the release with the 3 files and their 3 bundles, verifies Latest", () => {
   const dir = makeAssetsDir();
   const calls = [];
   const runner = freshRunner(calls);
@@ -210,6 +243,11 @@ test("fresh path: creates the tag via git ls-remote check, creates the release w
     cmds.some((c) => c.includes(`release create ${VERSION}`) && c.includes("--latest=false")),
   );
   assert.ok(cmds.some((c) => c.includes("releases/latest")));
+  // the three cosign bundles ride along in the same `release create`
+  const create = cmds.find((c) => c.includes(`release create ${VERSION}`));
+  for (const name of ["main.js", "manifest.json", "styles.css"]) {
+    assert.ok(create.includes(`${name}.sigstore.json`), `bundle for ${name} attached at creation`);
+  }
 });
 
 test("fresh path: reuses an existing tag instead of re-creating it", () => {
@@ -244,7 +282,7 @@ test("already-mirrored path: no create/upload calls, but the Latest check still 
   const runner = (cmd, args) => {
     calls.push([cmd, ...args]);
     if (cmd === "gh" && args[0] === "release" && args[1] === "view") {
-      return "main.js\nmanifest.json\nstyles.css\n";
+      return ALL_ASSETS;
     }
     if (cmd === "gh" && args[0] === "api" && args[1] === "repos/{owner}/{repo}/releases/latest") {
       return `v${VERSION}\n`;
@@ -264,7 +302,7 @@ test("already-mirrored path goes RED when Latest is the mirror, not v<version> (
   const dir = makeAssetsDir();
   const runner = (cmd, args) => {
     if (cmd === "gh" && args[0] === "release" && args[1] === "view") {
-      return "main.js\nmanifest.json\nstyles.css\n";
+      return ALL_ASSETS;
     }
     if (cmd === "gh" && args[0] === "api" && args[1] === "repos/{owner}/{repo}/releases/latest") {
       return `${VERSION}\n`; // WRONG: the un-prefixed mirror itself, not v<version>
@@ -287,7 +325,7 @@ test("already-mirrored path PASSES when Latest is a NEWER stable release (fix ro
   const runner = (cmd, args) => {
     calls.push([cmd, ...args]);
     if (cmd === "gh" && args[0] === "release" && args[1] === "view") {
-      return "main.js\nmanifest.json\nstyles.css\n";
+      return ALL_ASSETS;
     }
     if (cmd === "gh" && args[0] === "api" && args[1] === "repos/{owner}/{repo}/releases/latest") {
       return "v1.28.1\n"; // a LATER release, not v1.28.0 and not the "1.28.0" mirror itself
@@ -307,7 +345,7 @@ test("partial-assets path: uploads only the missing asset(s), then still verifie
   const runner = (cmd, args) => {
     calls.push([cmd, ...args]);
     if (cmd === "gh" && args[0] === "release" && args[1] === "view")
-      return "main.js\nmanifest.json\n";
+      return RELEASE_ASSET_NAMES.filter((n) => n !== "styles.css").join("\n");
     if (cmd === "gh" && args[0] === "api" && args[1] === "repos/{owner}/{repo}/releases/latest") {
       return `v${VERSION}\n`;
     }
@@ -322,6 +360,43 @@ test("partial-assets path: uploads only the missing asset(s), then still verifie
   assert.equal(upload.length, 5); // gh, release, upload, <version>, <one missing-asset path>
   assert.ok(upload[4].endsWith("styles.css"));
   assert.ok(calls.some((c) => c.join(" ").includes("releases/latest")));
+});
+
+test("bundles-missing path: a release with the three files but no bundles gets the bundles uploaded", () => {
+  const dir = makeAssetsDir();
+  const calls = [];
+  const runner = (cmd, args) => {
+    calls.push([cmd, ...args]);
+    if (cmd === "gh" && args[0] === "release" && args[1] === "view") {
+      return "main.js\nmanifest.json\nstyles.css\n"; // an old-style mirror, pre-signing
+    }
+    if (cmd === "gh" && args[0] === "api") return `v${VERSION}\n`;
+    return "";
+  };
+
+  const result = mirrorPluginRelease({ version: VERSION, assetsDir: dir, sha: SHA, runner });
+
+  assert.equal(result.action, "filled-missing");
+  assert.deepEqual(result.missing, [
+    "main.js.sigstore.json",
+    "manifest.json.sigstore.json",
+    "styles.css.sigstore.json",
+  ]);
+});
+
+test("a bundle missing on disk fails before any gh/git call", () => {
+  const dir = makeAssetsDir();
+  rmSync(join(dir, "styles.css.sigstore.json"));
+  const calls = [];
+  const runner = (cmd, args) => {
+    calls.push([cmd, ...args]);
+    return "";
+  };
+  assert.throws(
+    () => mirrorPluginRelease({ version: VERSION, assetsDir: dir, sha: SHA, runner }),
+    /required asset missing on disk: .*styles\.css\.sigstore\.json/,
+  );
+  assert.equal(calls.length, 0);
 });
 
 test("manifest mismatch: fails before any gh/git call", () => {
@@ -415,7 +490,7 @@ test("dry-run (already-mirrored, partial): prints the plan and uploads nothing",
   const runner = (cmd, args) => {
     calls.push([cmd, ...args]);
     if (cmd === "gh" && args[0] === "release" && args[1] === "view")
-      return "main.js\nmanifest.json\n";
+      return RELEASE_ASSET_NAMES.filter((n) => n !== "styles.css").join("\n");
     return "";
   };
 
