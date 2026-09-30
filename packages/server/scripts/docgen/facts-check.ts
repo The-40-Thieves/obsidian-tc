@@ -149,6 +149,11 @@ export function factRules(goldenSetSize: number, domainCount: number): FactRule[
       value: null,
       patterns: [
         new RegExp(`${STANDALONE}(\\d+)\\s+governed\\s+capabilities`, "i"),
+        // SKILLS.md said "143 capabilities across 31 domains" and "143 tools / 31 domains" for a
+        // while after the real surface moved on; the file was not swept and the phrasings did not
+        // match. Three-plus digits keeps "3 capabilities" style sub-counts legal.
+        new RegExp(`${STANDALONE}(\\d{3,})\\s+capabilities\\s+across`, "i"),
+        new RegExp(`${STANDALONE}(\\d{3,})\\s+tools\\s*/\\s*\\d+\\s+domains`, "i"),
         // Three-plus digits: a milestone sub-count ("20 tools across 9 domains") is a different,
         // legitimate fact, and no tool surface has been under 100 since 1.3.
         new RegExp(`${STANDALONE}(\\d{3,})\\s+tools\\s+across\\s+\\d+\\s+domains`, "i"),
@@ -248,6 +253,8 @@ export function narrativeFiles(repoRoot: string): string[] {
     "README.md",
     "ARCHITECTURE.md",
     "SECURITY.md",
+    // Agent-facing guide, shipped in the package; it restated the surface size in three places.
+    "SKILLS.md",
     // THE-623: CONTRIBUTING.md was outside every prose gate, and drifted — it claimed 19 required
     // checks (live: 26) and that the test suite COULD NOT be required, a year after THE-599 made it
     // required. An external reviewer read it, reasoned correctly from it, and recommended rebuilding
@@ -293,6 +300,8 @@ const FLOOR = { files: 20, lines: 500, patternMatches: 3 } as const;
 const CANARIES = [
   "the 999-tool surface",
   "999 governed capabilities",
+  "999 capabilities across 31 domains",
+  "the surface is 999 tools / 31 domains",
   "999 tools across 31 domains",
   "the 999-tool G2.1 set",
   "999 typed tools",

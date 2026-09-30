@@ -17,6 +17,9 @@ on:
   # Cost: the build-test matrix now runs on every PR. `perf` is unaffected -- it is gated on
   # `github.event_name == 'push'` (see the job) and still never runs on a PR.
   pull_request:
+  # Merge queue: a queue entry runs the required checks on gh-readonly-queue/* merge commits,
+  # which only fire workflows that list merge_group. See CONTRIBUTING.md "Merge queue".
+  merge_group:
   push:
     branches: [main]
   # THE-517 follow-up: run the suite on demand, on a dedicated runner, without opening a PR.

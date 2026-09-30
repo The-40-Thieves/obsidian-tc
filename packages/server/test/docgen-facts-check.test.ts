@@ -98,6 +98,8 @@ describe("scanFacts (narrative fact gate: tool count forbidden, curated facts eq
     ['(all visible by default; 999 with opt-in `profile: "core"`)', 999],
     ['999 with the opt-in `profile: "core"`', 999],
     ["**obsidian-tc** | 999 (3-tool facade)", 999],
+    ["**999 capabilities across 31 domains**", 999],
+    ["the surface is 999 tools / 31 domains", 999],
   ])("flags the tool-count phrasing %j", (text, n) => {
     const v = scanFacts(text, RULES).filter((x) => x.fact === "toolCount");
     expect(v, text).toEqual([expect.objectContaining({ found: n, expected: null })]);

@@ -8,12 +8,19 @@ sub-issues THE-471…THE-477.
 ```
 code ──(extractors, THE-471)──▶ docs-model.json ──(renderers, THE-472)──▶ markdown
                                                           │
-                       inject.ts (THE-473) ───────────────┼─▶ README.md / ARCHITECTURE.md  (marker regions)
+                       inject.ts (THE-473) ───────────────┼─▶ wiki / docs pages  (marker regions, filled at build)
                        astro (THE-474) ──────────────────┼─▶ docs/ site
                        wiki publisher (THE-475) ─────────┴─▶ obsidian-tc.wiki.git
                                                           │
                        drift gate + coverage lint (THE-476) enforces regeneration in CI
 ```
+
+Marker regions are committed **empty** and filled at build time (`bun run docgen:render`; docs
+`gen:regions`, the wiki publish step). `docgen:render -- --reset` empties them again and
+`docgen:render -- --check` is the CI gate: every region must be canonical-empty, every target must
+still render non-empty, and an orphan marker or a broken extractor fails. Committing a filled region
+would make any two PRs that move a generated fact conflict on it. README.md and ARCHITECTURE.md carry
+no region: they link to the generated tool catalog instead.
 
 ## What's here now (bootstrap)
 

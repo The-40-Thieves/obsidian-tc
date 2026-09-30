@@ -10,9 +10,9 @@
  * unusable as a client reference. `docs/wiki/FAQ.md` and `Installation.md` were already correct;
  * this was a single-file miss, which is exactly why it survived review.
  *
- * Every other structural fact in this repo is either generated (TREE.md, the config schema, the
- * docgen marker regions) or pinned by a parsed constant (REGISTERED_TOOL_COUNT, read by
- * check-version-coherence.mjs). The route block is prose that happens to look like a spec, and
+ * Every other structural fact in this repo is either generated (the structural map, the config
+ * schema, the docgen marker regions) or pinned by a checked manifest (test/registered-tools.txt).
+ * The route block is prose that happens to look like a spec, and
  * nothing could tell it apart from one. This gate is that difference.
  *
  * Invariant: the set of (METHOD, path) pairs declared as `RouteDef` object literals under
