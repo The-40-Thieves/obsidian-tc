@@ -8,6 +8,21 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`auth.mode: "oidc"`: verify tokens from your own OpenID Connect provider.** `auth.oidc` takes an
+  https `issuer`, a required `audience`, and optionally `clientId`, a `jwksUri` override, `allowedAlgs`
+  (asymmetric only, default RS256/ES256/EdDSA; HS* and `none` cannot be configured),
+  `clockToleranceSeconds` (default 30, maximum 300), `discoveryCacheSeconds`, `requireAtJwtType`,
+  `requiredClaims` and a `claimMapping` (`subject`, `scopes` as a string or array claim or dotted path,
+  `principal`, `vault`, `persona`). Discovery (`<issuer>/.well-known/openid-configuration`, https only, no
+  redirects, timeouts and size caps, document issuer must equal the configured one exactly) runs at boot and
+  a failure refuses to start; `doctor` gains an `auth.oidc` probe and a successful boot logs the issuer and
+  `jwks_uri`. Verified tokens resolve to the same identity jwt mode builds, so folder ACL, rule-scopes, vault
+  binding and personas apply unchanged, and revocation by `jti` (`auth revoke`, tombstones included) and
+  `auth.requireJti` cover them through the same registry. With `auth.resource` set, Protected Resource
+  Metadata advertises the issuer as the authorization server. Verification only: there is still no
+  authorization server. New rejection reasons: `token_not_yet_valid`, `invalid_token_type`,
+  `client_mismatch`, `idp_unavailable`. See `docs/src/content/docs/security/auth-model.md`.
+
 - **Signing-key rotation grace window, asymmetric keys and a JWKS.** `auth.rotationGraceSeconds`
   (default 0, maximum 7 days) is the grace window `auth rotate-key` uses when `--grace` is omitted;
   an explicit `--grace`, including 0, wins. A reaper persists `retiring` to `retired` on rotate, on
@@ -101,6 +116,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   refused once it carries that jti.
 
 ### Security
+
+- **OIDC verification is fail-closed.** The `oidc` mode refuses to boot without a discoverable identity
+  provider, accepts only algorithms from an asymmetric allowlist chosen by configuration (an HS256 token
+  signed with the provider's public key is refused), compares `iss` and the discovery document's issuer
+  exactly, refuses discovery over http or via a redirect, bounds every provider fetch by time and size, and
+  refuses tokens rather than serving a stale discovery document. An `auth.oidc` block under any other mode
+  is a config error, since it would look protected while it is not. Two small changes reach `jwt` mode:
+  a token whose `nbf` is in the future now logs `token_not_yet_valid` (it was `malformed`), and an
+  unknown `kid` against a remote JWKS logs `unknown_key`.
 
 - **The registry row, not the token header, chooses the verification algorithm.** A token naming a
   registry `kid` must carry that key's algorithm: an HS256 header against an asymmetric key (public

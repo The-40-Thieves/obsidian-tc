@@ -7,13 +7,162 @@
 // interlock in ServerConfigSchema.superRefine) stays in config.schema.ts.
 import { z } from "zod";
 
+// `auth.oidc`: verify access tokens issued by an EXTERNAL OpenID Connect provider (bring your own
+// IdP). Verification only — obsidian-tc stays a resource server; the bundled authorization server
+// is a separate design and lives under `auth.as`, a namespace this block does not use.
+//
+// Only asymmetric algorithms can be allowed. HS* never verifies an IdP token (the "key" would be a
+// public value) and `none` is no signature at all, so neither is expressible, not merely defaulted off.
+const OIDC_ALLOWED_ALGS = [
+  "RS256",
+  "RS384",
+  "RS512",
+  "PS256",
+  "PS384",
+  "PS512",
+  "ES256",
+  "ES384",
+  "ES512",
+  "EdDSA",
+] as const;
+
+const isHttpsUrl = (v: string, o: { allowQueryFragment: boolean }): boolean => {
+  try {
+    const u = new URL(v);
+    return (
+      u.protocol === "https:" &&
+      u.username === "" &&
+      u.password === "" &&
+      (o.allowQueryFragment || (u.search === "" && u.hash === ""))
+    );
+  } catch {
+    return false;
+  }
+};
+
+const OidcConfigSchema = z
+  .strictObject({
+    issuer: z
+      .string()
+      .refine((v) => isHttpsUrl(v, { allowQueryFragment: false }), {
+        message: "must be an https URL with no query, fragment or credentials",
+      })
+      .describe(
+        "The identity provider's issuer identifier, an https URL. Compared EXACTLY (no normalisation, a trailing slash matters) against the `iss` claim of every token and the `issuer` member of the discovery document fetched from `<issuer>/.well-known/openid-configuration`.",
+      ),
+    audience: z
+      .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
+      .describe(
+        "Required. The `aud` this server accepts: a token must name it (or one entry of a list). Use a dedicated API audience registered at the IdP, not a client id, so an ID token or another service's token is not accepted here.",
+      ),
+    clientId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Optional. When set, the token's `client_id` (RFC 9068) or `azp` claim must equal it, restricting access to tokens minted for that one application. Unset accepts any client of the IdP that obtains a token for `audience`.",
+      ),
+    jwksUri: z
+      .string()
+      .refine((v) => isHttpsUrl(v, { allowQueryFragment: true }), {
+        message: "must be an https URL",
+      })
+      .optional()
+      .describe(
+        "Optional override for the key set location. Discovery still runs (it validates the issuer); this replaces only the discovered `jwks_uri`. https only.",
+      ),
+    allowedAlgs: z
+      .array(z.enum(OIDC_ALLOWED_ALGS))
+      .min(1)
+      .default(["RS256", "ES256", "EdDSA"])
+      .describe(
+        "Signature algorithms accepted, asymmetric only: HS256/384/512 and `none` are not valid values. Taken from this list, never from the token header alone.",
+      ),
+    clockToleranceSeconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(300)
+      .default(30)
+      .describe(
+        "Clock skew tolerated when checking `exp`, `nbf` and `iat`, in seconds. Default 30, maximum 300.",
+      ),
+    discoveryCacheSeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(86400)
+      .default(3600)
+      .describe(
+        "How long the discovery document is trusted before it is fetched again, in seconds (60 to 86400, default 3600). A refresh that fails or returns a different issuer refuses tokens rather than serving a stale document.",
+      ),
+    requireAtJwtType: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Require the JOSE `typ` header to be `at+jwt` (RFC 9068), rejecting `JWT` and a missing `typ`. Default false, because several IdPs emit pre-RFC-9068 access tokens (Entra `JWT`, Keycloak `Bearer`); with it off, `at+jwt`, `JWT`, `Bearer` and an absent `typ` are accepted and every other `typ` (for example `id_token+jwt`) is refused. Turn it on when your IdP issues RFC 9068 tokens.",
+      ),
+    claimMapping: z
+      .strictObject({
+        subject: z
+          .string()
+          .min(1)
+          .default("sub")
+          .describe("Claim naming the caller. Required on every token."),
+        scopes: z
+          .string()
+          .min(1)
+          .default("scope")
+          .describe(
+            "Claim holding the granted scopes: a space-delimited string (`scope`, `scp`) or an array of strings. Only this claim grants scopes. The values must be obsidian-tc scope names (e.g. `read:notes`); define them at the IdP.",
+          ),
+        principal: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Optional claim used as the caller label in audit and logs instead of the subject (for example `email`). It does not affect authentication.",
+          ),
+        vault: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Optional claim binding the caller to one vault, as the `vault` claim does in jwt mode. Unset: no vault claim is read.",
+          ),
+        persona: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Optional claim naming a configured persona, as the `persona` claim does in jwt mode (the persona's scopes replace the token's). Unset: no persona claim is read.",
+          ),
+      })
+      .default({ subject: "sub", scopes: "scope" })
+      .describe(
+        "Where the identity comes from. A value is a claim name, or a dotted path into nested claims (`realm_access.roles`); a claim whose own name contains dots (a namespaced URL) is matched exactly first.",
+      ),
+    requiredClaims: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        "Extra claims that must be present. `exp`, `iat`, `iss`, `aud` and the subject claim are always required.",
+      ),
+  })
+  .describe(
+    "OpenID Connect provider whose access tokens this server verifies (`auth.mode: oidc`). Discovery is fetched at boot; the server refuses to start if it fails.",
+  );
+
 export const AuthConfigSchema = z.object({
   mode: z
-    .enum(["none", "jwt"])
+    .enum(["none", "jwt", "oidc"])
     .default("none")
     .describe(
-      "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` needs a signing key: a jwtSecret, a JWKS, or a key in the auth registry (`obsidian-tc auth rotate-key`). A `jwt` server with none of them refuses to start.",
+      "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` needs a signing key: a jwtSecret, a JWKS, or a key in the auth registry (`obsidian-tc auth rotate-key`). A `jwt` server with none of them refuses to start. `oidc` verifies access tokens from an external OpenID Connect provider configured in `auth.oidc`; discovery runs at boot and a failure refuses to start.",
     ),
+  oidc: OidcConfigSchema.optional().describe(
+    "Required when `mode` is `oidc`, and refused under any other mode. Replaces jwtSecret/jwks*/issuer/audience/algorithms for verification.",
+  ),
   jwtSecret: z
     .string()
     .min(32)

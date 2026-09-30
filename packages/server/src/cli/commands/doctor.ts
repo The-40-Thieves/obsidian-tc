@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { makeIndexReadable } from "../../acl";
+import { discoverOidc } from "../../auth/oidc-discovery";
 import { probeAuthRegistry } from "../../auth/registry-open";
 import {
   bridgeState,
@@ -598,6 +599,26 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         jwksConfigured: !!(config.auth.jwks || config.auth.jwksFile || config.auth.jwksUri),
         rotationGraceSeconds: config.auth.rotationGraceSeconds,
       },
+      ...(config.auth.mode === "oidc" && config.auth.oidc !== undefined
+        ? {
+            authOidc: (() => {
+              const oidc = config.auth.oidc;
+              return {
+                authMode: config.auth.mode,
+                issuer: oidc.issuer,
+                audience: oidc.audience,
+                allowedAlgs: oidc.allowedAlgs,
+                clockToleranceSeconds: oidc.clockToleranceSeconds,
+                prmConfigured: !!config.auth.resource,
+                requireJti: config.auth.requireJti,
+                probe: async () => {
+                  const d = await discoverOidc(oidc.issuer);
+                  return { ok: true as const, jwksUri: oidc.jwksUri ?? d.jwksUri };
+                },
+              };
+            })(),
+          }
+        : {}),
       sessions: {
         windowSeconds: config.sessions.windowSeconds,
         ...(sessionLiveness !== undefined ? { probe: () => sessionLiveness } : {}),

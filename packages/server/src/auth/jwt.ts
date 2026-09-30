@@ -1,4 +1,10 @@
-import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
+import {
+  createLocalJWKSet,
+  createRemoteJWKSet,
+  decodeJwt,
+  jwtVerify,
+  type RemoteJWKSetOptions,
+} from "jose";
 
 /**
  * THE-520: why a token was refused. Every value is OPERATOR-facing — it belongs in logs and the
@@ -20,6 +26,10 @@ export type AuthRejectionReason =
   | "key_retired" // the signing key is retired, or retiring with its window elapsed
   | "registry_lost" // the registry was initialised but auth.db is missing/empty: refuse, never trust
   | "jti_required" // auth.requireJti is on and the token carries no jti (so it could never be revoked)
+  | "token_not_yet_valid" // `nbf` (or an `iat`) is in the future beyond the clock tolerance
+  | "invalid_token_type" // oidc: the JOSE `typ` header is not an access-token type
+  | "client_mismatch" // oidc: auth.oidc.clientId is set and the token's client_id/azp differs or is absent
+  | "idp_unavailable" // oidc: discovery or the JWKS could not be fetched/validated, so nothing can be verified
   | "persona_denied"; // THE-647 item 2: `persona` claim named an unconfigured persona, or a
 // vault outside that persona's `vaults` — resolved one layer up in auth/persona.ts, not by
 // jwtVerify itself, but the SAME external "invalid or expired token" message applies: an
@@ -62,7 +72,7 @@ function peek(token: string): { caller: string | null; expStillFuture: boolean }
 
 /** Map a jose verification failure onto a typed reason. Anything unrecognized stays `malformed`
  *  rather than being guessed at — a wrong reason in a log is worse than a vague one. */
-function classify(err: unknown, token: string): AuthRejection {
+export function classifyJwtFailure(err: unknown, token: string): AuthRejection {
   if (err instanceof AuthRejection) return err;
   const { caller, expStillFuture } = peek(token);
   const code = (err as { code?: string })?.code;
@@ -72,11 +82,13 @@ function classify(err: unknown, token: string): AuthRejection {
   if (code === "ERR_JWT_EXPIRED") reason = "token_expired";
   else if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") reason = "bad_signature";
   else if (code === "ERR_JOSE_ALG_NOT_ALLOWED") reason = "unsupported_alg";
+  else if (code === "ERR_JWKS_NO_MATCHING_KEY") reason = "unknown_key";
   else if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
     const why = (err as { reason?: string })?.reason;
     if (why === "missing") reason = "missing_claim";
     else if (claim === "aud") reason = "audience_mismatch";
     else if (claim === "iss") reason = "issuer_mismatch";
+    else if (claim === "nbf") reason = "token_not_yet_valid";
   }
   return new AuthRejection(reason, { caller, expStillFuture, cause: err });
 }
@@ -146,7 +158,7 @@ export async function verifyJwt(
     });
     return identityFrom(payload, opts.maxAgeSeconds, opts);
   } catch (e) {
-    throw classify(e, token);
+    throw classifyJwtFailure(e, token);
   }
 }
 
@@ -183,34 +195,88 @@ export async function verifyJwtJwks(
     });
     return identityFrom(payload, opts.maxAgeSeconds, opts);
   } catch (e) {
-    throw classify(e, token);
+    throw classifyJwtFailure(e, token);
   }
 }
 
-function identityFrom(
+/**
+ * Where an `oidc` identity comes from. Absent (jwt mode): `sub`, `scopes`/`scope`, and the fixed
+ * `vault` / `persona` claims, exactly as before. Present: ONLY the named claims are read, so a stray
+ * `scopes` or `persona` claim an IdP happens to emit can never grant anything.
+ */
+export interface ClaimMapping {
+  subject: string;
+  scopes: string;
+  principal?: string;
+  vault?: string;
+  persona?: string;
+}
+
+/**
+ * A claim by name or dotted path. An exact top-level name wins first, so a namespaced claim such as
+ * `https://app.example.com/roles` (dots and slashes in its NAME) resolves; otherwise `a.b.c` walks
+ * nested objects. Own properties only, so `__proto__`/`constructor` never resolve.
+ */
+export function claimAt(payload: Record<string, unknown>, path: string): unknown {
+  if (Object.hasOwn(payload, path)) return payload[path];
+  let cur: unknown = payload;
+  for (const part of path.split(".")) {
+    if (typeof cur !== "object" || cur === null || !Object.hasOwn(cur, part)) return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+const asString = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+
+/** Non-empty subject claim by the mapping, or undefined. */
+export function subjectOf(
+  payload: Record<string, unknown>,
+  mapping?: ClaimMapping,
+): string | undefined {
+  if (mapping === undefined) return asString(payload.sub);
+  const v = asString(claimAt(payload, mapping.subject));
+  return v === "" ? undefined : v;
+}
+
+export function identityFrom(
   payload: Record<string, unknown>,
   maxAgeSeconds: number | undefined,
   revocation: RevocationOpts = {},
+  mapping?: ClaimMapping,
 ): JwtIdentity {
+  const subject = subjectOf(payload, mapping);
   const tooOld =
     maxAgeSeconds !== undefined &&
     typeof payload.iat === "number" &&
     Math.floor(Date.now() / 1000) - payload.iat > maxAgeSeconds;
   if (tooOld)
     throw new AuthRejection("token_max_age", {
-      caller: typeof payload.sub === "string" ? payload.sub : null,
+      caller: subject ?? null,
       // The diagnostic that matters: aged out while exp is still valid == misconfiguration,
       // not an expired credential.
       expStillFuture:
         typeof payload.exp === "number" && payload.exp > Math.floor(Date.now() / 1000),
     });
   const jti = typeof payload.jti === "string" ? payload.jti : undefined;
-  const caller = typeof payload.sub === "string" ? payload.sub : null;
+  const caller = subject ?? null;
   if (jti === undefined && revocation.requireJti === true) {
     throw new AuthRejection("jti_required", { caller });
   }
   if (jti !== undefined && revocation.isRevoked?.(jti))
     throw new AuthRejection("token_revoked", { caller });
+  if (mapping !== undefined) {
+    const principal =
+      mapping.principal === undefined ? undefined : asString(claimAt(payload, mapping.principal));
+    return {
+      caller: principal ?? caller,
+      scopes: scopesFromClaim(claimAt(payload, mapping.scopes)),
+      ...(jti !== undefined ? { jti } : {}),
+      vault: mapping.vault === undefined ? undefined : asString(claimAt(payload, mapping.vault)),
+      persona:
+        mapping.persona === undefined ? undefined : asString(claimAt(payload, mapping.persona)),
+    };
+  }
   return {
     caller,
     scopes: extractScopes(payload),
@@ -218,6 +284,13 @@ function identityFrom(
     vault: typeof payload.vault === "string" ? payload.vault : undefined,
     persona: typeof payload.persona === "string" ? payload.persona : undefined,
   };
+}
+
+/** A space-delimited string or an array of strings; anything else grants nothing. */
+function scopesFromClaim(v: unknown): Set<string> {
+  if (Array.isArray(v)) return new Set(v.filter((s): s is string => typeof s === "string"));
+  if (typeof v === "string") return new Set(v.split(/\s+/).filter(Boolean));
+  return new Set();
 }
 
 function extractScopes(payload: Record<string, unknown>): Set<string> {
@@ -242,8 +315,11 @@ function extractScopes(payload: Record<string, unknown>): Set<string> {
  * working, and the alg-routing guarantee (asymmetric verifies only against the JWKS) depends on
  * there being exactly one asymmetric source in play.
  */
-export function createRemoteJwks(uri: string): ReturnType<typeof createRemoteJWKSet> {
-  return createRemoteJWKSet(new URL(uri));
+export function createRemoteJwks(
+  uri: string,
+  options?: RemoteJWKSetOptions,
+): ReturnType<typeof createRemoteJWKSet> {
+  return createRemoteJWKSet(new URL(uri), options);
 }
 
 /**
@@ -271,6 +347,6 @@ export async function verifyJwtWithKeySet(
     });
     return identityFrom(payload, opts.maxAgeSeconds, opts);
   } catch (e) {
-    throw classify(e, token);
+    throw classifyJwtFailure(e, token);
   }
 }

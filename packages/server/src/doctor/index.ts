@@ -9,6 +9,7 @@
 
 // THE-1125: telemetry's view type, same barrel reasoning as every other doctor/*.ts submodule
 // above — the CLI builds it without importing through checks.ts.
+export { type AuthOidcView, authOidcCheck, type OidcProbeResult } from "./auth-oidc";
 export { type AuthRegistryView, authRegistryCheck } from "./auth-registry";
 // THE-891 item 3: experiential.capture-location's view type, so the CLI can build it without
 // importing through checks.ts — same barrel reasoning as every other doctor/*.ts submodule below.
