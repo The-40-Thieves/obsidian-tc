@@ -21,7 +21,11 @@ function walk(repoRoot: string, relDir: string): string[] {
   } catch {
     return [];
   }
-  return entries.filter((e) => /\.mdx?$/i.test(e)).map((e) => `${relDir}/${e}`);
+  // readdirSync's recursive entries use the platform separator; every consumer compares these
+  // against "/"-joined repo-relative target paths, so normalise (Windows returned "a\\b.md").
+  return entries
+    .filter((e) => /\.mdx?$/i.test(e))
+    .map((e) => `${relDir}/${e.replaceAll("\\", "/")}`);
 }
 
 /** Top-level `*.md`/`*.mdx` files directly inside `relDir` — non-recursive, so it does not also

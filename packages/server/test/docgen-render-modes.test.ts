@@ -142,7 +142,8 @@ function snapshot(root: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const rel of readdirSync(root, { recursive: true }) as string[]) {
     if (!/\.mdx?$/i.test(rel)) continue;
-    out.set(rel, readFileSync(`${root}/${rel}`, "utf8"));
+    // Recursive readdir yields "a\\b.md" on Windows; the assertions key on "a/b.md".
+    out.set(rel.replaceAll("\\", "/"), readFileSync(`${root}/${rel}`, "utf8"));
   }
   return out;
 }

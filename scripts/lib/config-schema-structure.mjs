@@ -66,7 +66,14 @@ export function diffStructure(base, head) {
 /** The user-facing key a structural path belongs to: `a.b[]|anyOf0.c` -> `a.b.c` is not needed; the
  *  acknowledgement names the dotted property path, so strip the structural suffixes for matching. */
 function keyOf(path) {
-  return path.replace(/\[\]|\{\}|\|(?:anyOf|oneOf|allOf)\d+/g, "");
+  // Repeat to a fixed point: one pass over `[[]]` would leave a fresh `[]` behind.
+  let key = path;
+  let prev;
+  do {
+    prev = key;
+    key = key.replace(/\[\]|\{\}|\|(?:anyOf|oneOf|allOf)\d+/g, "");
+  } while (key !== prev);
+  return key;
 }
 
 /**

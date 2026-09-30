@@ -229,7 +229,7 @@ export function narrativeFiles(repoRoot: string): string[] {
     }
     return entries
       .filter((e) => /\.(md|mdx)$/i.test(e) && !e.includes("node_modules"))
-      .map((e) => `${relDir}/${e}`);
+      .map((e) => `${relDir}/${e.replaceAll("\\", "/")}`);
   };
   // THE-598: top-level docs/*.md used to be three hand-picked names (WHY.md, QUICKSTART.md,
   // G2.1-tools.md) — a fourth hardcoded list alongside narrativeFiles' own recursive walks below,
