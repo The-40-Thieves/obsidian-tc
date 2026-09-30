@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 557,
-    "dependencies": 2698,
-    "subsystemPairs": 160,
-    "crossSubsystemImports": 1200
+    "modules": 558,
+    "dependencies": 2708,
+    "subsystemPairs": 162,
+    "crossSubsystemImports": 1208
   },
   "subsystems": {
     "auth": 12,
@@ -27,7 +27,7 @@
     "metrics": 4,
     "model": 7,
     "morgiana": 1,
-    "otel": 3,
+    "otel": 4,
     "plane": 9,
     "plugin": 21,
     "plur": 2,
@@ -167,6 +167,11 @@
     },
     {
       "from": "mcp",
+      "to": "otel",
+      "weight": 9
+    },
+    {
+      "from": "mcp",
       "to": "vault",
       "weight": 9
     },
@@ -301,11 +306,6 @@
       "weight": 5
     },
     {
-      "from": "mcp",
-      "to": "otel",
-      "weight": 5
-    },
-    {
       "from": "memory",
       "to": "vault",
       "weight": 5
@@ -368,6 +368,11 @@
     {
       "from": "metrics",
       "to": "db",
+      "weight": 4
+    },
+    {
+      "from": "runtime",
+      "to": "otel",
       "weight": 4
     },
     {
@@ -572,11 +577,6 @@
     },
     {
       "from": "runtime",
-      "to": "otel",
-      "weight": 2
-    },
-    {
-      "from": "runtime",
       "to": "transports",
       "weight": 2
     },
@@ -628,6 +628,11 @@
     {
       "from": "config",
       "to": "embeddings",
+      "weight": 1
+    },
+    {
+      "from": "db",
+      "to": "otel",
       "weight": 1
     },
     {
@@ -728,6 +733,11 @@
     {
       "from": "model",
       "to": "gateway",
+      "weight": 1
+    },
+    {
+      "from": "otel",
+      "to": "experiential",
       "weight": 1
     },
     {

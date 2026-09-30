@@ -497,7 +497,7 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // packages/shared/src/config/observability.schema.ts's MemoryOrphansConfigSchema for the
   // description text. Only `enabled` (dangling rows) is on by default; both age-gated classes are
   // absent-means-off. No existing key, type, default or constraint moved.
-  "b42ecc29fb0be4796888708674a305776fc4d4ce6abeb0b15b011d4e01eccffa";
+  "0a4821dc75ae7ff0d1e8408dca84218746bb77921432c2f41346a153ecbcc06e";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
