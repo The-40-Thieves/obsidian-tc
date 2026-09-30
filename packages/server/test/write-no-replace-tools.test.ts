@@ -11,8 +11,9 @@ import { makeTestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM6Vault } from "./m6-helpers";
 
-// Destination basenames the stale check lies about.
-const STALE = /\/(dest\.(md|png|canvas|base)|b-dest\.md)$/;
+// Destination basenames the stale check lies about. `[\\/]`: on Windows `abs` uses backslashes; a
+// `/`-only pattern never matched there, so the race was not simulated and upsert hit the real file.
+const STALE = /[\\/](dest\.(md|png|canvas|base)|b-dest\.md)$/;
 vi.mock("../src/vault/notes-io", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/vault/notes-io")>();
   return {

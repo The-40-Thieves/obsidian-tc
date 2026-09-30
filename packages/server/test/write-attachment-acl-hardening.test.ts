@@ -65,7 +65,11 @@ describe("write_attachment default-deny is judged on the resolved path", () => {
     const v = makeM3Vault();
     try {
       mkdirSync(join(v.root, ".obsidian"));
-      if (!trySymlink(fs, join(v.root, ".obsidian"), join(v.root, "pics"))) return;
+      // The vault registry canonicalizes its root with realpath.native (long names on Windows, where
+      // the runner tmpdir is an 8.3 `RUNNER~1` path); a link target spelled from the raw temp root
+      // would resolve to a differently-spelled, "outside the root" path instead of under .obsidian.
+      const realRoot = fs.realpathSync.native(v.root);
+      if (!trySymlink(fs, join(realRoot, ".obsidian"), join(v.root, "pics"))) return;
       const r = await v.call(
         "write_attachment",
         { vault: "test", path: "pics/x.png", content: PNG_B64 },

@@ -89,24 +89,29 @@ describe("write_note / move_note / copy_note refuse hostile targets", () => {
     if (!r.ok) expect(r.error.code).toBe("path_invalid");
   });
 
-  it("an EXISTING file with a hostile name is still readable and updatable in place", async () => {
-    v = makeTestVault({ centralAcl: true });
-    // Reserved names are already refused by normalizeVaultPath (reads too), so use the colon and
-    // trailing-dot shapes a Linux-synced vault can legitimately hold.
-    mkdirSync(join(v.root, "legacy"), { recursive: true });
-    // Empty, so overwriting it needs no HITL confirmation (that gate is not what is under test).
-    writeFileSync(join(v.root, "legacy", "a:b.md"), "");
-    const read = await v.call("read_note", { vault: "test", path: "legacy/a:b.md" });
-    expect(read.ok).toBe(true);
-    const upd = await v.call("write_note", {
-      vault: "test",
-      path: "legacy/a:b.md",
-      content: "new",
-      mode: "overwrite",
-    });
-    expect(upd.ok).toBe(true);
-    expect(v.read("legacy/a:b.md")).toBe("new");
-  });
+  // NTFS cannot hold `a:b.md` as a file name (`:` opens an alternate data stream), so the
+  // pre-existing-hostile-name precondition cannot be built on Windows.
+  it.skipIf(process.platform === "win32")(
+    "an EXISTING file with a hostile name is still readable and updatable in place",
+    async () => {
+      v = makeTestVault({ centralAcl: true });
+      // Reserved names are already refused by normalizeVaultPath (reads too), so use the colon and
+      // trailing-dot shapes a Linux-synced vault can legitimately hold.
+      mkdirSync(join(v.root, "legacy"), { recursive: true });
+      // Empty, so overwriting it needs no HITL confirmation (that gate is not what is under test).
+      writeFileSync(join(v.root, "legacy", "a:b.md"), "");
+      const read = await v.call("read_note", { vault: "test", path: "legacy/a:b.md" });
+      expect(read.ok).toBe(true);
+      const upd = await v.call("write_note", {
+        vault: "test",
+        path: "legacy/a:b.md",
+        content: "new",
+        mode: "overwrite",
+      });
+      expect(upd.ok).toBe(true);
+      expect(v.read("legacy/a:b.md")).toBe("new");
+    },
+  );
 });
 
 describe("write_attachment / create_canvas refuse hostile targets", () => {
