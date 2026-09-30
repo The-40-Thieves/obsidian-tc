@@ -223,6 +223,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   a token whose `nbf` is in the future now logs `token_not_yet_valid` (it was `malformed`), and an
   unknown `kid` against a remote JWKS logs `unknown_key`.
 
+- **Search and enumeration results honor a path's rule-scopes.** `readableRel`, the predicate every
+  search, listing, backlink and graph surface filters results with, checked the folder whitelist
+  (`readPaths`, `strictReadDefault`) but ignored the caller's granted scopes. A note under a rule
+  such as `secret/**` requiring an extra scope, which `read_note`/`read_notes` refuse, still came
+  back from `vault_graph_search`, `search_text`, `search_regex`, `search_semantic`,
+  `search_jsonlogic`, `search_vault`, `knowledge_search`, `vault_context`, `list_notes`,
+  `find_notes_by_tag`/`find_notes_by_property`, `get_backlinks`, `find_orphans`, `suggest_links`,
+  the graph analytics tools and `resources/list` as a path, a snippet or chunk text, a backlink
+  source, or a count. The predicate now takes the caller's granted scopes (a required parameter, so
+  a new caller cannot skip it) and decides exactly what `read_notes` decides; hidden results are
+  dropped before pagination and before any total. `readEnumerationUnrestricted` follows the same
+  rule, so bridge tools that cannot attribute results refuse a caller missing a declared scope.
+  Federated `vault_graph_search` legs fall back to the caller's own ACL, not to no ACL, when no
+  per-vault map is wired. The ACL fingerprint carries a read-predicate version, so persisted
+  permitted-path sets and prewarm bundles built by the old predicate become unreachable instead of
+  trusted. A caller that holds every scope its rules require sees no change.
+
 - **The registry row, not the token header, chooses the verification algorithm.** A token naming a
   registry `kid` must carry that key's algorithm: an HS256 header against an asymmetric key (public
   key as HMAC secret), an asymmetric header against an HS256 key, a mismatched asymmetric algorithm

@@ -28,7 +28,7 @@ export function createListNotesTool(deps: M1Deps): ToolDefinition {
         sub,
         recursive: input.recursive,
         extensions: input.extensions ?? [".md"],
-      }).filter((e) => readableRel(ctx.acl, e.relPath));
+      }).filter((e) => readableRel(ctx.acl, e.relPath, ctx.grantedScopes));
       const after = input.cursor;
       const visible = after ? entries.filter((e) => e.relPath > after) : entries;
       const limit = input.limit ?? 200;

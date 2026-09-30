@@ -160,7 +160,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
         const exts = (input.extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());
         const entries = walkVault(v.root, { sub, recursive: true, extensions: exts }).filter((e) =>
-          readableRel(ctx.acl, e.relPath),
+          readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
         );
         const after = input.cursor;
         const visible = after ? entries.filter((e) => e.relPath > after) : entries;
@@ -179,7 +179,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
             ...(input.include_reference_count
               ? {
                   reference_count: findAttachmentReferences(v.root, e.relPath).filter((p) =>
-                    readableRel(ctx.acl, p),
+                    readableRel(ctx.acl, p, ctx.grantedScopes),
                   ).length,
                 }
               : {}),
@@ -236,7 +236,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           ...(input.include_references
             ? {
                 references: findAttachmentReferences(v.root, rel).filter((p) =>
-                  readableRel(ctx.acl, p),
+                  readableRel(ctx.acl, p, ctx.grantedScopes),
                 ),
               }
             : {}),
@@ -340,7 +340,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("attachment not found", { path: rel });
         const references = findAttachmentReferences(v.root, rel).filter((p) =>
-          readableRel(ctx.acl, p),
+          readableRel(ctx.acl, p, ctx.grantedScopes),
         );
         const st = statNote(abs);
         let trashedTo: string | null = null;

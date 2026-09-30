@@ -454,7 +454,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
 
         let candidates = walkVault(v.root, { extensions: [".md"] })
           .map((e) => e.relPath)
-          .filter((p) => readableRel(ctx.acl, p));
+          .filter((p) => readableRel(ctx.acl, p, ctx.grantedScopes));
         if (sType === "folder") {
           const f = normalizeVaultPath(String(sValue ?? ""));
           candidates = f === "" ? candidates : candidates.filter((p) => p.startsWith(`${f}/`));

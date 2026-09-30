@@ -43,7 +43,7 @@ export function createContradictionsTool(deps: M7Deps): ToolDefinition {
         };
       }
       const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
-        readableRel(ctx.acl, rel),
+        readableRel(ctx.acl, rel, ctx.grantedScopes),
       );
       return {
         vault: v.id,

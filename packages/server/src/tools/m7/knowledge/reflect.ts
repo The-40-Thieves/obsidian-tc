@@ -59,9 +59,9 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       // adds a retrieval mechanism.
       const route = deps.classRouter
         ? routeQuery(ctx.db, v.id, input.query, {
-            isReadable: (p) => readableRel(ctx.acl, p),
+            isReadable: (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
             // THE-694: the rare-term probe is only issued for callers who can read everything.
-            readUnrestricted: readEnumerationUnrestricted(ctx.acl),
+            readUnrestricted: readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes),
           })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
@@ -71,14 +71,14 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         // the exact JOIN path (or fails closed) instead of the leaky over-fetch fallback — same
         // resolution the "standard" route gets for free inside buildGraphSearchOptions below.
         const walkFilter = resolveAclWalkFilter(ctx.db, v.id, ctx.acl, ctx.grantedScopes, (rel) =>
-          readableRel(ctx.acl, rel),
+          readableRel(ctx.acl, rel, ctx.grantedScopes),
         );
         results = lexicalRouteResults(
           ctx.db,
           v.id,
           input.query,
           input.k,
-          (rel) => readableRel(ctx.acl, rel),
+          (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
           walkFilter.aclSetId,
           walkFilter.aclWalkFilter?.blocked,
         );
@@ -91,7 +91,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             vaultId: v.id,
             finalTopK: input.k,
             reranker: deps.reranker,
-            isReadable: (rel) => readableRel(ctx.acl, rel),
+            isReadable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
             db: ctx.db,
             acl: ctx.acl,
             grantedScopes: ctx.grantedScopes,
@@ -147,7 +147,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           CHALLENGE_EVIDENCE_BUDGET,
         ).items;
         const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
-          readableRel(ctx.acl, rel),
+          readableRel(ctx.acl, rel, ctx.grantedScopes),
         );
         const { output, model, excludedCount } = await challengeProposal(
           deps.roles,

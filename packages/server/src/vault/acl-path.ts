@@ -85,6 +85,8 @@ export function pathScopesSatisfied(
   grantedScopes: Iterable<string>,
 ): boolean {
   if (!acl) return true;
+  // Fast path for the shipped config: nothing declares a scope, so nothing can be unsatisfied.
+  if (!acl.declaresPathScopes) return true;
   const required = acl.scopesForPath(path);
   return required.length === 0 || grantsAll(grantedScopes, required);
 }

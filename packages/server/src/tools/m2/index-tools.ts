@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { indexVault } from "../../search/indexer";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableByFolder } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M2Deps } from "./shared";
@@ -76,7 +76,8 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
             vaultId: v.id,
             root: v.root,
             sub,
-            isReadable: (rel) => readableRel(ctx.acl, rel),
+            // Folder-only: the index is shared across callers (see readableByFolder).
+            isReadable: (rel) => readableByFolder(ctx.acl, rel),
             now: ctx.now,
             // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
             walk: { streaming: deps.streamingWalk },

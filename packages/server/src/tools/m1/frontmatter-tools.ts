@@ -433,14 +433,14 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
             if (scanned >= input.max_notes) break;
             scanned++;
             tally(r.frontmatter ? (JSON.parse(r.frontmatter) as Record<string, unknown>) : null);
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readableRel(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
           );
           for (const e of entries) {
             if (scanned >= input.max_notes) break;
@@ -492,7 +492,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
             const fm = r.frontmatter
               ? (JSON.parse(r.frontmatter) as Record<string, unknown>)
               : null;
@@ -500,7 +500,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readableRel(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
           );
           for (const e of entries) {
             const fm = parseNote(

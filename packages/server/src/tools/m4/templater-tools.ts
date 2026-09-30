@@ -38,7 +38,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         // Template paths + parsed user-function bodies are vault content the read ACL governs, but
         // the plugin-defined result shape is not reliably path-attributable — so under a read
         // whitelist, refuse wholesale (THE-270), matching search_dql's fail-closed contract.
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied("list_templates is unavailable under a read whitelist", {
             tool: "list_templates",
           });

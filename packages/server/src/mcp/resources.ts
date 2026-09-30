@@ -169,7 +169,7 @@ export function listResources(
   const acl = aclOfVault(ctx, v.id, aclFor);
   const rels = walkVault(v.root, { extensions: [".md"] })
     .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel));
+    .filter((rel) => readableRel(acl, rel, ctx.grantedScopes));
   // Offset cursor over the sorted walk (walkVault sorts by relPath, so paging is stable).
   const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
   const page = rels.slice(start, start + pageSize);

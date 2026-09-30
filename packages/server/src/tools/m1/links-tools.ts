@@ -31,10 +31,15 @@ import type { M1Deps } from "./shared";
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /** Read-ACL-visible `.md` note paths (optionally under a folder). */
-function readableNotes(root: string, acl: FolderAcl | undefined, sub?: string): string[] {
+function readableNotes(
+  root: string,
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+  sub?: string,
+): string[] {
   return walkVault(root, { sub, extensions: [".md"] })
     .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel));
+    .filter((rel) => readableRel(acl, rel, grantedScopes));
 }
 
 function bodyOf(root: string, rel: string): string {
@@ -176,11 +181,12 @@ const RewriteInput = z
 function planLinkRewrite(
   root: string,
   acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
   input: z.infer<typeof RewriteInput>,
 ): { edits: Array<{ rel: string; text: string; count: number }>; totalLinks: number } {
   const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-  const paths = readableNotes(root, acl, sub);
-  const index = buildVaultIndex(readableNotes(root, acl));
+  const paths = readableNotes(root, acl, grantedScopes, sub);
+  const index = buildVaultIndex(readableNotes(root, acl, grantedScopes));
   const fromRes = resolveTarget(index, input.from_target);
   const fromPath = fromRes.resolved ? fromRes.target_path : null;
   const fromLiteral = normTarget(input.from_target);
@@ -240,7 +246,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
 
-        const index = buildVaultIndex(readableNotes(v.root, ctx.acl));
+        const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
         const links = extractLinks(parseNote(readNote(abs).raw, rel).body)
           .filter((l) => !l.inCodeblock)
           .filter((l) => input.include_embeds || l.kind !== "embed")
@@ -295,7 +301,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
 
-        const paths = readableNotes(v.root, ctx.acl);
+        const paths = readableNotes(v.root, ctx.acl, ctx.grantedScopes);
         const index = buildVaultIndex(paths);
         const backlinks: Array<Record<string, unknown>> = [];
         let truncated = false;
@@ -341,8 +347,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const candidates = readableNotes(v.root, ctx.acl, sub);
-        const all = readableNotes(v.root, ctx.acl);
+        const candidates = readableNotes(v.root, ctx.acl, ctx.grantedScopes, sub);
+        const all = readableNotes(v.root, ctx.acl, ctx.grantedScopes);
         const index = buildVaultIndex(all);
         const linkedTo = new Set<string>();
         const hasOutgoing = new Set<string>();
@@ -378,8 +384,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const scan = readableNotes(v.root, ctx.acl, sub);
-        const index = buildVaultIndex(readableNotes(v.root, ctx.acl));
+        const scan = readableNotes(v.root, ctx.acl, ctx.grantedScopes, sub);
+        const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
         const unresolved: Array<Record<string, unknown>> = [];
         let truncated = false;
         for (const p of scan) {
@@ -424,12 +430,12 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         root
           ? (fingerprintTargets(
               root,
-              planLinkRewrite(root, ctx.acl, input).edits.map((e) => e.rel),
+              planLinkRewrite(root, ctx.acl, ctx.grantedScopes, input).edits.map((e) => e.rel),
             ) ?? argsHash("state", []))
           : null,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const { edits, totalLinks } = planLinkRewrite(v.root, ctx.acl, input);
+        const { edits, totalLinks } = planLinkRewrite(v.root, ctx.acl, ctx.grantedScopes, input);
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
 
         if (!input.dry_run) {
@@ -502,7 +508,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             actual: hash,
           });
 
-        const index = buildVaultIndex(readableNotes(v.root, ctx.acl));
+        const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
         const { text, removed } = pruneHubLinks(raw, index, {
           removeUnresolved: input.remove_unresolved,
           removeDuplicates: input.remove_duplicates,

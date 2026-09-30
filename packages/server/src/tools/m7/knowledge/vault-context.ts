@@ -81,7 +81,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       if (query === undefined) {
         const rel = `${deps.memoryFolder?.(v.id) ?? "memory"}/${NEXT_SESSION_NOTE}`;
         const abs = resolveVaultPath(v.root, rel);
-        if (!readableRel(ctx.acl, rel) || !existsSync(abs)) {
+        if (!readableRel(ctx.acl, rel, ctx.grantedScopes) || !existsSync(abs)) {
           throw err.invalidInput("query omitted and no readable next-session signal note", {
             signal: rel,
           });
@@ -117,7 +117,9 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           if (
             cached?.bundle &&
             shaped?.success &&
-            prewarmBundlePaths(cached.bundle).every((rel) => readableRel(ctx.acl, rel))
+            prewarmBundlePaths(cached.bundle).every((rel) =>
+              readableRel(ctx.acl, rel, ctx.grantedScopes),
+            )
           ) {
             return {
               ...shaped.data,
@@ -132,15 +134,15 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       // which call bm25Chunks OUTSIDE the buildGraphSearchOptions pipeline (the "standard" route
       // resolves its own copy of the same thing, via the same function, inside that builder).
       const walkFilter = resolveAclWalkFilter(ctx.db, v.id, ctx.acl, ctx.grantedScopes, (rel) =>
-        readableRel(ctx.acl, rel),
+        readableRel(ctx.acl, rel, ctx.grantedScopes),
       );
       // Same front door as vault_graph_search: the class router when enabled, the measured
       // engine otherwise — vault_context adds composition, never a second retrieval path.
       const route = deps.classRouter
         ? routeQuery(ctx.db, v.id, query, {
-            isReadable: (p) => readableRel(ctx.acl, p),
+            isReadable: (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
             // THE-694: the rare-term probe is only issued for callers who can read everything.
-            readUnrestricted: readEnumerationUnrestricted(ctx.acl),
+            readUnrestricted: readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes),
           })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(deps, v.id, route.class);
@@ -151,7 +153,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           v.id,
           query,
           input.k,
-          (rel) => readableRel(ctx.acl, rel),
+          (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
           walkFilter.aclSetId,
           walkFilter.aclWalkFilter?.blocked,
         );
@@ -164,7 +166,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
             vaultId: v.id,
             finalTopK: input.k,
             reranker: deps.reranker,
-            isReadable: (rel) => readableRel(ctx.acl, rel),
+            isReadable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
             db: ctx.db,
             acl: ctx.acl,
             grantedScopes: ctx.grantedScopes,
@@ -260,7 +262,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         ctx.db,
         v.id,
         notes.map((n) => n.path),
-        (rel) => readableRel(ctx.acl, rel),
+        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
         effectiveSinceMs,
       ).slice(0, 5);
 
@@ -365,12 +367,12 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
             v.id,
             query,
             40,
-            (p) => readableRel(ctx.acl, p),
+            (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
             walkFilter.aclSetId,
           )) {
             if (lessons.length >= 5) break;
             if (seen.has(h.chunk_id) || !LESSON_PATH_RE.test(h.path)) continue;
-            if (!readableRel(ctx.acl, h.path)) continue;
+            if (!readableRel(ctx.acl, h.path, ctx.grantedScopes)) continue;
             seen.add(h.chunk_id);
             lessons.push({
               chunk_id: h.chunk_id,

@@ -52,7 +52,7 @@ export function createKnowledgeChallengeTool(
       const hits = semanticSearch(ctx.db, v.id, queryVec, {
         k: CHALLENGE_RECALL,
         returnContent: true,
-        isReadable: (rel) => readableRel(ctx.acl, rel),
+        isReadable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
         model: deps.embeddingProvider.id, // THE-530: constrain to the active model
       });
       // THE-230: challenge recall is a real retrieval surface — log it like the search tools.
@@ -110,7 +110,7 @@ export function createKnowledgeChallengeTool(
         ctx.db,
         v.id,
         evidence.map((e) => e.path),
-        (rel) => readableRel(ctx.acl, rel),
+        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
       );
       const { output, model, excludedCount } = await challengeProposal(
         deps.roles,

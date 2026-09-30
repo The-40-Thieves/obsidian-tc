@@ -132,7 +132,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         // so emission order is a deterministic, total order that the cursor can rely on.
         const all = walkVault(v.root, { sub, extensions: input.extensions })
           .map((e) => e.relPath)
-          .filter((rel) => readableRel(ctx.acl, rel))
+          .filter((rel) => readableRel(ctx.acl, rel, ctx.grantedScopes))
           .sort();
         const paged = input.cursor ? all.filter((rel) => rel > (input.cursor as string)) : all;
         const capped = paged.slice(0, input.max_files);

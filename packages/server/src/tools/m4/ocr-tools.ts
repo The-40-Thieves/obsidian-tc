@@ -30,18 +30,19 @@ const OcrBulkOutput = z.object({ vault: z.string(), requested: z.number().int() 
 function ocrCandidates(
   root: string,
   acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
   input: { paths?: string[]; root?: string; extensions?: string[] },
 ): string[] {
   const sub = input.root ? normalizeVaultPath(input.root) : undefined;
-  if (sub) enforcePathAcl(acl, "read", sub, root);
+  if (sub) enforcePathAcl(acl, "read", sub, root, grantedScopes);
   if (input.paths?.length) {
     const candidates = input.paths.map(normalizeVaultPath);
-    for (const p of candidates) enforcePathAcl(acl, "read", p, root);
+    for (const p of candidates) enforcePathAcl(acl, "read", p, root, grantedScopes);
     return candidates;
   }
   return walkVault(root, { sub, extensions: input.extensions ?? DEFAULT_EXTS })
     .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel));
+    .filter((rel) => readableRel(acl, rel, grantedScopes));
 }
 
 export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
@@ -108,11 +109,12 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
       // The attachments a run would read: a file replaced, or one added under `root`, moves it.
       confirmationTargets: (input, { ctx, root }) =>
         root
-          ? (fingerprintTargets(root, ocrCandidates(root, ctx.acl, input)) ?? argsHash("state", []))
+          ? (fingerprintTargets(root, ocrCandidates(root, ctx.acl, ctx.grantedScopes, input)) ??
+            argsHash("state", []))
           : null,
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const candidates = ocrCandidates(v.root, ctx.acl, input);
+        const candidates = ocrCandidates(v.root, ctx.acl, ctx.grantedScopes, input);
 
         requireConfirmation(ctx, "ocr_bulk", input, true, {
           count: candidates.length,

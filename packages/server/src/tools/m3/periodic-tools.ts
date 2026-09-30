@@ -606,7 +606,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           }
           const name = formatMoment(d, config.format);
           const rel = `${folder ? `${folder}/` : ""}${name}.md`;
-          if (!readableRel(ctx.acl, rel)) continue;
+          if (!readableRel(ctx.acl, rel, ctx.grantedScopes)) continue;
           const st = statNote(resolveVaultPath(v.root, rel));
           if (st)
             found.push({ period: input.period, date: toISODate(d), path: rel, mtime: st.mtime });

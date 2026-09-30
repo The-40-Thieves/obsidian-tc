@@ -38,7 +38,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         // Spaces are not vault-path-scopable; refuse blanket enumeration under a read
         // whitelist rather than leak (D2/B2).
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied(
             "make.md space enumeration is not path-scopable; refused under a read whitelist",
             { tool: "makemd_list_spaces" },
@@ -95,13 +95,13 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
         // Intersect make.md rows with the read ACL by note path; fail closed on an
         // unattributable row under a read whitelist (D2/B2).
         const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-        const items = filterBridgeItemsByAcl(ctx.acl, rawItems, {
+        const items = filterBridgeItemsByAcl(ctx.acl, ctx.grantedScopes, rawItems, {
           tool: "makemd_query",
           keys: ["note_path", "path", "file", "filePath"],
         });
         // Under a read whitelist, drop `...result` siblings — they can carry path-attributable
         // content from the UNFILTERED make.md rows (THE-270).
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           return { vault: v.id, space_id: input.space_id, items, total: items.length };
         return { vault: v.id, space_id: input.space_id, ...result, items, total: items.length };
       },

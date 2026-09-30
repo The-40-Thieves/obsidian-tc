@@ -136,6 +136,10 @@ export class FolderAcl {
   // reason — so this array is built with .map() and never sorted, deduped or short-circuited.
   private readonly compiledRules: readonly { readonly re: RegExp; readonly scopes: string[] }[];
   private readonly compiledPaths: Readonly<Record<AclPathOp, readonly CompiledGlobT[] | undefined>>;
+  // The union of every scope any path can declare (defaultScopes + every rule's scopes), computed
+  // once. Empty on the shipped config (no rules, empty defaultScopes), which is what lets the
+  // per-result read predicate skip the rule scan entirely for a deployment that uses no rule-scopes.
+  private readonly declaredScopeUnion: readonly string[];
 
   constructor(cfg: AclConfigT) {
     // Snapshot the config so the compiled rules and aclFingerprint() are always derived from the
@@ -155,6 +159,9 @@ export class FolderAcl {
       re: globToRegExp(r.glob.normalize("NFC")),
       scopes: r.scopes,
     }));
+    this.declaredScopeUnion = [
+      ...new Set([...this.cfg.defaultScopes, ...this.cfg.rules.flatMap((r) => r.scopes)]),
+    ];
     this.compiledPaths = {
       read: compileGlobList(this.cfg.readPaths),
       write: compileGlobList(this.cfg.writePaths),
@@ -190,6 +197,17 @@ export class FolderAcl {
     const p = path.normalize("NFC");
     return list.find((c) => c.re.test(p))?.glob ?? null;
   }
+  /** True when ANY path can declare a required scope (rule-scopes or non-empty defaultScopes). When
+   *  false, no caller is ever refused a path for lacking a scope, so per-path scope checks are
+   *  no-ops and callers may skip them. */
+  get declaresPathScopes(): boolean {
+    return this.declaredScopeUnion.length > 0;
+  }
+  /** Every scope any path can declare (a COPY, like every accessor here). A caller holding all of
+   *  them clears every path's scope requirement; one missing any of them may not. */
+  get declaredScopes(): string[] {
+    return [...this.declaredScopeUnion];
+  }
   get readOnly(): boolean {
     return this.cfg.readOnly;
   }
@@ -219,6 +237,11 @@ export class FolderAcl {
 // rules changes the effective ACL and must change the fingerprint. See docs/design/acl-folder-rules.md.
 export function aclFingerprint(cfg: AclConfigT, grantedScopes: Iterable<string>): string {
   const canon = {
+    // Version of the read predicate this fingerprint keys. v2: `readableRel` also enforces a path's
+    // rule-scopes against the caller's granted scopes. Persisted acl_path_sets rows are keyed by
+    // this fingerprint, and rows built under v1 (folder whitelist only) contain rule-scoped paths
+    // the v2 predicate refuses; bumping it makes every v1 row unreachable instead of trusted.
+    predicate: 2,
     readOnly: cfg.readOnly === true,
     strictReadDefault: cfg.strictReadDefault === true,
     defaultScopes: [...cfg.defaultScopes].sort(),

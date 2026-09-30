@@ -489,7 +489,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           ...i,
           // THE-563/564: a gap report naming notes the caller cannot read is a disclosure — the
           // item itself (query/score/gap) carries no path, so only `nearest` needs filtering.
-          nearest: i.nearest.filter((n) => readableRel(ctx.acl, n.path)),
+          nearest: i.nearest.filter((n) => readableRel(ctx.acl, n.path, ctx.grantedScopes)),
         }));
         return {
           available: true,

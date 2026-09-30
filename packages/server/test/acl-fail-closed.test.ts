@@ -10,7 +10,7 @@ function acl(over: Record<string, unknown> = {}): FolderAcl {
 describe("THE-268 default-deny + strictReadDefault", () => {
   it("hard-denies .obsidian secrets on read even with no allowlist", () => {
     expect(evaluatePathAcl(acl(), "read", ".obsidian/plugins/p/data.json").allowed).toBe(false);
-    expect(readableRel(acl(), ".obsidian/plugins/p/data.json")).toBe(false);
+    expect(readableRel(acl(), ".obsidian/plugins/p/data.json", [])).toBe(false);
   });
 
   it("hard-denies .obsidian/.git on write and delete", () => {
@@ -29,13 +29,13 @@ describe("THE-268 default-deny + strictReadDefault", () => {
 
   it("still allows ordinary notes by default", () => {
     expect(evaluatePathAcl(acl(), "read", "notes/a.md").allowed).toBe(true);
-    expect(readableRel(acl(), "notes/a.md")).toBe(true);
+    expect(readableRel(acl(), "notes/a.md", [])).toBe(true);
   });
 
   it("strictReadDefault fails the read path closed when readPaths is undefined", () => {
     const a = acl({ strictReadDefault: true });
     expect(evaluatePathAcl(a, "read", "notes/a.md").allowed).toBe(false);
-    expect(readableRel(a, "notes/a.md")).toBe(false);
+    expect(readableRel(a, "notes/a.md", [])).toBe(false);
   });
 
   it("strictReadDefault does not affect writes", () => {

@@ -38,7 +38,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       requiredScopes: ["read:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied("git_status is unavailable under a read whitelist", {
             tool: "git_status",
           });
@@ -92,7 +92,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       requiredScopes: ["read:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied("git_log is unavailable under a read whitelist", {
             tool: "git_log",
           });

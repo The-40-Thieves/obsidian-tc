@@ -389,10 +389,13 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         const canvasPaths = input.paths?.length
           ? input.paths
               .map(normalizeVaultPath)
-              .filter((p) => p.toLowerCase().endsWith(".canvas") && readableRel(ctx.acl, p))
+              .filter(
+                (p) =>
+                  p.toLowerCase().endsWith(".canvas") && readableRel(ctx.acl, p, ctx.grantedScopes),
+              )
           : walkVault(v.root, { sub, extensions: [".canvas"] })
               .map((e) => e.relPath)
-              .filter((p) => readableRel(ctx.acl, p));
+              .filter((p) => readableRel(ctx.acl, p, ctx.grantedScopes));
 
         const f = input.filter;
         const items: Array<{

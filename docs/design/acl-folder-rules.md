@@ -70,6 +70,22 @@ caller's scopes) is sorted before hashing, but the **rules array order is preser
 `scopesForPath` is last-match-wins, so `[ruleA, ruleB] != [ruleB, ruleA]` under that semantics, and
 reordering rules changes the effective ACL and must change the fingerprint.
 
+## One read predicate for every search surface
+
+`readableRel(acl, rel, grantedScopes)` is the single predicate every search, enumeration and graph
+surface filters its results with, and it decides exactly what `read_note`/`read_notes` decide: the
+hard default-deny roots, the folder whitelist (`readPaths` / `strictReadDefault`), **and** the
+path's rule-scopes against the caller's granted scopes. Before it took the scopes, a note under a
+rule-scope the caller did not hold was refused by `read_notes` yet still came back from search as a
+path, a snippet, a backlink or a count. `grantedScopes` is a required parameter so a new caller
+cannot silently skip it. Hidden results are dropped before pagination and before any total.
+`readEnumerationUnrestricted(acl, grantedScopes)` follows the same rule: a caller missing a scope
+some path declares is treated as restricted (bridge tools that cannot attribute results refuse).
+
+The persisted permitted-path sets and prewarm bundles are keyed by `aclFingerprint`. Widening what
+the predicate denies is a change to the predicate, so the fingerprint carries a predicate version:
+sets built by an older predicate become unreachable rather than trusted.
+
 `FolderAcl`'s constructor snapshots the incoming config (deep-copies the arrays) before compiling
 rules, specifically so the fingerprint and the enforced rules are always computed from the *same*
 frozen source — reading a live, since-mutated `cfg` for the fingerprint while the enforced rules
