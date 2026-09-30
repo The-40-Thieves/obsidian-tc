@@ -10,6 +10,7 @@ import { mkdirSync } from "node:fs";
 import { version as VERSION } from "../../../package.json";
 import { writeEvent } from "../../audit";
 import { openAuthRegistry } from "../../auth/registry-open";
+import { generateSigningKey, isAsymmetricAlg } from "../../auth/signing-keys";
 import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import type { Database } from "../../db/types";
@@ -46,16 +47,25 @@ export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
 
     switch (cmd.sub) {
       case "rotate-key": {
-        const r = registry.rotateKey({ graceSeconds: cmd.graceSeconds ?? 0 });
+        // The flag wins, including an explicit 0; only an ABSENT flag falls back to the config.
+        const graceSeconds = cmd.graceSeconds ?? cfg.auth.rotationGraceSeconds;
+        const alg = cmd.alg ?? "HS256";
+        // Asymmetric key generation is async, so it happens before the (synchronous) registry write.
+        const r = registry.rotateKey({
+          graceSeconds,
+          alg,
+          ...(isAsymmetricAlg(alg) ? { generated: await generateSigningKey(alg) } : {}),
+        });
         await audit("auth_key_rotated", null);
         const window =
           r.previousKid === null
             ? "no previous key"
-            : (cmd.graceSeconds ?? 0) > 0
+            : graceSeconds > 0
               ? `previous key ${r.previousKid} verifies until ${iso(r.previousRetireAfter)}`
               : `previous key ${r.previousKid} retired immediately: its tokens no longer verify`;
-        out(`new active signing key ${r.kid}; ${window}`, {
+        out(`new active ${alg} signing key ${r.kid}; ${window}`, {
           kid: r.kid,
+          alg,
           previous_kid: r.previousKid,
           previous_retire_after: r.previousRetireAfter,
         });
@@ -65,13 +75,14 @@ export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
         if (cmd.keys) {
           const rows = registry.listKeys().map((k) => ({
             kid: k.kid,
+            alg: k.alg,
             state: k.state,
             created: iso(k.createdAt),
             retire_after: iso(k.retireAfter),
           }));
           out(
             [
-              "kid\tstate\tcreated\tretire_after",
+              "kid\talg\tstate\tcreated\tretire_after",
               ...rows.map((r) => Object.values(r).join("\t")),
             ].join("\n"),
             rows,

@@ -1,0 +1,13 @@
+-- 20260930_903_auth_keys_public_jwk.sql
+-- auth.db chain (NOT cache.db). Asymmetric signing keys (ES256, EdDSA) beside HS256.
+--
+-- `public_jwk` holds the PUBLIC half of an asymmetric key as JSON (kty/crv/x[/y] only), so the
+-- verifier can check a token, and the JWKS document can publish it, without opening a key file. It
+-- is NULL for an HS256 key, which has nothing publishable. The PRIVATE key never enters this
+-- database: it lives in the 0600 key file `key_ref` points at, exactly as an HS256 secret does
+-- (see 20260930_901_auth_keys.sql), so an auth.db that leaks still carries no way to forge a token.
+--
+-- The algorithm a key verifies with is this row's `alg`, never the token's header: a header that
+-- disagrees with the row is refused. An asymmetric row with a NULL `public_jwk` is unusable and is
+-- refused by the registry rather than read as an HMAC secret.
+ALTER TABLE auth_keys ADD COLUMN public_jwk TEXT;

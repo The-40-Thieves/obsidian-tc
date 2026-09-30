@@ -7,6 +7,7 @@
 // jobs" together for tidiness. Not started here — scheduler.start() is a `ServerRuntime.start()`
 // activation step (server-runtime.ts), not construction.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { AuthRegistry } from "../auth/registry";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import type { AdvisoryBus } from "../mcp/advisories";
@@ -43,6 +44,8 @@ export interface SchedulerWiringDeps {
   vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
   /** run_serve's first vault id — the process-wide sweep event is attributed to it. */
   eventVaultId: string;
+  /** The auth registry wireTransports opened, when it opened one (see maintenance-wiring.ts). */
+  authRegistry?: AuthRegistry;
   experientialOpen: boolean;
   experientialDb: Database;
   observability: Observability;
@@ -104,6 +107,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
     morgiana: deps.morgiana,
     eventVaultId: deps.eventVaultId,
+    ...(deps.authRegistry !== undefined ? { authRegistry: deps.authRegistry } : {}),
     // THE-1108 fix: clear the LIVE tracker entry for a session the sweep just closed by SQL — the
     // tracker (server-runtime.ts's stdio context factory reads it) has no other way to learn that.
     onExplicitSessionClosed: (row) => deps.activeSessions.clear(row.principal, row.id),

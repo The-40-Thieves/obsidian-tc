@@ -270,9 +270,10 @@ Usage:
                                           --dry-run it runs synthesis and audit exactly once and
                                           prints both reports. --once is required; a bare
                                           "consolidate" is a usage error, not a no-op.
-  obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--json]
-                                          Mint an HS256 bearer token from the config's auth block.
-                                          Refuses to mint without an aud when the config binds one,
+  obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--kid <kid>] [--json]
+                                          Mint a bearer token signed with the registry's active key
+                                          (HS256, ES256 or EdDSA). --kid pins the mint to that key
+                                          and refuses a retiring, retired or unknown one. Refuses to mint without an aud when the config binds one,
                                           or a --ttl above auth.tokenTtlSeconds (THE-658). Records
                                           the token's jti and signing kid in <cacheDir>/auth.db (not
                                           regenerable: back it up) so it can be revoked with
@@ -287,10 +288,14 @@ Usage:
                                           tombstone. The server checks the jti on every request, in
                                           every process sharing auth.db. A token with no jti cannot
                                           be revoked; rotate the key, or set auth.requireJti.
-  obsidian-tc auth rotate-key [path] [--grace <seconds>]
+  obsidian-tc auth rotate-key [path] [--grace <seconds>] [--alg HS256|ES256|EdDSA]
                                           Generate a new active signing key. The previous key keeps
-                                          verifying for --grace seconds (default 0: retired at
-                                          once, so its tokens stop verifying).
+                                          verifying for --grace seconds (default auth.rotationGraceSeconds,
+                                          itself 0: retired at once, so its tokens stop verifying;
+                                          maximum 604800). An explicit --grace, including 0, wins.
+                                          --alg picks the new key's algorithm (default HS256); an
+                                          ES256/EdDSA key's public half is served as a JWKS at
+                                          /.well-known/jwks.json.
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>] [--json]
                                           Mint a single-use HITL confirmation token bound to the
                                           args_hash an elicit_required error returned (THE-826) —

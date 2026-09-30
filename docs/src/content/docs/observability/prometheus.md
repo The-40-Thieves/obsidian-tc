@@ -4,7 +4,7 @@ description: The metrics catalog and the optional, auth-gated /metrics scrape en
 ---
 
 <!-- BEGIN GENERATED: metrics-catalog -->
-obsidian-tc maintains a Prometheus catalog of **31 counters, 4 histograms, 17 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
+obsidian-tc maintains a Prometheus catalog of **31 counters, 4 histograms, 18 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
 
 ### Counters
 
@@ -56,6 +56,7 @@ obsidian-tc maintains a Prometheus catalog of **31 counters, 4 histograms, 17 ga
 | Name | Labels | Help |
 |---|---|---|
 | `obsidian_tc_active_sessions` | `vault` | Active workspace sessions, by vault. |
+| `obsidian_tc_auth_keys` | `state` | Auth registry signing keys by lifecycle state (active, retiring, retired). retiring counts only keys whose grace window is still open; an elapsed window counts as retired before the reaper persists it. active should be exactly 1 once the registry is initialised. |
 | `obsidian_tc_background_embed_paused` | `vault` | 1 while the boot/promotion/periodic reconcile's embed pass is paused waiting for the server to go idle (indexing.backgroundEmbed mode "idle"), 0 otherwise. |
 | `obsidian_tc_capture_queue_depth` | `vault` | Pending capture-queue items, by vault. |
 | `obsidian_tc_elicit_tokens_pending` | `vault` | Unconsumed elicit tokens, by vault. |

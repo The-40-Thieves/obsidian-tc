@@ -81,10 +81,15 @@ describe("config schema", () => {
   it("requires at least one vault", () => {
     expect(ServerConfigSchema.safeParse({ vaults: [] }).success).toBe(false);
   });
-  it("rejects jwt mode without a secret and accepts it with one", () => {
+  it("accepts jwt mode with a secret, and rejects a secret shorter than 32 characters", () => {
+    // jwt mode with NO static key parses on purpose: the auth registry can hold the only key, and
+    // the schema cannot see it. The server refuses to boot when the registry holds none
+    // (runtime/transport-wiring.ts; test/transport-wiring-auth-key.test.ts).
     expect(
-      ServerConfigSchema.safeParse({ vaults: [{ id: "m", path: "/v" }], auth: { mode: "jwt" } })
-        .success,
+      ServerConfigSchema.safeParse({
+        vaults: [{ id: "m", path: "/v" }],
+        auth: { mode: "jwt", jwtSecret: "short" },
+      }).success,
     ).toBe(false);
     const ok = ServerConfigSchema.safeParse({
       vaults: [{ id: "m", path: "/v" }],

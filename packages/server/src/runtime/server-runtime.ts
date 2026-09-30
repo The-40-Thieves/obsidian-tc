@@ -496,6 +496,7 @@ export async function buildServerRuntime(
         ...(v.workspace !== undefined ? { workspace: v.workspace } : {}),
       })),
       eventVaultId: firstVault.id,
+      ...(transports.authRegistry ? { authRegistry: transports.authRegistry } : {}),
       experientialOpen,
       experientialDb,
       observability,

@@ -58,6 +58,9 @@ export interface MaintenanceWiringDeps {
    *  `root`, not `path`, to match resolveTraceDirs's own parameter — see its doc comment. */
   vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
   defaultTraceFolder: string;
+  /** The auth registry, when this process opened one: the sweep persists elapsed signing-key
+   *  grace windows through it. Absent -> that arm is not armed (no registry, nothing to reap). */
+  authRegistry?: { reapRetired(): number };
   /** THE-610 arm 2: the experiential.db handle, when the membrane is open. Absent -> both
    *  experiential arms skip and report 0, which is correct when there is nothing to sweep. */
   edb?: Database;
@@ -131,6 +134,9 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
       : {}),
     ...(deps.onExplicitSessionClosed !== undefined
       ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
+      : {}),
+    ...(deps.authRegistry !== undefined
+      ? { reapAuthKeys: () => (deps.authRegistry as { reapRetired(): number }).reapRetired() }
       : {}),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     onSweep: (counts) => {

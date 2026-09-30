@@ -1,5 +1,6 @@
 import { decodeProtectedHeader } from "jose";
 import {
+  AuthRejection,
   createRemoteJwks,
   type JwtIdentity,
   verifyJwt,
@@ -7,6 +8,7 @@ import {
   verifyJwtWithKeySet,
 } from "./jwt";
 import type { AuthRegistry } from "./registry";
+import { importVerificationKey } from "./signing-keys";
 
 /** Result of verifying a bearer token: caller identity + granted scopes. */
 export type VerifiedIdentity = JwtIdentity;
@@ -39,7 +41,8 @@ export function createJwtVerifier(
 }
 
 export interface TokenVerifierOptions {
-  /** HS256 shared secret; absent -> HS256 tokens are rejected. */
+  /** HS256 shared secret; absent -> HS256 tokens are rejected, unless a `registry` holds the key
+   *  they name: once the `config` key is retired the registry alone verifies and this may go. */
   secret?: string;
   /** Local JWKS document (inline or file-loaded); absent -> asymmetric tokens are rejected. */
   jwks?: Record<string, unknown>;
@@ -59,7 +62,9 @@ export interface TokenVerifierOptions {
   issuer?: string;
   /**
    * Signing-key + issued-token registry. When set, HS256 tokens are verified against the key their
-   * `kid` names (several may be valid at once) instead of the single `secret`, and EVERY verified
+   * `kid` names (several may be valid at once) instead of the single `secret`; an ES256/EdDSA token
+   * whose `kid` names a registry key is verified against that key's public key, with the algorithm
+   * taken from the registry row (a header that disagrees is refused); and EVERY verified
    * token's `jti` is checked against the revoked set, on the HS256 and the JWKS paths alike. A
    * remote issuer's token is only ever affected if its `jti` is present in this registry.
    */
@@ -70,9 +75,15 @@ export interface TokenVerifierOptions {
 
 /**
  * THE-297: alg-routing verifier. The token's protected header picks the verification path —
- * HS256 goes ONLY to the shared secret, everything else ONLY to the JWKS — so a public key can
- * never be misused as an HMAC secret (the classic alg-confusion attack) and rotation is
- * kid-based inside the JWKS. Either side may be absent; tokens for the missing side reject.
+ * HS256 goes ONLY to the shared secret (or an HS256 registry key), everything else ONLY to a
+ * registry asymmetric key or the JWKS — so a public key can never be misused as an HMAC secret (the
+ * classic alg-confusion attack) and rotation is kid-based inside the JWKS. Either side may be
+ * absent; tokens for the missing side reject.
+ *
+ * A `kid` the registry holds is decided by the registry row alone: its algorithm must equal the
+ * header's, or the token is refused `unsupported_alg` before any signature is checked. That holds in
+ * both directions (an HS256 header naming an asymmetric key, an asymmetric header naming an HS256
+ * key), so no header can steer a key into the wrong algorithm.
  */
 export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
   // Built ONCE per verifier, not per call: jose caches the fetched key set and re-fetches only on an
@@ -85,14 +96,44 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
     verify: async (token) => {
       const header = decodeProtectedHeader(token);
       if (header.alg === "HS256") {
-        if (!o.secret) throw new Error("HS256 token but no jwtSecret configured");
-        return verifyJwt(token, registry ? (h) => registry.verificationKey(h.kid) : o.secret, {
-          isRevoked,
-          requireJti: o.requireJti,
-          maxAgeSeconds: o.maxAgeSeconds,
-          audience: o.audience,
-          issuer: o.issuer,
-        });
+        // With a registry the key comes from it (config secret included, while the `config` key is
+        // live); without one the configured secret is the only key there is.
+        if (!o.secret && !registry) throw new Error("HS256 token but no jwtSecret configured");
+        return verifyJwt(
+          token,
+          registry ? (h) => registry.verificationKey(h.kid) : (o.secret as string),
+          {
+            isRevoked,
+            requireJti: o.requireJti,
+            maxAgeSeconds: o.maxAgeSeconds,
+            audience: o.audience,
+            issuer: o.issuer,
+          },
+        );
+      }
+      if (registry !== undefined && header.kid !== undefined && registry.hasKey(header.kid)) {
+        const material = registry.verificationMaterial(header.kid);
+        // The row's algorithm decides; the header only has to agree with it. An operator-narrowed
+        // `algorithms` list applies to registry keys too.
+        if (
+          material.alg === "HS256" ||
+          header.alg !== material.alg ||
+          (o.algorithms !== undefined && !o.algorithms.includes(material.alg))
+        ) {
+          throw new AuthRejection("unsupported_alg");
+        }
+        return verifyJwtWithKeySet(
+          token,
+          await importVerificationKey(material.alg, material.publicJwk),
+          {
+            isRevoked,
+            requireJti: o.requireJti,
+            maxAgeSeconds: o.maxAgeSeconds,
+            algorithms: [material.alg],
+            audience: o.audience,
+            issuer: o.issuer,
+          },
+        );
       }
       if (remote !== undefined) {
         return verifyJwtWithKeySet(token, remote, {

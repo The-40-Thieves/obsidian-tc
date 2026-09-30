@@ -474,7 +474,13 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // says everything in the directory is regenerable, because `auth.db` and `auth-keys/` (the auth
   // registry: revocations, key retirements, signing-key files) are not. No existing key, type,
   // default or constraint moved.
-  "14ef7c3c34caaa23c389fdbf7f9d348affe297574c87721f7c343bdf3fac1718";
+  // Rotation grace window: rebaselined deliberately. Adds ONE key, `auth.rotationGraceSeconds`
+  // (int, min 0, max 604800, default 0 = the previous immediate-retirement behaviour), and REMOVES
+  // the `auth` refinement that required jwtSecret or a JWKS when mode is "jwt" (that refinement is
+  // not part of the emitted JSON Schema; the signing-key check moved to boot, since the auth
+  // registry can now be the only key). Rewords `auth.mode` and `auth.jwtSecret` descriptions to
+  // say so. No existing key, type, default or constraint moved.
+  "0349251c1a5a6d87d1b6c00da4e90f6fdda2b7c39bc83c02526784cac5528ce5";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

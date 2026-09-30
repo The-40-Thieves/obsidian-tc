@@ -24,6 +24,8 @@ export type CliCommand =
       vault?: string;
       scopes?: string;
       ttl?: number;
+      /** Pin minting to this ACTIVE signing key (see `auth list --keys`). */
+      kid?: string;
       json?: boolean;
     }
   /** THE-826: `elicit` mints a single-use HITL confirmation token bound to an args_hash an
@@ -171,7 +173,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const sub = rest[0];
       if (sub !== "mint") throw new CliError(`unknown token subcommand: ${sub ?? "(none)"}`);
       const args = rest.slice(1);
-      const valueFlags = ["--sub", "--aud", "--vault", "--scopes", "--ttl", "--config"];
+      const valueFlags = ["--sub", "--aud", "--vault", "--scopes", "--ttl", "--kid", "--config"];
       const scan = args.filter((a, i) => {
         if (a === "--json" || valueFlags.includes(a)) return false;
         const prev = args[i - 1];
@@ -197,6 +199,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         // `--scopes ""` is meaningful (mint with none), so presence is tested, not truthiness.
         ...(args.includes("--scopes") ? { scopes: args[args.indexOf("--scopes") + 1] ?? "" } : {}),
         ...(ttl !== undefined ? { ttl } : {}),
+        ...(flagValue(args, "--kid") !== undefined ? { kid: flagValue(args, "--kid") } : {}),
         json: args.includes("--json"),
       };
     }

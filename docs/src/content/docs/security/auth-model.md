@@ -49,9 +49,10 @@ keeps the private key. Provide a JWKS in place of (or alongside) `jwtSecret`:
 set and the token's `kid` header selects the verifying key (handled by `jose`).
 
 **Algorithm-confusion is structurally impossible.** An HS256 token is verified *only*
-against `jwtSecret`; an asymmetric token is verified *only* against the JWKS — a
-public key can never be presented as an HMAC secret. HS256-only deployments are
-unchanged; asymmetric verification is purely additive and opt-in.
+against `jwtSecret` (or an HS256 key in the auth registry); an asymmetric token is verified
+*only* against a registry key or the JWKS — a public key can never be presented as an HMAC
+secret. HS256-only deployments are unchanged; asymmetric verification is purely additive and
+opt-in.
 
 ## Localhost-by-default posture
 
@@ -72,7 +73,7 @@ Three commands operate on that registry:
 ```bash
 obsidian-tc auth list [--all] [--keys] [--json] [config-path]
 obsidian-tc auth revoke <jti> [--reason <text>] [config-path]
-obsidian-tc auth rotate-key [--grace <seconds>] [config-path]
+obsidian-tc auth rotate-key [--grace <seconds>] [--alg HS256|ES256|EdDSA] [config-path]
 ```
 
 - **`auth list`** prints `jti`, `kid`, `sub`, `exp` and state (`active`, `revoked`,
@@ -87,14 +88,72 @@ obsidian-tc auth rotate-key [--grace <seconds>] [config-path]
   behind a JWKS) is revoked by recording a *tombstone*, so `auth revoke` works for any jti you can
   name.
 - **`auth rotate-key`** generates a new signing key and makes it the only active one.
-  The old key is `retiring` for `--grace` seconds (default `0`: retired at once, and
-  every token it signed stops verifying) and verifies alongside the new one until then.
+  The old key is `retiring` for `--grace` seconds and verifies alongside the new one until
+  then. Without `--grace` the window is `auth.rotationGraceSeconds` (default `0`: retired at
+  once, and every token it signed stops verifying; maximum `604800`, 7 days). An explicit
+  `--grace`, including `--grace 0`, always wins over the config value.
 
 Your existing `auth.jwtSecret` keeps working with no change: it is the registry's
 initial key (`kid` `config`), and a deployment that never runs `rotate-key` verifies
-exactly as before. `jwtSecret` must stay configured, because it anchors the `config`
-key. Keys created by `rotate-key` live in `<cacheDir>/auth-keys/<kid>.key` (mode 0600),
-never in the database.
+exactly as before. Keys created by `rotate-key` live in `<cacheDir>/auth-keys/<kid>.key`
+(mode 0600), never in the database.
+
+### The grace window
+
+A retiring key stops verifying at its `retire_after` instant, exactly. The verifier compares
+`retire_after` on every request, so the window is exact whether or not anything has yet rewritten
+the row from `retiring` to `retired`. That rewrite (the *reaper*) is housekeeping that keeps
+`auth list --keys` and the `obsidian_tc_auth_keys` gauge truthful, and it runs on `rotate-key`, on
+server start and on the periodic maintenance sweep (`auth_keys_retired` in the sweep counts).
+Nothing about verification waits for it.
+
+`obsidian-tc doctor` (`auth.registry`) lists each retiring key with its time remaining and warns
+when a window has more than a day left, or when `auth.rotationGraceSeconds` itself exceeds a day: a
+retiring key still verifies every token it ever signed, so a long window is a key that is barely
+rotated. The Prometheus gauge `obsidian_tc_auth_keys{state="active|retiring|retired"}` reports the
+counts (`retiring` counts only windows still open; `active` should be exactly 1).
+
+### Pinning a mint to a key
+
+`obsidian-tc token mint --kid <kid>` signs with that key only, and only if it is the **active** key
+(or `config` while the registry is still empty). A retiring, retired or unknown `kid` is refused
+and nothing is signed or recorded.
+
+### Asymmetric signing keys (ES256, EdDSA)
+
+`obsidian-tc auth rotate-key --alg ES256` (or `EdDSA`, Ed25519; the default is `HS256`) creates
+an asymmetric signing key. The private key is a JWK in the same 0600 key file (created
+`O_EXCL|O_NOFOLLOW`, read back through the same `fstat` trust check as an HMAC secret); the
+`auth_keys.public_jwk` column holds only the public half. `token mint` then signs ES256/EdDSA
+tokens, and other verifiers can validate them from the JWKS this server publishes:
+
+```
+GET /.well-known/jwks.json
+{ "keys": [ { "kty": "OKP", "crv": "Ed25519", "x": "…", "kid": "k_…", "alg": "EdDSA", "use": "sig" } ] }
+```
+
+It lists the **active** key and every **retiring** key still inside its window (a key drops out the
+instant its window ends), public members only, and never an HS256 key. It is unauthenticated, like
+the Protected Resource Metadata document, and is served whenever `auth.mode` is `jwt`; it is not
+advertised as the PRM's `jwks_uri` (RFC 9728 means that field for keys the resource signs
+*responses* with, which is not what these are).
+
+**The algorithm comes from the registry row, never from the token header alone.** A token whose
+`kid` names a registry key must carry that key's algorithm: an HS256 header naming an
+ES256/EdDSA key (the classic public-key-as-HMAC-secret attack), or an ES256/EdDSA header naming an
+HS256 key, or the wrong asymmetric algorithm, is refused `unsupported_alg` before any signature is
+checked, and `alg: none` is refused everywhere. A configured `auth.algorithms` list narrows the
+registry algorithms too.
+
+### Removing `auth.jwtSecret`
+
+Once `rotate-key` has retired the `config` key, `auth.jwtSecret` verifies and signs nothing, and
+verification and minting work from the registry keys alone: you can remove `auth.jwtSecret` (and
+`OBSIDIAN_TC_JWT_SECRET`), and `doctor` tells you when. A `jwt` server that has no `jwtSecret`, no
+JWKS and no registry key refuses to start. Removing the secret has two side effects, because
+it also keys them when set: the HTTP elicit round trip (`requestState`) falls back to the plain
+`elicit_required` error plus the `elicit_token` CLI, and `read_notes` continuation cursors become
+per-process (a cursor does not survive a restart).
 
 ### Tokens with no `jti`
 

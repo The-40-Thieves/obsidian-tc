@@ -58,6 +58,10 @@ export interface GaugeSources {
    *  (this is a process-wide state, not per-vault). Renamed from `bootEmbedPaused` in the #1003 fix
    *  round (Codex review, finding 3) alongside the config key. */
   backgroundEmbedPaused?: () => Array<{ vault: string; value: number }>;
+  /** Signing keys per lifecycle state (`active` / `retiring` / `retired`), from the auth registry.
+   *  Bound after construction (`bindAuthKeys`) because the registry is opened later than the
+   *  recorder. `retiring` counts only windows still open. Absent -> the gauge has no samples. */
+  authKeys?: () => Record<"active" | "retiring" | "retired", number>;
 }
 
 /** Terminal call status for `obsidian_tc_tool_calls_total` (matches the OTEL status attribute). */
@@ -150,8 +154,10 @@ export class MetricsRecorder {
   private readonly sqlLockWait: Histogram<string>;
   private readonly retrievalStageDuration: Histogram<string>;
   private readonly toolCallObserver?: ToolCallObserver;
+  private readonly gaugeSources: GaugeSources;
 
   constructor(sources: GaugeSources = {}, toolCallObserver?: ToolCallObserver) {
+    this.gaugeSources = sources;
     const registry = new Registry();
     this.registry = registry;
     this.toolCallObserver = toolCallObserver;
@@ -527,6 +533,21 @@ export class MetricsRecorder {
         }
       },
     });
+    // Signing keys by state. The source is read at scrape time (one indexed GROUP BY on auth.db);
+    // a `retiring` count that stays above zero past an operator's intended grace window is the
+    // alert, and an `active` count other than 1 means minting is broken.
+    new Gauge({
+      name: "obsidian_tc_auth_keys",
+      help: "Auth registry signing keys by lifecycle state (active, retiring, retired). retiring counts only keys whose grace window is still open; an elapsed window counts as retired before the reaper persists it. active should be exactly 1 once the registry is initialised.",
+      labelNames: ["state"],
+      registers,
+      collect: function collectAuthKeys(this: Gauge<string>) {
+        const source = sources.authKeys;
+        if (!source) return;
+        this.reset();
+        for (const [state, value] of Object.entries(source())) this.set({ state }, value);
+      },
+    });
     // THE-507: retrieval-cache effectiveness. The `vault` label holds the cache name
     // ("results"/"vectors") — see GaugeSources. Hit rate is hits/(hits+misses); a rising
     // eviction count against a flat hit count means retrieval.cache.maxEntries is too small,
@@ -702,6 +723,11 @@ export class MetricsRecorder {
   }
   incMorgianaDropped(vault: string, reason: string): void {
     this.morgianaDropped.inc({ vault, reason });
+  }
+
+  /** Point the `obsidian_tc_auth_keys` gauge at the auth registry once it is open. */
+  bindAuthKeys(source: NonNullable<GaugeSources["authKeys"]>): void {
+    this.gaugeSources.authKeys = source;
   }
 
   /** Prometheus text exposition (`text/plain; version=0.0.4`). */

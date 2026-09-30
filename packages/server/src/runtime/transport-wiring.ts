@@ -10,6 +10,7 @@
 // unwindReversed pattern for the boot-time layers.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
 import type { Database } from "../db/types";
 import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
@@ -41,6 +42,9 @@ export interface TransportsWiring {
    *  subscription endpoint and wireScheduler's sweep is built in one place. Absent when the flag
    *  is off — a caller threading this into wireScheduler must treat absence as "do not register". */
   advisoryBus?: AdvisoryBus;
+  /** The auth registry opened for the bearer-checking listeners, when there is one. The scheduler's
+   *  maintenance sweep reaps elapsed signing-key windows through it. */
+  authRegistry?: AuthRegistry;
   /** Idempotent: closes whichever of HTTP/metrics were actually opened; a no-op transport
    *  contributes nothing. Safe to call more than once (each handle's own close() is awaited only
    *  the first time — see server-runtime.ts's close(), which guards the whole shutdown sequence). */
@@ -68,11 +72,32 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   const needsRegistry =
     config.auth.mode === "jwt" &&
     (config.transports.http.enabled || config.observability.prometheus.enabled);
-  const opened = needsRegistry ? await openAuthRegistry(config) : undefined;
+  // Server start is one of the three reaper triggers (rotate, start, periodic sweep): windows that
+  // elapsed while nothing was running are persisted now. Housekeeping; verification never waits on it.
+  const opened = needsRegistry ? await openAuthRegistry(config, { reapRetired: true }) : undefined;
   const authRegistry = opened?.registry;
   const registryHealth = authRegistry?.health();
   if (registryHealth?.state === "lost") {
     process.stderr.write(`auth: ERROR ${registryHealth.detail}\n`);
+  }
+  if (authRegistry !== undefined) {
+    // A jwt server whose only key source is the registry must HAVE a key there. The config no
+    // longer demands auth.jwtSecret (it can be removed once the `config` key is retired), so this
+    // is where a deployment with no key anywhere is refused at boot instead of running with every
+    // bearer rejected.
+    const { jwtSecret, jwks, jwksFile, jwksUri } = config.auth;
+    const staticKey = !!jwtSecret || !!jwks || !!jwksFile || !!jwksUri;
+    if (!staticKey && registryHealth?.state !== "lost") {
+      const n = authRegistry.keyCounts();
+      if (n.active + n.retiring === 0) {
+        opened?.close();
+        throw new Error(
+          "auth.mode is 'jwt' but there is no signing key: set auth.jwtSecret (or OBSIDIAN_TC_JWT_SECRET), " +
+            "configure a JWKS, or create a registry key with `obsidian-tc auth rotate-key`",
+        );
+      }
+    }
+    deps.metrics.bindAuthKeys(() => authRegistry.keyCounts());
   }
 
   try {
@@ -139,6 +164,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
     return {
       httpConstructSeconds,
       ...(advisoryBus ? { advisoryBus } : {}),
+      ...(authRegistry ? { authRegistry } : {}),
       close: async () => {
         if (httpHandle) await httpHandle.close();
         if (metricsHandle) await metricsHandle.close();
