@@ -1,5 +1,5 @@
-// Domain 4 — Tags (G2.1 r2). Five tools: list_tags, get_note_tags, add_tag,
-// remove_tag, find_notes_by_tag. Tags are read from both the frontmatter
+// Domain 4 — Tags (G2.1 r2). Six tools: list_tags, get_note_tags, add_tag,
+// remove_tag, find_notes_by_tag, suggest_tags (suggest-tags.ts, the MCP-sampling consumer). Tags are read from both the frontmatter
 // `tags`/`tag` keys and inline `#hashtags` (see vault/tags.ts), and are
 // hierarchical — a query for `project` matches `project` and `project/sub`.
 // add_tag/remove_tag are content-addressed (prev_hash CAS); writes target the
@@ -27,6 +27,8 @@ import {
 } from "../../vault/tags";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
+import { buildSuggestTagsTool } from "./suggest-tags";
+import { collectTagCounts } from "./tag-counts";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -147,6 +149,8 @@ const FindInput = z
 
 export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
   return [
+    buildSuggestTagsTool(deps),
+
     defineTool({
       name: "list_tags",
       domain: "metadata",
@@ -156,35 +160,13 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const counts = new Map<string, number>();
-        let scanned = 0;
-        // THE-291 (3B): aggregate from the notes table when the metadata index is ready —
-        // no per-query full-vault disk scan. ACL + folder filtering stay query-time; the cap
-        // applies in ORDER BY path order (the disk path used walk order — documented drift).
-        if (deps.metadataIndex?.ready()) {
-          const rows = ctx.db
-            .prepare("SELECT path, tags FROM notes WHERE vault_id = ? ORDER BY path")
-            .all(v.id) as Array<{ path: string; tags: string }>;
-          for (const r of rows) {
-            if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
-            if (scanned >= input.max_notes) break;
-            scanned++;
-            for (const t of JSON.parse(r.tags) as string[]) counts.set(t, (counts.get(t) ?? 0) + 1);
-          }
-        } else {
-          const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
-          );
-          for (const e of entries) {
-            if (scanned >= input.max_notes) break;
-            scanned++;
-            for (const t of noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath)
-              .all)
-              counts.set(t, (counts.get(t) ?? 0) + 1);
-          }
-        }
+        const { notes_scanned: scanned, counts } = collectTagCounts(
+          deps.metadataIndex?.ready() === true,
+          ctx,
+          v,
+          input.folder,
+          input.max_notes,
+        );
         const tags = [...counts.entries()]
           .map(([tag, count]) => ({ tag, count }))
           .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));

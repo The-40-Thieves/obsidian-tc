@@ -50,6 +50,7 @@ The tags split by where they come from, so that the ones a filter relies on cann
 | `domain:<name>` | derived | The facade domain the tool already declares. |
 | `plugin-bridge` | derived and declared | Needs the Obsidian companion plugin: derived from a scope naming a plugin, declared for bridge tools with a generic vault scope. |
 | `external-network` | declared | The handler may send query or note text outside the process (a hosted embedding provider, a cloud sync plugin). |
+| `client-sampling` | declared | The handler asks the calling client's own model for a completion (MCP sampling). |
 | `experiential`, `verdict`, `knowledge`, `search`, `docs`, `links`, `graph`, `provenance`, `diagnostics` | declared | Topic labels that predate the vocabulary and are kept; `verdict` also marks a verdict verb for episode recording. |
 
 The registry computes the derived tags at registration and stores the union with whatever the
