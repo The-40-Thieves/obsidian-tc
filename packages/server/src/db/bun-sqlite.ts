@@ -1,7 +1,11 @@
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectionPragmas, openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
+import {
+  applyConnectionPragmas,
+  openReadonlyWithFallback,
+  readonlyConnectionPragmas,
+} from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
@@ -124,7 +128,7 @@ export async function openBunSqlite(
     readonlyMode = open.readonlyMode;
   } else {
     db = new BunDatabase(path, { create: true });
-    for (const p of connectionPragmas(busyTimeoutMs)) db.exec(`PRAGMA ${p}`);
+    applyConnectionPragmas((p) => db.exec(`PRAGMA ${p}`), busyTimeoutMs);
   }
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);

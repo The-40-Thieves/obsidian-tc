@@ -1,4 +1,8 @@
-import { connectionPragmas, openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
+import {
+  applyConnectionPragmas,
+  openReadonlyWithFallback,
+  readonlyConnectionPragmas,
+} from "./pragmas";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 /**
@@ -71,7 +75,7 @@ export async function openBetterSqlite3(
     readonlyMode = open.readonlyMode;
   } else {
     db = new BetterSqlite3(path);
-    for (const p of connectionPragmas(busyTimeoutMs)) db.pragma(p);
+    applyConnectionPragmas((p) => db.pragma(p), busyTimeoutMs);
   }
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
