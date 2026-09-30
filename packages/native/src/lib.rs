@@ -353,8 +353,29 @@ mod safe_io {
                 other => return other,
             }
         }
+        link_then_unlink(old_dir, old, new_dir, new, || {
+            unlinkat(old_dir, old, AtFlags::empty())
+        })
+    }
+
+    /// `linkat` the old name to the new one (fails EEXIST atomically), then drop the old name via
+    /// `unlink_old`. If the old name cannot be dropped the caller is told the move FAILED, so the
+    /// new link is removed again: an error must never leave the bytes under both names with the
+    /// destination already holding them (the caller would retry or roll back against a file that
+    /// is in fact there).
+    pub(super) fn link_then_unlink(
+        old_dir: &OwnedFd,
+        old: &str,
+        new_dir: &OwnedFd,
+        new: &str,
+        unlink_old: impl FnOnce() -> Result<(), Errno>,
+    ) -> Result<(), Errno> {
         linkat(old_dir, old, new_dir, new, AtFlags::empty())?;
-        unlinkat(old_dir, old, AtFlags::empty())
+        if let Err(e) = unlink_old() {
+            let _ = unlinkat(new_dir, new, AtFlags::empty());
+            return Err(e);
+        }
+        Ok(())
     }
 
     fn rename_error(e: Errno) -> Error {
@@ -767,5 +788,51 @@ mod safe_io_tests {
         assert!(!outside.join("n.md").exists());
         fs::remove_dir_all(&d).unwrap();
         fs::remove_dir_all(&outside).unwrap();
+    }
+
+    /// The hard-link fallback of `rename_noreplace`: if the old name cannot be dropped after the
+    /// link landed, the caller is told the move FAILED, so the new name must not keep the bytes.
+    #[test]
+    fn link_fallback_undoes_the_new_name_when_the_old_one_cannot_be_dropped() {
+        use rustix::fs::{CWD, Mode, OFlags, openat};
+        use rustix::io::Errno;
+        let d = scratch();
+        fs::write(d.join("from.md"), b"payload").unwrap();
+        let dir = openat(
+            CWD,
+            d.to_str().unwrap(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .unwrap();
+        let r = safe_io::link_then_unlink(&dir, "from.md", &dir, "to.md", || Err(Errno::BUSY));
+        assert_eq!(r, Err(Errno::BUSY));
+        assert_eq!(fs::read(d.join("from.md")).unwrap(), b"payload");
+        assert!(
+            !d.join("to.md").exists(),
+            "the destination kept the bytes although the caller saw an error"
+        );
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn link_fallback_moves_when_the_old_name_is_dropped() {
+        use rustix::fs::{AtFlags, CWD, Mode, OFlags, openat, unlinkat};
+        let d = scratch();
+        fs::write(d.join("from.md"), b"payload").unwrap();
+        let dir = openat(
+            CWD,
+            d.to_str().unwrap(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .unwrap();
+        safe_io::link_then_unlink(&dir, "from.md", &dir, "to.md", || {
+            unlinkat(&dir, "from.md", AtFlags::empty())
+        })
+        .unwrap();
+        assert!(!d.join("from.md").exists());
+        assert_eq!(fs::read(d.join("to.md")).unwrap(), b"payload");
+        fs::remove_dir_all(&d).unwrap();
     }
 }

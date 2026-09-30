@@ -48,6 +48,14 @@ is never replaced: the loser gets `note_exists`. Linux uses `renameat2(RENAME_NO
 link then unlink. Parent directories are created one component at a time and a symlinked
 component is refused, as is a symlinked `.trash`.
 
+An overwrite (`move_note`, `copy_note`, `move_attachment`, `bulk_move_notes`, `write_attachment` with
+`overwrite: true`) is soft-delete then exclusive create, as one step: every refusal, including the
+memory-defense scan, runs before the destination is moved to `.trash`; a failed write puts the
+destination back at the path it came from (never a new name); and an existing grandfathered name
+(`a:b.md`) is replaced in place, since the name already existed. Where hard links are unavailable
+(FAT/exFAT, some network mounts) the pure-JS move copies with an exclusive create and then unlinks
+the source rather than renaming over the target.
+
 ## Deferred: companion refresh nudge
 
 An opt-in companion route that asks a live Obsidian to re-read an externally-modified file

@@ -44,7 +44,7 @@ import {
   hardDelete,
   noteExists,
   readFileChecked,
-  restoreTrashed,
+  replaceDestination,
   statNote,
   trashNote,
   writeFileAtomic,
@@ -392,28 +392,17 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         });
 
         const bytes = Buffer.from(input.content, "base64");
-        // Trash + write is two steps. A failed write is rolled back by putting the prior bytes back
-        // (no-replace, no-follow — a planted `.trash` symlink must not redirect either leg). The
-        // effect is marked committed only once it is NOT undone: after a successful write, or when
-        // the write failed AND the rollback could not restore (the path is genuinely half-applied).
-        // A failure whose rollback succeeded changed nothing, so the retry is a clean re-run, not an
-        // indeterminate_outcome (THE-572, as in move_attachment).
-        const trashedPrevTo = replacing ? trashNote(v.root, rel) : null;
-        try {
-          // The destination is absent here (never existed, or was just trashed): an exclusive
-          // commit makes `overwrite: false` race-free against a concurrent creator.
-          writeFileAtomic(abs, bytes, input.options.create_dirs, { exclusive: true });
-        } catch (e) {
-          if (trashedPrevTo) {
-            try {
-              restoreTrashed(v.root, trashedPrevTo, abs);
-            } catch {
-              ctx.markEffectCommitted?.();
-            }
-          }
-          throw e;
-        }
-        ctx.markEffectCommitted?.();
+        // Trash + write is two steps; replaceDestination rolls a failed write back (no-replace,
+        // no-follow — a planted `.trash` symlink must not redirect either leg) and marks the effect
+        // committed only once it is NOT undone (THE-572, as in move_attachment).
+        const { trashedTo: trashedPrevTo } = replaceDestination({
+          root: v.root,
+          toRel: rel,
+          toAbs: abs,
+          replacing,
+          write: (o) => writeFileAtomic(abs, bytes, input.options.create_dirs, o),
+          markEffectCommitted: ctx.markEffectCommitted,
+        });
         return {
           vault: v.id,
           path: rel,
@@ -475,17 +464,23 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           overwrite: overwriteExisting,
         });
 
+        // The source is read BEFORE the destination is touched, so an unreadable source (a
+        // hard-linked or non-regular file) refuses while the destination is still in place.
+        const bytes = readFileChecked(fromAbs);
         // THE-572: copy + hardDelete + rewriteAttachmentReferences is multi-step, and the reference
-        // rewrite at the end is fallible. A throw there released the claim, and the retry found the
-        // source already gone and reported not-found rather than the accurate "may have applied".
-        ctx.markEffectCommitted?.();
-        // On overwrite, soft-delete the destination first so its prior bytes are recoverable.
-        let trashedDestTo: string | null = null;
-        if (overwriteExisting) trashedDestTo = trashNote(v.root, toRel);
-        // The copy goes through the shared safe writer (component-wise no-follow mkdir, no-follow
-        // temp open, exclusive no-replace commit) instead of a bare mkdirSync + copyFileSync.
-        writeFileAtomic(toAbs, readFileChecked(fromAbs), input.options.create_dirs, {
-          exclusive: true,
+        // rewrite at the end is fallible. replaceDestination marks the effect committed once the
+        // copy landed, so a throw after that point is an accurate indeterminate_outcome on retry
+        // instead of a not-found for the source that already moved. On overwrite the destination is
+        // soft-deleted first (recoverable) and restored if the copy fails. The copy goes through
+        // the shared safe writer (component-wise no-follow mkdir, no-follow temp open, exclusive
+        // no-replace commit).
+        const { trashedTo: trashedDestTo } = replaceDestination({
+          root: v.root,
+          toRel,
+          toAbs,
+          replacing: overwriteExisting,
+          write: (o) => writeFileAtomic(toAbs, bytes, input.options.create_dirs, o),
+          markEffectCommitted: ctx.markEffectCommitted,
         });
         hardDelete(fromAbs);
         // the rewritten link text lands in referencing notes' bodies — same guard every

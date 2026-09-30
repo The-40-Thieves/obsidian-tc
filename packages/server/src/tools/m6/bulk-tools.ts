@@ -26,6 +26,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import {
+  enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
   refusePathIfSecretShaped,
@@ -42,7 +43,8 @@ import {
   hardDelete,
   noteExists,
   readNote,
-  trashNote,
+  replaceDestination,
+  writeNoteAtomic,
   writeNoteAtomicGuarded,
   writeNotesAllOrNothingGuarded,
 } from "../../vault/notes-io";
@@ -535,22 +537,31 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         // but PHASE 2's all-or-nothing backlink rewrite is not — and a rewriteForMoves throw used
         // to delete the claim. The retry then found every source already gone and reported the whole
         // batch as failed, hiding the fact that the files HAD moved and only the backlinks were
-        // left unrewritten. Signalling here turns that retry into an accurate indeterminate_outcome.
-        ctx.markEffectCommitted?.();
+        // left unrewritten. replaceDestination marks the effect committed as each row's write
+        // lands (or is left half-applied), so that retry is an accurate indeterminate_outcome; a
+        // row whose write failed and was rolled back changed nothing and marks nothing.
         for (const r of rows) {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
+          const toRel = r.toRel;
           try {
             const fromAbs = resolveVaultPath(v.root, r.fromRel);
-            const toAbs = resolveVaultPath(v.root, r.toRel);
-            // On overwrite, soft-delete the clobbered destination first (recoverable).
-            if (r.destExists && input.overwrite) trashNote(v.root, r.toRel);
+            const toAbs = resolveVaultPath(v.root, toRel);
             const { raw } = readNote(fromAbs);
-            // the relocated content can carry a pre-existing secret that predates
-            // memoryDefense — same guard move_note's own relocation write applies.
-            // The destination is absent here (never existed, or just trashed above): exclusive.
-            const scan = writeNoteAtomicGuarded(toAbs, r.toRel, raw, true, mdConfig, {
+            // The relocated content can carry a pre-existing secret that predates memoryDefense —
+            // same guard move_note's own relocation write applies. Scanned BEFORE the destination
+            // is trashed: a `block` refusal after the trash stranded the destination in .trash.
+            const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
               metrics: deps.metrics,
-              exclusive: true,
+            });
+            // On overwrite, soft-delete the clobbered destination first (recoverable, restored on
+            // a failed write); the create is exclusive.
+            replaceDestination({
+              root: v.root,
+              toRel,
+              toAbs,
+              replacing: Boolean(r.destExists && input.overwrite),
+              write: (o) => writeNoteAtomic(toAbs, scan.content, true, o),
+              markEffectCommitted: ctx.markEffectCommitted,
             });
             hardDelete(fromAbs);
             deps.deindex?.(v.id, r.fromRel);
