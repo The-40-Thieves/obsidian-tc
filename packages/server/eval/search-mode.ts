@@ -26,6 +26,7 @@ import { openConfiguredDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { applyPreferenceDeltas } from "../src/experiential/reflect";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { compileEgressFilter } from "../src/plane/egress-filter";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
@@ -63,7 +64,11 @@ const vecs = new Map<string, number[]>(
   Object.entries(JSON.parse(readFileSync(vecsPath, "utf8")) as Record<string, number[]>),
 );
 
-const base = createEmbeddingProvider(config.embeddings, { cacheDir: config.cacheDir });
+const base = createEmbeddingProvider(config.embeddings, {
+  // Same egress guard every eval script threads: an excluded note's text must not reach the provider.
+  excludeFilter: compileEgressFilter(config.egress.excludePaths),
+  cacheDir: config.cacheDir,
+});
 // Query vectors are precomputed and shared by both arms (removes embedding noise from the pairing);
 // `id` and every other member still come from the real provider, so the stored-model filter matches.
 const provider = Object.assign(Object.create(base), {
