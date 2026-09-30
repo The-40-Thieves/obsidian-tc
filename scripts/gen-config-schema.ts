@@ -467,7 +467,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // description text. `db.busyTimeoutMs`'s enclosing block description now also names ratelimit.db.
   // Every default keeps today's behavior (process-local memory buckets). No existing key, type,
   // default or constraint moved.
-  "2da8daf5dd8ff6cfed5d775f1d9157d5e4989452133be81170a7219bc15cd6b3";
+  //
+  // auth registry: rebaselined deliberately. Adds ONE new key, `auth.requireJti` (boolean, default
+  // false) — rejects a bearer token carrying no `jti` on every verify path, since only a token with
+  // a jti can be revoked individually. Also rewrites `cacheDir`'s description text: it no longer
+  // says everything in the directory is regenerable, because `auth.db` and `auth-keys/` (the auth
+  // registry: revocations, key retirements, signing-key files) are not. No existing key, type,
+  // default or constraint moved.
+  "75753085b4649a9498ded578dce02807e8c69d147ab305af4a94d5623cfe6d4c";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

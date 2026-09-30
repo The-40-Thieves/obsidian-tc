@@ -2,8 +2,6 @@
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
-// THE-1123: toolFacade lives in its own module, same reasoning as capture-location above — its
-// own merged-table rendering that no other check needs.
 import { type AuthRegistryView, authRegistryCheck } from "./auth-registry";
 // THE-891 item 3: capture-location lives in its own module (checks.ts is already at biome's
 // 700-line ceiling), same reasoning as note-summary-scale/retrieval-heads below.
@@ -53,6 +51,8 @@ import { retrievalHeadsCheck } from "./retrieval-heads";
 // THE-1108: sessions.liveness lives in its own module, same reasoning as capture-location above —
 // its own probe shape that no other check needs.
 import { type SessionLivenessView, sessionLivenessCheck } from "./session-liveness";
+// THE-1123: toolFacade lives in its own module, same reasoning as capture-location above — its
+// own merged-table rendering that no other check needs.
 import { type TelemetryView, telemetryCheck } from "./telemetry";
 import { type ToolFacadeView, toolFacadeCheck } from "./tool-facade";
 import type { Check, DoctorReport } from "./types";
@@ -144,8 +144,7 @@ export interface DoctorConfigView {
    *  reasoning as toolFacade/captureLocation above. */
   telemetry?: TelemetryView;
   /** Is the signing-key / revocation registry (auth.db) usable, and are its key files trusted?
-   *  Always present when supplied — no `--probe` gate: it only stats and reads the small key files
-   *  and opens auth.db read-only. */
+   *  No `--probe` gate: it only stats the key files and opens auth.db read-only. */
   authRegistry?: AuthRegistryView;
   /** THE-1108: is any explicit (start_session) session stuck open past windowSeconds? Probe-only,
    *  same reasoning as derivedTables above. */

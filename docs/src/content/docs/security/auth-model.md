@@ -81,7 +81,7 @@ obsidian-tc auth rotate-key [--grace <seconds>] [config-path]
 - **`auth revoke <jti>`** kills one token before it expires. The verifier checks the
   token's `jti` on every request, after the signature verifies, so the revoked token
   is refused (logged and counted as `token_revoked`; the caller sees the same generic
-  `401` as any other bad token). The check reads `auth.db` directly with no in-process
+  `401` as any other bad token). The check reads `<cacheDir>/auth.db` directly with no in-process
   cache, so every process sharing that file sees a revocation on its next request. A jti this
   registry never issued (a token minted before the registry existed, or by an external issuer
   behind a JWKS) is revoked by recording a *tombstone*, so `auth revoke` works for any jti you can
@@ -104,7 +104,7 @@ such tokens outright on every path (HS256, JWKS, `/metrics`); it defaults to `fa
 existing tokens keep working, and `obsidian-tc doctor` recommends `true` once the registry
 is in use (`token mint` always sets a `jti`).
 
-### Back up `auth.db`: it is not a cache
+### Back up `<cacheDir>/auth.db`: it is not a cache
 
 The registry lives in `<cacheDir>/auth.db` and the signing keys in `<cacheDir>/auth-keys/`.
 Unlike `cache.db`, **neither is regenerable**: they hold your decisions to revoke a token or
@@ -114,10 +114,10 @@ operator state.
 
 The server fails closed if the registry is lost. Once it has ever been used (the first
 `rotate-key`, `token mint` or `revoke` writes a marker, `auth-keys/.registry-initialized`,
-outside the database), an `auth.db` that is missing or empty makes the verifier refuse every
+outside the database), an `<cacheDir>/auth.db` that is missing or empty makes the verifier refuse every
 HS256 bearer (reason `registry_lost`), the startup log and `doctor` name the problem, and `auth *`
 and `token mint` refuse to run, instead of quietly trusting `auth.jwtSecret` again and reviving
-revoked tokens. Recover by restoring `auth.db` from backup. Only if you accept that revoked
+revoked tokens. Recover by restoring `<cacheDir>/auth.db` from backup. Only if you accept that revoked
 tokens and retired keys become valid again, remove the `auth-keys/` directory to return to
 `auth.jwtSecret` alone.
 
