@@ -15,25 +15,18 @@
 // unreachable we fall back to those native routes so list/execute keep working against a
 // bare LRA with no (or a broken) companion. The fallback runs AFTER execute_command's
 // security gates (they short-circuit in precheck), so it grants no new capability.
-import { err, ObsidianTcError, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { BridgeClient } from "../../bridge";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, commandPolicy, type M4Deps, openCompanionBridge } from "./shared";
-
-// Degrade codes that mean "no working companion path" and so warrant an LRA-native retry:
-// the snapshot says the companion is missing/unreachable (plugin_unreachable) or the vault
-// is headless (requires_live_obsidian). A plugin_incompatible companion is a deliberate
-// "update it" signal and is NOT retried.
-const COMPANION_UNREACHABLE: ReadonlySet<string> = new Set([
-  "plugin_unreachable",
-  "requires_live_obsidian",
-]);
-
-function companionUnreachable(e: unknown): boolean {
-  return e instanceof ObsidianTcError && COMPANION_UNREACHABLE.has(e.code);
-}
+import {
+  bridgeTimeouts,
+  commandPolicy,
+  companionUnreachable,
+  type M4Deps,
+  openCompanionBridge,
+} from "./shared";
 
 interface LraCommand {
   id: string;

@@ -619,7 +619,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     memoryDefense,
     metrics: deps.metrics,
   });
-  registerM4Tools(registry, deps.m4Deps);
+  // `uri.allowOsLaunch` gates show_file_in_obsidian's OS-handler fallback (deny-by-default).
+  registerM4Tools(registry, { ...deps.m4Deps, uri: config.uri });
 
   // M5 memory/capture substrate (THE-181): capture/memory/workspace are in-process SQLite (+
   // vault file writes via the M1 path primitives); plur is a global read-only proxy that degrades

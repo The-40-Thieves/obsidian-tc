@@ -276,6 +276,7 @@ function contextFromAuthInfo(
       | undefined;
     return {
       caller: extra?.caller ?? null,
+      transport: "http",
       authenticated: true,
       // VisibilityCaller.grantedScopes is typed Iterable<string> (visibility.ts's own
       // grantsAll/grantsScope contract); CallerContext wants the concrete Set. Cheap: it's a

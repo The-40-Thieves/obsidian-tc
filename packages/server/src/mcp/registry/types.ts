@@ -37,6 +37,11 @@ export interface CallerContext {
    *  argument names a different vault is rejected (THE-267), mirroring the resources/read guard.
    *  The trusted stdio context leaves this unset so the local operator addresses every vault. */
   vaultBound?: boolean;
+  /** Which edge minted this context. Set by the stdio and HTTP context factories; absent for every
+   *  other caller (scheduler, CLI, session re-runs). A host-side effect that is only safe for the
+   *  operator's own local process (show_file_in_obsidian's OS launch) keys on `=== "stdio"`, so an
+   *  absent value fails closed rather than being mistaken for the local operator. */
+  transport?: "stdio" | "http";
   db: Database;
   elicitToken?: string | null;
   /** THE-583: a transport-VERIFIED 2026-era HITL confirmation (HMAC+TTL already checked); the

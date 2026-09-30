@@ -19,6 +19,7 @@ Extends the Local REST API plugin with namespaced endpoints for:
 - Daily-notes resolution
 - Obsidian Git status/diff/log/stage
 - Remotely Save status/trigger
+- Opening an existing vault file in the workspace (`/files/open`)
 
 (The route families above are `src/routes/*.ts`; the list is what ships, not a roadmap.)
 

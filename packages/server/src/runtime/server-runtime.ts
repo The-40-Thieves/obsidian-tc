@@ -415,6 +415,7 @@ export async function buildServerRuntime(
       const active = activeSessions.validate(db, "stdio", config.sessions);
       return {
         caller: "stdio",
+        transport: "stdio",
         authenticated: true,
         grantedScopes: new Set(["*"]),
         vaultId: firstVault.id,

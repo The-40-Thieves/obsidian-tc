@@ -605,6 +605,12 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `transports.http.port` | `number` | `8765` |  | TCP port for the HTTP transport. |
 | `transports.stdio` | `boolean` | `true` |  | Serve the MCP stdio transport. |
 
+### `uri`
+
+| Key | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `uri.allowOsLaunch` | `boolean` | `false` |  | Let `show_file_in_obsidian` hand an obsidian:// URI to this machine's OS URI handler (xdg-open, open, rundll32) when no live Obsidian session answers through the companion plugin. Off by default and honoured ONLY for the local stdio transport: over HTTP the tool refuses regardless of this flag, because the launch happens on the server host, not the caller's machine. The URI is always built from a vault-relative path that passed the read ACL; no caller-supplied URI is ever launched. |
+
 ### `vaults`
 
 | Key | Type | Default | Required | Description |

@@ -118,6 +118,7 @@ const M4_PLUGIN_BRIDGE = [
   "remotely_save_trigger",
   "resolve_daily_note",
   "search_omnisearch",
+  "show_file_in_obsidian",
   "tasks_filter",
   "trigger_quickadd",
   "update_excalidraw",

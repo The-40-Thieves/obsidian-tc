@@ -1,6 +1,6 @@
 # Tool Reference
 
-**166 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**167 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -77,7 +77,7 @@ Every error also carries a **`recovery`** string: bounded next-step guidance for
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_166 tools. Access is a coarse hint; the required scopes are authoritative. Profile is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._
+_167 tools. Access is a coarse hint; the required scopes are authoritative. Profile is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._
 
 | Tool | Access | Profile | Scopes | Description |
 |---|---|---|---|---|
@@ -225,6 +225,7 @@ _166 tools. Access is a coarse hint; the required scopes are authoritative. Prof
 | `session_bootstrap` | read | core, full | `read:notes` | Triage an opening session message (auto -> lightweight \| standard \| deep) and preload the matching vault context notes, so any MCP client gets session bootstrap, not only skill-enabled ones. Deep loads the configured deepPaths; standard loads the paths of every domain whose signals appear in the message; lightweight loads nothing. The routing table comes from server config (bootstrap.*); with none configured the tool degrades to lightweight. Read-only. |
 | `session_rerun` | destructive | core, full | `admin:rerun` | Re-issue a recorded session's captured tool calls against a DISPOSABLE SANDBOX COPY of its vault (never the live one) and report divergence per call. Sandbox-only: there is no parameter that selects the live-vault observe mode obsidian-tc's `rerun` CLI command offers — that path stays operator-only. Replayed calls run with the caller's own granted scopes intersected against the fixed replay ceiling (read/write/delete/bulk/execute, never admin), so a caller who cannot themselves mutate cannot get a mutating call replayed as successful. Requires admin:rerun plus a human confirmation (destructive). Domain: admin. |
 | `set_goal` | write | core, full | `write:workspace` | Record a STATED goal for a vault — what the user is trying to accomplish, as distinct from a learned preference (a preference is 'you tend to X' and never resolves; a goal is 'you intend to X' and ends in completed/abandoned/expired). Goals are stated by the user and never inferred: nothing in the reflect/extract path can write one. An optional target_date lets the expiry sweep mark it 'expired' rather than leaving stale intent to bias later reads. |
+| `show_file_in_obsidian` | write | full only | `execute:uri` | Open a vault note in the running Obsidian app. Tries the companion plugin first (a live Obsidian session for the vault); falls back to the OS obsidian:// URI handler only when `uri.allowOsLaunch` is enabled and the call arrives over stdio. When neither is available it returns available:false with a reason and a hint instead of a silent success. Always requires human confirmation (execute:uri is a HITL floor): it causes a host-side effect. The path must pass the read ACL and name an existing note. generate_uri remains the pure URI builder. |
 | `snapshot_note` | read | core, full | `read:notes` | Capture the current content of a note as a restorable point-in-time snapshot (retained per config.snapshots.retention). Returns the snapshot id and content hash. |
 | `sort_table_by_column` | write | full only | `write:notes` | Sort a GFM table's data rows by a column (index or header name), ascending or descending, optionally numeric. |
 | `start_session` | write | core, full | `write:workspace` | Begin a workspace memory session: a SQLite row plus an append-only JSONL trace file. |

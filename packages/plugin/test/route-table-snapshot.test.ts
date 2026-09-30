@@ -30,7 +30,7 @@ function fakeApp() {
 
 // The full ordered route table as of WP6.1, one entry per (method, path) in the exact order
 // `buildRoutes` emits them: probe, commands, git, remotely-save, dataview, quickadd, ocr,
-// excalidraw, makemd, omnisearch, datacore, metadata-menu, daily-notes, templater, tasks.
+// excalidraw, makemd, omnisearch, datacore, metadata-menu, daily-notes, templater, tasks, files.
 const EXPECTED_ROUTE_TABLE = [
   "get /probe",
   "post /commands/list",
@@ -60,10 +60,11 @@ const EXPECTED_ROUTE_TABLE = [
   "post /templater/list",
   "post /templater/execute",
   "post /tasks/filter",
+  "post /files/open",
 ];
 
 describe("buildRoutes — full route-table snapshot (method, path, order, uniqueness)", () => {
-  it("emits exactly the pinned 28 routes, in the pinned order", () => {
+  it("emits exactly the pinned 29 routes, in the pinned order", () => {
     const actual = buildRoutes(fakeApp(), "1.13.1", []).map((d) => `${d.method} ${d.path}`);
     expect(actual).toEqual(EXPECTED_ROUTE_TABLE);
   });

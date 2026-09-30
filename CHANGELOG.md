@@ -38,6 +38,20 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Review hardening of the same block: `claimMapping.scopeMap` (role to scopes), `allowedPersonas` /
   `allowedVaults`, array-form claim paths, object-form `requiredClaims`, `allowedJwksHosts` and
   `allowPrivateNetwork`.
+- **`show_file_in_obsidian`: actually open a note in Obsidian.** `generate_uri` only builds an
+  `obsidian://` string and stays a pure builder; this tool launches. Path 1 asks the companion plugin
+  (new `POST /files/open` route, plugin route table 28 to 29) to open the file in the live Obsidian
+  session. Path 2, the OS URI handler (`xdg-open`, `/usr/bin/open`, `rundll32 url.dll,FileProtocolHandler`),
+  runs only when `uri.allowOsLaunch` is `true` (default `false`) and the call arrives over the local
+  stdio transport (`CallerContext.transport`; HTTP and every other caller are refused). It is spawned
+  with an argv array and `shell: false` (never `cmd /c start`), stdio ignored, a 5 s timeout, and only
+  for a URI rebuilt by `buildObsidianUri("open")` from a vault-relative path that passed the read ACL
+  and exists, then re-validated against a strict `obsidian://open?vault=...&file=...` shape; there is
+  no raw-URI passthrough. With neither path available (a headless server) it returns
+  `available: false` with a `reason` (`os_launch_disabled`, `os_launch_requires_stdio`,
+  `os_launch_failed`) and a `hint`, never a silent success. Gated like `execute_command`: scope
+  `execute:uri` (a HITL floor, execute-tier rate limit), `pathAcl` declared so the confirmation binds
+  to the note. Registered tools: 166 to 167.
 
 - **`search_and_read`: search, then read the top-k notes in one call.** Until now a search returned
   chunks and a second `read_notes` call fetched the bodies. `search_and_read` runs

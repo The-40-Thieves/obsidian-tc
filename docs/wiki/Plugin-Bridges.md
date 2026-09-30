@@ -25,6 +25,8 @@ Obsidian app                 (always required for bridges)
       Remotely Save           -> remotely_save_status, remotely_save_trigger
 ```
 
+`show_file_in_obsidian` needs only the companion (`POST /files/open`), not a third-party plugin. With no live session it can use the OS URI handler instead, but only when `uri.allowOsLaunch` is `true` and the call comes in over stdio; otherwise it returns `available: false` with a reason and a hint.
+
 A tool that fails any link in the chain returns `plugin_missing` with the specific plugin in `details.plugin` (or `plugin_unreachable` if the plugin is present but its endpoint times out).
 
 ## Git & sync bridges (v1.7)
