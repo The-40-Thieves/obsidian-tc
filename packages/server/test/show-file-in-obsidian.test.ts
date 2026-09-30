@@ -292,12 +292,13 @@ describe("headless server — neither path available", () => {
 
 describe("injection attempts produce one safely-encoded URI", () => {
   // Names legal on every CI OS (no `"`, `?` or newline on Windows) — full set below on POSIX.
-  const portable = ["Notes/a & b; $(id) #tag (1).md", "Notes/`id`|x.md", "Notes/日本語 ノート.md"];
+  const portable = ["Notes/a & b; $(id) #tag (1).md", "Notes/`id`.md", "Notes/日本語 ノート.md"];
   const posixOnly = [
     'Notes/say "hi".md',
     "Notes/line1\nline2.md",
     "Notes/q?x=1&y=2#frag.md",
     "Notes/$(touch pwned).md",
+    "Notes/a|b>c<d*.md",
   ];
 
   async function launched(rel: string): Promise<string> {

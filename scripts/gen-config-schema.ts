@@ -480,7 +480,11 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // not part of the emitted JSON Schema; the signing-key check moved to boot, since the auth
   // registry can now be the only key). Rewords `auth.mode` and `auth.jwtSecret` descriptions to
   // say so. No existing key, type, default or constraint moved.
-  "0349251c1a5a6d87d1b6c00da4e90f6fdda2b7c39bc83c02526784cac5528ce5";
+  // show_file_in_obsidian: rebaselined deliberately. Adds ONE new optional block, `uri`, with a
+  // single key `allowOsLaunch` (boolean, default false) — whether the tool may hand an obsidian://
+  // URI to the OS URI handler when no live Obsidian session answers. Honoured only for the stdio
+  // transport; read at runtime/tool-wiring.ts. No existing key, type, default or constraint moved.
+  "c8d66fdc237a92a0795a852dfcf2c281fe6544eb7ad88856fff45939ff96380b";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
