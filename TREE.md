@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,544 tracked code files · 285,585 lines.
+**Scale:** 1,550 tracked code files · 287,368 lines.
 
-TypeScript 262,776 · JavaScript 16,944 · Python 2,406 · SQL 2,154 · Rust 753 · Shell 552.
+TypeScript 263,698 · JavaScript 17,805 · Python 2,406 · SQL 2,154 · Rust 753 · Shell 552.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -89,11 +89,11 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `tools/` | 92 | 20,254 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 64 | 13,603 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `cli/` | 58 | 10,070 | arg parsing + subcommands |
-| `experiential/` | 29 | 7,771 | work-memory tier: activation, retrieval log, forget, citations |
+| `experiential/` | 29 | 7,793 | work-memory tier: activation, retrieval log, forget, citations |
 | `mcp/` | 28 | 6,780 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 25 | 5,919 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 21 | 3,533 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `vault/` | 18 | 3,019 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `vault/` | 19 | 3,254 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 16 | 2,199 | provisioning, migrate runner, experiential store |
 | `migrations/` | 59 | 2,154 | hand-registered SQL. **Two chains** — see below |
 | `providers/` | 8 | 1,749 |  |
@@ -121,7 +121,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 123 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 534 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 535 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -168,7 +168,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 606 | `packages/server/src/cli/setup/write.ts` |
 | 599 | `packages/server/src/tools/m3/base-tools.ts` |
 | 597 | `packages/server/src/cli/commands/doctor.ts` |
-| 588 | `packages/server/src/vault/frontmatter.ts` |
+| 594 | `packages/server/src/vault/frontmatter.ts` |
 | 580 | `packages/server/src/memory-import/apply.ts` |
 | 573 | `packages/server/src/scheduler/scheduler.ts` |
 | 566 | `packages/server/src/tools/m6/bulk-tools.ts` |
@@ -304,7 +304,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**532 modules · 2546 dependencies · 157 distinct subsystem pairs · 1153 cross-subsystem imports.**
+**533 modules · 2550 dependencies · 157 distinct subsystem pairs · 1153 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -333,7 +333,7 @@ flowchart LR
   mcp[mcp<br/>28 files]
   runtime[runtime<br/>25 files]
   doctor[doctor<br/>21 files]
-  vault[vault<br/>18 files]
+  vault[vault<br/>19 files]
   db[(db<br/>16 files)]
   config[config<br/>14 files]
   plane[plane<br/>9 files]
