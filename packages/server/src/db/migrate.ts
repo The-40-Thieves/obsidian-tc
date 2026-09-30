@@ -49,22 +49,36 @@ export function runMigrations(
     "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
   );
   const applied: string[] = [];
+  const check = (m: Migration, sum: string): boolean => {
+    const existing = getRow.get(m.version) as { checksum: string } | undefined;
+    if (!existing) return false;
+    if (existing.checksum !== sum) {
+      throw new ObsidianTcError("conflict", `migration ${m.version} checksum mismatch`, {
+        version: m.version,
+        recorded: existing.checksum,
+        current: sum,
+      });
+    }
+    return true;
+  };
   for (const m of sorted) {
     const sum = checksum(m.sql);
-    const existing = getRow.get(m.version) as { checksum: string } | undefined;
-    if (existing) {
-      if (existing.checksum !== sum) {
-        throw new ObsidianTcError("conflict", `migration ${m.version} checksum mismatch`, {
-          version: m.version,
-          recorded: existing.checksum,
-          current: sum,
-        });
-      }
-      continue;
-    }
+    // Unlocked fast path: a warm boot (everything already applied) never takes the write lock.
+    if (check(m, sum)) continue;
     const start = now();
-    db.exec("BEGIN");
+    // IMMEDIATE takes the database write lock up front (waiting out `busy_timeout`), which
+    // serializes check-and-apply across every process sharing this file. A plain BEGIN defers the
+    // lock to the first write, so two processes that both saw the migration as pending would run
+    // it twice: its DDL again, or the `schema_migrations` INSERT into a UNIQUE violation. Outside
+    // the try on purpose — a BEGIN that fails (SQLITE_BUSY past busy_timeout) opened no transaction.
+    db.exec("BEGIN IMMEDIATE");
     try {
+      // Re-read now that we hold the lock: a process that lost the race finds the winner's row,
+      // skips the migration (never re-running non-idempotent DDL), and continues to the next.
+      if (check(m, sum)) {
+        db.exec("COMMIT");
+        continue;
+      }
       db.exec(m.sql);
       m.postApply?.(db);
       insert.run(m.version, now(), appVersion, Math.max(0, now() - start), sum);
