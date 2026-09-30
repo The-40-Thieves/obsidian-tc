@@ -10,7 +10,7 @@
 | | |
 |---|---|
 | **Version** | `1.31.8` |
-| **Tools** | 165 governed capabilities (advertised via the 3-tool facade), all visible/callable by default (`toolFacade.profile: "full"`); 99 with the opt-in `profile: "core"` |
+| **Tools** | 166 governed capabilities (advertised via the 3-tool facade), all visible/callable by default (`toolFacade.profile: "full"`); 100 with the opt-in `profile: "core"` |
 | **Config keys** | 257 |
 | **Golden set** | 250 queries, statistical ship rule on every ranking change |
 | **Retrieval** | contextual chunk enrichment +0.223 nDCG, defaults on |
@@ -18,15 +18,15 @@
 | **License** | AGPL-3.0-only |
 <!-- END GENERATED: stats -->
 
-> **Status:** Shipped — **v1.31.8**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.31.8`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **165 tools across 31 domains**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
+> **Status:** Shipped — **v1.31.8**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.31.8`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **166 tools across 31 domains**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
 
 ## Three pillars
 
-1. **Broad.** 165 tools covering the meaningful Obsidian operations — native Bases (`.base`) with a real expression-DSL evaluator, Canvas, Excalidraw, deep plugin bridges, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
+1. **Broad.** 166 tools covering the meaningful Obsidian operations — native Bases (`.base`) with a real expression-DSL evaluator, Canvas, Excalidraw, deep plugin bridges, GraphRAG retrieval, a quarantined work-memory tier, and composite context calls — the broadest open-source Obsidian MCP surface we know of (surveyed 2026-07).
 2. **Governed by default.** JWT auth (HS256 or asymmetric RS256/ES256/EdDSA via a local JWKS), per-vault folder ACLs, a read-only kill switch, human-in-the-loop (HITL) confirmation on destructive operations, compare-and-swap on writes, idempotency keys, and per-class rate limiting.
 3. **Observable from day one.** OpenTelemetry traces, Prometheus metrics, a CloudEvents spool, and structured event emission on every tool call.
 
-## The interface: 3 tools, 165 governed capabilities
+## The interface: 3 tools, 166 governed capabilities
 
 By default `tools/list` advertises just **three meta-tools**: `find_capability` (BM25 search over the capability catalog), `describe_capability` (one capability's schema, scopes, and safety hints), and `call_capability` (invoke by name — routed through the same auth/ACL/HITL/idempotency/throttle pipeline as a direct call). This keeps agent context lean while the full surface stays reachable; `toolFacade.mode` selects `triad` (default), `domain`, or `flat`. The facade is boundary-only — no gate is ever bypassed.
 
@@ -57,7 +57,7 @@ Pull the default local embeddings model once (`ollama pull nomic-embed-text`) an
 | **[[Installation]]** | Install methods, runtimes, the companion plugin, native module |
 | **[[Configuration]]** | Config schema, vaults, auth, ACL, embeddings, retrieval + experiential knobs |
 | **[[Architecture]]** | Components, dispatch pipeline, IPC contracts, multi-vault registry, memory engine |
-| **[[Tool Reference]]** | The domain index for all 165 tools with one-line descriptions |
+| **[[Tool Reference]]** | The domain index for all 166 tools with one-line descriptions |
 | **[[Deployment Modes]]** | STDIO, HTTP local, HTTP remote, Docker, MCPB, standalone binary |
 | **[[Security and ACL]]** | Scopes, HITL thresholds, kill switch, CAS, idempotency, elicit tokens |
 | **[[Plugin Bridges]]** | Companion plugin, discovery probe, supported third-party plugins |

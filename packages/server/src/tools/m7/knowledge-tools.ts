@@ -30,6 +30,7 @@
 // same `RetrievalRuntime` object to every factory that declares it — no factory builds its own
 // embedder, cache, or policy state.
 import type { ToolDefinition } from "../../mcp/registry";
+import type { VaultAclResolver } from "../../mcp/resources";
 import type { QueryVectors } from "../../search/query_cache";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { createContradictionsTool } from "./knowledge/contradictions";
@@ -48,13 +49,14 @@ import {
   packBudget,
   type RetrievalRuntime,
 } from "./knowledge/retrieval-runtime";
+import { createSearchAndReadTool } from "./knowledge/search-and-read";
 import { createVaultContextTool } from "./knowledge/vault-context";
 import { resolveQueryColbert, resolveQuerySparse } from "./query-sparse";
 
 export type { M7Deps };
 export { buildGraphSearchOptions, noteTagsByPath, openContradictionsForPaths, packBudget };
 
-export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
+export function buildKnowledgeTools(deps: M7Deps, aclFor: VaultAclResolver): ToolDefinition[] {
   // The dense query encoding is shared with M2's search tools via search/query-encoder.ts — see
   // that module for why the two former copies of this closure were a drift hazard rather than
   // merely duplication. embedQuery stays a named local because RetrievalRuntime declares it.
@@ -94,6 +96,8 @@ export function buildKnowledgeTools(deps: M7Deps): ToolDefinition[] {
     createVaultContextTool(deps, retrieval),
     createReflectTool(deps, retrieval),
     createGraphSearchTool(deps, retrieval),
+    // Search then read: vault_graph_search's ranking, read_notes' read path, in one paged call.
+    createSearchAndReadTool(deps, retrieval, aclFor),
     // THE-632: the "why was this NOT returned?" counterpart to vault_graph_search above. Shares the
     // same retrieval runtime so it diagnoses the exact engine that answered, not a rebuild of it.
     createDiagnoseRetrievalTool(deps, retrieval),

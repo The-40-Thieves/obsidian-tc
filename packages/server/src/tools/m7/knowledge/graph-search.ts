@@ -40,7 +40,7 @@ import { VaultGraphSearchOutput } from "./schemas";
 /** One vault leg's outcome, independent of how federated or not the call turns out to be — the
  *  single-vault path below builds exactly one of these and unwraps it; the federated path builds
  *  one per target vault and hands them to federatedGraphSearch. */
-interface VaultLegResult {
+export interface VaultLegResult {
   mode_used: "lexical-route" | "graph";
   route?: string[];
   coverage?: CoverageEstimate;
@@ -67,7 +67,7 @@ function aclForVault(deps: M7Deps, vaultId: string): FolderAcl | undefined {
  * Shared verbatim by the single-vault call site and every federated leg, so AC1's byte-identical
  * guarantee holds mechanically rather than by keeping two copies in sync.
  */
-async function searchOneVault(
+export async function searchOneVault(
   deps: M7Deps,
   retrieval: RetrievalRuntime,
   ctx: CallerContext,
@@ -77,6 +77,8 @@ async function searchOneVault(
   denseText: string,
   variants: string[],
   cache: QueryCacheContext | undefined,
+  /** The retrieval-log surface these hits are attributed to. */
+  surface = "vault_graph_search",
 ): Promise<VaultLegResult> {
   let route = deps.classRouter
     ? routeQuery(ctx.db, vaultId, query.text, {
@@ -112,7 +114,7 @@ async function searchOneVault(
     );
     deps.retrievalLog?.({
       queryText: query.text,
-      surfaceType: "vault_graph_search",
+      surfaceType: surface,
       sessionId: ctx.sessionId ?? null,
       caller: ctx.caller ?? null,
       hits: retrievalHits(results),
@@ -164,7 +166,7 @@ async function searchOneVault(
   }
   deps.retrievalLog?.({
     queryText: query.text,
-    surfaceType: "vault_graph_search",
+    surfaceType: surface,
     sessionId: ctx.sessionId ?? null,
     caller: ctx.caller ?? null,
     hits: retrievalHits(results),

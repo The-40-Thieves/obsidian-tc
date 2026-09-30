@@ -5,6 +5,7 @@ import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
 import type { EmbeddingProvider } from "../../../embeddings";
 import type { RetrievalLogger } from "../../../experiential/log";
+import type { PagingDeps } from "../../../mcp/byte-page";
 import type { MetricsRecorder } from "../../../metrics/registry";
 import type { EgressFilter } from "../../../plane/egress-filter";
 import type { GatewayRoles } from "../../../plane/gateway";
@@ -149,6 +150,10 @@ export interface M7Deps {
    *  call touches N vaults, so `ctx.acl` can describe at most one of them correctly. */
   acl?: FolderAcl;
   aclByVault?: Map<string, FolderAcl>;
+  /** Continuation-cursor codec + live byte budget for search_and_read's paged result (the same
+   *  PagingDeps M1's bulk reads get). Absent (tests, bare registries) -> a per-process random key
+   *  and the registry's 1 MB default budget. */
+  paging?: PagingDeps;
   /** THE-934 fix round 1 (Blocking-3): egress.excludePaths, compiled. Undefined -> nothing
    *  excluded. `reflect`'s synthesize/challenge calls and `knowledge_challenge` both retrieve
    *  through the ordinary recall path (lexical-inclusive), so an excluded chunk can surface as a
