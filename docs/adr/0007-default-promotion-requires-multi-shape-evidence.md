@@ -127,3 +127,35 @@ two real shapes, both English, and they are tied only because the derivation is 
 The code-documentation and CJK corpora this ADR names are still unsourced. Nothing here recommends
 flipping `retrieval.derivedDefaults` on. The mechanism stays reachable for an operator who wants to
 measure their own collection, which is the pattern this ADR adopts.
+
+## Status (2026-09-30): class (c) mechanism built, dark; it regresses, and the evidence bar is not met
+
+**Built.** `retrieval.useSearchModePreference` (default `false`) lets `search_vault` read the caller's stored
+`preferred.search_mode` when a call names no `mode`. The design, the scope rules and why extraction is not
+scheduled are in `docs/design/experiential-reflection.md`. Only a stored `search_text` maps to a mode
+(`text`); off is byte-identical to before (17 calls across the search tools diffed against `origin/main`).
+
+**Measured** (`eval/search-mode.ts`: the real `search_vault` handler, mode omitted, `auto` against the reader
+wired to a profile of `search_text` at the documented 3.0 threshold; same index copy and query vectors, paired
+by query id; artifacts and `runs.db` under `/data/obsidian-tc-eval/search-mode-reader/`):
+
+| shape | n | nDCG@10 auto / preference | recall@10 | MRR@10 | queries that change (all worse) | one-sided 95% lower bound on ΔnDCG@10 (floor -0.015) |
+| --- | ---: | --- | --- | --- | ---: | ---: |
+| Matuschak evergreen, strict labels (public) | 78 | 0.8491 / 0.2543 | 0.9359 / 0.2885 | 0.8472 / 0.2500 | 52 | -0.678 |
+| Matuschak evergreen, lenient labels | 78 | 0.6266 / 0.1800 | 0.6345 / 0.1814 | 0.8694 / 0.2547 | 53 | -0.514 |
+| private multi-hop vault | 250 | 0.1009 / 0.0000 | 0.1083 / 0.0000 | 0.1123 / 0.0000 | 32 | -0.130 |
+
+The arms are identical wherever the text leg finds a hit, and `auto` only falls back to the semantic leg when it
+finds none; forcing `text` removes that fallback, so every change is a loss (0 queries improve on any corpus,
+permutation p 0.0001 throughout). The stated minimum detectable effects (0.065, 0.043 and 0.035 nDCG@10) are far
+below the observed deltas. The profile is constructed because the eval corpora carry no episodes; to see how
+often a realistic profile makes the reader fire, the production extractor was run over a copy of the live
+store's recorded episodes: one caller partition, `search_text`, weight 1.5 after one run (below the threshold)
+and 5.0 after five, because extraction re-counts unchanged evidence (a cron of `obsidian-tc reflect` would
+reach the threshold with no new evidence).
+
+**Verdict: the class (c) evidence bar is not met, and the mechanism loses on the two shapes that exist locally.**
+Two English shapes are fewer than the three the bar asks for, and the preference arm is a catastrophic loss on
+all of them. The flag stays off, per the ADR 0003 pattern for a mechanism that loses. A side observation for
+follow-up: `auto` itself scores well below dense-only `search_semantic` on the private vault (0.1009 against
+0.4005 nDCG@10) because a text-leg hit, however irrelevant, prevents the semantic fallback.
