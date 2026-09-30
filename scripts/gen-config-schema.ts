@@ -450,7 +450,16 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // identity listCaptureTags reads, so this window should outlive the longest import re-sync
   // period or a purged row can be re-imported as a duplicate. No key, type, default or
   // constraint moved.
-  "02f9ee9022372a80939e472093e27fec3f75c82bcedab8fc5c6991c359effd64";
+  //
+  // check:public-text fix (this repo is public): rebaselined again, text only. The SAME key's
+  // .describe() drops the bare "THE-650/THE-175" ticket ids the dedup clause above named —
+  // check:public-text flags any bare ticket id that reaches a reader-facing surface, and this
+  // description propagates into docs/src/content/docs/configuration/config-reference.md and
+  // docs/wiki/Configuration.md via docgen. The re-sync identity itself (listCaptureTags reads a
+  // committed row's import-dedupe:/ambient-dedupe: tag) is unchanged and still named; only the
+  // ticket ids are removed, replaced with a pointer to the dedup tags noted on commit_capture. No
+  // key, type, default or constraint moved.
+  "fa81cd64f1a12e76fbee480e2cd96d4d86683dbb4edaa64d5fffb141b995595f";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
