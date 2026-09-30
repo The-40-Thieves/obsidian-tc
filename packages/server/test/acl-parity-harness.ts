@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { afterEach, expect } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
+import { elicitVerifier } from "../src/elicit";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { indexVault } from "../src/search/indexer";
@@ -55,6 +56,9 @@ export interface AclSpec {
   main?: Partial<AclConfigT>;
   other?: Partial<AclConfigT>;
   docs?: Partial<AclConfigT>;
+  /** Wire the elicit verifier, so a HITL-gated tool (bulk_move_notes, ...) can be confirmed with a
+   *  token minted for the args_hash its elicit_required answer carries. */
+  verifyElicit?: boolean;
 }
 
 /** Everything a caller-supplied `extra` registration needs to wire more tool families onto the
@@ -110,6 +114,7 @@ async function build(acls: AclSpec, extra?: (registry: ToolRegistry, parts: Harn
   // The same three resolvers runtime/governance.ts wires: without rootResolver central pathAcl
   // enforcement (the read_notes oracle below) silently skips.
   const registry = new ToolRegistry({
+    ...(acls.verifyElicit ? { verifyElicit: elicitVerifier } : {}),
     aclResolver: (id) => aclByVault.get(id) ?? rootAcl,
     rootResolver: (id) => vaultRegistry.resolve(id).root,
     vaultKindResolver: (id) => vaultRegistry.resolve(id).kind,

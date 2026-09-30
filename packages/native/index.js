@@ -151,6 +151,10 @@ module.exports.rougeLLcs = impl.rougeLLcs;
 // JS read/write path.
 module.exports.safeReadNote = impl.safeReadNote;
 module.exports.safeWriteNoteAtomic = impl.safeWriteNoteAtomic;
+// No-replace write / rename: same feature-detection posture as above. On an older .node that
+// predates them they are undefined and the server's vault layer keeps its link+unlink JS path.
+module.exports.safeWriteNoteExclusive = impl.safeWriteNoteExclusive;
+module.exports.safeRenameNoReplace = impl.safeRenameNoReplace;
 // Exported for the loader unit test (packages/server/test/native-triple.test.ts).
 module.exports.hostTriple = hostTriple;
 module.exports.isMusl = isMusl;

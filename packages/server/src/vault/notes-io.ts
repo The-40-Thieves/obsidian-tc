@@ -11,6 +11,8 @@ import {
   constants,
   existsSync,
   fstatSync,
+  linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -18,14 +20,20 @@ import {
   rmSync,
   type Stats,
   statSync,
+  unlinkSync,
   writeSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { basename, dirname, join, parse, sep } from "node:path";
+import {
+  err,
+  ObsidianTcError,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
+import { existsNoFollow } from "../auth/key-files";
 import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
 import type { MetricsRecorder } from "../metrics/registry";
-import { contentHash } from "./paths";
+import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW is POSIX-only; on Windows Node it is undefined. Fall back to 0 (no-op) —
 // the st_nlink inode check is the cross-platform guard; O_NOFOLLOW additionally refuses a
@@ -41,6 +49,10 @@ const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 interface NativeVaultIo {
   safeReadNote(abs: string): Buffer;
   safeWriteNoteAtomic(abs: string, data: Buffer): void;
+  /** No-replace write / rename. Optional: an older .node predates them and the JS link+unlink path
+   *  is used (an extra argument to safeWriteNoteAtomic would be silently ignored by such a binary). */
+  safeWriteNoteExclusive?(abs: string, data: Buffer): void;
+  safeRenameNoReplace?(fromAbs: string, toAbs: string): void;
 }
 const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
 function loadNativeIo(): NativeVaultIo | null {
@@ -54,7 +66,16 @@ function loadNativeIo(): NativeVaultIo | null {
       typeof mod.safeReadNote === "function" &&
       typeof mod.safeWriteNoteAtomic === "function"
     ) {
-      return { safeReadNote: mod.safeReadNote, safeWriteNoteAtomic: mod.safeWriteNoteAtomic };
+      return {
+        safeReadNote: mod.safeReadNote,
+        safeWriteNoteAtomic: mod.safeWriteNoteAtomic,
+        ...(typeof mod.safeWriteNoteExclusive === "function"
+          ? { safeWriteNoteExclusive: mod.safeWriteNoteExclusive }
+          : {}),
+        ...(typeof mod.safeRenameNoReplace === "function"
+          ? { safeRenameNoReplace: mod.safeRenameNoReplace }
+          : {}),
+      };
     }
     return null;
   } catch {
@@ -144,14 +165,116 @@ export function readFileChecked(abs: string): Buffer {
   }
 }
 
-/** Atomic binary write: the note writer's temp + rename and symlink-safe open, for raw bytes. */
-export function writeFileAtomic(abs: string, data: Buffer, createDirs = true): void {
-  if (createDirs) mkdirSync(dirname(abs), { recursive: true });
-  if (nativeIo) {
+/** True for a native no-replace refusal (`exists: …`) — mapped to note_exists. */
+function isNativeExists(e: unknown): boolean {
+  return e instanceof Error && e.message.startsWith("exists:");
+}
+
+function noteExistsConcurrently(): ObsidianTcError {
+  return err.noteExists("target already exists; nothing was replaced");
+}
+
+/**
+ * Create `dir` and any missing ancestors WITHOUT following a symlink: each component is lstat'ed
+ * from the filesystem root down, a missing one is made with a non-recursive mkdir and re-lstat'ed,
+ * and a symlinked (or non-directory) component is refused. `mkdirSync(recursive)` followed a planted
+ * symlink out of the vault, and ran BEFORE the no-follow open. Shared by every vault writer and the
+ * trash move; `create: false` only verifies existing components (the source side of a rename).
+ * Same rule as the native writer (a symlink in ANY component, ancestors of the root included, is
+ * refused: the registry canonicalizes the root). A NEW Windows-hostile component is refused too.
+ * Pure-JS residual: lstat and the later open are not one atomic step; the native path re-checks.
+ */
+export function ensureDirNoFollow(dir: string, create = true): void {
+  const { root } = parse(dir);
+  let cur = root;
+  for (const seg of dir.slice(root.length).split(sep)) {
+    if (seg === "") continue;
+    cur = join(cur, seg);
+    let st: Stats | null;
     try {
-      nativeIo.safeWriteNoteAtomic(abs, data);
+      st = lstatSync(cur);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT" || !create) throw e;
+      st = null;
+    }
+    if (st === null) {
+      assertCreatableName(seg, seg);
+      try {
+        mkdirSync(cur);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      }
+      st = lstatSync(cur);
+    }
+    if (st.isSymbolicLink())
+      throw err.aclDenied("refusing a symlinked path component", { path: seg });
+    if (!st.isDirectory())
+      throw err.pathInvalid("a path component is not a directory", { path: seg });
+  }
+}
+
+/**
+ * Commit `tmp` to `abs` ONLY IF `abs` does not exist, atomically: `link(tmp, abs)` fails EEXIST if
+ * the name is taken, then `tmp` is dropped. Without hard links (FAT/exFAT, some network mounts) the
+ * name is reserved with an O_EXCL placeholder we own and renamed over: still exclusive.
+ */
+function commitNoReplace(tmp: string, abs: string): void {
+  try {
+    linkSync(tmp, abs);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") {
+      unlinkSync(tmp);
+      throw noteExistsConcurrently();
+    }
+    if (code !== "EPERM" && code !== "ENOSYS" && code !== "ENOTSUP" && code !== "EOPNOTSUPP") {
+      unlinkSync(tmp);
+      throw e;
+    }
+    try {
+      closeSync(
+        openSync(
+          abs,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_NOFOLLOW,
+          0o600,
+        ),
+      );
+    } catch (e2) {
+      unlinkSync(tmp);
+      if ((e2 as NodeJS.ErrnoException).code === "EEXIST") throw noteExistsConcurrently();
+      throw e2;
+    }
+    renameSync(tmp, abs);
+    return;
+  }
+  // The target now exists under its final name; a temp name we cannot drop is only litter.
+  try {
+    unlinkSync(tmp);
+  } catch {}
+}
+
+/** Atomic binary write: the note writer's temp + rename and symlink-safe open, for raw bytes.
+ *  `exclusive` makes the final step a no-replace commit: an existing target is never replaced and
+ *  throws note_exists — the race-free form of an `overwrite: false` check-then-write. */
+export function writeFileAtomic(
+  abs: string,
+  data: Buffer,
+  createDirs = true,
+  opts: { exclusive?: boolean } = {},
+): void {
+  // Backstop for writers that skipped enforcePathAcl("write"): creating a Windows-hostile leaf name
+  // is refused here too (an existing file stays updatable in place).
+  if (!existsNoFollow(abs)) assertCreatableName(basename(abs), basename(abs));
+  if (createDirs) ensureDirNoFollow(dirname(abs));
+  const nativeWrite = opts.exclusive
+    ? nativeIo?.safeWriteNoteExclusive
+    : nativeIo?.safeWriteNoteAtomic;
+  if (nativeIo && nativeWrite) {
+    try {
+      nativeWrite(abs, data);
       return;
     } catch (e) {
+      if (isNativeExists(e)) throw noteExistsConcurrently();
       // A safe-write rejection (a symlinked path component, or the target itself a symlink) is
       // acl_denied. A genuinely-missing parent (createDirs=false on a not-yet-created dir) keeps
       // ENOENT semantics, matching the JS temp-open below.
@@ -181,11 +304,68 @@ export function writeFileAtomic(abs: string, data: Buffer, createDirs = true): v
   } finally {
     closeSync(fd);
   }
-  renameSync(tmp, abs);
+  if (opts.exclusive) commitNoReplace(tmp, abs);
+  else renameSync(tmp, abs);
 }
 
-export function writeNoteAtomic(abs: string, content: string, createDirs = true): void {
-  writeFileAtomic(abs, Buffer.from(content, "utf8"), createDirs);
+/**
+ * Move `fromAbs` onto `toAbs` WITHOUT replacing an existing target or following a symlink in either
+ * path (native: parents opened no-follow; JS: components lstat'ed, then link + unlink). An occupied
+ * target throws note_exists. The one primitive behind trashNote and its rollback: a plain
+ * renameSync followed a planted `.trash` symlink out of the vault in both directions.
+ */
+export function moveNoReplace(fromAbs: string, toAbs: string): void {
+  if (nativeIo?.safeRenameNoReplace) {
+    try {
+      nativeIo.safeRenameNoReplace(fromAbs, toAbs);
+      return;
+    } catch (e) {
+      if (isNativeExists(e)) throw noteExistsConcurrently();
+      if (!existsSync(fromAbs)) {
+        const enoent = new Error(
+          `ENOENT: no such file or directory, rename '${fromAbs}'`,
+        ) as NodeJS.ErrnoException;
+        enoent.code = "ENOENT";
+        throw enoent;
+      }
+      throw err.aclDenied(`safe rename refused the path: ${(e as Error).message}`, {
+        path: toAbs,
+      });
+    }
+  }
+  ensureDirNoFollow(dirname(fromAbs), false);
+  ensureDirNoFollow(dirname(toAbs), false);
+  try {
+    linkSync(fromAbs, toAbs);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") throw noteExistsConcurrently();
+    // No hard links here: best effort (check, then rename; racy unlike the above).
+    if (code !== "EPERM" && code !== "ENOSYS" && code !== "ENOTSUP" && code !== "EOPNOTSUPP")
+      throw e;
+    if (existsNoFollow(toAbs)) throw noteExistsConcurrently();
+    renameSync(fromAbs, toAbs);
+    return;
+  }
+  try {
+    unlinkSync(fromAbs);
+  } catch (e) {
+    // The old name is held open (AV scanner, Windows): undo the new link, so a failed move never
+    // leaves the file under both names, then surface the error as renameSync would have.
+    try {
+      unlinkSync(toAbs);
+    } catch {}
+    throw e;
+  }
+}
+
+export function writeNoteAtomic(
+  abs: string,
+  content: string,
+  createDirs = true,
+  opts: { exclusive?: boolean } = {},
+): void {
+  writeFileAtomic(abs, Buffer.from(content, "utf8"), createDirs, opts);
 }
 
 /**
@@ -203,10 +383,10 @@ export function writeNoteAtomicGuarded(
   content: string,
   createDirs: boolean,
   config: VaultMemoryDefenseConfig | undefined,
-  opts: { metrics?: MetricsRecorder } = {},
+  opts: { metrics?: MetricsRecorder; exclusive?: boolean } = {},
 ): { content: string; redactions: number } {
   const scan = enforceMemoryDefenseOnNoteWrite(config, path, content, opts);
-  writeNoteAtomic(abs, scan.content, createDirs);
+  writeNoteAtomic(abs, scan.content, createDirs, { exclusive: opts.exclusive ?? false });
   return scan;
 }
 
@@ -272,24 +452,34 @@ export function statNote(abs: string): NoteStat | null {
 }
 
 /**
- * Soft-delete: move a note into the vault's `.trash/` mirror (Obsidian trash).
- * Returns the vault-relative trash path. A name collision (deleting two notes
- * with the same relative path) is disambiguated with a ` (n)` suffix rather than
- * clobbering the earlier trashed copy — renameSync over an existing file throws
- * EPERM on Windows, so we never rename onto an occupied destination.
+ * Soft-delete: move a note into the vault's `.trash/` mirror (Obsidian trash). Returns the
+ * vault-relative trash path. A name collision gets a ` (n)` suffix, chosen by the no-replace move
+ * itself refusing an occupied name (no check-then-rename window). A symlinked `.trash` (or any
+ * symlinked component) is refused, never followed.
  */
 export function trashNote(root: string, relPath: string): string {
   const dot = relPath.lastIndexOf(".");
   const slash = relPath.lastIndexOf("/");
   const stem = dot > slash ? relPath.slice(0, dot) : relPath;
   const ext = dot > slash ? relPath.slice(dot) : "";
-  let candidate = relPath;
-  for (let i = 1; existsSync(join(root, ".trash", candidate)); i++)
-    candidate = `${stem} (${i})${ext}`;
-  const dest = join(root, ".trash", candidate);
-  mkdirSync(dirname(dest), { recursive: true });
-  renameSync(join(root, relPath), dest);
-  return `.trash/${candidate}`;
+  const src = join(root, relPath);
+  for (let i = 0; ; i++) {
+    const candidate = i === 0 ? relPath : `${stem} (${i})${ext}`;
+    const dest = join(root, ".trash", candidate);
+    ensureDirNoFollow(dirname(dest));
+    try {
+      moveNoReplace(src, dest);
+      return `.trash/${candidate}`;
+    } catch (e) {
+      if (!(e instanceof ObsidianTcError && e.code === "note_exists") || i >= 10_000) throw e;
+    }
+  }
+}
+
+/** Put a file trashed by {@link trashNote} back at `destAbs` (rollback of a failed write). Same
+ *  no-follow, no-replace move as the trash leg: a re-created path throws note_exists. */
+export function restoreTrashed(root: string, trashedRel: string, destAbs: string): void {
+  moveNoReplace(join(root, trashedRel), destAbs);
 }
 
 export function hardDelete(abs: string): void {

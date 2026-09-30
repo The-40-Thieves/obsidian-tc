@@ -188,7 +188,9 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
         metrics: deps.metrics,
       }).content;
-      writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs);
+      // The destination is absent here (never existed, or was just trashed): exclusive, so
+      // `overwrite: false` holds against a concurrent creator, not just the check above.
+      writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs, { exclusive: true });
       hardDelete(fromAbs);
       // THE-291: keep the search index coherent across the move — drop the source path,
       // index the destination, and reindex every backlink-rewritten note below.
@@ -280,7 +282,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
       const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
         metrics: deps.metrics,
       }).content;
-      writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs);
+      writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs, { exclusive: true });
       deps.reindex?.(v.id, toRel, scannedRaw);
       return {
         vault: v.id,

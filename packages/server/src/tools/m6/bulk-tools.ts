@@ -34,6 +34,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
@@ -75,6 +76,9 @@ function newTargetFor(toRel: string, postIndex: VaultIndex): string {
 // ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
 // including notes outside the caller's write whitelist. Deliberate graph-integrity
 // invariant (a constrained link-text update, not arbitrary write access) — audit #12.
+// The REPORT is not part of that carve-out: `perMove`/`total` count only links in notes the caller
+// may read (`visible`), and `hidden` says a note the caller cannot see also held links — a flag, never
+// a number or a path, so the difference cannot be used to probe a hidden note's links.
 function rewriteForMoves(
   root: string,
   moveMap: Map<string, string>,
@@ -82,7 +86,8 @@ function rewriteForMoves(
   apply: boolean,
   mdConfig: VaultMemoryDefenseConfig,
   metrics: MetricsRecorder | undefined,
-): { perMove: Map<string, number>; total: number } {
+  visible: (relPath: string) => boolean,
+): { perMove: Map<string, number>; total: number; hidden: boolean } {
   const oldIndex = buildVaultIndex(prePaths);
   const postPaths = apply
     ? walkVault(root, { extensions: [".md"] }).map((e) => e.relPath)
@@ -93,6 +98,7 @@ function rewriteForMoves(
 
   const perMove = new Map<string, number>();
   let total = 0;
+  let hidden = false;
   const pending: Array<{ abs: string; path: string; content: string }> = [];
   for (const p of scanPaths) {
     const abs = resolveVaultPath(root, p);
@@ -102,16 +108,21 @@ function rewriteForMoves(
     } catch {
       continue; // a path that vanished mid-pass is skipped, not fatal
     }
+    const inThisNote = new Map<string, number>();
     const { text, count } = rewriteLinks(raw, (target) => {
       const r = resolveTarget(oldIndex, target);
       if (!r.resolved || r.target_path === undefined) return null;
       const toRel = moveMap.get(r.target_path);
       if (toRel === undefined) return null;
-      perMove.set(r.target_path, (perMove.get(r.target_path) ?? 0) + 1);
+      inThisNote.set(r.target_path, (inThisNote.get(r.target_path) ?? 0) + 1);
       return newTargetFor(toRel, postIndex);
     });
     if (count > 0) {
-      total += count;
+      if (visible(p)) {
+        total += count;
+        for (const [moved, n] of inThisNote) perMove.set(moved, (perMove.get(moved) ?? 0) + n);
+      } else hidden = true;
+      // the rewrite itself stays vault-wide whatever the caller may see
       if (apply) pending.push({ abs, path: p, content: text });
     }
   }
@@ -122,7 +133,7 @@ function rewriteForMoves(
   // it repointed and notes after it stale — the per-note-immediate-write loop this replaces could
   // not make that guarantee despite `apply`'s own name suggesting an atomic step.
   if (apply) writeNotesAllOrNothingGuarded(pending, mdConfig, { metrics });
-  return { perMove, total };
+  return { perMove, total, hidden };
 }
 
 // ── schemas ────────────────────────────────────────────────────────────────────
@@ -251,7 +262,12 @@ const BulkMoveOutput = z.object({
   vault: z.string(),
   processed: z.number(),
   dry_run: z.boolean(),
+  /** Links in notes the CALLER may read. Links in notes a rule-scope hides from them are still
+   *  rewritten, but not counted here; see `hidden_backlinks`. */
   total_backlinks_updated: z.number(),
+  /** Present (true) only when at least one note the caller cannot read also linked to a moved
+   *  note. A flag, deliberately: no count and no path of the hidden notes is ever reported. */
+  hidden_backlinks: z.boolean().optional(),
   results: z.array(BulkMoveResultItem),
 });
 
@@ -307,6 +323,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             // batch tool has scanned an item's content/frontmatter.
             const scan = writeNoteAtomicGuarded(abs, rel, body, true, mdConfig, {
               metrics: deps.metrics,
+              exclusive: !ex.exists,
             });
             deps.reindex?.(v.id, rel, scan.content);
             return {
@@ -488,15 +505,20 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         const moveMap = new Map<string, string>();
         for (const r of rows) if (r.ok && r.fromRel && r.toRel) moveMap.set(r.fromRel, r.toRel);
 
+        // The caller-visible filter for the REPORT (the rewrite is vault-wide regardless).
+        const visible = (rel: string): boolean => readableRel(ctx.acl, rel, ctx.grantedScopes);
+        const noBacklinks = { perMove: new Map<string, number>(), total: 0, hidden: false };
+
         if (input.dry_run) {
-          const { perMove, total } = input.update_backlinks
-            ? rewriteForMoves(v.root, moveMap, prePaths, false, mdConfig, deps.metrics)
-            : { perMove: new Map<string, number>(), total: 0 };
+          const { perMove, total, hidden } = input.update_backlinks
+            ? rewriteForMoves(v.root, moveMap, prePaths, false, mdConfig, deps.metrics, visible)
+            : noBacklinks;
           return {
             vault: v.id,
             processed: rows.length,
             dry_run: true,
             total_backlinks_updated: total,
+            ...(hidden ? { hidden_backlinks: true } : {}),
             results: rows.map((r) => ({
               ...rowIdentity(r),
               ok: r.ok,
@@ -525,8 +547,10 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const { raw } = readNote(fromAbs);
             // the relocated content can carry a pre-existing secret that predates
             // memoryDefense — same guard move_note's own relocation write applies.
+            // The destination is absent here (never existed, or just trashed above): exclusive.
             const scan = writeNoteAtomicGuarded(toAbs, r.toRel, raw, true, mdConfig, {
               metrics: deps.metrics,
+              exclusive: true,
             });
             hardDelete(fromAbs);
             deps.deindex?.(v.id, r.fromRel);
@@ -543,15 +567,16 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         }
 
         // Phase 2: all-or-nothing rewrite over the whole graph for the moved set.
-        const { perMove, total } = input.update_backlinks
-          ? rewriteForMoves(v.root, moveMap, prePaths, true, mdConfig, deps.metrics)
-          : { perMove: new Map<string, number>(), total: 0 };
+        const { perMove, total, hidden } = input.update_backlinks
+          ? rewriteForMoves(v.root, moveMap, prePaths, true, mdConfig, deps.metrics, visible)
+          : noBacklinks;
 
         return {
           vault: v.id,
           processed: rows.length,
           dry_run: false,
           total_backlinks_updated: total,
+          ...(hidden ? { hidden_backlinks: true } : {}),
           results: rows.map((r) => ({
             ...rowIdentity(r),
             ok: r.ok,

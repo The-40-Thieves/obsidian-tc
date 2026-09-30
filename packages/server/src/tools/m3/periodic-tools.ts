@@ -389,6 +389,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           // content actually about to be persisted, same guard every note-content writer gets.
           const scan = writeNoteAtomicGuarded(abs, resolved.path, content, true, mdConfig, {
             metrics: deps.metrics,
+            exclusive: true,
           });
           deps.reindex?.(v.id, resolved.path, scan.content);
           return {

@@ -227,12 +227,35 @@ pub fn safe_write_note_atomic(abs: String, data: Buffer) -> napi::Result<()> {
     safe_io::write_atomic(&abs, data.as_ref())
 }
 
+/// Symlink-safe atomic write that REFUSES to replace: same as `safe_write_note_atomic`, but the
+/// final step is a no-replace rename (Linux `renameat2(RENAME_NOREPLACE)`, macOS
+/// `renameatx_np(RENAME_EXCL)`, else `linkat` + `unlinkat`), so an `overwrite: false` caller cannot
+/// lose a race to a concurrent creator of the same path (a check-then-rename leaves that window
+/// open). An existing target is an error whose message starts with `exists:`. Unix-only.
+#[cfg(unix)]
+#[napi]
+pub fn safe_write_note_exclusive(abs: String, data: Buffer) -> napi::Result<()> {
+    safe_io::write_exclusive(&abs, data.as_ref())
+}
+
+/// Symlink-safe no-replace rename of `from_abs` onto `to_abs`: each parent is opened following no
+/// symlink in any component, then the leaf is renamed with RENAME_NOREPLACE semantics (see
+/// `safe_write_note_exclusive`). Used to move a note into `.trash/` and to put it back on rollback,
+/// so a planted `.trash` symlink cannot redirect either leg. An existing target is an error whose
+/// message starts with `exists:`. Unix-only.
+#[cfg(unix)]
+#[napi]
+pub fn safe_rename_no_replace(from_abs: String, to_abs: String) -> napi::Result<()> {
+    safe_io::rename_no_replace(&from_abs, &to_abs)
+}
+
 #[cfg(unix)]
 mod safe_io {
     use napi::Error;
     use napi::bindgen_prelude::Buffer;
     use rustix::fd::OwnedFd;
-    use rustix::fs::{AtFlags, CWD, Mode, OFlags, openat, renameat, unlinkat};
+    use rustix::fs::{AtFlags, CWD, Mode, OFlags, linkat, openat, renameat, unlinkat};
+    use rustix::io::Errno;
     use std::io::{Read, Write};
     use std::os::unix::fs::MetadataExt;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -312,7 +335,59 @@ mod safe_io {
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+    /// Rename `old` (in `old_dir`) onto `new` (in `new_dir`) WITHOUT replacing an existing `new`.
+    /// Linux/macOS use the kernel's atomic no-replace rename; a filesystem that lacks it (EINVAL /
+    /// ENOSYS / ENOTSUP) and every other Unix fall back to `linkat` (which fails EEXIST
+    /// atomically) then `unlinkat` of the old name.
+    fn rename_noreplace(
+        old_dir: &OwnedFd,
+        old: &str,
+        new_dir: &OwnedFd,
+        new: &str,
+    ) -> Result<(), Errno> {
+        #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+        {
+            use rustix::fs::{RenameFlags, renameat_with};
+            match renameat_with(old_dir, old, new_dir, new, RenameFlags::NOREPLACE) {
+                Err(Errno::INVAL) | Err(Errno::NOSYS) | Err(Errno::NOTSUP) => {}
+                other => return other,
+            }
+        }
+        linkat(old_dir, old, new_dir, new, AtFlags::empty())?;
+        unlinkat(old_dir, old, AtFlags::empty())
+    }
+
+    fn rename_error(e: Errno) -> Error {
+        if e == Errno::EXIST {
+            denied("exists: destination already exists")
+        } else {
+            denied(format!("rename: {e}"))
+        }
+    }
+
+    pub fn rename_no_replace(from: &str, to: &str) -> Result<(), Error> {
+        let from_comps = components(from)?;
+        let to_comps = components(to)?;
+        let from_parent = open_parent(&from_comps)?;
+        let to_parent = open_parent(&to_comps)?;
+        rename_noreplace(
+            &from_parent,
+            from_comps[from_comps.len() - 1],
+            &to_parent,
+            to_comps[to_comps.len() - 1],
+        )
+        .map_err(rename_error)
+    }
+
     pub fn write_atomic(abs: &str, data: &[u8]) -> Result<(), Error> {
+        write_impl(abs, data, false)
+    }
+
+    pub fn write_exclusive(abs: &str, data: &[u8]) -> Result<(), Error> {
+        write_impl(abs, data, true)
+    }
+
+    fn write_impl(abs: &str, data: &[u8], no_replace: bool) -> Result<(), Error> {
         let comps = components(abs)?;
         let parent = open_parent(&comps)?;
         let leaf = comps[comps.len() - 1];
@@ -336,9 +411,14 @@ mod safe_io {
             let _ = unlinkat(&parent, tmp.as_str(), AtFlags::empty());
             return Err(denied(format!("write: {e}")));
         }
-        if let Err(e) = renameat(&parent, tmp.as_str(), &parent, leaf) {
+        let renamed = if no_replace {
+            rename_noreplace(&parent, tmp.as_str(), &parent, leaf)
+        } else {
+            renameat(&parent, tmp.as_str(), &parent, leaf)
+        };
+        if let Err(e) = renamed {
             let _ = unlinkat(&parent, tmp.as_str(), AtFlags::empty());
-            return Err(denied(format!("rename: {e}")));
+            return Err(rename_error(e));
         }
         Ok(())
     }
@@ -583,5 +663,109 @@ mod tests {
         let l = rouge_l_lcs_core(&a, &b);
         assert!(l <= a.len().min(b.len()) as u32);
         assert_eq!(l, 10);
+    }
+}
+
+/// Symlink-safe no-replace write / rename (Unix). Each test works in its own scratch directory
+/// under the OS temp dir (no tempfile dependency in this crate), removed at the end.
+#[cfg(all(test, unix))]
+mod safe_io_tests {
+    use super::safe_io;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+
+    fn scratch() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "otc-native-noreplace-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        // Canonical path: safe_io refuses a symlink in ANY component (macOS /var -> /private/var).
+        fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    fn s(p: &std::path::Path) -> String {
+        p.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn write_exclusive_creates_a_missing_target() {
+        let d = scratch();
+        safe_io::write_exclusive(&s(&d.join("a.md")), b"one").unwrap();
+        assert_eq!(fs::read(d.join("a.md")).unwrap(), b"one");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn write_exclusive_never_replaces_and_leaves_no_temp() {
+        let d = scratch();
+        fs::write(d.join("a.md"), b"original").unwrap();
+        let e = safe_io::write_exclusive(&s(&d.join("a.md")), b"clobber").unwrap_err();
+        assert!(e.reason.starts_with("exists:"), "got {}", e.reason);
+        assert_eq!(fs::read(d.join("a.md")).unwrap(), b"original");
+        let names: Vec<_> = fs::read_dir(&d)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names.len(), 1, "temp file leaked: {names:?}");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn write_atomic_still_replaces() {
+        let d = scratch();
+        fs::write(d.join("a.md"), b"original").unwrap();
+        safe_io::write_atomic(&s(&d.join("a.md")), b"new").unwrap();
+        assert_eq!(fs::read(d.join("a.md")).unwrap(), b"new");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn rename_no_replace_moves_and_refuses_an_occupied_target() {
+        let d = scratch();
+        fs::write(d.join("from.md"), b"payload").unwrap();
+        fs::write(d.join("taken.md"), b"taken").unwrap();
+        let e = safe_io::rename_no_replace(&s(&d.join("from.md")), &s(&d.join("taken.md")))
+            .unwrap_err();
+        assert!(e.reason.starts_with("exists:"), "got {}", e.reason);
+        assert_eq!(fs::read(d.join("from.md")).unwrap(), b"payload");
+        assert_eq!(fs::read(d.join("taken.md")).unwrap(), b"taken");
+        safe_io::rename_no_replace(&s(&d.join("from.md")), &s(&d.join("free.md"))).unwrap();
+        assert!(!d.join("from.md").exists());
+        assert_eq!(fs::read(d.join("free.md")).unwrap(), b"payload");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn rename_no_replace_refuses_a_symlinked_destination_directory() {
+        use std::os::unix::fs::symlink;
+        let d = scratch();
+        let outside = scratch();
+        fs::write(d.join("note.md"), b"payload").unwrap();
+        // `.trash` planted as a symlink to a directory outside the vault.
+        symlink(&outside, d.join(".trash")).unwrap();
+        let r = safe_io::rename_no_replace(&s(&d.join("note.md")), &s(&d.join(".trash/note.md")));
+        assert!(r.is_err(), "rename followed a planted symlink");
+        assert!(d.join("note.md").exists());
+        assert!(!outside.join("note.md").exists());
+        fs::remove_dir_all(&d).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
+    fn write_exclusive_refuses_a_symlinked_ancestor() {
+        use std::os::unix::fs::symlink;
+        let d = scratch();
+        let outside = scratch();
+        symlink(&outside, d.join("sub")).unwrap();
+        let r = safe_io::write_exclusive(&s(&d.join("sub/n.md")), b"x");
+        assert!(r.is_err());
+        assert!(!outside.join("n.md").exists());
+        fs::remove_dir_all(&d).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
     }
 }
