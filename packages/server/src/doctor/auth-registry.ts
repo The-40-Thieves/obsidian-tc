@@ -29,7 +29,7 @@ const human = (seconds: number): string => {
 };
 
 export interface AuthRegistryView {
-  authMode: "none" | "jwt";
+  authMode: "none" | "jwt" | "oidc";
   state: "uninitialised" | "ok" | "lost";
   /** Why the registry is lost (which table, or an unusable keys directory), when it is. */
   detail?: string;
@@ -81,10 +81,21 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
             }
           : {}),
       };
-      if (view.authMode !== "jwt") {
+      // oidc holds no signing keys here (the IdP's keys verify), but the registry still answers
+      // "is this jti revoked?", so a LOST one refuses every IdP token exactly as it does in jwt mode
+      // and falls through to the fail below; otherwise it is only the revocation list.
+      if (view.authMode === "oidc" && view.state !== "lost") {
         return {
           status: "ok",
-          summary: "auth registry: not in use (auth.mode is not jwt)",
+          summary:
+            "auth registry: revocation only (auth.mode oidc; revoke an IdP token with `obsidian-tc auth revoke <jti>`)",
+          details,
+        };
+      }
+      if (view.authMode !== "jwt" && view.authMode !== "oidc") {
+        return {
+          status: "ok",
+          summary: "auth registry: not in use (auth.mode is neither jwt nor oidc)",
           details,
         };
       }

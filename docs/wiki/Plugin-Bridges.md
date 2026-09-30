@@ -61,7 +61,7 @@ At server start (and on `reload_vault`) the server fires `GET /obsidian-tc/v1/pr
 
 ## Bridge timeouts
 
-Default 5s per route (`vault.bridges.timeoutMs`); OCR and Templater routes default to 30s. A timeout returns `plugin_unreachable`.
+Default 5s per route (`vaults[].bridges.timeoutMs`); OCR and Templater routes default to 30s. A timeout returns `plugin_unreachable`.
 
 ## Version compatibility & bridge state
 

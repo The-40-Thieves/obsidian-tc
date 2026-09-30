@@ -480,7 +480,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // not part of the emitted JSON Schema; the signing-key check moved to boot, since the auth
   // registry can now be the only key). Rewords `auth.mode` and `auth.jwtSecret` descriptions to
   // say so. No existing key, type, default or constraint moved.
-  "0349251c1a5a6d87d1b6c00da4e90f6fdda2b7c39bc83c02526784cac5528ce5";
+  // `auth.mode: oidc`: rebaselined deliberately. `auth.mode` gains the value "oidc" and the root
+  // `auth` block gains ONE optional block, `auth.oidc` (issuer, audience, clientId, jwksUri,
+  // allowedAlgs, clockToleranceSeconds, discoveryCacheSeconds, requireAtJwtType, claimMapping,
+  // requiredClaims), for verifying access tokens from an external OpenID Connect provider. The
+  // block is refused under any other mode and vice versa (server.schema.ts superRefine). No
+  // existing key, type, default or constraint moved. Security review of that block, same PR: adds
+  // `auth.oidc.allowedJwksHosts` / `allowPrivateNetwork`, `claimMapping.scopeMap` /
+  // `allowedPersonas` / `allowedVaults`, array-form claim paths, and object-form `requiredClaims`.
+  "4c26c2535c4a9ebe84057d9c443edb92afdde046802e989e119ee8c0d5d238ff";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

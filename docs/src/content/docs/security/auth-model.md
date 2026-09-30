@@ -204,6 +204,116 @@ registry. Work already queued as a background task keeps the scopes it was enque
 revocation is checked when a request is authenticated, and a queued task has no request, so
 revoking a token does not stop a task it already enqueued.
 
+## Verifying an external OpenID Connect provider (`oidc` mode)
+
+If you already run an identity provider (Keycloak, Auth0, Entra ID, Okta, Zitadel, Cloudflare Access), obsidian-tc
+can verify the access tokens **it** issues instead of minting its own. This is verification only: the server never
+issues, refreshes or registers anything.
+
+```json
+{
+  "auth": {
+    "mode": "oidc",
+    "resource": "https://vault.example.com/mcp",
+    "requireJti": true,
+    "oidc": {
+      "issuer": "https://your-tenant.eu.auth0.com/",
+      "audience": "https://vault.example.com/mcp",
+      "claimMapping": { "scopes": "permissions" }
+    }
+  }
+}
+```
+
+That is an Auth0 API named `https://vault.example.com/mcp`, with RBAC enabled and "Add permissions in the access
+token" on, so its tokens carry a `permissions` array holding your obsidian-tc scopes (`read:notes`, `write:notes`, ...).
+Auth0's issuer ends with a `/` and must be written exactly that way. Only **fully-qualified** scope strings
+(`family:resource`, for example `read:notes` or `write:*`) are taken from the scopes claim; see
+[Mapping roles to scopes](#mapping-roles-to-scopes).
+
+**Keycloak.** Use the realm URL as the issuer and map realm roles explicitly. A bare role name is *not* a scope:
+obsidian-tc reads a scope with no colon as a wildcard over the whole family, so a realm role called `admin` would
+otherwise mean `admin:*`.
+
+```json
+"oidc": {
+  "issuer": "https://kc.example.com/realms/vault",
+  "audience": "https://vault.example.com/mcp",
+  "clientId": "vault-client",
+  "claimMapping": {
+    "scopes": "realm_access.roles",
+    "scopeMap": {
+      "vault-reader": ["read:notes", "read:search"],
+      "vault-editor": ["read:notes", "write:notes"]
+    }
+  }
+}
+```
+
+Keycloak puts `JWT` in the JOSE header of its access, ID and refresh tokens alike; the kind is in the payload
+`typ` (`Bearer`, `ID`, `Refresh`), which obsidian-tc reads. Configure an audience mapper so access tokens carry
+your API audience.
+
+**Entra ID** (v2 endpoint): `"issuer": "https://login.microsoftonline.com/<tenant>/v2.0"`, and
+`"claimMapping": { "scopes": "scp" }` with the API's delegated scopes named as obsidian-tc scopes, or
+`"scopes": "roles"` plus a `scopeMap` for app roles. **Auth0 namespaced claims** (a claim whose *name* is a URL,
+such as `https://vault.example.com/roles`) are written as an array holding the literal name, because a string is
+always a dotted path into nested objects:
+
+```json
+"claimMapping": {
+  "scopes": ["https://vault.example.com/roles"],
+  "scopeMap": { "editor": ["read:notes", "write:notes"] }
+}
+```
+
+### Mapping roles to scopes
+
+- The scopes claim (`claimMapping.scopes`) may be a space-delimited string or an array. A value grants scopes only
+  if it is in `scopeMap` (then exactly the listed scopes) or is a fully-qualified scope. Anything else, such as the
+  role `admin`, the standard `openid` / `profile`, or `*`, grants nothing and is logged once per value.
+- `claimMapping.subject`, `scopes`, `principal`, `vault`, `persona` and every `requiredClaims` name are a dotted
+  path into **nested** claims (`realm_access.roles`) or an array of literal segments. A top-level claim that happens
+  to be named `realm_access.roles` is never used in place of the nested one.
+- `claimMapping.persona` and `claimMapping.vault` are bearer capabilities: setting either requires
+  `allowedPersonas` / `allowedVaults`, and a token naming anything else (or a non-string) is refused, not ignored.
+- `requiredClaims` is either a list of names, each of which must hold a truthy, non-empty value (so
+  `email_verified: false` fails `["email_verified"]`), or an object of exact values
+  (`{ "email_verified": true, "hd": "example.com" }`; an array claim satisfies it when it contains the value).
+
+What to know before turning it on:
+
+- **The issuer is compared exactly**, against every token's `iss` and against the `issuer` in the discovery document
+  fetched from `<issuer>/.well-known/openid-configuration`. Discovery is https only, refuses redirects, and is
+  size- and time-bounded. If it fails at boot the server does not start (`obsidian-tc doctor` runs the same probe).
+- **Where the IdP may be.** The discovered `jwks_uri` must be on the issuer's origin, with no credentials in the
+  URL; list another host in `allowedJwksHosts` (Google serves keys from `www.googleapis.com`) or set `jwksUri`
+  yourself. Before every fetch the host is resolved and refused if any address is loopback, link-local (the cloud
+  metadata address), private or reserved. For an identity provider on your own LAN set `allowPrivateNetwork: true`.
+  The resolve-then-fetch check cannot pin the connection, so a DNS record that changes between the two is not
+  covered.
+- **`audience` is required.** Register a dedicated API audience at the IdP. Using a client id as the audience would
+  let an ID token through.
+- **Algorithms are asymmetric only** (`allowedAlgs`, default RS256, ES256, EdDSA). HS256 and `none` cannot be
+  configured, and a `jwtSecret` never verifies an OIDC bearer.
+- **`typ`.** `at+jwt` (RFC 9068), `JWT`, `Bearer` and no `typ` are accepted in the JOSE header by default; anything
+  else, and a header `typ` that is not a string, is refused. Because IdPs put `JWT` in the header of ID tokens too,
+  the payload is read as well: a `typ` other than `Bearer`, a `nonce`, `at_hash` or `c_hash` claim, or a Cognito
+  `token_use` other than `access` marks an ID or refresh token and is refused. Set `requireAtJwtType: true` if
+  your IdP issues RFC 9068 tokens.
+- **Clock skew** of `clockToleranceSeconds` (default 30, at most 300) is allowed on `exp`, `nbf` and `iat`.
+- **Revocation.** An IdP token with a `jti` can be revoked with `obsidian-tc auth revoke <jti>`; `auth.requireJti`
+  refuses tokens without one. A lost or partly lost auth registry refuses every token, with or without a `jti`, in
+  `oidc` and `jwt` mode alike. Prefer short IdP token
+  lifetimes: revocation here is a local deny list, not a call to the IdP.
+- **Everything downstream is unchanged.** Scopes, folder ACLs, rule-scopes, vault binding (`claimMapping.vault`) and
+  personas (`claimMapping.persona`) apply exactly as in `jwt` mode, once the token's claims have been mapped as
+  above.
+
+With `auth.resource` set, the Protected Resource Metadata document advertises the issuer as the authorization
+server, so an MCP client can discover where to sign in. Whether that client can then register with your IdP is up to
+the IdP.
+
 ## OAuth resource-server discovery (optional)
 
 For clients that expect OAuth-style discovery, obsidian-tc can act as an OAuth 2.0
@@ -214,7 +324,8 @@ document at `/.well-known/oauth-protected-resource` (and the path-inserted `…/
 and returns `WWW-Authenticate: Bearer resource_metadata="…"` on a `401`, so a
 spec-compliant client can discover the authorization server. This is opt-in and off
 by default; there is no in-repo authorization server (token issuance, Dynamic Client
-Registration, OIDC discovery) — point `authorizationServers` at your external AS.
+Registration, OIDC discovery) — point `authorizationServers` at your external AS, or use `oidc` mode
+above, which advertises the issuer for you.
 
 See also [Scopes & Folder ACLs](/security/acls/) and
 [HITL Elicitation](/security/hitl-elicit/).

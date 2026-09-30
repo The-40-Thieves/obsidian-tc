@@ -2,6 +2,7 @@
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
+import { type AuthOidcView, authOidcCheck } from "./auth-oidc";
 import { type AuthRegistryView, authRegistryCheck } from "./auth-registry";
 // THE-891 item 3: capture-location lives in its own module (checks.ts is already at biome's
 // 700-line ceiling), same reasoning as note-summary-scale/retrieval-heads below.
@@ -77,7 +78,7 @@ export function decodeTokenClaims(token: string): TokenClaims | undefined {
 }
 
 export interface DoctorConfigView {
-  auth: { mode: "none" | "jwt"; tokenTtlSeconds: number; readOnly: boolean };
+  auth: { mode: "none" | "jwt" | "oidc"; tokenTtlSeconds: number; readOnly: boolean };
   /** #16: retrieval-head readiness inputs (config.embeddings + config.retrieval). Optional so a
    *  pure profile-only doctor call omits the check rather than reporting a hollow one. */
   retrieval?: RetrievalHeadsView;
@@ -146,6 +147,7 @@ export interface DoctorConfigView {
   /** Is the signing-key / revocation registry (auth.db) usable, and are its key files trusted?
    *  No `--probe` gate: it only stats the key files and opens auth.db read-only. */
   authRegistry?: AuthRegistryView;
+  authOidc?: AuthOidcView;
   /** THE-1108: is any explicit (start_session) session stuck open past windowSeconds? Probe-only,
    *  same reasoning as derivedTables above. */
   sessions?: SessionLivenessView;
@@ -249,6 +251,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1125: opt-in telemetry posture. Same optional-view reasoning as toolFacade above.
   if (config.telemetry) checks.push(telemetryCheck(config.telemetry));
   if (config.authRegistry) checks.push(authRegistryCheck(config.authRegistry));
+  if (config.authOidc) checks.push(authOidcCheck(config.authOidc));
   // THE-1108: sessions.liveness — same optional-view reasoning as derivedTables above.
   if (config.sessions) checks.push(sessionLivenessCheck(config.sessions));
 
