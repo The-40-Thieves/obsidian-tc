@@ -25,8 +25,11 @@ import {
   capturePolicy,
   noteTagsByPath,
   openContradictionsForPaths,
-  REFLECT_SYSTEM_PROMPT,
+  type ReflectCitationStyle,
+  type ReflectDetail,
   type RetrievalRuntime,
+  reflectSystemPrompt,
+  renderWikilinkCitations,
   resolveAclWalkFilter,
   retrievalHits,
   SYNTHESIS_EVIDENCE_BUDGET,
@@ -47,6 +50,21 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         k: z.number().int().positive().max(60).default(20),
         scope: z.string().min(1).optional(),
         persist: z.boolean().default(false),
+        // No schema default on these two: precedence is call argument > the vault's `reflect`
+        // config > the shipped default (numeric / concise), and a zod default would make an
+        // omitted argument indistinguishable from an explicit one.
+        citation_style: z
+          .enum(["numeric", "wikilink"])
+          .optional()
+          .describe(
+            'How citations read in the answer and any persisted note. "numeric" (default) keeps the [n] markers; "wikilink" renders each [n] as [[path]] from the evidence it numbers, deterministically. An [n] with no matching evidence is left as written and listed in `unresolved_citations`. Omitted: the vault\'s `reflect.citationStyle`, else numeric.',
+          ),
+        detail: z
+          .enum(["concise", "standard", "thorough"])
+          .optional()
+          .describe(
+            'How much the synthesis says. "concise" (default), "standard", or "thorough"; a prompt instruction only, the evidence set is unchanged. Omitted: the vault\'s `reflect.detail`, else concise.',
+          ),
       })
       .strict(),
     outputSchema: ReflectOutput,
@@ -193,15 +211,25 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       const evidenceBlock = synthesis.items
         .map((e) => `[${e.citation}] ${e.path}\n${e.content}`)
         .join("\n\n");
+      const vaultStyle = deps.reflectDefaults?.(v.id);
+      const citationStyle: ReflectCitationStyle =
+        input.citation_style ?? vaultStyle?.citationStyle ?? "numeric";
+      const detail: ReflectDetail = input.detail ?? vaultStyle?.detail ?? "concise";
       const res = await deps.roles.synthesize({
         ...prompt(
-          REFLECT_SYSTEM_PROMPT,
+          reflectSystemPrompt({ citationStyle, detail }),
           `Question:\n${input.query}\n\nEvidence chunks:\n${evidenceBlock}`,
         ),
         // THE-934: the egress guard's backstop check — every path here already cleared
         // notExcludedResults above.
         sourcePaths: synthesis.items.map((e) => e.path),
       });
+      // Wikilink mode rewrites the model's [n] markers from the evidence list it was shown; the
+      // rewritten text is what BOTH the caller and the persisted note receive.
+      const rendered =
+        citationStyle === "wikilink"
+          ? renderWikilinkCitations(res.text, synthesis.items)
+          : { text: res.text, unresolved: [] as number[] };
       // Traceable derived memory (the Hindsight "update in a traceable way" requirement):
       // provenance frontmatter carries the model + the exact source chunk ids and paths.
       let persisted: { path: string } | undefined;
@@ -233,7 +261,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           `source_paths: ${JSON.stringify([...new Set(notExcludedResults.slice(0, 20).map((r) => r.path))])}`,
           "---",
           "",
-          res.text,
+          rendered.text,
           "",
         ].join("\n");
         persistGovernedNote(
@@ -257,10 +285,11 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         mode: "synthesis",
         route: route.signals,
         available: true,
-        answer: res.text,
+        answer: rendered.text,
         model: res.model,
         sources,
         ...(persisted ? { persisted } : {}),
+        ...(rendered.unresolved.length > 0 ? { unresolved_citations: rendered.unresolved } : {}),
         ...(synthesisExcludedCount > 0 ? { excluded_count: synthesisExcludedCount } : {}),
       };
     },

@@ -6,7 +6,11 @@
 // registration (tool-wiring.ts) so search_dql can share the same Dataview bridge through the
 // returned M4Deps — mirrors the map's "bridge clients and capability snapshots" step, which sits
 // between indexing/watcher wiring and M1-M8 tool registration.
-import type { VaultConfig, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type {
+  VaultConfig,
+  VaultMemoryDefenseConfig,
+  VaultReflectConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import {
   type BridgeClient,
   buildVaultCapabilities,
@@ -46,6 +50,8 @@ export interface BridgeWiring {
   traceFolderByVault: Map<string, string>;
   /** GH #994: per-vault memoryDefense config, present only for a vault that configured one. */
   memoryDefenseByVault: Map<string, VaultMemoryDefenseConfig>;
+  /** Per-vault reflect style defaults, present only for a vault that configured a `reflect` block. */
+  reflectDefaultsByVault: Map<string, VaultReflectConfig>;
   /** The composed M4 deps object, ready to hand to registerM4Tools and to the M2/M3 bridge-proxy
    *  builders (dataviewBridge / templaterBridge) in tool-wiring.ts. */
   m4Deps: M4Deps;
@@ -63,6 +69,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
   const memoryFolderByVault = new Map<string, string>();
   const traceFolderByVault = new Map<string, string>();
   const memoryDefenseByVault = new Map<string, VaultMemoryDefenseConfig>();
+  const reflectDefaultsByVault = new Map<string, VaultReflectConfig>();
   const capabilities = new CapabilityCache();
   for (const v of deps.vaults) {
     commandsByVault.set(v.id, {
@@ -72,6 +79,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     if (v.memory) memoryFolderByVault.set(v.id, v.memory.folder);
     if (v.workspace) traceFolderByVault.set(v.id, v.workspace.traceFolder);
     if (v.memoryDefense) memoryDefenseByVault.set(v.id, v.memoryDefense);
+    if (v.reflect) reflectDefaultsByVault.set(v.id, v.reflect);
     if (v.bridges)
       timeoutsByVault.set(v.id, {
         timeoutMs: v.bridges.timeoutMs,
@@ -149,6 +157,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     memoryFolderByVault,
     traceFolderByVault,
     memoryDefenseByVault,
+    reflectDefaultsByVault,
     m4Deps,
   };
 }

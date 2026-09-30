@@ -390,6 +390,7 @@ export async function buildServerRuntime(
       memoryFolderByVault: bridges.memoryFolderByVault,
       traceFolderByVault: bridges.traceFolderByVault,
       memoryDefenseByVault: bridges.memoryDefenseByVault,
+      reflectDefaultsByVault: bridges.reflectDefaultsByVault,
       metrics,
       rateLimiter,
       version: VERSION,

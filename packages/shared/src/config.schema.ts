@@ -63,6 +63,7 @@ import type {
   VaultConfigInput,
   VaultKind,
   VaultMemoryDefenseConfig,
+  VaultReflectConfig,
 } from "./config/vault.schema";
 import {
   DEFAULT_MEMORY_FOLDER,
@@ -72,6 +73,7 @@ import {
   VaultMemoryConfigSchema,
   VaultMemoryDefenseConfigSchema,
   VaultPluginsConfigSchema,
+  VaultReflectConfigSchema,
   VaultWorkspaceConfigSchema,
 } from "./config/vault.schema";
 
@@ -91,6 +93,7 @@ export type {
   VaultConfigInput,
   VaultKind,
   VaultMemoryDefenseConfig,
+  VaultReflectConfig,
 };
 // WP1.1: auth+ACL schemas now live in ./config/auth-acl.schema.ts.
 // WP1.2: vault schemas now live in ./config/vault.schema.ts.
@@ -150,6 +153,7 @@ export {
   VaultMemoryConfigSchema,
   VaultMemoryDefenseConfigSchema,
   VaultPluginsConfigSchema,
+  VaultReflectConfigSchema,
   VaultWorkspaceConfigSchema,
   WatchConfigSchema,
   WritesConfigSchema,

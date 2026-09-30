@@ -156,11 +156,63 @@ export const LESSON_PATH_RE = /decision|lesson|postmortem|retro/i;
 /** THE-231: the queued-thread signal note written at the end of the previous session. */
 export const NEXT_SESSION_NOTE = "_next-session.md";
 
-/** THE-222: grounded-synthesis role prompt for reflect's default mode. */
-export const REFLECT_SYSTEM_PROMPT =
+/** How reflect renders its citations: the model's `[n]` markers as written, or `[[path]]`. */
+export type ReflectCitationStyle = "numeric" | "wikilink";
+/** How much reflect's synthesis says. `concise` is the shipped behaviour. */
+export type ReflectDetail = "concise" | "standard" | "thorough";
+
+const REFLECT_PROMPT_HEAD =
   "You synthesize a grounded answer from the user's own notes. Use ONLY the numbered evidence " +
-  "chunks; cite them inline as [n]; state plainly what the evidence does not establish. " +
-  "Concise, factual, no filler.";
+  "chunks; cite them inline as [n]; state plainly what the evidence does not establish.";
+/** Wikilink mode still asks for `[n]`: the model numbers, renderWikilinkCitations links. Separate
+ *  markers because the renderer maps one `[n]` at a time. */
+const REFLECT_WIKILINK_CLAUSE =
+  " Write each citation as its own marker, e.g. [1][2], never [1, 2].";
+const REFLECT_DETAIL_CLAUSE: Record<ReflectDetail, string> = {
+  concise: " Concise, factual, no filler.",
+  standard: " Clear and factual, no filler; cover the main points the evidence supports.",
+  thorough:
+    " Thorough and factual, no filler; cover every relevant point the evidence supports, " +
+    "with the detail and caveats it carries.",
+};
+
+/** THE-222: grounded-synthesis role prompt for reflect's default mode, parameterised on the two
+ *  style arguments. With both omitted (or `numeric` + `concise`) the result is BYTE-IDENTICAL to
+ *  the string this module held before they existed — pinned by reflect-style-args.test.ts. */
+export function reflectSystemPrompt(
+  opts: { citationStyle?: ReflectCitationStyle; detail?: ReflectDetail } = {},
+): string {
+  return (
+    REFLECT_PROMPT_HEAD +
+    (opts.citationStyle === "wikilink" ? REFLECT_WIKILINK_CLAUSE : "") +
+    REFLECT_DETAIL_CLAUSE[opts.detail ?? "concise"]
+  );
+}
+
+export const REFLECT_SYSTEM_PROMPT = reflectSystemPrompt();
+
+/** Render the model's `[n]` markers as `[[path]]` (extension dropped, Obsidian's canonical form)
+ *  from the evidence items actually shown to it — deterministic, never trusting the model to emit
+ *  links. An `[n]` with no matching item is left as written and returned in `unresolved` (sorted,
+ *  unique) so a caller can report it. Existing `[[n]]` wikilinks, `[n](url)` markdown links and
+ *  non-integer brackets are not citations and are left alone. */
+export function renderWikilinkCitations(
+  text: string,
+  items: ReadonlyArray<{ citation: number; path: string }>,
+): { text: string; unresolved: number[] } {
+  const pathByCitation = new Map(items.map((i) => [i.citation, i.path]));
+  const unresolved = new Set<number>();
+  const rendered = text.replace(/(?<!\[)\[(\d+)\](?![\](])/g, (marker, digits: string) => {
+    const n = Number(digits);
+    const path = pathByCitation.get(n);
+    if (path === undefined) {
+      unresolved.add(n);
+      return marker;
+    }
+    return `[[${path.replace(/\.md$/i, "")}]]`;
+  });
+  return { text: rendered, unresolved: [...unresolved].sort((a, b) => a - b) };
+}
 
 /** THE-132: greedy budget packer — walk fused-rank order, spend token costs until the budget
  *  binds. Pure and exported for the packing pins. */

@@ -143,6 +143,24 @@ export const VaultMemoryDefenseConfigSchema = z.object({
     ),
 });
 
+// Per-vault defaults for the `reflect` tool's style arguments. Deliberately NO schema defaults: an
+// unset key must stay distinguishable from an explicit one, because reflect resolves call argument
+// > this block > the shipped default (numeric / concise), and only an absent value falls through.
+export const VaultReflectConfigSchema = z.object({
+  citationStyle: z
+    .enum(["numeric", "wikilink"])
+    .optional()
+    .describe(
+      'Default `citation_style` for reflect on this vault when the call omits it. "numeric" keeps the [n] markers; "wikilink" renders each [n] as [[path]] in the answer and in a persisted note. Unset means numeric.',
+    ),
+  detail: z
+    .enum(["concise", "standard", "thorough"])
+    .optional()
+    .describe(
+      "Default `detail` for reflect on this vault when the call omits it: how much the synthesis says. Unset means concise.",
+    ),
+});
+
 export const VaultConfigSchema = z.object({
   id: z
     .string()
@@ -217,10 +235,15 @@ export const VaultConfigSchema = z.object({
   memoryDefense: VaultMemoryDefenseConfigSchema.optional().describe(
     'Per-vault memory write scan (GH #994). Absent means mode "off" — no behaviour change.',
   ),
+  reflect: VaultReflectConfigSchema.optional().describe(
+    "Per-vault defaults for the reflect tool's citation_style and detail arguments. A call argument beats this; absent means the shipped defaults (numeric, concise).",
+  ),
 });
 export type VaultConfig = z.infer<typeof VaultConfigSchema>;
 /** GH #994: a vault's fully-defaulted memoryDefense config. */
 export type VaultMemoryDefenseConfig = z.infer<typeof VaultMemoryDefenseConfigSchema>;
+/** A vault's `reflect` defaults (both keys optional). */
+export type VaultReflectConfig = z.infer<typeof VaultReflectConfigSchema>;
 /** The pre-parse shape (defaulted fields optional) — what VaultRegistry accepts, so a raw
  *  `{ id, path }` (kind/name/acl defaulted at use) is valid without a full schema parse. */
 export type VaultConfigInput = z.input<typeof VaultConfigSchema>;

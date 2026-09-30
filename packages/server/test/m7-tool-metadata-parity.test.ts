@@ -89,7 +89,7 @@ const EXPECTED: ToolSnapshot[] = [
     requiredScopes: ["read:notes"],
     tags: ["external-network", "knowledge"],
     hasPathAcl: false,
-    inputKeys: ["k", "mode", "persist", "query", "scope", "vault"],
+    inputKeys: ["citation_style", "detail", "k", "mode", "persist", "query", "scope", "vault"],
     outputKeys: [
       "answer",
       "available",
@@ -101,6 +101,7 @@ const EXPECTED: ToolSnapshot[] = [
       "persisted",
       "route",
       "sources",
+      "unresolved_citations",
       "vault",
     ],
   },

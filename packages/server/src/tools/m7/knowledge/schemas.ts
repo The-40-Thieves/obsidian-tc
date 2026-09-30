@@ -271,6 +271,12 @@ export const ReflectOutput = z.object({
   persisted: z.object({ path: z.string() }).optional(),
   /** THE-934: candidates egress.excludePaths dropped. Omitted (not zero) when nothing excluded. */
   excluded_count: z.number().int().nonnegative().optional(),
+  unresolved_citations: z
+    .array(z.number().int().nonnegative())
+    .optional()
+    .describe(
+      'citation_style "wikilink": [n] markers that match no evidence item, left as written in the answer. Omitted when every marker resolved, and always in numeric mode.',
+    ),
 });
 
 /** vault_graph_search: `route` appears only on the lexical arm; hyde/variants_used are spread in
