@@ -213,9 +213,10 @@ export async function serveTaskExtension(
  * was in the request. Reconstructing a context from server config instead — or re-reading the
  * caller's current grants at run time — would make a task a privilege-escalation primitive.
  *
- * A consequence worth naming: a grant revoked AFTER enqueue does not stop a running task. That is
- * inherent to deferring work, not specific to this design — the alternative is re-authorizing
- * mid-run, which needs a revocation channel we do not have.
+ * A consequence worth naming: a token revoked (`auth revoke`) AFTER enqueue does not stop a
+ * running task. The revocation check runs when a request is authenticated, and a queued task has no
+ * request; stopping one mid-run would mean re-checking the caller's jti on every step, which this
+ * payload deliberately does not carry.
  */
 export interface TaskCallPayload {
   tool: string;

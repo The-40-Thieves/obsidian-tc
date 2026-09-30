@@ -273,7 +273,22 @@ Usage:
   obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--json]
                                           Mint an HS256 bearer token from the config's auth block.
                                           Refuses to mint without an aud when the config binds one,
-                                          or a --ttl above auth.tokenTtlSeconds (THE-658)
+                                          or a --ttl above auth.tokenTtlSeconds (THE-658). Records
+                                          the token's jti and signing kid in cache.db so it can be
+                                          revoked with 'auth revoke'.
+  obsidian-tc auth list [path] [--all] [--keys] [--json]
+                                          List issued tokens (jti, kid, sub, exp, state; --all adds
+                                          expired ones) or, with --keys, the signing keys. Never
+                                          prints a token or key material.
+  obsidian-tc auth revoke <jti> [path] [--reason <text>]
+                                          Revoke one token minted by 'token mint' before it expires.
+                                          The server checks the jti on every request, in every
+                                          process sharing cache.db. A token with no recorded jti
+                                          cannot be revoked here; rotate the key instead.
+  obsidian-tc auth rotate-key [path] [--grace <seconds>]
+                                          Generate a new active signing key. The previous key keeps
+                                          verifying for --grace seconds (default 0: retired at
+                                          once, so its tokens stop verifying).
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>] [--json]
                                           Mint a single-use HITL confirmation token bound to the
                                           args_hash an elicit_required error returned (THE-826) —

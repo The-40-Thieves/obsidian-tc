@@ -101,6 +101,13 @@ export const CACHE_MIGRATION_FILES = [
   // (elicit_requests + elicit_tokens.state_fp) so redemption can refuse drifted state as
   // `replay_drift`. See the migration header.
   "20260930_001_elicit_state_fingerprint.sql",
+  // 20260930_001/_002: the signing-key registry and the issued-token (jti) registry behind
+  // `auth rotate-key|list|revoke` and the per-request revocation check. CACHE chain, not
+  // EXPERIENTIAL: both are AUTHORED operator state (an operator's decision to revoke), not observed
+  // or derived telemetry, and losing them silently un-revokes a token — the opposite of the
+  // resettable-store property that chain exists for. Two files, one table each.
+  "20260930_001_auth_keys.sql",
+  "20260930_002_auth_tokens.sql",
 ] as const;
 
 /**

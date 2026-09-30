@@ -15,6 +15,9 @@ export type AuthRejectionReason =
   | "unsupported_alg"
   | "malformed"
   | "misconfigured" // server-side: no secret / no JWKS for the token's alg
+  | "token_revoked" // the token's jti is revoked in the registry (auth revoke), though it has not expired
+  | "unknown_key" // the token's `kid` names no key in the signing-key registry
+  | "key_retired" // the signing key is retired, or retiring with its window elapsed
   | "persona_denied"; // THE-647 item 2: `persona` claim named an unconfigured persona, or a
 // vault outside that persona's `vaults` — resolved one layer up in auth/persona.ts, not by
 // jwtVerify itself, but the SAME external "invalid or expired token" message applies: an
@@ -89,7 +92,19 @@ export interface JwtIdentity {
    *  scope/vault/toolVisibility bundle (and failing closed on an unrecognised one) happens one
    *  layer up, in auth/persona.ts, from the caller that DOES hold the config. */
   persona?: string;
+  /** The token's `jti` when it carries one — the handle `auth revoke` acts on. */
+  jti?: string;
 }
+
+/** Options every verify path shares. `isRevoked` is consulted with the token's `jti` AFTER the
+ *  signature and claims verified, so an unauthenticated caller can never use it to probe jtis. */
+export interface RevocationOpts {
+  isRevoked?: (jti: string) => boolean;
+}
+
+/** Resolves the HS256 key for a token from its protected header (`kid`). Throws `AuthRejection`
+ *  when no acceptable key exists. Called by jose BEFORE the signature is verified. */
+export type HmacKeyResolver = (header: { kid?: string }) => Uint8Array;
 
 /**
  * Verify an HS256 JWT and extract caller identity + granted scopes. Throws on a bad
@@ -99,10 +114,18 @@ export interface JwtIdentity {
  */
 export async function verifyJwt(
   token: string,
-  secret: string,
-  opts: { maxAgeSeconds?: number; audience?: string | string[]; issuer?: string } = {},
+  secret: string | HmacKeyResolver,
+  opts: {
+    maxAgeSeconds?: number;
+    audience?: string | string[];
+    issuer?: string;
+  } & RevocationOpts = {},
 ): Promise<JwtIdentity> {
   if (!secret) throw new Error("empty secret not allowed");
+  const key =
+    typeof secret === "string"
+      ? new TextEncoder().encode(secret)
+      : (header: { kid?: string }) => secret(header);
 
   // requiredClaims:["exp"] closes the "token without exp never expires" gap — jose only
   // enforces expiry when exp is present, so demand it. maxAgeSeconds (from auth.tokenTtlSeconds)
@@ -110,13 +133,13 @@ export async function verifyJwt(
   // tokens keep working. THE-456: audience/issuer are enforced by jose only when configured
   // (undefined = not checked), so local self-issued tokens are unaffected.
   try {
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
+    const { payload } = await jwtVerify(token, key, {
       algorithms: ["HS256"],
       requiredClaims: ["exp"],
       ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
       ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
     });
-    return identityFrom(payload, opts.maxAgeSeconds);
+    return identityFrom(payload, opts.maxAgeSeconds, opts.isRevoked);
   } catch (e) {
     throw classify(e, token);
   }
@@ -140,7 +163,7 @@ export async function verifyJwtJwks(
     algorithms?: string[];
     audience?: string | string[];
     issuer?: string;
-  } = {},
+  } & RevocationOpts = {},
 ): Promise<JwtIdentity> {
   const keySet = createLocalJWKSet(jwks as unknown as Parameters<typeof createLocalJWKSet>[0]);
   // THE-456: on the asymmetric/JWKS path a shared external issuer can mint tokens for many
@@ -153,7 +176,7 @@ export async function verifyJwtJwks(
       ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
       ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
     });
-    return identityFrom(payload, opts.maxAgeSeconds);
+    return identityFrom(payload, opts.maxAgeSeconds, opts.isRevoked);
   } catch (e) {
     throw classify(e, token);
   }
@@ -162,6 +185,7 @@ export async function verifyJwtJwks(
 function identityFrom(
   payload: Record<string, unknown>,
   maxAgeSeconds: number | undefined,
+  isRevoked?: (jti: string) => boolean,
 ): JwtIdentity {
   const tooOld =
     maxAgeSeconds !== undefined &&
@@ -175,9 +199,18 @@ function identityFrom(
       expStillFuture:
         typeof payload.exp === "number" && payload.exp > Math.floor(Date.now() / 1000),
     });
+  const jti = typeof payload.jti === "string" ? payload.jti : undefined;
+  if (jti !== undefined && isRevoked?.(jti)) {
+    throw new AuthRejection("token_revoked", {
+      caller: typeof payload.sub === "string" ? payload.sub : null,
+      expStillFuture:
+        typeof payload.exp === "number" && payload.exp > Math.floor(Date.now() / 1000),
+    });
+  }
   return {
     caller: typeof payload.sub === "string" ? payload.sub : null,
     scopes: extractScopes(payload),
+    ...(jti !== undefined ? { jti } : {}),
     vault: typeof payload.vault === "string" ? payload.vault : undefined,
     persona: typeof payload.persona === "string" ? payload.persona : undefined,
   };
@@ -223,7 +256,7 @@ export async function verifyJwtWithKeySet(
     algorithms?: string[];
     audience?: string | string[];
     issuer?: string;
-  } = {},
+  } & RevocationOpts = {},
 ): Promise<JwtIdentity> {
   try {
     const { payload } = await jwtVerify(token, keySet, {
@@ -232,7 +265,7 @@ export async function verifyJwtWithKeySet(
       ...(opts.audience !== undefined ? { audience: opts.audience } : {}),
       ...(opts.issuer !== undefined ? { issuer: opts.issuer } : {}),
     });
-    return identityFrom(payload, opts.maxAgeSeconds);
+    return identityFrom(payload, opts.maxAgeSeconds, opts.isRevoked);
   } catch (e) {
     throw classify(e, token);
   }

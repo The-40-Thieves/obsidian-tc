@@ -20,6 +20,7 @@ import {
   isPrmConfigured,
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
+import { type AuthRegistry, authKeysDir, createAuthRegistry } from "../auth/registry";
 import { createTokenVerifier, type TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import { getDefaultElicitTtlSeconds } from "../elicit";
@@ -97,6 +98,11 @@ export interface HttpAppOptions {
   /** Per-vault trace folder, so a server-opened session's `trace_path` matches where
    *  `get_session_traces` looks. Absent -> DEFAULT_TRACE_FOLDER, the same fallback m5 uses. */
   traceFolderFor?: (vaultId: string) => string;
+  /** Signing-key + issued-token registry the default verifier consults on every request. Absent ->
+   *  built from `db` (cache.db) and `cacheDir`, so a direct `createHttpApp` caller is covered too. */
+  authRegistry?: AuthRegistry;
+  /** Directory holding cache.db; where registry-issued signing keys live (`<cacheDir>/auth-keys`). */
+  cacheDir?: string;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
   /** THE-583: durable queue backing the Tasks extension; when absent, tasks/* are not served.
@@ -414,6 +420,12 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
           maxAgeSeconds: opts.auth.tokenTtlSeconds,
           audience,
           issuer: opts.auth.issuer,
+          registry:
+            opts.authRegistry ??
+            createAuthRegistry(opts.db, {
+              configSecret: opts.auth.jwtSecret,
+              keysDir: opts.cacheDir === undefined ? undefined : authKeysDir(opts.cacheDir),
+            }),
         })
       : null);
 

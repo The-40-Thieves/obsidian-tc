@@ -10,6 +10,7 @@
 // unwindReversed pattern for the boot-time layers.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import { authKeysDir, createAuthRegistry } from "../auth/registry";
 import type { Database } from "../db/types";
 import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
 import type { ToolRegistry } from "../mcp/registry";
@@ -59,6 +60,13 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   // it is inert, not wrong; wireScheduler's own registration is what actually needs both.
   const advisoryBus = config.experiential.proactive.enabled ? createAdvisoryBus() : undefined;
 
+  // ONE registry for every bearer-checking listener, so the MCP edge and /metrics cannot disagree
+  // about which tokens are revoked or which signing keys are live.
+  const authRegistry = createAuthRegistry(deps.db, {
+    configSecret: config.auth.jwtSecret,
+    keysDir: authKeysDir(config.cacheDir),
+  });
+
   if (config.transports.http.enabled) {
     // THE-585 (#11): time the transport's construction + bind.
     const httpT0 = performance.now();
@@ -69,6 +77,8 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       vaultRegistry: deps.vaultRegistry,
       auth: config.auth,
       db: deps.db,
+      authRegistry,
+      cacheDir: config.cacheDir,
       vaultId: deps.firstVaultId,
       acl: deps.acl,
       host: config.transports.http.host,
@@ -109,6 +119,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       bind: config.observability.prometheus.bind,
       port: config.observability.prometheus.port,
       auth: config.auth,
+      registry: authRegistry,
     });
     metricsHandle = m;
     process.stderr.write(

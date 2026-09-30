@@ -6,6 +6,7 @@ import {
   verifyJwtJwks,
   verifyJwtWithKeySet,
 } from "./jwt";
+import type { AuthRegistry } from "./registry";
 
 /** Result of verifying a bearer token: caller identity + granted scopes. */
 export type VerifiedIdentity = JwtIdentity;
@@ -56,6 +57,13 @@ export interface TokenVerifierOptions {
   audience?: string | string[];
   /** THE-456: when set, jose enforces the token's `iss`. Undefined -> not checked. */
   issuer?: string;
+  /**
+   * Signing-key + issued-token registry. When set, HS256 tokens are verified against the key their
+   * `kid` names (several may be valid at once) instead of the single `secret`, and EVERY verified
+   * token's `jti` is checked against the revoked set, on the HS256 and the JWKS paths alike. A
+   * remote issuer's token is only ever affected if its `jti` is present in this registry.
+   */
+  registry?: AuthRegistry;
 }
 
 /**
@@ -69,12 +77,15 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
   // unknown `kid`, so rebuilding it per verification would make every token check an outbound HTTP
   // request and defeat the cache entirely.
   const remote = o.jwksUri === undefined ? undefined : createRemoteJwks(o.jwksUri);
+  const registry = o.registry;
+  const isRevoked = registry === undefined ? undefined : (jti: string) => registry.isRevoked(jti);
   return {
     verify: async (token) => {
       const header = decodeProtectedHeader(token);
       if (header.alg === "HS256") {
         if (!o.secret) throw new Error("HS256 token but no jwtSecret configured");
-        return verifyJwt(token, o.secret, {
+        return verifyJwt(token, registry ? (h) => registry.verificationKey(h.kid) : o.secret, {
+          isRevoked,
           maxAgeSeconds: o.maxAgeSeconds,
           audience: o.audience,
           issuer: o.issuer,
@@ -82,6 +93,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
       }
       if (remote !== undefined) {
         return verifyJwtWithKeySet(token, remote, {
+          isRevoked,
           maxAgeSeconds: o.maxAgeSeconds,
           algorithms: o.algorithms,
           audience: o.audience,
@@ -90,6 +102,7 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
       }
       if (!o.jwks) throw new Error(`${String(header.alg)} token but no JWKS configured`);
       return verifyJwtJwks(token, o.jwks, {
+        isRevoked,
         maxAgeSeconds: o.maxAgeSeconds,
         algorithms: o.algorithms,
         audience: o.audience,

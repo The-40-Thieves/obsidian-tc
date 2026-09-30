@@ -62,6 +62,43 @@ startup rather than silently exposing an open surface. The HTTP edge also valida
 the `Origin` header (rejecting DNS-rebinding / cross-origin browser requests with
 `403`).
 
+## Revoking tokens and rotating the signing key
+
+`obsidian-tc token mint` gives every token a `jti` claim and a `kid` header and records
+the token (its `jti`, `kid`, subject, expiry and a scope summary, never the token string)
+in the `auth_tokens` table of `cache.db`. Three commands operate on that registry:
+
+```bash
+obsidian-tc auth list [--all] [--keys] [--json] [config-path]
+obsidian-tc auth revoke <jti> [--reason <text>] [config-path]
+obsidian-tc auth rotate-key [--grace <seconds>] [config-path]
+```
+
+- **`auth list`** prints `jti`, `kid`, `sub`, `exp` and state (`active`, `revoked`,
+  `expired`) for issued tokens, and never a token or key. `--all` includes expired
+  tokens; `--keys` lists the signing keys (kid, state, created, retire_after) instead.
+- **`auth revoke <jti>`** kills one token before it expires. The verifier checks the
+  token's `jti` on every request, after the signature verifies, so the revoked token
+  is refused (logged and counted as `token_revoked`; the caller sees the same generic
+  `401` as any other bad token). The check reads `cache.db` directly with no in-process
+  cache, so every process sharing that database sees a revocation on its next request.
+- **`auth rotate-key`** generates a new signing key and makes it the only active one.
+  The old key is `retiring` for `--grace` seconds (default `0`: retired at once, and
+  every token it signed stops verifying) and verifies alongside the new one until then.
+
+Your existing `auth.jwtSecret` keeps working with no change: it is the registry's
+initial key (`kid` `config`), and a deployment that never runs `rotate-key` verifies
+exactly as before. `jwtSecret` must stay configured, because it anchors the `config`
+key. Keys created by `rotate-key` live in `<cacheDir>/auth-keys/<kid>.key` (mode 0600),
+never in the database.
+
+What revocation does not cover: a token with no `jti` (minted before this feature, or
+by another tool) cannot be revoked individually; rotate the key instead. A token issued
+by an external authorization server and verified through a JWKS is affected only if it
+carries a `jti` that is present in this registry. Work already queued as a background
+task keeps the scopes it was enqueued with. `cache.db` now holds these decisions, so
+keep it in your backups: deleting it un-revokes tokens.
+
 ## OAuth resource-server discovery (optional)
 
 For clients that expect OAuth-style discovery, obsidian-tc can act as an OAuth 2.0
