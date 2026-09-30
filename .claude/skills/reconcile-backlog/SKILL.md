@@ -98,6 +98,13 @@ THE-642 and THE-647. Each rendered as a valid link, so nothing flagged them. **A
 as a forward pointer reads as "work someone will get to" when the truth is "nobody owns this"** —
 and those need opposite decisions, which is why the distinction is worth a stage.
 
+**Status update (2026-09-30):** The stale blockers found in `docs/design/experiential-reflection.md`
+lines 39-46 (four preference keys with unmet prerequisites) have been resolved: `captureContent` now
+defaults ON (turned OFF by `securityProfile: "hardened"`), transcript-capture prerequisite is resolved,
+and all four keys have evolved status: `search_mode` written but not yet read; `output_format` waiting
+on reader pattern; `detail`/`citation_style` are explicit call-time arguments; `confirmation_level`
+intentionally never learned (security floor, tracked via approval outcomes instead).
+
 A caution when building the closed-set oracle: `list_issues state=Done limit=N` returns exactly `N`
 with `hasNextPage: true`, and unioning two orderings did **not** close it (250 -> 285, still
 paginated). So it is one-directional — **presence proves Done; absence proves nothing.** Never

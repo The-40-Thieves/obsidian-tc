@@ -1139,9 +1139,9 @@ describe("PREFERENCE_KEYS registry (THE-673, THE-891)", () => {
   it("rejects a delta for an unregistered key before it reaches applyPreferenceDeltas", () => {
     const deltas: PreferenceDelta[] = [
       { key: "preferred.search_mode", op: "add", value: "search_text", scopeCaller: "alice" },
-      // None of these have a producer yet (captureContent off, THE-675 open, no HITL producer) —
-      // a deterministic extractor proposing one of them would be exactly the "impossible state"
-      // this registry exists to make unreachable.
+      // output_format and response.detail/citation.style have no producers yet — a deterministic
+      // extractor proposing one of them would be exactly the "impossible state" this registry
+      // exists to make unreachable. confirmation_level is intentionally never learned.
       { key: "preferred.output_format", op: "add", value: "table", scopeCaller: "alice" },
       { key: "response.detail", op: "add", value: "verbose", scopeCaller: "alice" },
     ];
