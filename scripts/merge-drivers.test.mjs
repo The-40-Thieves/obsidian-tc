@@ -6,11 +6,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import {
-  mergeEmbedded,
-  parseEmbedded,
-  renderEmbedded,
-} from "./lib/embedded-migrations.mjs";
+import { mergeEmbedded, parseEmbedded, renderEmbedded } from "./lib/embedded-migrations.mjs";
 
 const EMBEDDED = "packages/server/src/db/migrations-embedded.ts";
 const repoRoot = join(import.meta.dirname, "..");
@@ -26,8 +22,14 @@ function scratch() {
   mkdirSync(join(dir, "scripts", "merge-drivers"), { recursive: true });
   mkdirSync(join(dir, "scripts", "lib"));
   mkdirSync(join(dir, "packages", "server", "src", "db"), { recursive: true });
-  cpSync(join(repoRoot, "scripts/merge-drivers/regen.mjs"), join(dir, "scripts/merge-drivers/regen.mjs"));
-  cpSync(join(repoRoot, "scripts/lib/embedded-migrations.mjs"), join(dir, "scripts/lib/embedded-migrations.mjs"));
+  cpSync(
+    join(repoRoot, "scripts/merge-drivers/regen.mjs"),
+    join(dir, "scripts/merge-drivers/regen.mjs"),
+  );
+  cpSync(
+    join(repoRoot, "scripts/lib/embedded-migrations.mjs"),
+    join(dir, "scripts/lib/embedded-migrations.mjs"),
+  );
   writeFileSync(join(dir, ".gitattributes"), `${EMBEDDED} merge=regen\n`);
   git("config", "merge.regen.driver", 'node "scripts/merge-drivers/regen.mjs" %O %A %B %P');
   const write = (entries) => writeFileSync(join(dir, EMBEDDED), renderEmbedded(entries));
@@ -37,6 +39,7 @@ function scratch() {
 
 const BASE = [
   ["20260101_001_a.sql", "-- a\nCREATE TABLE a(x);\n"],
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal `${...}` is the point -- the embedder must not interpolate it
   ["20260102_001_b.sql", "-- b `tick` ${not_interp}\n"],
 ];
 
@@ -145,7 +148,10 @@ test("a path the driver has no regenerator for gets a normal text merge with mar
   try {
     writeFileSync(join(s.dir, "other.txt"), "one\n");
     s.write(BASE);
-    writeFileSync(join(s.dir, ".gitattributes"), `${EMBEDDED} merge=regen\nother.txt merge=regen\n`);
+    writeFileSync(
+      join(s.dir, ".gitattributes"),
+      `${EMBEDDED} merge=regen\nother.txt merge=regen\n`,
+    );
     s.git("add", "-A");
     s.git("commit", "-qm", "base");
     s.git("checkout", "-qb", "a");
@@ -170,13 +176,19 @@ test("parseEmbedded round-trips the REAL committed module byte-for-byte, with a 
 
 test("parseEmbedded refuses a conflict-marked or hand-edited body instead of half-reading it", () => {
   const real = readFileSync(join(repoRoot, EMBEDDED), "utf8");
-  assert.throws(() => parseEmbedded(real.replace('  "2026', "<<<<<<< ours\n  \"2026")), /unparseable/);
+  assert.throws(
+    () => parseEmbedded(real.replace('  "2026', '<<<<<<< ours\n  "2026')),
+    /unparseable/,
+  );
   assert.throws(() => parseEmbedded("nothing here"), /not found/);
 });
 
 test("mergeEmbedded: one-sided change defers, identical add is idempotent", () => {
   const o = [["a", "1"]];
   assert.deepEqual(mergeEmbedded(o, [["a", "2"]], o).entries, [["a", "2"]]);
-  assert.deepEqual(mergeEmbedded(o, [...o, ["b", "x"]], [...o, ["b", "x"]]).entries, [["a", "1"], ["b", "x"]]);
+  assert.deepEqual(mergeEmbedded(o, [...o, ["b", "x"]], [...o, ["b", "x"]]).entries, [
+    ["a", "1"],
+    ["b", "x"],
+  ]);
   assert.deepEqual(mergeEmbedded(o, [["a", "2"]], [["a", "3"]]).conflicts, ["a"]);
 });

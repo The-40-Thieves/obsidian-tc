@@ -8,7 +8,15 @@
 // TYPE, DEFAULT or CONSTRAINT moved (or that vanished) is named by the change's release-note
 // fragment (`config-schema-change:`). Adding a key, and rewording a description, need no ceremony.
 const PROSE_KEYS = new Set(["description", "title", "$comment", "examples", "deprecated"]);
-const CHILD_KEYS = new Set(["properties", "items", "anyOf", "oneOf", "allOf", "additionalProperties", "required"]);
+const CHILD_KEYS = new Set([
+  "properties",
+  "items",
+  "anyOf",
+  "oneOf",
+  "allOf",
+  "additionalProperties",
+  "required",
+]);
 
 /** Flatten a JSON Schema into `path -> structural signature` (everything but prose and children). */
 export function flattenSchema(schema) {
@@ -28,7 +36,7 @@ export function flattenSchema(schema) {
     }
     if (node.items && typeof node.items === "object") walk(node.items, `${path}[]`);
     for (const key of ["anyOf", "oneOf", "allOf"]) {
-      (node[key] ?? []).forEach((child, i) => walk(child, `${path}|${key}${i}`));
+      for (const [i, child] of (node[key] ?? []).entries()) walk(child, `${path}|${key}${i}`);
     }
     if (node.additionalProperties && typeof node.additionalProperties === "object") {
       walk(node.additionalProperties, `${path}{}`);
@@ -48,7 +56,11 @@ export function diffStructure(base, head) {
     else if (base.get(path) !== sig) changed.push({ path, before: base.get(path), after: sig });
   }
   for (const path of base.keys()) if (!head.has(path)) removed.push(path);
-  return { added: added.sort(), removed: removed.sort(), changed: changed.sort((a, b) => (a.path < b.path ? -1 : 1)) };
+  return {
+    added: added.sort(),
+    removed: removed.sort(),
+    changed: changed.sort((a, b) => (a.path < b.path ? -1 : 1)),
+  };
 }
 
 /** The user-facing key a structural path belongs to: `a.b[]|anyOf0.c` -> `a.b.c` is not needed; the
@@ -69,6 +81,11 @@ export function unacknowledged(diff, acknowledged) {
   };
   return [
     ...diff.removed.map((path) => ({ path, kind: "removed" })),
-    ...diff.changed.map((c) => ({ path: c.path, kind: "changed", before: c.before, after: c.after })),
+    ...diff.changed.map((c) => ({
+      path: c.path,
+      kind: "changed",
+      before: c.before,
+      after: c.after,
+    })),
   ].filter((p) => !covered(p.path));
 }

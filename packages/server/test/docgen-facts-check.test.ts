@@ -8,23 +8,28 @@ import { describe, expect, it } from "vitest";
 import { factRules, type ScanStats, scanFacts } from "../scripts/docgen/facts-check";
 
 // The REAL production patterns, bound to test values — so these cases validate the shipped regexes.
-const RULES = factRules(146, 250, 31);
+// The tool count is FORBIDDEN in prose (value null): a correct "167 tools" is stale by the next
+// tool-adding PR and kept ~22 sites conflicting between PRs. goldenSetSize/domainCount are curated
+// facts whose occurrences must still EQUAL the canonical value.
+const RULES = factRules(250, 31);
 
-describe("scanFacts (THE-566 narrative fact gate)", () => {
-  it("passes when narrative matches the current facts", () => {
+describe("scanFacts (narrative fact gate: tool count forbidden, curated facts equal)", () => {
+  it("passes when narrative states no tool count and the curated facts match", () => {
     const text = [
-      "The surface is 146 governed capabilities across 31 domains.",
       "Every ranking change is gated against a 250-query golden set.",
-      "It exposes 146 tools across 31 domains.",
+      "obsidian-tc exposes every tool through a governed pipeline.",
+      "the facade fronts the full surface with 3 tools",
     ].join("\n");
     expect(scanFacts(text, RULES)).toEqual([]);
   });
 
-  it("flags a stale tool count with the line number", () => {
-    const text = "One\nThe surface is 143 governed capabilities.\nThree";
+  it("flags a tool count even when it is the CURRENT registry value (forbidden, not compared)", () => {
+    // 167 is the real count at the time of writing. Under the old equality semantics this passed;
+    // that is exactly what made every tool-adding PR rewrite ~22 lines.
+    const text = "One\nThe surface is 167 governed capabilities.\nThree";
     const v = scanFacts(text, RULES);
     expect(v).toHaveLength(1);
-    expect(v[0]).toMatchObject({ fact: "toolCount", line: 2, found: 143, expected: 146 });
+    expect(v[0]).toMatchObject({ fact: "toolCount", line: 2, found: 167, expected: null });
   });
 
   it("flags a stale golden-set size (n=136) on a golden line", () => {
@@ -36,11 +41,10 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
 
   it("does NOT flag the 3-tool facade (a real, different fact)", () => {
     const text = [
-      "**obsidian-tc** | 146 (3-tool facade)",
       "advertised by default through a three-tool facade",
       "the facade fronts the surface with 3 tools",
+      "**obsidian-tc** | every tool (3-tool facade)",
     ].join("\n");
-    // "3-tool facade" / "3 tools" are not surface phrasings, so no false positive; the 146 passes.
     expect(scanFacts(text, RULES)).toEqual([]);
   });
 
@@ -51,47 +55,64 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
   it("does NOT flag numbers embedded in tokens (G2.1, THE-135, r2, V1)", () => {
     // Every one of these was a false positive in the first dry run against the repo.
     const text = [
-      "The complete G2.1 tool surface — 146 tools across 31 domains — is shipped.",
+      "The complete G2.1 tool surface is shipped.",
       "It inherits the G2.1 r2 tool surface from G1.",
       "the THE-135 query-time virtual-hop hit an 80% ceiling on the golden-set A/B",
     ].join("\n");
     expect(scanFacts(text, RULES)).toEqual([]);
   });
 
-  // THE-598: ARCHITECTURE.md:692's "the 128-tool G2.1 set plus post-1.0 additive tools" was one
-  // noun away from the "-tool surface" pattern above and slipped through both this gate AND
-  // check-version-coherence.mjs (anchored on the DIFFERENT phrase "(\d+)-tool G2.1 surface")
-  // simultaneously. This used to be in the "does NOT flag" test above, demonstrating the exact gap;
-  // the widened pattern now catches it.
+  // THE-598: ARCHITECTURE.md's "the 128-tool G2.1 set plus post-1.0 additive tools" was one noun
+  // away from the "-tool surface" pattern and slipped through every gate.
   it("flags a widened '<N>-tool <noun> surface/set' phrasing (THE-598)", () => {
     const v = scanFacts("the 128-tool G2.1 set plus post-1.0 additive tools", RULES);
-    expect(v).toEqual([expect.objectContaining({ fact: "toolCount", found: 128, expected: 146 })]);
+    expect(v).toEqual([expect.objectContaining({ fact: "toolCount", found: 128, expected: null })]);
   });
 
-  it("still does NOT flag the real G2.1 surface phrasing at the current count", () => {
-    expect(scanFacts("the 146-tool G2.1 surface plus post-1.0 additive tools", RULES)).toEqual([]);
+  it("flags the '<N>-tool surface' phrasing at ANY value", () => {
+    for (const n of [128, 167, 999]) {
+      expect(scanFacts(`the ${n}-tool G2.1 surface plus additive tools`, RULES)).toEqual([
+        expect.objectContaining({ fact: "toolCount", found: n, expected: null }),
+      ]);
+    }
   });
 
-  it("does NOT flag a milestone sub-count (anchored to 'across 31 domains')", () => {
-    // M4's real contribution, not the surface total.
+  it("does NOT flag a milestone sub-count (under three digits)", () => {
     expect(scanFacts("Plugin bridges — 20 tools across 9 domains — merged", RULES)).toEqual([]);
   });
 
   it("flags 'N tool impls' (the phrasing a canonical-only sweep would miss)", () => {
     const v = scanFacts("never scattered across the 141 tool impls — so adding", RULES);
-    expect(v).toEqual([expect.objectContaining({ fact: "toolCount", found: 141, expected: 146 })]);
+    expect(v).toEqual([expect.objectContaining({ fact: "toolCount", found: 141, expected: null })]);
+  });
+
+  // One case per leak that reached a committed file. Quoted, not invented.
+  it.each([
+    ["999 governed capabilities", 999],
+    ["**999 tools across 31 domains**", 999],
+    ["~999 typed tools", 999],
+    ["all 999 tools", 999],
+    ["999 tools covering every domain", 999],
+    ["999 tools ship in the box", 999],
+    ["999 tools across modules", 999],
+    ['(all visible by default; 999 with opt-in `profile: "core"`)', 999],
+    ['999 with the opt-in `profile: "core"`', 999],
+    ["**obsidian-tc** | 999 (3-tool facade)", 999],
+  ])("flags the tool-count phrasing %j", (text, n) => {
+    const v = scanFacts(text, RULES).filter((x) => x.fact === "toolCount");
+    expect(v, text).toEqual([expect.objectContaining({ found: n, expected: null })]);
   });
 
   it("skips a line marked facts-check:ignore (intentional historical value)", () => {
     const text =
-      "the golden set expanded 136 to 250 in July <!-- facts-check:ignore -->\nnext line 143 tools across 31 domains";
+      "the golden set expanded 136 to 250 in July <!-- facts-check:ignore -->\nnext line 143 governed capabilities";
     const v = scanFacts(text, RULES);
-    // line 1 ignored; line 2's stale 143 still caught
+    // line 1 ignored; line 2's count still caught
     expect(v).toEqual([expect.objectContaining({ fact: "toolCount", line: 2, found: 143 })]);
   });
 
   it("skips an entire file marked facts-check:ignore-file", () => {
-    const text = "<!-- facts-check:ignore-file -->\n143 tools across 31 domains\nn=136 golden set";
+    const text = "<!-- facts-check:ignore-file -->\n143 governed capabilities\nn=136 golden set";
     expect(scanFacts(text, RULES)).toEqual([]);
   });
 
@@ -100,7 +121,7 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
       "<!-- BEGIN GENERATED: tools-summary -->",
       "143 governed capabilities", // a generated block is byte-owned elsewhere; not narrative
       "<!-- END GENERATED: tools-summary -->",
-      "narrative says 143 tools across 31 domains", // this one IS narrative -> caught
+      "narrative says 143 governed capabilities", // this one IS narrative -> caught
     ].join("\n");
     const v = scanFacts(text, RULES);
     expect(v).toEqual([expect.objectContaining({ fact: "toolCount", line: 4, found: 143 })]);
@@ -112,22 +133,20 @@ describe("scanFacts (THE-566 narrative fact gate)", () => {
     expect(v.map((x) => x.fact).sort()).toEqual(["goldenSetSize", "toolCount"]);
   });
 
-  // THE-470 hole 3: domainCount was previously only an ANCHOR baked into the toolCount pattern —
-  // nothing ever asserted the "31" itself, so it could drift silently. These prove the new rule
-  // actually fires, per "a rule you have not watched fail is not a gate".
-  it("flags a stale domain count with the line number", () => {
-    const v = scanFacts("The surface is 146 tools across 32 domains.", RULES);
-    expect(v).toEqual([expect.objectContaining({ fact: "domainCount", found: 32, expected: 31 })]);
+  // THE-470 hole 3: domainCount is asserted against the curated value wherever it is anchored.
+  // "999 tools across 32 domains" trips BOTH rules: the count is forbidden, the 32 is wrong.
+  it("flags a stale domain count alongside the forbidden tool count", () => {
+    const v = scanFacts("The surface is 999 tools across 32 domains.", RULES);
+    expect(v.map((x) => x.fact).sort()).toEqual(["domainCount", "toolCount"]);
+    expect(v.find((x) => x.fact === "domainCount")).toMatchObject({ found: 32, expected: 31 });
   });
 
-  it("does NOT flag a milestone sub-count's domain number (anchored to the canonical tool count)", () => {
-    // "20 tools across 9 domains" pairs a DIFFERENT tool count with its own domain sub-count; the
-    // domainCount rule only fires when the canonical 146 anchors the phrase.
+  it("does NOT flag a milestone sub-count's domain number", () => {
     expect(scanFacts("Plugin bridges — 20 tools across 9 domains — merged", RULES)).toEqual([]);
   });
 
-  it("passes when the domain count matches, even alongside a stale golden-set number", () => {
-    const v = scanFacts("146 tools across 31 domains, gated against an n=136 golden set", RULES);
+  it("passes the golden-set rule when it matches, flags only the stale number", () => {
+    const v = scanFacts("gated against a 250-query golden set, earlier n=136 golden set", RULES);
     expect(v).toEqual([
       expect.objectContaining({ fact: "goldenSetSize", found: 136, expected: 250 }),
     ]);
@@ -157,8 +176,8 @@ describe("ScanStats — evidence the scan actually ran (THE-601)", () => {
     // would make the floor impossible to meet exactly when the docs are right. A match is evidence
     // the rule CAN fire, which is the property the floor is really asserting.
     const stats = fresh();
-    const v = scanFacts("the 146-tool surface is governed", RULES, stats);
-    expect(v).toEqual([]); // 146 is the correct value for these RULES
+    const v = scanFacts("gated against a 250-query golden set", RULES, stats);
+    expect(v).toEqual([]); // 250 is the correct value for these RULES
     expect(stats.patternMatches).toBe(1);
   });
 
@@ -183,7 +202,7 @@ describe("ScanStats — evidence the scan actually ran (THE-601)", () => {
   });
 
   it("is optional — omitting it leaves every existing caller unchanged", () => {
-    expect(() => scanFacts("the 146-tool surface", RULES)).not.toThrow();
+    expect(() => scanFacts("the 999-tool surface", RULES)).not.toThrow();
   });
 });
 
