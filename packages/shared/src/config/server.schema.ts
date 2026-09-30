@@ -24,6 +24,7 @@ import {
   WatchConfigSchema,
 } from "./observability.schema";
 import { PersonasConfigSchema } from "./personas.schema";
+import { ProvenanceConfigSchema } from "./provenance.schema";
 import { RerankerConfigSchema } from "./reranker.schema";
 import {
   ExperientialConfigSchema,
@@ -162,6 +163,9 @@ export const ServerConfigObject = z.object({
   scheduler: SchedulerConfigSchema.describe("Shared background scheduler tuning."),
   watch: WatchConfigSchema.describe("Filesystem watch that reindexes notes changed outside."),
   snapshots: SnapshotsConfigSchema.describe("Point-in-time note snapshot policy."),
+  provenance: ProvenanceConfigSchema.describe(
+    "Signed write provenance: one hash-chained, signed record per committed mutating tool call.",
+  ),
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),
   egress: EgressConfigSchema.describe(
     "Paths withheld from the inference gateway and the embedding provider — a different question from auth.acl.readPaths, which governs read visibility.",

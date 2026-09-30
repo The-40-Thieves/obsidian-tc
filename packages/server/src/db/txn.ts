@@ -202,7 +202,10 @@ export type WriteTxnLabel =
   // they are one transaction by requirement: a crash between them would leave a session's episodes
   // condemned but still promoted, which is exactly the hold-rule bypass the demotion exists to
   // close.
-  | "task_verdict";
+  | "task_verdict"
+  // The write-provenance append: read the vault's chain head, insert the next signed row, move the
+  // head. One transaction so two writers (server + CLI) cannot fork the chain.
+  | "provenance_append";
 
 /** Busy-class outcomes, split because they mean different things operationally: `busy` is
  *  contention that outlived `busy_timeout` (tune the timeout, or reduce writer overlap), while

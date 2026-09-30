@@ -155,6 +155,7 @@ export class ToolRegistry {
       visibleVaultIds: this.visibleVaultIds,
       tracer: this.tracer,
       otelDetail: opts.otelDetail,
+      provenance: opts.provenance,
     };
   }
 

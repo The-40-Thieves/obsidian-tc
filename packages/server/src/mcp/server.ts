@@ -25,6 +25,7 @@ import {
   type RequestLog,
   sampleViaClient,
 } from "./client-features";
+import { extractClaimedProvenance } from "../provenance/types";
 import { clientInfoFromFields, extractClientInfo } from "./client-info";
 import {
   clientSupportsFormElicitation,
@@ -533,6 +534,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
       extractClientInfo(req.params._meta) ??
       clientInfoFromFields(server.getClientVersion());
     if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
+    // Write provenance: the model/project/agent/machine the client CLAIMS. Not a reserved SDK
+    // envelope key, so it stays in `params._meta`; the envelope read is the same belt-and-braces
+    // fallback as above. Self-reported, stored as such, never used to authorize anything.
+    const claimedProvenance =
+      extractClaimedProvenance(req.params._meta) ?? extractClaimedProvenance(extra.mcpReq.envelope);
+    if (claimedProvenance !== undefined) ctx = { ...ctx, claimedProvenance };
     // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
     const facadeMode = resolveFacadeMode(clientInfo?.name);
     ctx = { ...ctx, effectiveFacadeMode: facadeMode, ...ctxExplanation() };

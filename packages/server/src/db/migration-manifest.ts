@@ -101,6 +101,10 @@ export const CACHE_MIGRATION_FILES = [
   // (elicit_requests + elicit_tokens.state_fp) so redemption can refuse drifted state as
   // `replay_drift`. See the migration header.
   "20260930_001_elicit_state_fingerprint.sql",
+  // Signed write provenance: one hash-chained, EdDSA-signed row per committed mutating call, plus
+  // the signed per-vault head/prune anchor. cache.db chain (beside event_log), but NOT disposable:
+  // see the migration header.
+  "20260930_002_write_provenance.sql",
 ] as const;
 
 /**

@@ -187,6 +187,9 @@ type AuthOutcome =
        *  ones — so every downstream reader can keep using them unconditionally. */
       persona?: string;
       toolVisibility?: ToolVisibilityConfig;
+      /** True iff `caller` came from a bearer token the verifier accepted (`jwt`/`oidc`); false in
+       *  `auth.mode: none`, where `caller` is the fixed loopback label. Feeds write provenance. */
+      verified: boolean;
     }
   | {
       ok: false;
@@ -213,7 +216,7 @@ async function resolveAuth(
   if (auth.mode === "none") {
     // Unauthenticated mode is only reachable on a loopback bind: ServerConfigSchema
     // fail-closes when HTTP is exposed on a non-loopback host with auth.mode "none".
-    return { ok: true, caller: "http-local", scopes: new Set(["*"]) };
+    return { ok: true, caller: "http-local", scopes: new Set(["*"]), verified: false };
   }
   // auth.mode "jwt" or "oidc" — the only other modes the config schema admits. Both resolve through
   // `verifier`; an oidc server that reaches here without one (never true via `wireTransports`, which
@@ -250,9 +253,10 @@ async function resolveAuth(
         vault: resolved.resolution.vaultId,
         persona: resolved.resolution.persona,
         toolVisibility: resolved.resolution.toolVisibility,
+        verified: true,
       };
     }
-    return { ok: true, caller: id.caller, scopes: id.scopes, vault: id.vault };
+    return { ok: true, caller: id.caller, scopes: id.scopes, vault: id.vault, verified: true };
   } catch (e) {
     // The message stays identical for every failure mode: an unauthenticated caller must not be
     // able to probe which check failed. The typed detail rides alongside for logs/metrics only.
@@ -312,12 +316,13 @@ function contextFromAuthInfo(
     }
     const visibility = visibilityFromAuthInfo(opts, authInfo);
     const extra = authInfo.extra as
-      | { caller?: string | null; vault?: string; persona?: string }
+      | { caller?: string | null; vault?: string; persona?: string; verified?: boolean }
       | undefined;
     return {
       caller: extra?.caller ?? null,
       transport: "http",
       authenticated: true,
+      ...(extra?.verified === true ? { authVerified: true } : {}),
       // VisibilityCaller.grantedScopes is typed Iterable<string> (visibility.ts's own
       // grantsAll/grantsScope contract); CallerContext wants the concrete Set. Cheap: it's a
       // freshly-built Set already, this just re-asserts the concrete type.
@@ -637,6 +642,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
           vault: authz.vault,
           persona: authz.persona,
           toolVisibility: authz.toolVisibility,
+          verified: authz.verified,
         },
       },
     });
