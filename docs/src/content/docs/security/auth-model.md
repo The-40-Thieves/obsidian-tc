@@ -107,7 +107,7 @@ the row from `retiring` to `retired`. That rewrite (the *reaper*) is housekeepin
 server start and on the periodic maintenance sweep (`signing_keys_retired` in the sweep counts).
 Nothing about verification waits for it.
 
-`obsidian-tc doctor` (`auth.registry`) lists each retiring key with its time remaining and warns
+`obsidian-tc doctor` (the auth registry check) lists each retiring key with its time remaining and warns
 when a window has more than a day left, or when `auth.rotationGraceSeconds` itself exceeds a day: a
 retiring key still verifies every token it ever signed, so a long window is a key that is barely
 rotated. The Prometheus gauge `obsidian_tc_auth_keys{state="active|retiring|retired"}` reports the

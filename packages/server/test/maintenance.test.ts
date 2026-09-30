@@ -408,9 +408,9 @@ describe("auth key reaper arm", () => {
 
   it("reports how many signing keys the registry persisted as retired", () => {
     const reap = vi.fn(() => 2);
-    expect(runMaintenanceSweep(freshDb(), { ...base, reapAuthKeys: reap }).signing_keys_retired).toBe(
-      2,
-    );
+    expect(
+      runMaintenanceSweep(freshDb(), { ...base, reapAuthKeys: reap }).signing_keys_retired,
+    ).toBe(2);
     expect(reap).toHaveBeenCalledTimes(1);
   });
 

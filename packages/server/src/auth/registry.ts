@@ -29,11 +29,8 @@
 // file on its next request. A key file's secret is cached for at most KEY_FILE_CACHE_TTL_MS and
 // re-read, trust re-checked on the open descriptor (auth/key-files.ts).
 //
-// No PRIVATE key material lives in the database: an asymmetric key's `public_jwk` column is public by
-// construction. See the `auth_keys` migrations' headers.
-//
-// A key's algorithm is its ROW's `alg`, never the token header's: HS256 secrets go only to the HMAC
-// path, ES256/EdDSA public keys only to their own algorithm (see `verificationMaterial`).
+// No private key material lives in the database. A key's algorithm is its ROW's `alg`, never the
+// token header's (see `verificationMaterial`).
 import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -205,8 +202,7 @@ export interface RotateOptions {
   graceSeconds?: number;
   /** Algorithm of the NEW key. Default HS256; an asymmetric one needs `generated`. */
   alg?: KeyAlg;
-  /** The new key's material for ES256/EdDSA (`generateSigningKey`), made outside the write lock
-   *  because key generation is async. */
+  /** ES256/EdDSA material from `generateSigningKey` (async, so made outside the write lock). */
   generated?: GeneratedSigningKey;
 }
 
@@ -221,18 +217,14 @@ export interface AuthRegistry {
   /** Per-request: is this jti revoked? Throws if the registry tables are missing or the registry
    *  is lost (fail closed). */
   isRevoked(jti: string): boolean;
-  /** Per-request: the HS256 key that verifies a token naming `kid`. Throws `AuthRejection`, and
-   *  `unsupported_alg` when `kid` is an asymmetric key: its bytes never reach the HMAC path. */
+  /** Per-request: the HS256 key for `kid`. Throws `AuthRejection` (`unsupported_alg` for an asymmetric `kid`). */
   verificationKey(kid: string | undefined): Uint8Array;
-  /** Per-request: what verifies a token naming `kid`, with the algorithm the ROW dictates. Throws
-   *  `AuthRejection` (`unknown_key`, `key_retired`, `misconfigured`). */
+  /** Per-request: what verifies `kid`, with the algorithm the ROW dictates. Throws `AuthRejection`. */
   verificationMaterial(kid: string | undefined): VerificationMaterial;
   /** Does the registry hold a key with this `kid` (any state)? */
   hasKey(kid: string): boolean;
   /** The key `token mint` signs with: the active key, or the config key while the registry is empty.
-   *  `kid` pins the choice: it must name the ACTIVE key (or the implicit config key of an empty
-   *  registry), never a retiring, retired or unknown one. `secret` is the HMAC secret, or for an
-   *  asymmetric key the private JWK as JSON. */
+   *  `kid` must name the ACTIVE key. `secret` is the HMAC secret, or the private JWK as JSON. */
   signingKey(opts?: { kid?: string }): { kid: string; alg: KeyAlg; secret: string };
   recordToken(t: Omit<AuthTokenRecord, "revokedAt" | "revokedReason">): void;
   /** Revoke by jti. A jti this registry never issued gets a tombstone (`tombstoned`), so tokens
@@ -243,8 +235,7 @@ export interface AuthRegistry {
   listKeys(): AuthKey[];
   /** Generate a new active key; the previous one becomes `retiring` for `graceSeconds`. */
   rotateKey(opts?: RotateOptions): RotateResult;
-  /** Persist `retiring` -> `retired` for every key whose window has elapsed; returns how many.
-   *  Housekeeping only: verification compares `retire_after` itself and never waits for this. */
+  /** Persist `retiring` -> `retired` for elapsed windows; returns how many. Housekeeping only. */
   reapRetired(): number;
   /** Keys per EFFECTIVE state (an elapsed window counts as retired before it is reaped). */
   keyCounts(): Record<KeyState, number>;
@@ -438,9 +429,8 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
       | undefined;
     try {
       if (row === undefined) {
-        // Empty AND keys never initialised: a deployment that never rotated, so the configured
-        // secret verifies everything it always did, whatever `kid` (if any) the token names.
-        // Empty but initialised is a lost table, which is refused, not trusted.
+        // Never rotated: the configured secret verifies as it always did. Initialised but empty
+        // is a lost table: refused.
         if (keysEmpty()) {
           if (lostCause("keys") !== undefined) throw new AuthRejection("registry_lost");
           return { alg: "HS256", secret: new TextEncoder().encode(loadSecret(configKey())) };
@@ -448,8 +438,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         throw new AuthRejection("unknown_key");
       }
       const key = toKey(row);
-      // A `retiring` key verifies only inside its window; one with no window at all is treated as
-      // retired (fail closed), never as live forever.
+      // A retiring key with no window counts as retired (fail closed).
       const live =
         key.state === "active" ||
         (key.state === "retiring" && key.retireAfter !== null && now() < key.retireAfter);
@@ -457,9 +446,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
       if (key.alg === "HS256") {
         return { alg: "HS256", secret: new TextEncoder().encode(loadSecret(key)) };
       }
-      // An asymmetric key verifies with its PUBLIC key from the row and nothing else; a row that
-      // does not carry a usable one (or names an algorithm this build does not know) is refused,
-      // never read as an HMAC secret.
+      // An asymmetric key verifies with its row's PUBLIC key only, never as an HMAC secret.
       if (!isAsymmetricAlg(key.alg) || key.publicJwk === null) {
         throw new AuthRejection("misconfigured");
       }
@@ -628,8 +615,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
               prev.kid,
             );
           }
-          // Settle any earlier window that has already elapsed (the same statement the periodic
-          // reaper runs). Verification does not depend on this; it keeps `auth list` truthful.
+          // Settle already-elapsed windows (same statement as the periodic reaper).
           q(REAP_SQL).run(t);
           q(
             "INSERT INTO auth_keys (kid, alg, key_ref, created_at, state, public_jwk) VALUES (?, ?, ?, ?, 'active', ?)",
