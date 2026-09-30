@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
-    "build": "astro check && astro build",
+    "gen:tool-pages": "bun ../packages/server/scripts/docgen/tool-pages.ts",
+    "check:tool-pages": "bun ../packages/server/scripts/docgen/tool-pages.ts --check --dist dist",
+    "dev": "bun run gen:tool-pages && astro dev",
+    "start": "bun run gen:tool-pages && astro dev",
+    "build": "bun run gen:tool-pages && astro check && astro build",
     "preview": "astro preview",
     "astro": "astro"
   },

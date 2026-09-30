@@ -2,3 +2,7 @@
 dist/
 .astro/
 node_modules/
+
+# Per-tool reference pages: generated from the live tool registry on every docs build
+# (packages/server/scripts/docgen/tool-pages.ts). Only the combined catalog is committed.
+src/content/docs/tools/reference/

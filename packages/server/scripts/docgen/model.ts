@@ -13,6 +13,24 @@ export interface ToolDoc {
   inputSchema: unknown;
   /** JSON Schema of the success payload, when the tool advertises an outputSchema. */
   outputSchema?: unknown;
+  /** Facade domain id (`ToolDefinition.domain`). */
+  domain?: string;
+  /** The MCP tool annotations as advertised on the wire (read_only/destructive come from
+   *  describeCapability; idempotent is the definition's advisory hint). */
+  annotations?: { readOnly: boolean; destructive: boolean; idempotent: boolean };
+  /** Human-confirmation (HITL) behaviour, read from the definition. */
+  confirmation?: ToolConfirmationDoc;
+  /** The input schema exposes a whole-operation idempotency key. */
+  acceptsIdempotencyKey?: boolean;
+}
+
+/** What a tool's human confirmation looks like and what it binds to. */
+export interface ToolConfirmationDoc {
+  /** always: every call needs one. conditional: the handler asks only when a boundary is crossed. */
+  required: "always" | "conditional" | "never";
+  /** paths: the vault paths the input names (folder ACL). state: a fingerprint of the state being
+   *  approved. arguments: the effect is opaque, so the argument hash alone. */
+  binds: Array<"paths" | "state" | "arguments">;
 }
 
 /** A single configuration key, extracted from the config schema. `path` is dotted (e.g. "auth.mode"). */
