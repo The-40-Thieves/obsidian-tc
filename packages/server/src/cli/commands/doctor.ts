@@ -584,6 +584,19 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         keyFileIssues: authProbe.keyFileIssues,
         requireJti: config.auth.requireJti,
         platform: process.platform,
+        ...(authProbe.keys !== undefined
+          ? {
+              keys: authProbe.keys.map((k) => ({
+                kid: k.kid,
+                alg: k.alg,
+                state: k.state,
+                retireAfter: k.retireAfter,
+              })),
+            }
+          : {}),
+        jwtSecretConfigured: !!config.auth.jwtSecret,
+        jwksConfigured: !!(config.auth.jwks || config.auth.jwksFile || config.auth.jwksUri),
+        rotationGraceSeconds: config.auth.rotationGraceSeconds,
       },
       sessions: {
         windowSeconds: config.sessions.windowSeconds,

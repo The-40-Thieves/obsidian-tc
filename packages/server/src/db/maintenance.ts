@@ -53,6 +53,10 @@ export interface SweepCounts {
    *  maintenance.captureQueueRetentionDays, measured from committed_at. A PENDING row
    *  (committed_at IS NULL) is never counted here, at any age — see sweepCaptureQueue. */
   capture_queue: number;
+  /** Auth-registry signing keys persisted `retiring` -> `retired` because their grace window
+   *  elapsed. Housekeeping only: the verifier refuses an elapsed window itself, so this count is
+   *  0 for a deployment without a registry and never affects which tokens verify. */
+  signing_keys_retired: number;
 }
 
 /** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
@@ -301,6 +305,11 @@ export function runMaintenanceSweep(
     /** THE-1108 fix: forwarded verbatim into `closeExpiredExplicitSessions`'s `onClosed` — see
      *  its own doc comment. Omitted -> no callback, unchanged behavior. */
     onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
+    /** Persist elapsed signing-key grace windows (`AuthRegistry.reapRetired`, which lives in
+     *  the registry's own database, not this cache.db) and return how many keys moved. Omitted -> the arm is skipped
+     *  and `signing_keys_retired` is 0. A throw is reported and counted as 0: the verifier never
+     *  depends on this arm, so it must not take the rest of the sweep down. */
+    reapAuthKeys?: () => number;
   },
 ): SweepCounts {
   const t = opts.now();
@@ -408,6 +417,16 @@ export function runMaintenanceSweep(
     opts.captureQueueRetentionDays !== undefined
       ? sweepCaptureQueue(db, { now: t, retentionDays: opts.captureQueueRetentionDays })
       : 0;
+  let authKeysRetired = 0;
+  if (opts.reapAuthKeys !== undefined) {
+    try {
+      authKeysRetired = opts.reapAuthKeys();
+    } catch (e) {
+      process.stderr.write(
+        `[maintenance] auth key reaper failed (verification is unaffected): ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  }
   return {
     idempotency_keys: idem,
     elicit_tokens: elicit,
@@ -422,6 +441,7 @@ export function runMaintenanceSweep(
     orphan_schedule_rows: orphanScheduleRows,
     fts_merged: ftsMerged,
     capture_queue: captureQueue,
+    signing_keys_retired: authKeysRetired,
   };
 }
 
@@ -449,6 +469,8 @@ export interface MaintenanceDeps {
   sessionMaxExplicitLifetimeSeconds?: number;
   /** THE-1108 fix: see runMaintenanceSweep's option of the same name. */
   onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
+  /** see runMaintenanceSweep's option of the same name. */
+  reapAuthKeys?: () => number;
   now?: () => number;
   onSweep?: (counts: SweepCounts) => void;
   onError?: (e: unknown) => void;
@@ -488,6 +510,7 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
         ...(deps.onExplicitSessionClosed !== undefined
           ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
           : {}),
+        ...(deps.reapAuthKeys !== undefined ? { reapAuthKeys: deps.reapAuthKeys } : {}),
       });
       deps.onSweep?.(counts);
     },

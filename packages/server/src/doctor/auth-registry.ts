@@ -6,6 +6,28 @@
 // and retired key valid again.
 import type { Check, CheckResult, CheckStatus } from "./types";
 
+/** The reserved kid of the configured `auth.jwtSecret` (auth/registry.ts CONFIG_KID). Duplicated as
+ *  a literal so the doctor stays a leaf module with no import of the registry. */
+const CONFIG_KID = "config";
+/** A grace window with more than this left is unusually long: a retiring key still verifies every
+ *  token it ever signed, so a key kept alive for days after a rotation is barely rotated. */
+export const LONG_GRACE_SECONDS = 86_400;
+
+export interface AuthKeyView {
+  kid: string;
+  alg: string;
+  state: "active" | "retiring" | "retired";
+  /** Epoch ms a retiring key stops verifying. */
+  retireAfter: number | null;
+}
+
+const human = (seconds: number): string => {
+  if (seconds >= 86_400) return `${(seconds / 86_400).toFixed(1)}d`;
+  if (seconds >= 3_600) return `${(seconds / 3_600).toFixed(1)}h`;
+  if (seconds >= 60) return `${Math.ceil(seconds / 60)}m`;
+  return `${seconds}s`;
+};
+
 export interface AuthRegistryView {
   authMode: "none" | "jwt";
   state: "uninitialised" | "ok" | "lost";
@@ -17,6 +39,16 @@ export interface AuthRegistryView {
   keyFileIssues: string[];
   requireJti: boolean;
   platform: NodeJS.Platform;
+  /** The registry's keys (never key material); absent when they could not be read. */
+  keys?: AuthKeyView[];
+  /** Epoch ms "now"; injectable for tests. */
+  now?: number;
+  /** `auth.jwtSecret` is set (from the file or OBSIDIAN_TC_JWT_SECRET). */
+  jwtSecretConfigured?: boolean;
+  /** A JWKS is configured (auth.jwks / jwksFile / jwksUri). */
+  jwksConfigured?: boolean;
+  /** `auth.rotationGraceSeconds`. */
+  rotationGraceSeconds?: number;
 }
 
 export function authRegistryCheck(view: AuthRegistryView): Check {
@@ -24,11 +56,30 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
     id: "auth.registry",
     category: "config",
     run: (): CheckResult => {
+      const now = view.now ?? Date.now();
+      const keys = view.keys ?? [];
+      // Effective state: a window that has elapsed is retired whether or not the reaper has run.
+      const retiring = keys
+        .filter((k) => k.state === "retiring" && k.retireAfter !== null && k.retireAfter > now)
+        .map((k) => ({
+          kid: k.kid,
+          alg: k.alg,
+          retireAfter: k.retireAfter as number,
+          remainingSeconds: Math.ceil(((k.retireAfter as number) - now) / 1000),
+        }));
       const details = {
         dbPath: view.dbPath,
         keysDir: view.keysDir,
         state: view.state,
         ...(view.detail !== undefined ? { detail: view.detail } : {}),
+        ...(view.keys !== undefined
+          ? {
+              activeKeys: keys.filter((k) => k.state === "active").map((k) => k.kid),
+              retiringKeys: retiring.map(
+                (k) => `${k.kid} (${k.alg}): ${human(k.remainingSeconds)} left`,
+              ),
+            }
+          : {}),
       };
       if (view.authMode !== "jwt") {
         return {
@@ -56,6 +107,20 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
           remediation: `Fix the mode/owner/symlink problem (keys directory 0700, key files 0600, both owned by the server user), or rotate: \`obsidian-tc auth rotate-key\`.`,
         };
       }
+      if (
+        view.state === "uninitialised" &&
+        view.jwtSecretConfigured === false &&
+        view.jwksConfigured === false
+      ) {
+        return {
+          status: "fail",
+          summary:
+            "auth.mode is jwt but there is no signing key: no auth.jwtSecret, no JWKS and an uninitialised registry, so every bearer is refused and the server will not start",
+          details,
+          remediation:
+            "Create a registry signing key with `obsidian-tc auth rotate-key`, or set auth.jwtSecret (or OBSIDIAN_TC_JWT_SECRET).",
+        };
+      }
       if (view.state === "uninitialised") {
         return {
           status: "ok",
@@ -78,13 +143,50 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
           "Windows: key-file mode, owner and symlink checks are not enforced (no POSIX permissions); protect the keys directory with its ACL",
         );
       }
+      for (const k of retiring) {
+        if (k.remainingSeconds > LONG_GRACE_SECONDS) {
+          issues.push(
+            `retiring signing key ${k.kid} (${k.alg}) has ${human(k.remainingSeconds)} of grace left: it still verifies every token it signed, and a window this long is a key that is barely rotated`,
+          );
+          remediation ??=
+            "The window ends by itself at retire_after (auth list --keys). Use a shorter --grace, or a lower auth.rotationGraceSeconds, for the next rotation.";
+        }
+      }
+      if ((view.rotationGraceSeconds ?? 0) > LONG_GRACE_SECONDS) {
+        issues.push(
+          `auth.rotationGraceSeconds is ${human(view.rotationGraceSeconds as number)}: every rotation will leave the previous key verifying for that long`,
+        );
+        remediation ??= "Lower auth.rotationGraceSeconds, or pass a shorter --grace per rotation.";
+      }
+      const configRetired = keys.some(
+        (k) =>
+          k.kid === CONFIG_KID &&
+          (k.state === "retired" ||
+            (k.state === "retiring" && (k.retireAfter === null || k.retireAfter <= now))),
+      );
+      if (configRetired && view.jwtSecretConfigured === true) {
+        issues.push(
+          "auth.jwtSecret is still set but the `config` signing key is retired: it no longer verifies or signs anything, and can be removed (the registry keys carry authentication). Removing it also stops it keying the HTTP elicit round trip (which falls back to the plain elicit_required error + `elicit_token` CLI) and makes bulk-read cursors per-process",
+        );
+        remediation ??= "Remove auth.jwtSecret and OBSIDIAN_TC_JWT_SECRET once you accept that.";
+      }
+      if (view.keys !== undefined && keys.length > 0 && !keys.some((k) => k.state === "active")) {
+        issues.push("no active signing key: `token mint` will fail until `auth rotate-key` is run");
+        remediation ??= "Run `obsidian-tc auth rotate-key`.";
+      }
       const status: CheckStatus = issues.length > 0 ? "warning" : "ok";
+      const retiringNote =
+        retiring.length > 0
+          ? `; ${retiring.length} key${retiring.length === 1 ? "" : "s"} retiring (${retiring
+              .map((k) => `${k.kid}: ${human(k.remainingSeconds)} left`)
+              .join(", ")})`
+          : "";
       return {
         status,
         summary:
           status === "ok"
-            ? "auth registry: healthy"
-            : `auth registry: healthy, with ${issues.length} recommendation${issues.length === 1 ? "" : "s"}`,
+            ? `auth registry: healthy${retiringNote}`
+            : `auth registry: healthy${retiringNote}, with ${issues.length} recommendation${issues.length === 1 ? "" : "s"}`,
         details,
         ...(issues.length > 0 ? { issues } : {}),
         ...(remediation !== undefined ? { remediation } : {}),

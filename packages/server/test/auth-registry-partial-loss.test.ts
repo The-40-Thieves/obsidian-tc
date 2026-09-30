@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SignJWT } from "jose";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { AuthRejection } from "../src/auth/jwt";
 import {
@@ -96,6 +96,34 @@ describe("partial loss: one registry table emptied while the other survives", ()
     );
     expect(await reasonOf(verifierOf(reg).verify(minted))).toBe("registry_lost");
     expect(() => reg.signingKey()).toThrow(/auth\.db/);
+  });
+
+  it("(a2) auth_keys emptied: an asymmetric token falls through to NEITHER a configured JWKS nor a remote set", async () => {
+    const dir = freshDir();
+    const { db, reg } = memoryRegistry(dir);
+    reg.rotateKey(); // initialises the keys marker
+    const { publicKey, privateKey } = await generateKeyPair("ES256");
+    const jwk = { ...(await exportJWK(publicKey)), kid: "ext-1", alg: "ES256", use: "sig" };
+    const es = (kid?: string) =>
+      new SignJWT(claims())
+        .setProtectedHeader({ alg: "ES256", ...(kid !== undefined ? { kid } : {}) })
+        .sign(privateKey);
+    const verifier = createTokenVerifier({ jwks: { keys: [jwk] }, registry: reg });
+    // Healthy registry, kid it does not hold: the external JWKS verifies it, as before.
+    expect(await reasonOf(verifier.verify(await es("ext-1")))).toBe("accepted");
+
+    db.exec("DELETE FROM auth_keys");
+    expect(reg.health().state).toBe("lost");
+    for (const kid of ["ext-1", "k_retired_asymmetric", undefined]) {
+      expect(await reasonOf(verifier.verify(await es(kid)))).toBe("registry_lost");
+    }
+    // The remote-set path (jose fetches a jwksUri) is behind the same guard: it must refuse before
+    // any fetch is attempted.
+    const remote = createTokenVerifier({
+      jwksUri: "http://127.0.0.1:9/never-fetched",
+      registry: reg,
+    });
+    expect(await reasonOf(remote.verify(await es("ext-1")))).toBe("registry_lost");
   });
 
   it("(b) auth_tokens emptied, key rows survive: a revoked jti is NOT read as live", async () => {

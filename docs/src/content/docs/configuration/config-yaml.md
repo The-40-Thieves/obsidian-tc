@@ -41,6 +41,7 @@ until this generator existed, by which point five entire defaulted blocks had go
   "auth": {
     "mode": "none",
     "tokenTtlSeconds": 86400,
+    "rotationGraceSeconds": 0,
     "requireJti": false
   },
   "acl": {

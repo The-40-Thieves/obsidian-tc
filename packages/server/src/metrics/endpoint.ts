@@ -1,8 +1,8 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
-import { verifyJwt } from "../auth/jwt";
 import { effectiveAudience } from "../auth/protected-resource";
 import type { AuthRegistry } from "../auth/registry";
+import { createTokenVerifier } from "../auth/verifier";
 import type { ServerHandle } from "../transports/serve";
 import { serveHono } from "../transports/serve";
 import type { MetricsRecorder } from "./registry";
@@ -35,28 +35,30 @@ export type MetricsHandle = ServerHandle;
 export function createMetricsApp(opts: MetricsEndpointOptions): Hono {
   const app = new Hono();
   const requireAuth = !isLoopback(opts.bind);
+  // The same verifier as the MCP HTTP edge (algorithm chosen by the registry row, revocation and
+  // key retirement from the registry), so the two cannot disagree about which tokens are accepted.
+  // It has no external JWKS: a scrape token is one this server issued. With a registry the
+  // configured secret is optional (it can be removed once the `config` key is retired).
+  const verifier =
+    opts.auth.mode === "jwt" && (opts.auth.jwtSecret || opts.registry)
+      ? createTokenVerifier({
+          secret: opts.auth.jwtSecret,
+          registry: opts.registry,
+          maxAgeSeconds: opts.auth.tokenTtlSeconds,
+          // Same audience/issuer binding as the MCP HTTP edge: a token minted for another
+          // service, or by another issuer, must not scrape this one.
+          audience: effectiveAudience(opts.auth),
+          issuer: opts.auth.issuer,
+          requireJti: opts.auth.requireJti,
+        })
+      : undefined;
   app.get("/metrics", async (c) => {
     if (requireAuth) {
       const m = /^Bearer\s+(.+)$/i.exec(c.req.header("authorization") ?? "");
       const token = m?.[1];
-      if (!token || opts.auth.mode !== "jwt" || !opts.auth.jwtSecret) {
-        return c.text("unauthorized", 401);
-      }
+      if (!token || verifier === undefined) return c.text("unauthorized", 401);
       try {
-        const registry = opts.registry;
-        await verifyJwt(
-          token,
-          registry ? (h) => registry.verificationKey(h.kid) : opts.auth.jwtSecret,
-          {
-            maxAgeSeconds: opts.auth.tokenTtlSeconds,
-            // Same audience/issuer binding as the MCP HTTP edge: a token minted for another
-            // service, or by another issuer, must not scrape this one.
-            audience: effectiveAudience(opts.auth),
-            issuer: opts.auth.issuer,
-            requireJti: opts.auth.requireJti,
-            isRevoked: registry ? (jti) => registry.isRevoked(jti) : undefined,
-          },
-        );
+        await verifier.verify(token);
       } catch {
         return c.text("unauthorized", 401);
       }

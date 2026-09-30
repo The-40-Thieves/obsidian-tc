@@ -8,7 +8,7 @@ describe("/metrics endpoint (THE-211)", () => {
       recorder: new MetricsRecorder(),
       bind: "127.0.0.1",
       port: 0,
-      auth: { mode: "none", tokenTtlSeconds: 86400, requireJti: false },
+      auth: { mode: "none", tokenTtlSeconds: 86400, rotationGraceSeconds: 0, requireJti: false },
     });
     const res = await app.request("/metrics");
     expect(res.status).toBe(200);
@@ -21,7 +21,13 @@ describe("/metrics endpoint (THE-211)", () => {
       recorder: new MetricsRecorder(),
       bind: "0.0.0.0",
       port: 0,
-      auth: { mode: "jwt", jwtSecret: "x".repeat(32), tokenTtlSeconds: 86400, requireJti: false },
+      auth: {
+        mode: "jwt",
+        jwtSecret: "x".repeat(32),
+        tokenTtlSeconds: 86400,
+        rotationGraceSeconds: 0,
+        requireJti: false,
+      },
     });
     const res = await app.request("/metrics");
     expect(res.status).toBe(401);
@@ -33,7 +39,7 @@ describe("/metrics endpoint (THE-211)", () => {
         recorder: new MetricsRecorder(),
         bind: "0.0.0.0",
         port: 0,
-        auth: { mode: "none", tokenTtlSeconds: 86400, requireJti: false },
+        auth: { mode: "none", tokenTtlSeconds: 86400, rotationGraceSeconds: 0, requireJti: false },
       }),
     ).toThrow(/non-localhost/);
   });

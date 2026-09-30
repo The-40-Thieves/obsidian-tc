@@ -108,17 +108,19 @@ const GAUGES = [
   // holding the next embed sub-batch back. Renamed from obsidian_tc_boot_embed_paused in the
   // #1003 fix round (Codex review, finding 3) to cover promotion/periodic reconcile too.
   "obsidian_tc_background_embed_paused",
+  // Signing keys by lifecycle state, read from the auth registry at scrape time.
+  "obsidian_tc_auth_keys",
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 31 counters, 4 histograms, 17 gauges", async () => {
+  it("registers the full catalog: 31 counters, 4 histograms, 18 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(52);
+    expect(new Set(declared).size).toBe(53);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {

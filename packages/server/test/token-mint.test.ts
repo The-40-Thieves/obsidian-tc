@@ -8,12 +8,17 @@
 // signing key. Only the two end-to-end tests touch jose, to prove the plan is actually what gets
 // signed — a planner that agrees with itself and disagrees with the token is the failure mode that
 // would make all the rest of this vacuous.
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { jwtVerify } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
-import { planMint, readAuthBlock, type TokenMintCmd } from "../src/cli/commands/token-mint";
+import {
+  planMint,
+  readAuthBlock,
+  run_token_mint,
+  type TokenMintCmd,
+} from "../src/cli/commands/token-mint";
 
 import { rmTemp } from "./tmp";
 
@@ -63,8 +68,11 @@ describe("planMint — refusals", () => {
     expect(() => planMint({ mode: "none" }, cmd(), NOW)).toThrow(/not "jwt"/);
   });
 
-  it("refuses when jwt mode has no secret to sign with", () => {
-    expect(() => planMint({ mode: "jwt" }, cmd(), NOW)).toThrow(/no auth.jwtSecret/);
+  it("plans a mint with no auth.jwtSecret: the registry's keys sign, and signing refuses if it has none", () => {
+    // The configured secret is optional once a registry key exists (the `config` kid can be
+    // retired and the secret removed), so the "nothing to sign with" refusal is made where the key
+    // is chosen (registry.signingKey), not here. See auth-rotation-grace.test.ts.
+    expect(planMint({ mode: "jwt" }, cmd(), NOW).claims.sub).toBe("cave-agents");
   });
 
   it("refuses an aud-less mint when the config BINDS an audience (the THE-456 trap)", () => {
@@ -213,10 +221,30 @@ describe("readAuthBlock — OBSIDIAN_TC_JWT_SECRET overlay (THE-658 mint-on-env-
     expect(readAuthBlock(p, { OBSIDIAN_TC_JWT_SECRET: "" }).jwtSecret).toBe("file-secret");
   });
 
-  it("still refuses when neither file nor env supplies a secret, naming OBSIDIAN_TC_JWT_SECRET", () => {
-    const p = write(JSON.stringify({ vaults: [], auth: { mode: "jwt" } }));
-    const auth = readAuthBlock(p, {});
-    expect(() => planMint(auth, cmd(), NOW)).toThrow(/OBSIDIAN_TC_JWT_SECRET/);
+  it("still refuses to mint when there is no secret AND no registry key, naming both ways out", async () => {
+    // The refusal moved from planMint to the point where the signing key is chosen, because a
+    // registry key can now sign with no configured secret at all.
+    const root = tmpDir("tc-mint-nokey-");
+    const vault = join(root, "vault");
+    mkdirSync(vault);
+    const configPath = join(root, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        vaults: [{ id: "main", path: vault }],
+        cacheDir: join(root, "cache"),
+        auth: { mode: "jwt" },
+      }),
+    );
+    const saved = process.env.OBSIDIAN_TC_JWT_SECRET;
+    delete process.env.OBSIDIAN_TC_JWT_SECRET;
+    try {
+      await expect(run_token_mint({ kind: "token-mint", configPath, sub: "a" })).rejects.toThrow(
+        /OBSIDIAN_TC_JWT_SECRET.*auth rotate-key/,
+      );
+    } finally {
+      if (saved !== undefined) process.env.OBSIDIAN_TC_JWT_SECRET = saved;
+    }
   });
 });
 

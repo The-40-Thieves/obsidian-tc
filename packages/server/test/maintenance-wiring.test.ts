@@ -67,6 +67,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episode_content_redacted: 0,
         sessions_closed: 0,
         sessions_expired: 0,
+        signing_keys_retired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 0,
@@ -84,6 +85,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episode_content_redacted: 0,
         sessions_closed: 0,
         sessions_expired: 0,
+        signing_keys_retired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 5,
@@ -108,6 +110,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episode_content_redacted: 0,
         sessions_closed: 0,
         sessions_expired: 0,
+        signing_keys_retired: 0,
         orphan_schedule_rows: 0,
         fts_merged: ["notes_fts", "chunk_fts"],
         capture_queue: 0,
@@ -147,6 +150,7 @@ describe("sweepTotal — every arm joins the total", () => {
         episode_content_redacted: 0,
         sessions_closed: 0,
         sessions_expired: 0,
+        signing_keys_retired: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 0,
@@ -195,6 +199,29 @@ describe("configureMaintenance", () => {
       await vi.advanceTimersByTimeAsync(61_000);
       await sched.stop();
       expect(closed).toEqual([{ id: "sess_stale", principal: "alice" }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("periodic sweep: threads the auth registry's reaper into the sweep (signing_keys_retired)", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = freshDb();
+      const { m, emitted } = fakeMorgiana();
+      const sched = new Scheduler();
+      const reapRetired = vi.fn(() => 3);
+      configureMaintenance(sched, { ...baseDeps(db, m), authRegistry: { reapRetired } });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(61_000);
+      await sched.stop();
+      expect(reapRetired).toHaveBeenCalledTimes(1);
+      const payload = emitted.find(([, name]) => name === "tc.maintenance.sweep")?.[2] as {
+        count: number;
+        rows_dropped: SweepCounts;
+      };
+      expect(payload.rows_dropped.signing_keys_retired).toBe(3);
+      expect(payload.count).toBe(3); // a new numeric arm is counted in the total for free
     } finally {
       vi.useRealTimers();
     }

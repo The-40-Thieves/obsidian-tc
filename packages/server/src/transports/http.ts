@@ -413,7 +413,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   }
   const verifier: TokenVerifier | null =
     opts.verifier ??
-    (opts.auth.mode === "jwt" && (opts.auth.jwtSecret || jwks)
+    (opts.auth.mode === "jwt" && (opts.auth.jwtSecret || jwks || opts.authRegistry)
       ? createTokenVerifier({
           secret: opts.auth.jwtSecret,
           jwks,
@@ -434,6 +434,21 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     const prm = buildProtectedResourceMetadata(opts.auth);
     app.get("/.well-known/oauth-protected-resource", (c) => c.json(prm));
     app.get("/.well-known/oauth-protected-resource/mcp", (c) => c.json(prm));
+  }
+
+  // JWKS of the registry's ES256/EdDSA signing keys, so a verifier that is not this process can
+  // validate the tokens `token mint` issues. Public keys only, active and in-window retiring ones
+  // (a retired key drops out at once). Unauthenticated by design, like the PRM above; nothing here
+  // is secret. Not served for a lost registry: that refuses, it never publishes a partial set.
+  if (opts.auth.mode === "jwt" && opts.authRegistry !== undefined) {
+    const registry = opts.authRegistry;
+    app.get("/.well-known/jwks.json", (c) => {
+      try {
+        return c.json(registry.publicJwks(), 200, { "cache-control": "public, max-age=60" });
+      } catch {
+        return c.json({ error: "signing keys unavailable" }, 503);
+      }
+    });
   }
 
   app.post("/mcp", async (c) => {

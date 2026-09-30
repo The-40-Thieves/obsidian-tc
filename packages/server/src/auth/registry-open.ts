@@ -19,6 +19,7 @@ import {
   readKeyFile,
 } from "./key-files";
 import {
+  type AuthKey,
   type AuthRegistry,
   authDbPath,
   authKeysDir,
@@ -44,7 +45,12 @@ export interface OpenedAuthRegistry {
  */
 export async function openAuthRegistry(
   cfg: RegistryCfg,
-  opts: { now?: () => number } = {},
+  opts: {
+    now?: () => number;
+    /** Persist `retiring` -> `retired` for windows that elapsed while nothing was running. Server
+     *  start passes true; it is housekeeping (verification never depends on it) and best-effort. */
+    reapRetired?: boolean;
+  } = {},
 ): Promise<OpenedAuthRegistry> {
   const keysDir = authKeysDir(cfg.cacheDir);
   // `registryInitState` lstats auth-keys/ first: a symlink (even to an empty directory) counts as
@@ -64,14 +70,21 @@ export async function openAuthRegistry(
     db.close?.();
     throw e;
   }
-  return {
-    registry: createAuthRegistry(db, {
-      configSecret: cfg.auth.jwtSecret,
-      keysDir,
-      ...(opts.now !== undefined ? { now: opts.now } : {}),
-    }),
-    close: () => db.close?.(),
-  };
+  const registry = createAuthRegistry(db, {
+    configSecret: cfg.auth.jwtSecret,
+    keysDir,
+    ...(opts.now !== undefined ? { now: opts.now } : {}),
+  });
+  if (opts.reapRetired === true) {
+    try {
+      registry.reapRetired();
+    } catch (e) {
+      process.stderr.write(
+        `auth: could not persist retired signing keys (verification is unaffected): ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  }
+  return { registry, close: () => db.close?.() };
 }
 
 /** What `doctor` shows about the registry. Read-only: creates and changes nothing. */
@@ -81,6 +94,9 @@ export interface AuthRegistryProbe {
   keysDir: string;
   /** One line per key file (or the directory) that fails the filesystem trust check. */
   keyFileIssues: string[];
+  /** The registry's keys, or undefined when they cannot be read (no auth.db, or one not yet
+   *  migrated to the current schema). Never key material. */
+  keys?: AuthKey[];
 }
 
 export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryProbe> {
@@ -91,18 +107,27 @@ export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryP
     state.keys || state.tokens
       ? { state: "lost", detail: registryLostMessageFor(keysDir, state) }
       : { state: "uninitialised" };
+  let keys: AuthKey[] | undefined;
   if (existsSync(dbPath)) {
     let db: Database | undefined;
     try {
       db = await openConfiguredDatabase(cfg, "auth.db", { readonly: true });
-      health = createAuthRegistry(db, { keysDir }).health();
+      const registry = createAuthRegistry(db, { keysDir });
+      health = registry.health();
+      keys = registry.listKeys();
     } catch {
       /* unreadable or unmigrated: the initialised/uninitialised reading above stands */
     } finally {
       db?.close?.();
     }
   }
-  return { health, dbPath, keysDir, keyFileIssues: keyFileIssues(keysDir) };
+  return {
+    health,
+    dbPath,
+    keysDir,
+    keyFileIssues: keyFileIssues(keysDir),
+    ...(keys !== undefined ? { keys } : {}),
+  };
 }
 
 function keyFileIssues(keysDir: string): string[] {

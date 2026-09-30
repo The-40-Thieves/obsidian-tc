@@ -347,7 +347,7 @@
       "properties": {
         "mode": {
           "default": "none",
-          "description": "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` requires a jwtSecret or a JWKS.",
+          "description": "Authentication mode. `none` grants every request full wildcard scopes and is refused on a non-loopback HTTP bind; `jwt` needs a signing key: a jwtSecret, a JWKS, or a key in the auth registry (`obsidian-tc auth rotate-key`). A `jwt` server with none of them refuses to start.",
           "type": "string",
           "enum": [
             "none",
@@ -355,7 +355,7 @@
           ]
         },
         "jwtSecret": {
-          "description": "Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this, never against the JWKS.",
+          "description": "Shared secret for HS256 verification, minimum 32 characters. Secret. HS256 tokens verify ONLY against this (or an HS256 key in the auth registry), never against the JWKS. It is the initial signing key (kid `config`); once `auth rotate-key` has retired that key it is no longer used to verify or mint, and can be removed (`obsidian-tc doctor` says when).",
           "type": "string",
           "minLength": 32
         },
@@ -365,6 +365,13 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "rotationGraceSeconds": {
+          "default": 0,
+          "description": "Seconds the previous signing key keeps verifying after `obsidian-tc auth rotate-key`, used when `--grace` is not passed (an explicit `--grace` always wins, including `--grace 0`). 0, the default, retires the previous key immediately. Maximum 604800 (7 days). A retiring key stops verifying at its `retire_after` whether or not anything has rewritten its state, so the window is exact; `obsidian-tc doctor` lists each retiring key with its time remaining.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 604800
         },
         "requireJti": {
           "default": false,

@@ -53,6 +53,8 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       jobs: 0,
       sessions_closed: 0,
       sessions_expired: 0,
+      // No `reapAuthKeys` was passed (no auth registry in this process), so the arm is skipped.
+      signing_keys_retired: 0,
       orphan_schedule_rows: 0,
       // THE-610 arm 2: no `edb` was passed, so both experiential arms skip entirely — which is the
       // correct behaviour when the membrane is not open. Their own coverage is in
@@ -398,5 +400,42 @@ describe("capture_queue retention sweep", () => {
       counts = sweep(db, 30);
     }).not.toThrow();
     expect(counts?.capture_queue).toBe(0);
+  });
+});
+
+describe("auth key reaper arm", () => {
+  const base = { now: () => 1_000, eventLogDays: 30, jobsCompleteDays: 7, jobsFailedDays: 30 };
+
+  it("reports how many signing keys the registry persisted as retired", () => {
+    const reap = vi.fn(() => 2);
+    expect(
+      runMaintenanceSweep(freshDb(), { ...base, reapAuthKeys: reap }).signing_keys_retired,
+    ).toBe(2);
+    expect(reap).toHaveBeenCalledTimes(1);
+  });
+
+  it("is skipped (0) when no reaper is supplied", () => {
+    expect(runMaintenanceSweep(freshDb(), base).signing_keys_retired).toBe(0);
+  });
+
+  it("a throwing reaper is reported on stderr and does not take the other arms down", () => {
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const db = freshDb();
+      db.prepare(
+        "INSERT INTO event_log (ts, vault_id, tool_name, caller, duration_ms, result_size, status, error_code, args_hash, event_type) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      ).run(-40 * 86_400_000, "v1", "t", "c", 1, 1, "ok", null, "h", null);
+      const counts = runMaintenanceSweep(db, {
+        ...base,
+        reapAuthKeys: () => {
+          throw new Error("auth.db is busy");
+        },
+      });
+      expect(counts.signing_keys_retired).toBe(0);
+      expect(counts.event_log).toBe(1);
+      expect(String(err.mock.calls[0]?.[0])).toContain("auth key reaper failed");
+    } finally {
+      err.mockRestore();
+    }
   });
 });

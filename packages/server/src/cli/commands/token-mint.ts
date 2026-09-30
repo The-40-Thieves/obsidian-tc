@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { SignJWT } from "jose";
 import { type AuthRegistry, summarizeScopes } from "../../auth/registry";
 import { openAuthRegistry } from "../../auth/registry-open";
+import { importSigningKey, isAsymmetricAlg } from "../../auth/signing-keys";
 import { applyEnvOverlays } from "../../config/load";
 import { CliError } from "../args";
 import { type Cmd, resolveOrUsageExit } from "../shared";
@@ -96,13 +97,6 @@ export function planMint(auth: AuthShape, cmd: TokenMintCmd, now: number): MintP
       `config auth.mode is "${auth.mode ?? "none"}", not "jwt" — this server would not verify a minted token`,
     );
   }
-  if (!auth.jwtSecret) {
-    throw new CliError(
-      "config has auth.mode 'jwt' but no auth.jwtSecret to sign with — set it in the config " +
-        "file, or export OBSIDIAN_TC_JWT_SECRET",
-    );
-  }
-
   // An explicit --aud wins; otherwise inherit whatever the server will verify against. `resource`
   // is the fallback because createHttpApp defaults the audience to it when PRM is configured
   // (THE-456), so a token minted from a resource-only config still matches.
@@ -150,19 +144,23 @@ export function planMint(auth: AuthShape, cmd: TokenMintCmd, now: number): MintP
 }
 
 /**
- * Sign `claims` with the registry's active key (header `kid`, claim `jti`) and record the token
- * before returning it. Exported so a test can mint through the real path without a config file.
+ * Sign `claims` with the registry's active key, or with the ACTIVE key `opts.kid` names (header
+ * `kid`, claim `jti`), and record the token before returning it. The header `alg` is the key's own
+ * (HS256, ES256 or EdDSA). A refused `kid` throws before anything is signed or recorded. Exported so
+ * a test can mint through the real path without a config file.
  */
 export async function signAndRecord(
   registry: AuthRegistry,
   claims: Record<string, unknown>,
+  opts: { kid?: string } = {},
 ): Promise<string> {
-  const { kid, secret } = registry.signingKey();
+  const { kid, alg, secret } = registry.signingKey(opts);
   const jti = randomUUID();
   claims.jti = jti;
-  const token = await new SignJWT(claims)
-    .setProtectedHeader({ alg: "HS256", typ: "JWT", kid })
-    .sign(new TextEncoder().encode(secret));
+  const key = isAsymmetricAlg(alg)
+    ? await importSigningKey(alg, secret)
+    : new TextEncoder().encode(secret);
+  const token = await new SignJWT(claims).setProtectedHeader({ alg, typ: "JWT", kid }).sign(key);
   registry.recordToken({
     jti,
     kid,
@@ -197,7 +195,13 @@ export async function run_token_mint(cmd: TokenMintCmd): Promise<void> {
     // empty registry would look healthy while every earlier revocation is missing.
     const health = registry.health();
     if (health.state === "lost") throw new CliError(health.detail);
-    token = await signAndRecord(registry, claims);
+    try {
+      token = await signAndRecord(registry, claims, cmd.kid !== undefined ? { kid: cmd.kid } : {});
+    } catch (e) {
+      // A refused --kid, or no key to sign with: an operator-facing message, not a stack trace.
+      if (e instanceof CliError) throw e;
+      throw new CliError(e instanceof Error ? e.message : String(e));
+    }
   } finally {
     close();
   }
