@@ -251,6 +251,90 @@ describe("applyConnectionPragmas: busy retry on a cold open", () => {
     expect(seen.indexOf("foreign_keys = ON")).toBeLessThan(seen.indexOf("journal_mode = WAL"));
   });
 
+  // The extended code CI reported, verbatim: bun:sqlite on windows-latest, `PRAGMA journal_mode = WAL`
+  // on a fresh db that a sibling process had already converted and mapped:
+  // `code=SQLITE_IOERR_TRUNCATE errno=1546 ... pragma=journal_mode = WAL` (15 of 14,400 stress iterations).
+  const truncate = () =>
+    Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR_TRUNCATE", errno: 1546 });
+
+  it("on Windows, retries the transient SQLITE_IOERR_TRUNCATE a sibling's file mapping causes", () => {
+    const seen: string[] = [];
+    let walFailures = 2;
+    applyConnectionPragmas(
+      (p) => {
+        if (p === "journal_mode = WAL" && walFailures-- > 0) throw truncate();
+        seen.push(p);
+      },
+      5000,
+      "win32",
+    );
+    expect(seen).toContain("journal_mode = WAL");
+    expect(seen).toContain("mmap_size = 268435456");
+  });
+
+  it("recognises the error by its numeric code alone (node:sqlite reports `errcode`)", () => {
+    let failures = 1;
+    const seen: string[] = [];
+    applyConnectionPragmas(
+      (p) => {
+        if (p === "journal_mode = WAL" && failures-- > 0) {
+          throw Object.assign(new Error("disk I/O error"), {
+            code: "ERR_SQLITE_ERROR",
+            errcode: 1546,
+          });
+        }
+        seen.push(p);
+      },
+      5000,
+      "win32",
+    );
+    expect(seen).toContain("journal_mode = WAL");
+  });
+
+  it("does NOT retry it off Windows (there it is a real disk fault), nor any other IOERR", () => {
+    let calls = 0;
+    expect(() =>
+      applyConnectionPragmas(
+        () => {
+          calls++;
+          throw truncate();
+        },
+        5000,
+        "linux",
+      ),
+    ).toThrow("disk I/O error");
+    expect(calls).toBe(1);
+    calls = 0;
+    expect(() =>
+      applyConnectionPragmas(
+        () => {
+          calls++;
+          throw Object.assign(new Error("disk I/O error"), { code: "SQLITE_IOERR_WRITE" });
+        },
+        5000,
+        "win32",
+      ),
+    ).toThrow("disk I/O error");
+    expect(calls).toBe(1);
+  });
+
+  it("rethrows the truncate error once the budget is spent, naming the pragma that failed", () => {
+    let err: unknown;
+    try {
+      applyConnectionPragmas(
+        (p) => {
+          if (p === "journal_mode = WAL") throw truncate();
+        },
+        30,
+        "win32",
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect((err as { code?: string }).code).toBe("SQLITE_IOERR_TRUNCATE");
+    expect((err as { pragma?: string }).pragma).toBe("journal_mode = WAL");
+  });
+
   it("rethrows a non-busy error immediately and a busy one once the budget is spent", () => {
     let calls = 0;
     expect(() =>
