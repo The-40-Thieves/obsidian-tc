@@ -278,79 +278,90 @@ export const PatchAnchor = z.discriminatedUnion("type", [
   z.object({ type: z.literal("frontmatter") }).strict(),
 ]);
 
-export const PatchInput = z
-  .object({
-    vault: VaultId,
-    path: VaultPath,
-    operation: z.enum(["append", "prepend", "replace", "replace_text"]),
-    // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
-    target_heading: z.string().min(1).optional(),
-    anchor: PatchAnchor.optional(),
-    // Required unless operation is replace_text (see the superRefine below).
-    content: z.string().optional(),
-    // THE-1038 / GH #928: replace_text's exact-string substitution, scoped to the resolved
-    // anchor's section. Required (both fields) iff operation is replace_text.
-    old_string: z.string().min(1).optional(),
-    new_string: z.string().optional(),
-    prev_hash: z.string().optional(),
-    // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
-    // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
-    // has no same-or-higher-level heading to bound it and so consumes the entire document below
-    // it. Ignored for append/prepend, for block/frontmatter anchors (which cannot hit this), and
-    // for replace_text (a bounded, uniqueness-checked substitution is not the operation this
-    // guards against).
-    confirm_replace: z.boolean().default(false),
-  })
-  .strict()
-  .superRefine((i, ctx) => {
-    if (i.anchor === undefined && i.target_heading === undefined)
+/** Every patch_note field. Exported so patch_active_file derives its own input from it (minus
+ *  `path`) instead of copying it: the two must accept exactly the same edits. */
+export const PatchInputShape = {
+  vault: VaultId,
+  path: VaultPath,
+  operation: z.enum(["append", "prepend", "replace", "replace_text"]),
+  // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
+  target_heading: z.string().min(1).optional(),
+  anchor: PatchAnchor.optional(),
+  // Required unless operation is replace_text (see the superRefine below).
+  content: z.string().optional(),
+  // THE-1038 / GH #928: replace_text's exact-string substitution, scoped to the resolved
+  // anchor's section. Required (both fields) iff operation is replace_text.
+  old_string: z.string().min(1).optional(),
+  new_string: z.string().optional(),
+  prev_hash: z.string().optional(),
+  // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
+  // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
+  // has no same-or-higher-level heading to bound it and so consumes the entire document below
+  // it. Ignored for append/prepend, for block/frontmatter anchors (which cannot hit this), and
+  // for replace_text (a bounded, uniqueness-checked substitution is not the operation this
+  // guards against).
+  confirm_replace: z.boolean().default(false),
+};
+
+/** The cross-field rules of a patch request: which of content / old_string / new_string each
+ *  operation requires or forbids. Shared with patch_active_file (see PatchInputShape). */
+export function refinePatchInput(
+  i: Pick<
+    z.infer<z.ZodObject<typeof PatchInputShape>>,
+    "operation" | "target_heading" | "anchor" | "content" | "old_string" | "new_string"
+  >,
+  ctx: z.RefinementCtx,
+): void {
+  if (i.anchor === undefined && i.target_heading === undefined)
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "either anchor or target_heading is required",
+    });
+  if (i.operation === "replace_text") {
+    if (i.old_string === undefined)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "either anchor or target_heading is required",
+        path: ["old_string"],
+        message: "old_string is required when operation is replace_text",
       });
-    if (i.operation === "replace_text") {
-      if (i.old_string === undefined)
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["old_string"],
-          message: "old_string is required when operation is replace_text",
-        });
-      if (i.new_string === undefined)
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["new_string"],
-          message: "new_string is required when operation is replace_text",
-        });
-      // Review round 1 M6: enforce the REVERSE direction of "iff" too — content belongs to
-      // append/prepend/replace only.
-      if (i.content !== undefined)
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["content"],
-          message:
-            "content must not be set when operation is replace_text; use old_string/new_string",
-        });
-    } else {
-      if (i.content === undefined)
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["content"],
-          message: "content is required unless operation is replace_text",
-        });
-      if (i.old_string !== undefined)
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["old_string"],
-          message: "old_string is only valid when operation is replace_text",
-        });
-      if (i.new_string !== undefined)
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["new_string"],
-          message: "new_string is only valid when operation is replace_text",
-        });
-    }
-  });
+    if (i.new_string === undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["new_string"],
+        message: "new_string is required when operation is replace_text",
+      });
+    // Review round 1 M6: enforce the REVERSE direction of "iff" too — content belongs to
+    // append/prepend/replace only.
+    if (i.content !== undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message:
+          "content must not be set when operation is replace_text; use old_string/new_string",
+      });
+  } else {
+    if (i.content === undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["content"],
+        message: "content is required unless operation is replace_text",
+      });
+    if (i.old_string !== undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["old_string"],
+        message: "old_string is only valid when operation is replace_text",
+      });
+    if (i.new_string !== undefined)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["new_string"],
+        message: "new_string is only valid when operation is replace_text",
+      });
+  }
+}
+
+export const PatchInput = z.object(PatchInputShape).strict().superRefine(refinePatchInput);
 
 export const MoveInput = z
   .object({

@@ -360,3 +360,17 @@ export class DispatchObservability {
     }
   }
 }
+
+/** THE-1125: the `observeToolCall` `detail` argument, built once per call site from `ctx` — every
+ *  one of dispatch.ts's six call sites already has `ctx` in scope, so this is not a new read of anything.
+ *  `errorCode` is passed only by the sites that have one; the two "ok" sites omit it. */
+export function telemetryDetail(
+  ctx: CallerContext,
+  errorCode?: string,
+): { errorCode?: string; facadeMode?: string; clientName?: string } {
+  return {
+    ...(errorCode !== undefined ? { errorCode } : {}),
+    ...(ctx.effectiveFacadeMode !== undefined ? { facadeMode: ctx.effectiveFacadeMode } : {}),
+    ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
+  };
+}

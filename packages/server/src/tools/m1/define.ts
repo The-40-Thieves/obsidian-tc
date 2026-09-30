@@ -6,7 +6,9 @@ import type { z } from "zod";
 import type { CallerContext, ToolDefinition, ToolDomain, ToolIcon } from "../../mcp/registry";
 import type { AclOp } from "../../vault/acl-path";
 
-export interface ToolSpec<S extends z.ZodTypeAny, O> {
+/** `B`: the fields `resolveTarget` adds to the validated input (none by default). `pathAcl`,
+ *  `precheck` and `handler` run after that merge, so they see `z.infer<S> & B`. */
+export interface ToolSpec<S extends z.ZodTypeAny, O, B extends object = Record<never, never>> {
   /** THE-583: may this tool run as a background TASK when the client asks (`params.task`)?
    *  Opt-in — see ToolDefinition.taskAugmentable. */
   taskAugmentable?: boolean;
@@ -36,21 +38,25 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
   destructive?: boolean;
   /** THE-824: see ToolDefinition.conditionallyDestructive — display-only, never read by dispatch. */
   conditionallyDestructive?: boolean;
-  precheck?: (input: z.infer<S>, ctx: CallerContext) => void | Promise<void>;
+  precheck?: (input: z.infer<S> & B, ctx: CallerContext) => void | Promise<void>;
+  /** See ToolDefinition.resolveTarget: the fields returned here are merged into the input. */
+  resolveTarget?: (input: z.infer<S>, ctx: CallerContext) => B | Promise<B>;
   scopeClass?: string;
   /** THE-414: declarative folder-ACL path extraction — the vault-relative paths this tool touches,
    *  tagged by op, so runDispatch enforces the folder ACL centrally (handler-side enforcePathAcl
    *  stays as defense-in-depth). See ToolDefinition.pathAcl. Extractors must mirror the handler's
    *  own enforcePathAcl calls; paths a handler computes at runtime (not derivable from input, e.g.
    *  backlink-rewrite targets) stay handler-enforced only. */
-  pathAcl?: (input: z.infer<S>) => ReadonlyArray<{ op: AclOp; path: string }>;
+  pathAcl?: (input: z.infer<S> & B) => ReadonlyArray<{ op: AclOp; path: string }>;
   /** See ToolDefinition.confirmationTargets. */
   confirmationTargets?: ToolDefinition<z.infer<S>>["confirmationTargets"];
   /** See ToolDefinition.deniedItems. */
   deniedItems?: (output: O) => readonly string[];
-  handler: (input: z.infer<S>, ctx: CallerContext) => O | Promise<O>;
+  handler: (input: z.infer<S> & B, ctx: CallerContext) => O | Promise<O>;
 }
 
-export function defineTool<S extends z.ZodTypeAny, O>(spec: ToolSpec<S, O>): ToolDefinition {
+export function defineTool<S extends z.ZodTypeAny, O, B extends object = Record<never, never>>(
+  spec: ToolSpec<S, O, B>,
+): ToolDefinition {
   return spec as unknown as ToolDefinition;
 }

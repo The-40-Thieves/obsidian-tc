@@ -57,7 +57,7 @@ search, active file, commands, periodic notes). Mapping by capability:
 | Frontmatter / properties | `read_frontmatter`, `read_property`, `update_frontmatter`, `list_properties`, `find_notes_by_property` |
 | Command palette (list / execute) | `list_commands`, `execute_command` (companion-backed, policy-gated) |
 | Periodic / daily notes | `get_periodic_note`, `create_periodic_note`, `find_or_create_periodic_note`, `append_to_periodic_note`, `list_periodic_notes` |
-| Active file get / update / patch / delete | **Not covered** — see §2c |
+| Active file get / update / append / patch / delete | `get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file`, `delete_active_file` (companion-backed) — see §2c |
 | Server info | `server_health`, `get_server_config` |
 
 Beyond parity, obsidian-tc adds links (`get_outgoing_links`, `get_backlinks`,
@@ -85,7 +85,7 @@ and deprecation notices for the old aliases, THE-280), bookmarks, workspaces, bu
 | Templater (`execute_template`) | `list_templates`, `execute_template` — companion-bridged; the server now refuses to clobber an existing target unless `overwrite: true` (THE-289) |
 | `get_server_info` | `server_health` |
 | `show_file_in_obsidian` | `show_file_in_obsidian` (companion-backed; opt-in OS-launch fallback) — see §2c |
-| Active-file tools | Not covered — see §2c |
+| Active-file tools | `get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file`, `delete_active_file` (companion-backed) — see §2c |
 | `fetch` (web fetch) | Not carried over — out of scope for a vault server; the agent host provides web tools |
 
 ### 2c. UI-coupled gaps (honest notes)
@@ -93,10 +93,21 @@ and deprecation notices for the old aliases, THE-280), bookmarks, workspaces, bu
 These LRA-MCP / mcp-tools capabilities depend on the Obsidian **UI session** and have no
 full obsidian-tc equivalent today:
 
-- **Active file (get / update / append / patch / delete the currently-open note).**
-  Not covered. obsidian-tc tools are path-addressed; there is no `get_active_file`
-  equivalent in `packages/server/src/tools/`. Workflow change: the agent asks for (or is
-  told) the note path and uses the path-addressed tools.
+- **Active file (get / update / append / patch / delete the currently-open note).** Covered by
+  `get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file` and
+  `delete_active_file`. Each asks the companion plugin (`GET /files/active`) which note the live
+  Obsidian session has open, then runs `read_note` / `write_note` (overwrite) / `append_note` /
+  `patch_note` / `delete_note` on that path, so scopes, the per-vault folder ACL, memoryDefense,
+  snapshots, compare-and-swap and the human confirmations apply exactly as for a path-addressed
+  call. The path is resolved once per call, before the ACL, confirmation and idempotency stages,
+  and is part of the confirmation's `args_hash`: a confirmation raised while note A was open cannot
+  be redeemed after focus moves to note B. With no open note the tools return `note_not_found`
+  (`details.reason: no_active_file`); with no live Obsidian session, `plugin_unreachable` or
+  `requires_live_obsidian`; each carries a hint, and nothing falls back to a default path. Only
+  markdown notes are changed: a canvas, PDF or image that is active is refused for
+  update/append/patch/delete, and `get_active_file` returns its path, extension and stat only. They
+  need a companion that ships `GET /files/active`; an older one answers with an "update the
+  companion plugin" hint.
 - **Open / reveal a file in Obsidian (`show_file_in_obsidian`).** Covered by
   `show_file_in_obsidian`, which actually opens the note (`generate_uri` stays the pure
   `obsidian://` string builder). It first asks the companion plugin to open the file in the live
@@ -109,8 +120,8 @@ full obsidian-tc equivalent today:
 - The opt-in companion "refresh nudge" for open panes is designed but deferred
   (THE-283, `docs/COHERENCE.md`).
 
-If active-file workflows are load-bearing for you, keep that one workflow on the old
-surface until a companion-backed active-file bridge ships; everything else cuts over now.
+The active-file workflow needs a live Obsidian session with the companion plugin; on a headless
+server keep using the path-addressed tools.
 
 ### 2d. From the Local REST API's built-in MCP (v5.0+, 2026-07-24)
 
@@ -138,8 +149,8 @@ newer surface than the "LRA-MCP" projection retired in §2a above.
 
 No obsidian-tc equivalent:
 
-- **`active_file_get_path`.** UI-coupled to the currently-open note; see §2c above —
-  obsidian-tc tools are path-addressed, not session-addressed.
+- **`active_file_get_path`.** No path-only tool; `get_active_file` returns the active note's
+  `path` together with its content (see §2c above).
 - **`open_file`.** Covered by `show_file_in_obsidian` (see §2c); `generate_uri` (action
   `open`) remains the pure string builder.
 - **`vault_get_document_map`.** No note-outline/heading-discovery tool exists today;

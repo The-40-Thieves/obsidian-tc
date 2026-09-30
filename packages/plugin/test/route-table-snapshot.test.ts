@@ -61,10 +61,11 @@ const EXPECTED_ROUTE_TABLE = [
   "post /templater/execute",
   "post /tasks/filter",
   "post /files/open",
+  "get /files/active",
 ];
 
 describe("buildRoutes — full route-table snapshot (method, path, order, uniqueness)", () => {
-  it("emits exactly the pinned 29 routes, in the pinned order", () => {
+  it("emits exactly the pinned 30 routes, in the pinned order", () => {
     const actual = buildRoutes(fakeApp(), "1.13.1", []).map((d) => `${d.method} ${d.path}`);
     expect(actual).toEqual(EXPECTED_ROUTE_TABLE);
   });

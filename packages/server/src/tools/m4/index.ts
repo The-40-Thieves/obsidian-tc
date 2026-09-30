@@ -6,6 +6,7 @@
 // plugin or the companion is absent; filesystem tools (Smart Context, Tasks
 // list/update) need no plugin and always work.
 import type { ToolRegistry } from "../../mcp/registry";
+import { buildActiveFileTools } from "./active-file-tools";
 import { buildBundleTools } from "./bundle-tools";
 import { buildCapabilityTools } from "./capability-tools";
 import { buildCommandTools } from "./command-tools";
@@ -44,6 +45,12 @@ export function registerM4Tools(registry: ToolRegistry, deps: M4Deps): void {
   for (const tool of buildCommandTools(deps)) registry.register(tool);
   // show_file_in_obsidian: open a note via the companion, or the OS URI handler when opted in.
   for (const tool of buildOpenTools(deps)) registry.register(tool);
+  // *_active_file: the note operations aimed at the note open in the live session. The note tools
+  // they delegate to are registered by M1, so they are looked up at call time.
+  for (const tool of buildActiveFileTools(deps, (name) =>
+    registry.list().find((t) => t.name === name),
+  ))
+    registry.register(tool);
   // THE-378/381: git + remotely-save bridges (domains 30/31).
   for (const tool of buildGitTools(deps)) registry.register(tool);
   for (const tool of buildRemotelySaveTools(deps)) registry.register(tool);

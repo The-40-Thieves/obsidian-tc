@@ -128,3 +128,28 @@ signature `pathAcl` already proved out (a function of the input, enforced centra
 the declared maximum the tool advertises. This is enforced at runtime, not just documented: a
 resolver returning a scope the tool never declared is an under-declaration, and the advertised
 surface would be lying about what the tool can do. Narrowing is the point; widening is a defect.
+
+## `resolveTarget`: a target chosen by live external state, bound before the gates that key on arguments
+
+The `*_active_file` tools have no `path` argument: the note they act on is whichever one the live
+Obsidian session has open, which can change between two calls with identical arguments. Everything
+dispatch keys on the arguments would be blind to that: the HITL `args_hash`, the idempotency claim,
+the `replay_drift` fingerprint (built from `pathAcl`) and the folder ACL itself. Resolving the path
+inside the handler would leave the central ACL stage and the confirmation looking at a call that
+names no note, and a confirmation raised for note A would still redeem after focus moved to note B.
+
+`resolveTarget(input, ctx)` is an optional async hook that returns the fields the caller did not
+supply. Dispatch runs it after the auth, scope, vault-binding, per-vault ACL swap, read-only and
+vault-kind gates (a caller those refuse never probes the live session) and before `precheck`,
+idempotency and HITL. It then:
+
+- merges the fields into the validated input, so `precheck`, `pathAcl`, `confirmationTargets` and the
+  handler all see them (a returned key that the input schema already owns is refused as `internal`);
+- recomputes the args hash over the raw arguments plus the resolved fields, and records that same
+  object as the audit/episode arguments, so the confirmation, the idempotency claim and the trail
+  name the note that was actually hit;
+- enforces the folder ACL on the resolved paths at once, ahead of HITL, and rethrows a denial without
+  `details.path`: the caller did not name the path, so echoing it would disclose the active note.
+
+Absent, nothing changes for a tool. `defineTool`'s `ToolSpec` takes the merged shape as a third type
+parameter so `pathAcl` and `handler` are typed against `input & resolved`.

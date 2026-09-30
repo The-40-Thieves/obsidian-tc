@@ -82,6 +82,12 @@ const MEMORY_DEFENSE_COVERED = new Set<string>([
   // text), not just the binary attachment file, so it needs the same guard every other backlink
   // rewrite gets (move_note/bulk_move_notes' own rewriteForMoves).
   "move_attachment",
+  // The *_active_file writers delegate to write_note/append_note/patch_note's own handlers (see
+  // tools/m4/active-file-tools.ts), so the guard above runs on their content unchanged.
+  // test/active-file-tools.test.ts pins it for update_active_file.
+  "update_active_file",
+  "append_active_file",
+  "patch_active_file",
 ]);
 
 // Mutating tools that write NO new caller-influenced free text into the vault, so there is nothing
@@ -110,6 +116,7 @@ const MEMORY_DEFENSE_EXEMPT = new Map<string, string>([
   ["delete_attachment", "binary attachment op, no text content"],
   // --- Deletion / state-transition: no NEW caller-supplied free text persisted.
   ["delete_note", "removes a note; persists no new content"],
+  ["delete_active_file", "delegates to delete_note on the active note; persists no new content"],
   ["delete_entity", "trashes the entity's computed note; persists no new content"],
   ["unlink_entities", "re-materializes the source entity's EXISTING (already-scanned) note"],
   ["close_goal", "moves a goals row to a terminal state; no free-text field"],
