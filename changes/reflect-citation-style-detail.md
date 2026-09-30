@@ -9,4 +9,4 @@ type: Added
   `concise`, today's behaviour) sets how much the synthesis says; it is a prompt instruction only,
   with no output cap. Both can be defaulted per vault under `vaults[].reflect`
   (`citationStyle`, `detail`); precedence is call argument, then vault config, then the default.
-  With both omitted the synthesis prompt is byte-identical to before.
+  With both omitted the synthesis prompt is byte-identical to before (#1061).
