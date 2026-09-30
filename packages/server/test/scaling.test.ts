@@ -25,8 +25,10 @@ describe("expectLinear", () => {
   });
 
   it("refuses a quadratic subject", () => {
+    // 4096, not smaller: the helper floors times at 1 ms, so a 1x pass that is sub-millisecond on a
+    // fast runner (windows measured a slope under 1.6 at 1024) flattens the fit.
     expect(() =>
-      expectLinear("x", burnQuadratic, { baseBytes: 1024, boundMsPer80KB: null }),
+      expectLinear("x", burnQuadratic, { baseBytes: 4096, boundMsPer80KB: null }),
     ).toThrow(/log-log slope/);
   });
 
