@@ -6,5 +6,8 @@ import { buildKnowledgeTools, type M7Deps } from "./knowledge-tools";
 export type { M7Deps } from "./knowledge-tools";
 
 export function registerM7Tools(registry: ToolRegistry, deps: M7Deps): void {
-  for (const tool of buildKnowledgeTools(deps)) registry.register(tool);
+  // search_and_read reads notes of the vault its query names, so it resolves that vault's ACL through
+  // the registry's own per-vault resolver (the one dispatch uses), as M1's read_resources does.
+  for (const tool of buildKnowledgeTools(deps, (id) => registry.aclFor(id)))
+    registry.register(tool);
 }

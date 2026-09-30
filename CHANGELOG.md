@@ -26,6 +26,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `allowedVaults`, array-form claim paths, object-form `requiredClaims`, `allowedJwksHosts` and
   `allowPrivateNetwork`.
 
+- **`search_and_read`: search, then read the top-k notes in one call.** Until now a search returned
+  chunks and a second `read_notes` call fetched the bodies. `search_and_read` runs
+  `vault_graph_search`'s ranking (same filters, same query cache, the vault's own ACL) and returns
+  the top `k` (at most 20, default 5) distinct notes with `frontmatter`, `body` and the whole-note
+  `content_hash`, in search order, each read by `read_notes`' own read path. `mode: "section"`
+  returns only the heading section each hit matched instead (the resolver `read_note`'s `anchor`
+  and `patch_note` use; a hit before the first heading resolves to the preamble). The result is
+  held under the byte budget by the shared `byte-page.ts` paginator, exactly like `read_notes`
+  (`next_cursor`, bound to the caller, the tool and these arguments). Budget policy: the selected
+  notes share the budget equally (`max_bytes_per_item` overrides), and a note over its share is cut
+  on a character boundary and marked `truncated: true` with `size_bytes`, its full size, rather than
+  dropped as `too_large`; `too_large` is kept only for an entry a cut cannot fix. ACL is enforced
+  per item on every page, under the vault's own ACL and the caller's granted scopes; a note the
+  caller cannot read is never a candidate, and one revoked between pages is a per-item
+  `note_not_found` (no path, identical to a missing note) that is still audited as a denial
+  (`deniedItems`). Registered tools: 165 to 166.
+
 - **Signing-key rotation grace window, asymmetric keys and a JWKS.** `auth.rotationGraceSeconds`
   (default 0, maximum 7 days) is the grace window `auth rotate-key` uses when `--grace` is omitted;
   an explicit `--grace`, including 0, wins. A reaper persists `retiring` to `retired` on rotate, on

@@ -14,7 +14,7 @@
     "direction": "exact"
   },
   "index.notes_per_s": {
-    "value": 858.648096695728,
+    "value": 796.2434254379422,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -28,7 +28,7 @@
     "direction": "exact"
   },
   "embed.tokens_per_s": {
-    "value": 22127.36145184891,
+    "value": 20519.19307353577,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -42,7 +42,7 @@
     "direction": "exact"
   },
   "index.chunks_per_s": {
-    "value": 1717.296193391456,
+    "value": 1592.4868508758843,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -63,7 +63,7 @@
     "direction": "exact"
   },
   "embed.texts_per_s": {
-    "value": 1030.3777160348736,
+    "value": 955.4921105255306,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -77,28 +77,28 @@
     "direction": "higher-worse"
   },
   "boot.tools_registered": {
-    "value": 162,
+    "value": 164,
     "tol": 0,
     "mode": "ratio",
     "class": "hard",
     "direction": "exact"
   },
   "boot.module_eval_ms": {
-    "value": 168.06567700000002,
+    "value": 181.824412,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "boot.registration_ms": {
-    "value": 18.496081000000004,
+    "value": 22.028244,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "boot.tools_list_ms": {
-    "value": 47.19395799999998,
+    "value": 47.95210300000002,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -140,7 +140,7 @@
     "direction": "lower-worse"
   },
   "retrieval.ndcg_per_ms": {
-    "value": 0.056704311987020896,
+    "value": 0.05394560723221207,
     "tol": 0.5,
     "mode": "abs",
     "class": "warn",
@@ -175,14 +175,14 @@
     "direction": "exact"
   },
   "freshness.ms": {
-    "value": 61.35995199999991,
+    "value": 67.81279999999992,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.bytes": {
-    "value": 1335296,
+    "value": 1347584,
     "tol": 0.15,
     "mode": "ratio",
     "class": "hard",
@@ -196,14 +196,14 @@
     "direction": "exact"
   },
   "storage.txn_ms": {
-    "value": 0.5864310000000614,
+    "value": 0.5991530000000012,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.cpu_ms": {
-    "value": 0.596,
+    "value": 0.612,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -224,7 +224,7 @@
     "direction": "lower-worse"
   },
   "storage.lock_wait_ms": {
-    "value": 251.05,
+    "value": 251.1,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -238,14 +238,14 @@
     "direction": "lower-worse"
   },
   "runtime.eventloop_p99_ms": {
-    "value": 57.180159,
+    "value": 65.241087,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "runtime.peak_rss_mb": {
-    "value": 114.62890625,
+    "value": 115.76171875,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -259,14 +259,14 @@
     "direction": "exact"
   },
   "http.cold_ms": {
-    "value": 18.21895799999993,
+    "value": 20.041709000000083,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "http.warm_ms": {
-    "value": 0.8586419999996906,
+    "value": 1.1256170000001475,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -280,7 +280,7 @@
     "direction": "exact"
   },
   "http.concurrent2_p99_ms": {
-    "value": 0.8997080000003734,
+    "value": 0.9798129999999219,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -294,7 +294,7 @@
     "direction": "exact"
   },
   "http.concurrent8_p99_ms": {
-    "value": 3.4098480000002382,
+    "value": 3.8155870000000505,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -308,7 +308,7 @@
     "direction": "exact"
   },
   "migration.ms": {
-    "value": 1.0698780000002444,
+    "value": 1.20363800000041,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -322,7 +322,7 @@
     "direction": "exact"
   },
   "shutdown.ms": {
-    "value": 0.027982000000065455,
+    "value": 0.03146900000001551,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",

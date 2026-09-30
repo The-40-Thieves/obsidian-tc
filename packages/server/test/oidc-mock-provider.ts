@@ -108,7 +108,9 @@ export async function startMockIdp(): Promise<MockIdp> {
 
   const mapped: typeof fetch = (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
-    return fetch(url.startsWith(ISSUER) ? base + url.slice(ISSUER.length) : url, init);
+    // Compare the parsed origin, not a string prefix: `https://idp.test.evil` also starts with the issuer.
+    const target = new URL(url);
+    return fetch(target.origin === ISSUER ? base + target.pathname + target.search : url, init);
   };
 
   return {

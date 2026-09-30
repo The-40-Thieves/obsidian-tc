@@ -7,6 +7,7 @@
 // whole note.
 import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import type { FolderAcl } from "../../../acl";
 import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
@@ -95,6 +96,23 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
   });
 }
 
+/** The per-note read path shared by read_notes and search_and_read: containment guard, folder ACL
+ *  (plus the path's rule-scopes when `grantedScopes` is passed), existence (a folder answers like a
+ *  missing note), then read + parse. Throws an ObsidianTcError; the caller shapes it into an item. */
+export function readVaultNote(
+  root: string,
+  rel: string,
+  acl: FolderAcl | undefined,
+  grantedScopes?: Iterable<string>,
+) {
+  const abs = resolveVaultPath(root, rel);
+  enforcePathAcl(acl, "read", rel, root, grantedScopes);
+  const ex = noteExists(abs);
+  if (!ex.exists || ex.type === "folder") throw err.noteNotFound("note not found", { path: rel });
+  const { raw, hash } = readNote(abs);
+  return { raw, hash, parsed: parseNote(raw, rel) };
+}
+
 /** One read_notes item: a note entry, or a per-path error entry (partial semantics). */
 type ReadNotesEntryOrError =
   | { kind: "note"; note: Record<string, unknown> }
@@ -132,13 +150,7 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
         produce: (p) => {
           try {
             const rel = normalizeVaultPath(p);
-            const abs = resolveVaultPath(v.root, rel);
-            enforcePathAcl(ctx.acl, "read", rel, v.root);
-            const ex = noteExists(abs);
-            if (!ex.exists || ex.type === "folder")
-              throw err.noteNotFound("note not found", { path: rel });
-            const { raw, hash } = readNote(abs);
-            const parsed = parseNote(raw, rel);
+            const { raw, hash, parsed } = readVaultNote(v.root, rel, ctx.acl);
             return {
               kind: "note",
               note: {
