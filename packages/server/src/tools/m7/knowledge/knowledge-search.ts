@@ -47,7 +47,7 @@ export function createKnowledgeSearchTool(
       .strict(),
     outputSchema: KnowledgeSearchOutput,
     requiredScopes: ["read:docs"],
-    tags: ["docs", "search", "knowledge"],
+    tags: ["docs", "search", "knowledge", "external-network"],
     handler: async (input, ctx) => {
       // THE-635: validate before any DB/embedding work — a clean error, never a silently-ignored
       // or silently-clamped input.

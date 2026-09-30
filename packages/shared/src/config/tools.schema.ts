@@ -42,11 +42,15 @@ export const ToolVisibilityConfigSchema = z.object({
   hiddenTags: z
     .array(z.string())
     .default([])
-    .describe("Tags whose tools are hidden from tools/list but remain callable."),
+    .describe(
+      "Tags whose tools are hidden from tools/list but remain callable. Tags come from the tool-tag vocabulary (for example `destructive`, `bulk`, `external-network`, `domain:git`); see Tool tags in the docs.",
+    ),
   disabledTags: z
     .array(z.string())
     .default([])
-    .describe("Tags whose tools are hidden and rejected at dispatch."),
+    .describe(
+      "Tags whose tools are hidden and rejected at dispatch. Same tag vocabulary as hiddenTags.",
+    ),
   requireReadOnly: z
     .boolean()
     .default(false)

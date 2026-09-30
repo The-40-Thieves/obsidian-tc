@@ -147,8 +147,8 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `toolFacade.mode` | `triad` | What `tools/list` advertises: `triad` (3 meta-tools), `domain` (~a dozen domain meta-tools), `flat` (everything), `auto` (per-client, provisional — see Tool Reference). All tools stay callable by name in every mode. |
 | `toolFacade.autoClients` | *(optional)* | Only used when `mode` is `auto`: substring-of-clientInfo.name -> mode overrides, checked before the built-in table. |
 | `toolVisibility.allowed` | *(optional)* | Name allowlist for `tools/list` (absent = all; `[]` = none). |
-| `toolVisibility.hidden` / `hiddenTags` | `[]` | Drop from `tools/list` but keep callable (lean surface, not a security boundary). |
-| `toolVisibility.disabled` / `disabledTags` | `[]` | Drop from the list **and** reject at dispatch. |
+| `toolVisibility.hidden` / `hiddenTags` | `[]` | Drop from `tools/list` but keep callable (lean surface, not a security boundary). Tags are the fixed vocabulary in [Tool tags](/tools/#tool-tags), e.g. `destructive`, `bulk`, `external-network`. |
+| `toolVisibility.disabled` / `disabledTags` | `[]` | Drop from the list **and** reject at dispatch. Same tag vocabulary. |
 | `toolVisibility.requireReadOnly` | false | Hide every mutating tool (derived from scopes — no per-tool annotation needed). |
 | `idempotencyTtlSeconds` | 86400 | Idempotency-key replay window. |
 | `idempotencyReclaimSeconds` | 60 | Window before a crashed in-flight idempotency row may be reclaimed — raise for slow bulk tools. |

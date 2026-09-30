@@ -232,7 +232,7 @@ export function createSearchAndReadTool(
       .strict(),
     outputSchema: SearchAndReadOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge", "search"],
+    tags: ["knowledge", "search", "external-network"],
     deniedItems: (out) => denials.get(out) ?? [],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);

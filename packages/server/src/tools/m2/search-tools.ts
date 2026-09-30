@@ -414,6 +414,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         .strict(),
       outputSchema: SearchSemanticOutput,
       requiredScopes: ["read:notes"],
+      tags: ["external-network"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
         const items = await semantic(
@@ -505,6 +506,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         .strict(),
       outputSchema: SearchVaultOutput,
       requiredScopes: ["read:notes"],
+      tags: ["external-network"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
         const asString = (): string => {

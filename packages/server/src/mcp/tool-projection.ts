@@ -1,7 +1,7 @@
 import type { Tool } from "@modelcontextprotocol/server";
-import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
-import { isAdvertisedDestructive, titleize, toInputJson, toJson } from "./facade";
+import { titleize, toInputJson, toJson } from "./facade";
 import type { ToolDefinition } from "./registry";
+import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 
 /**
  * Derive MCP tool annotations from the registry's OWN ground truth, so the client-visible safety
@@ -13,7 +13,7 @@ import type { ToolDefinition } from "./registry";
  * hints, never a trust boundary — dispatch still authorizes every call.
  */
 function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> {
-  const mutating = def.destructive === true || def.requiredScopes.some(isMutatingScope);
+  const mutating = isMutatingDefinition(def);
   return {
     readOnlyHint: !mutating,
     destructiveHint: isAdvertisedDestructive(def),

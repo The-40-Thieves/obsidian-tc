@@ -69,7 +69,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       .strict(),
     outputSchema: VaultContextOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge", "search"],
+    tags: ["knowledge", "search", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       // THE-231 bootstrap mode: with no query, the queued thread comes from the previous

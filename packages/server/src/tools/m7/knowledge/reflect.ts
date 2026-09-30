@@ -51,7 +51,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       .strict(),
     outputSchema: ReflectOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge"],
+    tags: ["knowledge", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       // Same front door as every knowledge surface: the class router when enabled, the

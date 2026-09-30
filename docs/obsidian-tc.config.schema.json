@@ -1744,7 +1744,7 @@
         },
         "hiddenTags": {
           "default": [],
-          "description": "Tags whose tools are hidden from tools/list but remain callable.",
+          "description": "Tags whose tools are hidden from tools/list but remain callable. Tags come from the tool-tag vocabulary (for example `destructive`, `bulk`, `external-network`, `domain:git`); see Tool tags in the docs.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1752,7 +1752,7 @@
         },
         "disabledTags": {
           "default": [],
-          "description": "Tags whose tools are hidden and rejected at dispatch.",
+          "description": "Tags whose tools are hidden and rejected at dispatch. Same tag vocabulary as hiddenTags.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1862,7 +1862,7 @@
               },
               "hiddenTags": {
                 "default": [],
-                "description": "Tags whose tools are hidden from tools/list but remain callable.",
+                "description": "Tags whose tools are hidden from tools/list but remain callable. Tags come from the tool-tag vocabulary (for example `destructive`, `bulk`, `external-network`, `domain:git`); see Tool tags in the docs.",
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -1870,7 +1870,7 @@
               },
               "disabledTags": {
                 "default": [],
-                "description": "Tags whose tools are hidden and rejected at dispatch.",
+                "description": "Tags whose tools are hidden and rejected at dispatch. Same tag vocabulary as hiddenTags.",
                 "type": "array",
                 "items": {
                   "type": "string"

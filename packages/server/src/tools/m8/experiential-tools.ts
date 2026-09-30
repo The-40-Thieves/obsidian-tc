@@ -477,7 +477,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         ),
       }),
       requiredScopes: ["read:notes"],
-      tags: ["experiential", "knowledge"],
+      tags: ["experiential", "knowledge", "external-network"],
       handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
         // Null when no pass has ever been persisted for this vault — every field below falls

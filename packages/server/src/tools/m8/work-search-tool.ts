@@ -57,7 +57,7 @@ export function buildWorkSearchTool(deps: M8Deps): ToolDefinition[] {
         results: z.array(EpisodeProjection),
       }),
       requiredScopes: ["read:workspace"],
-      tags: ["experiential", "search"],
+      tags: ["experiential", "search", "external-network"],
       handler: async (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
         const edb = deps.edb;

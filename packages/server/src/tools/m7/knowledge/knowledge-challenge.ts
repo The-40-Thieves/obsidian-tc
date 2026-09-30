@@ -38,7 +38,7 @@ export function createKnowledgeChallengeTool(
       .strict(),
     outputSchema: KnowledgeChallengeOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge"],
+    tags: ["knowledge", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       if (!deps.roles) {

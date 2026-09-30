@@ -1,4 +1,5 @@
 import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { effectiveToolTags } from "../tool-tags";
 import { isListed, type VisibilityCaller } from "../visibility";
 import { assertConfirmationTargetsDeclared } from "./hitl-declaration";
 import type { ToolDefinition } from "./types";
@@ -23,7 +24,9 @@ export class ToolStore {
   register(def: ToolDefinition<any, any>): void {
     if (this.tools.has(def.name)) throw new Error(`duplicate tool: ${def.name}`);
     assertConfirmationTargetsDeclared(def);
-    this.tools.set(def.name, def);
+    // Stored as a copy carrying the derived + declared tag set, so the caller's definition is
+    // never mutated (one definition may be registered into several registries in tests).
+    this.tools.set(def.name, { ...def, tags: effectiveToolTags(def) });
   }
 
   list(): ToolDefinition[] {

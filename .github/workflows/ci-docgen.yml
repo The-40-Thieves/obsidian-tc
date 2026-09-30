@@ -45,6 +45,11 @@ jobs:
         # publisher fill the regions; `bun run docgen:render -- --reset` empties them again.
         working-directory: packages/server
         run: bun run docgen:render -- --check
+      - name: tool-tag gate (every registered tool carries tags from the vocabulary; every tag is used)
+        # Registration already throws on a bad declaration. This audits the assembled production
+        # registry, and is floored and canaried so a scan that found nothing cannot report clean.
+        working-directory: packages/server
+        run: bun run check:tool-tags
       - name: narrative fact gate (THE-566 — prose states no tool count; golden-set/domain numbers match)
         working-directory: packages/server
         run: bun run docgen:facts-check
