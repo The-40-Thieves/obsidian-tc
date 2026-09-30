@@ -1,8 +1,9 @@
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/server";
 import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
+import type { FolderAcl } from "../acl";
 import { enforcePathAcl } from "../vault/acl-path";
 import { readableRel } from "../vault/acl-read-filter";
-import { readNote, statNote } from "../vault/notes-io";
+import { noteExists, readNote, statNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
 import { profileHiddenTools } from "./capability-hidden";
@@ -129,6 +130,22 @@ export function canReadNotes(ctx: CallerContext): boolean {
   return grantsAll(ctx.grantedScopes, ["read:notes"]);
 }
 
+/**
+ * Resolves the ACL that governs a vault — `ToolRegistry.aclFor`, i.e. the SAME per-vault resolver
+ * tool dispatch swaps in for a tool that names a vault. `undefined` = no override wired, so the
+ * caller's own `ctx.acl` (the root default) governs, exactly as dispatch falls back.
+ */
+export type VaultAclResolver = (vaultId: string) => FolderAcl | undefined;
+
+/** The ACL the resource surfaces enforce for `vaultId`. A resource URI names its vault inside the
+ *  URI, not in a `vault` argument, so dispatch's applyVaultAcl swap never runs for these surfaces;
+ *  without this they were authorized by the ROOT ACL against a vault whose own override was
+ *  narrower. Required (no default) on purpose, like `maxResourceBytes`: a caller that forgets it
+ *  must fail to compile, not silently fall back to the root ACL. */
+function aclOfVault(ctx: CallerContext, vaultId: string, aclFor: VaultAclResolver) {
+  return aclFor(vaultId) ?? ctx.acl;
+}
+
 // resources/list returns at most this many notes per page; the client follows nextCursor for
 // the rest. Bounds the response on a large vault, since resources bypass the dispatch governor.
 const RESOURCE_PAGE_SIZE = 500;
@@ -137,19 +154,22 @@ const RESOURCE_PAGE_SIZE = 500;
  * resources/list — readable markdown notes in the caller's bound vault, as MCP resources, one
  * page (RESOURCE_PAGE_SIZE) at a time. Mirrors list_notes: the same vault walk, filtered by the
  * same read-ACL. Returns an empty list when the caller lacks the read:notes scope. `cursor` is
- * the opaque offset carried over from a prior result's nextCursor.
+ * the opaque offset carried over from a prior result's nextCursor. `aclFor` is the per-vault ACL
+ * resolver (VaultAclResolver): the vault's own override filters the listing, not the root ACL.
  */
 export function listResources(
   vaultRegistry: VaultRegistry,
   ctx: CallerContext,
+  aclFor: VaultAclResolver,
   cursor?: string,
   pageSize = RESOURCE_PAGE_SIZE,
 ): ListResourcesResult {
   if (!canReadNotes(ctx)) return { resources: [] };
   const v = vaultRegistry.resolve(ctx.vaultId);
+  const acl = aclOfVault(ctx, v.id, aclFor);
   const rels = walkVault(v.root, { extensions: [".md"] })
     .map((e) => e.relPath)
-    .filter((rel) => readableRel(ctx.acl, rel));
+    .filter((rel) => readableRel(acl, rel));
   // Offset cursor over the sorted walk (walkVault sorts by relPath, so paging is stable).
   const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
   const page = rels.slice(start, start + pageSize);
@@ -175,12 +195,17 @@ export function listResources(
  * unconfigured ceiling with no compile-time signal that config was ignored. There is exactly one
  * production call site (mcp/server.ts) and it always has a registry in scope, so there is no
  * legitimate caller this default would have served.
+ *
+ * `aclFor` is REQUIRED for the same reason: the folder/rule-scope ACL enforced is the one of the
+ * vault the URI resolves to (per-vault override, else the root default), not `ctx.acl` blindly —
+ * see aclOfVault. read_resources calls this per item, so both surfaces share the one rule.
  */
 export function readResource(
   vaultRegistry: VaultRegistry,
   ctx: CallerContext,
   uri: string,
   maxResourceBytes: number,
+  aclFor: VaultAclResolver,
 ): ReadResourceResult {
   assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
   const { vaultId, relPath } = parseResourceUri(uri);
@@ -202,18 +227,47 @@ export function readResource(
   // P1.4: pass the caller's granted scopes so a path's rule-scopes gate this direct content read
   // too — otherwise resources/read would be a bypass of the read_note path-scope gate for the
   // identical bytes. (readResource is not a runDispatch tool, so the central stage never covers it.)
-  enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
+  enforcePathAcl(aclOfVault(ctx, vaultId, aclFor), "read", rel, v.root, ctx.grantedScopes);
   const abs = resolveVaultPath(v.root, rel);
   // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling
   // only after the read would let any read:notes caller point at a multi-hundred-MB file and
-  // force the full allocation just to be told it is too big. A null stat (missing file) falls
-  // through to readNote, which throws the same not-found error as before.
-  const stat = statNote(abs);
-  if (stat !== null && stat.size > maxResourceBytes)
+  // force the full allocation just to be told it is too big. A null stat is a missing note: a
+  // domain `note_not_found` (asResourceProtocolError maps it to -32602), not the raw ENOENT that
+  // readNote would throw and that surfaced as an internal error.
+  // A folder answers like a missing note (read_note's rule), so a caller inside its allowed paths
+  // cannot tell "a folder is here" from "nothing is here".
+  const stat = noteExists(abs).type === "folder" ? null : statNote(abs);
+  if (stat === null) throw err.noteNotFound("note not found", { uri });
+  if (stat.size > maxResourceBytes)
     throw err.invalidInput(
       `resource exceeds ${maxResourceBytes} bytes; read it with the read_note tool instead`,
-      { uri },
+      { uri, size: stat.size, budget: maxResourceBytes },
     );
   const { raw } = readNote(abs);
   return { contents: [{ uri, mimeType: MIME_MARKDOWN, text: raw }] };
+}
+
+/**
+ * The two production entry points (mcp/server.ts): readResource / listResources with the
+ * registry-derived inputs every real call needs already bound — the configured response ceiling
+ * and the registry's per-vault ACL resolver — so the server cannot pass one and forget the other.
+ */
+export function readResourceFor(
+  registry: Pick<ToolRegistry, "maxResponseBytes" | "aclFor">,
+  vaultRegistry: VaultRegistry,
+  ctx: CallerContext,
+  uri: string,
+): ReadResourceResult {
+  return readResource(vaultRegistry, ctx, uri, registry.maxResponseBytes, (id) =>
+    registry.aclFor(id),
+  );
+}
+
+export function listResourcesFor(
+  registry: Pick<ToolRegistry, "aclFor">,
+  vaultRegistry: VaultRegistry,
+  ctx: CallerContext,
+  cursor?: string,
+): ListResourcesResult {
+  return listResources(vaultRegistry, ctx, (id) => registry.aclFor(id), cursor);
 }

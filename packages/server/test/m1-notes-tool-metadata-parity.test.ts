@@ -1,7 +1,7 @@
 // WP8 (post-refactor-program follow-up): notes-tools.ts (1,042 lines) was never one of the six
 // WP1-WP6 extraction targets — it surfaced only after that program finished, as the new largest
 // production source file. This is the invariant every one of those six extractions proved first
-// and never touched again: the ordered public metadata of the 10 M1 note-CRUD tools
+// and never touched again: the ordered public metadata of the 11 M1 note tools
 // (read_note, read_notes, list_notes, note_exists, write_note, append_note, patch_note,
 // delete_note, move_note, copy_note — the actual `buildNotesTools` array order, not the domain
 // prose order) — name, description, domain, requiredScopes, tags, whether the tool declares a
@@ -94,6 +94,18 @@ const EXPECTED: ToolSnapshot[] = [
     destructive: false,
     inputKeys: ["cursor", "paths", "vault"],
     outputKeys: ["errors", "next_cursor", "notes", "vault"],
+  },
+  {
+    name: "read_resources",
+    description:
+      "Batch resources/read: read many obsidian-tc://<vault>/<path> note resource URIs in one call. Returns one result per URI in request order: {ok: true, uri, mimeType, text} (identical to a single resources/read) or {ok: false, uri, error} for a malformed or unsupported URI, another vault's URI, a denied or missing note. The response is held under the server's byte budget: when the batch does not fit, the results that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single resource too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires.",
+    domain: "notes",
+    requiredScopes: ["read:notes"],
+    tags: [],
+    hasPathAcl: false,
+    destructive: false,
+    inputKeys: ["cursor", "uris"],
+    outputKeys: ["next_cursor", "results"],
   },
   {
     name: "list_notes",
@@ -285,8 +297,8 @@ function stubDeps() {
 }
 
 describe("m1 notes tool metadata parity (WP8 invariant)", () => {
-  it("keeps the ordered public metadata of the 10 M1 note-CRUD tools byte-identical", () => {
-    const tools = buildNotesTools(stubDeps());
+  it("keeps the ordered public metadata of the 11 M1 note tools byte-identical", () => {
+    const tools = buildNotesTools(stubDeps(), () => undefined);
     const actual = tools.map(toSnapshot);
     expect(stableStringify(actual)).toBe(stableStringify(EXPECTED));
   });

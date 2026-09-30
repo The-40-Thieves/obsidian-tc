@@ -231,6 +231,13 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  just documented — narrowing is the point, widening is a defect. See
    *  docs/design/mcp-registry-context-types.md. */
   resolvePolicy?: (input: I) => OperationPolicy;
+  /** A BATCH tool that reports a denied item as data inside a successful result (rather than
+   *  throwing, which would fail the whole call) declares here how to read the denials back out of
+   *  its output: the error code of each denied item (`acl_denied` / `forbidden`; anything else is
+   *  ignored). After a successful handler, dispatch records each one exactly as it records a thrown
+   *  denial (audit row, `acl_denied_total`, `tc.acl.denied`), so a denial is never quieter for
+   *  being one item of a batch. Read from the OUTPUT, so only items actually returned are counted. */
+  deniedItems?: (output: O) => readonly string[];
   handler: (input: I, ctx: CallerContext) => Promise<O> | O;
 }
 
