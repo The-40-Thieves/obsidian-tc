@@ -104,6 +104,16 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Fixed
 
+- **A config file that fails validation now names the file and the problem.** A `config.json`
+  that parses but does not satisfy the schema (for example an empty `{}` left at
+  `~/.obsidian-tc/config.json`, which a bare `obsidian-tc` picks up as its default) used to print a
+  raw Zod issue array. It now exits with "<path> is not a valid config: vaults is required — fix that
+  file, run obsidian-tc setup, or pass a vault folder", for the default path, `OBSIDIAN_TC_CONFIG`
+  and an explicit path alike.
+- **Server tests no longer read or write the developer's real home directory.** The vitest setup now
+  pins `HOME`/`USERPROFILE` to a throwaway directory for every test file, so a machine with an
+  existing `~/.obsidian-tc/config.json` no longer fails `cli-args.test.ts` (2 tests) while CI stays
+  green.
 - **Staging a sandbox no longer inherits the live vault's stale `vault_identity` row.** The
   sandbox's cache is staged by copying the live cache.db; that copy previously carried over the
   live vault's `vault_identity` row, and the stable-vault-identity migration then refused the
