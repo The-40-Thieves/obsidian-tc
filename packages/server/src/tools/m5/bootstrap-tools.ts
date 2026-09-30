@@ -95,7 +95,7 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
           try {
             // A denied/missing path degrades to a skipped entry rather than failing the whole
             // bootstrap: a partial context load is the correct behavior for session open.
-            enforcePathAcl(ctx.acl, "read", rel, v.root);
+            enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
             const abs = resolveVaultPath(v.root, rel);
             const ex = noteExists(abs);
             if (!ex.exists || ex.type === "folder") {
@@ -111,7 +111,11 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
               content_hash: hash,
             });
           } catch (e) {
-            skipped.push({ path: rel, reason: (e as { code?: string }).code ?? "error" });
+            const code = (e as { code?: string }).code ?? "error";
+            // A denied path is omitted, not listed: the routing table is operator config, and
+            // naming a configured path the caller may not read would disclose it (a caller
+            // cannot tell "denied" from "not configured", exactly as for a note it cannot read).
+            if (code !== "acl_denied") skipped.push({ path: rel, reason: code });
           }
         }
 

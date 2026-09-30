@@ -5,10 +5,13 @@ import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import type { FolderAcl } from "../../acl";
 import { loadConfig } from "../../config/load";
 import type { Database } from "../../db/types";
 import { argsHash } from "../../hash";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import type { VaultAclResolver } from "../../mcp/resources";
+import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -25,10 +28,34 @@ function countRows(db: Database, table: string, vaultId: string): number {
   if (!COUNTABLE_TABLES.has(table))
     throw err.invalidInput(`countRows: table not in allowlist: ${table}`, { table });
   try {
-    const r = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE vault_id = ?`).get(vaultId) as
-      | { n: number }
-      | undefined;
+    // `path NOT LIKE '.%'`: the hard default-deny roots (.obsidian/.git/.trash) are dot-directories,
+    // which the index never stores; the count must not depend on that holding (readableRel denies them).
+    const r = db
+      .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE vault_id = ? AND path NOT LIKE '.%'`)
+      .get(vaultId) as { n: number } | undefined;
     return r?.n ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** The vault's chunk count AS THIS CALLER SEES IT: chunks under a path the caller cannot read
+ *  (folder whitelist or rule-scope) are not counted, so the number cannot reveal that they exist.
+ *  A caller with unrestricted read takes the plain COUNT. */
+function countReadableChunks(
+  db: Database,
+  vaultId: string,
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+): number {
+  if (readEnumerationUnrestricted(acl, grantedScopes)) return countRows(db, "chunks", vaultId);
+  try {
+    const rows = db
+      .prepare("SELECT path, COUNT(*) AS n FROM chunks WHERE vault_id = ? GROUP BY path")
+      .all(vaultId) as Array<{ path: string; n: number }>;
+    let total = 0;
+    for (const r of rows) if (readableRel(acl, r.path, grantedScopes)) total += r.n;
+    return total;
   } catch {
     return 0;
   }
@@ -172,7 +199,7 @@ function cacheResetState(
   return argsHash("state", state);
 }
 
-export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
+export function buildRegistryTools(deps: M1Deps, aclFor: VaultAclResolver): ToolDefinition[] {
   return [
     defineTool({
       name: "add_vault",
@@ -236,7 +263,12 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
           path: v.root,
           read_only: ctx.acl?.readOnly ?? false,
           embeddings_provider: deps.embeddings.provider,
-          chunk_count: countRows(ctx.db, "chunks", v.id),
+          chunk_count: countReadableChunks(
+            ctx.db,
+            v.id,
+            aclFor(v.id) ?? ctx.acl,
+            ctx.grantedScopes,
+          ),
           last_synced_at: null,
         })),
       }),
@@ -262,7 +294,12 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
           },
           embeddings: { provider: deps.embeddings.provider, model: deps.embeddings.model },
           cache: {
-            chunk_count: countRows(ctx.db, "chunks", v.id),
+            chunk_count: countReadableChunks(
+              ctx.db,
+              v.id,
+              aclFor(v.id) ?? ctx.acl,
+              ctx.grantedScopes,
+            ),
             last_synced_at: null,
             db_size_bytes: dbSizeBytes(ctx.db),
           },

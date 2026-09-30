@@ -38,7 +38,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         // Template paths + parsed user-function bodies are vault content the read ACL governs, but
         // the plugin-defined result shape is not reliably path-attributable — so under a read
         // whitelist, refuse wholesale (THE-270), matching search_dql's fail-closed contract.
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied("list_templates is unavailable under a read whitelist", {
             tool: "list_templates",
           });
@@ -78,8 +78,8 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const template = normalizeVaultPath(input.template);
         const target = normalizeVaultPath(input.target);
-        enforcePathAcl(ctx.acl, "read", template, v.root);
-        enforcePathAcl(ctx.acl, "write", target, v.root);
+        enforcePathAcl(ctx.acl, "read", template, v.root, ctx.grantedScopes);
+        enforcePathAcl(ctx.acl, "write", target, v.root, ctx.grantedScopes);
         // THE-289: Templater writes <target>.md and its create API silently clobbers/dups an
         // existing file, so honor overwrite server-side (authoritative, independent of the
         // companion version): refuse when the resolved target already exists and overwrite is off.

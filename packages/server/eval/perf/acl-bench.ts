@@ -30,6 +30,8 @@ function arg(name: string, fallback: number): number {
 const NOTES = arg("notes", 3000);
 const RULES = arg("rules", 20);
 const SAMPLES = arg("samples", 7);
+/** A caller holding the scope every rule requires: the common case, so the scope check passes. */
+const GRANTED = ["read:notes"];
 
 /** Folder names shaped like a real vault, including one non-ASCII segment so the NFC path is live. */
 const FOLDERS = [
@@ -103,11 +105,11 @@ bench("scopesForPath x notes", () => {
   for (const p of paths) acl.scopesForPath(p);
 });
 bench("readableRel x notes", () => {
-  for (const p of paths) readableRel(acl, p);
+  for (const p of paths) readableRel(acl, p, GRANTED);
 });
 bench("both (reconcile shape)", () => {
   for (const p of paths) {
     acl.scopesForPath(p);
-    readableRel(acl, p);
+    readableRel(acl, p, GRANTED);
   }
 });

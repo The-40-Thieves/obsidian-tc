@@ -40,7 +40,7 @@ export function createKnowledgeCriticalTool(deps: M7Deps): ToolDefinition {
         )
         .all(v.id) as Array<{ path: string; title: string; frontmatter: string | null }>;
       const items = rows
-        .filter((r) => readableRel(ctx.acl, r.path))
+        .filter((r) => readableRel(ctx.acl, r.path, ctx.grantedScopes))
         .map((r) => {
           let fm: Record<string, unknown> = {};
           if (r.frontmatter) {

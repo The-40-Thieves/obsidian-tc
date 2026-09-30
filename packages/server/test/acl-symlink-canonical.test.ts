@@ -30,9 +30,9 @@ describe.skipIf(!symlinkOk)("THE-269 symlink ACL canonicalization", () => {
       readPaths: ["public/**"],
     });
     // Lexically public/escape/creds.md matches public/**, but its realpath is secret/creds.md.
-    expect(() => enforcePathAcl(acl, "read", "public/escape/creds.md", root)).toThrow();
+    expect(() => enforcePathAcl(acl, "read", "public/escape/creds.md", root, [])).toThrow();
     // A genuine in-whitelist path is still allowed.
-    expect(() => enforcePathAcl(acl, "read", "public/note.md", root)).not.toThrow();
+    expect(() => enforcePathAcl(acl, "read", "public/note.md", root, [])).not.toThrow();
     // The old no-root lexical bypass is no longer expressible: `root` is now a required arg
     // (THE-286), so enforcement always canonicalizes and the symlinked path above is denied.
     rmTemp(root);

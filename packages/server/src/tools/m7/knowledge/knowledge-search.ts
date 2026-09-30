@@ -72,9 +72,9 @@ export function createKnowledgeSearchTool(
         });
       let route = deps.classRouter
         ? routeQuery(ctx.db, v.id, input.query, {
-            isReadable: (p) => readableRel(ctx.acl, p),
+            isReadable: (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
             // THE-694: the rare-term probe is only issued for callers who can read everything.
-            readUnrestricted: readEnumerationUnrestricted(ctx.acl),
+            readUnrestricted: readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes),
           })
         : { class: "standard" as const, signals: [] as string[] };
       // THE-635: the lexical short-circuit below bypasses candidateAssembly entirely, which is
@@ -91,14 +91,14 @@ export function createKnowledgeSearchTool(
         // the exact JOIN path (or fails closed) instead of the leaky over-fetch fallback — same
         // resolution the "standard" route gets for free inside buildGraphSearchOptions below.
         const walkFilter = resolveAclWalkFilter(ctx.db, v.id, ctx.acl, ctx.grantedScopes, (rel) =>
-          readableRel(ctx.acl, rel),
+          readableRel(ctx.acl, rel, ctx.grantedScopes),
         );
         const results = lexicalRouteResults(
           ctx.db,
           v.id,
           input.query,
           input.final_top_k,
-          (rel) => readableRel(ctx.acl, rel),
+          (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
           walkFilter.aclSetId,
           walkFilter.aclWalkFilter?.blocked,
         );
@@ -123,7 +123,7 @@ export function createKnowledgeSearchTool(
           // never reranks, independent of any server-side reranker config. Passed explicitly so
           // this stays a visible decision rather than looking like a dropped option.
           reranker: null,
-          isReadable: (rel) => readableRel(ctx.acl, rel),
+          isReadable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
           db: ctx.db,
           acl: ctx.acl,
           grantedScopes: ctx.grantedScopes,

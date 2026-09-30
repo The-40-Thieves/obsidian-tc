@@ -26,9 +26,6 @@ interface Case {
   scopes: string[];
   /** path -> should the principal be allowed to read it */
   expect: Record<string, boolean>;
-  /** resources/list, like list_notes, filters by the read whitelist only (a path's rule-scopes gate
-   *  the READ, not the listing), so it can advertise more than the caller may read. */
-  listed?: string[];
 }
 
 const CASES: Case[] = [
@@ -49,7 +46,6 @@ const CASES: Case[] = [
     override: { rules: [{ glob: "secret/**", scopes: ["read:secret"] }] },
     scopes: ["read:notes"],
     expect: { "pub/a.md": true, "secret/b.md": false, "top.md": true },
-    listed: ["pub/a.md", "secret/b.md", "top.md"],
   },
 ];
 
@@ -148,12 +144,12 @@ describe("per-vault ACL governs read_notes, read_resources, resources/read and r
             .map((r) => r.name)
             .filter((n) => n.endsWith(".md"))
             .sort();
-          const allowed =
-            c.listed ??
-            Object.entries(c.expect)
-              .filter(([, ok]) => ok)
-              .map(([p]) => p)
-              .sort();
+          // Listing and reading share one predicate (readableRel): a note whose rule-scope the
+          // caller lacks is neither readable nor advertised.
+          const allowed = Object.entries(c.expect)
+            .filter(([, ok]) => ok)
+            .map(([p]) => p)
+            .sort();
           expect(listed).toEqual(allowed);
         } finally {
           await close();

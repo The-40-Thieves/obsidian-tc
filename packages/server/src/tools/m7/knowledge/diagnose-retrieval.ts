@@ -184,7 +184,7 @@ export function createDiagnoseRetrievalTool(
         vaultId: v.id,
         finalTopK: input.final_top_k,
         reranker: deps.reranker,
-        isReadable: (p) => readableRel(ctx.acl, p),
+        isReadable: (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
         db: ctx.db,
         acl: ctx.acl,
         grantedScopes: ctx.grantedScopes,

@@ -238,18 +238,18 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
   // Resolve vault + (optional) read-gated root folder, plus a readable predicate
   // that also confines results to that root.
   const scope = (
-    ctx: { acl?: FolderAcl },
+    ctx: { acl?: FolderAcl; grantedScopes: Iterable<string> },
     vault: string,
     root?: string,
   ): { id: string; rootPath: string; sub?: string; readable: (rel: string) => boolean } => {
     const v = deps.vaultRegistry.resolve(vault);
     const sub = root ? normalizeVaultPath(root) : undefined;
-    if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
+    if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
     return {
       id: v.id,
       rootPath: v.root,
       sub,
-      readable: (rel) => readableRel(ctx.acl, rel) && underRoot(rel, sub),
+      readable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes) && underRoot(rel, sub),
     };
   };
 
@@ -477,7 +477,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       requiredScopes: ["read:notes", "read:dataview"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault);
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied(
             "search_dql enumerates the whole vault and cannot be read-ACL filtered; refused",
             { tool: "search_dql" },
@@ -592,7 +592,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
                 { required: ["read:dataview"] },
               );
             tried.push("dql");
-            if (!readEnumerationUnrestricted(ctx.acl))
+            if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
               throw err.aclDenied(
                 "search mode dql enumerates the whole vault and cannot be read-ACL filtered; refused",
                 { tool: "search_vault" },

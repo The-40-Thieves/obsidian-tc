@@ -116,7 +116,7 @@ function loadTemplate(
   // folder allowlist. Harmless to pass even when the caller (create_periodic_note) also declares a
   // pathAcl extractor for this same path — the central stage already checked it with the identical
   // acl/path/grantedScopes, so this handler-side recheck can only reach the same decision.
-  grantedScopes?: Iterable<string>,
+  grantedScopes: Iterable<string>,
 ): string | null {
   const rel = normalizeVaultPath(templatePath);
   enforcePathAcl(acl, "read", rel, root, grantedScopes);
@@ -295,7 +295,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const date = parseDateInput(input.date);
         const { path } = resolvePeriodicPath(v.root, input.period, date);
-        enforcePathAcl(ctx.acl, "read", path, v.root);
+        enforcePathAcl(ctx.acl, "read", path, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, path);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
@@ -606,7 +606,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           }
           const name = formatMoment(d, config.format);
           const rel = `${folder ? `${folder}/` : ""}${name}.md`;
-          if (!readableRel(ctx.acl, rel)) continue;
+          if (!readableRel(ctx.acl, rel, ctx.grantedScopes)) continue;
           const st = statNote(resolveVaultPath(v.root, rel));
           if (st)
             found.push({ period: input.period, date: toISODate(d), path: rel, mtime: st.mtime });

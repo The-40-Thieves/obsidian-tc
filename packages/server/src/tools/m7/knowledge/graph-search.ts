@@ -55,10 +55,16 @@ export interface VaultLegResult {
  *  acl.ts's `makeIndexReadable` already do — a vault with no per-vault override falls back to the
  *  ROOT acl, never to "no ACL at all" (which would be unrestricted, strictly MORE permissive than
  *  today's single-vault behavior for that same vault). Both `deps.acl`/`deps.aclByVault` absent
- *  (a deployment that never wires them) resolves to `undefined`, matching `ctx.acl`'s own
- *  "absent -> unrestricted" convention rather than inventing a new one. */
-function aclForVault(deps: M7Deps, vaultId: string): FolderAcl | undefined {
-  return deps.aclByVault?.get(vaultId) ?? deps.acl;
+ *  (a deployment that never wires them) falls back to the caller's own dispatch ACL, and only when
+ *  that is absent too to `undefined` (`ctx.acl`'s own "absent -> unrestricted" convention). */
+function aclForVault(
+  deps: M7Deps,
+  vaultId: string,
+  callerAcl: FolderAcl | undefined,
+): FolderAcl | undefined {
+  // The caller's own ACL is the last resort, fail-closed: a deployment that wires neither map nor
+  // root must not turn a leg into "no ACL at all" for a caller whose dispatch context is restricted.
+  return deps.aclByVault?.get(vaultId) ?? deps.acl ?? callerAcl;
 }
 
 /**
@@ -82,9 +88,9 @@ export async function searchOneVault(
 ): Promise<VaultLegResult> {
   let route = deps.classRouter
     ? routeQuery(ctx.db, vaultId, query.text, {
-        isReadable: (p) => readableRel(acl, p),
+        isReadable: (p) => readableRel(acl, p, ctx.grantedScopes),
         // THE-694: the rare-term probe is only issued for callers who can read everything.
-        readUnrestricted: readEnumerationUnrestricted(acl),
+        readUnrestricted: readEnumerationUnrestricted(acl, ctx.grantedScopes),
       })
     : { class: "standard" as const, signals: [] as string[] };
   // THE-635: the lexical short-circuit below bypasses candidateAssembly entirely, which is where
@@ -101,14 +107,14 @@ export async function searchOneVault(
     // invariant 1) so the lexical-route bm25Chunks call takes the exact JOIN path (or fails
     // closed) instead of the leaky over-fetch fallback.
     const walkFilter = resolveAclWalkFilter(ctx.db, vaultId, acl, ctx.grantedScopes, (rel) =>
-      readableRel(acl, rel),
+      readableRel(acl, rel, ctx.grantedScopes),
     );
     const results = lexicalRouteResults(
       ctx.db,
       vaultId,
       query.text,
       query.finalTopK,
-      (rel) => readableRel(acl, rel),
+      (rel) => readableRel(acl, rel, ctx.grantedScopes),
       walkFilter.aclSetId,
       walkFilter.aclWalkFilter?.blocked,
     );
@@ -128,7 +134,7 @@ export async function searchOneVault(
     vaultId,
     finalTopK: query.finalTopK,
     reranker: deps.reranker,
-    isReadable: (rel) => readableRel(acl, rel),
+    isReadable: (rel) => readableRel(acl, rel, ctx.grantedScopes),
     // THE-852: this leg's OWN per-vault acl, never ctx.acl — same rule cacheContextFor already
     // follows (see this file's header, invariant 1/2).
     db: ctx.db,
@@ -317,7 +323,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
           // Invariant 1 (ACL per vault) + invariant 2 (cache isolation per vault): both resolved
           // from the SAME per-vault acl, never from ctx.acl — see this file's header and
           // aclForVault's / cacheContextFor's own doc comments.
-          const acl = aclForVault(deps, vaultId);
+          const acl = aclForVault(deps, vaultId, ctx.acl);
           const cache = cacheContextFor(deps, ctx, vaultId, denseText, acl);
           const leg = await searchOneVault(
             deps,

@@ -114,7 +114,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.root ? normalizeVaultPath(input.root) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
         const rels = input.paths?.length
           ? input.paths.map(normalizeVaultPath)
           : walkVault(v.root, { sub, extensions: [".md"] }).map((e) => e.relPath);
@@ -122,7 +122,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
 
         const items: Record<string, unknown>[] = [];
         for (const rel of rels) {
-          if (!readableRel(ctx.acl, rel)) continue;
+          if (!readableRel(ctx.acl, rel, ctx.grantedScopes)) continue;
           if (sub && !(rel === sub || rel.startsWith(`${sub}/`))) continue;
           let raw: string;
           try {
@@ -198,7 +198,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, rel);
         let raw: string;
         try {
@@ -326,10 +326,12 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         // unattributable row when a read whitelist is configured (D2/B1). `groups`
         // (aggregate counts) pass through untouched.
         const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-        const items = filterBridgeItemsByAcl(ctx.acl, rawItems, { tool: "tasks_filter" });
+        const items = filterBridgeItemsByAcl(ctx.acl, ctx.grantedScopes, rawItems, {
+          tool: "tasks_filter",
+        });
         // Under a read whitelist, drop `...result` — `groups` (and any other sibling) is computed
         // over the UNFILTERED task set and leaks counts of notes outside the whitelist (THE-270).
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           return { vault: v.id, items, total: items.length };
         return { vault: v.id, ...result, items, total: items.length };
       },

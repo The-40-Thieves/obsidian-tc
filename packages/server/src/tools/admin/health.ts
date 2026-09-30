@@ -1,8 +1,10 @@
 import { z } from "zod";
+import type { FolderAcl } from "../../acl";
 import type { FacadeMode } from "../../mcp/facade";
 import { FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
 import type { ToolDefinition } from "../../mcp/registry";
 import { NON_CORE_TOOL_NAMES } from "../../mcp/tool-profiles";
+import { readUnrestrictedOnEveryVault } from "../../vault/acl-read-filter";
 
 export interface IndexHealthSnapshot {
   /** Boot reconcile lifecycle: `pending` until it settles, then `ok`, or `degraded` if any vault
@@ -269,18 +271,21 @@ export function createIndexStatusTool(opts: {
   /** THE-645: progress of an index_vault call in flight right now, or null/absent when none is
    *  running. Optional so a caller predating this ticket keeps compiling. */
   getInFlightProgress?: () => IndexInFlightInfo | null;
+  aclFor?: (vaultId: string) => FolderAcl | undefined;
+  vaultIds?: () => string[];
 }): ToolDefinition<Record<string, never>, IndexStatusInfo> {
   return {
     name: "get_index_status",
     domain: "admin",
     description:
-      "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, chunks_upserted from the last index_vault call, and in-flight progress while one is currently running. Read-only — self-diagnose before spending on an expensive search. Domain: admin.",
+      "Search-index health at a glance: boot reconcile state, write-failure count, notes/FTS/vec readiness, chunks_upserted from the last index_vault call, and in-flight progress while one is currently running. Read-only — self-diagnose before spending on an expensive search. chunks_upserted and in_flight count the shared index, notes a read rule hides included, so they are null / absent for a caller without unrestricted read. Domain: admin.",
     inputSchema: z.object({}).strict(),
     outputSchema: IndexStatusOutput,
     requiredScopes: [],
-    handler: () => {
+    handler: (_input, ctx) => {
       const snap = opts.getIndexHealth();
-      const inFlight = opts.getInFlightProgress?.() ?? null;
+      const fullRead = readUnrestrictedOnEveryVault(ctx, opts.vaultIds?.() ?? [], opts.aclFor);
+      const inFlight = fullRead ? (opts.getInFlightProgress?.() ?? null) : null;
       return {
         reconcile: snap.reconcile,
         reconcile_at: snap.reconcile_at,
@@ -288,7 +293,7 @@ export function createIndexStatusTool(opts: {
         notes_ready: snap.notes_ready ?? false,
         vec_enabled: opts.vecEnabled,
         fts_enabled: opts.ftsEnabled,
-        chunks_upserted: opts.getLastChunksUpserted(),
+        chunks_upserted: fullRead ? opts.getLastChunksUpserted() : null,
         ...(inFlight ? { in_flight: inFlight } : {}),
       };
     },
@@ -307,6 +312,7 @@ export function createHealthTool(opts: {
    *  boolean passed in is `authedUnbound` (THE-924), not raw `ctx.authenticated` — see the
    *  handler below. */
   getIndexHealth?: (authenticated: boolean) => IndexHealthSnapshot;
+  aclFor?: (vaultId: string) => FolderAcl | undefined;
   /** #14: live job-queue stats at call time. Counts are non-identifying, so the block is always
    *  present when the accessor is wired (unauthenticated-safe, like vec_enabled). */
   getJobQueueStats?: () => {
@@ -370,6 +376,8 @@ export function createHealthTool(opts: {
     // present only for a trusted, non-vault-bound caller.
     handler: (_input, ctx) => {
       const authedUnbound = ctx.authenticated && ctx.vaultBound !== true;
+      const indexDetail =
+        authedUnbound && readUnrestrictedOnEveryVault(ctx, opts.vaults, opts.aclFor);
       return {
         status: "ok",
         name: "obsidian-tc",
@@ -380,7 +388,7 @@ export function createHealthTool(opts: {
         vault_count: opts.vaults.length,
         ...(authedUnbound ? { vaults: opts.vaults } : {}),
         uptime_ms: Date.now() - opts.startedAt,
-        ...(opts.getIndexHealth ? { index: opts.getIndexHealth(authedUnbound) } : {}),
+        ...(opts.getIndexHealth ? { index: opts.getIndexHealth(indexDetail) } : {}),
         ...(opts.getJobQueueStats
           ? (() => {
               const s = opts.getJobQueueStats?.();

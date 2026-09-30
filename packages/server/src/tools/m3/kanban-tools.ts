@@ -136,7 +136,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const boards: Array<{ path: string; columns: number; cards: number }> = [];
         for (const e of walkVault(v.root, { sub, extensions: [".md"] })) {
-          if (!readableRel(ctx.acl, e.relPath)) continue;
+          if (!readableRel(ctx.acl, e.relPath, ctx.grantedScopes)) continue;
           const parsed = parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath);
           if (!isBoard(parsed.frontmatter)) continue;
           const { columns } = parseBoard(parsed.body);
@@ -163,7 +163,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -209,7 +209,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -274,7 +274,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });

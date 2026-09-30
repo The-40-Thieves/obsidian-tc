@@ -2,6 +2,7 @@
 // that keeps caller A's cached results from reaching caller B. It must be identical for identical
 // effective ACLs (config + caller scopes) and provably different otherwise. The read predicate is a
 // pure function of the ACL config + granted scopes, so fingerprinting those is sound and cheap.
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, aclFingerprint } from "../src/acl";
 
@@ -65,5 +66,30 @@ describe("THE-496 aclFingerprint", () => {
   it("returns a fixed-width hex digest usable as a cache key", () => {
     const fp = aclFingerprint(cfg(), ["s"]);
     expect(fp).toMatch(/^[0-9a-f]{64}$/); // sha256 hex
+  });
+});
+
+// Persisted permitted-path sets (acl_path_sets) and prewarm bundles are keyed by this fingerprint.
+// Rows built while the read predicate ignored rule-scopes hold paths the current predicate refuses,
+// so a fingerprint that still matched them would keep serving the leak after an upgrade.
+describe("aclFingerprint carries the read-predicate version", () => {
+  it("differs from the fingerprint computed before rule-scopes joined the predicate", () => {
+    const c = cfg({ rules: [{ glob: "secret/**", scopes: ["read:secret"] }] });
+    const legacy = createHash("sha256")
+      .update(
+        JSON.stringify({
+          readOnly: false,
+          strictReadDefault: false,
+          defaultScopes: [],
+          rules: [{ glob: "secret/**", scopes: ["read:secret"] }],
+          readPaths: null,
+          writePaths: null,
+          deletePaths: null,
+          scopes: ["read:notes"],
+        }),
+        "utf8",
+      )
+      .digest("hex");
+    expect(aclFingerprint(c, ["read:notes"])).not.toBe(legacy);
   });
 });

@@ -168,14 +168,14 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; tags: string }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
             if (scanned >= input.max_notes) break;
             scanned++;
             for (const t of JSON.parse(r.tags) as string[]) counts.set(t, (counts.get(t) ?? 0) + 1);
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readableRel(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
           );
           for (const e of entries) {
             if (scanned >= input.max_notes) break;
@@ -204,7 +204,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -227,7 +227,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const tag = normalizeTag(input.tag);
         if (!isValidTag(tag)) throw err.invalidInput("invalid tag", { tag: input.tag });
 
@@ -307,7 +307,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const tag = normalizeTag(input.tag);
         if (!isValidTag(tag)) throw err.invalidInput("invalid tag", { tag: input.tag });
 
@@ -403,7 +403,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             .all(v.id) as Array<{ path: string; tags: string }>;
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path)) continue;
+            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
             const hit = (JSON.parse(r.tags) as string[]).filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
             if (matches.length >= input.limit) {
@@ -414,7 +414,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readableRel(ctx.acl, e.relPath),
+            readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
           );
           for (const e of entries) {
             const all = noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath).all;
