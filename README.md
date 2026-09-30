@@ -28,8 +28,8 @@ npx obsidian-tc /path/to/vault
 ```
 
 Every note tool and lexical search work immediately. Semantic search defaults to a bundled
-embedder — see [When NOT to use](#when-not-to-use-obsidian-tc) below for which install methods it
-reaches today.
+embedder — see [When NOT to use](#when-not-to-use-obsidian-tc) for which install methods it
+reaches.
 
 For multi-vault, auth, or ACLs, use a config file:
 
@@ -46,9 +46,9 @@ Also ships as a Docker image, `.mcpb` bundle, and standalone binaries. More:
 Honest guidance — this is a heavier product than most:
 
 - **Smallest possible footprint, read-only access, or no MCP at all.** A single trusted human
-  over one vault, a read-only wrapper, or the Obsidian URI/Local REST API plugin directly may be
+  over one vault, a read-only wrapper, or the Obsidian URI/Local REST API plugin may be
   all you need — see the [full comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/).
-- **Zero setup, source checkouts only for now.** The vault is read directly off disk; semantic
+- **Zero setup, source checkouts only.** The vault is read off disk; semantic
   search defaults to a bundled offline embedder; npm/Docker need an explicit provider until
   published — see [Embeddings](https://obsidian-tc.the40thieves.io/configuration/embeddings/).
 - **Zero-config trades away auth/ACLs.** `obsidian-tc /path/to/vault` boots with auth off, no
@@ -101,8 +101,7 @@ for Obsidian-only features (Templater, Dataview, Tasks, Excalidraw, Git, Remotel
 filesystem-level feature works without it.
 
 - **Install Local REST API first**; TC Bridge reuses its bearer-token auth, desktop-only. The
-  plugin is not the server — governance/retrieval run in the obsidian-tc process, installed
-  separately ([60-second start](#60-second-start)); reaching the bridges needs
+  server is installed separately ([60-second start](#60-second-start)); reaching the bridges needs
   `restApiUrl`/`restApiKey` in the vault config
   ([step 6](./docs/QUICKSTART.md#6-optional-light-up-the-plugin-bridges-live-mode)). That key is a
   vault root password — read the [trust boundary](./SECURITY.md#companion-plugin-trust-boundary) first.

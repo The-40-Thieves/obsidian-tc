@@ -3,6 +3,7 @@ add_kanban_card
 add_observation
 add_tag
 add_vault
+append_active_file
 append_note
 append_to_periodic_note
 audit_provenance
@@ -19,6 +20,7 @@ create_canvas
 create_entity
 create_excalidraw
 create_periodic_note
+delete_active_file
 delete_attachment
 delete_entity
 delete_note
@@ -39,6 +41,7 @@ find_unresolved_links
 format_table
 gap_report
 generate_uri
+get_active_file
 get_attachment
 get_backlinks
 get_entity
@@ -95,6 +98,7 @@ note_quality_report
 ocr_attachment
 ocr_bulk
 open_workspace
+patch_active_file
 patch_note
 plur_get
 plur_recall
@@ -150,6 +154,7 @@ suggest_links
 tasks_filter
 trigger_quickadd
 unlink_entities
+update_active_file
 update_base
 update_canvas
 update_excalidraw

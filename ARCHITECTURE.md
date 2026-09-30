@@ -302,6 +302,7 @@ POST   /obsidian-tc/v1/git/commit            → obsidian-git commit (HITL-gated
 POST   /obsidian-tc/v1/remotely-save/status  → Remotely Save sync status
 POST   /obsidian-tc/v1/remotely-save/trigger → fire a Remotely Save sync
 POST   /obsidian-tc/v1/files/open            → open an existing vault file in the workspace (show_file_in_obsidian)
+GET    /obsidian-tc/v1/files/active          → the vault-relative path and extension of the active file, or null (the *_active_file tools)
 ```
 
 Every bridge duck-types the third-party plugin's internals; absence degrades onto the error taxonomy
