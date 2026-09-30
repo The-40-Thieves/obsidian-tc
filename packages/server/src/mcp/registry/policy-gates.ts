@@ -282,7 +282,7 @@ export function confirmationStateProbe(
     try {
       const parts: string[] = [];
       if (def.pathAcl && root) {
-        const targets = def.pathAcl(data);
+        const targets = def.pathAcl(data, { root });
         for (const { op, path } of targets)
           enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);
         const fp = fingerprintTargets(
@@ -321,7 +321,7 @@ export function enforceCentralPathAcl(
   const effVault = vaultArgOf(def, data) ?? ctx.vaultId;
   const root = rootResolver?.(effVault);
   if (!root) return;
-  for (const { op, path } of def.pathAcl(data)) {
+  for (const { op, path } of def.pathAcl(data, { root })) {
     // P1.4: pass the caller's granted scopes so a path's declared rule-scopes are
     // enforced here (the authoritative central stage), not just the folder allowlist.
     enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);

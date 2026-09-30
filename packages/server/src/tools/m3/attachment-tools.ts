@@ -1,4 +1,4 @@
-// Domain 9 — Attachments. Four tools: list_attachments, get_attachment,
+// Domain 9 — Attachments. Five tools: list_attachments, get_attachment, write_attachment,
 // move_attachment, delete_attachment. Attachments are ordinary binary vault files
 // (images, PDFs, audio, video) addressed by vault-relative path, so every handler
 // funnels through resolveVaultPath (containment) + enforcePathAcl (whitelist) like
@@ -7,8 +7,9 @@
 // when crossing a folder boundary or overwriting; delete_attachment is destructive
 // (dispatch-gated HITL) and soft-deletes to .trash unless permanent, reporting the
 // notes that still reference it so the caller can see what it is about to break.
-import { copyFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { createHash } from "node:crypto";
+import { copyFileSync, lstatSync, mkdirSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   ElicitToken,
   err,
@@ -18,20 +19,34 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
+import { isDefaultDenied } from "../../acl";
 import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+} from "../../experiential/memory-defense";
+import { redactSecrets } from "../../experiential/redact";
+import {
+  checkBase64Payload,
   DEFAULT_ATTACHMENT_EXTS,
   findAttachmentReferences,
   isAttachment,
   mimeOf,
   resolveAttachmentFolder,
+  resolveAttachmentWritePath,
   rewriteAttachmentReferences,
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
-import { hardDelete, noteExists, readFileChecked, statNote, trashNote } from "../../vault/notes-io";
+import {
+  hardDelete,
+  noteExists,
+  readFileChecked,
+  statNote,
+  trashNote,
+  writeFileAtomic,
+} from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./shared";
@@ -58,6 +73,28 @@ const GetInput = z
     encoding: z.enum(["base64"]).default("base64"),
     max_bytes: z.number().int().positive().max(50_000_000).default(10_000_000),
     include_references: z.boolean().default(false),
+  })
+  .strict();
+
+/** Hard ceiling on the base64 string a caller may send (the longest padded encoding of 50 MB, the
+ *  same ceiling get_attachment's max_bytes has). The operator's `writes.maxAttachmentBytes` is
+ *  enforced in the handler; this only keeps zod from scanning an absurd string. */
+const MAX_WRITE_BASE64_CHARS = Math.ceil(50_000_000 / 3) * 4;
+const DEFAULT_MAX_ATTACHMENT_BYTES = 25_000_000;
+/** Extensions that name a format with its own tools, so the refusal can point at them. */
+const OWN_TOOL_EXTS = new Set([".md", ".canvas", ".base"]);
+
+const WriteInput = z
+  .object({
+    vault: VaultId,
+    // A bare filename lands in the vault's configured attachment folder; a path with a folder is
+    // used as given (`./name.png` = the vault root).
+    path: VaultPath,
+    content: z.string().max(MAX_WRITE_BASE64_CHARS),
+    mime_type: z.string().min(1).max(127).optional(),
+    overwrite: z.boolean().default(false),
+    options: WriteOptions.prefault({}),
+    elicit_token: ElicitToken.optional(),
   })
   .strict();
 
@@ -121,6 +158,17 @@ const GetAttachmentOutput = z.object({
   encoding: z.literal("base64"),
   content: z.string(),
   references: z.array(z.string()).optional(),
+});
+
+const WriteAttachmentOutput = z.object({
+  vault: z.string(),
+  path: z.string(),
+  created: z.boolean(),
+  overwritten: z.boolean(),
+  size: z.number().int(),
+  mime: z.string(),
+  sha256: z.string(),
+  trashed_prev_to: z.string().nullable(),
 });
 
 const MoveAttachmentOutput = z.object({
@@ -240,6 +288,110 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
                 ),
               }
             : {}),
+        };
+      },
+    }),
+
+    defineTool({
+      name: "write_attachment",
+      domain: "attachments",
+      vaultArg: "vault",
+      acceptsIdempotencyKey: true,
+      // A bare filename resolves against the vault's attachment folder, which only the root can say;
+      // env.root is absent outside dispatch, where the input-only answer is all there is.
+      pathAcl: (input, env) => [
+        {
+          op: "write",
+          path: env ? resolveAttachmentWritePath(env.root, input.path) : input.path,
+        },
+      ],
+      description:
+        "Write a binary attachment (image, PDF, audio, video) into the vault from base64 content. A bare filename goes to the vault's attachment folder; a path with a folder is used as given. Refuses existing files unless overwrite is set, which requires confirmation and soft-deletes the prior bytes to .trash. Capped by writes.maxAttachmentBytes (default 25 MB decoded).",
+      inputSchema: WriteInput,
+      outputSchema: WriteAttachmentOutput,
+      requiredScopes: ["write:attachments"],
+      // Display-only — see ToolDefinition.conditionallyDestructive. The real gate is the
+      // requireConfirmation call below (replacing an existing file).
+      conditionallyDestructive: true,
+      handler: (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        const rel = resolveAttachmentWritePath(v.root, input.path);
+        const ext = rel.includes(".") ? rel.slice(rel.lastIndexOf(".")).toLowerCase() : "";
+        if (OWN_TOOL_EXTS.has(ext))
+          throw err.invalidInput(
+            "notes, canvases and bases have their own tools (write_note, create_canvas, create_base); write_attachment is for binary attachments",
+            { path: rel },
+          );
+        if (!isAttachment(rel))
+          throw err.invalidInput("path is not an attachment (extension not in the allowlist)", {
+            path: rel,
+            extensions: DEFAULT_ATTACHMENT_EXTS,
+          });
+        // enforcePathAcl covers this too, but only when an ACL is present; a control directory is
+        // never an attachment destination, ACL or not.
+        if (isDefaultDenied(rel))
+          throw err.aclDenied("path is in a protected vault directory", {
+            path: redactSecrets(rel).text,
+            op: "write",
+          });
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        const abs = resolveVaultPath(v.root, rel);
+        // The write is a rename onto `abs`, which would replace a symlink rather than follow it —
+        // but an alias the caller can see through is not an attachment path they meant to write.
+        try {
+          if (lstatSync(abs).isSymbolicLink())
+            throw err.pathInvalid("refusing to write through a symlink", { path: rel });
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+        }
+        const mime = mimeOf(rel);
+        if (input.mime_type !== undefined && input.mime_type.toLowerCase() !== mime)
+          throw err.invalidInput("mime_type does not match the path's extension", {
+            path: rel,
+            mime_type: input.mime_type,
+            expected: mime,
+          });
+        const maxBytes = deps.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
+        const size = checkBase64Payload(input.content, maxBytes);
+        // Binary bytes are not scanned (there is no text to scan), but the path lands in the vault
+        // and is refused if secret-shaped, same as every other writer.
+        enforceMemoryDefenseOnNoteWrite(deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF, rel, "", {
+          metrics: deps.metrics,
+        });
+
+        const ex = noteExists(abs);
+        if (ex.exists && ex.type === "folder")
+          throw err.invalidInput("path is a folder", { path: rel });
+        if (ex.exists && !input.overwrite)
+          throw err.noteExists("attachment already exists; set overwrite", { path: rel });
+        const replacing = ex.exists;
+        requireConfirmation(ctx, "write_attachment", input, replacing, {
+          path: rel,
+          size,
+          previous_size: replacing ? (statNote(abs)?.size ?? null) : null,
+        });
+
+        const bytes = Buffer.from(input.content, "base64");
+        // Trash + write is two steps, so the retry after a failed write must not read as a clean
+        // "nothing happened" (THE-572, as in move_attachment).
+        ctx.markEffectCommitted?.();
+        const trashedPrevTo = replacing ? trashNote(v.root, rel) : null;
+        try {
+          writeFileAtomic(abs, bytes, input.options.create_dirs);
+        } catch (e) {
+          // Put the prior bytes back rather than leave the path empty with the file in .trash.
+          if (trashedPrevTo) renameSync(join(v.root, trashedPrevTo), abs);
+          throw e;
+        }
+        return {
+          vault: v.id,
+          path: rel,
+          created: !replacing,
+          overwritten: replacing,
+          size: bytes.length,
+          mime,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          trashed_prev_to: trashedPrevTo,
         };
       },
     }),

@@ -62,7 +62,7 @@ describe("THE-513 Part 2: idempotency declaration coverage", () => {
     ).toEqual([]);
   });
 
-  it("re-derives the known 16-tool idempotency surface (THE-513 Part 2)", () => {
+  it("re-derives the known 17-tool idempotency surface (THE-513 Part 2)", () => {
     // Named explicitly (not just counted) so a future addition/removal is visible in the diff
     // rather than as a bare number change — the same reasoning as REGISTERED_TOOL_COUNT.
     const expected = [
@@ -81,6 +81,7 @@ describe("THE-513 Part 2: idempotency declaration coverage", () => {
       "move_note",
       "start_session",
       "update_active_file",
+      "write_attachment",
       "write_note",
     ];
     const actual = registered

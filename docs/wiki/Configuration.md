@@ -29,7 +29,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `experiential` | object (see below) | The quarantined work-memory tier's knobs |
 | `transports` | object | `stdio` (default on) and `http` (default off, loopback) |
 | `governor` | `{ "maxResponseBytes": 1000000, "regexTimeoutMs": 2000 }` | Response size ceiling + regex worker-time budget (ReDoS guard) |
-| `writes` | `{ "requireCas": false }` | When true, destructive note writes REQUIRE `prev_hash` (compare-and-swap) and fail closed without it |
+| `writes` | `{ "requireCas": false, "maxAttachmentBytes": 25000000 }` | `requireCas`: when true, destructive note writes REQUIRE `prev_hash` (compare-and-swap) and fail closed without it. `maxAttachmentBytes`: decoded-byte cap on one `write_attachment` payload |
 | `snapshots` | `{ "enabled": true, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back (on by default under `trusted-local`; retention is pruned inline) |
 | `bootstrap` | `{ "domains": [], "deepPaths": [], "maxPaths": 10 }` | Session-bootstrap routing table (signals → context notes; deep-mode phrases) |
 | `throttle` | object | Per-class rate tiers (read 600/100 … admin 5/1) + max concurrent writes/vault (16) |

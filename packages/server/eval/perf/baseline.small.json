@@ -14,7 +14,7 @@
     "direction": "exact"
   },
   "index.notes_per_s": {
-    "value": 881.2264952659987,
+    "value": 822.60732218407,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -28,7 +28,7 @@
     "direction": "exact"
   },
   "embed.tokens_per_s": {
-    "value": 22709.206783004785,
+    "value": 21198.590692683483,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -42,7 +42,7 @@
     "direction": "exact"
   },
   "index.chunks_per_s": {
-    "value": 1762.4529905319973,
+    "value": 1645.21464436814,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -63,7 +63,7 @@
     "direction": "exact"
   },
   "embed.texts_per_s": {
-    "value": 1057.4717943191984,
+    "value": 987.1287866208841,
     "tol": 0.25,
     "mode": "ratio",
     "class": "warn",
@@ -77,28 +77,28 @@
     "direction": "higher-worse"
   },
   "boot.tools_registered": {
-    "value": 170,
+    "value": 171,
     "tol": 0,
     "mode": "ratio",
     "class": "hard",
     "direction": "exact"
   },
   "boot.module_eval_ms": {
-    "value": 168.988235,
+    "value": 180.402873,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "boot.registration_ms": {
-    "value": 19.517539,
+    "value": 22.49250600000002,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "boot.tools_list_ms": {
-    "value": 46.336295999999976,
+    "value": 51.93889300000001,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -140,7 +140,7 @@
     "direction": "lower-worse"
   },
   "retrieval.ndcg_per_ms": {
-    "value": 0.056961685518852515,
+    "value": 0.05544013092591216,
     "tol": 0.5,
     "mode": "abs",
     "class": "warn",
@@ -175,7 +175,7 @@
     "direction": "exact"
   },
   "freshness.ms": {
-    "value": 56.977307999999994,
+    "value": 64.230186,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -196,14 +196,14 @@
     "direction": "exact"
   },
   "storage.txn_ms": {
-    "value": 0.5347309999999652,
+    "value": 0.58433500000001,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "storage.cpu_ms": {
-    "value": 0.548,
+    "value": 0.593,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -224,7 +224,7 @@
     "direction": "lower-worse"
   },
   "storage.lock_wait_ms": {
-    "value": 251.17,
+    "value": 251.1,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -238,14 +238,14 @@
     "direction": "lower-worse"
   },
   "runtime.eventloop_p99_ms": {
-    "value": 59.310079,
+    "value": 60.030975,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "runtime.peak_rss_mb": {
-    "value": 118.5625,
+    "value": 117.62109375,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -259,14 +259,14 @@
     "direction": "exact"
   },
   "http.cold_ms": {
-    "value": 16.59310800000003,
+    "value": 17.872691999999915,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
     "direction": "higher-worse"
   },
   "http.warm_ms": {
-    "value": 0.849337000000105,
+    "value": 0.9802770000001146,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -280,7 +280,7 @@
     "direction": "exact"
   },
   "http.concurrent2_p99_ms": {
-    "value": 0.7607490000000325,
+    "value": 0.9475949999996374,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -294,7 +294,7 @@
     "direction": "exact"
   },
   "http.concurrent8_p99_ms": {
-    "value": 2.736185999999634,
+    "value": 3.5006690000000162,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -308,7 +308,7 @@
     "direction": "exact"
   },
   "migration.ms": {
-    "value": 1.1307820000001811,
+    "value": 1.27833499999997,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",
@@ -322,7 +322,7 @@
     "direction": "exact"
   },
   "shutdown.ms": {
-    "value": 0.029514000000290253,
+    "value": 0.03107799999997951,
     "tol": 0.5,
     "mode": "ratio",
     "class": "warn",

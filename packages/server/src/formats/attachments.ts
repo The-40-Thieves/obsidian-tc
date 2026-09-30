@@ -7,12 +7,12 @@
 // shortest-path attachment resolution).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
 import { parseNote } from "../vault/frontmatter";
 import { extractLinks } from "../vault/links";
 import { readNote, writeNotesAllOrNothingGuarded } from "../vault/notes-io";
-import { resolveVaultPath, walkVault } from "../vault/paths";
+import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import { rewriteLinks } from "../vault/rewrite";
 
 export const DEFAULT_ATTACHMENT_EXTS = [
@@ -229,4 +229,61 @@ export function isAttachment(rel: string, extensions?: string[]): boolean {
   const exts = (extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());
   const e = extOf(rel);
   return e !== "" && exts.includes(e);
+}
+
+/** Where write_attachment puts `raw`: a bare filename goes into the vault's configured attachment
+ *  folder (Obsidian's own default for a pasted file), a path with a folder is used as given, and a
+ *  leading `./` says "the vault root" explicitly. Returns the normalized vault-relative path. */
+export function resolveAttachmentWritePath(root: string, raw: string): string {
+  const rel = normalizeVaultPath(raw);
+  if (rel.includes("/") || /^\.[\\/]/.test(raw)) return rel;
+  const folder = resolveAttachmentFolder(root);
+  return folder ? normalizeVaultPath(`${folder}/${rel}`) : rel;
+}
+
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/**
+ * Strictly validate a standard-alphabet, padded base64 payload and return its decoded size, without
+ * decoding it. The size cap is checked from the string length first (O(1)), so an oversized payload
+ * is refused before it is scanned, let alone allocated. Rejects what Buffer.from(_, "base64") would
+ * silently accept: whitespace, the URL-safe alphabet, missing padding, junk characters, and non-zero
+ * trailing bits (a non-canonical encoding). A `data:` URI is refused rather than parsed.
+ */
+export function checkBase64Payload(content: string, maxBytes: number): number {
+  if (content.startsWith("data:"))
+    throw err.invalidInput("data: URIs are not accepted; send the raw base64 payload", {
+      reason: "data_uri",
+    });
+  const len = content.length;
+  // The longest padded base64 string that can decode to <= maxBytes.
+  if (len > Math.ceil(maxBytes / 3) * 4)
+    throw err.invalidInput("attachment payload exceeds the configured size cap", {
+      max_bytes: maxBytes,
+      base64_chars: len,
+    });
+  if (len % 4 !== 0)
+    throw err.invalidInput("content is not valid base64 (length is not a multiple of 4)", {
+      reason: "length",
+    });
+  const pad = content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0;
+  const decoded = (len / 4) * 3 - pad;
+  if (decoded > maxBytes)
+    throw err.invalidInput("attachment payload exceeds the configured size cap", {
+      max_bytes: maxBytes,
+      size: decoded,
+    });
+  if (!BASE64_RE.test(content))
+    throw err.invalidInput("content is not valid base64 (standard alphabet, padded)", {
+      reason: "alphabet",
+    });
+  if (pad > 0) {
+    const last = BASE64_ALPHABET.indexOf(content[len - pad - 1] as string);
+    if ((last & (pad === 2 ? 15 : 3)) !== 0)
+      throw err.invalidInput("content is not canonical base64 (non-zero trailing bits)", {
+        reason: "trailing_bits",
+      });
+  }
+  return decoded;
 }

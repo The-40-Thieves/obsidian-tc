@@ -19,4 +19,7 @@ export interface M3Deps {
    *  MEMORY_DEFENSE_OFF (mode "off", no scan). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** `writes.maxAttachmentBytes`: decoded-byte ceiling on one write_attachment payload. Absent
+   *  (tests) -> 25 MB, the config default. */
+  maxAttachmentBytes?: number;
 }

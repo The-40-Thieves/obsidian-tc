@@ -26,7 +26,7 @@
 //   `read_notes`, `write_note`, `patch_note` and the remaining links/tags/frontmatter/snapshot
 //   tools) stays in `core`: it is the single most-used family in #877's own numbers.
 // - M3 (structured documents: canvas, bases, kanban, periodic notes, bookmarks, attachments,
-//   tables), 31 tools — curated on a STRUCTURAL criterion, not usage: #877 gives no evidence either
+//   tables), 32 tools — curated on a STRUCTURAL criterion, not usage: #877 gives no evidence either
 //   way for any M3 tool (none appear among its used tools, none are named as zero-call examples
 //   either). Left out of `core` as a smaller-surface curation choice pending real usage data, not
 //   because usage is known to be zero.
@@ -89,6 +89,7 @@ const M3_STRUCTURED_DOCUMENTS = [
   "sort_table_by_column",
   "update_base",
   "update_canvas",
+  "write_attachment",
 ] as const;
 
 // bundle_files/bundle_folder deliberately absent — see the module comment.

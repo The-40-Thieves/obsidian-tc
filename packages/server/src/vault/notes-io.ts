@@ -144,11 +144,12 @@ export function readFileChecked(abs: string): Buffer {
   }
 }
 
-export function writeNoteAtomic(abs: string, content: string, createDirs = true): void {
+/** Atomic binary write: the note writer's temp + rename and symlink-safe open, for raw bytes. */
+export function writeFileAtomic(abs: string, data: Buffer, createDirs = true): void {
   if (createDirs) mkdirSync(dirname(abs), { recursive: true });
   if (nativeIo) {
     try {
-      nativeIo.safeWriteNoteAtomic(abs, Buffer.from(content, "utf8"));
+      nativeIo.safeWriteNoteAtomic(abs, data);
       return;
     } catch (e) {
       // A safe-write rejection (a symlinked path component, or the target itself a symlink) is
@@ -175,11 +176,16 @@ export function writeNoteAtomic(abs: string, content: string, createDirs = true)
     0o600,
   );
   try {
-    writeSync(fd, content, null, "utf8");
+    // writeSync may write fewer bytes than asked; loop so a large attachment is never truncated.
+    for (let off = 0; off < data.length; ) off += writeSync(fd, data, off, data.length - off, null);
   } finally {
     closeSync(fd);
   }
   renameSync(tmp, abs);
+}
+
+export function writeNoteAtomic(abs: string, content: string, createDirs = true): void {
+  writeFileAtomic(abs, Buffer.from(content, "utf8"), createDirs);
 }
 
 /**

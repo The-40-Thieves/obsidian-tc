@@ -622,6 +622,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // memoryDefense guard — the SAME closure/metrics M5/M7/M8 get above.
     memoryDefense,
     metrics: deps.metrics,
+    maxAttachmentBytes: config.writes.maxAttachmentBytes,
   });
   // `uri.allowOsLaunch` gates show_file_in_obsidian's OS-handler fallback (deny-by-default).
   registerM4Tools(registry, { ...deps.m4Deps, uri: config.uri });

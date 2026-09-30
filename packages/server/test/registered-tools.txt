@@ -169,4 +169,5 @@ work_episodes
 work_forget
 work_result
 work_search
+write_attachment
 write_note

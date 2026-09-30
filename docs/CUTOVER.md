@@ -62,7 +62,7 @@ search, active file, commands, periodic notes). Mapping by capability:
 
 Beyond parity, obsidian-tc adds links (`get_outgoing_links`, `get_backlinks`,
 `find_orphans`, `find_unresolved_links`, `rewrite_link`, `prune_hub_links`), attachments
-(`list_attachments`, `get_attachment`, `move_attachment`, `delete_attachment`), canvas
+(`list_attachments`, `get_attachment`, `write_attachment`, `move_attachment`, `delete_attachment`), canvas
 (`read_canvas`, `create_canvas`, `update_canvas`, `query_canvas`), Bases (`read_base`,
 `create_base`, `update_base`, `query_base` — evaluates the real Obsidian 1.12 Bases
 expression-DSL subset, THE-281, with realigned `order`/`sort`/`limit`/`groupBy` view keys
@@ -145,6 +145,7 @@ newer surface than the "LRA-MCP" projection retired in §2a above.
 | `vault_patch` | `patch_note` |
 | `vault_read` | `read_note`, `read_notes` |
 | `vault_read_binary` | `get_attachment` |
+| `vault_write_binary` | `write_attachment` (base64 payload, size-capped, extension allowlist; overwrite is HITL-gated) |
 | `vault_write` | `write_note` (CAS via `prev_hash`) |
 
 No obsidian-tc equivalent:
@@ -156,9 +157,6 @@ No obsidian-tc equivalent:
 - **`vault_get_document_map`.** No note-outline/heading-discovery tool exists today;
   `patch_note` targets a heading, block, or frontmatter path directly instead of requiring a
   prior structure lookup.
-- **`vault_write_binary`.** Attachments are read (`get_attachment`), listed, moved, and
-  deleted through obsidian-tc; there is no tool that creates or overwrites an attachment's
-  binary content.
 
 Beyond this list, §2a and §2b above still apply in full: obsidian-tc adds links, canvas,
 Bases, bookmarks, workspaces, bulk ops, a multi-vault registry, OCR, Tasks, capture, and the

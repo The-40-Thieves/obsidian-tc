@@ -88,6 +88,10 @@ const MEMORY_DEFENSE_COVERED = new Set<string>([
   "update_active_file",
   "append_active_file",
   "patch_active_file",
+  // write_attachment persists caller-supplied BYTES, which have no text to scan, so its content is
+  // deliberately unscanned; the caller-controlled PATH is refused if secret-shaped, same as
+  // write_note's (enforceMemoryDefenseOnNoteWrite with empty content).
+  "write_attachment",
 ]);
 
 // Mutating tools that write NO new caller-influenced free text into the vault, so there is nothing
