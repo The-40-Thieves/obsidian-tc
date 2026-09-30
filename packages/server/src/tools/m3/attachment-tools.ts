@@ -334,7 +334,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
             path: redactSecrets(rel).text,
             op: "write",
           });
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, rel);
         // The write is a rename onto `abs`, which would replace a symlink rather than follow it —
         // but an alias the caller can see through is not an attachment path they meant to write.
