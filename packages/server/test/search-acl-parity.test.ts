@@ -247,6 +247,14 @@ const SURFACES: Surface[] = [
     input: (vault) => ({ vault, ...Q, queries: ["zebra note", "zebra"], final_top_k: 50 }),
     items: (d) => d.results.length,
   },
+  ...(["note", "section"] as const).map(
+    (mode): Surface => ({
+      name: `search_and_read(${mode})`,
+      tool: "search_and_read",
+      input: (vault) => ({ vault, ...Q, k: 20, mode }),
+      items: (d) => d.notes.length,
+    }),
+  ),
   {
     name: "knowledge_search",
     tool: "knowledge_search",

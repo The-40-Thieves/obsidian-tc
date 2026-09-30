@@ -228,7 +228,7 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   (`readPaths`, `strictReadDefault`) but ignored the caller's granted scopes. A note under a rule
   such as `secret/**` requiring an extra scope, which `read_note`/`read_notes` refuse, still came
   back from `vault_graph_search`, `search_text`, `search_regex`, `search_semantic`,
-  `search_jsonlogic`, `search_vault`, `knowledge_search`, `vault_context`, `list_notes`,
+  `search_jsonlogic`, `search_vault`, `knowledge_search`, `search_and_read`, `vault_context`, `list_notes`,
   `find_notes_by_tag`/`find_notes_by_property`, `get_backlinks`, `find_orphans`, `suggest_links`,
   the graph analytics tools and `resources/list` as a path, a snippet or chunk text, a backlink
   source, or a count. The predicate now takes the caller's granted scopes (a required parameter, so
