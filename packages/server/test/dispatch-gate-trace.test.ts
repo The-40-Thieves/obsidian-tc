@@ -150,6 +150,7 @@ function build(trace: string[], overrides: BuildOverrides = {}) {
 
   registry.register({
     name: "tool",
+    confirmationTargets: "none",
     description: "WP4.0 gate-trace fixture",
     inputSchema: tracedSchema(
       z

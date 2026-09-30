@@ -55,6 +55,9 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
         .strict(),
       outputSchema: TriggerQuickAddOutput,
       requiredScopes: ["execute:quickadd"],
+      // Opaque: a QuickAdd action's effects happen inside Obsidian and are not observable from
+      // here, so the confirmation binds on args_hash alone (documented residual, hitl-elicit.md).
+      confirmationTargets: "none",
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "quickadd");

@@ -161,6 +161,7 @@ describe("THE-514: AbortSignal threads through runDispatch", () => {
       inputSchema: z.object({}).strict(),
       requiredScopes: ["delete:notes"],
       destructive: true,
+      confirmationTargets: "none",
       handler,
     });
     const hash = argsHash("danger", {});

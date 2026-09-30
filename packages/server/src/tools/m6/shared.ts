@@ -77,6 +77,9 @@ export interface M6Deps {
    *  only a subset of M6Deps is unaffected; `session_rerun` degrades to a clear "not configured"
    *  error rather than reaching for the live vault as a fallback (mirrors `toolSurface` above). */
   rerun?: SandboxRerunFn;
+  /** Session traces live under it (`trace_store = 'cache'`); `session_rerun`'s confirmation binds
+   *  to the recorded trace there. Absent -> the binding covers the session row only. */
+  cacheDir?: string;
 }
 
 /** The slice of a ToolDefinition that visibility classification needs, plus `domain` for grouping. */

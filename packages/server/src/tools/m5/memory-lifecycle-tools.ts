@@ -23,10 +23,12 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
+import { fingerprintTargets } from "../../elicit-drift";
 import {
   enforceMemoryDefense,
   enforceMemoryDefenseOnTransformed,
 } from "../../experiential/memory-defense";
+import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
   deleteEntity,
@@ -319,6 +321,17 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
       outputSchema: DeleteEntityOutput,
       requiredScopes: ["delete:memory"],
       destructive: true,
+      // The entity row (content, updated_at), its relations and its materialized note: an edit, a
+      // new relation or a hand-edited note since the request moves it.
+      confirmationTargets: (input, { ctx, vaultId, root }) => {
+        const e = getEntityById(ctx.db, input.entity_id);
+        if (!e || e.vault_id !== vaultId) return argsHash("state", "absent");
+        const note =
+          root && e.materialize === 1
+            ? fingerprintTargets(root, [currentNotePath(deps, vaultId, e)])
+            : null;
+        return argsHash("state", { e, note, relations: relationsForEntity(ctx.db, e.id) });
+      },
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const e = getEntityById(ctx.db, input.entity_id);

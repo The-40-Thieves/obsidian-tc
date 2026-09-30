@@ -61,6 +61,7 @@ function destructiveTool(effect: { applied: number; seen: string[] }): ToolDefin
     inputSchema: z.object({ path: z.string() }),
     requiredScopes: [],
     destructive: true,
+    confirmationTargets: "none",
     handler: (i: { path: string }) => {
       effect.applied += 1;
       effect.seen.push(i.path);
@@ -102,6 +103,7 @@ function bothGatesTool(effect: { applied: number; seen: string[] }): ToolDefinit
     inputSchema: z.object({ path: z.string() }),
     requiredScopes: [],
     destructive: true,
+    confirmationTargets: "none",
     handler: (i: { path: string }, ctx: CallerContext) => {
       requireConfirmation(ctx, "double_gate", i, true, { path: i.path });
       effect.applied += 1;

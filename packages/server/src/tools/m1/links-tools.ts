@@ -8,11 +8,13 @@
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
+import { fingerprintTargets } from "../../elicit-drift";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
 } from "../../experiential/memory-defense";
+import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
@@ -168,6 +170,38 @@ const RewriteInput = z
     elicit_token: ElicitToken.optional(),
   })
   .strict();
+
+/** The edits a `rewrite_link` call would make, computed the same way for the dry run, the real run
+ *  and the confirmation's target fingerprint. */
+function planLinkRewrite(
+  root: string,
+  acl: FolderAcl | undefined,
+  input: z.infer<typeof RewriteInput>,
+): { edits: Array<{ rel: string; text: string; count: number }>; totalLinks: number } {
+  const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
+  const paths = readableNotes(root, acl, sub);
+  const index = buildVaultIndex(readableNotes(root, acl));
+  const fromRes = resolveTarget(index, input.from_target);
+  const fromPath = fromRes.resolved ? fromRes.target_path : null;
+  const fromLiteral = normTarget(input.from_target);
+  const edits: Array<{ rel: string; text: string; count: number }> = [];
+  let totalLinks = 0;
+  for (const p of paths) {
+    const raw = readNote(resolveVaultPath(root, p)).raw;
+    const { text, count } = rewriteLinks(raw, (target, kind) => {
+      if (!input.include_embeds && kind === "embed") return null;
+      const match = fromPath
+        ? resolveTarget(index, target).target_path === fromPath
+        : normTarget(target) === fromLiteral;
+      return match ? input.to_target : null;
+    });
+    if (count > 0) {
+      edits.push({ rel: p, text, count });
+      totalLinks += count;
+    }
+  }
+  return { edits, totalLinks };
+}
 
 const PruneInput = z
   .object({
@@ -385,32 +419,18 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       // the requireConfirmation call below (any non-dry_run); this only stops the wire annotation
       // from advertising destructive: false for a tool that CAN demand confirmation.
       conditionallyDestructive: true,
+      // The notes a real run would rewrite: a note changing, or gaining a link to the target, moves it.
+      confirmationTargets: (input, { ctx, root }) =>
+        root
+          ? (fingerprintTargets(
+              root,
+              planLinkRewrite(root, ctx.acl, input).edits.map((e) => e.rel),
+            ) ?? argsHash("state", []))
+          : null,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const paths = readableNotes(v.root, ctx.acl, sub);
-        const index = buildVaultIndex(readableNotes(v.root, ctx.acl));
-        const fromRes = resolveTarget(index, input.from_target);
-        const fromPath = fromRes.resolved ? fromRes.target_path : null;
-        const fromLiteral = normTarget(input.from_target);
-
+        const { edits, totalLinks } = planLinkRewrite(v.root, ctx.acl, input);
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
-        const edits: Array<{ rel: string; text: string; count: number }> = [];
-        let totalLinks = 0;
-        for (const p of paths) {
-          const raw = readNote(resolveVaultPath(v.root, p)).raw;
-          const { text, count } = rewriteLinks(raw, (target, kind) => {
-            if (!input.include_embeds && kind === "embed") return null;
-            const match = fromPath
-              ? resolveTarget(index, target).target_path === fromPath
-              : normTarget(target) === fromLiteral;
-            return match ? input.to_target : null;
-          });
-          if (count > 0) {
-            edits.push({ rel: p, text, count });
-            totalLinks += count;
-          }
-        }
 
         if (!input.dry_run) {
           for (const e of edits) enforcePathAcl(ctx.acl, "write", e.rel, v.root);

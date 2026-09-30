@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import { gitCommitState } from "../../vault/git-state";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
@@ -142,6 +143,8 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z.object({ vault: VaultId, message: z.string().min(3).max(2000) }).strict(),
       outputSchema: GitCommitOutput,
       requiredScopes: ["execute:git"],
+      // HEAD and the staged index of the vault's own repo (vault/git-state.ts).
+      confirmationTargets: (_input, { root }) => (root ? gitCommitState(root) : null),
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "git");

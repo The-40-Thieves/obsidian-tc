@@ -32,6 +32,7 @@ function dangerTool(name: string): ToolDefinition {
     inputSchema: z.strictObject({ path: z.string() }),
     requiredScopes: [],
     destructive: true,
+    confirmationTargets: "none",
     handler: (i: { path: string }) => ({ wrote: i.path }),
   } as unknown as ToolDefinition;
 }

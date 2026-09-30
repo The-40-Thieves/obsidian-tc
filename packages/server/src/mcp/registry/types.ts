@@ -217,6 +217,12 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  handler's own enforcePathAcl calls exactly so central enforcement never denies a call the
    *  handler would have allowed. */
   pathAcl?: (input: I) => ReadonlyArray<{ op: AclOp; path: string }>;
+  /** What a HITL confirmation of this tool is ABOUT, for tools whose targets are not vault paths
+   *  named in the input (`pathAcl` covers those). A function returns the fingerprint of the state
+   *  the human is approving, or null when there is nothing to bind; `"none"` declares that the
+   *  effect is opaque and the confirmation binds on args_hash alone. A HITL-gated tool must declare
+   *  `pathAcl` or this (registration throws otherwise) — see registry/hitl-declaration.ts. */
+  confirmationTargets?: ConfirmationTargets<I>;
   /** THE-727: resolve authorization policy from the CALL rather than the definition — a tool that
    *  dispatches on an `action` argument cannot honestly declare one static scope set (unioning
    *  over-grants, intersecting under-governs). Same shape as `pathAcl` above, for the same reason.
@@ -240,6 +246,18 @@ export interface OperationPolicy {
   /** Drives throttling and metrics. Omitted -> static, else scopeClassOf(resolved scopes). */
   scopeClass?: string;
 }
+
+/** What a `confirmationTargets` function may read. `root` is the effective vault's root (undefined
+ *  when no root resolver is wired); `vaultId` is the effective vault, honoring `vaultArg`. */
+export interface ConfirmationEnv {
+  ctx: Pick<CallerContext, "db" | "acl" | "grantedScopes" | "vaultId">;
+  vaultId: string;
+  root: string | undefined;
+}
+
+export type ConfirmationTargets<I = unknown> =
+  | "none"
+  | ((input: I, env: ConfirmationEnv) => string | null);
 
 export type VerifyElicit = (
   token: string,

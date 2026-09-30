@@ -97,6 +97,7 @@ describe("execute:<plugin> scope + HITL floor through dispatch", () => {
       description: "execute-side bridge probe tool",
       inputSchema: z.object({}).strict(),
       requiredScopes: ["execute:templater"],
+      confirmationTargets: "none",
       handler: () => ({ ran: true }),
     }),
   );

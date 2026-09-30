@@ -42,6 +42,7 @@ async function boot() {
     inputSchema: z.object({ vault: z.string(), path: z.string() }),
     requiredScopes: [],
     destructive: true,
+    confirmationTargets: "none",
     handler: () => ({ wrote: true }),
   } as any);
   // THE-1106 fix round 2 (HIGH): a REAL handler-side-gated tool shape (write_note overwrite of a

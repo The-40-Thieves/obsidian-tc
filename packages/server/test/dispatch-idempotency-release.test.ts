@@ -54,6 +54,7 @@ function dbWithFailingRelease(): { db: Database; deleteAttempts: () => number } 
 }
 
 const tool = (name: string, requiredScopes: string[]) => ({
+  confirmationTargets: "none" as const,
   name,
   description: "",
   // idempotency_key must be accepted by the schema or extractIdempotencyKey never sees it.

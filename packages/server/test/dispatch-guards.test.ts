@@ -127,6 +127,7 @@ describe("dispatch guards", () => {
       inputSchema: z.object({}),
       requiredScopes: [],
       destructive: true,
+      confirmationTargets: "none",
       handler: () => ({ done: true }),
     });
 
@@ -159,6 +160,7 @@ describe("dispatch precheck (D5)", () => {
       inputSchema: z.object({}),
       requiredScopes: [],
       destructive: true,
+      confirmationTargets: "none",
       precheck: () => {
         throw new ObsidianTcError("forbidden", "blocked by precheck");
       },
