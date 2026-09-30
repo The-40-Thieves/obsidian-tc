@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,571 tracked code files · 291,501 lines.
+**Scale:** 1,574 tracked code files · 292,515 lines.
 
-TypeScript 267,766 · JavaScript 17,805 · Python 2,406 · SQL 2,219 · Rust 753 · Shell 552.
+TypeScript 268,780 · JavaScript 17,805 · Python 2,406 · SQL 2,219 · Rust 753 · Shell 552.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,14 +86,14 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 92 | 20,321 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 92 | 20,428 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 64 | 13,603 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
-| `cli/` | 60 | 10,357 | arg parsing + subcommands |
+| `cli/` | 60 | 10,383 | arg parsing + subcommands |
 | `experiential/` | 29 | 7,793 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 29 | 7,032 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
-| `runtime/` | 25 | 5,951 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
+| `mcp/` | 30 | 7,090 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `runtime/` | 25 | 5,952 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 22 | 3,633 | `obsidian-tc doctor` — checks, report rendering, runner |
-| `vault/` | 19 | 3,254 | filesystem primitives — paths, links, ACL, snapshots, prune |
+| `vault/` | 20 | 3,339 | filesystem primitives — paths, links, ACL, snapshots, prune |
 | `db/` | 16 | 2,240 | provisioning, migrate runner, experiential store |
 | `migrations/` | 61 | 2,219 | hand-registered SQL. **Two chains** — see below |
 | `providers/` | 8 | 1,749 |  |
@@ -121,7 +121,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 123 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 544 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 546 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -145,7 +145,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 835 | `packages/server/src/experiential/reflect.ts` |
 | 823 | `packages/server/src/doctor/checks.ts` |
 | 806 | `packages/server/src/mcp/server.ts` |
-| 740 | `packages/server/src/runtime/tool-wiring.ts` |
+| 741 | `packages/server/src/runtime/tool-wiring.ts` |
 | 716 | `packages/server/src/runtime/plane-wiring.ts` |
 | 716 | `packages/server/src/workspace/sessions.ts` |
 | 714 | `packages/server/src/metrics/registry.ts` |
@@ -160,9 +160,9 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 641 | `packages/server/src/cli/commands/compact.ts` |
 | 635 | `packages/server/src/transports/http.ts` |
 | 631 | `packages/server/src/tools/m3/periodic-tools.ts` |
+| 629 | `packages/server/src/tools/m6/admin-tools.ts` |
 | 623 | `packages/server/src/scheduler/job-queue.ts` |
 | 616 | `packages/server/src/cli/commands/doctor-probes.ts` |
-| 616 | `packages/server/src/tools/m6/admin-tools.ts` |
 | 612 | `packages/server/src/experiential/citation.ts` |
 | 611 | `packages/server/src/search/graph_search.ts` |
 | 609 | `packages/server/src/cli/commands/doctor.ts` |
@@ -176,10 +176,10 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 562 | `packages/server/src/memory/entities.ts` |
 | 559 | `packages/server/src/auth/registry.ts` |
 | 559 | `packages/server/src/mcp/facade.ts` |
+| 545 | `packages/server/src/tools/m1/links-tools.ts` |
 | 535 | `packages/server/src/tools/m7/knowledge/retrieval-runtime.ts` |
 | 534 | `packages/server/src/formats/bases-expr.ts` |
 | 529 | `packages/server/src/tools/m5/memory-tools.ts` |
-| 525 | `packages/server/src/tools/m1/links-tools.ts` |
 | 523 | `packages/server/src/tools/m1/frontmatter-tools.ts` |
 | 520 | `packages/shared/src/config/observability.schema.ts` |
 | 516 | `packages/server/src/runtime/vault-lock.ts` |
@@ -305,7 +305,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**540 modules · 2599 dependencies · 160 distinct subsystem pairs · 1172 cross-subsystem imports.**
+**542 modules · 2618 dependencies · 160 distinct subsystem pairs · 1173 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -330,11 +330,11 @@ flowchart LR
   tools[tools<br/>92 files]
   search[search<br/>64 files]
   cli[cli<br/>60 files]
+  mcp[mcp<br/>30 files]
   experiential[experiential<br/>29 files]
-  mcp[mcp<br/>29 files]
   runtime[runtime<br/>25 files]
   doctor[doctor<br/>22 files]
-  vault[vault<br/>19 files]
+  vault[vault<br/>20 files]
   db[(db<br/>16 files)]
   config[config<br/>14 files]
   plane[plane<br/>9 files]
@@ -357,7 +357,7 @@ flowchart LR
   memory[memory<br/>2 files]
   morgiana[morgiana<br/>1 files]
 
-  tools -->|185| vault
+  tools -->|186| vault
   tools -->|84| mcp
   cli -->|61| db
   search -->|56| db
@@ -425,7 +425,7 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 253 | `tools` | 439 |
+| `vault` | 254 | `tools` | 440 |
 | `db` | 233 | `runtime` | 204 |
 | `mcp` | 119 | `cli` | 184 |
 | `search` | 115 | `search` | 98 |
