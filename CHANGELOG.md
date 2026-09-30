@@ -8,6 +8,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **Structural and behavioural tests for release signing.** `scripts/publish-signing.test.mjs` pins
+  the whole `publish.yml` (a per-job permission table with `id-token: write` only where an OIDC step
+  exists, every publishing job downstream of the signing job, draft then validate then publish, the
+  GHCR image signed by digest, and the exact-identity verify docs); `scripts/check-release-assets.test.mjs`
+  runs the completeness gate against a faked `gh`, including a release that lost all eight native
+  bundles.
 - **`reset_vault_cache`'s `include.embeddings` accepts `"inactive"` (#1025).** Previously a plain
   boolean that dropped every `chunk_embeddings` row for a vault; `"inactive"` now drops only rows
   for embedding generations the vault is no longer searching with (`is_active = 0` — the same
@@ -28,6 +34,34 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   Requested scopes are intersected against the tool's own allow-list
   (`grantedScopes ∩ RERUN_SCOPES`) rather than trusted as-is, so a rerun can never grant itself
   more than a caller already holds.
+
+### Security
+
+- **Every release artifact, and the GHCR image, is now signed keylessly with cosign (Sigstore).** A new
+  `sign-artifacts` job in `publish.yml` (job-scoped `id-token: write` + `contents: read`, no checkout,
+  cosign v3.1.3 via a SHA-pinned `sigstore/cosign-installer`) signs the 8 native `.node` prebuilds, the 5
+  standalone binaries, both plugin zips, the three loose plugin files and the `.mcpb` with
+  `cosign sign-blob --bundle` (GitHub OIDC, Fulcio certificate, Rekor entry; no long-lived key) and
+  verifies every bundle against the run's own workflow identity. `build-docker` signs the pushed image
+  by digest (`cosign sign <image>@<digest>`) and verifies it the same way.
+- **Nothing is published until signing has succeeded.** `publish-npm`, `publish-reranker-local`,
+  `publish-embedder-local` and `build-docker` now `needs: sign-artifacts` (the registry, GitHub Release,
+  plugin mirror and Smithery jobs follow transitively), so a Sigstore outage stops the release before the
+  first immutable npm publish instead of after it.
+- **The GitHub Release is created as a draft, validated, then published.** `draft-release` uploads the
+  assets and the 19 `<file>.sigstore.json` bundles to a draft; `scripts/check-release-assets.sh` (now
+  taking the release id and a signature manifest written by `sign-artifacts`) asserts every checksummed
+  artifact, every listed bundle including the eight native ones that `SHASUMS256.txt` cannot name, and
+  the pinned per-family counts; only the final step, reached on success, publishes it. A partial upload
+  leaves an unpublished draft instead of a half-built public release. The un-prefixed plugin mirror
+  release now carries its three bundles as well.
+- **Workflow permissions are least-privilege.** `publish.yml` now defaults to `contents: read`; the
+  jobs that write (`draft-release`, `mirror-plugin-release`, `build-docker`) or mint an OIDC token
+  (npm publishes for provenance, the MCP Registry login, plugin attestation, both cosign jobs) declare
+  exactly that at job level, and the test pins the full table. `SECURITY.md` and `docs/RELEASING.md`
+  document `cosign verify-blob` / `cosign verify` with an exact `--certificate-identity` for the release
+  tag (a strict, case-sensitive regexp form is kept for "any release"). End-to-end proof arrives with
+  the next tagged release; nothing on a PR executes `publish.yml`.
 
 ### Fixed
 

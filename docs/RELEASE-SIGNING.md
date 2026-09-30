@@ -23,6 +23,10 @@ Verified end to end before enforcement was turned on:
 > every dry run the moment `REQUIRE_SIGNED_TAG` flipped — precisely the 8-target rehearsal that has
 > to keep working.
 
+> **Artifact signing is separate.** This document is about the *tag* that triggers a release. The
+> release's binary artifacts are additionally signed keylessly with cosign by the `sign-artifacts` job
+> (no maintainer key involved); see `SECURITY.md` → *Verifying release artifacts*.
+
 ## Why the tag specifically
 
 `publish.yml` fires on `push: tags: ['v*']`. That tag is the trigger for the entire release: the

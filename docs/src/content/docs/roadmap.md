@@ -52,7 +52,6 @@ configuration docs for what already ships today:
 
 ## Deferred
 
-- cosign binary signing.
 - Per-tool reference pages auto-generated from the live tool registry.
 - A per-scope HITL-raise (today per-scope overrides only tighten; isolate unattended
   automation on a second instance instead).

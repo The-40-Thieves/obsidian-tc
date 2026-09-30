@@ -19,6 +19,12 @@ A tagged release (`v*`) produces, via GitHub Actions:
 - **`.mcpb` bundle** — a one-click MCP Bundle (`manifest.json`, MCPB 0.3).
 - **Companion plugin zip** — for `.obsidian/plugins/`.
 - **Docker image** — `oven/bun:1.4.2-slim` (Debian, glibc) on GHCR.
+- **Sigstore signatures** — every binary artifact above (the standalone binaries, plugin
+  files, `.mcpb`, and the native prebuilds) is signed keylessly with cosign; each release
+  attaches a `<file>.sigstore.json` bundle beside the file, and the Docker image is signed by
+  digest. The `cosign verify-blob` / `cosign verify` commands, the exact identity they pin, and
+  how the signatures relate to signed tags, GitHub attestations, and npm provenance are in
+  `SECURITY.md`, section "Verifying release artifacts".
 
 The published server bundle is minified with a linked sourcemap.
 

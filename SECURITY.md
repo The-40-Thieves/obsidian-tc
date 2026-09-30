@@ -110,6 +110,99 @@ assumptions:
   restricted caller and is zero by construction otherwise, so a live deployment can see the size
   of what the filter is protecting rather than taking the design argument on faith.
 
+## Verifying release artifacts
+
+Every binary artifact of a release, and its container image, is signed **keylessly** with [cosign](https://docs.sigstore.dev/cosign/):
+the `sign-artifacts` job in `.github/workflows/publish.yml` (and, for the image, the `build-docker` job)
+exchanges its GitHub Actions OIDC token for a short-lived Sigstore (Fulcio) certificate, signs, and
+records the signature in the public Rekor transparency log. No long-lived signing key exists to steal or
+rotate. The signed set is:
+
+- the five standalone binaries (`obsidian-tc-bun-<os>-<arch>`, `.exe` on Windows);
+- the plugin zips (`obsidian-tc-plugin-<version>.zip`, `obsidian-tc-legacy-final-notice-<version>.zip`) and the
+  three loose plugin files (`main.js`, `manifest.json`, `styles.css`);
+- the `.mcpb` bundle (`obsidian-tc.mcpb`);
+- the eight native prebuilds (`obsidian-tc-native.<triple>.node`), which ship through npm inside the
+  `@the-40-thieves/obsidian-tc-native-<triple>` platform packages rather than as release files;
+- the container image `ghcr.io/the-40-thieves/obsidian-tc`, by digest (see below).
+
+Each one has a `<file>.sigstore.json` bundle (signature, certificate and transparency-log proof in one
+file) attached to the GitHub Release next to it. Verify with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3.x:
+
+```sh
+cosign verify-blob \
+  --bundle obsidian-tc-bun-linux-x64.sigstore.json \
+  --certificate-identity https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  obsidian-tc-bun-linux-x64
+```
+
+Success prints `Verified OK`. `--certificate-identity` is an exact match: the signer must be **this
+repository's `publish.yml` workflow, running on the tag `v<x.y.z>` you downloaded** (owner and repository
+in their real case, the workflow path case-sensitive), and the issuer pins it to GitHub Actions. A
+signature made on a fork, a branch, or a different tag does not match. To accept any release of this
+repository instead of one exact tag, use a strict, anchored, case-sensitive regexp; there is no case
+folding, and the tag must be a full semantic version:
+
+```sh
+cosign verify-blob \
+  --bundle obsidian-tc-bun-linux-x64.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/The-40-Thieves/obsidian-tc/\.github/workflows/publish\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  obsidian-tc-bun-linux-x64
+```
+
+A native prebuild is verified against the `.node` inside its npm package, which is byte-for-byte the file that
+was signed:
+
+```sh
+npm pack @the-40-thieves/obsidian-tc-native-linux-x64-gnu@<x.y.z>
+tar -xzf the-40-thieves-obsidian-tc-native-linux-x64-gnu-<x.y.z>.tgz package/obsidian-tc-native.linux-x64-gnu.node
+gh release download v<x.y.z> --repo The-40-Thieves/obsidian-tc --pattern 'obsidian-tc-native.linux-x64-gnu.node.sigstore.json'
+cosign verify-blob \
+  --bundle obsidian-tc-native.linux-x64-gnu.node.sigstore.json \
+  --certificate-identity https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  package/obsidian-tc-native.linux-x64-gnu.node
+```
+
+The container image is signed too, **by digest** (a tag can be re-pointed; the digest cannot), in the same
+`publish.yml` run. Resolve the digest of the tag you pulled and verify it with the same pinned identity:
+
+```sh
+docker buildx imagetools inspect ghcr.io/the-40-thieves/obsidian-tc:<x.y.z> --format '{{.Manifest.Digest}}'   # prints sha256:<digest>
+cosign verify ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> \
+  --certificate-identity https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+An image pushed by hand through the `release-image` workflow
+(a re-push of an existing version) is not signed.
+
+Publication is ordered so that a signing failure ships nothing: no npm package, image, or GitHub Release
+is published until the `sign-artifacts` job has signed and verified every artifact. The GitHub Release is
+created as a draft, checked against a manifest of every bundle the signing job produced (all 19, per
+family), and only then published.
+
+How this relates to the other release records, none of which it replaces:
+
+- **SSH-signed release tags** (`docs/RELEASE-SIGNING.md`) authenticate *who started* a release: `verify-tag`
+  refuses any `v*` tag not signed by a key in `.github/allowed_signers`, and nothing else runs until it
+  passes. The cosign bundle authenticates *what the build produced*: the file's digest was signed by the
+  workflow that tag triggered.
+- **GitHub build-provenance attestations** exist for the three loose plugin files
+  (`gh attestation verify main.js --repo The-40-Thieves/obsidian-tc`); the cosign bundles cover those files too,
+  via a different record (Sigstore/Rekor rather than GitHub's attestation store).
+- **npm provenance** covers the npm packages themselves; the cosign bundles add the native prebuilds' bytes
+  as a standalone, offline-verifiable signature.
+- **`SHASUMS256.txt`** is an integrity list, not an authenticity proof: it is unsigned, so trust the
+  bundles, not the list.
+
+Not covered: the npm tarballs themselves (npm provenance covers them) and the `reranker-local` and
+`embedder-local` packages, which rely on npm provenance alone. The un-prefixed plugin mirror release
+(`<x.y.z>`) carries the same three plugin files as `v<x.y.z>` together with their bundles; the bundles
+verify against the `v<x.y.z>` identity above.
+
 ## Learned-state namespaces
 
 obsidian-tc accumulates several kinds of adaptive state. Each is scoped deliberately; this table makes

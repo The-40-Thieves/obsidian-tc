@@ -46,6 +46,13 @@ import { pathToFileURL } from "node:url";
 
 const REQUIRED_MANIFEST_ID = "tc-bridge";
 const REQUIRED_ASSET_NAMES = ["main.js", "manifest.json", "styles.css"];
+/** Each plugin file's keyless cosign bundle, produced by publish.yml's sign-artifacts job. */
+const bundleName = (name) => `${name}.sigstore.json`;
+/** Everything the mirror release must carry: the three files and one cosign bundle for each. */
+export const RELEASE_ASSET_NAMES = [
+  ...REQUIRED_ASSET_NAMES,
+  ...REQUIRED_ASSET_NAMES.map(bundleName),
+];
 
 /** execFileSync wrapper — shell-free (argv array, no interpolation) and swappable in tests. */
 export function defaultRunner(cmd, args) {
@@ -58,6 +65,7 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (a === "--version") args.version = argv[++i];
     else if (a === "--assets-dir") args.assetsDir = argv[++i];
+    else if (a === "--signatures-dir") args.signaturesDir = argv[++i];
     else if (a === "--sha") args.sha = argv[++i];
     else if (a === "--dry-run") args.dryRun = true;
     else throw new Error(`mirror-plugin-release: unrecognized argument: ${a}`);
@@ -65,6 +73,7 @@ export function parseArgs(argv) {
   for (const [key, flag] of Object.entries({
     version: "--version",
     assetsDir: "--assets-dir",
+    signaturesDir: "--signatures-dir",
     sha: "--sha",
   })) {
     if (!args[key]) throw new Error(`mirror-plugin-release: ${flag} is required`);
@@ -154,7 +163,8 @@ function releaseNotes(version) {
     `This tag ("${version}", no "v" prefix) exists only to satisfy Obsidian's community-directory ` +
       `rule that a plugin release's tag equal manifest.json's version — every other obsidian-tc ` +
       `release stays tagged v${version}. It carries the identical three plugin assets ` +
-      "(main.js, manifest.json, styles.css) already attached to that release.",
+      "(main.js, manifest.json, styles.css) already attached to that release, each with its " +
+      'keyless cosign bundle (<file>.sigstore.json; see SECURITY.md, "Verifying release artifacts").',
     "",
     `Unlike v${version}, this tag is UNSIGNED: CI holds no maintainer signing key (see ` +
       "docs/RELEASE-SIGNING.md), so it cannot carry a verify-tag signature the way an annotated " +
@@ -172,6 +182,7 @@ function releaseNotes(version) {
 export function mirrorPluginRelease({
   version,
   assetsDir,
+  signaturesDir = assetsDir,
   sha,
   dryRun = false,
   runner = defaultRunner,
@@ -193,7 +204,10 @@ export function mirrorPluginRelease({
     );
   }
 
-  const assetPaths = REQUIRED_ASSET_NAMES.map((name) => join(assetsDir, name));
+  // Every release asset's path: the plugin files come from assetsDir, their bundles from
+  // signaturesDir (the `signatures` artifact of publish.yml's sign-artifacts job).
+  const pathOf = (name) => join(name.endsWith(".sigstore.json") ? signaturesDir : assetsDir, name);
+  const assetPaths = RELEASE_ASSET_NAMES.map(pathOf);
   for (const p of assetPaths) {
     if (!existsSync(p)) throw new Error(`required asset missing on disk: ${p}`);
   }
@@ -202,10 +216,10 @@ export function mirrorPluginRelease({
   let result;
 
   if (existingNames !== null) {
-    const missing = missingAssetNames(existingNames);
+    const missing = missingAssetNames(existingNames, RELEASE_ASSET_NAMES);
     if (missing.length === 0) {
       console.log(
-        `mirror-plugin-release: release ${version} already exists and carries all 3 assets — already mirrored.`,
+        `mirror-plugin-release: release ${version} already exists and carries all ${RELEASE_ASSET_NAMES.length} assets — already mirrored.`,
       );
       result = { action: "already-mirrored" };
     } else {
@@ -216,7 +230,7 @@ export function mirrorPluginRelease({
         console.log(`mirror-plugin-release: [dry-run] would upload: ${missing.join(", ")}`);
         return { action: "dry-run-partial", missing };
       }
-      const missingPaths = missing.map((name) => join(assetsDir, name));
+      const missingPaths = missing.map(pathOf);
       runner("gh", ["release", "upload", version, ...missingPaths]);
       console.log(`mirror-plugin-release: uploaded missing asset(s): ${missing.join(", ")}.`);
       result = { action: "filled-missing", missing };
@@ -227,7 +241,7 @@ export function mirrorPluginRelease({
       console.log(
         `mirror-plugin-release: [dry-run] release ${version} does not exist. Would ` +
           `${hasTag ? "reuse the existing" : "create a"} tag ${version} at ${sha}, then create ` +
-          `release ${version} (--latest=false) with assets: ${REQUIRED_ASSET_NAMES.join(", ")}.`,
+          `release ${version} (--latest=false) with assets: ${RELEASE_ASSET_NAMES.join(", ")}.`,
       );
       return { action: "dry-run-fresh" };
     }
@@ -258,7 +272,9 @@ export function mirrorPluginRelease({
       releaseNotes(version),
       ...assetPaths,
     ]);
-    console.log(`mirror-plugin-release: created release ${version} with 3 assets.`);
+    console.log(
+      `mirror-plugin-release: created release ${version} with ${RELEASE_ASSET_NAMES.length} assets.`,
+    );
     result = { action: "created" };
   }
 

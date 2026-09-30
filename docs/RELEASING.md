@@ -104,14 +104,18 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      and no live Smithery listing for a prerelease (unchanged from THE-955/THE-956, now reading
      the shared classification instead of recomputing it).
 
-5. **Verify the assets** — the Release is already PUBLISHED, not a draft. `publish.yml` sets
-   `draft: false` deliberately (*"releases were left as drafts, so 'Latest' went stale"*), so there
-   is no publish step to perform; the tag both builds and publishes. This step is verification only:
+5. **Verify the assets** — the Release is already PUBLISHED, not a draft: `draft-release` creates it as
+   a draft, `check-release-assets.sh` confirms every artifact and all 19 cosign bundles are attached
+   (the native bundles are checked against the signature manifest `sign-artifacts` writes), and only
+   then does its last step publish it. So there is no publish step for you to perform, and a RED
+   `draft-release` job leaves an unpublished draft (re-run the job; it reuses the draft) rather than a
+   half-built public release. This step is verification only:
 
    ```sh
    npm view obsidian-tc version                 # 11 packages must all be at the new version
-   gh release view v<x.y.z> --json assets       # 11 assets: 5 binaries, plugin zip, .mcpb,
-                                                # SHASUMS256.txt, and 3 loose BRAT files
+   gh release view v<x.y.z> --json assets       # 31 assets: 5 binaries, plugin zip, legacy notice zip,
+                                                # .mcpb, SHASUMS256.txt, 3 loose BRAT files, and 19
+                                                # .sigstore.json bundles (one per signed file)
    docker manifest inspect ghcr.io/the-40-thieves/obsidian-tc:<x.y.z>   # amd64 + arm64
    ```
 
@@ -122,6 +126,21 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    - **`sha256sum -c SHASUMS256.txt` verifies NOTHING against downloaded assets** and still exits 0.
      The manifest carries build-time paths (`./mcpb/obsidian-tc.mcpb`), which match no downloaded
      file, so `-c` reports "no file was verified" rather than a mismatch. Compare a hash directly.
+   - **Spot-check one signature** (the release job already verifies all of them before attaching, so
+     this proves the *published* bundle, not the build). The full command, the pinned identity and
+     the native-prebuild variant are in `SECURITY.md` → *Verifying release artifacts*:
+
+     ```sh
+     gh release download v<x.y.z> --pattern 'obsidian-tc-bun-linux-x64*'
+     cosign verify-blob --bundle obsidian-tc-bun-linux-x64.sigstore.json \
+       --certificate-identity https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z> \
+       --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+       obsidian-tc-bun-linux-x64
+     ```
+
+     The identity is an exact match for this release's tag (owner/repo in real case, workflow path
+     case-sensitive); the image is verified the same way, by digest (`cosign verify
+     ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> ...`, see `SECURITY.md`).
 
 6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
    and its own job log is the primary signal, but confirm the entry actually landed rather than
@@ -196,12 +215,27 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   `styles.css` set for BRAT).
 - **`.mcpb` bundle** — the single-file MCPB server bundle.
 - **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64).
-- **Published GitHub Release** (`v<x.y.z>`) — binaries, plugin zip, and `SHASUMS256.txt`.
+- **Cosign signatures** — the `sign-artifacts` job signs every binary artifact keylessly (GitHub OIDC,
+  Sigstore Fulcio + Rekor; no key to manage) and re-verifies each bundle against the run's own workflow
+  identity. Covers the 8 native `.node` prebuilds, the 5 standalone binaries, both plugin zips, the 3
+  loose plugin files and the `.mcpb`: 19 `<file>.sigstore.json` bundles, plus a signature manifest
+  (`signature-manifest.tsv`, one line per bundle) that only the completeness check reads. A family that
+  matches no files fails the job. `build-docker` signs the pushed GHCR image by digest. **Signing is a
+  barrier:** `publish-npm`, `publish-reranker-local`, `publish-embedder-local`, `build-docker` and
+  `draft-release` (and through them the registry, Smithery and mirror jobs) all `needs: sign-artifacts`,
+  so a Sigstore failure stops the release before anything irreversible ships. `draft-release` creates the
+  release as a draft, `check-release-assets.sh` compares it to the checksum list, the signature manifest
+  and the pinned per-family counts, and only then is it published. This is separate from, and does not
+  replace, the SSH-signed tag (`RELEASE-SIGNING.md`), the plugin's GitHub build-provenance attestation, or
+  npm provenance. The `release-image` dispatch workflow (an image-only re-push) does not sign.
+  Consumer verification is documented in `SECURITY.md`.
+- **Published GitHub Release** (`v<x.y.z>`) — binaries, plugin zips, `.mcpb`, `SHASUMS256.txt`, and the `.sigstore.json` bundles (created as a draft, validated, then published).
 - **Un-prefixed plugin release** (`<x.y.z>`, THE-955) — `mirror-plugin-release` mirrors the three
   loose companion-plugin assets (`main.js`, `manifest.json`, `styles.css`) from the `v<x.y.z>`
   release onto a second, `--latest=false` release tagged with the bare version — the tag
-  Obsidian's community directory actually reads. Unsigned by construction (CI holds no maintainer
-  signing key); idempotent on re-run. See `scripts/mirror-plugin-release.mjs`.
+  Obsidian's community directory actually reads. The tag is unsigned by construction (CI holds no maintainer
+  signing key), but each file carries its cosign bundle, which verifies against the `v<x.y.z>` workflow
+  identity; idempotent on re-run. See `scripts/mirror-plugin-release.mjs`.
 - **Smithery listing** (THE-956) — `publish-smithery` publishes the `.mcpb` bundle to
   `the-40-thieves/obsidian-tc` on the Smithery Registry via `SMITHERY_API_KEY`. A repeat publish
   of an already-listed version is treated as success (probed live 2026-09-05 — see
