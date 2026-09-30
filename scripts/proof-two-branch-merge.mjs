@@ -150,7 +150,7 @@ function makeBranch(name, who) {
   const text = rd(manifest);
   const arr = alpha ? "CACHE_MIGRATION_FILES" : "EXPERIENTIAL_MIGRATION_FILES";
   const start = text.indexOf(`export const ${arr} = [`);
-  const close = text.indexOf("\n];", start);
+  const close = text.indexOf("\n] as const;", start);
   wr(manifest, `${text.slice(0, close)}\n  "${sql}",${text.slice(close)}`);
   // fragment
   wr(
