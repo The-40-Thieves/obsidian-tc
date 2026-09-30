@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
+    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --external @redis/client --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.bun-smoke.json && tsc -p tsconfig.eval.json",
     "test": "vitest run",
     "smoke:live": "vitest run test/live-companion.test.ts",
@@ -62,6 +62,7 @@
     "zod": "^4.6.5"
   },
   "optionalDependencies": {
+    "@redis/client": "6.2.1",
     "@the-40-thieves/obsidian-tc-embedder-local": "1.31.8"
   },
   "devDependencies": {

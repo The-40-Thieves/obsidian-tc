@@ -164,6 +164,9 @@ export type WriteTxnLabel =
   | "index_egress_summaries"
   | "index_generation"
   | "job_claim"
+  // The shared rate-limit bucket update (ratelimit.db, its own file — never cache.db). One tiny
+  // read-modify-write per governed call.
+  | "rate_limit"
   | "memory_observation"
   // THE-1124 review round 2: rename_entity/unlink_entities/delete_entity each mutate more than
   // one row (an entity row, its relations, an ACL-checked filesystem write) — wrapped so a

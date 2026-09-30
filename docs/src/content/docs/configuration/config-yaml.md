@@ -221,7 +221,13 @@ until this generator existed, by which point five entire defaulted blocks had go
         "burst": 1
       }
     },
-    "maxConcurrentWritesPerVault": 16
+    "maxConcurrentWritesPerVault": 16,
+    "backend": "memory",
+    "failurePolicy": "fail-open",
+    "redis": {
+      "urlEnv": "OBSIDIAN_TC_REDIS_URL",
+      "keyPrefix": "obsidian-tc:rl:"
+    }
   },
   "observability": {
     "otel": {

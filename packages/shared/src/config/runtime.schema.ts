@@ -120,6 +120,44 @@ export const ThrottleConfigSchema = z
       .positive()
       .default(16)
       .describe("Ceiling on concurrent write operations against a single vault."),
+    backend: z
+      .enum(["memory", "sqlite", "redis"])
+      .default("memory")
+      .describe(
+        "Where rate-limit buckets live. `memory` (default) is process-local: a restart resets buckets and every process limits on its own. `sqlite` shares buckets between every server process using the same cacheDir (ratelimit.db, one host). `redis` shares them across instances (needs the optional @redis/client package and throttle.redis).",
+      ),
+    failurePolicy: z
+      .enum(["fail-open", "fail-closed"])
+      .default("fail-open")
+      .describe(
+        "What a governed call does while the shared backend (sqlite or redis) cannot be reached. `fail-open` keeps serving and enforces the limits per process from local buckets, so an outage never takes the server down and the limit is not lifted, only un-shared. `fail-closed` refuses the call as `throttled` with reason `backend_unavailable`, for operators who need hard cluster-wide caps. Either way the outage is logged and counted once, not per request. Ignored by `memory`.",
+      ),
+    redis: z
+      .object({
+        urlEnv: z
+          .string()
+          .min(1)
+          .default("OBSIDIAN_TC_REDIS_URL")
+          .describe(
+            "NAME of the environment variable holding the Redis URL (`redis://[user:password@]host:6379[/db]`, `rediss://` for TLS). There is no inline url field: the URL carries the password and must not sit in config.json.",
+          ),
+        urlFile: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Path to a file whose content is the Redis URL (container/orchestrator secret mounts). Wins over urlEnv when set.",
+          ),
+        keyPrefix: z
+          .string()
+          .min(1)
+          .default("obsidian-tc:rl:")
+          .describe(
+            "Prefix for every bucket key, so several deployments can share one Redis without colliding.",
+          ),
+      })
+      .prefault({})
+      .describe("Redis connection reference; read only when throttle.backend is `redis`."),
   })
   .prefault({});
 export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;

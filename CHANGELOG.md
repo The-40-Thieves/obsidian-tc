@@ -17,6 +17,23 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 - **`replay_drift` error code.** Returned by every HITL-gated tool when a confirmation is
   redeemed against state that changed since it was requested; listed in the error catalog and
   the idempotency error taxonomy in `docs/G2.4-security.md`.
+- **Pluggable rate-limit backends: `memory`, `sqlite`, `redis`.** Rate-limit buckets no longer have
+  to live in one process's memory ("restart resets buckets", and N stdio clients each spawning a
+  server got N times the limit). `throttle.backend` picks where they live: `memory` (default,
+  unchanged), `sqlite` (shared by every process on one host through the cacheDir, in its own
+  `ratelimit.db`, one `BEGIN IMMEDIATE` transaction per call, bounded by `db.busyTimeoutMs`) or
+  `redis` (shared across instances, one atomic Lua script per call; needs the optional
+  `@redis/client` package, which is only loaded for this backend). The Redis URL is read from an
+  environment variable (`throttle.redis.urlEnv`) or a file (`throttle.redis.urlFile`), never from
+  config, and never logged. `throttle.failurePolicy` decides what a governed call does while a
+  shared backend is unreachable: `fail-open` (default) keeps serving on per-process buckets,
+  `fail-closed` refuses the call as `throttled` with `details.reason: "backend_unavailable"`; an
+  outage is logged once and counted in `obsidian_tc_rate_limit_backend_outages_total`, not reported
+  per request. One conformance suite runs against all three backends, including cross-process
+  sqlite and real-Redis cases. `RateLimiter.check` is now async. The container image ships the pinned
+  `@redis/client` (the `redis` backend works there out of the box); the `.mcpb` desktop bundle does
+  not and refuses `backend: "redis"` with the install hint. `get_server_config` reports
+  `throttle.backend` and `throttle.failure_policy` (never the Redis URL).
 - **`reset_vault_cache`'s `include.embeddings` accepts `"inactive"` (#1025).** Previously a plain
   boolean that dropped every `chunk_embeddings` row for a vault; `"inactive"` now drops only rows
   for embedding generations the vault is no longer searching with (`is_active = 0` — the same

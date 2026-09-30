@@ -459,7 +459,15 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // committed row's import-dedupe:/ambient-dedupe: tag) is unchanged and still named; only the
   // ticket ids are removed, replaced with a pointer to the dedup tags noted on commit_capture. No
   // key, type, default or constraint moved.
-  "fa81cd64f1a12e76fbee480e2cd96d4d86683dbb4edaa64d5fffb141b995595f";
+  //
+  // Pluggable rate-limit backends: rebaselined deliberately. Adds three keys under `throttle` —
+  // `backend` (enum memory|sqlite|redis, default memory), `failurePolicy` (enum
+  // fail-open|fail-closed, default fail-open) and the `redis` block (`urlEnv`, `urlFile`,
+  // `keyPrefix`) — see packages/shared/src/config/runtime.schema.ts's ThrottleConfigSchema for the
+  // description text. `db.busyTimeoutMs`'s enclosing block description now also names ratelimit.db.
+  // Every default keeps today's behavior (process-local memory buckets). No existing key, type,
+  // default or constraint moved.
+  "2da8daf5dd8ff6cfed5d775f1d9157d5e4989452133be81170a7219bc15cd6b3";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

@@ -10,7 +10,7 @@
 # external better-sqlite3 and the node:sqlite fallback are never reached, and the native module +
 # sqlite-vec are createRequire()-optional (graceful pure-JS fallback when absent). So the runtime
 # needs no node_modules: bun runtime + dist (bundle + copy-assets output: migrations/, schema.sql,
-# plugin/) is sufficient to boot. ca-certificates stays in the runtime stage for outbound TLS
+# plugin/) is sufficient to boot. The one exception is the optional @redis/client (see below). ca-certificates stays in the runtime stage for outbound TLS
 # (embedding providers / gateway / OTEL exporter). Built + pushed to ghcr.io by publish.yml on a
 # human v* tag; the PR gate (ci-docker.yml) does a build + `version` smoke.
 
@@ -25,6 +25,17 @@ RUN bun install --frozen-lockfile --ignore-scripts \
  && (cd packages/shared && bun run build) \
  && (cd packages/server && bun run build) \
  && (cd packages/embedder-local && bun install --frozen-lockfile && bun run build)
+
+# Stage @redis/client (the optional rate-limit backend, throttle.backend "redis") for the runtime
+# stage. The bundle keeps it external, so it must be resolvable next to dist/. Bun's isolated
+# install keeps the package and its dependency symlinks under one .bun/@redis+client@<ver>*/
+# node_modules directory; `cp -rL` flattens that into a plain node_modules holding EXACTLY the
+# lockfile-pinned version and its lockfile-pinned dependencies, and nothing else from the tree.
+# The glob matches whatever bun.lock pins (packages/server/package.json holds the exact pin); if
+# the package ever stops being installed the glob matches nothing and `cp` fails the build.
+RUN mkdir -p /out/redis-client \
+ && cp -rL /app/node_modules/.bun/@redis+client@*/node_modules/. /out/redis-client/ \
+ && test -f /out/redis-client/@redis/client/package.json
 
 # ---- runtime: bun + ca-certs + the server dist only ----
 FROM oven/bun:1.4.2-slim
@@ -56,6 +67,10 @@ RUN apt-get update \
 # provider `search_semantic` cannot work at all without.
 COPY --from=build --chown=bun:bun /app/packages/server/dist /app/packages/server/dist
 COPY --from=build --chown=bun:bun /app/packages/embedder-local /app/packages/embedder-local
+# @redis/client for throttle.backend "redis" (multi-instance fleets run from this image): copied to
+# packages/server/node_modules so the bare specifier resolves from dist/ by the ordinary walk up.
+# About 14 MB (client + cluster-key-slot + @opentelemetry/api); the rest of the tree stays out.
+COPY --from=build --chown=bun:bun /out/redis-client /app/packages/server/node_modules
 # Run unprivileged. The `bun` user (uid 1000) owns /app, so the default cache dir
 # (<cwd>/.obsidian-tc) stays writable; mount any external cache/vault dir writable by uid 1000.
 USER bun

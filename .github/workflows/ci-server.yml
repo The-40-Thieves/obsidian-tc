@@ -251,6 +251,54 @@ jobs:
         run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && '--coverage' || '' }}
         working-directory: packages/server
 
+  # Rate-limit backends against a REAL Redis. The shared conformance suite (ratelimit-conformance),
+  # the cross-instance/restart cases (ratelimit-shared) and the Redis-only cases (ratelimit-redis)
+  # skip their redis legs when REDIS_URL is unset, which is right on a laptop and would be a silent
+  # gap here: REQUIRE_REDIS=1 turns "no redis" into a FAILURE, so this job cannot pass while
+  # covering nothing. Linux-only because service containers do not exist on the macOS/Windows
+  # runners; the 4-OS `build-test` matrix runs the memory and sqlite legs of the same suites.
+  # The image is pinned by digest, like every other image reference in this repo.
+  redis-ratelimit:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: rate-limit suites against a real redis
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+          REQUIRE_REDIS: '1'
+        run: node ./node_modules/vitest/vitest.mjs run test/ratelimit-conformance.test.ts test/ratelimit-shared.test.ts test/ratelimit-redis.test.ts
+        working-directory: packages/server
+      # The BUILT artifact, not the source: two real dist/cli.js processes over real MCP stdio share
+      # one bucket store and must split a burst of 3 between them (3 ok + 3 throttled). Process-local
+      # buckets would grant 6. Also proves the bundle loads the optional client lazily.
+      - name: build shared
+        run: bun run build
+        working-directory: packages/shared
+      - name: build server
+        run: bun run build
+        working-directory: packages/server
+      - name: two built CLI processes share one limit (sqlite)
+        run: bun scripts/ratelimit-shared-smoke.ts --cli dist/cli.js --backend sqlite
+        working-directory: packages/server
+      - name: two built CLI processes share one limit (redis)
+        env:
+          OBSIDIAN_TC_REDIS_URL: redis://127.0.0.1:6379
+        run: bun scripts/ratelimit-shared-smoke.ts --cli dist/cli.js --backend redis
+        working-directory: packages/server
+
   # The release-only codegen, exercised on EVERY PR. These scripts run nowhere else: build-binaries
   # lives in publish.yml, which only fires on a tag, so a bug in them is undiscoverable until the
   # release is already half-published. That is not hypothetical — v1.14.1's tag build died on

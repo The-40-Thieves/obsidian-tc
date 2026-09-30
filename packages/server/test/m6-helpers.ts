@@ -46,6 +46,8 @@ export interface M6VaultOptions {
   capabilities?: (vaultId: string) => CapabilitySnapshot;
   authMode?: "none" | "jwt";
   observability?: { otel: boolean; prometheus: boolean; morgiana: boolean };
+  /** Overrides the parsed default throttle config that get_server_config reports. */
+  throttle?: M6Deps["throttle"];
   /** Which M6 tools to register; receives the registry and the built deps. */
   register: (registry: ToolRegistry, deps: M6Deps) => void;
 }
@@ -106,7 +108,7 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
     version: "test",
     startedAt: 0,
     authMode: opts.authMode ?? "none",
-    throttle: DEFAULT_THROTTLE,
+    throttle: opts.throttle ?? DEFAULT_THROTTLE,
     observability: opts.observability ?? { otel: false, prometheus: false, morgiana: true },
     embeddingsProvider: "ollama",
     governorMaxResponseBytes: 1_000_000,

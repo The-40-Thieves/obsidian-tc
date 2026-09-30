@@ -56,6 +56,8 @@ Write tools accept an `idempotency_key`. A replay within the TTL (`idempotencyTt
 
 Each tool has a class — `read`, `write`, or `bulk` — enforced by a per-vault token bucket plus a max-concurrent-writes-per-vault cap. A trip returns `rate_limit` with `retry_after_ms`.
 
+Buckets are process-local by default. `throttle.backend` moves them to `sqlite` (shared by every process using one cacheDir, and surviving restarts) or `redis` (shared across instances); `throttle.failurePolicy` (`fail-open` by default, or `fail-closed`) decides what a call does while a shared backend is unreachable. See "Rate-limit backends" on the docs site (Security section).
+
 ## Error taxonomy (selected)
 
 | Error | Meaning | Retryable |

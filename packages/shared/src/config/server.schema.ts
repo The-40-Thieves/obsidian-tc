@@ -76,7 +76,9 @@ export const ServerConfigObject = z.object({
         ),
     })
     .prefault({})
-    .describe("SQLite connection tuning, applied on every cache.db and experiential.db open."),
+    .describe(
+      "SQLite connection tuning, applied on every cache.db, experiential.db and ratelimit.db open.",
+    ),
   vaults: z
     .array(VaultConfigSchema)
     .min(1)

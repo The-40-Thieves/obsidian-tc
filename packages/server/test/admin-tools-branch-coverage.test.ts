@@ -101,8 +101,8 @@ describe("get_metrics rate-limiter vault filter", () => {
   it("excludes another vault's rate-limit hits when a vault filter is supplied", async () => {
     v = makeM6Vault({ register, rateLimiter: new RateLimiter() });
     // Exhaust the bulk burst (default tiers) for two distinct vaults so each records a real hit.
-    for (let i = 0; i < 4; i++) v.rateLimiter.check("keyA", "bulk", "test", 0);
-    for (let i = 0; i < 4; i++) v.rateLimiter.check("keyB", "bulk", "other-vault", 0);
+    for (let i = 0; i < 4; i++) await v.rateLimiter.check("keyA", "bulk", "test", 0);
+    for (let i = 0; i < 4; i++) await v.rateLimiter.check("keyB", "bulk", "other-vault", 0);
 
     const filtered = data<{ metrics: { name: string; labels: Record<string, string> }[] }>(
       await v.call("get_metrics", { vault: "test" }),
@@ -114,8 +114,8 @@ describe("get_metrics rate-limiter vault filter", () => {
 
   it("includes every vault's rate-limit hits when no vault filter is supplied", async () => {
     v = makeM6Vault({ register, rateLimiter: new RateLimiter() });
-    for (let i = 0; i < 4; i++) v.rateLimiter.check("keyA", "bulk", "test", 0);
-    for (let i = 0; i < 4; i++) v.rateLimiter.check("keyB", "bulk", "other-vault", 0);
+    for (let i = 0; i < 4; i++) await v.rateLimiter.check("keyA", "bulk", "test", 0);
+    for (let i = 0; i < 4; i++) await v.rateLimiter.check("keyB", "bulk", "other-vault", 0);
 
     const unfiltered = data<{ metrics: { name: string; labels: Record<string, string> }[] }>(
       await v.call("get_metrics", {}),

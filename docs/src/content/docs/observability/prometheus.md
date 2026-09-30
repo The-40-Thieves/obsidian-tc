@@ -4,7 +4,7 @@ description: The metrics catalog and the optional, auth-gated /metrics scrape en
 ---
 
 <!-- BEGIN GENERATED: metrics-catalog -->
-obsidian-tc maintains a Prometheus catalog of **30 counters, 4 histograms, 17 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
+obsidian-tc maintains a Prometheus catalog of **31 counters, 4 histograms, 17 gauges**. The recorder is always live so the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete even before a metric has live traffic to report.
 
 ### Counters
 
@@ -30,6 +30,7 @@ obsidian-tc maintains a Prometheus catalog of **30 counters, 4 histograms, 17 ga
 | `obsidian_tc_memory_defense_hits_total` | `pattern` | memoryDefense (GH #994) redact/block matches, by pattern id only — no vault, tool, or content — so an operator sees the policy firing without reading what was matched. |
 | `obsidian_tc_morgiana_emit_dropped_total` | `reason`, `vault` | MORGIANA events dropped, by vault and reason. |
 | `obsidian_tc_output_schema_drift_total` | `tool`, `vault` | Handler payloads that did not match their advertised outputSchema, by vault and tool. In production this is WARN-only — the payload still ships — so a non-zero value is the only signal that a tool's declared contract has drifted from what it returns. In dev/CI the same condition is a hard internal_error. Any non-zero count names a tool whose schema or handler is wrong; there is no benign case. |
+| `obsidian_tc_rate_limit_backend_outages_total` | `backend` | Shared rate-limit backend outages (sqlite or redis unreachable), by backend. Counted once per outage, not per request; the failure policy decides what calls do meanwhile. |
 | `obsidian_tc_rate_limit_hits_total` | `scope_class`, `vault` | Rate-limit refusals, by vault and scope class. |
 | `obsidian_tc_rerank_outcome_total` | `outcome`, `vault` | rerankWithScores decisions, by vault and outcome. executed is the only outcome where the reported ranking actually came from the reranker; every other value is the synthetic-descending-score fallback for a different reason — not_configured (no reranker injected), skipped_by_policy (gatedRerank's hardness gate did not fire), timed_out, malformed_response (the call returned but produced no usable hit), provider_error (the call rejected for any other reason), fallback_used (no more specific reason — e.g. an empty candidate set). |
 | `obsidian_tc_retrieval_content_bytes_in_total` | `stage`, `vault` | Content bytes materialized entering a stage boundary, by vault and stage. Populated only at candidateAssembly (pre-dedup, across streams) and diversity/gatedRerank (pre-top-K-cut). Compare to the _out_ counter for the same stage: the gap is hydrated content that was never used. |

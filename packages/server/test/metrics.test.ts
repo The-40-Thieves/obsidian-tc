@@ -11,6 +11,7 @@ const COUNTERS = [
   "obsidian_tc_idempotency_hits_total",
   "obsidian_tc_idempotency_cache_skipped_total",
   "obsidian_tc_rate_limit_hits_total",
+  "obsidian_tc_rate_limit_backend_outages_total",
   "obsidian_tc_governor_truncations_total",
   "obsidian_tc_morgiana_emit_dropped_total",
   "obsidian_tc_audit_write_failed_total",
@@ -110,14 +111,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 30 counters, 4 histograms, 17 gauges", async () => {
+  it("registers the full catalog: 31 counters, 4 histograms, 17 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(51);
+    expect(new Set(declared).size).toBe(52);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {

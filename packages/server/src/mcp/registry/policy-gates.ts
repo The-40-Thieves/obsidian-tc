@@ -203,18 +203,18 @@ export async function runPrecheck<I>(
  * Dispatch-wide rate-limit policy gate (THE-210, G2.4 §Rate limits). Per (caller_hash,
  * scope_class, vault); an unknown scope class is unlimited. `undefined` when no rateLimiter is
  * configured — the caller then skips the gate entirely, matching the original `if
- * (this.rateLimiter)` guard. The decision itself is a pure read (TokenBucket state, not a claim);
- * the reaction to a rejected decision — metering, releasing an idempotency claim, throwing —
- * stays with the caller, since it needs dispatch-local state (idemClaimed/idemKey) this function
- * does not have.
+ * (this.rateLimiter)` guard. The decision itself draws down the bucket (a shared backend does it
+ * atomically, so concurrent processes cannot spend the same token); the reaction to a rejected
+ * decision — metering, releasing an idempotency claim, throwing — stays with the caller, since it
+ * needs dispatch-local state (idemClaimed/idemKey) this function does not have.
  */
-export function checkThrottle(
+export async function checkThrottle(
   rateLimiter: RateLimiter | undefined,
   caller: string | null,
   scopeClass: string,
   vaultId: string,
   nowMs: number,
-): ThrottleDecision | undefined {
+): Promise<ThrottleDecision | undefined> {
   if (!rateLimiter) return undefined;
   return rateLimiter.check(callerHash(caller), scopeClass, vaultId, nowMs);
 }

@@ -294,14 +294,20 @@ export class ToolRegistry {
     // through relayCompletion's switch, the same path tool dispatch uses, so it fires exactly
     // once instead of the old double-emit this refactor would otherwise have introduced.
     if (this.rateLimiter) {
-      const d = this.rateLimiter.check(callerHash(ctx.caller), scopeClass, ctx.vaultId, now());
+      const d = await this.rateLimiter.check(
+        callerHash(ctx.caller),
+        scopeClass,
+        ctx.vaultId,
+        now(),
+      );
       if (!d.ok) {
-        this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
+        if (!d.reason) this.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
         emit("error", now() - start, 0, "throttled");
         throw err.throttled("rate limit exceeded", {
           scope_class: d.scopeClass,
           retry_after_seconds: d.retryAfterSeconds,
           current_burst: d.currentBurst,
+          ...(d.reason ? { reason: d.reason } : {}),
         });
       }
     }

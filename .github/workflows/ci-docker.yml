@@ -50,6 +50,14 @@ jobs:
           echo "container reports: $got (want $want)"
           [ "$got" = "$want" ] || { echo "::error::container reports '$got', expected '$want'"; exit 1; }
           echo "ok: containerized server built and reports $want"
+      # The redis rate-limit backend (throttle.backend "redis") loads @redis/client lazily, so a
+      # missing package only shows at runtime on a fleet. Resolve it exactly as the bundle does
+      # (bare specifier from dist/) so a Dockerfile change that drops the copy fails on the PR.
+      - name: smoke — the image resolves @redis/client for the redis rate-limit backend
+        run: |
+          got=$(docker run --rm --entrypoint bun obsidian-tc:ci --eval 'const { createRequire } = await import("node:module"); console.log(typeof createRequire("/app/packages/server/dist/cli.js")("@redis/client").createClient)')
+          echo "createClient is: $got"
+          [ "$got" = "function" ] || { echo "::error::@redis/client does not resolve from the image bundle"; exit 1; }
       # The image is already built and loaded above; scanning it here costs one extra step and
       # closes a real gap — cargo-audit/bun-audit/osv-scanner all read LOCKFILES, so none of them
       # sees the OS packages the base image ships. A vulnerable libssl in the runtime layer was
