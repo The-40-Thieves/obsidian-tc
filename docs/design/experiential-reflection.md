@@ -36,14 +36,12 @@ THE-710 revised the P1.8 / audit-THE-562 disposition of this table before THE-89
 
 Enforced in application code rather than a DB `CHECK`: `key` is part of `preference_profile`'s primary key, and SQLite cannot add a `CHECK` to an existing column without a full table rebuild — the same class of migration `20260803_001`/`20260820_001` already had to do twice for this table. A TypeScript allowlist gives the same "impossible state" guarantee at zero migration cost.
 
-Four other keys were once proposed for this registry and rejected because each needs an input this ticket does not build:
+Four other keys were once proposed for this registry. Each has evolved:
 
-- `preferred.output_format` — needs `captureContent` flipped on
-- `response.detail` — needs THE-675's transcript question
-- `citation.style` — needs an elicitation/HITL producer
-- `workflow.confirmation_level` — needs an elicitation/HITL producer
-
-Shipping them unregistered-but-inert would be the ticket's own named anti-pattern ("four keys nothing can ever write").
+- `preferred.search_mode` — **written but not yet read by search** (`readQuery` planned, off by default, eval-gated). Values are recorded and exported; the reader does not yet exist.
+- `output_format` — learned via a per-tool-family producer, only after a reader pattern exists. No reader yet; the producer waits on that pattern.
+- `response.detail` and `citation.style` — explicit `reflect` arguments (`detail`, `citation_style`), not learned preferences. Set at call time, not learned from behaviour.
+- `workflow.confirmation_level` — intentionally **not** a learned preference. Confirmation is a security floor, never weakened. Replaced by approval-outcome telemetry to track whether users act on it.
 
 ## `groupEpisodesByVerdictWindow` (THE-726 / THE-673)
 

@@ -600,9 +600,9 @@ export const ExperientialConfigSchema = z.object({
    *  a live minority of rows once `citationInfer.enabled` is on.
    *
    *  RANKING-ADJACENT, so OFF BY DEFAULT like `activationRerank` above: `preferred.search_mode`
-   *  values feed back into how future searches are chosen, so widening what writes it changes a
-   *  learned signal without a pre-registered eval showing the new evidence source helps. Flipping
-   *  this on with `citationInfer` never enabled is a legal but inert combination — no row ever
+   *  values are recorded and exported but not yet used by search (reader planned, off by default,
+   *  eval-gated). Widening what writes it does not change search behaviour until the reader exists.
+   *  Flipping this on with `citationInfer` never enabled is a legal but inert combination — no row ever
    *  carries a citation verdict, so the extra evidence source finds nothing and behaviour stays
    *  byte-identical to off. */
   citationPreferences: z
