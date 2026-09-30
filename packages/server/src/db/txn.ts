@@ -1,6 +1,7 @@
 // A single correct BEGIN/COMMIT/ROLLBACK shape, so handlers that need one do not each
 // hand-roll it (THE-572). The repo already had the pattern inline in half a dozen places;
 // the two failure modes it gets wrong when written by hand are both handled here.
+import { traceDb } from "../otel/dispatch-spans";
 import type { Database } from "./types";
 
 /**
@@ -23,6 +24,10 @@ import type { Database } from "./types";
  * that may already be inside a transaction must use a savepoint instead of this helper.
  */
 export function inTransaction<T>(db: Database, fn: () => T): T {
+  return traceDb("db_transaction", () => runTransaction(db, fn));
+}
+
+function runTransaction<T>(db: Database, fn: () => T): T {
   db.exec("BEGIN");
   let out: T;
   try {
@@ -61,6 +66,10 @@ export function inTransaction<T>(db: Database, fn: () => T): T {
  */
 let savepointSeq = 0;
 export function inSavepoint<T>(db: Database, fn: () => T): T {
+  return traceDb("db_savepoint", () => runSavepoint(db, fn));
+}
+
+function runSavepoint<T>(db: Database, fn: () => T): T {
   savepointSeq = (savepointSeq + 1) % Number.MAX_SAFE_INTEGER;
   const name = `sp_${savepointSeq}`;
   db.exec(`SAVEPOINT ${name}`);
@@ -109,6 +118,15 @@ export function inSavepoint<T>(db: Database, fn: () => T): T {
  * turn a committed transaction into a failed one.
  */
 export function inWriteTransaction<T>(
+  db: Database,
+  label: WriteTxnLabel,
+  fn: () => T,
+  hooks?: WriteTxnHooks,
+): T {
+  return traceDb("db_write_transaction", () => runWriteTransaction(db, label, fn, hooks));
+}
+
+function runWriteTransaction<T>(
   db: Database,
   label: WriteTxnLabel,
   fn: () => T,

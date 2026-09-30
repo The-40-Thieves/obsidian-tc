@@ -1,3 +1,4 @@
+import type { Span, Tracer } from "@opentelemetry/api";
 import {
   err,
   ObsidianTcError,
@@ -7,6 +8,7 @@ import {
 import { elicitRequiredError } from "../../elicit";
 import { withStateProbe } from "../../elicit-drift";
 import { argsHash } from "../../hash";
+import { type OtelDetail, openDispatchSpans } from "../../otel/dispatch-spans";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
 import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
@@ -87,6 +89,8 @@ export interface DispatchDeps {
   rootResolver?: RegistryOptions["rootResolver"];
   vaultKindResolver?: RegistryOptions["vaultKindResolver"];
   visibleVaultIds?: RegistryOptions["visibleVaultIds"];
+  tracer?: Tracer;
+  otelDetail?: OtelDetail;
 }
 
 /** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
@@ -104,8 +108,11 @@ export async function runDispatch(
   name: string,
   rawInput: unknown,
   ctx: CallerContext,
+  rootSpan?: Span,
 ): Promise<ToolResult> {
   const now = ctx.now ?? Date.now;
+  // undefined at detail "root": nothing below then allocates or records anything for tracing.
+  const spans = openDispatchSpans(deps.tracer, deps.otelDetail, rootSpan);
   const start = now();
   const hash = argsHash(name, rawInput ?? {});
   // Governing scope class for the limiter gate + `scope_class` metric label; resolved
@@ -213,6 +220,7 @@ export async function runDispatch(
 
     // WP4.3: input-schema parse, THE-267 vault-binding guard, THE-295 per-vault ACL swap — see
     // registry/input-binding.ts for the full reasoning behind each (unchanged, only relocated).
+    spans?.stage("input_parse");
     const inputData = parseInput(def, rawInput);
 
     // THE-727: authorization is a property of the CALL, not only of the tool. Without
@@ -224,10 +232,12 @@ export async function runDispatch(
     const policy = resolveOperationPolicy(def, inputData);
     scopeClass = policy.scopeClass;
 
+    spans?.stage("auth_check");
     requireAuthenticated(ctx, def);
 
     assertScopesGranted(ctx, policy.requiredScopes, "missing required scope(s)");
 
+    spans?.stage("policy_eval");
     enforceVaultBinding(ctx, def, inputData);
 
     applyVaultAcl(ctx, def, inputData, deps.aclResolver);
@@ -246,6 +256,7 @@ export async function runDispatch(
     // (auth/scope/ACL) still runs before this gate, so it stays authoritative on replays.
     idemKey = extractIdempotencyKey(inputData);
     if (idemKey) {
+      spans?.stage("idempotency");
       // WP4.2: claim/replay decision-making (reclaim-and-retry, corrupt-blob recovery, terminal-
       // overflow replay) lives in registry/idempotency.ts's claimOrReplay, returning one explicit
       // discriminated state. Only the dispatch-shaped reaction — error construction, audit/meter
@@ -353,6 +364,7 @@ export async function runDispatch(
     // call never consumes the single-use elicit token. Idempotent replays (returned from cache
     // above) are not re-counted — the original call already drew down the bucket, and a throttled
     // check itself costs no budget.
+    if (deps.rateLimiter) spans?.stage("rate_limit");
     const throttleDecision = await checkThrottle(
       deps.rateLimiter,
       ctx.caller,
@@ -393,6 +405,7 @@ export async function runDispatch(
     // is refused as replay_drift. Lazy: nothing is read from disk unless a gate asks for it.
     const stateProbe = confirmationStateProbe(def, inputData, ctx, deps.rootResolver);
     if (needsHitl) {
+      spans?.stage("hitl_check");
       const ok = checkHitl(ctx, hash, name, deps.verifyElicit, stateProbe);
       if (!ok) {
         deps.observability.meter((m) => m.incHitlElicited(ctx.vaultId, name));
@@ -464,12 +477,15 @@ export async function runDispatch(
         auditUses: def.pathAcl != null && !isCrossNoteAuditExempt(def.name),
       },
       async () => {
+        spans?.stage("acl_eval");
         enforceCentralPathAcl(def, inputData, ctx, deps.rootResolver);
         // THE-514: the last chance to bail before the handler — and any side effect — runs.
         // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
         checkAborted(ctx.signal);
         const handlerStart = now();
-        const r = await withStateProbe(stateProbe, () => def.handler(inputData, ctx));
+        spans?.stage("tool_impl");
+        const invoke = () => def.handler(inputData, ctx);
+        const r = await withStateProbe(stateProbe, spans ? () => spans.activate(invoke) : invoke);
         handlerMs = Math.max(0, now() - handlerStart);
         handlerReturned = true;
         // #13: the default marker point — the WHOLE handler returned, so any later fault is
@@ -481,6 +497,7 @@ export async function runDispatch(
         return r;
       },
     );
+    spans?.stage("output_serialize");
     // WP4.3: output-schema validation (warn vs strict) — see registry/result-governance.ts's
     // checkOutputSchema for the full reasoning (unchanged, only relocated).
     checkOutputSchema(
@@ -520,6 +537,7 @@ export async function runDispatch(
         }
       }
       const e = overflowError(resultSize, deps.maxResponseBytes);
+      spans?.fail(e.code);
       audit("error", duration, resultSize, e.code);
       deps.observability.meter((m) => {
         m.incGovernorTruncation(ctx.vaultId, name);
@@ -663,6 +681,7 @@ export async function runDispatch(
       deps.visibleVaultIds,
     );
     const duration = Math.max(0, now() - start);
+    spans?.fail(error.code);
     audit("error", duration, 0, error.code);
     deps.observability.meter((m) => {
       if (error.code === "forbidden" || error.code === "acl_denied")
@@ -682,5 +701,6 @@ export async function runDispatch(
     // use" guard above would fire on the SECOND sequential use of one context — turning a
     // legitimate pattern into an error while still not making concurrent sharing safe.
     if (installedMarker !== undefined) installedMarker.markEffectCommitted = undefined;
+    spans?.close();
   }
 }

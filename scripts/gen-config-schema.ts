@@ -501,7 +501,10 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // `spoolRetentionDays` (integer >= 0, default 30; 0 = keep forever) and `spoolMaxBytes` (positive
   // integer, optional), and rewords the `eventLogDays` description that said the spool was never
   // pruned. No existing key, type, default or constraint moved.
-  "e537f110895bd65aee223b1e2b373ccdda12aec787f1b51b7c58894c28b471af";
+  // OTel child spans: rebaselined deliberately. Adds ONE key, `observability.otel.detail` (enum
+  // root | children | verbose, default root) — see packages/shared/src/config/observability.schema.ts.
+  // No existing key, type, default or constraint moved.
+  "70bc76cbfde229669340a9ae84901bbffd76c8fe3927ff20c51056d9ee85a957";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

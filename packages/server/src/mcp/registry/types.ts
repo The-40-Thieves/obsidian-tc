@@ -11,6 +11,7 @@ import type { Database } from "../../db/types";
 import type { StateProbe } from "../../elicit-drift";
 import type { ElicitRequestState } from "../../elicit-request-state";
 import type { MetricsRecorder } from "../../metrics/registry";
+import type { OtelDetail } from "../../otel/dispatch-spans";
 import type { TraceCarrier } from "../../otel/propagation";
 import type { RateLimiter } from "../../throttle";
 import type { AclOp } from "../../vault/acl-path";
@@ -331,6 +332,8 @@ export interface RegistryOptions {
   metrics?: MetricsRecorder;
   /** OTEL tool tracer (G2.4). Optional: dispatch emits no spans when it is absent. */
   tracer?: Tracer;
+  /** observability.otel.detail: "root" (default) emits only the per-request root span. */
+  otelDetail?: OtelDetail;
   /** MORGIANA event sink (G2.4). Optional: dispatch emits no CloudEvents when it is absent. */
   emit?: (vaultId: string, type: MorgianaEventType, data: Partial<MorgianaEventData>) => void;
   /** Dispatch-wide rate limiter (THE-210). Optional: no rate gate when it is absent. */

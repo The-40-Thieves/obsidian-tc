@@ -56,6 +56,7 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
         toolVisibility: deps.toolVisibility,
         metrics: deps.metrics,
         tracer: deps.tracer,
+        otelDetail: deps.otelDetail,
         morgiana: deps.morgiana,
         ...(deps.stores.episodeCapture ? { onEpisode: deps.stores.episodeCapture } : {}),
         getAuditWriteFailureCounter: () => requireBoot(indexHealthRef, "indexHealth"),

@@ -179,6 +179,7 @@ export async function buildServerRuntime(
     },
     metrics,
     tracer: otel.tracer,
+    otelDetail: config.observability.otel.detail,
     morgiana,
     // otel is opened just above, between `stores` and this call — handing it in folds its shutdown
     // into wireRuntimeCore's own unwind if governance or index resources throws (`onCleanup` fires

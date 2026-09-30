@@ -2201,6 +2201,16 @@
               "additionalProperties": {
                 "type": "string"
               }
+            },
+            "detail": {
+              "default": "root",
+              "description": "Span detail per tool call. \"root\": one span per request (default, no extra cost). \"children\": adds a span per pipeline stage (input_parse, auth_check, policy_eval, idempotency, rate_limit, hitl_check, acl_eval, tool_impl, output_serialize). \"verbose\": also one span per batch item and per SQLite transaction, capped at 64 child spans per request. Spans carry structured error codes only, never note content, paths or secrets.",
+              "type": "string",
+              "enum": [
+                "root",
+                "children",
+                "verbose"
+              ]
             }
           }
         },
