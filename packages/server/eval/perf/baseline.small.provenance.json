@@ -2,9 +2,9 @@
   "scenario": "small",
   "mode": "isolated-median",
   "samples": 5,
-  "measuredAtSha": "e7b4c653bb159cecadefbd767abeb18a0dea772b",
+  "measuredAtSha": "3ce3e00cfc68497e714a65fe483062a895fd3759",
   "treeDirty": false,
-  "measuredAt": "2026-09-29T21:37:37.918Z",
+  "measuredAt": "2026-09-30T13:17:53.140Z",
   "host": {
     "platform": "linux",
     "arch": "x64",
@@ -16,7 +16,7 @@
     "embed.tokens": 2577,
     "harness.vault_count": 1,
     "embed.call_count": 2,
-    "boot.tools_registered": 162,
+    "boot.tools_registered": 164,
     "graph.candidates_seed": 30,
     "graph.candidates_expand": 80,
     "graph.candidates_fused": 85,
@@ -30,12 +30,12 @@
   },
   "calibration": {
     "cpuMs": {
-      "median": 14.445819999999912,
-      "cv": 0.020418514119115633
+      "median": 14.626840999999786,
+      "cv": 0.045217469760358994
     },
     "ioMs": {
-      "median": 7.081079000000045,
-      "cv": 0.07340733707809992
+      "median": 9.49051099999997,
+      "cv": 0.18524583124600902
     }
   }
 }

@@ -1,5 +1,5 @@
 // WP2 slice 1 (THE-233 follow-up): the invariant the schema/deps/retrieval-runtime extraction
-// must hold provably still. `buildKnowledgeTools(deps)` returns the 9 M7 tools in a fixed array
+// must hold provably still. `buildKnowledgeTools(deps)` returns the 10 M7 tools in a fixed array
 // order; a caller-visible tool has exactly the shape it declares — name, description, domain,
 // requiredScopes, tags, whether it declares a `pathAcl` extractor, and the top-level keys of its
 // input/output schema. None of that is allowed to move while the file underneath it is split into
@@ -138,6 +138,17 @@ const EXPECTED: ToolSnapshot[] = [
     ],
   },
   {
+    name: "search_and_read",
+    description:
+      "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires.",
+    domain: "search",
+    requiredScopes: ["read:notes"],
+    tags: ["knowledge", "search"],
+    hasPathAcl: false,
+    inputKeys: ["cursor", "k", "max_bytes_per_item", "mode", "query", "vault"],
+    outputKeys: ["errors", "mode", "next_cursor", "notes", "vault"],
+  },
+  {
     name: "diagnose_retrieval",
     description:
       "Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read.",
@@ -238,8 +249,8 @@ function stubDeps(): M7Deps {
 }
 
 describe("m7 tool metadata parity (WP2 invariant)", () => {
-  it("keeps the ordered public metadata of the 9 M7 tools byte-identical", () => {
-    const tools = buildKnowledgeTools(stubDeps());
+  it("keeps the ordered public metadata of the 10 M7 tools byte-identical", () => {
+    const tools = buildKnowledgeTools(stubDeps(), () => undefined);
     const actual = tools.map(toSnapshot);
     expect(stableStringify(actual)).toBe(stableStringify(EXPECTED));
   });

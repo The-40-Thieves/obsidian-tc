@@ -715,6 +715,11 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // acl/aclByVault construction above and graph-search.ts's aclForVault.
     acl,
     aclByVault,
+    // search_and_read's continuation cursors: same key source and live byte budget as M1's bulk reads.
+    paging: createPagingDeps({
+      secret: config.auth.jwtSecret,
+      budgetBytes: () => registry.maxResponseBytes,
+    }),
   });
 
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over

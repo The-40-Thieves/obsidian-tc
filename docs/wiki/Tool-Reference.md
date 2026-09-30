@@ -1,6 +1,6 @@
 # Tool Reference
 
-**165 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**166 tools across 31 domains.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -77,7 +77,7 @@ Every error also carries a **`recovery`** string: bounded next-step guidance for
 _Auto-generated from the tool registry — the exhaustive, always-current list. Run `bun run docgen:render`; do not hand-edit between the markers._
 
 <!-- BEGIN GENERATED: tools -->
-_165 tools. Access is a coarse hint; the required scopes are authoritative. Profile is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._
+_166 tools. Access is a coarse hint; the required scopes are authoritative. Profile is which `toolFacade.profile` value(s) make the tool visible/callable — see [Tool profile](https://obsidian-tc.the40thieves.io/tools/#tool-profile)._
 
 | Tool | Access | Profile | Scopes | Description |
 |---|---|---|---|---|
@@ -213,6 +213,7 @@ _165 tools. Access is a coarse hint; the required scopes are authoritative. Prof
 | `restore_note` | write | core, full | `write:notes` | Restore a note to a prior snapshot's content. Destructive — overwrites the current note (whose current state is itself snapshotted first when snapshots are enabled, so the restore is reversible) and requires confirmation. |
 | `rewrite_link` | write | core, full | `write:notes` | Repoint every link to `from_target` at `to_target` across the vault. Defaults to dry_run; a real run requires confirmation. |
 | `save_workspace` | write | full only | `write:workspaces` | Save a workspace layout under a name (optionally making it active). Overwriting an existing workspace requires confirmation. |
+| `search_and_read` | read | core, full | `read:notes` | Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires. |
 | `search_dql` | read | core, full | `read:notes`, `read:dataview` | Run a Dataview DQL query via the companion plugin bridge. Returns headers/rows and the matched note paths. Requires the Dataview bridge; reports plugin_missing when it is not configured. |
 | `search_jsonlogic` | read | core, full | `read:notes` | Filter notes with a JSONLogic expression over frontmatter + { path, content }. Returns matching note paths. |
 | `search_omnisearch` | read | full only | `read:omnisearch` | Ranked full-text search over the vault via the Omnisearch plugin. Returns scored matches with per-note excerpts and matched words. Complements the built-in search domain with Omnisearch's own ranking. |
