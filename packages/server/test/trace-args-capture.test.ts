@@ -20,6 +20,7 @@ import { redactSecrets } from "../src/experiential/redact";
 import { captureArgs } from "../src/mcp/registry/dispatch-observability";
 import { appendTrace } from "../src/workspace/sessions";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
+import { expectLinear } from "./scaling";
 
 const MAX = 4096;
 
@@ -135,7 +136,7 @@ describe("THE-736 — captured arguments do not leave through get_session_traces
   });
 });
 
-describe("THE-736 — the redaction scanner is not a DoS surface", () => {
+describe("THE-736 — the redaction scanner is not a DoS surface", { timeout: 60_000 }, () => {
   // CodeQL js/polynomial-redos (high) on the PEM pattern. Reachable rather than theoretical:
   // `captureArgs` runs redactSecrets over the caller's RAW arguments before the size cap, so the
   // input is attacker-controlled and unbounded at that point.
@@ -150,24 +151,19 @@ describe("THE-736 — the redaction scanner is not a DoS surface", () => {
     // there passes against the vulnerable pattern, which is exactly what happened on the first
     // attempt at this test.
     //
-    // So the assertion is the SCALING RATIO, which is also what makes it robust to a loaded CI
-    // box: both measurements move together.
-    const gen = (n: number): string => "-----BEGIN PRIVATE KEY-----".repeat(n);
-    const time = (s: string): number => {
-      const t0 = performance.now();
-      redactSecrets(s);
-      return performance.now() - t0;
-    };
-    const small = gen(4000);
-    const large = gen(12000); // 3x the input
-    time(small); // warm up, so JIT compilation does not land in the first measurement
-    const tSmall = Math.max(time(small), 1);
-    const tLarge = time(large);
-    const ratio = tLarge / tSmall;
-    // Linear would be ~3. Quadratic would be ~9. 5 sits between them with room for noise.
-    expect(ratio).toBeLessThan(5);
+    // So the assertion is the SCALING EXPONENT (expectLinear: log-log slope of CPU time over four
+    // sizes), not a single ratio: a two-point ratio measured 5.74 against a cap of 5 on a windows
+    // runner for a LINEAR pattern. The base input must sit well past the pattern's 16384-byte
+    // body bound: below it the bounded scan is still truncated by the input's end, so the cost
+    // has not reached its linear regime. No absolute bound (null): the bounded pattern costs ~2ms
+    // per KB, which a fixed per-80KB ceiling would only make a second flake source.
+    const marker = "-----BEGIN PRIVATE KEY-----";
+    expectLinear(marker, (s) => redactSecrets(s), {
+      baseBytes: 2000 * marker.length,
+      boundMsPer80KB: null,
+    });
     // And nothing matches -- there is no END marker, so zero redactions is the correct answer.
-    expect(redactSecrets(large).redactions).toBe(0);
+    expect(redactSecrets(marker.repeat(12000)).redactions).toBe(0);
   });
 
   it("still redacts a real PEM block", () => {
