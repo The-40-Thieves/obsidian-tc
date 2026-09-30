@@ -36,6 +36,8 @@ describe("config schema", () => {
     // OTEL is a no-op until an endpoint is set.
     expect(c.observability.otel.endpoint).toBeUndefined();
     expect(c.observability.otel.headers).toEqual({});
+    // Span depth defaults to the single root span; child spans are opt-in (otel/dispatch-spans.ts).
+    expect(c.observability.otel.detail).toBe("root");
     // /metrics endpoint disabled by default; bind localhost only.
     expect(c.observability.prometheus).toEqual({ enabled: false, port: 9464, bind: "127.0.0.1" });
     // MORGIANA JSONL spool on by default; HTTP push off.
@@ -81,6 +83,22 @@ describe("config schema", () => {
     expect(c.observability.morgiana.spool).toBe(false);
     expect(c.observability.morgiana.httpEndpoint).toBe("https://morgiana.internal/events");
     expect(c.observability.retention.eventLogDays).toBe(7);
+  });
+
+  it("accepts each otel.detail level and rejects anything else", () => {
+    for (const detail of ["root", "children", "verbose"] as const) {
+      const c = ServerConfigSchema.parse({
+        vaults: [{ id: "main", path: "/tmp/v" }],
+        observability: { otel: { detail } },
+      });
+      expect(c.observability.otel.detail).toBe(detail);
+    }
+    expect(
+      ServerConfigSchema.safeParse({
+        vaults: [{ id: "main", path: "/tmp/v" }],
+        observability: { otel: { detail: "everything" } },
+      }).success,
+    ).toBe(false);
   });
 
   it("validates the spool retention keys: 0 days keeps forever, spoolMaxBytes must be positive", () => {

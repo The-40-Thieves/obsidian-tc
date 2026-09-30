@@ -17,4 +17,6 @@ export const SPAN_ATTR = {
   overflowB: "obsidian_tc.overflow_b",
   durationMs: "obsidian_tc.duration_ms",
   rateLimitHit: "rate_limit.hit",
+  itemIndex: "obsidian_tc.item_index",
+  spansDropped: "obsidian_tc.spans_dropped",
 } as const;

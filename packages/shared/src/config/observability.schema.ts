@@ -13,9 +13,9 @@ import { z } from "zod";
 import { classifyJudgeBaseUrl, isDisallowedLiteralHost, isLoopbackHost } from "../net-host";
 
 export const ObservabilityConfigSchema = z.object({
-  // traceDetail / tracesSampleRate were declared here and read by NOTHING: no sampling was ever applied
-  // and no detail switch existed. Removed rather than left as a lie in a schema operators trust. Re-add
-  // them together with the code that honors them.
+  // The top-level traceDetail / tracesSampleRate were declared here and read by NOTHING: no sampling
+  // was ever applied. Removed rather than left as a lie in a schema operators trust. The detail switch
+  // is back as otel.detail, together with the code that honors it (otel/dispatch-spans.ts).
   otel: z
     .object({
       endpoint: z
@@ -28,6 +28,12 @@ export const ObservabilityConfigSchema = z.object({
         .prefault({})
         .describe(
           "Extra headers sent with OTLP exports, e.g. an auth token. Values may be secret.",
+        ),
+      detail: z
+        .enum(["root", "children", "verbose"])
+        .default("root")
+        .describe(
+          'Span detail per tool call. "root": one span per request (default, no extra cost). "children": adds a span per pipeline stage (input_parse, auth_check, policy_eval, idempotency, rate_limit, hitl_check, acl_eval, tool_impl, output_serialize). "verbose": also one span per batch item and per SQLite transaction, capped at 64 child spans per request. Spans carry structured error codes only, never note content, paths or secrets.',
         ),
     })
     .prefault({})

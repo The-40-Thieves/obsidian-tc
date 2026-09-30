@@ -240,6 +240,7 @@ Generated (`bun run docgen:render`); do not hand-edit the region between the mar
 | `observability.morgiana.httpEndpoint` | `string` | — |  | Push CloudEvents to this URL. Absent means spool-only, with no network calls. |
 | `observability.morgiana.httpHeaders` | `record` | `{}` |  | Extra headers sent with event pushes. Values may be secret. |
 | `observability.morgiana.spool` | `boolean` | `true` |  | Write CloudEvents to a local JSONL spool file. |
+| `observability.otel.detail` | `enum(root\|children\|verbose)` | `"root"` |  | Span detail per tool call. "root": one span per request (default, no extra cost). "children": adds a span per pipeline stage (input_parse, auth_check, policy_eval, idempotency, rate_limit, hitl_check, acl_eval, tool_impl, output_serialize). "verbose": also one span per batch item and per SQLite transaction, capped at 64 child spans per request. Spans carry structured error codes only, never note content, paths or secrets. |
 | `observability.otel.endpoint` | `string` | — |  | OTLP collector endpoint. OpenTelemetry export is a no-op until this is set. |
 | `observability.otel.headers` | `record` | `{}` |  | Extra headers sent with OTLP exports, e.g. an auth token. Values may be secret. |
 | `observability.prometheus.bind` | `string` | `"127.0.0.1"` |  | Bind address for the scrape endpoint. Loopback by default — /metrics is unauthenticated. |

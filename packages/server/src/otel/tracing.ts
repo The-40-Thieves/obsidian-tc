@@ -5,11 +5,10 @@
 // NodeTracerProvider batches OTLP/HTTP spans for service "obsidian-tc".
 //
 // One root span per tool call (name `obsidian_tc.<tool>`, SERVER kind) is created in the
-// dispatch wrapper (mcp/registry.ts) with the attribute set below. The verbose child-span
-// hierarchy (auth_check/acl_eval/policy_eval/tool_impl/output_serialize) is deferred to v1.x:
-// instrumenting it means fracturing dispatch's tightly-coupled inline stages for marginal value
-// at laptop scale, so v1.0 emits the attribute-rich root span in both trace_detail modes. This
-// is a documented reconciliation, not an omission.
+// dispatch wrapper (mcp/registry.ts) with the attribute set below. The child-span hierarchy
+// (input_parse/auth_check/policy_eval/acl_eval/tool_impl/output_serialize, plus verbose batch-item
+// and db spans) is opt-in via observability.otel.detail and lives in ./dispatch-spans.ts; at the
+// default "root" nothing beyond the root span is created.
 import { type Tracer, trace } from "@opentelemetry/api";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 
