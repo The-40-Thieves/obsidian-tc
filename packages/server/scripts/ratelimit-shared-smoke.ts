@@ -1,5 +1,7 @@
 // Proves the SHARED rate-limit backends work in the real built CLI, over real MCP stdio, across two
 // real server processes: `bun scripts/ratelimit-shared-smoke.ts --cli dist/cli.js --backend sqlite|redis`.
+// With `--image <tag>` (redis only) the two servers are containers of that image on the host
+// network, which proves the image ships a resolvable @redis/client.
 //
 // Two servers share one cacheDir (sqlite) or one Redis (redis) and a read tier of burst 3, refill
 // 1/min. Six governed calls, three through each server, must yield EXACTLY three successes and three
@@ -21,7 +23,10 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const cli = arg("--cli") ?? fail("--cli <path/to/dist/cli.js> is required");
+const image = arg("--image");
+const cli = image
+  ? ""
+  : (arg("--cli") ?? fail("--cli <path/to/dist/cli.js> or --image <tag> is required"));
 const backend = arg("--backend");
 if (backend !== "sqlite" && backend !== "redis") fail("--backend must be sqlite or redis");
 const redisUrl = process.env.OBSIDIAN_TC_REDIS_URL;
@@ -51,8 +56,24 @@ writeFileSync(
 
 async function connect(name: string): Promise<Client> {
   const transport = new StdioClientTransport({
-    command: "node",
-    args: [cli, configPath],
+    command: image ? "docker" : "node",
+    args: image
+      ? [
+          "run",
+          "-i",
+          "--rm",
+          "--network",
+          "host",
+          "--user",
+          String(process.getuid?.() ?? 1000),
+          "-e",
+          "OBSIDIAN_TC_REDIS_URL",
+          "-v",
+          `${root}:${root}`,
+          image,
+          configPath,
+        ]
+      : [cli, configPath],
     stderr: "inherit",
     env: { ...(process.env as Record<string, string>) },
   });
