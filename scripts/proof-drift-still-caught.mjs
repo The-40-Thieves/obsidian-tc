@@ -44,7 +44,9 @@ const git = (...a) => run("git", a);
 const edit = (rel, fn) => writeFileSync(join(WT, rel), fn(readFileSync(join(WT, rel), "utf8")));
 const revert = () => {
   git("reset", "-q", "--hard", BASE);
-  git("clean", "-fdq");
+  // -e node_modules: the symlinked installs are untracked and, being symlinks, not matched by a
+  // `node_modules/` ignore rule, so a plain clean would delete them.
+  git("clean", "-fdq", "-e", "node_modules");
 };
 
 const GATES = {
