@@ -11,7 +11,9 @@
 // Every surface also runs a POSITIVE control (the scope is granted, the hidden note must appear) so
 // a surface that returns nothing at all cannot pass as "no leak".
 import { describe, expect, it } from "vitest";
+import { fakeEmbeddingProvider } from "../src/embeddings";
 import type { CallerContext } from "../src/mcp/registry";
+import { indexNote } from "../src/search/indexer";
 import {
   assertNoLeak,
   BASE_SCOPES,
@@ -384,5 +386,79 @@ describe("indexing stays caller-independent", () => {
     expect(strings(r.data)).toContain(HIDDEN);
     const denied = await h.call("search_semantic", { vault: MAIN, ...Q, k: 50 }, BASE_SCOPES);
     expect(leaks(denied.data)).toBe(false);
+  });
+});
+
+describe("default-denied paths never surface, even when the index holds a chunk for one", () => {
+  // The indexer never stores .obsidian/.git/.trash (walkVault skips dot-directories and the
+  // index-on-write gate refuses them), but a caller with UNRESTRICTED read takes the fast path that
+  // skips per-item filtering in places, so the guarantee must not rest on that invariant alone:
+  // plant the chunks an ungated write would have left and require every surface to hold anyway.
+  const DENIED = [".obsidian/leak.md", ".git/leak.md", ".trash/leak.md", ".Obsidian/leak.md"];
+  const DENIED_MARK = "DENIEDMARK";
+
+  it("no search or enumeration surface names or quotes one, for an unrestricted caller", async () => {
+    const h = await harness({ main: {} });
+    const provider = fakeEmbeddingProvider({ dimensions: 32 });
+    for (const p of DENIED)
+      await indexNote(
+        h.parts.db,
+        provider,
+        MAIN,
+        p,
+        `---\ntags: [topic]\nkind: memo\n---\n# X\n\nzebra ${DENIED_MARK} control dir note links [[open/c]]\n`,
+        false,
+        () => 1,
+      );
+    for (const s of SURFACES.filter((x) => x.vault === undefined)) {
+      const r = await h.call(s.tool, s.input(MAIN), BASE_SCOPES);
+      if (!r.ok) continue;
+      const all = strings(r.data, s.echoKeys);
+      const hit = all.find((x) => x.includes(DENIED_MARK) || DENIED.some((d) => x.includes(d)));
+      expect(
+        hit,
+        `${s.name}: default-denied note surfaced as ${JSON.stringify(hit)}`,
+      ).toBeUndefined();
+    }
+    const vaults = await h.call("list_vaults", {}, BASE_SCOPES);
+    const denied = (
+      h.parts.db
+        .prepare("SELECT COUNT(*) AS n FROM chunks WHERE vault_id = ? AND path LIKE '.%'")
+        .get(MAIN) as { n: number }
+    ).n;
+    const total = (
+      h.parts.db.prepare("SELECT COUNT(*) AS n FROM chunks WHERE vault_id = ?").get(MAIN) as {
+        n: number;
+      }
+    ).n;
+    expect(denied).toBeGreaterThan(0);
+    expect(vaults.data.vaults.find((v: { id: string }) => v.id === MAIN).chunk_count).toBe(
+      total - denied,
+    );
+  });
+});
+
+describe("a stricter per-vault ACL is honored on every surface, including the fast paths", () => {
+  it("knowledge_search on a docs vault whose OWN ACL adds a rule-scope", async () => {
+    const h = await harness({ main: {}, docs: RULE_SCOPE });
+    const allowed = await readNotesAllows(h, DOCS, BASE_SCOPES);
+    expect(allowed.has(HIDDEN)).toBe(false);
+    for (const tool of ["knowledge_search", "knowledge_get_critical"]) {
+      const input =
+        tool === "knowledge_search" ? { vault: DOCS, ...Q, final_top_k: 50 } : { vault: DOCS };
+      const r = await h.call(tool, input, BASE_SCOPES);
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      assertNoLeak(tool, r.data, allowed);
+    }
+  });
+
+  it("every vault-anchored surface on a vault whose OWN ACL adds a rule-scope (root ACL open)", async () => {
+    const h = await harness({ main: {}, other: RULE_SCOPE });
+    const allowed = await readNotesAllows(h, OTHER, BASE_SCOPES);
+    expect(allowed.has(HIDDEN)).toBe(false);
+    for (const s of SURFACES.filter((x) => x.vault === undefined)) {
+      const r = await h.call(s.tool, s.input(OTHER), BASE_SCOPES);
+      if (r.ok) assertNoLeak(`${s.name}@other`, r.data, allowed, s.echoKeys);
+    }
   });
 });

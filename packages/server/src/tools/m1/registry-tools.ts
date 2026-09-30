@@ -28,9 +28,11 @@ function countRows(db: Database, table: string, vaultId: string): number {
   if (!COUNTABLE_TABLES.has(table))
     throw err.invalidInput(`countRows: table not in allowlist: ${table}`, { table });
   try {
-    const r = db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE vault_id = ?`).get(vaultId) as
-      | { n: number }
-      | undefined;
+    // `path NOT LIKE '.%'`: the hard default-deny roots (.obsidian/.git/.trash) are dot-directories,
+    // which the index never stores; the count must not depend on that holding (readableRel denies them).
+    const r = db
+      .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE vault_id = ? AND path NOT LIKE '.%'`)
+      .get(vaultId) as { n: number } | undefined;
     return r?.n ?? 0;
   } catch {
     return 0;

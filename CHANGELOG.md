@@ -253,7 +253,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `index_vault` no longer lists notes the caller cannot read in `frontmatter_failures` (the shared
   index itself is still built caller-independently), and `notes_frontmatter_failed` follows the
   filtered list. Aggregates count what the caller can see: `list_vaults` and `get_vault`
-  `chunk_count` are the caller's own readable chunks, `gap_report` recomputes each item's
+  `chunk_count` are the caller's own readable chunks (never a control directory such as `.obsidian`, even
+  if the index held one), `gap_report` recomputes each item's
   `top_score`, `results`, `gap` and the pass's `gaps`/`gap_rate` from the nearest hits the caller can
   read (`results` is then a floor: only the top hits are stored), and `get_index_status`
   (`chunks_upserted`, `in_flight`) and `server_health` (`index.detail`, whose reconcile errors name

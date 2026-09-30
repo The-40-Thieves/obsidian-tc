@@ -54,6 +54,7 @@ export interface Harness {
 export interface AclSpec {
   main?: Partial<AclConfigT>;
   other?: Partial<AclConfigT>;
+  docs?: Partial<AclConfigT>;
 }
 
 /** Everything a caller-supplied `extra` registration needs to wire more tool families onto the
@@ -99,7 +100,7 @@ async function build(acls: AclSpec, extra?: (registry: ToolRegistry, parts: Harn
   const aclByVault = new Map<string, FolderAcl>([
     [MAIN, rootAcl],
     [OTHER, new FolderAcl(cfg(acls.other ?? acls.main))],
-    [DOCS, new FolderAcl(cfg(acls.main))],
+    [DOCS, new FolderAcl(cfg(acls.docs ?? acls.main))],
   ]);
   const vaultRegistry = new VaultRegistry([
     { id: MAIN, path: roots[0] as string },
