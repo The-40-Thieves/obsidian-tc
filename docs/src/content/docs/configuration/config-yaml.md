@@ -250,7 +250,8 @@ until this generator existed, by which point five entire defaulted blocks had go
     },
     "retention": {
       "eventLogDays": 30,
-      "tracesDays": 30
+      "tracesDays": 30,
+      "spoolRetentionDays": 30
     }
   },
   "maintenance": {
@@ -462,7 +463,9 @@ returns `rate_limit` with `retry_after_ms`.
 | `otel.endpoint` | *(optional)* | OTLP export; unset = no-op. `otel.headers` for auth. `otel.detail` (`root` default, `children`, `verbose`) sets span depth; there is no sampling knob — every dispatch gets a root span when tracing is enabled. |
 | `prometheus` | disabled, `127.0.0.1:9464` | `/metrics` scrape endpoint. |
 | `morgiana.spool` | true | CloudEvents JSONL spool; `httpEndpoint` (+`httpHeaders`) enables push. |
-| `retention.eventLogDays` | 30 | The **only** enforced retention: `event_log` rows older than this are pruned by the maintenance sweep. Trace files and the morgiana spool are **not** pruned by config — they grow without bound regardless of any value set here. |
+| `retention.eventLogDays` | 30 | `event_log` rows older than this are pruned by the maintenance sweep. |
+| `retention.spoolRetentionDays` | 30 | Morgiana spool day files (`morgiana-events-<date>.jsonl`) older than this are deleted by the maintenance sweep; `0` keeps them forever. The current UTC day's file is never touched. |
+| `retention.spoolMaxBytes` | *(optional)* | Per-vault size cap on the morgiana spool: the oldest day files are deleted until the vault's spool fits. The current day's file is never deleted. |
 
 ## Background schedulers
 

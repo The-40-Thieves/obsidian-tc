@@ -40,6 +40,8 @@ const COUNTERS = [
   // The periodic memory-orphan sweep's per-class delete count. Only the dangling_* classes move by
   // default; the other four need an operator-set retention window.
   "obsidian_tc_memory_orphans_swept_total",
+  // The morgiana spool retention sweep's deleted-file count, by reason (age | size).
+  "obsidian_tc_morgiana_spool_files_pruned_total",
   // THE-417 Phase 2: the readable half of warn-mode. Any non-zero value names a tool whose
   // declared contract has drifted from what it returns; there is no benign case.
   "obsidian_tc_output_schema_drift_total",
@@ -116,14 +118,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 32 counters, 4 histograms, 18 gauges", async () => {
+  it("registers the full catalog: 33 counters, 4 histograms, 18 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(54);
+    expect(new Set(declared).size).toBe(55);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {
@@ -251,6 +253,16 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     const text = await r.metrics();
     expect(text).toContain('obsidian_tc_memory_orphans_swept_total{class="dangling_relations"} 5');
     expect(text).not.toContain('class="retired_entities"');
+  });
+
+  it("counts morgiana spool files pruned by reason, guarded on n > 0", async () => {
+    const r = new MetricsRecorder();
+    r.incMorgianaSpoolPruned("age", 3);
+    r.incMorgianaSpoolPruned("age", 2);
+    r.incMorgianaSpoolPruned("size", 0); // a sweep that found nothing: no series
+    const text = await r.metrics();
+    expect(text).toContain('obsidian_tc_morgiana_spool_files_pruned_total{reason="age"} 5');
+    expect(text).not.toContain('reason="size"');
   });
 
   it("counts vec_chunks rebuild events by reason, with no vault label (THE-612)", async () => {

@@ -33,7 +33,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `snapshots` | `{ "enabled": true, "retention": 10 }` | Point-in-time snapshots of destructive writes so `restore_note` can roll back (on by default under `trusted-local`; retention is pruned inline) |
 | `bootstrap` | `{ "domains": [], "deepPaths": [], "maxPaths": 10 }` | Session-bootstrap routing table (signals → context notes; deep-mode phrases) |
 | `throttle` | object | Per-class rate tiers (read 600/100 … admin 5/1) + max concurrent writes/vault (16) |
-| `observability` | object | `otel` / `prometheus` / `morgiana` / `retention` (only `retention.eventLogDays` is enforced — trace files and the morgiana spool are not pruned) |
+| `observability` | object | `otel` / `prometheus` / `morgiana` / `retention` (`retention` bounds `event_log` rows, trace files and the morgiana spool) |
 | `toolFacade` | `{ "mode": "triad" }` | Advertised tool surface — `triad` (default) / `domain` / `flat` |
 | `toolVisibility` | object (optional) | Hide/disable tools from the advertised surface |
 | `plur` | object (optional) | plur read-proxy endpoint |
@@ -405,7 +405,9 @@ _Every key, type, default, and required flag — generated from the Zod schema. 
 | `observability.prometheus.bind` | `string` | `"127.0.0.1"` |  | Bind address for the scrape endpoint. Loopback by default — /metrics is unauthenticated. |
 | `observability.prometheus.enabled` | `boolean` | `false` |  | Serve the Prometheus /metrics endpoint. |
 | `observability.prometheus.port` | `number` | `9464` |  | Port for the Prometheus scrape endpoint. |
-| `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. The morgiana event spool is still not pruned and grows without bound. |
+| `observability.retention.eventLogDays` | `number` | `30` |  | Days of event_log rows kept by the maintenance sweep. The morgiana event spool has its own bounds, spoolRetentionDays and spoolMaxBytes. |
+| `observability.retention.spoolMaxBytes` | `number` | — |  | Optional size bound on the morgiana spool, in bytes, applied per vault directory: when a vault's spool files total more than this, the oldest day files are deleted until it fits. The current day's file is never deleted, so a single day larger than the bound is kept. Absent means no size bound. |
+| `observability.retention.spoolRetentionDays` | `number` | `30` |  | Days of morgiana CloudEvents spool files (<cacheDir>/<vault>/morgiana-events-<YYYY-MM-DD>.jsonl) kept by the maintenance sweep. Whole day files older than this are deleted; the file for the current UTC day, and any file modified in the last hour, is never touched. 0 keeps the spool forever (no age bound). Make sure MORGIANA has consumed a file before its day leaves this window. |
 | `observability.retention.tracesDays` | `number` | `30` |  | Days of workspace session trace files (<vault>/<traceFolder>/*.jsonl) kept by the maintenance sweep. Traces are per-vault and live INSIDE the vault, so they are also picked up by whatever syncs or backs it up. Orphans from a failed start_session are pruned by the same age rule (the trace is written before the session row, so a failed attempt leaves a file with no row referencing it). |
 
 ### `pensieve`

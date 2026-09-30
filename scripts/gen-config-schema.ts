@@ -497,7 +497,14 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // packages/shared/src/config/observability.schema.ts's MemoryOrphansConfigSchema for the
   // description text. Only `enabled` (dangling rows) is on by default; both age-gated classes are
   // absent-means-off. No existing key, type, default or constraint moved.
-  "0a4821dc75ae7ff0d1e8408dca84218746bb77921432c2f41346a153ecbcc06e";
+  // Morgiana spool retention: rebaselined deliberately. Adds TWO keys under observability.retention,
+  // `spoolRetentionDays` (integer >= 0, default 30; 0 = keep forever) and `spoolMaxBytes` (positive
+  // integer, optional), and rewords the `eventLogDays` description that said the spool was never
+  // pruned. No existing key, type, default or constraint moved.
+  // OTel child spans: rebaselined deliberately. Adds ONE key, `observability.otel.detail` (enum
+  // root | children | verbose, default root) — see packages/shared/src/config/observability.schema.ts.
+  // No existing key, type, default or constraint moved.
+  "70bc76cbfde229669340a9ae84901bbffd76c8fe3927ff20c51056d9ee85a957";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the

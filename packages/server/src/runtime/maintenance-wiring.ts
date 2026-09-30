@@ -21,6 +21,7 @@ import {
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { MorgianaEmitter } from "../morgiana/emitter";
+import { registerSpoolSweep, type SpoolSweepCounts } from "../morgiana/spool-sweep";
 import type { Scheduler } from "../scheduler/scheduler";
 import { resolveCacheTraceDir, resolveTraceDirs } from "../workspace/sessions";
 
@@ -48,8 +49,14 @@ export interface MaintenanceWiringDeps {
       dryRun: boolean;
     };
   };
-  /** config.observability.retention */
-  retention: { eventLogDays: number; tracesDays: number };
+  /** config.observability.retention. The two spool keys are optional: absent (or 0 and unset) ->
+   *  the spool sweep is not registered. */
+  retention: {
+    eventLogDays: number;
+    tracesDays: number;
+    spoolRetentionDays?: number;
+    spoolMaxBytes?: number | undefined;
+  };
   /** config.experiential — THE-891 item 1: content-axis retention, orthogonal to
    *  maintenance.episodesRetentionDays above (that governs row deletion; this governs
    *  args_json redaction). Absent leaves the redaction arm unarmed, same as every other
@@ -86,8 +93,11 @@ export interface MaintenanceWiringDeps {
   listVaultIds?: () => readonly string[];
   /** Write-lock hooks for the memory orphan sweep's batches. */
   memoryOrphanSqlHooks?: WriteTxnHooks;
-  /** Counter sink for the memory orphan sweep. Absent -> counts are logged but not exported. */
-  metrics?: { incMemoryOrphansSwept(cls: MemoryOrphanClass, n: number): void };
+  /** Counter sinks for the memory orphan and spool sweeps. Absent -> counts are logged but not exported. */
+  metrics?: {
+    incMemoryOrphansSwept(cls: MemoryOrphanClass, n: number): void;
+    incMorgianaSpoolPruned(reason: "age" | "size", n: number): void;
+  };
   /** Vault id the process-wide sweep event is attributed to (run_serve's first vault). */
   eventVaultId: string;
   now?: () => number;
@@ -117,6 +127,7 @@ export function sweepTotal(counts: SweepCounts): number {
 export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiringDeps): boolean {
   if (!deps.maintenance.enabled) return false;
   configureMemoryOrphanSweep(scheduler, deps);
+  configureSpoolSweep(scheduler, deps);
   registerMaintenanceSweep(scheduler, {
     db: deps.db,
     intervalMs: deps.maintenance.intervalMinutes * 60_000,
@@ -228,6 +239,37 @@ function configureMemoryOrphanSweep(scheduler: Scheduler, deps: MaintenanceWirin
     onError: (e) => {
       process.stderr.write(
         `[maintenance] memory orphan sweep failed: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    },
+  });
+}
+
+/** One stderr line per sweep: counts only. */
+function logSpoolSweep(c: SpoolSweepCounts): void {
+  process.stderr.write(
+    `[maintenance] morgiana spool sweep: files_age=${c.files_age} files_size=${c.files_size} bytes=${c.bytes}\n`,
+  );
+}
+
+/** Register the morgiana spool retention sweep as its own job, on the maintenance interval. Not
+ *  registered when neither bound is set (spoolRetentionDays absent or 0, and no spoolMaxBytes). */
+function configureSpoolSweep(scheduler: Scheduler, deps: MaintenanceWiringDeps): void {
+  const { spoolRetentionDays = 0, spoolMaxBytes } = deps.retention;
+  if (spoolRetentionDays === 0 && spoolMaxBytes === undefined) return;
+  registerSpoolSweep(scheduler, {
+    cacheDir: deps.cacheDir,
+    intervalMs: deps.maintenance.intervalMinutes * 60_000,
+    retentionDays: spoolRetentionDays,
+    ...(spoolMaxBytes !== undefined ? { maxBytes: spoolMaxBytes } : {}),
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+    onSweep: (counts) => {
+      logSpoolSweep(counts);
+      deps.metrics?.incMorgianaSpoolPruned("age", counts.files_age);
+      deps.metrics?.incMorgianaSpoolPruned("size", counts.files_size);
+    },
+    onError: (e) => {
+      process.stderr.write(
+        `[maintenance] morgiana spool sweep failed: ${e instanceof Error ? e.message : String(e)}\n`,
       );
     },
   });

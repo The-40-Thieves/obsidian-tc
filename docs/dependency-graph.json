@@ -2,10 +2,10 @@
   "generatedBy": "scripts/gen-tree-map.mjs",
   "note": "Generated — do not edit. Subsystem = first path segment under a package's src/; the whole plugin package is one subsystem (see TREE.md §7).",
   "scale": {
-    "modules": 558,
-    "dependencies": 2708,
-    "subsystemPairs": 162,
-    "crossSubsystemImports": 1208
+    "modules": 560,
+    "dependencies": 2715,
+    "subsystemPairs": 163,
+    "crossSubsystemImports": 1211
   },
   "subsystems": {
     "auth": 12,
@@ -24,9 +24,9 @@
     "mcp": 30,
     "memory": 2,
     "memory-import": 7,
-    "metrics": 4,
+    "metrics": 5,
     "model": 7,
-    "morgiana": 1,
+    "morgiana": 2,
     "otel": 4,
     "plane": 9,
     "plugin": 21,
@@ -271,6 +271,11 @@
       "weight": 6
     },
     {
+      "from": "runtime",
+      "to": "morgiana",
+      "weight": 6
+    },
+    {
       "from": "tools",
       "to": "workspace",
       "weight": 6
@@ -311,6 +316,11 @@
       "weight": 5
     },
     {
+      "from": "metrics",
+      "to": "db",
+      "weight": 5
+    },
+    {
       "from": "plane",
       "to": "db",
       "weight": 5
@@ -318,11 +328,6 @@
     {
       "from": "plane",
       "to": "search",
-      "weight": 5
-    },
-    {
-      "from": "runtime",
-      "to": "morgiana",
       "weight": 5
     },
     {
@@ -363,11 +368,6 @@
     {
       "from": "cli",
       "to": "capture",
-      "weight": 4
-    },
-    {
-      "from": "metrics",
-      "to": "db",
       "weight": 4
     },
     {
@@ -733,6 +733,11 @@
     {
       "from": "model",
       "to": "gateway",
+      "weight": 1
+    },
+    {
+      "from": "morgiana",
+      "to": "scheduler",
       "weight": 1
     },
     {
