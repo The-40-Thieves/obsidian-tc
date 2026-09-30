@@ -94,6 +94,9 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
     "read_kanban_board",
     "read_metadata_fields",
     "read_property",
+    // Reads note bodies like read_notes, but counting it as "browse" widens S1 and needs a
+    // DERIVATION_POLICY_VERSION bump (see READ_FAMILY_TOOLS); excluded until that is decided.
+    "read_resources",
     "read_snapshot",
   ] as const;
 

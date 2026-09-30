@@ -46,6 +46,8 @@ export interface ToolSpec<S extends z.ZodTypeAny, O> {
   pathAcl?: (input: z.infer<S>) => ReadonlyArray<{ op: AclOp; path: string }>;
   /** See ToolDefinition.confirmationTargets. */
   confirmationTargets?: ToolDefinition<z.infer<S>>["confirmationTargets"];
+  /** See ToolDefinition.deniedItems. */
+  deniedItems?: (output: O) => readonly string[];
   handler: (input: z.infer<S>, ctx: CallerContext) => O | Promise<O>;
 }
 

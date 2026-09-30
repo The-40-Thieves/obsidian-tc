@@ -16,7 +16,9 @@ export type { M1Deps } from "./shared";
 
 export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {
   for (const tool of buildRegistryTools(deps)) registry.register(tool);
-  for (const tool of buildNotesTools(deps)) registry.register(tool);
+  // read_resources names its vault inside each URI, so it resolves that vault's ACL through the
+  // registry's own per-vault resolver (the one dispatch uses) rather than an M1Deps copy of it.
+  for (const tool of buildNotesTools(deps, (id) => registry.aclFor(id))) registry.register(tool);
   for (const tool of buildFrontmatterTools(deps)) registry.register(tool);
   for (const tool of buildTagsTools(deps)) registry.register(tool);
   for (const tool of buildLinksTools(deps)) registry.register(tool);

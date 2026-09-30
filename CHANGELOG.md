@@ -36,6 +36,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `auth.jwtSecret` can be removed: verification and minting work from registry keys alone, and
   `doctor` says when.
 
+- **`read_resources`: batch `resources/read`.** MCP `resources/read` takes one URI per call and
+  the protocol has no JSON-RPC batching, so the bulk form is a tool. It takes up to 100
+  `obsidian-tc://<vault>/<path>` note URIs and returns one result per URI in request order:
+  `{ok: true, uri, mimeType, text}` (the same bytes a single `resources/read` returns) or
+  `{ok: false, uri, error}` for a malformed or unsupported URI, another vault's URI, a denied or a
+  missing note. URIs are resolved by the same `readResource` the resource handler calls, so the
+  bound-vault rule, the folder and rule-scope ACL and the size ceiling are shared, and they are
+  evaluated per URI on every page. Over-budget batches page with `next_cursor` exactly like
+  `read_notes` (the shared `byte-page.ts` paginator); a resource that can never fit is a per-item
+  `too_large` error. There is no read-side memory-defense gate to run per item: that scan guards
+  writes only.
+
 - **Continuation cursor for bulk reads.** `read_notes` no longer fails the whole call with
   `overflow` when the batch exceeds the response byte budget. It returns the notes that fit plus an
   opaque `next_cursor`; repeat the same request with `cursor` set and it resumes exactly where the
@@ -135,6 +147,18 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   An emptied `auth_keys` table in an initialised registry refuses every bearer with `registry_lost`,
   asymmetric tokens included; they no longer fall through to `auth.jwks` / `auth.jwksUri`.
 
+- **`resources/read`, `resources/list` and `read_resources` now enforce the vault's own ACL
+  override.** A per-vault `acl` block (narrower `readPaths`, `strictReadDefault`, or `rules`) was
+  applied only to tools that take a `vault` argument. A resource URI names its vault inside the URI,
+  so these surfaces were authorized by the root ACL instead, which defaults to unrestricted reads: a
+  token bound to a vault whose override hid a folder could still read (or list) that folder through
+  `resources/read`. They now resolve the ACL of the vault the URI names, through the same per-vault
+  resolver tool dispatch uses, and the verdict for a given caller and path is the same on
+  `read_notes`, `read_resources`, `resources/read` and `resources/list`. A vault with no override
+  still inherits the root ACL. Also: a denied item inside a `read_resources` batch is now audited,
+  counted in `obsidian_tc_acl_denied_total` and relayed as `tc.acl.denied`, as a denied `read_notes`
+  path is, and a folder under an allowed path now reads as `note_not_found` on both resource
+  surfaces (it was `path_invalid`), so a caller cannot tell a folder from a missing note.
 - **`replay_drift` now covers the eight HITL-gated tools that bound on `args_hash` alone.** A
   gated tool declares what its confirmation is about through `pathAcl` or a new per-tool
   `confirmationTargets` function. `rewrite_link` binds the set of notes it would rewrite, `ocr_bulk` the
@@ -179,6 +203,11 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   optional `cursor`.
 
 ### Fixed
+
+- **`resources/read` on a missing note is a `note_not_found`, not an internal error.** The size
+  check statted the file and, for a missing one, fell through to a raw `ENOENT` from the read,
+  which the resource handler could not map onto `-32602` and reported as `-32603`. The
+  over-ceiling error now also carries `size` and `budget`.
 
 - **A config file that fails validation now names the file and the problem.** A `config.json`
   that parses but does not satisfy the schema (for example an empty `{}` left at

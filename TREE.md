@@ -10,9 +10,9 @@ both were stale within a DAY of being stamped — §3 claimed `search/` had 51 f
 generated diagram in the same file already said 52. That is why they are derived now.
 
 <!-- BEGIN GENERATED: tree-headline-scale -->
-**Scale:** 1,590 tracked code files · 296,522 lines.
+**Scale:** 1,594 tracked code files · 297,488 lines.
 
-TypeScript 272,774 · JavaScript 17,805 · Python 2,406 · SQL 2,232 · Rust 753 · Shell 552.
+TypeScript 273,740 · JavaScript 17,805 · Python 2,406 · SQL 2,232 · Rust 753 · Shell 552.
 
 Counted from `git ls-files` over `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.rs`, `.py`, `.sql`, `.sh` — tracked sources only, so build output and gitignored caches cannot inflate it. §7 carries the module graph.
 <!-- END GENERATED: tree-headline-scale -->
@@ -86,11 +86,11 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 <!-- BEGIN GENERATED: tree-subsystem-table -->
 | subsystem | files | lines | notes |
 |---|---:|---:|---|
-| `tools/` | 92 | 20,428 | domains m1–m8 + admin. The MCP tool surface |
+| `tools/` | 93 | 20,557 | domains m1–m8 + admin. The MCP tool surface |
 | `search/` | 64 | 13,603 | retrieval + indexing. Includes `graph_search_stages/` (THE-465) and `indexing/` (WP3) |
 | `cli/` | 60 | 10,457 | arg parsing + subcommands |
 | `experiential/` | 29 | 7,793 | work-memory tier: activation, retrieval log, forget, citations |
-| `mcp/` | 30 | 7,090 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
+| `mcp/` | 30 | 7,209 | registry + facade + transport binding. `registry/` holds the dispatch pipeline (WP4) |
 | `runtime/` | 25 | 6,007 | **composition root** (WP5) — stores, governance, wiring, transports, shutdown |
 | `doctor/` | 23 | 3,839 | `obsidian-tc doctor` — checks, report rendering, runner |
 | `vault/` | 20 | 3,339 | filesystem primitives — paths, links, ACL, snapshots, prune |
@@ -121,7 +121,7 @@ Generated — see `scripts/gen-tree-map.mjs`. The numbers are derived from `git 
 | `util/` | 4 | 123 | concurrency, error shapes, ISO week, pagination |
 | `morgiana/` | 1 | 101 | Morgiana observability emitter (spike, paused) |
 
-Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 552 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
+Derived from `git ls-files packages/server/src` over `.ts`/`.sql`, tests excluded — 553 files across 34 subsystems. Top-level files (`cli.ts`, `hash.ts`, …) belong to no subsystem and are not counted here.
 <!-- END GENERATED: tree-subsystem-table -->
 
 **Migrations have two separate chains, deliberately:**
@@ -144,7 +144,7 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 919 | `packages/shared/src/config/retrieval.schema.ts` |
 | 835 | `packages/server/src/experiential/reflect.ts` |
 | 823 | `packages/server/src/doctor/checks.ts` |
-| 806 | `packages/server/src/mcp/server.ts` |
+| 801 | `packages/server/src/mcp/server.ts` |
 | 741 | `packages/server/src/runtime/tool-wiring.ts` |
 | 740 | `packages/server/src/metrics/registry.ts` |
 | 716 | `packages/server/src/runtime/plane-wiring.ts` |
@@ -153,9 +153,9 @@ Generated — see `scripts/gen-tree-map.mjs`.
 | 700 | `packages/server/src/cli/args.ts` |
 | 688 | `packages/server/src/search/indexing/index-vault.ts` |
 | 687 | `packages/server/src/auth/registry.ts` |
+| 686 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 681 | `packages/server/src/experiential/context-bundle.ts` |
 | 670 | `packages/server/src/search/derived-edges.ts` |
-| 665 | `packages/server/src/mcp/registry/dispatch.ts` |
 | 662 | `packages/server/src/runtime/server-runtime.ts` |
 | 658 | `packages/server/src/transports/http.ts` |
 | 647 | `packages/server/src/tools/m2/search-tools.ts` |
@@ -306,7 +306,7 @@ natively in GitHub markdown, which is why this section uses it.
 ### Scale
 
 <!-- BEGIN GENERATED: tree-scale -->
-**547 modules · 2638 dependencies · 160 distinct subsystem pairs · 1180 cross-subsystem imports.**
+**548 modules · 2648 dependencies · 160 distinct subsystem pairs · 1184 cross-subsystem imports.**
 <!-- END GENERATED: tree-scale -->
 
 **Why `plugin` never appears in the diagram below.** `packages/plugin/src` is now in the scan (it
@@ -328,7 +328,7 @@ set is 160 pairs.
 
 ```mermaid
 flowchart LR
-  tools[tools<br/>92 files]
+  tools[tools<br/>93 files]
   search[search<br/>64 files]
   cli[cli<br/>60 files]
   mcp[mcp<br/>30 files]
@@ -359,7 +359,7 @@ flowchart LR
   morgiana[morgiana<br/>1 files]
 
   tools -->|186| vault
-  tools -->|84| mcp
+  tools -->|88| mcp
   cli -->|61| db
   search -->|56| db
   tools -->|50| search
@@ -427,9 +427,9 @@ flowchart LR
 <!-- BEGIN GENERATED: tree-fan -->
 | most depended-on | imports | most dependent | imports |
 |---|---:|---|---:|
-| `vault` | 254 | `tools` | 440 |
+| `vault` | 254 | `tools` | 444 |
 | `db` | 233 | `runtime` | 207 |
-| `mcp` | 119 | `cli` | 188 |
+| `mcp` | 123 | `cli` | 188 |
 | `search` | 115 | `search` | 98 |
 | `experiential` | 84 | `experiential` | 41 |
 <!-- END GENERATED: tree-fan -->

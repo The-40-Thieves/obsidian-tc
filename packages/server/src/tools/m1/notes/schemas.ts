@@ -91,6 +91,28 @@ export const ReadNotesOutput = z.object({
   next_cursor: z.string().nullable(),
 });
 
+/** One read_resources item, in request order: the same `{uri, mimeType, text}` a single
+ *  resources/read returns, or a per-item error (`size` + `budget` accompany `too_large`). */
+export const ReadResourcesItem = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), uri: z.string(), mimeType: z.string(), text: z.string() }),
+  z.object({
+    ok: z.literal(false),
+    uri: z.string(),
+    error: z.object({
+      code: z.string(),
+      message: z.string(),
+      size: z.number().optional(),
+      budget: z.number().optional(),
+    }),
+  }),
+]);
+
+export const ReadResourcesOutput = z.object({
+  results: z.array(ReadResourcesItem),
+  /** Present-and-non-null when the batch did not fit the byte budget: pass it back as `cursor`. */
+  next_cursor: z.string().nullable(),
+});
+
 export const ListNotesOutput = z.object({
   vault: z.string(),
   folder: z.string(),

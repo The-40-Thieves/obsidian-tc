@@ -12,7 +12,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier } from "../src/elicit";
 import { createPagingDeps } from "../src/mcp/byte-page";
-import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/mcp/registry";
 import type { MetricsRecorder } from "../src/metrics/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
@@ -43,6 +43,12 @@ export interface TestVaultOptions {
   /** Wire dispatch's central folder-ACL stage (rootResolver), as production does. Off by default:
    *  the older M1 tests exercise the handler-side ACL only. */
   centralAcl?: boolean;
+  /** Per-vault ACL overrides, wired as the registry's `aclResolver` exactly as governance.ts does
+   *  (`aclByVault.get(id) ?? root`). The `acl` option stays the ROOT ACL the caller's context
+   *  carries, so a test can pair a permissive root with a narrowing per-vault override. */
+  aclByVault?: Record<string, Partial<AclConfigT>>;
+  /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
+  registryOpts?: Partial<RegistryOptions>;
 }
 
 export interface EventRow {
@@ -87,8 +93,16 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);
+  const overrides = new Map(
+    Object.entries(opts.aclByVault ?? {}).map(([vid, cfg]) => [
+      vid,
+      new FolderAcl({ readOnly: false, defaultScopes: [], rules: [], ...cfg }),
+    ]),
+  );
   const registry = new ToolRegistry({
     verifyElicit: elicitVerifier,
+    ...(opts.aclByVault ? { aclResolver: (vid: string) => overrides.get(vid) ?? acl } : {}),
+    ...opts.registryOpts,
     ...(opts.centralAcl ? { rootResolver: () => root } : {}),
     ...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),
   });
