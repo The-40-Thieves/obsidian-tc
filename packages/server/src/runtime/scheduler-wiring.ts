@@ -44,6 +44,9 @@ export interface SchedulerWiringDeps {
   vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
   /** run_serve's first vault id — the process-wide sweep event is attributed to it. */
   eventVaultId: string;
+  /** The live vault registry's ids, read at each memory orphan sweep (add_vault can grow it after
+   *  boot). Absent -> the sweep's removed-vault class never runs. */
+  listVaultIds?: () => readonly string[];
   /** The auth registry wireTransports opened, when it opened one (see maintenance-wiring.ts). */
   authRegistry?: AuthRegistry;
   experientialOpen: boolean;
@@ -107,6 +110,9 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
     morgiana: deps.morgiana,
     eventVaultId: deps.eventVaultId,
+    ...(deps.listVaultIds !== undefined ? { listVaultIds: deps.listVaultIds } : {}),
+    memoryOrphanSqlHooks: deps.observability.sqlHooksFor("scheduler"),
+    metrics: deps.observability.metrics,
     ...(deps.authRegistry !== undefined ? { authRegistry: deps.authRegistry } : {}),
     // THE-1108 fix: clear the LIVE tracker entry for a session the sweep just closed by SQL — the
     // tracker (server-runtime.ts's stdio context factory reads it) has no other way to learn that.

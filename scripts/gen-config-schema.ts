@@ -488,7 +488,12 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // existing key, type, default or constraint moved. Security review of that block, same PR: adds
   // `auth.oidc.allowedJwksHosts` / `allowPrivateNetwork`, `claimMapping.scopeMap` /
   // `allowedPersonas` / `allowedVaults`, array-form claim paths, and object-form `requiredClaims`.
-  "4c26c2535c4a9ebe84057d9c443edb92afdde046802e989e119ee8c0d5d238ff";
+  // Memory orphan sweep: rebaselined deliberately. Adds ONE block, `maintenance.memoryOrphans`
+  // (enabled, intervalMs, batchSize, retiredRetentionDays, removedVaultRetentionDays, dryRun) — see
+  // packages/shared/src/config/observability.schema.ts's MemoryOrphansConfigSchema for the
+  // description text. Only `enabled` (dangling rows) is on by default; both age-gated classes are
+  // absent-means-off. No existing key, type, default or constraint moved.
+  "847d9edc03984f7d6858c509f9e004f08eb2472e67e80b943ee6194868180eaf";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
