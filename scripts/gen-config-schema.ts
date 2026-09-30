@@ -504,7 +504,11 @@ const CONFIG_SCHEMA_BASELINE_SHA256 =
   // OTel child spans: rebaselined deliberately. Adds ONE key, `observability.otel.detail` (enum
   // root | children | verbose, default root) — see packages/shared/src/config/observability.schema.ts.
   // No existing key, type, default or constraint moved.
-  "70bc76cbfde229669340a9ae84901bbffd76c8fe3927ff20c51056d9ee85a957";
+  // write_attachment: rebaselined deliberately. Adds ONE key, `writes.maxAttachmentBytes` (integer,
+  // 1..50000000, default 25000000) — the decoded-byte cap on one write_attachment payload; see
+  // packages/shared/src/config/runtime.schema.ts's WritesConfigSchema. No existing key, type,
+  // default or constraint moved.
+  "f23272019b5a46480cc993b0b8cbd205500e57415f4ece6688107871ef7c6770";
 
 // The CONVERSION lives in packages/shared (configJsonSchema), not here. A script under scripts/
 // resolves its imports from its own directory upward, so importing `zod` here only works when the
