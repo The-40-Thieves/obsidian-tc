@@ -1,6 +1,4 @@
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { enforcePathAcl, evaluatePathAcl, pathScopesSatisfied } from "../src/vault/acl-path";
@@ -122,7 +120,8 @@ describe("readableRel: rule-scopes and parity with enforcePathAcl", () => {
       }),
     ];
     const paths = ["pub/a.md", "secret/b.md", "open/c.md", ".obsidian/app.json", ".git/config"];
-    const root = mkdtempSync(join(tmpdir(), "obtc-readable-"));
+    // enforcePathAcl only needs a real directory to canonicalize against; nothing is written.
+    const root = tmpdir();
     const scopeSets = [[], ["read:notes"], ["read:secret"], ["read:notes", "read:secret"], ["*"]];
     for (const a of shapes)
       for (const p of paths)
