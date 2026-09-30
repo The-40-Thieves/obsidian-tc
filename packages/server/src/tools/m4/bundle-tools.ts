@@ -126,13 +126,13 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = normalizeVaultPath(input.root);
-        enforcePathAcl(ctx.acl, "read", sub, v.root);
+        enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
         // walkVault sorts with localeCompare, which is not guaranteed to agree with the
         // code-point `>` comparison used below to filter past `cursor` — re-sort explicitly
         // so emission order is a deterministic, total order that the cursor can rely on.
         const all = walkVault(v.root, { sub, extensions: input.extensions })
           .map((e) => e.relPath)
-          .filter((rel) => readableRel(ctx.acl, rel))
+          .filter((rel) => readableRel(ctx.acl, rel, ctx.grantedScopes))
           .sort();
         const paged = input.cursor ? all.filter((rel) => rel > (input.cursor as string)) : all;
         const capped = paged.slice(0, input.max_files);
@@ -178,7 +178,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         const missing: string[] = [];
         for (const p of input.paths) {
           const rel = normalizeVaultPath(p);
-          enforcePathAcl(ctx.acl, "read", rel, v.root);
+          enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
           try {
             entries.push({ rel, content: readNote(resolveVaultPath(v.root, rel)).raw });
           } catch {

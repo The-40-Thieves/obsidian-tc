@@ -32,7 +32,7 @@ export function createContradictionsTool(deps: M7Deps): ToolDefinition {
     handler: (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const paths = input.paths.map((p) => normalizeVaultPath(p));
-      for (const p of paths) enforcePathAcl(ctx.acl, "read", p, v.root);
+      for (const p of paths) enforcePathAcl(ctx.acl, "read", p, v.root, ctx.grantedScopes);
       if (!tableExists(ctx.db, "contradictions")) {
         return {
           vault: v.id,
@@ -43,7 +43,7 @@ export function createContradictionsTool(deps: M7Deps): ToolDefinition {
         };
       }
       const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
-        readableRel(ctx.acl, rel),
+        readableRel(ctx.acl, rel, ctx.grantedScopes),
       );
       return {
         vault: v.id,

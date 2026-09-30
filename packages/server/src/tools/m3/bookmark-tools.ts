@@ -158,7 +158,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       requiredScopes: ["read:bookmarks"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforcePathAcl(ctx.acl, "read", BOOKMARKS_PATH, v.root);
+        enforcePathAcl(ctx.acl, "read", BOOKMARKS_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
         const items = Array.isArray(file.data.items) ? file.data.items : [];
@@ -192,7 +192,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       requiredScopes: ["write:bookmarks"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforcePathAcl(ctx.acl, "write", BOOKMARKS_PATH, v.root);
+        enforcePathAcl(ctx.acl, "write", BOOKMARKS_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
@@ -255,7 +255,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       destructive: true,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        enforcePathAcl(ctx.acl, "delete", BOOKMARKS_PATH, v.root);
+        enforcePathAcl(ctx.acl, "delete", BOOKMARKS_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)

@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { indexVault } from "../../search/indexer";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableByFolder, readableRel } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M2Deps } from "./shared";
@@ -61,7 +61,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           throw err.readOnly("vault is read-only; index_vault writes the search index");
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root);
+        if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
         // THE-645: a try/catch around the call so a rejection still clears any in-flight state a
         // caller is tracking (deps.onIndexVaultError) before the error propagates to the
         // dispatcher — previously a bare `await` here, so a failed run left a stale "still
@@ -76,7 +76,8 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
             vaultId: v.id,
             root: v.root,
             sub,
-            isReadable: (rel) => readableRel(ctx.acl, rel),
+            // Folder-only: the index is shared across callers (see readableByFolder).
+            isReadable: (rel) => readableByFolder(ctx.acl, rel),
             now: ctx.now,
             // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
             walk: { streaming: deps.streamingWalk },
@@ -85,7 +86,18 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           });
           // THE-491: surfaced verbatim by get_index_status (last index_vault call this process).
           deps.onIndexVaultComplete?.(v.id, stats);
-          return { vault: v.id, ...stats };
+          // The run itself is caller-independent (shared index), but its RESPONSE is this caller's:
+          // a failure entry names a note by path (and its error text embeds the path), so a note
+          // the caller cannot read is dropped and the failure count follows the filtered list.
+          const frontmatterFailures = stats.frontmatter_failures.filter((f) =>
+            readableRel(ctx.acl, f.path, ctx.grantedScopes),
+          );
+          return {
+            vault: v.id,
+            ...stats,
+            notes_frontmatter_failed: frontmatterFailures.length,
+            frontmatter_failures: frontmatterFailures,
+          };
         } catch (e) {
           deps.onIndexVaultError?.(v.id);
           throw e;

@@ -71,7 +71,7 @@ tree, and runs as part of the docs drift gate in CI.
 | THE-267 | HTTP tokens are now bound to a single vault (THE-267). | CHANGELOG.md (1.3.0) | 8 |
 | THE-268 | Fail-closed ACL defaults (THE-268). | CHANGELOG.md (1.3.0) | 4 |
 | THE-269 | Folder ACL checks are canonicalized through symlinks (THE-269). | CHANGELOG.md (1.3.0) | 2 |
-| THE-270 | Bridge tools fail closed under a read whitelist (THE-270). | CHANGELOG.md (1.3.0) | 4 |
+| THE-270 | Bridge tools fail closed under a read whitelist (THE-270). | CHANGELOG.md (1.3.0) | 5 |
 | THE-271 | DNS-rebinding / cross-origin protection on the HTTP transport (THE-271). | CHANGELOG.md (1.3.0) | 2 |
 | THE-272 | Unicode-normalization-insensitive folder ACL (THE-272). | CHANGELOG.md (1.3.0) | 5 |
 | THE-273 | SQLite per-connection baseline + prepared-statement cache (THE-273). | CHANGELOG.md (1.3.0) | 4 |

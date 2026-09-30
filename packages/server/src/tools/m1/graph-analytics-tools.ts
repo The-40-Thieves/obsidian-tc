@@ -144,7 +144,9 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       tags: ["links", "graph"],
       handler: (input, ctx) => {
-        const { edges } = readEdges(ctx.db, input.vault, (rel) => readableRel(ctx.acl, rel));
+        const { edges } = readEdges(ctx.db, input.vault, (rel) =>
+          readableRel(ctx.acl, rel, ctx.grantedScopes),
+        );
         const graph = buildGraph(edges);
         if (input.metric === "betweenness" && graph.nodes.length > BETWEENNESS_MAX_NODES) {
           return {
@@ -187,7 +189,9 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       tags: ["links", "graph"],
       handler: (input, ctx) => {
-        const { edges } = readEdges(ctx.db, input.vault, (rel) => readableRel(ctx.acl, rel));
+        const { edges } = readEdges(ctx.db, input.vault, (rel) =>
+          readableRel(ctx.acl, rel, ctx.grantedScopes),
+        );
         const graph = buildGraph(edges);
         const { communities, modularity, meaningful } = louvain(graph, { seed: input.seed });
         const shown = communities.filter((c) => c.paths.length >= input.min_size);
@@ -226,7 +230,9 @@ export function buildGraphAnalyticsTools(): ToolDefinition[] {
       handler: (input, ctx) => {
         const from = normalizeVaultPath(input.from);
         const to = normalizeVaultPath(input.to);
-        const { edges, types } = readEdges(ctx.db, input.vault, (rel) => readableRel(ctx.acl, rel));
+        const { edges, types } = readEdges(ctx.db, input.vault, (rel) =>
+          readableRel(ctx.acl, rel, ctx.grantedScopes),
+        );
         const graph = buildGraph(edges);
         const hops = findPath(graph, from, to, { directed: input.directed, edgeTypes: types });
         return {

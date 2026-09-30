@@ -16,10 +16,14 @@ import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/pat
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
-function readableNotes(root: string, acl: FolderAcl | undefined): string[] {
+function readableNotes(
+  root: string,
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+): string[] {
   return walkVault(root, { extensions: [".md"] })
     .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel));
+    .filter((rel) => readableRel(acl, rel, grantedScopes));
 }
 function bodyOf(root: string, rel: string): string {
   return parseNote(readNote(resolveVaultPath(root, rel)).raw, rel).body;
@@ -46,8 +50,12 @@ interface Graph {
   links: number;
 }
 
-function buildLinkGraph(root: string, acl: FolderAcl | undefined): Graph {
-  const notes = readableNotes(root, acl);
+function buildLinkGraph(
+  root: string,
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+): Graph {
+  const notes = readableNotes(root, acl, grantedScopes);
   const index = buildVaultIndex(notes);
   const out = new Map<string, Set<string>>();
   const inn = new Map<string, Set<string>>();
@@ -223,7 +231,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const g = buildLinkGraph(v.root, ctx.acl);
+        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
         const total = g.notes.length;
         const orphans = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) === 0).length;
         const hubs = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) >= input.hub_threshold).length;
@@ -269,7 +277,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const g = buildLinkGraph(v.root, ctx.acl);
+        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
         const cycles = findCycles(g.out, input.limit);
         return { vault: v.id, total: cycles.length, cycles };
       },
@@ -291,9 +299,9 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const from = normalizeVaultPath(input.from);
         const to = normalizeVaultPath(input.to);
-        enforcePathAcl(ctx.acl, "read", from, v.root);
-        enforcePathAcl(ctx.acl, "read", to, v.root);
-        const g = buildLinkGraph(v.root, ctx.acl);
+        enforcePathAcl(ctx.acl, "read", from, v.root, ctx.grantedScopes);
+        enforcePathAcl(ctx.acl, "read", to, v.root, ctx.grantedScopes);
+        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
         if (!g.out.has(from)) throw err.noteNotFound("note not found", { path: from });
         if (!g.out.has(to)) throw err.noteNotFound("note not found", { path: to });
         const direct = (g.out.get(from)?.has(to) ?? false) || (g.out.get(to)?.has(from) ?? false);
@@ -337,8 +345,8 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const p = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", p, v.root);
-        const g = buildLinkGraph(v.root, ctx.acl);
+        enforcePathAcl(ctx.acl, "read", p, v.root, ctx.grantedScopes);
+        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
         if (!g.out.has(p)) throw err.noteNotFound("note not found", { path: p });
         const already = new Set<string>(g.out.get(p) ?? []);
         already.add(p);
@@ -404,7 +412,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           if (includeRes.length && !includeRes.some((re) => re.test(p))) return false;
           return !excludeRes.some((re) => re.test(p));
         };
-        const notes = readableNotes(v.root, ctx.acl).filter(inScope);
+        const notes = readableNotes(v.root, ctx.acl, ctx.grantedScopes).filter(inScope);
         const field = input.field;
         const byFolder = new Map<string, { scanned: number; missing: number }>();
         const missing: string[] = [];

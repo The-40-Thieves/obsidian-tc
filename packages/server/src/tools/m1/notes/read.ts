@@ -48,7 +48,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
-      enforcePathAcl(ctx.acl, "read", rel, v.root);
+      enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
       const ex = noteExists(abs);
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { vault: v.id, path: rel });
@@ -97,13 +97,13 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
 }
 
 /** The per-note read path shared by read_notes and search_and_read: containment guard, folder ACL
- *  (plus the path's rule-scopes when `grantedScopes` is passed), existence (a folder answers like a
+ *  (plus the path's rule-scopes), existence (a folder answers like a
  *  missing note), then read + parse. Throws an ObsidianTcError; the caller shapes it into an item. */
 export function readVaultNote(
   root: string,
   rel: string,
   acl: FolderAcl | undefined,
-  grantedScopes?: Iterable<string>,
+  grantedScopes: Iterable<string>,
 ) {
   const abs = resolveVaultPath(root, rel);
   enforcePathAcl(acl, "read", rel, root, grantedScopes);
@@ -150,7 +150,7 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
         produce: (p) => {
           try {
             const rel = normalizeVaultPath(p);
-            const { raw, hash, parsed } = readVaultNote(v.root, rel, ctx.acl);
+            const { raw, hash, parsed } = readVaultNote(v.root, rel, ctx.acl, ctx.grantedScopes);
             return {
               kind: "note",
               note: {

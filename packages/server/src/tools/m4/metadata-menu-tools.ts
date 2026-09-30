@@ -26,7 +26,7 @@ export function buildMetadataMenuTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const { client } = openBridge(deps, v.id, "metadata-menu");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",

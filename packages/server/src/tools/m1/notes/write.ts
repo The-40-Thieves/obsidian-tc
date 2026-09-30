@@ -71,7 +71,7 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
-      enforcePathAcl(ctx.acl, "write", rel, v.root);
+      enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
       const ex = noteExists(abs);
       if (ex.exists && ex.type === "folder")
         throw err.invalidInput("path is a folder", { path: rel });
@@ -188,7 +188,7 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
-      enforcePathAcl(ctx.acl, "write", rel, v.root);
+      enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
       const ex = noteExists(abs);
       if (ex.exists && ex.type === "folder")
         throw err.invalidInput("path is a folder", { path: rel });
@@ -283,7 +283,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
-      enforcePathAcl(ctx.acl, "write", rel, v.root);
+      enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
       const ex = noteExists(abs);
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { path: rel });

@@ -6,6 +6,7 @@
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { filterBridgeResultItems } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
@@ -32,7 +33,7 @@ export function buildOmnisearchTools(deps: M4Deps): ToolDefinition[] {
       // plugin JSON passed through verbatim; only `vault` is structurally guaranteed.
       outputSchema: z.object({ vault: z.string() }).passthrough(),
       requiredScopes: ["read:omnisearch"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "omnisearch");
         const result = await client.request<Record<string, unknown>>({
@@ -42,7 +43,14 @@ export function buildOmnisearchTools(deps: M4Deps): ToolDefinition[] {
           plugin: "omnisearch",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        // Scored rows carry a note path and an excerpt of its text: keep only what this caller may
+        // read, refuse an unattributable row under a restricted read.
+        return {
+          vault: v.id,
+          ...filterBridgeResultItems(ctx.acl, ctx.grantedScopes, result, {
+            tool: "search_omnisearch",
+          }),
+        };
       },
     }),
   ];

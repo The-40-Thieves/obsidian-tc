@@ -262,7 +262,7 @@ export function resolveAclWalkFilter(
   // graph_expansion.ts's own `isReadable && !isReadable(...)` guard) — matched here rather than
   // treated as restricted, since there is genuinely nothing to build a permitted set FROM.
   if (!isReadable) return {};
-  const unrestricted = readEnumerationUnrestricted(acl);
+  const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
   const aclSetId = ensureAclPathSet(db, {
     vaultId,
     aclFingerprint: callerAclFingerprint(acl, grantedScopes),

@@ -82,7 +82,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
@@ -118,7 +118,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const snapshots = listSnapshots(ctx.db, v.id, rel, input.limit);
         return { vault: v.id, path: rel, total: snapshots.length, snapshots };
       },
@@ -135,7 +135,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const snap = readSnapshot(ctx.db, v.id, input.snapshot_id);
         if (!snap) throw err.notFound("snapshot not found", { snapshot_id: input.snapshot_id });
-        enforcePathAcl(ctx.acl, "read", snap.path, v.root);
+        enforcePathAcl(ctx.acl, "read", snap.path, v.root, ctx.grantedScopes);
         return { vault: v.id, ...snap };
       },
     }),
@@ -169,7 +169,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const snap = readSnapshot(ctx.db, v.id, input.snapshot_id);
         if (!snap) throw err.notFound("snapshot not found", { snapshot_id: input.snapshot_id });
         if (snap.path !== rel)

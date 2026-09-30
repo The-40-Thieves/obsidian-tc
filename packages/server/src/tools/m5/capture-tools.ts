@@ -315,7 +315,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
 
         const rel = normalizeVaultPath(input.target_path);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         // GH #994 review finding (addendum): this throws BEFORE the memoryDefense scan below runs
         // — echoing the raw, unscanned `rel` would leak a secret-shaped target_path straight
         // through the error response/logs the moment a note already sits there. Always redact the

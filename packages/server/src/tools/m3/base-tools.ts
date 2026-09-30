@@ -189,7 +189,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         requireBaseExt(rel);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("base not found", { path: rel });
@@ -219,7 +219,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         requireBaseExt(rel);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (ex.exists && ex.type === "folder")
           throw err.invalidInput("path is a folder", { path: rel });
@@ -278,7 +278,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         requireBaseExt(rel);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "write", rel, v.root);
+        enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("base not found", { path: rel });
@@ -370,7 +370,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         requireBaseExt(rel);
         const abs = resolveVaultPath(v.root, rel);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("base not found", { path: rel });
@@ -454,7 +454,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
 
         let candidates = walkVault(v.root, { extensions: [".md"] })
           .map((e) => e.relPath)
-          .filter((p) => readableRel(ctx.acl, p));
+          .filter((p) => readableRel(ctx.acl, p, ctx.grantedScopes));
         if (sType === "folder") {
           const f = normalizeVaultPath(String(sValue ?? ""));
           candidates = f === "" ? candidates : candidates.filter((p) => p.startsWith(`${f}/`));

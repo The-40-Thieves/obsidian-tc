@@ -130,7 +130,7 @@ function serializeTable(t: Table): string[] {
  *  splice it back, write. Returns the write summary. */
 function withTable(
   deps: M3Deps,
-  ctx: { acl?: import("../../acl").FolderAcl },
+  ctx: { acl?: import("../../acl").FolderAcl; grantedScopes: Iterable<string> },
   vault: string,
   path: string,
   index: number,
@@ -140,7 +140,7 @@ function withTable(
   const v = deps.vaultRegistry.resolve(vault);
   const rel = normalizeVaultPath(path);
   const abs = resolveVaultPath(v.root, rel);
-  enforcePathAcl(ctx.acl, "write", rel, v.root);
+  enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
   const ex = noteExists(abs);
   if (!ex.exists || ex.type === "folder") throw err.noteNotFound("note not found", { path: rel });
   const { raw, hash } = readNote(abs);

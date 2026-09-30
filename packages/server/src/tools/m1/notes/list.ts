@@ -28,7 +28,7 @@ export function createListNotesTool(deps: M1Deps): ToolDefinition {
         sub,
         recursive: input.recursive,
         extensions: input.extensions ?? [".md"],
-      }).filter((e) => readableRel(ctx.acl, e.relPath));
+      }).filter((e) => readableRel(ctx.acl, e.relPath, ctx.grantedScopes));
       const after = input.cursor;
       const visible = after ? entries.filter((e) => e.relPath > after) : entries;
       const limit = input.limit ?? 200;
@@ -58,7 +58,7 @@ export function createNoteExistsTool(deps: M1Deps): ToolDefinition {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
-      enforcePathAcl(ctx.acl, "read", rel, v.root);
+      enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
       const ex = noteExists(abs);
       return { vault: v.id, path: rel, exists: ex.exists, type: ex.type ?? null };
     },

@@ -45,7 +45,7 @@ export const CROSS_NOTE_REWRITE_TOOLS = new Set<string>([
  *  reference a given attachment. This is a DIFFERENT safety argument than CROSS_NOTE_REWRITE_TOOLS
  *  above: a rewrite tool is safe because it returns nothing the caller can observe, but these tools
  *  return the discovered paths (or a count derived from them) directly in the response. They are
- *  safe ONLY because every call site filters its output through readableRel(ctx.acl, p) before it
+ *  safe ONLY because every call site filters its output through readableRel(ctx.acl, p, ctx.grantedScopes) before it
  *  reaches the caller (get_attachment / delete_attachment: `references`; list_attachments:
  *  `reference_count`) -- see the N-2 comment in attachment-tools.ts. This carve-out is conditional
  *  on that filtering staying pinned by test/attachment-tools-branch-coverage.test.ts's "reference

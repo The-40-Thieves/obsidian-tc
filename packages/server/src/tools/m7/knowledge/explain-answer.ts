@@ -4,7 +4,7 @@
 // THE-646 recommended exactly this and gave the reason: the two tools are the same traversal in
 // opposite directions — `diagnose_retrieval` asks *why was this note NOT returned*, this asks *what
 // did this answer use* — and building them apart designs the ACL story twice. THE-632 shipped
-// first, so this reuses its shape: same `defineTool` envelope, same `readableRel(ctx.acl, …)`
+// first, so this reuses its shape: same `defineTool` envelope, same `readableRel(ctx.acl, …, ctx.grantedScopes)`
 // read-filter, same `read:notes` scope, schema in the same file.
 //
 // The chain itself lives in `experiential/lineage.ts` as a PURE function, so the honest-absence
@@ -19,7 +19,7 @@
 //      and `AND caller IS ?` would then bind NULL — which SQLite's `IS` treats as a value, matching
 //      every row predating the caller column (81 of 97 on the live store when feedback-scope.ts
 //      measured it). An unidentifiable principal must not inherit unowned retrievals.
-//   2. READABILITY — `readableRel(ctx.acl, path)`. A lineage that names a path the caller cannot
+//   2. READABILITY — `readableRel(ctx.acl, path, ctx.grantedScopes)`. A lineage that names a path the caller cannot
 //      read leaks its existence and its relevance to a query; the THE-563/564 class.
 //
 // Unreadable rows are DROPPED, not relabelled. Reporting them as `deleted` would be a lie about the
@@ -128,7 +128,7 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
         const path = pathOf(r.chunk_id);
         // Layer 2: readability. An unreadable path is dropped entirely — never relabelled, never
         // counted. `null` here means "no longer exists", which is a different claim.
-        if (path !== null && !readableRel(ctx.acl, path)) continue;
+        if (path !== null && !readableRel(ctx.acl, path, ctx.grantedScopes)) continue;
         retrievals.push({ ...r, path });
       }
 

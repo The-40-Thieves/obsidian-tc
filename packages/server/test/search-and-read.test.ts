@@ -226,7 +226,7 @@ describe("search_and_read: ACL", () => {
     expect(out.notes.map((n) => n.path).sort()).toEqual(["pub/a.md", "pub/b.md"]);
   });
 
-  it("a rule-scoped note the search still surfaces is a denied item (masked, audited), never a body", async () => {
+  it("a rule-scoped note the caller lacks the scope for is never a search candidate: no body, no error item, no denial", async () => {
     const { v, emitted } = await setup(
       { "open/a.md": doc("OpenA"), "gated/g.md": doc("Gated", "gated-token") },
       {
@@ -238,8 +238,15 @@ describe("search_and_read: ACL", () => {
     const d = await ok(v, { k: 20 }, { grantedScopes: new Set(["read:notes"]) });
     expect(d.notes.map((n) => n.path)).toEqual(["open/a.md"]);
     expect(JSON.stringify(d)).not.toMatch(/gated/i);
-    expect(d.errors).toEqual([{ rank: 2, code: "note_not_found", message: "note not found" }]);
-    expect(emitted.filter((t) => t === "tc.acl.denied")).toHaveLength(1);
+    // The search itself honours the path's rule-scope, so the note never reaches the read stage.
+    expect(d.errors).toEqual([]);
+    expect(emitted.filter((t) => t === "tc.acl.denied")).toEqual([]);
+    const granted = await ok(
+      v,
+      { k: 20 },
+      { grantedScopes: new Set(["read:notes", "read:secret"]) },
+    );
+    expect(granted.notes.map((n) => n.path).sort()).toEqual(["gated/g.md", "open/a.md"]);
   });
 
   // Five ~2 KB notes under a tiny budget span several pages; `revoke` runs between pages.

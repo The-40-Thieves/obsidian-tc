@@ -27,7 +27,7 @@ export function createDeleteNoteTool(deps: M1Deps): ToolDefinition {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
-      enforcePathAcl(ctx.acl, "delete", rel, v.root);
+      enforcePathAcl(ctx.acl, "delete", rel, v.root, ctx.grantedScopes);
       const ex = noteExists(abs);
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { path: rel });

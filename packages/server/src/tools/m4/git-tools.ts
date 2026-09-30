@@ -38,7 +38,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       requiredScopes: ["read:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied("git_status is unavailable under a read whitelist", {
             tool: "git_status",
           });
@@ -67,7 +67,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
-        enforcePathAcl(ctx.acl, "read", rel, v.root);
+        enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const { client } = openBridge(deps, v.id, "git");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
@@ -92,7 +92,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       requiredScopes: ["read:git"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        if (!readEnumerationUnrestricted(ctx.acl))
+        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
           throw err.aclDenied("git_log is unavailable under a read whitelist", {
             tool: "git_log",
           });
@@ -121,7 +121,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rels = input.paths.map((p) => normalizeVaultPath(p));
-        for (const rel of rels) enforcePathAcl(ctx.acl, "write", rel, v.root);
+        for (const rel of rels) enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
         const { client } = openBridge(deps, v.id, "git");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",

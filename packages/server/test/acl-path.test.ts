@@ -14,19 +14,19 @@ function acl(over: Partial<ConstructorParameters<typeof FolderAcl>[0]> = {}): Fo
 
 describe("enforcePathAcl", () => {
   it("allows any op when no ACL is present", () => {
-    expect(() => enforcePathAcl(undefined, "write", "x.md", tmpdir())).not.toThrow();
+    expect(() => enforcePathAcl(undefined, "write", "x.md", tmpdir(), [])).not.toThrow();
   });
 
   it("an omitted whitelist leaves that op kind unrestricted", () => {
     const a = acl({ writePaths: ["notes/**"] }); // readPaths omitted
-    expect(() => enforcePathAcl(a, "read", "anywhere/x.md", tmpdir())).not.toThrow();
-    expect(() => enforcePathAcl(a, "write", "notes/x.md", tmpdir())).not.toThrow();
+    expect(() => enforcePathAcl(a, "read", "anywhere/x.md", tmpdir(), [])).not.toThrow();
+    expect(() => enforcePathAcl(a, "write", "notes/x.md", tmpdir(), [])).not.toThrow();
   });
 
   it("a whitelist miss is acl_denied", () => {
     const a = acl({ writePaths: ["notes/**"] });
     try {
-      enforcePathAcl(a, "write", "secret/x.md", tmpdir());
+      enforcePathAcl(a, "write", "secret/x.md", tmpdir(), []);
       throw new Error("should have thrown");
     } catch (e) {
       expect(e).toBeInstanceOf(ObsidianTcError);
@@ -36,10 +36,10 @@ describe("enforcePathAcl", () => {
 
   it("a read-only vault denies write/delete with read_only_mode but allows read", () => {
     const a = acl({ readOnly: true });
-    expect(() => enforcePathAcl(a, "read", "x.md", tmpdir())).not.toThrow();
+    expect(() => enforcePathAcl(a, "read", "x.md", tmpdir(), [])).not.toThrow();
     for (const op of ["write", "delete"] as const) {
       try {
-        enforcePathAcl(a, op, "x.md", tmpdir());
+        enforcePathAcl(a, op, "x.md", tmpdir(), []);
         throw new Error("should have thrown");
       } catch (e) {
         expect((e as ObsidianTcError).code).toBe("read_only_mode");
@@ -75,7 +75,7 @@ describe("enforcePathAcl never echoes a secret-shaped raw path (GH #994 M1)", ()
     const a = acl();
     let caught: unknown;
     try {
-      enforcePathAcl(a, "write", `.obsidian/${token}.md`, tmpdir());
+      enforcePathAcl(a, "write", `.obsidian/${token}.md`, tmpdir(), []);
     } catch (e) {
       caught = e;
     }
@@ -91,7 +91,7 @@ describe("enforcePathAcl never echoes a secret-shaped raw path (GH #994 M1)", ()
     const a = acl({ writePaths: ["notes/**"] });
     let caught: unknown;
     try {
-      enforcePathAcl(a, "write", `secret/${token}.md`, tmpdir());
+      enforcePathAcl(a, "write", `secret/${token}.md`, tmpdir(), []);
     } catch (e) {
       caught = e;
     }
