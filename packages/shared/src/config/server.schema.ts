@@ -54,7 +54,7 @@ export const ServerConfigObject = z.object({
     .enum(["hardened", "trusted-local"])
     .optional()
     .describe(
-      "Named security posture applied before validation. 'hardened' sets the least-privilege defaults (strictReadDefault, requireCas, snapshots on, HTTP off); explicit fields override it. 'trusted-local' (the default) keeps the permissive single-user posture.",
+      "Named security posture applied before validation. 'hardened' sets the least-privilege defaults (strictReadDefault, requireCas, snapshots on, HTTP off, auth.requireJti on); explicit fields override it. 'trusted-local' (the default) keeps the permissive single-user posture.",
     ),
   cacheDir: z
     .string()

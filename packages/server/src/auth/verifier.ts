@@ -72,7 +72,8 @@ export interface TokenVerifierOptions {
    * key keeps verifying. Built once (jose caches internally), never per request.
    */
   jwksUri?: string;
-  /** Asymmetric allowlist (default RS256/ES256/EdDSA). HS256 never verifies against the JWKS. */
+  /** Algorithm allowlist, applied to EVERY path (default: HS256 plus RS256/ES256/EdDSA). Leaving
+   *  HS256 out refuses HS256 outright; HS256 never verifies against the JWKS either way. */
   algorithms?: string[];
   maxAgeSeconds?: number;
   /** THE-456: when set, jose enforces the token's `aud`; a token minted for another resource is
@@ -116,6 +117,11 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
     verify: async (token) => {
       const header = decodeProtectedHeader(token);
       if (header.alg === "HS256") {
+        // One allowlist for every path: `auth.algorithms` that leaves HS256 out refuses it here too,
+        // before any key lookup, whichever key (config secret, registry) would have verified it.
+        if (o.algorithms !== undefined && !o.algorithms.includes("HS256")) {
+          throw new AuthRejection("unsupported_alg");
+        }
         // With a registry the key comes from it (config secret included, while the `config` key is
         // live); without one the configured secret is the only key there is.
         if (!o.secret && !registry) throw new Error("HS256 token but no jwtSecret configured");
