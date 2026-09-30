@@ -29,8 +29,7 @@
 // file on its next request. A key file's secret is cached for at most KEY_FILE_CACHE_TTL_MS and
 // re-read, trust re-checked on the open descriptor (auth/key-files.ts).
 //
-// No private key material lives in the database. A key's algorithm is its ROW's `alg`, never the
-// token header's (see `verificationMaterial`).
+// No private key material lives in the database. A key's algorithm is its ROW's `alg`, not the token's.
 import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -218,8 +217,8 @@ export interface AuthRegistry {
   verificationKey(kid: string | undefined): Uint8Array;
   /** Per-request: what verifies `kid`, with the algorithm the ROW dictates. Throws `AuthRejection`. */
   verificationMaterial(kid: string | undefined): VerificationMaterial;
-  /** Does the registry hold a key with this `kid` (any state)? */
-  hasKey(kid: string): boolean;
+  /** Does the registry hold `kid` (any state)? Throws `registry_lost` for a lost keys table. */
+  hasKey(kid: string | undefined): boolean;
   /** The key `token mint` signs with: the active key, or the config key while the registry is empty.
    *  `kid` must name the ACTIVE key. `secret` is the HMAC secret, or the private JWK as JSON. */
   signingKey(opts?: { kid?: string }): { kid: string; alg: KeyAlg; secret: string };
@@ -426,8 +425,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
       | undefined;
     try {
       if (row === undefined) {
-        // Never rotated: the configured secret verifies as it always did. Initialised but empty
-        // is a lost table: refused.
+        // Never rotated: the configured secret verifies. Initialised but empty: lost, refused.
         if (keysEmpty()) {
           if (lostCause("keys") !== undefined) throw new AuthRejection("registry_lost");
           return { alg: "HS256", secret: new TextEncoder().encode(loadSecret(configKey())) };
@@ -482,7 +480,14 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
     },
 
     hasKey(kid) {
-      return q("SELECT 1 AS x FROM auth_keys WHERE kid = ?").get(kid) !== undefined;
+      if (
+        kid !== undefined &&
+        q("SELECT 1 AS x FROM auth_keys WHERE kid = ?").get(kid) !== undefined
+      )
+        return true;
+      // Not held: a lost keys table must not let the token fall through to an external JWKS.
+      if (lostCause("keys") !== undefined) throw new AuthRejection("registry_lost");
+      return false;
     },
 
     signingKey(o = {}) {

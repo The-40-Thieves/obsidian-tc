@@ -111,7 +111,8 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
           },
         );
       }
-      if (registry !== undefined && header.kid !== undefined && registry.hasKey(header.kid)) {
+      // A kid-less asymmetric token also asks the registry, so a lost key table refuses it.
+      if (registry?.hasKey(header.kid)) {
         const material = registry.verificationMaterial(header.kid);
         // The row's algorithm decides; the header only has to agree with it. An operator-narrowed
         // `algorithms` list applies to registry keys too.

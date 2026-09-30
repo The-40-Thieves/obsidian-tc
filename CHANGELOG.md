@@ -21,15 +21,6 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   `auth.jwtSecret` can be removed: verification and minting work from registry keys alone, and
   `doctor` says when.
 
-### Security
-
-- **The registry row, not the token header, chooses the verification algorithm.** A token naming a
-  registry `kid` must carry that key's algorithm: an HS256 header against an asymmetric key (public
-  key as HMAC secret), an asymmetric header against an HS256 key, a mismatched asymmetric algorithm
-  and `alg: none` are refused `unsupported_alg`. `auth.mode: jwt` no longer requires a static
-  `jwtSecret` or JWKS in the schema (the registry may hold the only key); a server with none refuses
-  to start.
-
 - **Continuation cursor for bulk reads.** `read_notes` no longer fails the whole call with
   `overflow` when the batch exceeds the response byte budget. It returns the notes that fit plus an
   opaque `next_cursor`; repeat the same request with `cursor` set and it resumes exactly where the
@@ -110,6 +101,15 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   refused once it carries that jti.
 
 ### Security
+
+- **The registry row, not the token header, chooses the verification algorithm.** A token naming a
+  registry `kid` must carry that key's algorithm: an HS256 header against an asymmetric key (public
+  key as HMAC secret), an asymmetric header against an HS256 key, a mismatched asymmetric algorithm
+  and `alg: none` are refused `unsupported_alg`. `auth.mode: jwt` no longer requires a static
+  `jwtSecret` or JWKS in the schema (the registry may hold the only key); a server with none refuses
+  to start.
+  An emptied `auth_keys` table in an initialised registry refuses every bearer with `registry_lost`,
+  asymmetric tokens included; they no longer fall through to `auth.jwks` / `auth.jwksUri`.
 
 - **`replay_drift` now covers the eight HITL-gated tools that bound on `args_hash` alone.** A
   gated tool declares what its confirmation is about through `pathAcl` or a new per-tool

@@ -1,7 +1,12 @@
 // The shared byte-budget paginator (src/mcp/byte-page.ts), exercised directly: exact accounting,
 // progress guarantees and cursor binding, independent of any one tool.
 import { describe, expect, it } from "vitest";
-import { createPageCursorCodec, type PagingDeps, paginateByBytes } from "../src/mcp/byte-page";
+import {
+  createPageCursorCodec,
+  createPagingDeps,
+  type PagingDeps,
+  paginateByBytes,
+} from "../src/mcp/byte-page";
 
 type Entry = { kind: "ok"; id: number; pad: string } | { kind: "err"; id: number; size: number };
 
@@ -137,6 +142,35 @@ describe("paginateByBytes", () => {
         frame,
       }),
     ).rejects.toMatchObject({ details: { reason: "invalid" } });
+  });
+
+  it("without an auth.jwtSecret the cursor key is random per process: it resumes within one wiring and is refused by another", async () => {
+    const pads = [100, 100, 100, 100, 100, 100];
+    const page = (p: PagingDeps, cursor?: string) =>
+      paginateByBytes<number, Entry>({
+        paging: p,
+        binding: { tool: "t", principal: "p", args: { pads } },
+        cursor,
+        items: [0, 1, 2, 3, 4, 5],
+        produce: (i) => ({ kind: "ok", id: i, pad: "x".repeat(pads[i] as number) }),
+        tooLarge: (i, info) => ({ kind: "err", id: i, size: info.size }),
+        frame,
+        lane: (e) => e.kind,
+      });
+    // Absent and empty-string secrets (a removed jwtSecret can surface as either) behave alike.
+    for (const secret of [undefined, ""]) {
+      const a = createPagingDeps({ secret, budgetBytes: () => 400 });
+      const first = await page(a);
+      expect(first.nextCursor).toEqual(expect.any(String));
+      const resumed = await page(a, first.nextCursor as string);
+      expect(resumed.entries[0]).toMatchObject({ id: first.entries.length });
+      // A second wiring (a restart, or another process) draws its own key: the cursor is dead.
+      const b = createPagingDeps({ secret, budgetBytes: () => 400 });
+      await expect(page(b, first.nextCursor as string)).rejects.toMatchObject({
+        code: "invalid_input",
+        details: { reason: "invalid" },
+      });
+    }
   });
 
   it("the `cursor` key is excluded from the args hash", async () => {
