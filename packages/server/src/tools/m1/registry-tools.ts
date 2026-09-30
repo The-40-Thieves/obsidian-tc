@@ -118,7 +118,13 @@ const ResetInput = z
     include: z
       .object({
         chunks: z.boolean().default(true),
-        embeddings: z.boolean().default(true),
+        // `true` drops every chunk_embeddings row for the vault (unchanged default). `"inactive"`
+        // drops only rows the vault is no longer searching with — chunk_embeddings.is_active = 0,
+        // the SAME column embeddings/sticky-provider.ts already treats as the vault's current
+        // embedding-generation marker (queryActiveEmbeddingModels). Active rows, and by
+        // construction vec_chunks (search/vec.ts only ever backfills is_active = 1 rows at the
+        // table's own dims), are left untouched.
+        embeddings: z.union([z.boolean(), z.literal("inactive")]).default(true),
         idempotency_keys: z.boolean().default(true),
         event_log: z.boolean().default(false),
       })
@@ -250,7 +256,7 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
       domain: "vault",
       vaultArg: "vault",
       description:
-        "Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log). Destructive — requires confirmation.",
+        'Drop the SQLite cache for a vault (chunks, embeddings, idempotency keys; optionally the event log). include.embeddings accepts true (drop every embedding row), false, or "inactive" (drop only superseded embedding generations, keeping the vault\'s active vectors and search working — pass include.chunks: false too, or the default include.chunks: true cascades and drops the active rows as well). Destructive — requires confirmation.',
       inputSchema: ResetInput,
       outputSchema: ResetVaultCacheOutput,
       requiredScopes: ["admin:vault"],
@@ -266,10 +272,19 @@ export function buildRegistryTools(deps: M1Deps): ToolDefinition[] {
           idempotency_keys: 0,
           event_log: 0,
         };
-        if (inc.embeddings)
+        if (inc.embeddings === true)
           rows_dropped.embeddings = del(
             ctx.db,
             "DELETE FROM chunk_embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE vault_id = ?)",
+            v.id,
+          );
+        else if (inc.embeddings === "inactive")
+          // Only superseded generations (is_active = 0) — see the schema comment above. Never
+          // touches is_active = 1 rows, so vec_chunks (which only ever mirrors is_active = 1 rows,
+          // search/vec.ts's ensureVecChunks backfill) needs no corresponding cleanup here.
+          rows_dropped.embeddings = del(
+            ctx.db,
+            "DELETE FROM chunk_embeddings WHERE is_active = 0 AND chunk_id IN (SELECT id FROM chunks WHERE vault_id = ?)",
             v.id,
           );
         if (inc.chunks) {

@@ -8,6 +8,12 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ### Added
 
+- **`reset_vault_cache`'s `include.embeddings` accepts `"inactive"` (#1025).** Previously a plain
+  boolean that dropped every `chunk_embeddings` row for a vault; `"inactive"` now drops only rows
+  for embedding generations the vault is no longer searching with (`is_active = 0` — the same
+  column the sticky-provider resolver already treats as the vault's current embedding identity),
+  leaving the active generation's rows — and the vec0 index, which only ever mirrors active rows —
+  untouched and search working. `true`/`false` behave exactly as before.
 - **`session_rerun` — sandbox-only session replay.** A new `admin` tool (`admin:rerun` scope,
   destructive, routed through the central HITL confirmation gate) replays a recorded session's
   trace against an isolated, throwaway sandbox copy of the vault's cache — never the live vault or
