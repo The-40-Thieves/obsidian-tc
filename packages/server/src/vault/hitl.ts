@@ -5,8 +5,8 @@
 // never demand confirmation. The token is bound to argsHash(toolName, input);
 // callers obtain one via issueElicitToken and resubmit. Single-use is enforced
 // by verifyAndConsumeElicit (the UPDATE ... WHERE consumed_at IS NULL).
-import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { verifyAndConsumeElicit } from "../elicit";
+import { elicitRequiredError, verifyAndConsumeElicit } from "../elicit";
+import { activeStateProbe } from "../elicit-drift";
 import { hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
 import type { CallerContext } from "../mcp/registry";
@@ -39,6 +39,9 @@ export function requireConfirmation(
 ): void {
   if (!needed) return;
   const hash = argsHash(toolName, input);
+  // The probe of the dispatch running this handler (elicit-drift.ts): a confirmation bound to
+  // target state that has since changed throws replay_drift out of either path below.
+  const probe = activeStateProbe();
   const tokenOk =
     !!ctx.elicitToken &&
     verifyAndConsumeElicit(
@@ -48,6 +51,7 @@ export function requireConfirmation(
       ctx.vaultId,
       ctx.caller,
       ctx.now ?? Date.now,
+      probe,
     );
   const stateOk =
     !tokenOk &&
@@ -56,6 +60,7 @@ export function requireConfirmation(
       argsHash: hash,
       vaultId: ctx.vaultId,
       caller: ctx.caller,
+      currentFp: probe,
     });
   if (tokenOk || stateOk) {
     // THE-1106 fix round 2: dispatch's OWN `checkHitl` success path relays `tc.elicit.consumed`,
@@ -77,7 +82,7 @@ export function requireConfirmation(
   // deliberately last — so a per-call `proposed` object (every caller of this function passes a
   // literal object it wrote itself, but nothing here can prove one never grows a `tool`/`vault`
   // key by accident) can never override the values this function itself computed.
-  throw err.elicitRequired("human confirmation required", {
+  throw elicitRequiredError(ctx, hash, probe, {
     ...(proposed ?? {}),
     args_hash: hash,
     tool: toolName,

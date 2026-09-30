@@ -17,6 +17,7 @@
 // state's `jti` checked at verify time — the wire contract below does not have to change for it.
 import { createHash } from "node:crypto";
 import { createRequestStateCodec } from "@modelcontextprotocol/server";
+import { assertNoReplayDrift, type StateProbe } from "./elicit-drift";
 
 /** What a HITL confirmation is bound to. Verified against the CURRENT call before it authorizes. */
 export interface ElicitRequestState {
@@ -28,6 +29,9 @@ export interface ElicitRequestState {
   vaultId: string;
   /** Caller the confirmation was issued to, when the transport knows one. */
   caller: string | null;
+  /** Fingerprint of the call's target state when the request was raised (elicit-drift.ts). A state
+   *  minted for a target that has since changed is refused as `replay_drift`. Absent: never bound. */
+  stateFp?: string;
   /** THE-1106 fix round 2: how many times a round trip has already been offered for this ORIGINAL
    *  call chain — 1 on the first offer, incremented on each re-offer after a human APPROVED but
    *  the state didn't match what actually needed confirming (e.g. a handler-side gate the
@@ -106,10 +110,22 @@ export function stateAuthorizes(
  * Lives here rather than inline in the dispatch gate so the decision is unit-testable without
  * standing up a registry — and so `registry.ts` stays under its line cap, which is the reason it
  * was extracted rather than the reason it should be.
+ *
+ * A state that authorizes the call but was raised against different target state throws
+ * `replay_drift` (`currentFp` recomputes the present state) instead of returning false, so it is
+ * never mistaken for an unconfirmed call and re-offered as if nothing had been approved.
  */
 export function hitlSatisfiedByState(
   state: ElicitRequestState | undefined,
-  call: { tool: string; argsHash: string; vaultId: string; caller: string | null },
+  call: {
+    tool: string;
+    argsHash: string;
+    vaultId: string;
+    caller: string | null;
+    currentFp?: StateProbe;
+  },
 ): boolean {
-  return state !== undefined && stateAuthorizes(state, call);
+  if (state === undefined || !stateAuthorizes(state, call)) return false;
+  assertNoReplayDrift(state.stateFp, call.currentFp, { tool: call.tool, args_hash: call.argsHash });
+  return true;
 }

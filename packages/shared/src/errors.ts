@@ -10,6 +10,9 @@ export type ErrorCode =
   | "idempotency_in_flight"
   | "elicit_required"
   | "elicit_invalid"
+  // A HITL confirmation was submitted against state that changed after the request was raised
+  // (elicit-drift.ts). Never retryable: the same token re-refuses; a fresh request is the fix.
+  | "replay_drift"
   | "overflow"
   | "throttled"
   | "read_only"
@@ -132,6 +135,8 @@ const RECOVERY: Record<ErrorCode, string | null> = {
     "A human must approve this call. A client with MCP elicitation gets a prompt; otherwise mint one with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token.",
   elicit_invalid:
     "The token was rejected or expired. Re-issue the original call with no token to trigger a fresh confirmation prompt.",
+  replay_drift:
+    "The target changed after this confirmation was requested, so nothing was applied and the old token is spent. Re-read the target, then re-issue the original call with no token to request a fresh confirmation; never resubmit the old one.",
   overflow:
     "The response exceeded the byte budget. Narrow the request — a smaller limit, fewer paths, or a compact/paginated read — rather than retrying unchanged.",
   throttled:
@@ -304,6 +309,10 @@ export const err = {
   conflict: mk("conflict", "conflict"),
   elicitRequired: mk("elicit_required", "human confirmation required"),
   elicitInvalid: mk("elicit_invalid", "elicit token invalid or expired"),
+  replayDrift: mk(
+    "replay_drift",
+    "confirmation is stale: the target changed after it was requested",
+  ),
   overflow: mk("overflow", "response exceeds byte budget"),
   throttled: mk("throttled", "rate limit exceeded"),
   readOnly: mk("read_only", "server is in read-only mode"),

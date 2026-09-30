@@ -14,6 +14,9 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   GHCR image signed by digest, and the exact-identity verify docs); `scripts/check-release-assets.test.mjs`
   runs the completeness gate against a faked `gh`, including a release that lost all eight native
   bundles.
+- **`replay_drift` error code.** Returned by every HITL-gated tool when a confirmation is
+  redeemed against state that changed since it was requested; listed in the error catalog and
+  the idempotency error taxonomy in `docs/G2.4-security.md`.
 - **`reset_vault_cache`'s `include.embeddings` accepts `"inactive"` (#1025).** Previously a plain
   boolean that dropped every `chunk_embeddings` row for a vault; `"inactive"` now drops only rows
   for embedding generations the vault is no longer searching with (`is_active = 0` — the same
@@ -110,6 +113,19 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   directory left over an hour ago before staging a new one.
 
 ### Security
+
+- **HITL confirmations are refused when the target changed after the request (`replay_drift`).**
+  A confirmation token or `requestState` was bound to the tool and `args_hash` but not to what
+  those arguments pointed at, so an approval for "overwrite/delete/move this note as it is now"
+  stayed good for its whole TTL against a note somebody had since rewritten. The state of the
+  call's declared target paths (content, mtime, size, inode, and absence) is now fingerprinted when
+  `elicit_required` is raised, carried by the token (including one minted by `obsidian-tc elicit`)
+  or the signed `requestState`, and recomputed at redemption on the shared gates every HITL tool
+  uses. A mismatch spends the token, applies nothing and returns the new non-retryable
+  `replay_drift` error, whose text says to re-issue the call with no token for a fresh
+  confirmation. Tools with no declared target paths, and tokens minted with no raised request
+  behind them, stay bound to the arguments alone. Adds migration `20260930_001`
+  (`elicit_requests`, `elicit_tokens.state_fp`).
 
 - **Two dependency advisories cleared across both install roots.** `fast-uri` 3.1.7 to 3.1.8
   (GHSA-hrr3-gc8f-f4qj, in the root and `docs/` lockfiles) and `moment` 2.29.4 to 2.31.0

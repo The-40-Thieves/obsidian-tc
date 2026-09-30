@@ -97,6 +97,10 @@ export const CACHE_MIGRATION_FILES = [
   // in-flight reconcile batch out of committing after a successor has already promoted. See the
   // migration's own header for why note_write_fence alone does not close this residual.
   "20260928_003_index_leader_epoch.sql",
+  // 20260930_001 records the target-state fingerprint a HITL confirmation was raised against
+  // (elicit_requests + elicit_tokens.state_fp) so redemption can refuse drifted state as
+  // `replay_drift`. See the migration header.
+  "20260930_001_elicit_state_fingerprint.sql",
 ] as const;
 
 /**

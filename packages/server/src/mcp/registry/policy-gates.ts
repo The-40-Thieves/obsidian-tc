@@ -6,6 +6,7 @@ import {
   scopeClassOf,
   scopeRequiresHitl,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { fingerprintTargets, type StateProbe } from "../../elicit-drift";
 import { hitlSatisfiedByState } from "../../elicit-request-state";
 import { callerHash, type RateLimiter, type ThrottleDecision } from "../../throttle";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -241,22 +242,54 @@ export function hitlRequired(def: {
  * transport-verified elicitState path (hitlSatisfiedByState). The reaction to `false` (metering,
  * releasing an idempotency claim, throwing) and to `true` (relaying tc.elicit.consumed) stays with
  * the caller, since both need dispatch-local state or sinks this function does not have.
+ * A confirmation bound to since-changed target state throws `replay_drift` from either path.
  */
 export function checkHitl(
   ctx: CallerContext,
   hash: string,
   name: string,
   verifyElicit: VerifyElicit | undefined,
+  stateProbe?: StateProbe,
 ): boolean {
   return (
-    (!!ctx.elicitToken && !!verifyElicit && verifyElicit(ctx.elicitToken, hash, ctx)) ||
+    (!!ctx.elicitToken && !!verifyElicit && verifyElicit(ctx.elicitToken, hash, ctx, stateProbe)) ||
     hitlSatisfiedByState(ctx.elicitState, {
       tool: name,
       argsHash: hash,
       vaultId: ctx.vaultId,
       caller: ctx.caller,
+      currentFp: stateProbe,
     })
   );
+}
+
+/**
+ * The probe that fingerprints what THIS call targets (replay_drift binding): the vault-relative
+ * paths the tool already declares in `pathAcl`. Null (nothing to bind) when the tool declares none,
+ * no root resolver is wired, or the folder ACL refuses a path, so it cannot probe a forbidden one.
+ */
+export function confirmationStateProbe(
+  def: ToolDefinition,
+  data: unknown,
+  ctx: Pick<CallerContext, "acl" | "grantedScopes" | "vaultId">,
+  rootResolver: RegistryOptions["rootResolver"],
+): StateProbe {
+  return () => {
+    if (!def.pathAcl) return null;
+    const root = rootResolver?.(vaultArgOf(def, data) ?? ctx.vaultId);
+    if (!root) return null;
+    try {
+      const targets = def.pathAcl(data);
+      for (const { op, path } of targets)
+        enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);
+      return fingerprintTargets(
+        root,
+        targets.map((t) => t.path),
+      );
+    } catch {
+      return null;
+    }
+  };
 }
 
 /**

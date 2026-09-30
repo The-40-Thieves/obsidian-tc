@@ -293,6 +293,9 @@ Usage:
                                           to match a JWT 'sub' (the value given to
                                           'token mint --sub') on an HTTP/jwt deployment. --vault is
                                           required when the config lists more than one vault.
+                                          The token also carries the target-state fingerprint
+                                          recorded when the call was blocked, so redeeming it
+                                          after the note changed fails with replay_drift.
   obsidian-tc telemetry preview [path] [--json] [--show-path]
                                           Print the exact aggregate document opt-in telemetry
                                           would send right now (tool-call counts, error-code

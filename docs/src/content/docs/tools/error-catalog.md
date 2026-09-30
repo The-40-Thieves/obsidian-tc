@@ -20,7 +20,7 @@ region between the markers — add the error to the shared `err` map and regener
 :::
 
 <!-- BEGIN GENERATED: errors -->
-Every failure obsidian-tc returns carries one of these **37** canonical codes, **37** of which ship a recovery hint. The code is the stable contract — branch on it rather than on the message, which is a human-readable default that may be replaced with something more specific at the throw site.
+Every failure obsidian-tc returns carries one of these **38** canonical codes, **38** of which ship a recovery hint. The code is the stable contract — branch on it rather than on the message, which is a human-readable default that may be replaced with something more specific at the throw site.
 
 | Code | Default message | Recovery |
 |---|---|---|
@@ -54,6 +54,7 @@ Every failure obsidian-tc returns carries one of these **37** canonical codes, *
 | `plugin_unreachable` | plugin detected but REST endpoint failed | The plugin is present but its endpoint failed. Retryable; check Obsidian is running and the Local REST API is enabled and reachable. |
 | `read_only` | server is in read-only mode | The server is in read-only mode, so no write will succeed until that changes. Use a read tool, or take this up with whoever runs the server. |
 | `read_only_mode` | vault is in read-only mode | This vault is configured read-only. Target a writable vault, or change the vault's configuration; retrying cannot help. |
+| `replay_drift` | confirmation is stale: the target changed after it was requested | The target changed after this confirmation was requested, so nothing was applied and the old token is spent. Re-read the target, then re-issue the original call with no token to request a fresh confirmation; never resubmit the old one. |
 | `requires_live_obsidian` | this operation requires a live Obsidian (Local REST API) connection | This capability needs a live Obsidian connection and the vault is headless. Start Obsidian with the Local REST API, or use a filesystem-only equivalent. |
 | `secret_detected` | secret-shaped content refused | details.pattern_ids and details.fields name what matched, never the value. Remove the secret-shaped text from those fields and retry, or set memoryDefense.mode to "redact" to scrub silently instead of refusing. |
 | `throttled` | rate limit exceeded | Rate limit for this scope class. Back off before retrying, and reduce batch size or spread the calls; a tight retry loop will keep hitting it. |
