@@ -122,6 +122,35 @@ export const ToolFacadeConfigSchema = z.object({
     ),
 });
 export type ToolFacadeConfig = z.infer<typeof ToolFacadeConfigSchema>;
+// Tool response shaping (GH #1027). `response_format` is a per-call parameter on the tools that
+// return more than an acknowledgement: "detailed" is the full payload every tool has always
+// returned, "concise" trims it to the high-signal fields. The per-call parameter (or its legacy
+// `verbosity` alias) wins; this block is only the operator's default for a call that names neither.
+// The shipped default is "detailed", so a config that predates this block behaves byte-for-byte as
+// before. Errors are never trimmed, and a warning or safety signal survives "concise".
+export const ResponseFormatSchema = z
+  .enum(["concise", "detailed"])
+  .describe(
+    'How much a tool returns: "detailed" is the full payload, "concise" only the high-signal fields (write acks shrink to vault, path and content_hash; errors and safety warnings are never trimmed).',
+  );
+export type ResponseFormat = z.infer<typeof ResponseFormatSchema>;
+
+export const ToolDefaultsConfigSchema = z
+  .object({
+    responseFormat: ResponseFormatSchema.default("detailed").describe(
+      'Default response_format for a tool call that sets neither `response_format` nor the legacy `verbosity` alias. Shipped default "detailed" (unchanged output); set "concise" once to cut the output of every tool that supports response_format, without each agent passing the parameter.',
+    ),
+  })
+  .prefault({});
+export const ToolsConfigSchema = z
+  .object({
+    defaults: ToolDefaultsConfigSchema.describe(
+      "Defaults applied to tool calls that do not set the parameter themselves.",
+    ),
+  })
+  .prefault({});
+export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
+
 // Session-bootstrap routing (THE-101). Server-level, not per-vault: the routing table is a
 // judgment value supplied by config, never baked into the public tree. session_bootstrap triages
 // the opening message to lightweight | standard | deep and reads the resolved context notes. A

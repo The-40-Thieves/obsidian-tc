@@ -8,6 +8,10 @@ Every tool carries four annotations enforced by the dispatch pipeline: **acl** (
 
 What `tools/list` advertises is controlled by `toolFacade.mode`: **`triad`** (default — `find_capability`, `describe_capability`, `call_capability`), **`domain`** (~a dozen domain meta-tools taking `{ action, args }`), **`flat`** (the full surface), or **`auto`** (one of the three above, resolved per connecting client from its `clientInfo.name`; provisional table, precise on stdio and on HTTP for 2026-07-28 clients only). Every underlying tool stays callable by name in every mode; routing always goes through the same authorization pipeline.
 
+## Response format
+
+Tools that return more than an acknowledgement accept `response_format: "concise" | "detailed"`. Precedence: explicit `response_format` > the legacy `verbosity` alias > `tools.defaults.responseFormat` in config > `detailed` (the shipped default, unchanged output). Concise drops echo and bookkeeping fields but never a safety signal (`quality_warning`, a non-`none` `poison_assessment`, `redactions`, `patch_note` removal counts); errors are never shaped. Supported so far: `read_note`, `read_notes`, `write_note`, `append_note`, `patch_note`, `update_frontmatter`, `find_notes_by_property`, `find_unresolved_links`, the search tools and `note_quality_report`. See **[[Configuration]]** for the config key.
+
 ## Domain groups
 
 | Group | Domains | Examples |

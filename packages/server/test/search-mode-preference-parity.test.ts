@@ -134,13 +134,15 @@ describe("advertised schema", () => {
       .list()
       .find((d) => d.name === "search_vault");
 
+  // Re-recorded for GH #1027: response_format was added and verbosity lost its schema default. The
+  // reader itself still adds no key, which is what this pins.
   it("search_vault input JSON schema is byte-identical to the pre-reader one (mode still defaults to auto)", () => {
     const schema = z.toJSONSchema(def()?.inputSchema as z.ZodType, {
       ...JSON_SCHEMA_OPTS,
       io: "input",
     });
     expect(JSON.stringify(schema)).toBe(
-      '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"vault":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9_-]+$"},"query":{"anyOf":[{"type":"string","minLength":1},{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}]},"mode":{"default":"auto","type":"string","enum":["auto","text","regex","dql","jsonlogic","semantic"]},"root":{"type":"string","minLength":1,"maxLength":1024},"explain":{"default":false,"type":"boolean"},"limit":{"type":"integer","exclusiveMinimum":0,"maximum":1000},"cursor":{"type":"string"},"verbosity":{"default":"full","type":"string","enum":["full","terse"]}},"required":["vault","query"],"additionalProperties":false}',
+      '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"vault":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[a-z0-9_-]+$"},"query":{"anyOf":[{"type":"string","minLength":1},{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}]},"mode":{"default":"auto","type":"string","enum":["auto","text","regex","dql","jsonlogic","semantic"]},"root":{"type":"string","minLength":1,"maxLength":1024},"explain":{"default":false,"type":"boolean"},"limit":{"type":"integer","exclusiveMinimum":0,"maximum":1000},"cursor":{"type":"string"},"response_format":{"description":"concise returns only the high-signal fields; detailed (the shipped default) returns the full payload. Errors and safety warnings are never trimmed. When omitted, the server\'s tools.defaults.responseFormat applies.","type":"string","enum":["concise","detailed"]},"verbosity":{"description":"Legacy alias for response_format: terse = concise, full = detailed.","type":"string","enum":["full","terse"]}},"required":["vault","query"],"additionalProperties":false}',
     );
   });
 

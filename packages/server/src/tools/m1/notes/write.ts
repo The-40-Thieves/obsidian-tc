@@ -26,6 +26,7 @@ import { noteExists, readNote, writeNoteAtomic } from "../../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
 import { persistGovernedNote } from "../../../vault/persist-note";
 import { captureSnapshot } from "../../../vault/snapshots";
+import { resolveResponseFormat } from "../../response-format";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import type { PatchResult } from "./anchors";
@@ -40,6 +41,7 @@ import {
   resolveSection,
   resolveSectionOrThrow,
 } from "./anchors";
+import { shapeWriteAck } from "./concise";
 import {
   AppendInput,
   AppendNoteOutput,
@@ -59,7 +61,7 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
     acceptsIdempotencyKey: true,
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      'Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation. Set provenance: "agent_synthesis" when the content is a derived/inferred conclusion an agent produced (not directly stated in any single source) rather than authored/copied text — this routes the content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
+      'Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation. Set provenance: "agent_synthesis" when the content is a derived/inferred conclusion an agent produced (not directly stated in any single source) rather than authored/copied text — this routes the content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, poison_assessment or redactions when they carry something).',
     inputSchema: WriteInput,
     outputSchema: WriteNoteOutput,
     requiredScopes: ["write:notes"],
@@ -150,24 +152,27 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
           createDirs: input.options.create_dirs,
         },
       );
-      return {
-        vault: v.id,
-        path: rel,
-        created: !ex.exists,
-        mode_used: ex.exists ? "overwrite" : "create",
-        content_hash: contentHash(scan.content),
-        prev_hash: prevHash,
-        bytes_written: Buffer.byteLength(scan.content, "utf8"),
-        // THE-643 item 1: never recomputed here — a point read of whatever the offline/scheduled
-        // note-quality pass last wrote. null (not deps.edb) means "rollup never ran for this note".
-        quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
-        // THE-639: null when provenance !== "agent_synthesis" (assessPoison never ran) — not a
-        // false all-clear, same convention as quality_warning above.
-        poison_assessment: poisonAssessment,
-        // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
-        // this write matched — same convention as commit_capture's own `redactions` field.
-        ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
-      };
+      return shapeWriteAck(
+        {
+          vault: v.id,
+          path: rel,
+          created: !ex.exists,
+          mode_used: ex.exists ? ("overwrite" as const) : ("create" as const),
+          content_hash: contentHash(scan.content),
+          prev_hash: prevHash,
+          bytes_written: Buffer.byteLength(scan.content, "utf8"),
+          // THE-643 item 1: never recomputed here — a point read of whatever the offline/scheduled
+          // note-quality pass last wrote. null (not deps.edb) means "rollup never ran for this note".
+          quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+          // THE-639: null when provenance !== "agent_synthesis" (assessPoison never ran) — not a
+          // false all-clear, same convention as quality_warning above.
+          poison_assessment: poisonAssessment,
+          // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
+          // this write matched — same convention as commit_capture's own `redactions` field.
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+        },
+        resolveResponseFormat(input, deps.responseFormat),
+      );
     },
   });
 }
@@ -180,7 +185,7 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
     acceptsIdempotencyKey: true,
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      'Append content to a note (optionally creating it), preserving existing bytes. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
+      'Append content to a note (optionally creating it), preserving existing bytes. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, poison_assessment or redactions when they carry something).',
     inputSchema: AppendInput,
     outputSchema: AppendNoteOutput,
     requiredScopes: ["write:notes"],
@@ -250,20 +255,23 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         captureSnapshot(ctx.db, deps.snapshots, v.id, rel, prevRaw, "append_note", ctx.now);
       writeNoteAtomic(abs, next, input.options.create_dirs);
       deps.reindex?.(v.id, rel, next);
-      return {
-        vault: v.id,
-        path: rel,
-        created: !ex.exists,
-        content_hash: contentHash(next),
-        prev_hash: prevHash,
-        bytes_written: Buffer.byteLength(next, "utf8"),
-        // THE-643 item 1: see write_note's identical comment above.
-        quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
-        // THE-639: see write_note's identical comment above.
-        poison_assessment: poisonAssessment,
-        // GH #994 follow-up: see write_note's identical comment above.
-        ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
-      };
+      return shapeWriteAck(
+        {
+          vault: v.id,
+          path: rel,
+          created: !ex.exists,
+          content_hash: contentHash(next),
+          prev_hash: prevHash,
+          bytes_written: Buffer.byteLength(next, "utf8"),
+          // THE-643 item 1: see write_note's identical comment above.
+          quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+          // THE-639: see write_note's identical comment above.
+          poison_assessment: poisonAssessment,
+          // GH #994 follow-up: see write_note's identical comment above.
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+        },
+        resolveResponseFormat(input, deps.responseFormat),
+      );
     },
   });
 }
@@ -275,7 +283,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     vaultArg: "vault",
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.",
+      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, redactions, and lines_removed/bytes_removed when non-zero).",
     inputSchema: PatchInput,
     outputSchema: PatchNoteOutput,
     requiredScopes: ["write:notes"],
@@ -455,20 +463,23 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "patch_note", ctx.now);
       writeNoteAtomic(abs, next, false);
       deps.reindex?.(v.id, rel, next);
-      return {
-        vault: v.id,
-        path: rel,
-        operation: input.operation,
-        anchor,
-        ...(anchor.type === "heading" ? { target_heading: anchor.heading } : {}),
-        content_hash: contentHash(next),
-        ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
-        prev_hash: hash,
-        lines_removed: patched.removedLines,
-        bytes_removed: patched.removedBytes,
-        // THE-643 item 1: see write_note's identical comment above.
-        quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
-      };
+      return shapeWriteAck(
+        {
+          vault: v.id,
+          path: rel,
+          operation: input.operation,
+          anchor,
+          ...(anchor.type === "heading" ? { target_heading: anchor.heading } : {}),
+          content_hash: contentHash(next),
+          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+          prev_hash: hash,
+          lines_removed: patched.removedLines,
+          bytes_removed: patched.removedBytes,
+          // THE-643 item 1: see write_note's identical comment above.
+          quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+        },
+        resolveResponseFormat(input, deps.responseFormat),
+      );
     },
   });
 }

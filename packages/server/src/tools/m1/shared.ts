@@ -2,7 +2,7 @@
 // module so implementation files can import it without pulling in index.ts's barrel — which
 // imports every implementation file back, and previously made each of those a two-node
 // import cycle through ./index).
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../../db/types";
 import type { PagingDeps } from "../../mcp/byte-page";
 import type { MetricsRecorder } from "../../metrics/registry";
@@ -27,6 +27,9 @@ export interface M1Deps {
   /** THE-376: index a newly runtime-registered vault (add_vault). Absent in tests -> add_vault
    *  registers only; filesystem tools work immediately and search populates on next reconcile. */
   indexVault?: (vaultId: string) => Promise<{ notes_seen: number }>;
+  /** GH #1027: `tools.defaults.responseFormat`, the format a call that names neither `response_format`
+   *  nor the legacy `verbosity` alias gets. Absent -> "detailed" (the shipped default). */
+  responseFormat?: ResponseFormat;
   /** THE-252: when true, write_note (overwrite) + append_note to an existing note require prev_hash. */
   requireCas?: boolean;
   /** THE-603: fires when captureSnapshot no-ops for a destructive write because

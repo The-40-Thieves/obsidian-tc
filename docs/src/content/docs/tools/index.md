@@ -184,6 +184,26 @@ a hosted embedding provider refuse those tools outright.
 See the [Tool Catalog](/tools/tool-catalog/) for the per-tool Profile column (generated from
 `tool-profiles.ts`, the single source of truth this table's `full`-only markers also read from).
 
+## Response format
+
+Tools that return more than an acknowledgement take an optional `response_format`:
+`concise` returns only the high-signal fields, `detailed` returns the full payload.
+The format is resolved in this order: an explicit `response_format` on the call, then
+the legacy `verbosity` alias (`terse` is `concise`, `full` is `detailed`), then the
+operator default `tools.defaults.responseFormat`, then `detailed`. The shipped default
+is `detailed`, so output is unchanged until a call or the config opts in.
+
+Supported today: `read_note`, `read_notes`, `write_note`, `append_note`, `patch_note`,
+`update_frontmatter`, `find_notes_by_property`, `find_unresolved_links`, the search tools
+(`search_text`, `search_regex`, `search_semantic`, `search_jsonlogic`, `search_vault`) and
+`note_quality_report`. A concise write acknowledgement is `{ vault, path, content_hash }`;
+a concise `read_note` is the note body without frontmatter (or just the requested section).
+
+Concise never drops a safety signal: a non-empty `quality_warning`, a `poison_assessment`
+other than `none`, `redactions`, and a `patch_note` call's removed-line and removed-byte
+counts are kept, and errors are never shaped. Because `concise` omits fields, the advertised
+output schema marks those fields optional; a `detailed` result always carries them.
+
 ## Degradation & errors
 
 A tool that needs an unavailable capability (a missing plugin, an unconfigured

@@ -14,6 +14,7 @@ import { enforcePathAcl } from "../../../vault/acl-path";
 import { parseNote } from "../../../vault/frontmatter";
 import { noteExists, readNote, statNote } from "../../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { resolveSectionOrThrow } from "./anchors";
@@ -38,9 +39,14 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
     domain: "notes",
     pathAcl: (input) => [{ op: "read", path: input.path }],
     description:
-      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged.",
+      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged. response_format=concise returns {vault, path, body, content_hash}: the note body without its frontmatter block (and, with an anchor, the section instead of the whole body).",
     inputSchema: z
-      .object({ vault: VaultId, path: VaultPath, anchor: PatchAnchor.optional() })
+      .object({
+        vault: VaultId,
+        path: VaultPath,
+        anchor: PatchAnchor.optional(),
+        ...ResponseFormatInput,
+      })
       .strict(),
     outputSchema: ReadNoteOutput,
     requiredScopes: ["read:notes"],
@@ -81,6 +87,16 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
           ...(resolved.headingLevel !== undefined ? { heading_level: resolved.headingLevel } : {}),
         };
       }
+      // GH #1027: a concise read is the body without its frontmatter block, or just the section when
+      // an anchor asked for one (the caller already chose what it wants; the rest of the note would
+      // be re-read on every later turn). content_hash stays the whole-note hash either way.
+      if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+        return {
+          vault: v.id,
+          path: rel,
+          ...(section ? { section } : { body: parsed.body }),
+          content_hash: hash,
+        };
       return {
         vault: v.id,
         path: rel,
@@ -124,7 +140,7 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
     domain: "notes",
     pathAcl: (input) => input.paths.map((p) => ({ op: "read" as const, path: p })),
     description:
-      "Batch-read notes. Returns successful notes and a per-path error list (partial). The response is held under the server's byte budget: when the batch does not fit, the notes that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single note too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires.",
+      "Batch-read notes. Returns successful notes and a per-path error list (partial). The response is held under the server's byte budget: when the batch does not fit, the notes that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single note too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns each note as {path, body, content_hash} (no raw content, no frontmatter); per-path errors are unchanged.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -135,12 +151,14 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
           .max(4096)
           .optional()
           .describe("The next_cursor of a previous page of this same request."),
+        ...ResponseFormatInput,
       })
       .strict(),
     outputSchema: ReadNotesOutput,
     requiredScopes: ["read:notes"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
+      const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
       const { entries, nextCursor } = await paginateByBytes<string, ReadNotesEntryOrError>({
         paging: pagingOf(deps.paging),
         binding: { tool: "read_notes", principal: ctx.caller, args: input },
@@ -153,13 +171,15 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
             const { raw, hash, parsed } = readVaultNote(v.root, rel, ctx.acl, ctx.grantedScopes);
             return {
               kind: "note",
-              note: {
-                path: rel,
-                content: raw,
-                frontmatter: parsed.frontmatter,
-                body: parsed.body,
-                content_hash: hash,
-              },
+              note: concise
+                ? { path: rel, body: parsed.body, content_hash: hash }
+                : {
+                    path: rel,
+                    content: raw,
+                    frontmatter: parsed.frontmatter,
+                    body: parsed.body,
+                    content_hash: hash,
+                  },
             };
           } catch (e) {
             const code = e instanceof ObsidianTcError ? e.code : "internal_error";

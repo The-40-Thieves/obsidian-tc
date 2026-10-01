@@ -6,7 +6,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type {
+  ResponseFormat,
+  ToolResult,
+  VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
@@ -25,6 +29,8 @@ export interface TestVaultOptions {
   vaultId?: string;
   snapshots?: { enabled: boolean; retention: number };
   requireCas?: boolean;
+  /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
+  responseFormat?: ResponseFormat;
   /** Index-coordinator hook. Unwired by default; a test that needs to fault the post-write step
    *  supplies a throwing one (THE-572). */
   reindex?: (vaultId: string, path: string, content: string) => void;
@@ -113,6 +119,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     embeddings: { provider: "ollama", model: "nomic-embed-text" },
     snapshots: opts.snapshots,
     requireCas: opts.requireCas,
+    ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
     ...(opts.reindex ? { reindex: opts.reindex } : {}),
     ...(opts.onSnapshotSkipped ? { onSnapshotSkipped: opts.onSnapshotSkipped } : {}),
     ...(opts.edb ? { edb: opts.edb } : {}),

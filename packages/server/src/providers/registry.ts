@@ -618,7 +618,7 @@ export function buildRerankerDoctorProbes(opts: {
  *  NEVER THROWS ON RESOLUTION FAILURE (THE-705 round 2, confirmed finding 1). The first cut of this
  *  entry threw an actionable-looking error naming `bun add <package>` — dead advice, since the
  *  package is deliberately unpublishable-by-default and not a workspace dependency, so EVERY
- *  documented setup hit this throw, and nothing in runtime/tool-wiring.ts's `resolveDeclaredReranker`
+ *  documented setup hit this throw, and nothing in runtime/declared-reranker.ts's `resolveDeclaredReranker`
  *  caught it: an operator setting `reranker.provider: "local"` got a hard boot crash, the opposite
  *  of "rerank reachable without a gateway". Resolution failure now returns `null` — the SAME
  *  contract `model-tier` and `gateway` already have for their own "prerequisite missing" case — and

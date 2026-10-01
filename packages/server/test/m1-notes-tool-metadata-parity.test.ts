@@ -64,13 +64,13 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "read_note",
     description:
-      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged.",
+      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged. response_format=concise returns {vault, path, body, content_hash}: the note body without its frontmatter block (and, with an anchor, the section instead of the whole body).",
     domain: "notes",
     requiredScopes: ["read:notes"],
     tags: [],
     hasPathAcl: true,
     destructive: false,
-    inputKeys: ["anchor", "path", "vault"],
+    inputKeys: ["anchor", "path", "response_format", "vault", "verbosity"],
     outputKeys: [
       "body",
       "content",
@@ -86,13 +86,13 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "read_notes",
     description:
-      "Batch-read notes. Returns successful notes and a per-path error list (partial). The response is held under the server's byte budget: when the batch does not fit, the notes that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single note too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires.",
+      "Batch-read notes. Returns successful notes and a per-path error list (partial). The response is held under the server's byte budget: when the batch does not fit, the notes that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single note too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns each note as {path, body, content_hash} (no raw content, no frontmatter); per-path errors are unchanged.",
     domain: "notes",
     requiredScopes: ["read:notes"],
     tags: [],
     hasPathAcl: true,
     destructive: false,
-    inputKeys: ["cursor", "paths", "vault"],
+    inputKeys: ["cursor", "paths", "response_format", "vault", "verbosity"],
     outputKeys: ["errors", "next_cursor", "notes", "vault"],
   },
   {
@@ -132,7 +132,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "write_note",
     description:
-      'Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation. Set provenance: "agent_synthesis" when the content is a derived/inferred conclusion an agent produced (not directly stated in any single source) rather than authored/copied text — this routes the content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
+      'Create, overwrite, or upsert a note. Optional prev_hash gives compare-and-swap; overwriting a non-empty note requires confirmation. Set provenance: "agent_synthesis" when the content is a derived/inferred conclusion an agent produced (not directly stated in any single source) rather than authored/copied text — this routes the content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, poison_assessment or redactions when they carry something).',
     domain: "notes",
     requiredScopes: ["write:notes"],
     tags: [],
@@ -149,7 +149,9 @@ const EXPECTED: ToolSnapshot[] = [
       "path",
       "prev_hash",
       "provenance",
+      "response_format",
       "vault",
+      "verbosity",
     ],
     outputKeys: [
       "bytes_written",
@@ -167,7 +169,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "append_note",
     description:
-      'Append content to a note (optionally creating it), preserving existing bytes. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention.',
+      'Append content to a note (optionally creating it), preserving existing bytes. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, poison_assessment or redactions when they carry something).',
     domain: "notes",
     requiredScopes: ["write:notes"],
     tags: [],
@@ -181,7 +183,9 @@ const EXPECTED: ToolSnapshot[] = [
       "path",
       "prev_hash",
       "provenance",
+      "response_format",
       "vault",
+      "verbosity",
     ],
     outputKeys: [
       "bytes_written",
@@ -198,7 +202,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "patch_note",
     description:
-      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled.",
+      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, redactions, and lines_removed/bytes_removed when non-zero).",
     domain: "notes",
     requiredScopes: ["write:notes"],
     tags: [],
@@ -213,8 +217,10 @@ const EXPECTED: ToolSnapshot[] = [
       "operation",
       "path",
       "prev_hash",
+      "response_format",
       "target_heading",
       "vault",
+      "verbosity",
     ],
     outputKeys: [
       "anchor",

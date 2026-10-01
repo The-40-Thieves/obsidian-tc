@@ -4,7 +4,11 @@
 // M8Deps and the `available` discriminated-union helpers, and having the second import them from
 // the first created a circular dependency. The repo's no-circular baseline is 0 and the boundary
 // gate enforces it, so the shared surface gets its own module rather than a cycle.
-import { grantsAll, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  grantsAll,
+  type ResponseFormat,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings/provider";
@@ -22,6 +26,9 @@ export const canCrossPrincipal = (ctx: CallerContext): boolean =>
   grantsAll(ctx.grantedScopes, [CROSS_PRINCIPAL_SCOPE]);
 
 export interface M8Deps {
+  /** GH #1027: `tools.defaults.responseFormat`, the format a call that names neither
+   *  `response_format` nor the legacy `verbosity` alias gets. Absent -> "detailed". */
+  responseFormat?: ResponseFormat;
   /** Open experiential.db handle; absent (all capture/config off) -> tools report unavailable. */
   edb?: Database;
   now?: () => number;
