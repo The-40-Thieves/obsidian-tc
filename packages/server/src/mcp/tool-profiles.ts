@@ -145,6 +145,11 @@ const M1_GRAPH_ANALYSIS = [
 // criterion as the graph-analysis family, not on a usage claim; the tool stays discoverable.
 const M1_SAMPLING_CONSUMERS = ["suggest_tags"] as const;
 
+// `get_provenance` (per-note write history): an audit query that needs the extra read:provenance
+// scope, and `core` is capped at 100 tools (docgen-stats.test.ts). Curated out on the same
+// structural criterion; it stays registered and discoverable under `"core"`.
+const M1_PROVENANCE = ["get_provenance"] as const;
+
 /** Every tool name `toolFacade.profile: "core"` hides and dispatch-rejects. Absent from this list
  *  (and therefore always visible/callable) under `"full"` (the default) too — `"full"` disables
  *  nothing. See the module comment for the evidence behind each family. */
@@ -153,6 +158,7 @@ export const NON_CORE_TOOL_NAMES: readonly string[] = Object.freeze([
   ...M4_PLUGIN_BRIDGE,
   ...M1_GRAPH_ANALYSIS,
   ...M1_SAMPLING_CONSUMERS,
+  ...M1_PROVENANCE,
 ]);
 
 const NON_CORE_SET: ReadonlySet<string> = new Set(NON_CORE_TOOL_NAMES);
