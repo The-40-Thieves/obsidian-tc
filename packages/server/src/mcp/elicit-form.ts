@@ -2,12 +2,12 @@
 // noExcessiveLinesPerFile), mirroring error-rendering.ts's own split for the same reason.
 //
 // This module used to also hand-roll a server-initiated `elicitation/create` round trip for
-// stdio. That was WRONG: the installed `@modelcontextprotocol/server@2.1.0`'s low-level `Server`
+// stdio. That was WRONG: the installed `@modelcontextprotocol/server@2.2.0`'s low-level `Server`
 // class (what createMcpServer builds) already does this for any `inputRequired` a handler returns
 // on a 2025-era connection, via a DEFAULT-ON `LegacyInputRequiredShim`
 // (`Server._wrapHandler("tools/call", ...)` -> `_invokeInputRequiredCapableHandler` ->
-// `_legacyInputRequiredShim().fulfill(...)`, `dist/mcp-*.mjs` ~L1120/1180/1201-1202, `legacyShim:
-// options?.legacyShim ?? true` at construction ~L797). THE-1133: re-traced against 2.1.0's dist —
+// `_legacyInputRequiredShim().fulfill(...)`, `dist/mcp-*.mjs` ~L1124/1184/1205-1206, `legacyShim:
+// options?.legacyShim ?? true` at construction ~L801). THE-1133: re-traced against 2.2.0's dist —
 // this block is byte-for-byte IDENTICAL to 2.0.0's (diffed both `mcp-*.mjs` files at these spans);
 // only the line numbers moved, pushed down by unrelated additions earlier in the same file (OAuth
 // scope challenges, the Streamable HTTP body-size limit, SEP-2243 header validation). The shim
