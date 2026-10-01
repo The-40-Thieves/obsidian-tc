@@ -66,6 +66,7 @@ if (!configPath || !goldenPath || !vecsPath || !mode || !out) {
 }
 
 const MAX_ENTRIES = 64; // the shipped retrieval.cache.maxEntries
+const LIVE_PACE_MS = 500;
 const TTL_MS = 3_600_000; // never binds: repeats are placed by call gap, not by clock (see prereg)
 
 const config = loadConfig(configPath);
@@ -112,11 +113,14 @@ const callerA: CallerContext = {
   acl: OPEN_ACL,
 };
 
-function makeRegistry(caches?: RetrievalCaches): ToolRegistry {
+function makeRegistry(
+  caches?: RetrievalCaches,
+  embeddingProvider = countingProvider,
+): ToolRegistry {
   const registry = new ToolRegistry({});
   registerM7Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: VAULT_ID, path: VAULT_PATH }]),
-    embeddingProvider: countingProvider,
+    embeddingProvider,
     reranker: null,
     roles: null,
     retrieval: config.retrieval,
@@ -158,6 +162,9 @@ async function call(
   const t0 = performance.now();
   const r = await registry.dispatch(toolName, input, ctx);
   const ms = performance.now() - t0;
+  // Live embedding: pace calls OUTSIDE the timed region so the gateway's rate limit (HTTP 429 on 60
+  // back-to-back embeds) does not abort the run.
+  if (embedMode === "live") await new Promise((done) => setTimeout(done, LIVE_PACE_MS));
   if (!r.ok) throw new Error(`${toolName}: ${r.error.code}: ${r.error.message}`);
   return { ms, json: JSON.stringify(r.data), data: r.data as Record<string, unknown> };
 }
@@ -204,8 +211,11 @@ let perQuery: ReturnType<typeof perQueryFor> = [];
 // Untimed warm pass over every distinct query on the OFF path: page cache, prepared statements and
 // the per-caller ACL path-set build are not charged to an arm.
 const offRegistry = makeRegistry();
+// The warm pass never needs the network: it answers embeddings from the precomputed vectors even in
+// `--embed live`, so only the timed arms touch the gateway.
+const warmRegistry = makeRegistry(undefined, stubProvider);
 async function warm(): Promise<void> {
-  for (const q of queries) await call(offRegistry, callerA, q.query_text);
+  for (const q of queries) await call(warmRegistry, callerA, q.query_text);
 }
 
 if (mode === "latency") {
