@@ -10,6 +10,7 @@ import {
   type AllowedLeftover,
   fileSlug,
   formatLeakReport,
+  isEmptyDirChain,
   RUN_ROOT_PREFIX,
   STALE_RUN_ROOT_MS,
   scanLeaks,
@@ -95,7 +96,7 @@ describe("scanLeaks / formatLeakReport", () => {
       writeFileSync(join(dir, "xwnxn3xb", `xwnxn3xb${ext}`), "x");
     }
     mkdirSync(join(dir, "rldevw4j"));
-    // Look-alikes a test could really leave: wrong contents, wrong length, not a directory.
+    // Near-misses a test could really leave: wrong contents, wrong length, not a directory.
     mkdirSync(join(dir, "abcdefgh"));
     writeFileSync(join(dir, "abcdefgh", "vault.md"), "x");
     mkdirSync(join(dir, "abcdefg"));
@@ -108,6 +109,21 @@ describe("scanLeaks / formatLeakReport", () => {
     ).toEqual(["abcdefg", "abcdefgh", "abcdefgi"]);
     // The same names on Linux/macOS are a leak: nothing there makes them.
     expect(scanLeaks(root, undefined, "linux")).toHaveLength(5);
+  });
+
+  it("isEmptyDirChain: only a leftover with no files in it, however deep", () => {
+    const root = makeTempDir(RUN_ROOT_PREFIX);
+    mkdirSync(join(root, "test_x", "otc-home-AbC123", "AppData", "Roaming"), { recursive: true });
+    mkdirSync(join(root, "test_x", "otc-home-DeF456", "AppData", "Roaming"), { recursive: true });
+    writeFileSync(join(root, "test_x", "otc-home-DeF456", "AppData", "Roaming", "a.json"), "");
+    mkdirSync(join(root, "test_x", "obtc-bare-GhI789"));
+    writeFileSync(join(root, "test_x", "obtc-file-JkL012"), "");
+    const byEntry = new Map(scanLeaks(root).map((l) => [l.entry, isEmptyDirChain(l)]));
+    expect(byEntry.get("otc-home-AbC123")).toBe(true);
+    // a zero-byte FILE is still a file; a bare empty directory has no nested path to show for itself
+    expect(byEntry.get("otc-home-DeF456")).toBe(false);
+    expect(byEntry.get("obtc-file-JkL012")).toBe(false);
+    expect(byEntry.get("obtc-bare-GhI789")).toBe(false);
   });
 
   it("reports a tool's nested debris down to its first leaf", () => {

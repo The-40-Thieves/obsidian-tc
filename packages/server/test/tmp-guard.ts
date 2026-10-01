@@ -89,6 +89,9 @@ export interface Leak {
   /** The leftover's basename. */
   readonly entry: string;
   readonly bytes: number;
+  /** Non-directory nodes inside it (a plain-file leftover counts itself): 0 means an empty
+   *  directory chain with nothing in it. */
+  readonly files: number;
   /** Up to a few names inside the leftover (empty for a plain file): enough to tell whose it is. */
   readonly children: readonly string[];
 }
@@ -135,8 +138,9 @@ function samplePaths(root: string, limit = 4, maxDepth = 8): string[] {
   return out;
 }
 
-function dirBytes(path: string): number {
+function dirStats(path: string): { bytes: number; files: number } {
   let total = 0;
+  let files = 0;
   const stack = [path];
   while (stack.length > 0) {
     const cur = stack.pop() as string;
@@ -148,6 +152,7 @@ function dirBytes(path: string): number {
     }
     if (!st.isDirectory()) {
       total += st.size;
+      files += 1;
       continue;
     }
     try {
@@ -156,7 +161,16 @@ function dirBytes(path: string): number {
       // unreadable directory: count what we can see
     }
   }
-  return total;
+  return { bytes: total, files };
+}
+
+/** True for a leftover that is only empty directories. On Windows removing a directory while any
+ *  handle on it is open succeeds as "delete pending": the entry keeps being listed until the last
+ *  handle closes, and a worker's handle lives as long as the worker. A fixture that really forgot
+ *  its teardown leaves files, so this is the one shape that cannot be told from a pending delete;
+ *  the global teardown warns about it on win32 instead of failing. */
+export function isEmptyDirChain(leak: Leak): boolean {
+  return leak.files === 0 && leak.bytes === 0 && leak.children.length > 0;
 }
 
 /** Everything left under `runRoot/<file>/` that is not allowlisted. A test file whose own
@@ -174,7 +188,7 @@ export function scanLeaks(
       entries = readdirSync(fileDir);
     } catch {
       // A plain file placed directly in the root (not a per-file dir) is a leak of its own.
-      leaks.push({ file: ".", entry: file, bytes: dirBytes(fileDir), children: [] });
+      leaks.push({ file: ".", entry: file, ...dirStats(fileDir), children: [] });
       continue;
     }
     for (const entry of entries.sort()) {
@@ -187,7 +201,7 @@ export function scanLeaks(
       leaks.push({
         file,
         entry,
-        bytes: dirBytes(path),
+        ...dirStats(path),
         children: samplePaths(path),
       });
     }

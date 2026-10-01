@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   formatLeakReport,
+  isEmptyDirChain,
   RUN_ROOT_PREFIX,
   scanLeaks,
   sweepStaleRunRoots,
@@ -68,6 +69,18 @@ export default function setup(project?: unknown): () => void {
       if (stillLocked.length > 0) {
         console.warn(
           `[tmp-guard] (win32, not failing) locked by a live handle: ${formatLockedList(stillLocked)}`,
+        );
+      }
+    }
+    if (process.platform === "win32") {
+      const pending = leaks.filter(isEmptyDirChain);
+      leaks = leaks.filter((l) => !isEmptyDirChain(l));
+      if (pending.length > 0) {
+        console.warn(
+          `[tmp-guard] (win32, not failing) ${pending.length} empty directory chain(s), most likely ` +
+            `delete-pending behind a live worker handle: ${pending
+              .map((l) => `${leakKey(l)} [${l.children.join(", ")}]`)
+              .join(", ")}`,
         );
       }
     }
