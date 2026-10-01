@@ -62,7 +62,7 @@ export function manifestExpectations(manifestNames: readonly string[]): Expectat
   };
 }
 
-/** One gate line body for a violation. "missing" says WHY there is no number (THE-534); an
+/** One gate line body for a violation. "missing" says WHY there is no number; an
  *  expectation-derived failure names the manifest it was judged against, not the recorded baseline. */
 export function describeViolation(v: GateViolation): string {
   if (v.reason === "missing") {

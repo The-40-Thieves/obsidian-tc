@@ -184,7 +184,7 @@ on an eighth nobody had written down.
    in `eval/perf/gate.ts`) and ignores the number recorded in the baseline, so a stale recorded value
    no longer fails the post-merge `perf` job. **Do NOT hand-edit the baseline copy.** Re-record it
    (`perf-baseline.yml`, commit all three files) only when the timing keys need re-recording anyway;
-   editing this key in place fails the coherence check (THE-754): the provenance sidecar snapshots
+   editing this key in place fails the baseline coherence check: the provenance sidecar snapshots
    every `exact` value at record time, and a mismatch means the timing keys beside it were measured
    against a different tool surface.
 
