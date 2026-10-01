@@ -17,6 +17,7 @@ import { elicitVerifier } from "../src/elicit";
 import { createPagingDeps } from "../src/mcp/byte-page";
 import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/mcp/registry";
 import type { MetricsRecorder } from "../src/metrics/registry";
+import type { KeyResolver } from "../src/provenance/signer";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -52,6 +53,8 @@ export interface TestVaultOptions {
    *  (`aclByVault.get(id) ?? root`). The `acl` option stays the ROOT ACL the caller's context
    *  carries, so a test can pair a permissive root with a narrowing per-vault override. */
   aclByVault?: Record<string, Partial<AclConfigT>>;
+  /** get_provenance's include_verification: the registry's public keys. Unwired by default. */
+  provenanceKeys?: () => KeyResolver | undefined;
   /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
   registryOpts?: Partial<RegistryOptions>;
 }
@@ -126,6 +129,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
       ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
       : {}),
     ...(opts.metrics ? { metrics: opts.metrics } : {}),
+    ...(opts.provenanceKeys ? { provenanceKeys: opts.provenanceKeys } : {}),
     paging: createPagingDeps({
       secret: "test-secret",
       budgetBytes: () => registry.maxResponseBytes,

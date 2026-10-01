@@ -368,6 +368,7 @@ export async function buildServerRuntime(
       memoryDefense: memoryDefenseForM1,
       metrics,
       provenanceStamp: governance.provenanceStamp,
+      ...(governance.provenance ? { provenance: governance.provenance } : {}),
     });
 
     // M4 plugin bridges (THE-180): per-vault client + probed capability snapshot, built before M2 so search_dql can share the same Dataview bridge.

@@ -28,6 +28,7 @@ import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
+import type { ProvenanceRecorder } from "../provenance/recorder";
 import type { ProvenanceStamper } from "../provenance/stamp";
 import { buildLocalReranker } from "../providers/registry";
 import {
@@ -392,6 +393,9 @@ export interface M1WiringDeps {
   metrics?: MetricsRecorder;
   /** `provenance.stamp.*`: present only when a stamp is on (governance builds it). */
   provenanceStamp?: ProvenanceStamper | undefined;
+  /** The write-provenance recorder (absent when disabled): get_provenance verifies records against
+   *  the keys it is given once the auth registry opens. */
+  provenance?: ProvenanceRecorder;
 }
 
 /** Registry/metadata/frontmatter/tags/links/graph-analytics/graph-health/snapshot tools (THE-XXX
@@ -424,6 +428,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     ...(deps.memoryDefense ? { memoryDefense: deps.memoryDefense } : {}),
     ...(deps.metrics ? { metrics: deps.metrics } : {}),
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
+    ...(deps.provenance ? { provenanceKeys: () => deps.provenance?.keyResolver() } : {}),
     // Bulk-read continuation cursors: HMAC key from auth.jwtSecret (random per process without
     // one) and the registry's live byte budget, so a lowered maxResponseBytes shrinks the pages.
     paging: createPagingDeps({

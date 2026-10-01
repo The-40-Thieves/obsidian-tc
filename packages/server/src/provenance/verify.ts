@@ -20,6 +20,7 @@ import type { KeyResolver } from "./signer";
 import { verifyMessage } from "./signer";
 import {
   headMessage,
+  type ProvenanceRow,
   provenanceVaults,
   readChain,
   readHeadRow,
@@ -88,6 +89,110 @@ function checkSignature(
     : { code: codes.bad, ...at, detail: `signature does not verify under kid ${kid}` };
 }
 
+/**
+ * Every check that concerns ONE record: its hash, its indexed columns, the head-fault marker, the
+ * link to `prev` (the hash of the record before it; `undefined` when that record is missing),
+ * and its signature. `expectSeq` is given by a whole-chain walk, which also knows what the
+ * sequence must be; a per-record caller (`verifyRecordAt`) leaves it out. Shared by both, so the
+ * chain verifier and the per-note provenance query cannot disagree about what "verifies" means.
+ */
+export function checkRecord(
+  r: ProvenanceRow,
+  prev: string | undefined,
+  expectSeq: number | undefined,
+  resolveKey: KeyResolver,
+): { problems: Problem[]; signed: boolean } {
+  const problems: Problem[] = [];
+  if (expectSeq !== undefined && r.seq !== expectSeq) {
+    problems.push({
+      code: "seq_gap",
+      seq: r.seq,
+      detail: `expected seq ${expectSeq}, found ${r.seq}: a record was removed or moved`,
+    });
+  }
+  if (sha256Hex(r.body) !== r.hash) {
+    problems.push({
+      code: "hash_mismatch",
+      seq: r.seq,
+      detail: "record content does not match its hash",
+    });
+  }
+  let body:
+    | { vault?: unknown; seq?: unknown; ts?: unknown; prev?: unknown; integrity?: unknown }
+    | undefined;
+  try {
+    body = JSON.parse(r.body);
+  } catch {
+    problems.push({ code: "malformed", seq: r.seq, detail: "record body is not JSON" });
+  }
+  if (
+    body !== undefined &&
+    (body.vault !== r.vault_id ||
+      body.seq !== r.seq ||
+      body.ts !== r.ts ||
+      body.prev !== r.prev_hash)
+  ) {
+    problems.push({
+      code: "column_mismatch",
+      seq: r.seq,
+      detail: "an indexed column disagrees with the record body",
+    });
+  }
+  const fault = (body?.integrity as { head_fault?: unknown } | undefined)?.head_fault;
+  if (typeof fault === "string") {
+    problems.push({
+      code: "head_untrusted",
+      seq: r.seq,
+      detail: `written while the chain head failed validation: ${fault}`,
+    });
+  }
+  if (r.prev_hash !== prev) {
+    problems.push({
+      code: "chain_break",
+      seq: r.seq,
+      detail: "prev_hash does not match the preceding record's hash",
+    });
+  }
+  if (r.kid === null || r.sig === null) {
+    problems.push({ code: "unsigned", seq: r.seq, detail: "record has no signature" });
+    return { problems, signed: false };
+  }
+  const bad = checkSignature(
+    resolveKey,
+    r.kid,
+    r.sig,
+    recordMessage(r.hash),
+    { unknown: "unknown_kid", bad: "bad_signature" },
+    r.seq,
+  );
+  if (bad !== undefined) problems.push(bad);
+  return { problems, signed: true };
+}
+
+/**
+ * Verify ONE stored record in place: its own hash and signature, and its link to the record
+ * before it (the previous row, or the signed prune anchor when that row was pruned, or genesis for
+ * seq 1). It does NOT prove the chain is complete: a removed later record or a forged head is
+ * `verifyVault`'s business, not this call's.
+ */
+export function verifyRecordAt(
+  db: Database,
+  row: ProvenanceRow,
+  resolveKey: KeyResolver,
+): { problems: Problem[]; signed: boolean } {
+  let prev: string | undefined;
+  if (row.seq === 1) {
+    prev = GENESIS_HASH;
+  } else {
+    const before = db
+      .prepare("SELECT hash FROM write_provenance WHERE vault_id = ? AND seq = ?")
+      .get(row.vault_id, row.seq - 1) as { hash: string } | undefined;
+    const head = readHeadRow(db, row.vault_id);
+    prev = before?.hash ?? (head?.pruned_seq === row.seq - 1 ? head.pruned_hash : undefined);
+  }
+  return checkRecord(row, prev, undefined, resolveKey);
+}
+
 export function verifyVault(db: Database, vaultId: string, opts: VerifyOptions): VaultVerification {
   const problems: Problem[] = [];
   const head = readHeadRow(db, vaultId);
@@ -98,71 +203,10 @@ export function verifyVault(db: Database, vaultId: string, opts: VerifyOptions):
   let unsigned = 0;
 
   for (const r of rows) {
-    if (r.seq !== expectSeq) {
-      problems.push({
-        code: "seq_gap",
-        seq: r.seq,
-        detail: `expected seq ${expectSeq}, found ${r.seq}: a record was removed or moved`,
-      });
-    }
-    if (sha256Hex(r.body) !== r.hash) {
-      problems.push({
-        code: "hash_mismatch",
-        seq: r.seq,
-        detail: "record content does not match its hash",
-      });
-    }
-    let body:
-      | { vault?: unknown; seq?: unknown; ts?: unknown; prev?: unknown; integrity?: unknown }
-      | undefined;
-    try {
-      body = JSON.parse(r.body);
-    } catch {
-      problems.push({ code: "malformed", seq: r.seq, detail: "record body is not JSON" });
-    }
-    if (
-      body !== undefined &&
-      (body.vault !== r.vault_id ||
-        body.seq !== r.seq ||
-        body.ts !== r.ts ||
-        body.prev !== r.prev_hash)
-    ) {
-      problems.push({
-        code: "column_mismatch",
-        seq: r.seq,
-        detail: "an indexed column disagrees with the record body",
-      });
-    }
-    const fault = (body?.integrity as { head_fault?: unknown } | undefined)?.head_fault;
-    if (typeof fault === "string") {
-      problems.push({
-        code: "head_untrusted",
-        seq: r.seq,
-        detail: `written while the chain head failed validation: ${fault}`,
-      });
-    }
-    if (r.prev_hash !== prev) {
-      problems.push({
-        code: "chain_break",
-        seq: r.seq,
-        detail: "prev_hash does not match the preceding record's hash",
-      });
-    }
-    if (r.kid === null || r.sig === null) {
-      unsigned++;
-      problems.push({ code: "unsigned", seq: r.seq, detail: "record has no signature" });
-    } else {
-      signed++;
-      const bad = checkSignature(
-        opts.resolveKey,
-        r.kid,
-        r.sig,
-        recordMessage(r.hash),
-        { unknown: "unknown_kid", bad: "bad_signature" },
-        r.seq,
-      );
-      if (bad !== undefined) problems.push(bad);
-    }
+    const checked = checkRecord(r, prev, expectSeq, opts.resolveKey);
+    problems.push(...checked.problems);
+    if (checked.signed) signed++;
+    else unsigned++;
     prev = r.hash;
     expectSeq = r.seq + 1;
   }

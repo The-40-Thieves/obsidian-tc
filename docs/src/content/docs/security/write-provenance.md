@@ -1,6 +1,6 @@
 ---
 title: Write provenance
-description: A signed, hash-chained record of every committed mutating tool call, what each field is trusted for, and how to verify the chain.
+description: A signed, hash-chained record of every committed mutating tool call, what each field is trusted for, how to verify the chain, and how to query one note's history.
 ---
 
 Every mutating tool call that commits writes one **provenance record** to `cache.db`. A record
@@ -131,6 +131,68 @@ is what you have; a record that *has* a signature is always checked, flag or not
 `obsidian-tc doctor` runs the same verification as the **provenance chain** check: it fails on any
 sign of tampering, warns when records exist without signatures, the chain cannot be read, or a
 recording fault is on file, and notes (without warning) a fresh install that has no EdDSA key yet.
+
+## Querying one note's history
+
+`get_provenance` answers "who changed this note, and when" for a single path:
+
+```json
+{ "vault": "notes", "path": "projects/plan.md", "limit": 20, "include_verification": true }
+```
+
+Records come back **newest first** (by sequence number). `limit` is 1 to 200 (default 50); when more
+remain, `next_cursor` is the sequence number to pass as `cursor` for the next page. `since` and
+`until` are epoch milliseconds, inclusive. Each record has the tool, `outcome`, `ts`, the sha256
+`before` and `after` of the queried path, `seq`, the record `hash`, every readable path the call
+named, and the attribution in the same three groups as the stored record. They are returned
+**separately and never merged**: `verified` is what the server established, `unauthenticated` is a
+label the server saw and nobody proved, and `self_reported` is what the client said about itself
+(`model`, `project`, `agent`, `machine`, `client`) and can be false. Decide nothing from
+`self_reported`. `response_format: "concise"` keeps the grouped attribution (without `host`,
+`server_version`, `transport` and `machine`) and drops the full path list and the record hash.
+
+**Who may call it.** The tool requires `read:provenance` **in addition to** `read:notes`. A record
+names the principal and session of whoever wrote, which is audit data and not part of being allowed
+to read a note, so it is its own grant (`read:*` and `*` include it, as for any scope). Anyone who
+holds it sees the principal, persona and session of **other** principals for the paths they can read;
+there is no finer per-principal gate.
+
+**Access control.** The query uses the same read check as search and the link tools, against the ACL
+of the vault being queried:
+
+- A path the caller cannot read answers with the same `not_found` error, with the same message and
+  details, as a path that was never written. The tool declares no central path check on purpose: that
+  would answer `acl_denied`, which says the note exists. With `since`, `until` or `cursor`, both give
+  an empty page.
+- A record that names several paths (a move, a copy, a bulk call) lists **only the paths the caller
+  can read**. A path they cannot read is left out with no placeholder and no count, and a record
+  keeps only its readable entries.
+- A vault's records and its ACL never serve another vault.
+
+**Moves.** A record lists a move as a `[from, to]` pair. When the newest `move_note`,
+`bulk_move_notes` or `move_attachment` record moved a file onto the queried path, the history of
+the source path is part of the result (`previous_paths`, and each record's `path` says which path it
+matched), and the walk repeats for that source, up to 32 moves. The walk stops at a source the
+caller cannot read, so it never learns the source existed. Records from before the file arrived at a
+path (a previous occupant it overwrote) are not part of its history. Moves are **not** followed
+forwards: the old path shows its history up to the move, not what became of the file. Renames done by
+other means (a tool that only deletes and creates) are plain writes, so they are not linked.
+
+**Verification.** With `include_verification`, each record carries `verification`:
+`signature` is `valid`, `invalid`, `unknown_key`, `unsigned`, or `unverifiable` (no key registry,
+for instance a stdio-only deployment, or an unreadable one: signatures cannot be checked, which is
+not evidence of tampering); `chain_link` is `ok` or `broken`; `problems` lists the codes
+`provenance verify` uses; `ok` is true only for a valid signature with no problem. This reuses the
+verifier's own per-record check, so the two cannot disagree about one record. It does **not** prove
+the chain is complete: a removed later record or a forged head is only visible to
+`obsidian-tc provenance verify`. The query reads `cache.db`, as `verify` does, so a writer of that
+file can forge records but not signatures (see the limits above).
+
+**Limits.** A record stores the paths the call named, up to 500 per call (see `paths_omitted`): a
+note beyond that cap in a bulk call has no record that names it. The records have no path index, so
+a query scans the vault's chain with a text prefilter on the file name; a deployment that keeps its
+whole history (`retentionDays` unset) and writes a lot pays for that in latency, and `retentionDays` bounds
+it.
 
 ## Recording faults
 

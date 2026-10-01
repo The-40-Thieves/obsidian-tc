@@ -6,6 +6,7 @@ import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/o
 import type { Database } from "../../db/types";
 import type { PagingDeps } from "../../mcp/byte-page";
 import type { MetricsRecorder } from "../../metrics/registry";
+import type { KeyResolver } from "../../provenance/signer";
 import type { ProvenanceStamper } from "../../provenance/stamp";
 import type { VaultRegistry } from "../../vault/registry";
 
@@ -56,4 +57,8 @@ export interface M1Deps {
   /** Optional provenance stamps (`provenance.stamp.*`, off by default): a newly created note gets a
    *  compact provenance key. Absent -> nothing is stamped, outputs byte-identical. */
   provenanceStamp?: ProvenanceStamper;
+  /** get_provenance's include_verification: the auth registry's public keys (every state), read
+   *  per call because the registry opens after the tools register. Absent or returning undefined
+   *  (no registry: stdio-only) -> a signed record reports `unverifiable`, never `valid`. */
+  provenanceKeys?: () => KeyResolver | undefined;
 }
