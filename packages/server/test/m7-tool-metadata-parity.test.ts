@@ -57,12 +57,22 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "vault_context",
     description:
-      "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, open contradictions on the packed notes, and applicable past lessons (decision/lesson/postmortem chunks relevant to the query) — with source metadata and packing stats. include_work adds eligible work-memory episodes (the work-memory reader contract; explicit opt-in, never default). Omit query for session bootstrap: the queued thread is read from the memory folder's _next-session.md signal note, so every session opens with its applicable lessons (push, not pull).",
+      "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, open contradictions on the packed notes, and applicable past lessons (decision/lesson/postmortem chunks relevant to the query) — with source metadata and packing stats. include_work adds eligible work-memory episodes (the work-memory reader contract; explicit opt-in, never default). Omit query for session bootstrap: the queued thread is read from the memory folder's _next-session.md signal note, so every session opens with its applicable lessons (push, not pull). response_format=concise drops the route, budget and stats blocks, each chunk's source and hop and each lesson's via.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["external-network", "knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["include_lessons", "include_work", "k", "query", "since", "token_budget", "vault"],
+    inputKeys: [
+      "include_lessons",
+      "include_work",
+      "k",
+      "query",
+      "response_format",
+      "since",
+      "token_budget",
+      "vault",
+      "verbosity",
+    ],
     outputKeys: [
       "budget",
       "contradictions",
@@ -163,23 +173,23 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "diagnose_retrieval",
     description:
-      "Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read.",
+      "Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read. response_format=concise returns returned, dropped_at and summary without the per-stage trace.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["diagnostics", "external-network", "knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["final_top_k", "path", "query", "vault"],
+    inputKeys: ["final_top_k", "path", "query", "response_format", "vault", "verbosity"],
     outputKeys: ["dropped_at", "path", "query", "returned", "stages", "summary", "vault"],
   },
   {
     name: "explain_answer",
     description:
-      "Explain what an answer actually used: walks retrieval -> chunk -> citation -> episode for one session or time window and reports each link with how well it is known. Distinguishes a retrieval the citation pass never judged from one it judged and rejected, and a chunk whose note no longer exists from one that was never used. Read-only; reports nothing about paths the caller cannot read.",
+      "Explain what an answer actually used: walks retrieval -> chunk -> citation -> episode for one session or time window and reports each link with how well it is known. Distinguishes a retrieval the citation pass never judged from one it judged and rejected, and a chunk whose note no longer exists from one that was never used. Read-only; reports nothing about paths the caller cannot read. response_format=concise drops the summary counts and each link's retrieval echo (time, surface, query text, rank); the caveat and the citation-pass record stay.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["diagnostics", "knowledge", "provenance"],
     hasPathAcl: false,
-    inputKeys: ["limit", "session_id", "since", "until", "vault"],
+    inputKeys: ["limit", "response_format", "session_id", "since", "until", "vault", "verbosity"],
     // EMPTY ON PURPOSE, and the only entry here that is. This tool's output is a `z.union` — the
     // same `available: false | available: true & shape` envelope m8's `availableWith` produces —
     // because the experiential store may be closed, which is a configuration state rather than a
@@ -202,12 +212,12 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "knowledge_get_critical",
     description:
-      "List the critical-severity docs in a vendor / external-docs corpus: the breaking changes, security issues, and production gotchas to read before starting work. A tight metadata pre-filter over frontmatter severity == 'critical', not a search. Optionally narrow by `source` (the vendor or tool the doc is about). Gated on read:docs so it stays isolated from the private vault.",
+      "List the critical-severity docs in a vendor / external-docs corpus: the breaking changes, security issues, and production gotchas to read before starting work. A tight metadata pre-filter over frontmatter severity == 'critical', not a search. Optionally narrow by `source` (the vendor or tool the doc is about). Gated on read:docs so it stays isolated from the private vault. response_format=concise drops the count and the constant severity of each item.",
     domain: "docs",
     requiredScopes: ["read:docs"],
     tags: ["docs", "knowledge"],
     hasPathAcl: false,
-    inputKeys: ["limit", "source", "vault"],
+    inputKeys: ["limit", "response_format", "source", "vault", "verbosity"],
     outputKeys: ["count", "items", "vault"],
   },
   {

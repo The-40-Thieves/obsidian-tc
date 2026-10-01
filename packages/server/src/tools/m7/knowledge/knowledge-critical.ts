@@ -6,23 +6,26 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
+import { conciseKnowledgeCritical } from "./concise-reads";
 import type { M7Deps } from "./deps";
-import { KnowledgeCriticalOutput } from "./schemas";
+import { ConciseableKnowledgeCriticalOutput } from "./schemas";
 
 export function createKnowledgeCriticalTool(deps: M7Deps): ToolDefinition {
   return defineTool({
     name: "knowledge_get_critical",
     domain: "docs",
     description:
-      "List the critical-severity docs in a vendor / external-docs corpus: the breaking changes, security issues, and production gotchas to read before starting work. A tight metadata pre-filter over frontmatter severity == 'critical', not a search. Optionally narrow by `source` (the vendor or tool the doc is about). Gated on read:docs so it stays isolated from the private vault.",
+      "List the critical-severity docs in a vendor / external-docs corpus: the breaking changes, security issues, and production gotchas to read before starting work. A tight metadata pre-filter over frontmatter severity == 'critical', not a search. Optionally narrow by `source` (the vendor or tool the doc is about). Gated on read:docs so it stays isolated from the private vault. response_format=concise drops the count and the constant severity of each item.",
     inputSchema: z
       .object({
         vault: VaultId,
         source: z.string().min(1).optional(),
         limit: z.number().int().positive().max(200).default(100),
+        ...ResponseFormatInput,
       })
       .strict(),
-    outputSchema: KnowledgeCriticalOutput,
+    outputSchema: ConciseableKnowledgeCriticalOutput,
     requiredScopes: ["read:docs"],
     tags: ["docs", "knowledge"],
     handler: (input, ctx) => {
@@ -66,7 +69,10 @@ export function createKnowledgeCriticalTool(deps: M7Deps): ToolDefinition {
             a.path.localeCompare(b.path),
         )
         .slice(0, input.limit);
-      return { vault: v.id, count: items.length, items };
+      const full = { vault: v.id, count: items.length, items };
+      return resolveResponseFormat(input, deps.responseFormat) === "concise"
+        ? conciseKnowledgeCritical(full)
+        : full;
     },
   });
 }

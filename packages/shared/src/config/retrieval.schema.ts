@@ -47,6 +47,15 @@ export const RetrievalConfigSchema = z.object({
     .describe(
       "Let search_vault use the caller's learned preferred.search_mode when the call names no mode: a stored search_text preference (profile weight >= 3.0, for this vault and this caller only) selects mode=text instead of auto. The weight counts evidence observed across extraction runs, not distinct windows: re-running `obsidian-tc reflect` re-counts unchanged evidence. An explicit mode, including an explicit auto, always wins; a stored value with no safe search_vault counterpart (search_regex, search_vault, vault_graph_search, search_omnisearch) and an object query are ignored. When on, search_vault reports mode_source (explicit, preference or default). The profile is written only by `obsidian-tc reflect` (extraction is deliberately not scheduled, because it is not idempotent), so it is as fresh as the last run. Needs the experiential store. Off by default — ranking-adjacent, ADR-0007 bar not met; off is byte-identical to before.",
     ),
+  /** How `search_vault`'s `auto` mode treats a string query's text hits (search/auto-route.ts). DARK:
+   *  both candidates are ranking changes and the ADR-0007 evidence bar is not met (see the ADR's
+   *  status section for the measured verdict). */
+  searchAutoRoute: z
+    .enum(["text-first", "weak-text", "hybrid"])
+    .default("text-first")
+    .describe(
+      "How search_vault's auto mode (mode omitted or auto, string query) combines its literal text leg with its semantic leg. text-first (default, unchanged): run the text leg and fall back to the semantic leg only when text matched NO note, so any text hit, however irrelevant, blocks the fallback. weak-text: also run the semantic leg when the text leg matched exactly one note, and fuse the two by reciprocal rank. hybrid: always run both legs and fuse them by reciprocal rank over distinct notes (rrfK 10). A fused result reports mode_used hybrid; if the semantic leg fails on a query the text leg already answered, the text result stands. weak-text and hybrid embed the query (sending its text to the embeddings provider) on queries that text-first answers locally. Off by default: the ADR-0007 evidence bar is not met; text-first is byte-identical to before.",
+    ),
   /** THE-258: the deterministic class router (temporal auto-stream, lexical short-circuit
    *  that skips the embedding round-trip; standard falls through unchanged). DARK by
    *  default — flips only after the per-class + aggregate A/B passes the ship rule. */

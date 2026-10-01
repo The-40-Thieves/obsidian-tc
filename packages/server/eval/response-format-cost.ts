@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BootstrapConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { FolderAcl } from "../src/acl";
+import { CapabilityCache } from "../src/bridge";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import { openDatabase } from "../src/db/open";
@@ -34,6 +35,7 @@ import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { registerM3Tools } from "../src/tools/m3";
+import { registerM4Tools } from "../src/tools/m4";
 import { registerM5Tools } from "../src/tools/m5";
 import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
@@ -152,6 +154,12 @@ async function run(root: string): Promise<void> {
   });
   registerM8Tools(registry, { edb, now: () => 1_700_000_000_000 });
   registerM3Tools(registry, { vaultRegistry });
+  // The bundle tools never open the Obsidian bridge: an empty capability cache and no client do.
+  registerM4Tools(registry, {
+    vaultRegistry,
+    capabilities: new CapabilityCache(),
+    bridgeFor: () => undefined,
+  });
   registerM5Tools(registry, {
     cacheDir,
     vaultRegistry,
@@ -165,6 +173,7 @@ async function run(root: string): Promise<void> {
     reranker: null,
     roles: null,
     classRouter: true,
+    edb,
   });
   const ctx: CallerContext = {
     caller: "eval",
@@ -425,6 +434,12 @@ async function run(root: string): Promise<void> {
     mkdirSync(dirname(join(docsDir, p)), { recursive: true });
     cpSync(join(vaultDir, p), join(docsDir, p));
   }
+  // knowledge_get_critical lists the docs notes whose frontmatter carries a severity.
+  for (let i = 0; i < 12; i++)
+    writeFileSync(
+      join(docsDir, `advisory-${i}.md`),
+      `---\nseverity: ${i % 3 ? "critical" : "important"}\ncategory: ${i % 2 ? "breaking_change" : "deprecation"}\nsource: vendor-${i % 4}\n---\n# Advisory ${i}\n\nmemory practice advisory body ${i}.\n`,
+    );
   await call("index_vault", { vault: "docs" });
   {
     const docsCtx = ctxWith({ vaultId: "docs", grantedScopes: new Set(["read:docs"]) });
@@ -553,6 +568,86 @@ async function run(root: string): Promise<void> {
   await measure("work_episode_chain", "chain of 9", () => ({ id: "ep-9" }));
   await measure("work_search", "query=memory", () => ({ query: "memory" }));
   await measure("gap_report", "30 queries", () => ({ vault: v }));
+
+  // ── Part 4a ───────────────────────────────────────────────────────────────────────────────
+  // Knowledge reads, link/tag/health analysis, bundles and the canvas reader. Seeds go into the
+  // COPY and the in-memory databases only.
+  {
+    // explain_answer: 8 logged retrievals for one session, real chunk ids from the indexed vault,
+    // half of them cited, one whose chunk no longer resolves.
+    const chunks = db
+      .prepare("SELECT id FROM chunks WHERE vault_id = ? ORDER BY path, chunk_index LIMIT 8")
+      .all(v) as Array<{ id: string }>;
+    if (chunks.length < 8) throw new Error("part 4a: fewer than 8 indexed chunks");
+    const log = edb.prepare(
+      `INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type,
+         query_text, rank_in_results, cited_in_response, citation_score, citation_state, caller)
+       VALUES (?, ?, ?, 'eval-s1', 'vault_graph_search', 'memory practice', ?, ?, ?, ?, 'eval')`,
+    );
+    chunks.forEach((c, i) => {
+      const cited = i % 2 === 0;
+      log.run(
+        `er-${i}`,
+        c.id,
+        1_700_000_000_000 + i,
+        i + 1,
+        cited ? 1 : null,
+        cited ? 0.8 : null,
+        cited ? "confirmed" : null,
+      );
+    });
+    log.run("er-gone", "chunk-that-was-rechunked", 1_700_000_000_100, 9, null, null, null);
+  }
+  // bundle_folder: 15 notes in their own folder of the copy.
+  for (const p of spare.slice(10, 25)) {
+    mkdirSync(join(vaultDir, "bundle-src"), { recursive: true });
+    cpSync(join(vaultDir, p), join(vaultDir, "bundle-src", `${p.split("/").pop()}`));
+  }
+  // read_canvas: 20 text nodes, 19 edges, written into the copy.
+  writeFileSync(
+    join(vaultDir, "board.canvas"),
+    JSON.stringify({
+      nodes: Array.from({ length: 20 }, (_, i) => ({
+        id: `n${i}`,
+        type: "text",
+        text: `Card ${i}: memory practice`,
+        x: (i % 5) * 300,
+        y: Math.floor(i / 5) * 200,
+        width: 260,
+        height: 120,
+      })),
+      edges: Array.from({ length: 19 }, (_, i) => ({
+        id: `e${i}`,
+        fromNode: `n${i}`,
+        toNode: `n${i + 1}`,
+      })),
+    }),
+  );
+  await measure("vault_context", "query=memory", () => ({ vault: v, query: "memory" }));
+  await measure("explain_answer", "8 retrievals, 1 unresolved", () => ({
+    vault: v,
+    session_id: "eval-s1",
+  }));
+  await measure("diagnose_retrieval", "query=memory practice, one note", () => ({
+    vault: v,
+    query: "memory practice",
+    path: spare[0],
+  }));
+  await measure("knowledge_get_critical", "12 advisories", () => ({ vault: "docs" }));
+  await measure("audit_provenance", "whole vault", () => ({ vault: v }));
+  await measure("vault_health_score", "whole vault", () => ({ vault: v }));
+  await measure(
+    "suggest_links",
+    `most-linked note (${inbound.get(mostLinked) ?? 0} inbound)`,
+    () => ({
+      vault: v,
+      path: mostLinked,
+    }),
+  );
+  await measure("suggest_tags", "median note", () => ({ vault: v, path: median }));
+  await measure("bundle_files", "10 notes", () => ({ vault: v, paths: spare.slice(0, 10) }));
+  await measure("bundle_folder", "15-note folder", () => ({ vault: v, root: "bundle-src" }));
+  await measure("read_canvas", "20 nodes, 19 edges", () => ({ vault: v, path: "board.canvas" }));
 
   const pct = (a: number, b: number): string => `${(((a - b) / a) * 100).toFixed(1)}%`;
   const lines = [

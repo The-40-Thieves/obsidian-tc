@@ -6,6 +6,7 @@
 import {
   err,
   ObsidianTcError,
+  type ResponseFormat,
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
@@ -35,6 +36,9 @@ export interface CommandPolicy {
 
 export interface M4Deps {
   vaultRegistry: VaultRegistry;
+  /** GH #1027: `tools.defaults.responseFormat`, the format a call that names neither
+   *  `response_format` nor the legacy `verbosity` alias gets. Absent -> "detailed". */
+  responseFormat?: ResponseFormat;
   capabilities: CapabilityCache;
   /** Per-vault bridge client; undefined when the vault configures no REST endpoint. */
   bridgeFor: (vaultId: string) => BridgeClient | undefined;

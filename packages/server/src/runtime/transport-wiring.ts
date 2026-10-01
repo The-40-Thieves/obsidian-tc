@@ -19,7 +19,7 @@ import type { ToolRegistry } from "../mcp/registry";
 import { type MetricsHandle, startMetricsEndpoint } from "../metrics/endpoint";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { ProvenanceRecorder } from "../provenance/recorder";
-import { registrySignerSource } from "../provenance/signer";
+import { registryKeyResolver, registrySignerSource } from "../provenance/signer";
 import type { JobQueue } from "../scheduler/job-queue";
 import { type HttpHandle, startHttp } from "../transports/http";
 import type { VaultRegistry } from "../vault/registry";
@@ -111,6 +111,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   if (authRegistry !== undefined && deps.provenance !== undefined) {
     // One line per process, not per write: a lost registry would otherwise repeat on every call.
     let warned = false;
+    deps.provenance.setKeyResolverSource(() => registryKeyResolver(authRegistry.listKeys()));
     deps.provenance.setSignerSource(
       registrySignerSource(authRegistry, (e) => {
         if (warned) return;

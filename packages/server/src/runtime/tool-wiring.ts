@@ -44,7 +44,7 @@ import { guardReranker, type Reranker, type RerankOutcome } from "../search/rera
 import type { VecRebuildEvent } from "../search/vec";
 import type { RateLimiter } from "../throttle";
 import { createHealthTool, createIndexStatusTool } from "../tools/admin/health";
-import { registerM1Tools } from "../tools/m1";
+import { type ProvenanceRecorder, provenanceDepsOf, registerM1Tools } from "../tools/m1";
 import { registerM2Tools } from "../tools/m2";
 import { registerM3Tools } from "../tools/m3";
 import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../tools/m4";
@@ -392,6 +392,8 @@ export interface M1WiringDeps {
   metrics?: MetricsRecorder;
   /** `provenance.stamp.*`: present only when a stamp is on (governance builds it). */
   provenanceStamp?: ProvenanceStamper | undefined;
+  /** The write-provenance recorder (absent when disabled): get_provenance's keys and budget. */
+  provenance?: ProvenanceRecorder;
 }
 
 /** Registry/metadata/frontmatter/tags/links/graph-analytics/graph-health/snapshot tools (THE-XXX
@@ -424,6 +426,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     ...(deps.memoryDefense ? { memoryDefense: deps.memoryDefense } : {}),
     ...(deps.metrics ? { metrics: deps.metrics } : {}),
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
+    ...(deps.provenance ? provenanceDepsOf(deps.provenance, config) : {}),
     // Bulk-read continuation cursors: HMAC key from auth.jwtSecret (random per process without
     // one) and the registry's live byte budget, so a lowered maxResponseBytes shrinks the pages.
     paging: createPagingDeps({
@@ -558,12 +561,12 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     }),
     // THE-293: regex execution budget (worker time only).
     regexTimeoutMs: config.governor.regexTimeoutMs,
-    // retrieval.useSearchModePreference: search_vault's learned-mode reader, only when the flag is
-    // on AND the experiential store is open (off -> the field is absent and the reader is never
-    // entered, so search_vault is byte-identical to before).
+    // retrieval.useSearchModePreference: the learned-mode reader, only with the flag on AND the
+    // experiential store open; absent otherwise. autoRoute: text-first is the shipped route.
     ...(config.retrieval.useSearchModePreference && deps.experientialOpen
       ? { searchModePreference: { edb: deps.experientialDb } }
       : {}),
+    autoRoute: config.retrieval.searchAutoRoute,
     // THE-291 (3B): FTS-accelerated search_text once the boot reconcile's notes pass commits.
     metadataIndex: { hasFts: deps.hasFts, ready: () => deps.indexHealth.notesReady },
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
@@ -605,8 +608,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
       client: openBridge(deps.m4Deps, vaultId, "templater").client,
       timeoutMs: bridgeTimeouts(deps.m4Deps, vaultId).templaterTimeoutMs,
     }),
-    // periodic-note create/append/find_or_create and the table mutate tool's
-    // memoryDefense guard — the SAME closure/metrics M5/M7/M8 get above.
+    // periodic-note and table-mutate guard: the SAME memoryDefense closure/metrics as M5/M7/M8.
     memoryDefense,
     metrics: deps.metrics,
     maxAttachmentBytes: config.writes.maxAttachmentBytes,
@@ -614,6 +616,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // `uri.allowOsLaunch` gates show_file_in_obsidian's OS-handler fallback (deny-by-default).
   registerM4Tools(registry, {
     ...deps.m4Deps,
+    responseFormat,
     uri: config.uri,
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
   });

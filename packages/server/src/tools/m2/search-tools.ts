@@ -17,9 +17,11 @@ import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
 import { resolveSearchVaultMode } from "../../experiential/search-mode-preference";
 import type { ToolDefinition } from "../../mcp/registry";
+import { autoNeedsSemanticLeg, fuseTextAndSemantic } from "../../search/auto-route";
 import { mtimesByPath, noteFreshness } from "../../search/freshness";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { createQueryEncoder } from "../../search/query-encoder";
+import { DEFAULT_RRF_K } from "../../search/retrieval-defaults";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
 import { paginate } from "../../util/paginate";
@@ -645,10 +647,21 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
               tried.push("text");
               chosen = "text";
               items = textHits();
-              if (items.length === 0) {
+              const textNotes = new Set(items.map((h) => h.path)).size;
+              if (autoNeedsSemanticLeg(deps.autoRoute ?? "text-first", textNotes)) {
                 tried.push("semantic");
-                chosen = "semantic";
-                items = await semanticHits();
+                if (items.length === 0) {
+                  chosen = "semantic";
+                  items = await semanticHits();
+                } else {
+                  // An extra leg on a query the text leg already answered: if it fails (embedding
+                  // provider down) the text answer stands, as it always did before this route.
+                  const sem = await semanticHits().catch(() => null);
+                  if (sem) {
+                    chosen = "hybrid";
+                    items = fuseTextAndSemantic(items, sem, DEFAULT_RRF_K);
+                  }
+                }
               }
             }
           }
@@ -662,9 +675,11 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
                 reason:
                   mode === "auto" && chosen === "semantic"
                     ? "text returned no hits; fell back to semantic"
-                    : resolved.source === "preference"
-                      ? `mode ${mode} (stored preference)`
-                      : `mode ${mode}`,
+                    : mode === "auto" && chosen === "hybrid"
+                      ? `text and semantic fused by RRF (retrieval.searchAutoRoute=${deps.autoRoute})`
+                      : resolved.source === "preference"
+                        ? `mode ${mode} (stored preference)`
+                        : `mode ${mode}`,
               },
             }
           : {};

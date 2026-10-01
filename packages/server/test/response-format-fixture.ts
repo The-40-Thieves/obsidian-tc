@@ -21,6 +21,7 @@ import { openMemoryDb } from "./helpers";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 import { type M2Vault, makeM2Vault } from "./m2-helpers";
 import { makeM3Vault } from "./m3-helpers";
+import { makeM4Vault } from "./m4-helpers";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -64,7 +65,7 @@ export interface Dom {
   dispatch(tool: string, args: Record<string, unknown>): Promise<ToolResult>;
 }
 
-export type DomainName = "m1" | "m2" | "m3" | "m5" | "m7" | "m7docs" | "m8";
+export type DomainName = "m1" | "m2" | "m3" | "m4" | "m5" | "m7" | "m7ctx" | "m7docs" | "m8";
 
 export interface World {
   m1: TestVault;
@@ -140,6 +141,14 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
         cleanups.push(() => v.cleanup());
         return { registry: v.registry, dispatch: (t, a) => v.call(t, a) };
       }
+      case "m4": {
+        const v = makeM4Vault({
+          files: M4_FILES,
+          ...(responseFormat ? { extra: { responseFormat } } : {}),
+        });
+        cleanups.push(() => v.cleanup());
+        return { registry: v.registry, dispatch: (t, a) => v.call(t, a) };
+      }
       case "m5": {
         const v = makeM5Vault({
           files: VAULT_FILES,
@@ -161,6 +170,40 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
         });
         return { registry: m2.registry, dispatch: (t, a) => m2.call(t, a) };
       }
+      case "m7ctx": {
+        // vault_context, diagnose_retrieval and explain_answer: an indexed vault plus the
+        // experiential store, with three retrievals logged for the caller (one cited and still
+        // resolving, one never judged, one whose chunk is gone).
+        const v = makeM2Vault({
+          files: VAULT_FILES,
+          ...(responseFormat ? { responseFormat } : {}),
+        });
+        cleanups.push(() => v.cleanup());
+        await v.call("index_vault", { vault: "test" });
+        registerM7Tools(v.registry, {
+          vaultRegistry: v.vaultRegistry,
+          embeddingProvider: v.provider,
+          reranker: null,
+          roles: null,
+          edb,
+          ...(responseFormat ? { responseFormat } : {}),
+        });
+        const chunks = v.db
+          .prepare("SELECT id, path FROM chunks ORDER BY path, chunk_index")
+          .all() as Array<{ id: string; path: string }>;
+        const first = chunks.find((c) => c.path === "a.md");
+        const second = chunks.find((c) => c.path === "b.md");
+        if (!first || !second) throw new Error("m7ctx: a.md / b.md were not indexed");
+        const log = edb.prepare(
+          `INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, surface_type,
+             query_text, rank_in_results, cited_in_response, citation_score, citation_state, caller)
+           VALUES (?, ?, ?, 's1', 'vault_graph_search', 'foxes', ?, ?, ?, ?, 'test')`,
+        );
+        log.run("r1", first.id, NOTE_QUALITY_AT - 300, 1, 1, 0.9, "confirmed");
+        log.run("r2", second.id, NOTE_QUALITY_AT - 200, 2, null, null, null);
+        log.run("r3", "chunk-that-was-rechunked", NOTE_QUALITY_AT - 100, 3, null, null, null);
+        return { registry: v.registry, dispatch: (t, a) => v.call(t, a) };
+      }
       case "m7docs": {
         const root = makeTempDir("obtc-rf-docs-");
         cleanups.push(() => rmTemp(root));
@@ -169,6 +212,29 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
         db.prepare(
           "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'docs', ?, 0, '[]', ?, 'h1', 40, ?, ?)",
         ).run("d1", "context7/resolve.md", DOCS_CHUNK, NOTE_QUALITY_AT, NOTE_QUALITY_AT);
+        const note = db.prepare(
+          "INSERT INTO notes (vault_id, path, title, tags, frontmatter, content_hash, mtime, size, indexed_at) VALUES ('docs', ?, ?, '[]', ?, ?, ?, 100, ?)",
+        );
+        note.run(
+          "context7/resolve.md",
+          "Resolve the library id first",
+          JSON.stringify({ severity: "critical", category: "breaking_change", source: "context7" }),
+          "h1",
+          NOTE_QUALITY_AT,
+          NOTE_QUALITY_AT,
+        );
+        note.run(
+          "context7/budget.md",
+          "Token budget",
+          JSON.stringify({
+            severity: "informational",
+            category: "performance",
+            source: "context7",
+          }),
+          "h2",
+          NOTE_QUALITY_AT,
+          NOTE_QUALITY_AT,
+        );
         ensureChunkFts(db, { now: () => NOTE_QUALITY_AT, enrich: false });
         const reg = new ToolRegistry({});
         registerM7Tools(reg, {
@@ -228,6 +294,31 @@ const M3_FILES: Record<string, string> = {
   "assets/pic.png": "png-bytes",
   "assets/doc.pdf": "pdf-bytes",
   "ref.md": "![[pic.png]]\n",
+  "board.canvas": JSON.stringify({
+    nodes: [
+      { id: "n1", type: "text", x: 0, y: 0, width: 200, height: 80, text: "Hello", color: "2" },
+      { id: "n2", type: "file", x: 300, y: 0, width: 200, height: 80, file: "ref.md" },
+    ],
+    edges: [
+      {
+        id: "e1",
+        fromNode: "n1",
+        toNode: "n2",
+        fromSide: "right",
+        toSide: "left",
+        toEnd: "arrow",
+        label: "see",
+      },
+    ],
+  }),
+};
+
+/** m4: the bundle tools only read notes, so a vault with a small folder is the whole fixture. */
+const M4_FILES: Record<string, string> = {
+  ...VAULT_FILES,
+  "notes/one.md": "---\ntitle: One\n---\n# One\n\nfirst folder note\n",
+  "notes/two.md": "# Two\n\nsecond folder note\n",
+  "notes/three.md": "# Three\n\nthird folder note\n",
 };
 
 /** Episodes (a two-link amendment chain, one failed), a goal, and a persisted gap report. */
@@ -348,6 +439,8 @@ export interface Scenario {
   args: Record<string, unknown> | ((w: World) => Record<string, unknown>);
   /** The fields a concise response must still carry for the caller to act (shape floor). */
   conciseKeys: string[];
+  /** Extra seeding for this scenario only, run once the domain is built and before the call. */
+  prepare?: (w: World) => void;
 }
 
 export const SCENARIOS: Scenario[] = [
@@ -705,6 +798,99 @@ export const SCENARIOS: Scenario[] = [
     args: { vault: "test" },
     conciseKeys: ["available", "vault", "computed_at", "total", "gaps", "gap_rate", "items"],
   },
+  // Part 4a: knowledge reads and analysis, bundles, and the canvas reader.
+  {
+    name: "vault_context",
+    tool: "vault_context",
+    domain: "m7ctx",
+    args: { vault: "test", query: "foxes" },
+    conciseKeys: ["vault", "notes", "syntheses", "contradictions", "lessons"],
+  },
+  {
+    name: "explain_answer",
+    tool: "explain_answer",
+    domain: "m7ctx",
+    args: { vault: "test", session_id: "s1" },
+    conciseKeys: ["available", "vault", "scope", "links", "caveat", "citation_pass"],
+  },
+  {
+    name: "diagnose_retrieval",
+    tool: "diagnose_retrieval",
+    domain: "m7ctx",
+    args: { vault: "test", query: "foxes", path: "b.md" },
+    conciseKeys: ["vault", "returned", "dropped_at", "summary"],
+  },
+  {
+    name: "knowledge_get_critical",
+    tool: "knowledge_get_critical",
+    domain: "m7docs",
+    args: { vault: "docs" },
+    conciseKeys: ["vault", "items"],
+  },
+  {
+    name: "audit_provenance",
+    tool: "audit_provenance",
+    domain: "m1",
+    args: { vault: "test" },
+    conciseKeys: ["vault", "scanned", "missing_provenance", "coverage", "missing", "truncated"],
+  },
+  {
+    name: "vault_health_score",
+    tool: "vault_health_score",
+    domain: "m1",
+    args: { vault: "test" },
+    conciseKeys: ["vault", "score", "total_notes", "metrics"],
+  },
+  {
+    name: "suggest_links",
+    tool: "suggest_links",
+    domain: "m1",
+    // a.md is cited by d.md, which also links c.md (co-citation); a.md links b.md, which links x1.md
+    // (two hops). Without these notes the graph has nothing to suggest.
+    prepare: (w) => {
+      w.m1.write("d.md", "# D\n\n[[a]] and [[c]]\n");
+      w.m1.write("c.md", "# C\n");
+      w.m1.write("b.md", "# Beta\n\nbeta body about foxes [[x1]]\n");
+      w.m1.write("x1.md", "# X1\n");
+    },
+    args: { vault: "test", path: "a.md" },
+    conciseKeys: ["vault", "suggestions"],
+  },
+  {
+    name: "suggest_tags",
+    tool: "suggest_tags",
+    domain: "m1",
+    args: { vault: "test", path: "b.md" },
+    conciseKeys: ["vault", "source", "suggestions"],
+  },
+  {
+    name: "bundle_files",
+    tool: "bundle_files",
+    domain: "m4",
+    args: { vault: "test", paths: ["a.md", "b.md", "nope.md"] },
+    conciseKeys: ["vault", "bundle", "file_count", "truncated", "missing_paths"],
+  },
+  {
+    name: "bundle_folder",
+    tool: "bundle_folder",
+    domain: "m4",
+    args: { vault: "test", root: "notes" },
+    conciseKeys: ["vault", "bundle", "file_count", "truncated"],
+  },
+  {
+    name: "bundle_folder (truncated, cursor)",
+    tool: "bundle_folder",
+    domain: "m4",
+    args: { vault: "test", root: "notes", max_files: 1 },
+    conciseKeys: ["vault", "bundle", "file_count", "truncated", "cursor"],
+  },
+  {
+    name: "read_canvas",
+    tool: "read_canvas",
+    domain: "m3",
+    args: { vault: "test", path: "board.canvas" },
+    conciseKeys: ["vault", "path", "nodes", "edges", "content_hash"],
+  },
 ];
 
 export async function runScenario(
@@ -713,6 +899,7 @@ export async function runScenario(
   extra: Record<string, unknown> = {},
 ): Promise<ToolResult> {
   const dom = await world.domain(s.domain);
+  s.prepare?.(world);
   // Seeding runs on first use of the domain, so a function-valued `args` reads ids that exist now.
   const base = typeof s.args === "function" ? s.args(world) : s.args;
   return dom.dispatch(s.tool, { ...base, ...extra });

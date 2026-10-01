@@ -8,6 +8,8 @@
 // The ajv check against the ADVERTISED JSON schema lives in response-format-ajv.test.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
+import { registerM7Tools } from "../src/tools/m7";
+import { makeM2Vault } from "./m2-helpers";
 import {
   dataOf,
   makeWorld,
@@ -18,6 +20,7 @@ import {
   type World,
 } from "./response-format-fixture";
 import { topLevelShape } from "./schema-introspect";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // Every case builds fresh vaults through the real registry; under load that outgrows the 5 s default.
 vi.setConfig({ testTimeout: 60_000 });
@@ -810,6 +813,246 @@ describe("precedence through dispatch: explicit > alias > config default > detai
           ];
       expect(viaConfig, s.name).toEqual(viaParam);
     }
+  });
+});
+
+describe("part 4a concise shapes", () => {
+  const rows = (d: Record<string, unknown>, field: string) =>
+    (d[field] as Array<Record<string, unknown>>) ?? [];
+
+  it("vault_context: the packed notes and lessons stay, the route, budget and stats blocks and per-chunk provenance go", async () => {
+    const s = scenario("vault_context");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["contradictions", "lessons", "notes", "syntheses", "vault"]);
+    expect(keys(full)).toEqual(
+      expect.arrayContaining(["budget", "route", "stats", "query_source"]),
+    );
+    const notes = rows(d, "notes");
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes.map((n) => n.path)).toEqual(rows(full, "notes").map((n) => n.path));
+    for (const [i, n] of notes.entries()) {
+      const fullChunks = rows(rows(full, "notes")[i] as Record<string, unknown>, "chunks");
+      for (const [j, c] of rows(n, "chunks").entries()) {
+        expect(keys(c)).toEqual(["chunk_id", "content", "score"]);
+        expect(c.chunk_id).toBe(fullChunks[j]?.chunk_id);
+        expect(c.content).toBe(fullChunks[j]?.content);
+        expect(c.score).toBe(fullChunks[j]?.score);
+      }
+    }
+    expect(JSON.stringify(d).length).toBeLessThan(JSON.stringify(full).length);
+  });
+
+  it("vault_context: a concise call never poisons the bootstrap prewarm cache, and a cache hit keeps its staleness markers", async () => {
+    const dir = makeTempDir("obtc-rf-prewarm-");
+    const v = makeM2Vault({
+      files: {
+        "a.md": "# Alpha\n\nfoxes live here\n",
+        "b.md": "# Beta\n\nbeta body about foxes\n",
+        "memory/_next-session.md": "# Next\n\nfoxes and beta\n",
+      },
+    });
+    try {
+      await v.call("index_vault", { vault: "test" });
+      registerM7Tools(v.registry, {
+        vaultRegistry: v.vaultRegistry,
+        embeddingProvider: v.provider,
+        reranker: null,
+        roles: null,
+        prewarmDir: dir,
+      });
+      // The first call composes live and writes the cache; the next two are cache hits.
+      const live = dataOf(
+        await v.call("vault_context", { vault: "test", response_format: "concise" }),
+      );
+      const hitConcise = dataOf(
+        await v.call("vault_context", { vault: "test", response_format: "concise" }),
+      );
+      const hitDetailed = dataOf(await v.call("vault_context", { vault: "test" }));
+      expect(keys(live)).toEqual(["contradictions", "lessons", "notes", "syntheses", "vault"]);
+      expect(live.prefetched).toBeUndefined();
+      expect(hitConcise.prefetched).toBe(true);
+      expect(typeof hitConcise.prefetch_generated_at).toBe("number");
+      expect(keys(hitConcise)).not.toContain("route");
+      expect(hitDetailed.prefetched).toBe(true);
+      expect(hitDetailed.query_source).toBe("next_session");
+      expect(keys(hitDetailed)).toEqual(
+        expect.arrayContaining(["budget", "route", "signal", "signal_hash", "stats"]),
+      );
+      const firstNote = rows(hitDetailed, "notes")[0] as Record<string, unknown>;
+      expect(rows(firstNote, "chunks")[0]).toHaveProperty("source");
+    } finally {
+      v.cleanup();
+      rmTemp(dir);
+    }
+  });
+
+  it("explain_answer: each link keeps its verdict, correlation and resolution state; summary and the retrieval echo go; the caveat and the citation-pass record stay", async () => {
+    const s = scenario("explain_answer");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(full)).toContain("summary");
+    expect(keys(d)).toEqual(["available", "caveat", "citation_pass", "links", "scope", "vault"]);
+    expect(d.caveat).toBe(full.caveat);
+    expect(d.citation_pass).toEqual(full.citation_pass);
+    const links = rows(d, "links");
+    expect(links.length).toBe(3);
+    for (const l of links)
+      expect(keys(l)).toEqual([
+        "chunk",
+        "chunk_id",
+        "citation",
+        "citation_score",
+        "correlation",
+        "path",
+      ]);
+    const gone = links.find((l) => l.chunk_id === "chunk-that-was-rechunked");
+    expect(gone).toMatchObject({ chunk: "deleted", path: null });
+    expect(links.filter((l) => l.citation === "not_stamped")).toHaveLength(2);
+    expect(links.find((l) => l.citation === "confirmed")?.citation_score).toBe(0.9);
+    expect(links.map((l) => l.chunk_id)).toEqual(rows(full, "links").map((l) => l.chunk_id));
+  });
+
+  it("explain_answer: the unavailable arm is untouched", async () => {
+    const w = await world();
+    const dom = await w.domain("m7");
+    const r = dataOf(
+      await dom.dispatch("explain_answer", {
+        vault: "test",
+        session_id: "s1",
+        response_format: "concise",
+      }),
+    );
+    expect(r).toEqual({
+      available: false,
+      message:
+        "experiential store is not open (enable experiential.logRetrievals or captureEpisodes)",
+    });
+  });
+
+  it("diagnose_retrieval: the answer stays, the stage trace and the echo go, and a readable and an unreadable path look alike", async () => {
+    const s = scenario("diagnose_retrieval");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["dropped_at", "returned", "summary", "vault"]);
+    expect(d.returned).toBe(full.returned);
+    expect(d.dropped_at).toBe(full.dropped_at);
+    expect(d.summary).toBe(full.summary);
+    expect(rows(full, "stages").length).toBeGreaterThan(0);
+    const never = await call(s, { path: "no-such-note.md", response_format: "concise" });
+    expect(keys(never)).toEqual(keys(d));
+  });
+
+  it("knowledge_get_critical: {path, title, category, source} per doc; count and the constant severity go", async () => {
+    const s = scenario("knowledge_get_critical");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["items", "vault"]);
+    expect(rows(d, "items")).toEqual([
+      {
+        path: "context7/resolve.md",
+        title: "Resolve the library id first",
+        category: "breaking_change",
+        source: "context7",
+      },
+    ]);
+    expect(full.count).toBe(1);
+  });
+
+  it("audit_provenance: coverage and the missing list stay, the field echo, with_provenance and by_folder go", async () => {
+    const s = scenario("audit_provenance");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual([
+      "confidence_coverage",
+      "coverage",
+      "missing",
+      "missing_provenance",
+      "scanned",
+      "truncated",
+      "vault",
+      "verified_coverage",
+    ]);
+    for (const k of keys(d)) expect(d[k], k).toEqual(full[k]);
+    expect((full.missing as string[]).length).toBeGreaterThan(0);
+    expect(full.by_folder).toBeDefined();
+  });
+
+  it("vault_health_score: the score and its four metrics stay, total_links and the penalty breakdown go", async () => {
+    const s = scenario("vault_health_score");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["metrics", "score", "total_notes", "vault"]);
+    expect(d.score).toBe(full.score);
+    expect(d.metrics).toEqual(full.metrics);
+    expect(keys(full)).toEqual(expect.arrayContaining(["breakdown", "total_links"]));
+  });
+
+  it("suggest_links: {path, score} per suggestion; the score components, the echo and total go", async () => {
+    const s = scenario("suggest_links");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["suggestions", "vault"]);
+    const got = rows(d, "suggestions");
+    expect(got.map((r) => r.path)).toEqual(["c.md", "x1.md"]);
+    for (const r of got) expect(keys(r)).toEqual(["path", "score"]);
+    expect(got).toEqual(rows(full, "suggestions").map(({ path, score }) => ({ path, score })));
+    expect(rows(full, "suggestions")[0]).toHaveProperty("co_citation");
+  });
+
+  it("suggest_tags: the source and the suggestions stay; the echo, the note's own tags, the sampling record and the hint go", async () => {
+    const s = scenario("suggest_tags");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["source", "suggestions", "vault"]);
+    expect(d.source).toBe(full.source);
+    expect(d.suggestions).toEqual(full.suggestions);
+    expect(keys(full)).toEqual(expect.arrayContaining(["hint", "note_tags", "path", "sampling"]));
+  });
+
+  it("bundle_files: the bundle text, the flags and missing_paths stay; the file list and total_bytes go", async () => {
+    const s = scenario("bundle_files");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["bundle", "file_count", "missing_paths", "truncated", "vault"]);
+    expect(d.bundle).toBe(full.bundle);
+    expect(d.missing_paths).toEqual(["nope.md"]);
+    expect(d.file_count).toBe(full.file_count);
+    expect(keys(full)).toEqual(expect.arrayContaining(["files", "total_bytes"]));
+  });
+
+  it("bundle_folder: the resume cursor survives concise, and paging with it still works", async () => {
+    const s = scenario("bundle_folder (truncated, cursor)");
+    const w = await world();
+    const first = dataOf(await runScenario(w, s, { response_format: "concise" }));
+    expect(keys(first)).toEqual(["bundle", "cursor", "file_count", "truncated", "vault"]);
+    expect(first.truncated).toBe(true);
+    expect(typeof first.cursor).toBe("string");
+    const fullFirst = dataOf(await runScenario(w, s, {}));
+    expect(first.cursor).toBe(fullFirst.cursor);
+    expect(first.bundle).toBe(fullFirst.bundle);
+    const next = dataOf(
+      await runScenario(w, s, { response_format: "concise", cursor: first.cursor }),
+    );
+    expect(String(next.bundle)).not.toBe(String(first.bundle));
+    expect(next.file_count).toBe(1);
+  });
+
+  it("read_canvas: what a node says and what an edge joins stay; geometry, background, edge sides and ends and the counts go", async () => {
+    const s = scenario("read_canvas");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["content_hash", "edges", "nodes", "path", "vault"]);
+    expect(d.content_hash).toBe(full.content_hash);
+    expect(rows(d, "nodes").map(keys)).toEqual([
+      ["color", "id", "text", "type"],
+      ["file", "id", "type"],
+    ]);
+    expect(rows(d, "edges").map(keys)).toEqual([["fromNode", "id", "label", "toNode"]]);
+    expect(keys(full)).toEqual(expect.arrayContaining(["edge_count", "node_count"]));
+    expect(keys(rows(full, "nodes")[0] as Record<string, unknown>)).toEqual(
+      expect.arrayContaining(["height", "width", "x", "y"]),
+    );
   });
 });
 
