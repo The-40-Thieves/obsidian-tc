@@ -87,6 +87,8 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
     "get_note_tags",
     "get_outgoing_links",
     "get_periodic_note",
+    // Audit history of one note (write provenance), not a content read that the search found.
+    "get_provenance",
     "get_server_config",
     "get_session_traces",
     "get_vault",

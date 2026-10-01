@@ -4,12 +4,19 @@
 // named for its own change, so two PRs can never touch the same line.
 //
 // Fragment shape (front matter is required; the body is verbatim CHANGELOG markdown, normally one
-// `- **Lead.** ...` bullet that cites its PR as `(#N)` once the PR exists):
+// `- **Lead.** ...` bullet):
 //
 //   ---
 //   type: Added
 //   ---
-//   - **Lead sentence.** What changed and what a user must do about it (#123).
+//   - **Lead sentence.** What changed and what a user must do about it.
+//
+// Write the fragment WITHOUT its PR number: a PR cannot know its own number before it is opened,
+// and committing it afterwards forces a second full verification run. The release fills it in
+// (`fillPrNumbers`) from the git history that merged the fragment, as `(#N)` at the end of the
+// first bullet. A fragment that already cites `(#N)` is left exactly as written. The validator
+// accepts both forms.
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -64,6 +71,106 @@ export function readFragments(root = ".", dir = FRAGMENT_DIR) {
     .filter((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md")
     .sort()
     .map((f) => parseFragment(readFileSync(join(abs, f), "utf8"), `${dir}/${f}`));
+}
+
+/** `(#N` anywhere: `(#12)`, `(#12, closes #3)`. A bare `#N` is a reference, not the fragment's own PR. */
+const CITES_PR = /\(#\d+/;
+
+/** Append `(#n)` to the end of the first bullet, before its final period when it has one. */
+function citePr(body, n) {
+  const nextBullet = body.search(/\n- /);
+  const first = nextBullet === -1 ? body : body.slice(0, nextBullet);
+  const rest = nextBullet === -1 ? "" : body.slice(nextBullet);
+  const text = first.trimEnd();
+  const cited = text.endsWith(".") ? `${text.slice(0, -1)} (#${n}).` : `${text} (#${n})`;
+  return cited + first.slice(text.length) + rest;
+}
+
+/**
+ * Fragments with `(#N)` filled in where the bullet has none. `prOf(file)` returns the PR number
+ * (string) or a falsy value; it is never called for a fragment that already cites one, so a tree
+ * of fully cited fragments is returned untouched. Throws naming every fragment whose PR cannot be
+ * determined: shipping a release note with no PR would silently fail the release's coverage gate.
+ */
+export function fillPrNumbers(fragments, prOf) {
+  const unresolved = [];
+  const out = fragments.map((f) => {
+    if (CITES_PR.test(f.body)) return f;
+    const n = prOf(f.file);
+    if (!n) {
+      unresolved.push(f.file);
+      return f;
+    }
+    return { ...f, body: citePr(f.body, n) };
+  });
+  if (unresolved.length > 0) {
+    throw new Error(
+      `cannot determine the PR that added ${unresolved.join(", ")}. A fragment reaches a release ` +
+        `through a merged PR (a "Merge pull request #N" commit, or a "(#N)" subject on the commit ` +
+        `that added it); cite "(#N)" in the fragment by hand if it did not. A shallow clone cuts ` +
+        `that history off: run "git fetch --unshallow" first.`,
+    );
+  }
+  return out;
+}
+
+/**
+ * `file -> PR number` from git history alone: the oldest commit that added the file, then the
+ * first `Merge pull request #N` commit whose second-parent side contains it (the merge queue
+ * merges with merge commits), else a trailing `(#N)` on that commit's own subject (a squash
+ * merge). `null` when the file was never committed or never reached `ref` through a PR.
+ */
+export function gitPrOf(root = ".", ref = "HEAD") {
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const isAncestor = (a, b) => {
+    try {
+      git("merge-base", "--is-ancestor", a, b);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return (file) => {
+    let added;
+    try {
+      added = git("log", "--diff-filter=A", "--format=%H%x09%P%x09%s", ref, "--", file)
+        .split("\n")
+        .filter(Boolean);
+    } catch {
+      return null;
+    }
+    const oldest = added.at(-1);
+    if (!oldest) return null;
+    const [sha, parents, ...subject] = oldest.split("\t");
+    // No parent: the root commit, or a shallow-clone boundary that "adds" every file it holds.
+    if (!parents) return null;
+    const squash = /\(#(\d+)\)\s*$/.exec(subject.join("\t"));
+    if (squash) return squash[1];
+    let merges;
+    try {
+      merges = git(
+        "log",
+        "--merges",
+        "--ancestry-path",
+        "--reverse",
+        "--format=%P%x09%s",
+        `${sha}..${ref}`,
+      )
+        .split("\n")
+        .filter(Boolean);
+    } catch {
+      return null;
+    }
+    for (const line of merges) {
+      const [parents, subject] = line.split("\t");
+      const pr = /^Merge pull request #(\d+)\b/.exec(subject ?? "");
+      if (!pr) continue;
+      const [first, second] = parents.split(" ");
+      if (second && isAncestor(sha, second) && !isAncestor(sha, first)) return pr[1];
+    }
+    return null;
+  };
 }
 
 /** Split an `[Unreleased]` body into its preamble and its `### Heading` sections, in order. */

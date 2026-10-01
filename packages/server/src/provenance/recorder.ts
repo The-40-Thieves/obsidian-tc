@@ -24,7 +24,7 @@ import { vaultArgOf } from "../mcp/registry/input-binding";
 import type { CallerContext, ProvenanceSink, ToolDefinition } from "../mcp/registry/types";
 import { normalizeVaultPath } from "../vault/paths";
 import { digestUnder } from "./digest";
-import type { SignerSource } from "./signer";
+import type { KeyResolver, SignerSource } from "./signer";
 import { appendProvenance } from "./store";
 import { type Digest, type PathEntry, PROVENANCE_FAULT_EVENT, type ProvenanceBody } from "./types";
 
@@ -82,6 +82,7 @@ function writtenDigest(result: unknown, named: Array<{ path: string }>): string 
 
 export class ProvenanceRecorder implements ProvenanceSink {
   private signerSource: SignerSource | undefined;
+  private keySource: (() => KeyResolver) | undefined;
   private readonly now: () => number;
 
   constructor(private readonly opts: ProvenanceRecorderOptions) {
@@ -92,6 +93,16 @@ export class ProvenanceRecorder implements ProvenanceSink {
   /** Wired after construction: the auth registry opens later than the tool registry. */
   setSignerSource(source: SignerSource | undefined): void {
     this.signerSource = source;
+  }
+
+  /** Wired beside the signer source: every registry key in any state, for `get_provenance`'s
+   *  per-record verification (a retired key still vouches for what it signed). */
+  setKeyResolverSource(source: (() => KeyResolver) | undefined): void {
+    this.keySource = source;
+  }
+
+  keyResolver(): KeyResolver | undefined {
+    return this.keySource?.();
   }
 
   /** Hash the named paths before the handler runs. Never throws. */

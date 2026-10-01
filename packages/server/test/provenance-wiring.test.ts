@@ -70,6 +70,31 @@ async function chain(config: ReturnType<typeof baseConfig>["config"]) {
   }
 }
 
+/** get_provenance through the runtime's own registry, reading the cache.db the runtime wrote. */
+async function queryThrough(
+  runtime: ServerRuntime,
+  config: ReturnType<typeof baseConfig>["config"],
+  path: string,
+) {
+  const db = await openConfiguredDatabase(config, "cache.db", { readonly: true });
+  try {
+    const ctx: CallerContext = {
+      caller: "wiring-test",
+      authenticated: true,
+      grantedScopes: new Set(["*"]),
+      vaultId: "main",
+      db,
+    };
+    return await runtime.registry.dispatch(
+      "get_provenance",
+      { vault: "main", path, include_verification: true },
+      ctx,
+    );
+  } finally {
+    db.close?.();
+  }
+}
+
 describe("provenance wiring (buildServerRuntime)", () => {
   it("records a write_note through the real runtime, unsigned with no registry key", async () => {
     const { config, vaultDir } = baseConfig();
@@ -89,6 +114,11 @@ describe("provenance wiring (buildServerRuntime)", () => {
     expect(body.verified.server_version).toMatch(/^\d+\.\d+\.\d+/);
     expect(rows[0]?.kid).toBeNull();
     expect(readFileSync(join(vaultDir, "wired.md"), "utf8")).toContain("wired content");
+    // The query tool is registered by the same wiring and reads the record back: unsigned here.
+    const q = await queryThrough(runtime, config, "wired.md");
+    expect(q.ok && (q.data as { records: unknown[] }).records).toMatchObject([
+      { tool: "write_note", verification: { signature: "unsigned", chain_link: "ok" } },
+    ]);
     expect(JSON.stringify(rows)).not.toContain("wired content");
   }, 30_000);
 
@@ -128,5 +158,10 @@ describe("provenance wiring (buildServerRuntime)", () => {
     const r = await inspectProvenance(config);
     expect(r).toMatchObject({ ok: true, signingKeyActive: true });
     expect(r.vaults[0]).toMatchObject({ records: 1, signed: 1, unsigned: 0 });
+    // get_provenance verifies with the SAME registry keys the recorder signs under.
+    const q = await queryThrough(runtime, config, "signed.md");
+    expect(q.ok && (q.data as { records: unknown[] }).records).toMatchObject([
+      { verification: { ok: true, signature: "valid", chain_link: "ok", problems: [] } },
+    ]);
   }, 30_000);
 });
