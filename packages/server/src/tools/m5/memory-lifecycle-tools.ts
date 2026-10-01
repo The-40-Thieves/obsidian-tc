@@ -38,12 +38,12 @@ import {
   updateEntity,
 } from "../../memory/entities";
 import { assertNoteOwnership, entityNotePath, sanitizeSegment } from "../../memory/materialize";
-import { enforcePathAcl } from "../../vault/acl-path";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import {
   assertMemoryPathReadable,
+  assertMemoryPathWritable,
   currentNotePath,
   getReadableEntity,
   type Neighbor,
@@ -157,10 +157,8 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
           throw err.invalidInput("entity already exists", { type: e.entity_type, name: nextName });
         // Pre-check the materialization ACL BEFORE mutating SQLite (mirrors create_entity /
         // THE-567) so a denial leaves the entity exactly as it was — no partial rename.
-        if (e.materialize === 1) {
-          if (renaming) enforcePathAcl(ctx.acl, "delete", oldPath, v.root, ctx.grantedScopes);
-          enforcePathAcl(ctx.acl, "write", newPath, v.root, ctx.grantedScopes);
-        }
+        if (renaming) assertMemoryPathWritable(ctx, v.root, oldPath, "delete");
+        assertMemoryPathWritable(ctx, v.root, newPath);
 
         // Review finding: ownership pre-checks BEFORE any SQLite mutation, so a refusal here is a
         // pure no-op (nothing to roll back), not a partial rename. `oldPath` covers the
@@ -275,8 +273,8 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         // Mirrors link_entities: only the SOURCE's materialized note is affected (its outgoing
         // [[links]]), so only its ACL is pre-checked.
         const srcPath = currentNotePath(deps, v.id, src);
+        assertMemoryPathWritable(ctx, v.root, srcPath);
         if (src.materialize === 1) {
-          enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
           // Review finding: pre-check BEFORE deleteRelation, not after — the relation used to be
           // removed first and only discovered the ownership refusal when rematerialize ran,
           // leaving the edge gone with nothing to restore it.
@@ -350,10 +348,11 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
             })),
           });
 
-        const notePath = e.materialize === 1 ? currentNotePath(deps, v.id, e) : null;
-        // Pre-check BEFORE the SQLite delete (mirrors create_entity/rename_entity/THE-567): a
-        // denial must leave the entity exactly as it was.
-        if (notePath) enforcePathAcl(ctx.acl, "delete", notePath, v.root, ctx.grantedScopes);
+        const projectionPath = currentNotePath(deps, v.id, e);
+        const notePath = e.materialize === 1 ? projectionPath : null;
+        // Pre-check BEFORE the SQLite delete (mirrors create_entity/rename_entity/THE-567), in both
+        // modes: a denial must leave the entity exactly as it was.
+        assertMemoryPathWritable(ctx, v.root, projectionPath, "delete");
 
         // Capture which OTHER entities point AT this one before deleteEntity removes those
         // relation rows — there is nothing left to query afterward.
