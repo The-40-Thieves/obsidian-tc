@@ -402,7 +402,7 @@ if (mode === "latency") {
     wholeDiffsOnVsOff: diffs,
     differingKeyCounts: keys,
     restrictedResultsOutsideReadableSet: bOutside,
-    queriesWhereAandBDiffer: abDiffer,
+    queriesWhereCallersDiffer: abDiffer,
     crossCallerHits: bEqualsAWhereTheyDiffer,
     cacheStats: { results: caches.results.stats(), vectors: caches.vectors.stats() },
   };
