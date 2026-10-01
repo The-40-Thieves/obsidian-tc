@@ -52,7 +52,7 @@ function fixture(opts: { configSecret?: string | null } = {}) {
 
 const claims = () => {
   const now = Math.floor(Date.now() / 1000);
-  return { sub: "agent-1", scopes: ["read:notes"], iat: now, exp: now + 3600 };
+  return { sub: "agent-1", scopes: ["read:notes", "admin:metrics"], iat: now, exp: now + 3600 };
 };
 
 async function reasonOf(p: Promise<unknown>): Promise<string> {
