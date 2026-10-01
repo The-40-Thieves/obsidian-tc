@@ -1,6 +1,7 @@
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { AuthRejection } from "../src/auth/jwt";
+import { buildJwtVerifier } from "../src/auth/jwt-boot";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
 import { generateSigningKey } from "../src/auth/signing-keys";
 import { createTokenVerifier } from "../src/auth/verifier";
@@ -18,7 +19,12 @@ afterAll(() => {
 });
 
 const now = () => Math.floor(Date.now() / 1000);
-const claims = () => ({ sub: "agent", scopes: ["read:notes"], iat: now(), exp: now() + 600 });
+const claims = () => ({
+  sub: "agent",
+  scopes: ["read:notes", "admin:metrics"],
+  iat: now(),
+  exp: now() + 600,
+});
 const hs256 = (kid?: string) =>
   new SignJWT(claims())
     .setProtectedHeader({ alg: "HS256", ...(kid ? { kid } : {}) })
@@ -116,18 +122,27 @@ describe("/metrics applies auth.algorithms", () => {
   };
 
   it("refuses an HS256 scrape token under ['EdDSA'], and accepts it with no allowlist", async () => {
+    const openAuth = { mode: "jwt", jwtSecret: SECRET, ...base } as const;
     const open = createMetricsApp({
       recorder: new MetricsRecorder(),
       bind: "0.0.0.0",
       port: 0,
-      auth: { mode: "jwt", jwtSecret: SECRET, ...base },
+      auth: openAuth,
+      verifier: buildJwtVerifier(openAuth) ?? undefined,
     });
     expect((await scrape(open, await hs256())).status).toBe(200);
+    const narrowedAuth = {
+      mode: "jwt",
+      jwtSecret: SECRET,
+      algorithms: ["EdDSA"] as string[],
+      ...base,
+    } as const;
     const narrowed = createMetricsApp({
       recorder: new MetricsRecorder(),
       bind: "0.0.0.0",
       port: 0,
-      auth: { mode: "jwt", jwtSecret: SECRET, algorithms: ["EdDSA"], ...base },
+      auth: narrowedAuth,
+      verifier: buildJwtVerifier(narrowedAuth) ?? undefined,
     });
     expect((await scrape(narrowed, await hs256())).status).toBe(401);
   });
@@ -140,14 +155,16 @@ describe("/metrics applies auth.algorithms", () => {
       graceSeconds: 0,
     });
     const token = await signAndRecord(registry, claims());
-    const build = (algorithms: string[]) =>
-      createMetricsApp({
+    const build = (algorithms: string[]) => {
+      const auth = { mode: "jwt", jwtSecret: SECRET, algorithms, ...base } as const;
+      return createMetricsApp({
         recorder: new MetricsRecorder(),
         bind: "0.0.0.0",
         port: 0,
-        registry,
-        auth: { mode: "jwt", jwtSecret: SECRET, algorithms, ...base },
+        auth,
+        verifier: buildJwtVerifier(auth, registry) ?? undefined,
       });
+    };
     expect((await scrape(build(["EdDSA"]), token)).status).toBe(200);
     expect((await scrape(build(["ES256"]), token)).status).toBe(401);
   });

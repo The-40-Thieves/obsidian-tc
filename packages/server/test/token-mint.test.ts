@@ -129,7 +129,7 @@ describe("planMint — what it produces", () => {
   });
 
   it("treats an empty --scopes as NO scopes, not as absent", () => {
-    // A /metrics scraper legitimately needs none; only an absent flag means "everything". Getting
+    // An explicit empty list is honoured as empty (no scopes); only an absent flag means "everything". Getting
     // this backwards would silently hand a scrape credential full vault access.
     expect(planMint(jwtAuth(), cmd({ scopes: "" }), NOW).claims.scopes).toEqual([]);
     expect(planMint(jwtAuth(), cmd(), NOW).claims.scopes).toEqual(["*"]);

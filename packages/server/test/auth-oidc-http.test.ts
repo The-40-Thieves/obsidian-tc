@@ -339,7 +339,9 @@ describe("oidc on /metrics", () => {
     expect((await get()).status).toBe(401);
     expect((await get("junk")).status).toBe(401);
     expect((await get(await idp.sign({ aud: "https://other.example.com" }))).status).toBe(401);
-    expect((await get(await idp.sign())).status).toBe(200);
+    // A verified IdP token with no mapped admin:metrics grant is 403, not 200.
+    expect((await get(await idp.sign())).status).toBe(403);
+    expect((await get(await idp.sign({ scope: "admin:metrics" }))).status).toBe(200);
   });
 
   it("without a verifier an oidc server refuses every non-loopback scrape", async () => {

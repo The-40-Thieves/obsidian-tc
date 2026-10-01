@@ -3,6 +3,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { AuthRejection } from "../src/auth/jwt";
+import { buildJwtVerifier } from "../src/auth/jwt-boot";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
 import { createTokenVerifier } from "../src/auth/verifier";
 import { signAndRecord } from "../src/cli/commands/token-mint";
@@ -30,7 +31,13 @@ function fixture() {
 
 const claims = (over: Record<string, unknown> = {}) => {
   const now = Math.floor(Date.now() / 1000);
-  return { sub: "agent-1", scopes: ["read:notes"], iat: now, exp: now + 3600, ...over };
+  return {
+    sub: "agent-1",
+    scopes: ["read:notes", "admin:metrics"],
+    iat: now,
+    exp: now + 3600,
+    ...over,
+  };
 };
 
 async function reasonOf(p: Promise<unknown>): Promise<string> {
@@ -191,7 +198,7 @@ describe("revocation over the HTTP edge and /metrics", () => {
       bind: "0.0.0.0",
       port: 0,
       auth: parsed.auth,
-      registry: fx.registry,
+      verifier: buildJwtVerifier(parsed.auth, fx.registry) ?? undefined,
     });
     const token = await signAndRecord(fx.registry, claims());
     const scrape = () => app.request("/metrics", { headers: { authorization: `Bearer ${token}` } });
@@ -283,7 +290,7 @@ describe("auth.requireJti", () => {
       bind: "0.0.0.0",
       port: 0,
       auth: parsed.auth,
-      registry: fx.registry,
+      verifier: buildJwtVerifier(parsed.auth, fx.registry) ?? undefined,
     });
     const scrape = (t: string) =>
       app.request("/metrics", { headers: { authorization: `Bearer ${t}` } });
@@ -311,7 +318,7 @@ describe("/metrics binds audience and issuer like the HTTP edge", () => {
       bind: "0.0.0.0",
       port: 0,
       auth: parsed.auth,
-      registry,
+      verifier: buildJwtVerifier(parsed.auth, registry) ?? undefined,
     });
   }
   const scrape = (app: ReturnType<typeof createMetricsApp>, t: string) =>

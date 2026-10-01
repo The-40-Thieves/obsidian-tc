@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { decodeProtectedHeader, SignJWT } from "jose";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthRejection } from "../src/auth/jwt";
+import { buildJwtVerifier } from "../src/auth/jwt-boot";
 import { authKeysDir, CONFIG_KID, createAuthRegistry } from "../src/auth/registry";
 import { openAuthRegistry } from "../src/auth/registry-open";
 import { createTokenVerifier } from "../src/auth/verifier";
@@ -52,7 +53,7 @@ function fixture(opts: { configSecret?: string | null } = {}) {
 
 const claims = () => {
   const now = Math.floor(Date.now() / 1000);
-  return { sub: "agent-1", scopes: ["read:notes"], iat: now, exp: now + 3600 };
+  return { sub: "agent-1", scopes: ["read:notes", "admin:metrics"], iat: now, exp: now + 3600 };
 };
 
 async function reasonOf(p: Promise<unknown>): Promise<string> {
@@ -244,12 +245,18 @@ describe("registry keys alone: the configured secret is not needed after the con
     registry.rotateKey();
     const bare = make(undefined);
     const token = await signAndRecord(bare, claims());
+    const auth = {
+      mode: "jwt",
+      tokenTtlSeconds: 86400,
+      rotationGraceSeconds: 0,
+      requireJti: false,
+    } as const;
     const app = createMetricsApp({
       recorder: new MetricsRecorder(),
       bind: "0.0.0.0",
       port: 0,
-      auth: { mode: "jwt", tokenTtlSeconds: 86400, rotationGraceSeconds: 0, requireJti: false },
-      registry: bare,
+      auth,
+      verifier: buildJwtVerifier(auth, bare) ?? undefined,
     });
     const ok = await app.request("/metrics", { headers: { authorization: `Bearer ${token}` } });
     expect(ok.status).toBe(200);

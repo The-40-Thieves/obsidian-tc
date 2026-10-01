@@ -10,9 +10,11 @@
 // unwindReversed pattern for the boot-time layers.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import { buildJwtVerifier } from "../auth/jwt-boot";
 import { createOidcVerifier, type OidcVerifier } from "../auth/oidc";
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
+import type { TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
 import type { ToolRegistry } from "../mcp/registry";
@@ -125,8 +127,10 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   }
 
   try {
-    // oidc: discover the identity provider NOW. A failure throws (naming the issuer) and the server
-    // does not start; one verifier is then shared by the MCP edge and /metrics.
+    // ONE bearer verifier for every listener that checks bearers. oidc: discover the identity
+    // provider NOW (a failure throws, naming the issuer, and the server does not start). jwt: build
+    // it from config (secret, inline/file/URI JWKS, registry keys). The MCP edge and /metrics are
+    // handed this same instance, so they cannot disagree about which tokens are accepted.
     let oidcVerifier: OidcVerifier | undefined;
     if (
       config.auth.mode === "oidc" &&
@@ -138,6 +142,11 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         `auth: oidc verification only; issuer=${d.issuer} jwks_uri=${d.jwksUri} audience=${JSON.stringify(d.audience)} algs=${d.allowedAlgs.join(",")}\n`,
       );
     }
+    const verifier: TokenVerifier | undefined =
+      oidcVerifier ??
+      (config.transports.http.enabled || config.observability.prometheus.enabled
+        ? (buildJwtVerifier(config.auth, authRegistry) ?? undefined)
+        : undefined);
     if (config.transports.http.enabled) {
       // THE-585 (#11): time the transport's construction + bind.
       const httpT0 = performance.now();
@@ -149,7 +158,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         auth: config.auth,
         db: deps.db,
         authRegistry,
-        ...(oidcVerifier ? { verifier: oidcVerifier } : {}),
+        ...(verifier ? { verifier } : {}),
         vaultId: deps.firstVaultId,
         acl: deps.acl,
         host: config.transports.http.host,
@@ -194,8 +203,10 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         bind: config.observability.prometheus.bind,
         port: config.observability.prometheus.port,
         auth: config.auth,
-        registry: authRegistry,
-        ...(oidcVerifier ? { verifier: oidcVerifier } : {}),
+        ...(verifier ? { verifier } : {}),
+        // The MCP route's Host-guard settings, so one operator list names the tunnel/proxy host.
+        allowedHosts: config.transports.http.allowedHosts,
+        enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
       });
       metricsHandle = m;
       process.stderr.write(
