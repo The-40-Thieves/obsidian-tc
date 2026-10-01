@@ -11,6 +11,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { ensureChunkFts } from "../src/search/chunk_fts";
+import { registerM6Tools } from "../src/tools/m6";
 import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
 import type { ResponseFormat } from "../src/tools/response-format";
@@ -23,6 +24,7 @@ import { type M2Vault, makeM2Vault } from "./m2-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM4Vault } from "./m4-helpers";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
+import { makeM6Vault } from "./m6-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const readMigration = (name: string) =>
@@ -65,7 +67,7 @@ export interface Dom {
   dispatch(tool: string, args: Record<string, unknown>): Promise<ToolResult>;
 }
 
-export type DomainName = "m1" | "m2" | "m3" | "m4" | "m5" | "m7" | "m7ctx" | "m7docs" | "m8";
+export type DomainName = "m1" | "m2" | "m3" | "m4" | "m5" | "m6" | "m7" | "m7ctx" | "m7docs" | "m8";
 
 export interface World {
   m1: TestVault;
@@ -158,6 +160,30 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
         cleanups.push(() => v.cleanup());
         await seedM5(v, ids);
         return { registry: v.registry, dispatch: (t, a) => v.call(t, a) };
+      }
+      case "m6": {
+        // bulk writers, inspect_visibility and get_server_config. The clock is pinned so the bulk
+        // report's duration_ms is the same in every fresh world, and the bulk tools are HITL-floored,
+        // so they dispatch with a confirmation token bound to the exact args of the call.
+        const v = makeM6Vault({
+          files: VAULT_FILES,
+          now: () => NOTE_QUALITY_AT,
+          capabilities: () => ({
+            companion: "reachable",
+            plugins: { dataview: { installed: true, version: "0.5.64" } },
+          }),
+          register: (reg, deps) =>
+            registerM6Tools(reg, {
+              ...deps,
+              toolSurface: () => ({ config: reg.visibilityConfig(), tools: reg.list() }),
+              ...(responseFormat ? { responseFormat } : {}),
+            }),
+        });
+        cleanups.push(() => v.cleanup());
+        return {
+          registry: v.registry,
+          dispatch: (t, a) => (t.startsWith("bulk_") ? v.callConfirmed(t, a) : v.call(t, a)),
+        };
       }
       case "m7": {
         // search_and_read / vault_graph_search ride the m2 vault: it is already indexed.
@@ -890,6 +916,131 @@ export const SCENARIOS: Scenario[] = [
     domain: "m3",
     args: { vault: "test", path: "board.canvas" },
     conciseKeys: ["vault", "path", "nodes", "edges", "content_hash"],
+  },
+  // Part 4b: the reads and reports among the writes, acknowledgements and admin tools.
+  {
+    name: "find_notes_by_tag",
+    tool: "find_notes_by_tag",
+    domain: "m1",
+    args: { vault: "test", tag: "x" },
+    conciseKeys: ["vault", "tag", "truncated", "matches"],
+  },
+  {
+    name: "get_note_tags",
+    tool: "get_note_tags",
+    domain: "m1",
+    args: { vault: "test", path: "a.md" },
+    conciseKeys: ["vault", "path", "all"],
+  },
+  {
+    name: "read_property",
+    tool: "read_property",
+    domain: "m1",
+    args: { vault: "test", path: "a.md", key: "title" },
+    conciseKeys: ["vault", "path", "value", "found"],
+  },
+  {
+    name: "read_property (absent key)",
+    tool: "read_property",
+    domain: "m1",
+    args: { vault: "test", path: "a.md", key: "nope" },
+    conciseKeys: ["vault", "path", "value", "found"],
+  },
+  {
+    name: "get_periodic_note",
+    tool: "get_periodic_note",
+    domain: "m3",
+    args: { vault: "test", period: "daily", date: "2026-10-01" },
+    conciseKeys: ["date", "path", "exists", "content"],
+  },
+  {
+    name: "get_periodic_note (absent)",
+    tool: "get_periodic_note",
+    domain: "m3",
+    args: { vault: "test", period: "daily", date: "2026-10-09" },
+    conciseKeys: ["date", "path", "exists"],
+  },
+  {
+    name: "find_or_create_periodic_note (created)",
+    tool: "find_or_create_periodic_note",
+    domain: "m3",
+    args: { vault: "test", period: "daily", date: "2026-10-09" },
+    conciseKeys: ["date", "path", "created", "content"],
+  },
+  {
+    name: "find_or_create_periodic_note (found)",
+    tool: "find_or_create_periodic_note",
+    domain: "m3",
+    args: { vault: "test", period: "daily", date: "2026-10-01" },
+    conciseKeys: ["date", "path", "created", "content"],
+  },
+  {
+    name: "index_vault",
+    tool: "index_vault",
+    domain: "m2",
+    args: { vault: "test" },
+    conciseKeys: [
+      "vault",
+      "notes_seen",
+      "notes_indexed",
+      "chunks_upserted",
+      "chunks_deleted",
+      "secrets_skipped",
+      "vec_enabled",
+      "fts_enabled",
+      "notes_embed_failed",
+      "chunks_dedup_unresolved",
+      "embed_batch_rejections",
+      "notes_stale_skipped",
+      "notes_epoch_stale_skipped",
+      "notes_frontmatter_failed",
+      "frontmatter_failures",
+    ],
+  },
+  {
+    name: "inspect_visibility",
+    tool: "inspect_visibility",
+    domain: "m6",
+    args: { scopes: ["read:notes"] },
+    conciseKeys: ["evaluated_for", "summary", "tools"],
+  },
+  {
+    name: "get_server_config",
+    tool: "get_server_config",
+    domain: "m6",
+    args: {},
+    conciseKeys: [
+      "version",
+      "auth_mode",
+      "read_only",
+      "embeddings_provider",
+      "vaults_summary",
+      "limits",
+      "throttle",
+      "governor",
+      "plugins_detected",
+    ],
+  },
+  {
+    name: "bulk_create_notes",
+    tool: "bulk_create_notes",
+    domain: "m6",
+    // fresh.md is created; b.md already exists, so its create-mode row carries an error.
+    args: {
+      vault: "test",
+      items: [
+        { path: "fresh.md", content: CLEAN, mode: "create" },
+        { path: "b.md", content: CLEAN, mode: "create" },
+      ],
+    },
+    conciseKeys: ["vault", "succeeded", "failed", "results"],
+  },
+  {
+    name: "bulk_set_property",
+    tool: "bulk_set_property",
+    domain: "m6",
+    args: { vault: "test", paths: ["a.md", "b.md", "nope.md"], key: "status", value: "done" },
+    conciseKeys: ["vault", "succeeded", "failed", "results"],
   },
 ];
 

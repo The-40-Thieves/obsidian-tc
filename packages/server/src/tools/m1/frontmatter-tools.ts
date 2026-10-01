@@ -107,15 +107,16 @@ const ReadFrontmatterOutput = z.object({
   content_hash: z.string(),
 });
 
+// GH #1027: response_format=concise omits `key` and `nested`, both echoes of the call's own input.
 const ReadPropertyOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  key: z.string(),
+  key: z.string().optional(),
   // null when not found; otherwise the stored value, which may itself legitimately be
   // any JSON value including null — z.unknown() already covers both.
   value: z.unknown(),
   found: z.boolean(),
-  nested: z.boolean(),
+  nested: z.boolean().optional(),
 });
 
 // GH #1027: response_format=concise acknowledges with {vault, path, content_hash}, so everything else
@@ -235,13 +236,14 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       domain: "metadata",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Read a single frontmatter property. Set nested=true to address a dotted path (e.g. meta.author.name) through nested objects.",
+        "Read a single frontmatter property. Set nested=true to address a dotted path (e.g. meta.author.name) through nested objects. response_format=concise omits the `key` and `nested` echoes.",
       inputSchema: z
         .object({
           vault: VaultId,
           path: VaultPath,
           key: z.string().min(1),
           nested: z.boolean().default(false),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: ReadPropertyOutput,
@@ -258,11 +260,14 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const g = input.nested
           ? getByPath(fm, input.key.split("."))
           : { found: Object.hasOwn(fm, input.key), value: fm[input.key] };
+        const value = g.found ? g.value : null;
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return { vault: v.id, path: rel, value, found: g.found };
         return {
           vault: v.id,
           path: rel,
           key: input.key,
-          value: g.found ? g.value : null,
+          value,
           found: g.found,
           nested: input.nested,
         };

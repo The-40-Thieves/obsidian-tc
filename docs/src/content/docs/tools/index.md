@@ -272,6 +272,32 @@ the machine field).
   node says and what an edge joins, and drops the layout (geometry, background, edge sides and
   ends) and the two counts.
 
+Ten more reads and reports take it: `find_notes_by_tag`, `get_note_tags`, `read_property`,
+`get_periodic_note`, `find_or_create_periodic_note`, `index_vault`, `inspect_visibility`,
+`get_server_config`, `bulk_create_notes` and `bulk_set_property`.
+
+- `find_notes_by_tag` returns `{ path }` per match plus `truncated` (it says the list is cut), and
+  drops the matched tags and `total`; `get_note_tags` returns only the combined `all` set, not the
+  frontmatter and inline split; `read_property` returns `value` and `found` without the `key` and
+  `nested` echoes.
+- `get_periodic_note` and `find_or_create_periodic_note` keep the date, path, `exists` or
+  `created`, the note `content` and any `redactions`, and drop the `period` echo and the parsed
+  `frontmatter` (the content already carries the block).
+- `index_vault` keeps the note and chunk totals and every failure, skip and degradation signal
+  (`secrets_skipped`, `notes_embed_failed`, `chunks_dedup_unresolved`, `embed_batch_rejections`,
+  `notes_stale_skipped`, `notes_epoch_stale_skipped`, `notes_frontmatter_failed` with its list, `vec_enabled`, `fts_enabled`),
+  and drops the bookkeeping counters (unchanged chunks, edge and upsert/delete totals, reused
+  dedup chunks, model, dimensions).
+- `inspect_visibility` returns `{ name, visibility, reason }` per tool, plus `matched_tag` and
+  `missing_scopes` when the verdict has one (the rule that decided it); it drops `domain`,
+  `required_scopes` and `tags`. The `summary` still covers the whole surface.
+  `get_server_config` keeps the auth mode, `read_only`, the embeddings provider, the limits, the
+  limiter backend and failure policy, the governor ceiling and the detected plugins, and drops the
+  per-class throttle tiers, the observability toggles and the retrieval-defaults report.
+- `bulk_create_notes` and `bulk_set_property` keep `succeeded`, `failed` and every per-item
+  outcome (path, `ok`, hash, `prev_value`, `redactions`, error), and drop `processed`,
+  `duration_ms` and each created item's `mode_used`.
+
 Concise never drops a safety signal: a non-empty `quality_warning`, a `poison_assessment`
 other than `none` (`list_capture_queue` always keeps it), `redactions`, a redacted `to_target`
 echo from `rewrite_link`, the trust and eligibility of a work episode, and a `patch_note` call's
@@ -308,13 +334,31 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `eval_dataview_field`, `validate_dql`, `search_dql`, `query_datacore` | Opaque Dataview or Datacore companion passthrough: the value, AST, rows or parse-error location is the payload (`search_dql` also returns `note_paths`, which index the matched notes). |
 | `makemd_list_spaces`, `makemd_query`, `search_omnisearch` | Opaque MakeMD or Omnisearch companion passthrough: the items or hits are the payload. |
 | `remotely_save_status`, `remotely_save_trigger` | Opaque Remotely Save companion passthrough or acknowledgement. |
+| `create_entity`, `add_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity` | Write acknowledgements: entity ids, status, the edge identity, counts (observations, relations removed, neighbours re-materialized), timestamps and the `redactions` signal. |
+| `start_session`, `end_session`, `enqueue_capture`, `commit_capture` | Write acknowledgements: ids, paths, event count and duration, the compare-and-swap hash and the `redactions` signal. |
+| `set_goal`, `close_goal`, `record_retrieval_feedback`, `work_result`, `work_forget` | Write acknowledgements: ids, the new state and how many retrievals were stamped, demoted or forgotten (`updated: 0` carries a `reason`). |
+| `session_rerun` | The per-record verdicts and divergences are the report; the summary counts qualify them. |
+| `add_tag`, `remove_tag` | Write acknowledgements: the removed count and the compare-and-swap hashes the next write needs. |
+| `copy_note`, `move_note`, `delete_note`, `delete_active_file`, `restore_note`, `snapshot_note` | Write acknowledgements: the destination or snapshot id, the content hashes, where a deleted or overwritten file was trashed, `backlinks_updated` (a blast-radius count) and the `redactions` signal. |
+| `bulk_move_notes` | Every per-move row is a blast-radius count or an error, and `hidden_backlinks` is a safety flag. |
+| `note_exists` | One boolean and a type. |
+| `read_snapshot` | The stored content is the payload; the rest is four short scalars. |
+| `read_metadata_fields`, `tasks_filter`, `resolve_daily_note` | Opaque companion passthrough: the fields, the matched tasks (ACL-filtered here) or the resolved path is the payload. |
+| `execute_command`, `execute_template`, `trigger_quickadd`, `show_file_in_obsidian` | Opaque companion passthrough or acknowledgement: the plugin's own result, whose effects this server cannot see. `execute_template` also returns any `stamped_trailers`, which are provenance a caller must see. |
+| `get_attachment` | The base64 bytes are the payload; MIME type, size and encoding describe them. |
+| `write_attachment`, `move_attachment`, `delete_attachment` | Write acknowledgements: the path, size and hash, where a replaced or deleted file was trashed, `references_updated` (a blast-radius count) and, for a delete, the notes that still reference it. |
+| `add_bookmark`, `remove_bookmark`, `open_workspace`, `save_workspace` | Write acknowledgements, or the layout itself for `open_workspace`: counts and the compare-and-swap hash the next write needs. |
+| `create_periodic_note`, `append_to_periodic_note` | Write acknowledgements: the path, the bytes appended, whether the template expanded and the `redactions` signal. |
+| `update_task` | Write acknowledgement: the before and after task state, the compare-and-swap hash and the `redactions` signal. |
+| `generate_uri` | One URI. |
+| `add_vault`, `reload_vault`, `reset_vault_cache`, `refresh_plugin_capabilities` | Acknowledgements: the vault id and times, the rows dropped (the blast radius) or the capability diff, which is the payload. |
+| `get_vault` | One vault's configuration; `read_only` and the ACL path lists are safety signals and the rest is two short blocks. |
+| `get_index_status`, `server_health` | Every field is a health signal (reconcile state, write failures, vec and fts, the job queue, leader role, facade and telemetry). |
+| `get_metrics`, `inspect_acl` | The metric rows, or the one allow or deny verdict with its rule, are the payload. |
 
-Every other tool is not yet covered: the memory, session, goal and episode writes and
-acknowledgements, the note, attachment, tag, property and snapshot operations, the bookmark,
-workspace, periodic-note, template, task and plugin actions, and the vault registry, index and
-server administration tools. They return the full payload in both formats and are being reviewed
-in a later part. A test fails when a newly registered tool is in none of the three groups
-(covered, listed above, or not yet covered), so the decision cannot be skipped.
+Every registered tool is in exactly one of the two groups, the tools that take `response_format`
+and the table above. A test fails when a newly registered tool is in neither, so the decision
+cannot be skipped.
 
 ## Degradation & errors
 

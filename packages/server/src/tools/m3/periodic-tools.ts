@@ -215,8 +215,10 @@ const PeriodicContentFields = {
  *  all) and a later one (`exists: true` plus the conditional content fields above). One object
  *  with optionals covers both arms rather than a union, matching every other m3/m7/m8 "optional
  *  fields on a conditional path" contract in this ticket. */
+// GH #1027: response_format=concise omits `period` (an echo of the input) and `frontmatter` (the raw
+// `content` already carries the block), so both are optional.
 const GetPeriodicNoteOutput = z.object({
-  period: PeriodEnum,
+  period: PeriodEnum.optional(),
   date: z.string(),
   path: z.string(),
   exists: z.boolean(),
@@ -238,7 +240,7 @@ const CreatePeriodicNoteOutput = z.object({
 });
 
 const FindOrCreatePeriodicNoteOutput = z.object({
-  period: PeriodEnum,
+  period: PeriodEnum.optional(),
   date: z.string(),
   path: z.string(),
   created: z.boolean(),
@@ -283,13 +285,14 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
       name: "get_periodic_note",
       domain: "workspace",
       description:
-        "Get the periodic note for a period + date (no creation). Resolves the path from the vault's daily/periodic config or Obsidian defaults. Domain: workspace.",
+        "Get the periodic note for a period + date (no creation). Resolves the path from the vault's daily/periodic config or Obsidian defaults. response_format=concise omits the `period` echo and the parsed `frontmatter` (the content carries it). Domain: workspace.",
       inputSchema: z
         .object({
           vault: VaultId,
           period: PeriodEnum,
           date: z.string().optional(),
           include_content: z.boolean().default(true),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: GetPeriodicNoteOutput,
@@ -300,17 +303,22 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const { path } = resolvePeriodicPath(v.root, input.period, date);
         enforcePathAcl(ctx.acl, "read", path, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, path);
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        const head = concise ? {} : { period: input.period };
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
-          return { period: input.period, date: toISODate(date), path, exists: false };
+          return { ...head, date: toISODate(date), path, exists: false };
         const { raw } = readNote(abs);
-        const parsed = parseNote(raw, path);
         return {
-          period: input.period,
+          ...head,
           date: toISODate(date),
           path,
           exists: true,
-          ...(input.include_content ? { content: raw, frontmatter: parsed.frontmatter } : {}),
+          ...(input.include_content
+            ? concise
+              ? { content: raw }
+              : { content: raw, frontmatter: parseNote(raw, path).frontmatter }
+            : {}),
         };
       },
     }),
@@ -433,7 +441,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
       domain: "workspace",
       vaultArg: "vault",
       description:
-        "Get the periodic note for a period + date, creating it (empty/template) if absent. With expand_template=true a newly created note is expanded through Templater when available (requires write:templater).",
+        "Get the periodic note for a period + date, creating it (empty/template) if absent. With expand_template=true a newly created note is expanded through Templater when available (requires write:templater). response_format=concise omits the `period` echo and the parsed `frontmatter`.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -441,6 +449,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           date: z.string().optional(),
           include_content: z.boolean().default(true),
           expand_template: z.boolean().default(false),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: FindOrCreatePeriodicNoteOutput,
@@ -509,13 +518,17 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           enforcePathAcl(ctx.acl, "read", resolved.path, v.root, ctx.grantedScopes);
         }
         const { raw } = readNote(abs);
-        const parsed = parseNote(raw, resolved.path);
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
-          period: input.period,
+          ...(concise ? {} : { period: input.period }),
           date: toISODate(date),
           path: resolved.path,
           created,
-          ...(input.include_content ? { content: raw, frontmatter: parsed.frontmatter } : {}),
+          ...(input.include_content
+            ? concise
+              ? { content: raw }
+              : { content: raw, frontmatter: parseNote(raw, resolved.path).frontmatter }
+            : {}),
           ...(redactions > 0 ? { redactions } : {}),
         };
       },

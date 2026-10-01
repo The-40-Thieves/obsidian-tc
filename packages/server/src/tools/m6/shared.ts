@@ -12,6 +12,7 @@ import type { MetricsRecorder } from "../../metrics/registry";
 import type { RateLimiter } from "../../throttle";
 import type { VaultRegistry } from "../../vault/registry";
 import type { RerunResult } from "../../workspace/rerun";
+import type { ResponseFormat } from "../response-format";
 
 /**
  * `session_rerun`'s per-call sandbox runtime: stage a disposable copy of `vaultId`'s vault, build
@@ -31,6 +32,9 @@ export type SandboxRerunFn = (params: {
 
 export interface M6Deps {
   vaultRegistry: VaultRegistry;
+  /** GH #1027: `tools.defaults.responseFormat`, the format a call that names neither
+   *  `response_format` nor the legacy `verbosity` gets. Absent -> "detailed". */
+  responseFormat?: ResponseFormat;
   /** THE-291: index-on-write hooks for the bulk writers (best-effort, backgrounded). */
   reindex?: (vaultId: string, path: string, content: string) => void;
   deindex?: (vaultId: string, path: string) => void;

@@ -19,7 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BootstrapConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { BootstrapConfigSchema, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { FolderAcl } from "../src/acl";
 import { CapabilityCache } from "../src/bridge";
 import { runMigrations } from "../src/db/migrate";
@@ -32,11 +32,13 @@ import { createPagingDeps } from "../src/mcp/byte-page";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { buildResourceUri } from "../src/mcp/resources";
 import { buildRepresentationManifest } from "../src/search/representation";
+import { RateLimiter } from "../src/throttle";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { registerM3Tools } from "../src/tools/m3";
 import { registerM4Tools } from "../src/tools/m4";
 import { registerM5Tools } from "../src/tools/m5";
+import { registerM6Tools } from "../src/tools/m6";
 import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
@@ -174,6 +176,27 @@ async function run(root: string): Promise<void> {
     roles: null,
     classRouter: true,
     edb,
+  });
+  // M6: the bulk writers and the admin reports. An unlimited limiter keeps the bulk tier out of the
+  // measurement; the tool surface is the registry as built above.
+  const unlimited = { perMinute: 1_000_000, burst: 1_000_000 };
+  registerM6Tools(registry, {
+    vaultRegistry,
+    rateLimiter: new RateLimiter({
+      read: unlimited,
+      write: unlimited,
+      bulk: unlimited,
+      execute: unlimited,
+      admin: unlimited,
+    }),
+    version: "eval",
+    startedAt: 0,
+    authMode: "none",
+    throttle: ServerConfigSchema.parse({ vaults: [{ id: "x", path: "/x" }] }).throttle,
+    observability: { otel: false, prometheus: false, morgiana: false },
+    embeddingsProvider: "fake",
+    governorMaxResponseBytes: 1_000_000,
+    toolSurface: () => ({ config: registry.visibilityConfig(), tools: registry.list() }),
   });
   const ctx: CallerContext = {
     caller: "eval",
@@ -648,6 +671,73 @@ async function run(root: string): Promise<void> {
   await measure("bundle_files", "10 notes", () => ({ vault: v, paths: spare.slice(0, 10) }));
   await measure("bundle_folder", "15-note folder", () => ({ vault: v, root: "bundle-src" }));
   await measure("read_canvas", "20 nodes, 19 edges", () => ({ vault: v, path: "board.canvas" }));
+
+  // ── Part 4b ───────────────────────────────────────────────────────────────────────────────
+  const tagList = (await call("list_tags", { vault: v })) as { tags: Array<{ tag: string }> };
+  const topTag = tagList.tags[0]?.tag ?? "sample";
+  const tagged = (await call("find_notes_by_tag", {
+    vault: v,
+    tag: topTag,
+    response_format: "detailed",
+  })) as { total: number; matches: Array<{ path: string }> };
+  const taggedNote = tagged.matches[0]?.path ?? median;
+  await measure("find_notes_by_tag", `#${topTag} (${tagged.total} notes)`, () => ({
+    vault: v,
+    tag: topTag,
+  }));
+  await measure("get_note_tags", "a tagged note", () => ({ vault: v, path: taggedNote }));
+  await measure("read_property", "key=status", () => ({
+    vault: v,
+    path: spare[0],
+    key: "status",
+  }));
+  await measure("get_periodic_note", "an existing daily note", () => ({
+    vault: v,
+    period: "daily",
+    date: "2026-09-15",
+  }));
+  await measure("find_or_create_periodic_note", "an existing daily note", () => ({
+    vault: v,
+    period: "daily",
+    date: "2026-09-16",
+  }));
+  await measure("index_vault", "re-index the whole copy", () => ({ vault: v }));
+  await measure("inspect_visibility", "the whole surface, read:notes caller", () => ({
+    scopes: ["read:notes"],
+  }));
+  await measure("get_server_config", "one vault plus the docs vault", () => ({}));
+  for (const [tool, label, args] of [
+    [
+      "bulk_create_notes",
+      "20 new notes",
+      (arm: "detailed" | "concise") => ({
+        vault: v,
+        items: Array.from({ length: 20 }, (_, i) => ({
+          path: `bulk-${armKey(arm)}-${i}.md`,
+          content: `bulk body ${i}\n`,
+        })),
+      }),
+    ],
+    [
+      "bulk_set_property",
+      "20 notes, key=bulk_flag",
+      (arm: "detailed" | "concise") => ({
+        vault: v,
+        paths: spare.slice(0, 20),
+        key: arm === "detailed" ? "bulk_flag" : "bulk_flag_b",
+        value: true,
+      }),
+    ],
+  ] as const) {
+    const run = async (arm: "detailed" | "concise"): Promise<number> =>
+      size(await confirmed(tool, { ...args(arm), response_format: arm }));
+    rows.push({
+      tool,
+      call: label,
+      detailed: await run("detailed"),
+      concise: await run("concise"),
+    });
+  }
 
   const pct = (a: number, b: number): string => `${(((a - b) / a) * 100).toFixed(1)}%`;
   const lines = [

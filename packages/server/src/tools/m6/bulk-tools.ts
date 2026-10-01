@@ -51,6 +51,7 @@ import {
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { rewriteLinks } from "../../vault/rewrite";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M6Deps } from "./shared";
 
 // ── move helpers ────────────────────────────────────────────────────────────────
@@ -158,6 +159,7 @@ const BulkCreateInput = z
     max_concurrent: BulkConcurrency,
     stop_on_first_error: z.boolean().default(false),
     elicit_token: ElicitToken.optional(),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -170,6 +172,7 @@ const BulkSetPropertyInput = z
     max_concurrent: BulkConcurrency,
     stop_on_first_error: z.boolean().default(false),
     elicit_token: ElicitToken.optional(),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -218,13 +221,15 @@ const BulkCreateResultItem = z.object({
   error: ErrorJson.optional(),
 });
 
+// GH #1027: response_format=concise omits `processed` (succeeded + failed), `duration_ms` and each
+// item's `mode_used`; every per-item outcome, hash, redaction count and error stays.
 const BulkCreateOutput = z.object({
   vault: z.string(),
-  processed: z.number(),
+  processed: z.number().optional(),
   succeeded: z.number(),
   failed: z.number(),
   results: z.array(BulkCreateResultItem),
-  duration_ms: z.number(),
+  duration_ms: z.number().optional(),
 });
 
 const BulkSetPropertyResultItem = z.object({
@@ -238,13 +243,14 @@ const BulkSetPropertyResultItem = z.object({
   error: ErrorJson.optional(),
 });
 
+// GH #1027: response_format=concise omits `processed` and `duration_ms`, as bulk_create_notes does.
 const BulkSetPropertyOutput = z.object({
   vault: z.string(),
-  processed: z.number(),
+  processed: z.number().optional(),
   succeeded: z.number(),
   failed: z.number(),
   results: z.array(BulkSetPropertyResultItem),
-  duration_ms: z.number(),
+  duration_ms: z.number().optional(),
 });
 
 /** bulk_move_notes does not use runBulk — it hand-rolls validation + an all-or-nothing rewrite
@@ -287,7 +293,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       acceptsIdempotencyKey: true,
       pathAcl: (input) => input.items.map((item) => ({ op: "write" as const, path: item.path })),
       description:
-        "Batch-create notes with per-item results. Each item creates/overwrites/upserts a note (content + optional frontmatter). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
+        "Batch-create notes with per-item results. Each item creates/overwrites/upserts a note (content + optional frontmatter). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in). response_format=concise omits processed, duration_ms and each item's mode_used.",
       inputSchema: BulkCreateInput,
       outputSchema: BulkCreateOutput,
       requiredScopes: ["write:notes", "bulk:notes"],
@@ -339,7 +345,20 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         // {ok, error?}), erasing the concrete per-item shape this tool's own identity/perItem
         // callbacks actually produce (path + mode_used/content_hash on success, path + error on
         // failure) — the cast restates what is already true at runtime, matching BulkCreateOutput.
-        return { vault: v.id, ...report } as z.infer<typeof BulkCreateOutput>;
+        const full = { vault: v.id, ...report } as z.infer<typeof BulkCreateOutput>;
+        if (resolveResponseFormat(input, deps.responseFormat) === "detailed") return full;
+        return {
+          vault: full.vault,
+          succeeded: full.succeeded,
+          failed: full.failed,
+          results: full.results.map((r) => ({
+            path: r.path,
+            ok: r.ok,
+            ...(r.content_hash !== undefined ? { content_hash: r.content_hash } : {}),
+            ...(r.redactions !== undefined ? { redactions: r.redactions } : {}),
+            ...(r.error !== undefined ? { error: r.error } : {}),
+          })),
+        };
       },
     }),
 
@@ -349,7 +368,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => input.paths.map((p) => ({ op: "write" as const, path: p })),
       description:
-        "Set one frontmatter property across many notes, with per-item results (prev_value). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in).",
+        "Set one frontmatter property across many notes, with per-item results (prev_value). HITL-floored (bulk) and throttled; best-effort by default (stop_on_first_error opt-in). response_format=concise omits processed and duration_ms.",
       inputSchema: BulkSetPropertyInput,
       outputSchema: BulkSetPropertyOutput,
       requiredScopes: ["write:notes", "bulk:notes"],
@@ -398,7 +417,14 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         // Same runBulk generic-erasure cast as bulk_create_notes above — restates the concrete
         // per-item shape (path + prev_value on success, path + error on failure) this tool's own
         // callbacks actually produce.
-        return { vault: v.id, ...report } as z.infer<typeof BulkSetPropertyOutput>;
+        const full = { vault: v.id, ...report } as z.infer<typeof BulkSetPropertyOutput>;
+        if (resolveResponseFormat(input, deps.responseFormat) === "detailed") return full;
+        return {
+          vault: full.vault,
+          succeeded: full.succeeded,
+          failed: full.failed,
+          results: full.results,
+        };
       },
     }),
 

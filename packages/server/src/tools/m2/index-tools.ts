@@ -9,33 +9,39 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { readableByFolder, readableRel } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M2Deps } from "./shared";
 
-// THE-417 Phase 1: mirrors search/indexer.ts's IndexStats field for field — every field there is
-// required (no optionals), so this is a plain object, not a union.
+// THE-417 Phase 1: mirrors search/indexer.ts's IndexStats field for field. GH #1027:
+// response_format=concise drops the bookkeeping counters (unchanged chunks, edge and upsert/delete
+// totals, reused dedup chunks, model, dimensions), so those are optional; every failure and
+// degradation signal stays required.
 const IndexVaultOutput = z.object({
   vault: z.string(),
   notes_seen: z.number(),
   notes_indexed: z.number(),
   chunks_upserted: z.number(),
   chunks_deleted: z.number(),
-  chunks_unchanged: z.number(),
-  edges_inserted: z.number(),
-  edges_deleted: z.number(),
+  chunks_unchanged: z.number().optional(),
+  edges_inserted: z.number().optional(),
+  edges_deleted: z.number().optional(),
   secrets_skipped: z.number(),
   vec_enabled: z.boolean(),
   fts_enabled: z.boolean(),
-  notes_upserted: z.number(),
-  notes_deleted: z.number(),
+  notes_upserted: z.number().optional(),
+  notes_deleted: z.number().optional(),
   notes_embed_failed: z.number(),
-  chunks_dedup_reused: z.number(),
+  chunks_dedup_reused: z.number().optional(),
   chunks_dedup_unresolved: z.number(),
   embed_batch_rejections: z.number(),
   notes_stale_skipped: z.number(),
+  // IndexStats carries it (THE-925 follow-up) but the contract never declared it, so an ajv client
+  // rejected every detailed result; found by the part 4b ajv test.
+  notes_epoch_stale_skipped: z.number(),
   notes_frontmatter_failed: z.number(),
   frontmatter_failures: z.array(z.object({ path: z.string(), error: z.string() })),
-  model: z.string(),
-  dimensions: z.number(),
+  model: z.string().optional(),
+  dimensions: z.number().optional(),
 });
 
 export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
@@ -44,8 +50,10 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
       name: "index_vault",
       domain: "vault",
       description:
-        "Chunk and embed the vault (or a folder) into the search index. Incremental: chunks whose content hash is unchanged are skipped; removed chunks are pruned.",
-      inputSchema: z.object({ vault: VaultId, folder: VaultPath.optional() }).strict(),
+        "Chunk and embed the vault (or a folder) into the search index. Incremental: chunks whose content hash is unchanged are skipped; removed chunks are pruned. response_format=concise drops the bookkeeping counters and keeps the failure, skip and degradation signals.",
+      inputSchema: z
+        .object({ vault: VaultId, folder: VaultPath.optional(), ...ResponseFormatInput })
+        .strict(),
       outputSchema: IndexVaultOutput,
       requiredScopes: ["admin:vault"],
       tags: ["external-network"],
@@ -93,12 +101,28 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           const frontmatterFailures = stats.frontmatter_failures.filter((f) =>
             readableRel(ctx.acl, f.path, ctx.grantedScopes),
           );
-          return {
-            vault: v.id,
-            ...stats,
+          const failures = {
             notes_frontmatter_failed: frontmatterFailures.length,
             frontmatter_failures: frontmatterFailures,
           };
+          if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+            return {
+              vault: v.id,
+              notes_seen: stats.notes_seen,
+              notes_indexed: stats.notes_indexed,
+              chunks_upserted: stats.chunks_upserted,
+              chunks_deleted: stats.chunks_deleted,
+              secrets_skipped: stats.secrets_skipped,
+              vec_enabled: stats.vec_enabled,
+              fts_enabled: stats.fts_enabled,
+              notes_embed_failed: stats.notes_embed_failed,
+              chunks_dedup_unresolved: stats.chunks_dedup_unresolved,
+              embed_batch_rejections: stats.embed_batch_rejections,
+              notes_stale_skipped: stats.notes_stale_skipped,
+              notes_epoch_stale_skipped: stats.notes_epoch_stale_skipped,
+              ...failures,
+            };
+          return { vault: v.id, ...stats, ...failures };
         } catch (e) {
           deps.onIndexVaultError?.(v.id);
           throw e;

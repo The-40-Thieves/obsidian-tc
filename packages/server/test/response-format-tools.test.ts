@@ -8,8 +8,10 @@
 // The ajv check against the ADVERTISED JSON schema lives in response-format-ajv.test.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
+import { registerM6Tools } from "../src/tools/m6";
 import { registerM7Tools } from "../src/tools/m7";
 import { makeM2Vault } from "./m2-helpers";
+import { makeM6Vault } from "./m6-helpers";
 import {
   dataOf,
   makeWorld,
@@ -1053,6 +1055,215 @@ describe("part 4a concise shapes", () => {
     expect(keys(rows(full, "nodes")[0] as Record<string, unknown>)).toEqual(
       expect.arrayContaining(["height", "width", "x", "y"]),
     );
+  });
+});
+
+describe("part 4b concise shapes", () => {
+  const rows = (d: Record<string, unknown>, field: string) =>
+    (d[field] as Array<Record<string, unknown>>) ?? [];
+
+  it("find_notes_by_tag: {path} per match, truncated stays, the matched tags and total go", async () => {
+    const s = scenario("find_notes_by_tag");
+    const w = await world();
+    w.m1.write("second.md", "---\ntags: [x/sub]\n---\n# Second\n");
+    const full = dataOf(await runScenario(w, s, {}));
+    const d = dataOf(await runScenario(w, s, { response_format: "concise" }));
+    expect(keys(d)).toEqual(["matches", "tag", "truncated", "vault"]);
+    expect(rows(d, "matches").map(keys)).toEqual([["path"], ["path"]]);
+    expect(rows(d, "matches").map((m) => m.path)).toEqual(rows(full, "matches").map((m) => m.path));
+    expect(keys(full)).toEqual(expect.arrayContaining(["total"]));
+    expect(rows(full, "matches")[1]).toHaveProperty("tags", ["x/sub"]);
+    // the truncation flag is what says the list is incomplete: it must survive
+    const cut = dataOf(await runScenario(w, s, { response_format: "concise", limit: 1 }));
+    expect(cut.truncated).toBe(true);
+    expect(rows(cut, "matches")).toHaveLength(1);
+  });
+
+  it("get_note_tags: only the combined set stays; the frontmatter/inline split goes", async () => {
+    const s = scenario("get_note_tags");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["all", "path", "vault"]);
+    expect(d.all).toEqual(full.all);
+    expect(keys(full)).toEqual(expect.arrayContaining(["frontmatter", "inline"]));
+  });
+
+  it("read_property: value and found stay, also for an absent key; the key and nested echoes go", async () => {
+    const full = await call(scenario("read_property"), {});
+    const d = await call(scenario("read_property"), { response_format: "concise" });
+    expect(keys(d)).toEqual(["found", "path", "value", "vault"]);
+    expect(d.value).toBe("Alpha");
+    expect(keys(full)).toEqual(expect.arrayContaining(["key", "nested"]));
+    const absent = await call(scenario("read_property (absent key)"), {
+      response_format: "concise",
+    });
+    expect(absent.found).toBe(false);
+    expect(absent.value).toBeNull();
+  });
+
+  it("get_periodic_note / find_or_create_periodic_note: the content stays; the period echo and the parsed frontmatter go", async () => {
+    const got = scenario("get_periodic_note");
+    const full = await call(got, {});
+    const d = await call(got, { response_format: "concise" });
+    expect(keys(d)).toEqual(["content", "date", "exists", "path"]);
+    expect(d.content).toBe(full.content);
+    expect(keys(full)).toEqual(expect.arrayContaining(["frontmatter", "period"]));
+    const absent = await call(scenario("get_periodic_note (absent)"), {
+      response_format: "concise",
+    });
+    expect(keys(absent)).toEqual(["date", "exists", "path"]);
+    expect(absent.exists).toBe(false);
+
+    const made = scenario("find_or_create_periodic_note (created)");
+    const mFull = await call(made, {});
+    const mConcise = await call(made, { response_format: "concise" });
+    expect(keys(mConcise)).toEqual(["content", "created", "date", "path"]);
+    expect(mConcise.created).toBe(true);
+    expect(mConcise.content).toBe(mFull.content);
+    expect(keys(mFull)).toEqual(expect.arrayContaining(["frontmatter", "period"]));
+    // include_content=false still drops the content in both formats
+    const bare = await call(made, { response_format: "concise", include_content: false });
+    expect(keys(bare)).toEqual(["created", "date", "path"]);
+  });
+
+  it("index_vault: the bookkeeping counters go; every failure, skip and degradation signal stays", async () => {
+    const s = scenario("index_vault");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    for (const dropped of [
+      "chunks_unchanged",
+      "edges_inserted",
+      "edges_deleted",
+      "notes_upserted",
+      "notes_deleted",
+      "chunks_dedup_reused",
+      "model",
+      "dimensions",
+    ]) {
+      expect(keys(full), dropped).toContain(dropped);
+      expect(keys(d), dropped).not.toContain(dropped);
+    }
+    for (const signal of [
+      "secrets_skipped",
+      "notes_embed_failed",
+      "chunks_dedup_unresolved",
+      "embed_batch_rejections",
+      "notes_stale_skipped",
+      "notes_epoch_stale_skipped",
+      "notes_frontmatter_failed",
+      "frontmatter_failures",
+      "vec_enabled",
+      "fts_enabled",
+    ])
+      expect(d[signal], signal).toEqual(full[signal]);
+  });
+
+  it("inspect_visibility: {name, visibility, reason} per tool; the summary still covers the whole surface", async () => {
+    const s = scenario("inspect_visibility");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual(["evaluated_for", "summary", "tools"]);
+    expect(d.summary).toEqual(full.summary);
+    expect(d.evaluated_for).toEqual(full.evaluated_for);
+    expect(rows(d, "tools").map((t) => t.name)).toEqual(rows(full, "tools").map((t) => t.name));
+    for (const t of rows(d, "tools")) {
+      const detailed = rows(full, "tools").find((x) => x.name === t.name) as Record<
+        string,
+        unknown
+      >;
+      expect(t.visibility).toBe(detailed.visibility);
+      expect(t.reason).toBe(detailed.reason);
+      expect(keys(t)).not.toContain("required_scopes");
+      expect(keys(t)).not.toContain("tags");
+      expect(keys(t)).not.toContain("domain");
+    }
+    // a verdict that names a missing scope keeps saying which (read:notes only: write is missing)
+    const denied = rows(d, "tools").find((t) => t.visibility === "scope_denied");
+    expect(denied).toBeDefined();
+    expect(denied?.missing_scopes).toEqual(
+      (rows(full, "tools").find((t) => t.name === denied?.name) as Record<string, unknown>)
+        .missing_scopes,
+    );
+    expect(JSON.stringify(d).length).toBeLessThan(JSON.stringify(full).length);
+  });
+
+  it("get_server_config: the posture stays (auth, read_only, limiter, governor, plugins); tiers, observability and retrieval defaults go", async () => {
+    const s = scenario("get_server_config");
+    const full = await call(s, {});
+    const d = await call(s, { response_format: "concise" });
+    expect(keys(d)).toEqual([
+      "auth_mode",
+      "embeddings_provider",
+      "governor",
+      "limits",
+      "plugins_detected",
+      "read_only",
+      "throttle",
+      "vaults_summary",
+      "version",
+    ]);
+    for (const k of keys(d)) expect(d[k], k).toEqual(full[k]);
+    expect(keys(full)).toEqual(
+      expect.arrayContaining(["observability", "retrieval_defaults", "throttle_tiers"]),
+    );
+  });
+
+  it("bulk_create_notes / bulk_set_property: every per-item outcome stays; processed, duration_ms and mode_used go", async () => {
+    const create = scenario("bulk_create_notes");
+    const cFull = await call(create, {});
+    const c = await call(create, { response_format: "concise" });
+    expect(keys(c)).toEqual(["failed", "results", "succeeded", "vault"]);
+    expect([c.succeeded, c.failed]).toEqual([cFull.succeeded, cFull.failed]);
+    expect([c.succeeded, c.failed]).toEqual([1, 1]);
+    const [ok, bad] = rows(c, "results");
+    expect(keys(ok as Record<string, unknown>)).toEqual(["content_hash", "ok", "path"]);
+    expect(ok?.content_hash).toBe(rows(cFull, "results")[0]?.content_hash);
+    expect(keys(bad as Record<string, unknown>)).toEqual(["error", "ok", "path"]);
+    expect(bad?.error).toEqual(rows(cFull, "results")[1]?.error);
+    expect(keys(cFull)).toEqual(expect.arrayContaining(["processed", "duration_ms"]));
+    expect(keys(rows(cFull, "results")[0] as Record<string, unknown>)).toContain("mode_used");
+
+    const set = scenario("bulk_set_property");
+    const sFull = await call(set, {});
+    const sd = await call(set, { response_format: "concise" });
+    expect(keys(sd)).toEqual(["failed", "results", "succeeded", "vault"]);
+    expect(sd.results).toEqual(sFull.results);
+    expect([sd.succeeded, sd.failed]).toEqual([2, 1]);
+    expect(keys(sFull)).toEqual(expect.arrayContaining(["processed", "duration_ms"]));
+  });
+});
+
+describe("part 4b safety signals survive concise", () => {
+  it("bulk_create_notes keeps a per-item redactions count when memoryDefense redacts", async () => {
+    const secret = ["sk", "-", "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
+    const v = makeM6Vault({
+      register: (reg, deps) =>
+        registerM6Tools(reg, {
+          ...deps,
+          memoryDefense: () => ({ mode: "redact", pii: false }),
+        }),
+    });
+    try {
+      const input = {
+        vault: "test",
+        items: [{ path: "probe/redacted.md", content: `token ${secret}` }],
+      };
+      const full = dataOf(await v.callConfirmed("bulk_create_notes", input));
+      const concise = dataOf(
+        await v.callConfirmed("bulk_create_notes", {
+          ...input,
+          items: [{ path: "probe/redacted2.md", content: `token ${secret}` }],
+          response_format: "concise",
+        }),
+      );
+      const fullRow = (full.results as Array<Record<string, unknown>>)[0];
+      const conciseRow = (concise.results as Array<Record<string, unknown>>)[0];
+      expect(fullRow?.redactions).toBeGreaterThan(0);
+      expect(conciseRow?.redactions).toBe(fullRow?.redactions);
+      expect(JSON.stringify(concise)).not.toContain(secret);
+    } finally {
+      v.cleanup();
+    }
   });
 });
 
