@@ -2,6 +2,7 @@ import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { searchRegex, searchText } from "../src/search/text";
 import { makeM2Vault } from "./m2-helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 describe("searchText", () => {
   it("finds matching lines with 1-based line/col and a BM25 score", () => {
@@ -72,26 +73,30 @@ describe("searchRegex", () => {
     v.cleanup();
   });
 
-  it("times out a catastrophic pattern that slips the heuristic, then recovers (THE-293)", async () => {
-    const v = makeM2Vault({ files: { "evil.md": `b${"a".repeat(64)}c` } });
-    // hasNestedQuantifier passes: the (a|aa) groups are concatenated (no `)` is ever
-    // immediately followed by `*` `+` or `{`), and the final group is followed by a
-    // backreference. That trailing `\1` is load-bearing; do NOT "simplify" it away. A
-    // backreference forces V8's Irregexp onto its plain backtracking interpreter, disabling
-    // the memchr/Boyer-Moore fast-fail and min-length pruning. Without it, a trailing literal
-    // (e.g. `...b`) lets V8 fast-fail in microseconds, so searchRegex resolves `[]` before the
-    // 50ms budget and this `.rejects` flakes (engine/JIT/version sensitive). With it, the
-    // exponential alternation fan-out backtracks every time and reliably exceeds 50ms (measured
-    // ~1.1s warm / ~6s cold per exec), so the worker is terminated on overrun.
-    const evil = `${"(a|aa)".repeat(22)}\\1c`;
-    await expect(
-      searchRegex(v.root, { pattern: evil, timeoutMs: 50, limit: 10 }),
-    ).rejects.toMatchObject({ code: "compute_budget_exceeded" });
-    // The worker was terminated; the next call lazily recreates it and succeeds.
-    const hits = await searchRegex(v.root, { pattern: "a+", limit: 10 });
-    expect(hits.length).toBeGreaterThan(0);
-    v.cleanup();
-  }, 20_000);
+  it(
+    "times out a catastrophic pattern that slips the heuristic, then recovers (THE-293)",
+    async () => {
+      const v = makeM2Vault({ files: { "evil.md": `b${"a".repeat(64)}c` } });
+      // hasNestedQuantifier passes: the (a|aa) groups are concatenated (no `)` is ever
+      // immediately followed by `*` `+` or `{`), and the final group is followed by a
+      // backreference. That trailing `\1` is load-bearing; do NOT "simplify" it away. A
+      // backreference forces V8's Irregexp onto its plain backtracking interpreter, disabling
+      // the memchr/Boyer-Moore fast-fail and min-length pruning. Without it, a trailing literal
+      // (e.g. `...b`) lets V8 fast-fail in microseconds, so searchRegex resolves `[]` before the
+      // 50ms budget and this `.rejects` flakes (engine/JIT/version sensitive). With it, the
+      // exponential alternation fan-out backtracks every time and reliably exceeds 50ms (measured
+      // ~1.1s warm / ~6s cold per exec), so the worker is terminated on overrun.
+      const evil = `${"(a|aa)".repeat(22)}\\1c`;
+      await expect(
+        searchRegex(v.root, { pattern: evil, timeoutMs: 50, limit: 10 }),
+      ).rejects.toMatchObject({ code: "compute_budget_exceeded" });
+      // The worker was terminated; the next call lazily recreates it and succeeds.
+      const hits = await searchRegex(v.root, { pattern: "a+", limit: 10 });
+      expect(hits.length).toBeGreaterThan(0);
+      v.cleanup();
+    },
+    stallTimeout(20_000),
+  );
 
   // THE-926: hasNestedQuantifier only looks at GROUPS, so a flat chain of bare quantified atoms
   // slips it entirely — `a*a*a*a*a*a*a*b` is measured exponential in V8 against a non-matching
@@ -143,24 +148,28 @@ describe("searchRegex", () => {
       v.cleanup();
     });
 
-    it("admitted disjoint-atom patterns do not backtrack EXPONENTIALLY (polynomial, bounded by the worker budget)", async () => {
-      // `a+b+c+` against a long run of pure 'a' (never matching, since no 'b'/'c' follows) is the
-      // adversarial shape for THIS pattern: if disjoint atoms still backtracked exponentially, an
-      // ADMIT would just be moving the false-reject line rather than fixing the guard. They do
-      // not, but they are not linear either: every start position re-scans the run, so the cost
-      // is quadratic (measured ~8 ms at 2k, 150 ms at 8k, 870 ms at 20k, 14 s at 80k). The
-      // property worth pinning is the exponential/polynomial line, and a 5k run sits ~30x under
-      // the bound (tens of ms) where an exponential blowup would exhaust the 2 s worker budget
-      // and throw. A larger run made the bound a coin flip on a loaded runner: the 20k run
-      // measured 0.9-1.2 s against a 1.5 s ceiling.
-      const v = makeM2Vault({ files: { "big.md": "a".repeat(5_000) } });
-      const start = Date.now();
-      const hits = await searchRegex(v.root, { pattern: "a+b+c+", timeoutMs: 2000, limit: 10 });
-      const elapsed = Date.now() - start;
-      expect(hits).toEqual([]);
-      expect(elapsed).toBeLessThan(1500);
-      v.cleanup();
-    }, 10_000);
+    it(
+      "admitted disjoint-atom patterns do not backtrack EXPONENTIALLY (polynomial, bounded by the worker budget)",
+      async () => {
+        // `a+b+c+` against a long run of pure 'a' (never matching, since no 'b'/'c' follows) is the
+        // adversarial shape for THIS pattern: if disjoint atoms still backtracked exponentially, an
+        // ADMIT would just be moving the false-reject line rather than fixing the guard. They do
+        // not, but they are not linear either: every start position re-scans the run, so the cost
+        // is quadratic (measured ~8 ms at 2k, 150 ms at 8k, 870 ms at 20k, 14 s at 80k). The
+        // property worth pinning is the exponential/polynomial line, and a 5k run sits ~30x under
+        // the bound (tens of ms) where an exponential blowup would exhaust the 2 s worker budget
+        // and throw. A larger run made the bound a coin flip on a loaded runner: the 20k run
+        // measured 0.9-1.2 s against a 1.5 s ceiling.
+        const v = makeM2Vault({ files: { "big.md": "a".repeat(5_000) } });
+        const start = Date.now();
+        const hits = await searchRegex(v.root, { pattern: "a+b+c+", timeoutMs: 2000, limit: 10 });
+        const elapsed = Date.now() - start;
+        expect(hits).toEqual([]);
+        expect(elapsed).toBeLessThan(1500);
+        v.cleanup();
+      },
+      stallTimeout(10_000),
+    );
 
     it("a separator between quantified atoms resets the run — a date-shaped pattern is admitted", async () => {
       const v = makeM2Vault({ files: { "a.md": "2026-08-31" } });

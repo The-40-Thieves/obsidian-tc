@@ -10,7 +10,9 @@
 // vi.doMock on ../src/vault/paths — asserting on the config value passed in would prove nothing
 // (it would pass even if indexVault silently ignored it, which is exactly the bug this ticket
 // closes).
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 
 afterEach(() => {
   vi.doUnmock("../src/vault/paths");
@@ -37,29 +39,37 @@ const FILES = { "a.md": "alpha note body", "sub/b.md": "beta note body" };
 describe("THE-591 — indexing.streamingWalk config wiring (index_vault tool)", () => {
   // vi.resetModules() per test (needed to swap the mocked walk primitives cleanly) re-evaluates
   // the whole module graph each time, which is slower than the default 5s budget under load.
-  it("FLAG UNSET/false: walks via walkVault, never touches walkVaultStream", async () => {
-    const paths = await spyOnWalkPrimitives();
-    const { makeM2Vault } = await import("./m2-helpers");
-    const v = makeM2Vault({ files: FILES });
-    try {
-      await v.call("index_vault", { vault: v.id });
-      expect(paths.walkVault).toHaveBeenCalled();
-      expect(paths.walkVaultStream).not.toHaveBeenCalled();
-    } finally {
-      v.cleanup();
-    }
-  }, 15000);
+  it(
+    "FLAG UNSET/false: walks via walkVault, never touches walkVaultStream",
+    async () => {
+      const paths = await spyOnWalkPrimitives();
+      const { makeM2Vault } = await import("./m2-helpers");
+      const v = makeM2Vault({ files: FILES });
+      try {
+        await v.call("index_vault", { vault: v.id });
+        expect(paths.walkVault).toHaveBeenCalled();
+        expect(paths.walkVaultStream).not.toHaveBeenCalled();
+      } finally {
+        v.cleanup();
+      }
+    },
+    stallTimeout(15000),
+  );
 
-  it("FLAG true: walks via walkVaultStream, never touches the eager walkVault", async () => {
-    const paths = await spyOnWalkPrimitives();
-    const { makeM2Vault } = await import("./m2-helpers");
-    const v = makeM2Vault({ files: FILES, streamingWalk: true });
-    try {
-      await v.call("index_vault", { vault: v.id });
-      expect(paths.walkVaultStream).toHaveBeenCalled();
-      expect(paths.walkVault).not.toHaveBeenCalled();
-    } finally {
-      v.cleanup();
-    }
-  }, 15000);
+  it(
+    "FLAG true: walks via walkVaultStream, never touches the eager walkVault",
+    async () => {
+      const paths = await spyOnWalkPrimitives();
+      const { makeM2Vault } = await import("./m2-helpers");
+      const v = makeM2Vault({ files: FILES, streamingWalk: true });
+      try {
+        await v.call("index_vault", { vault: v.id });
+        expect(paths.walkVaultStream).toHaveBeenCalled();
+        expect(paths.walkVault).not.toHaveBeenCalled();
+      } finally {
+        v.cleanup();
+      }
+    },
+    stallTimeout(15000),
+  );
 });

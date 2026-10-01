@@ -11,6 +11,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -160,25 +161,29 @@ describe("revocation over the HTTP edge and /metrics", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
     });
 
-  it("401 with reason token_revoked once revoked, while the same token was accepted before", async () => {
-    const fx = fixture();
-    const { handle, rejections } = await boot(fx);
-    try {
-      const token = await signAndRecord(fx.registry, claims({ aud: "http://test" }));
-      expect((await post(handle.port, token)).status).not.toBe(401);
-      const jti = JSON.parse(
-        Buffer.from(token.split(".")[1] as string, "base64url").toString(),
-      ).jti;
-      fx.registry.revoke(jti, "compromised");
-      const res = await post(handle.port, token);
-      expect(res.status).toBe(401);
-      expect(rejections).toEqual(["token_revoked"]);
-      // The client body stays undifferentiated: the reason is for operators, never callers.
-      expect(await res.text()).not.toContain("revoked");
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "401 with reason token_revoked once revoked, while the same token was accepted before",
+    async () => {
+      const fx = fixture();
+      const { handle, rejections } = await boot(fx);
+      try {
+        const token = await signAndRecord(fx.registry, claims({ aud: "http://test" }));
+        expect((await post(handle.port, token)).status).not.toBe(401);
+        const jti = JSON.parse(
+          Buffer.from(token.split(".")[1] as string, "base64url").toString(),
+        ).jti;
+        fx.registry.revoke(jti, "compromised");
+        const res = await post(handle.port, token);
+        expect(res.status).toBe(401);
+        expect(rejections).toEqual(["token_revoked"]);
+        // The client body stays undifferentiated: the reason is for operators, never callers.
+        expect(await res.text()).not.toContain("revoked");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
   it("/metrics refuses a revoked scrape token", async () => {
     const fx = fixture();

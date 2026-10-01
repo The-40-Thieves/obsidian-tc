@@ -5,8 +5,10 @@
 // enrichment (cpu brand, gpu presence) comes from systeminformation, which shells out and can fail
 // on a locked-down box — so the enricher is injected here to prove that a throwing provider degrades
 // to the os-only baseline rather than taking down the whole profile.
+
 import { describe, expect, it } from "vitest";
 import { hardwareEnvelope } from "../src/capability/hardware";
+import { stallTimeout } from "./stall-timeouts";
 
 describe("THE-522 hardware envelope", () => {
   // The ONLY case here that runs the real systeminformation enricher, so it is the only one whose
@@ -14,7 +16,9 @@ describe("THE-522 hardware envelope", () => {
   // vitest's 5000ms default on windows-latest. The explicit timeout must stay comfortably ABOVE
   // hardware.ts's own ENRICH_TIMEOUT_MS (2s) — bound the outer wait looser than the inner one, or the
   // inner bound can never fire and this asserts nothing about the degrade path.
-  it("reports the os-level baseline from real node:os data", { timeout: 15_000 }, async () => {
+  it("reports the os-level baseline from real node:os data", {
+    timeout: stallTimeout(15_000),
+  }, async () => {
     const hw = await hardwareEnvelope();
     expect(hw.platform).toBe(process.platform);
     expect(hw.arch).toBe(process.arch);
@@ -53,7 +57,9 @@ describe("THE-522 hardware envelope", () => {
   // capabilityProfile(), a live tool path — hung with it. The test timeout is deliberately 200x the
   // enrichment bound: if the bound is ever removed this fails on the vitest deadline rather than
   // silently passing.
-  it("degrades to the baseline when the enricher never settles", { timeout: 10_000 }, async () => {
+  it("degrades to the baseline when the enricher never settles", {
+    timeout: stallTimeout(10_000),
+  }, async () => {
     const started = Date.now();
     const hw = await hardwareEnvelope(() => new Promise<never>(() => {}), 50);
     expect(Date.now() - started).toBeLessThan(5_000);

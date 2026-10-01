@@ -55,6 +55,12 @@ export default defineConfig({
     // spawn test (memory-import-cli) was killed at its 20s child timeout by a stall; it is now the one
     // shared stall ceiling (test/stall-timeouts.ts), the same value the spawn helpers use.
     testTimeout: process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : 5_000,
+    // The same floor for hooks. vitest's `hookTimeout` defaults to 10s and was never floored, so a
+    // stall that the per-test floor absorbs still killed a hook: response-format-coverage's
+    // `beforeAll` (one runtime for the whole file) "Hook timed out in 10000ms" on windows-latest,
+    // and the dead hook's temp dir then failed its cleanup with EPERM. Linux/macOS keep vitest's own
+    // default (10s) — spelled out so the two timeouts read as the pair they are.
+    hookTimeout: process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : 10_000,
     coverage: {
       provider: "v8",
       reporter: ["text-summary"],

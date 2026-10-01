@@ -15,6 +15,7 @@ import { registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM3Vault } from "./m3-helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 describe("periodic-tools branch coverage: stepDate across every period", () => {
@@ -540,25 +541,29 @@ describe("periodic-tools branch coverage: list_periodic_notes", () => {
     }
   });
 
-  it("sets overflow=true when the scan exceeds LIST_MAX_STEPS before reaching `to`", async () => {
-    const v = makeM3Vault();
-    try {
-      // Daily period steps by 1 day; a multi-decade range walks well past the 5000-step cap.
-      const r = await v.call("list_periodic_notes", {
-        vault: "test",
-        period: "daily",
-        from: "1990-01-01",
-        to: "2030-01-01",
-      });
-      expect(r.ok).toBe(true);
-      if (r.ok) {
-        const d = r.data as { overflow?: boolean };
-        expect(d.overflow).toBe(true);
+  it(
+    "sets overflow=true when the scan exceeds LIST_MAX_STEPS before reaching `to`",
+    async () => {
+      const v = makeM3Vault();
+      try {
+        // Daily period steps by 1 day; a multi-decade range walks well past the 5000-step cap.
+        const r = await v.call("list_periodic_notes", {
+          vault: "test",
+          period: "daily",
+          from: "1990-01-01",
+          to: "2030-01-01",
+        });
+        expect(r.ok).toBe(true);
+        if (r.ok) {
+          const d = r.data as { overflow?: boolean };
+          expect(d.overflow).toBe(true);
+        }
+      } finally {
+        v.cleanup();
       }
-    } finally {
-      v.cleanup();
-    }
-  }, 20000);
+    },
+    stallTimeout(20000),
+  );
 
   it("paginates with next_cursor, and a non-numeric cursor falls back to offset 0", async () => {
     const v = makeM3Vault({

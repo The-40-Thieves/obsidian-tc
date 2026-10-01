@@ -3,6 +3,7 @@
 //
 // Asserted against the event_log rows themselves, not against the recorder, because the wiring
 // (which seam records, with which source/route) is the part that can silently not happen.
+
 import { randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -29,6 +30,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { startHttp } from "../src/transports/http";
 import { requireConfirmation } from "../src/vault/hitl";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const SECRET_PATH = "zz-private-folder/secret-plan-7431.md";
 
@@ -419,23 +421,27 @@ describe("requestState (2026-era client-driven round trip, HTTP)", () => {
     ["decline", { action: "decline" }, "hitl_decline", 0],
     ["cancel", { action: "cancel" }, "hitl_cancel", 0],
   ] as const) {
-    it(`${label}: offered then ${outcome}, source request_state, client recorded`, async () => {
-      const h = await boot();
-      try {
-        const token = await jwt();
-        const first = await call(h.port, token);
-        const state = first.result.requestState as string;
-        await call(h.port, token, state, answer);
-        expect(h.effect.applied).toBe(applied);
-        expect(codes(h.db)).toEqual([
-          "hitl_offered request_state:direct:hitl-test",
-          `${outcome} request_state:direct:hitl-test`,
-        ]);
-        expect(hitlRows(h.db).every((r) => r.caller === "agent-1")).toBe(true);
-      } finally {
-        await h.close();
-      }
-    }, 25_000);
+    it(
+      `${label}: offered then ${outcome}, source request_state, client recorded`,
+      async () => {
+        const h = await boot();
+        try {
+          const token = await jwt();
+          const first = await call(h.port, token);
+          const state = first.result.requestState as string;
+          await call(h.port, token, state, answer);
+          expect(h.effect.applied).toBe(applied);
+          expect(codes(h.db)).toEqual([
+            "hitl_offered request_state:direct:hitl-test",
+            `${outcome} request_state:direct:hitl-test`,
+          ]);
+          expect(hitlRows(h.db).every((r) => r.caller === "agent-1")).toBe(true);
+        } finally {
+          await h.close();
+        }
+      },
+      stallTimeout(25_000),
+    );
   }
 });
 
@@ -538,7 +544,7 @@ describe("timeout is derived: an offer nobody answered within the TTL", () => {
     const [s] = readHitlConfirmationStats(seeded(), { sinceMs: 0, nowMs: now, ttlMs });
     expect(s).toMatchObject({
       tool: "write_note",
-      timeout: 2,
+      timeout: 2, // stall-ok: an outcome COUNT in the stats row, not a test budget
       decline: 1,
       accept: 1,
       tokenAccept: 1,

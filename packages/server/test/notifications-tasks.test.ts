@@ -10,6 +10,7 @@
 // The property that matters most is OWNERSHIP ON EVERY FRAME. A change feed is the easiest place to
 // undo an isolation guarantee, because the push side is what nobody re-checks: `tasks/get` can be
 // perfectly scoped while the stream quietly announces every caller's work to everyone.
+
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
@@ -20,6 +21,7 @@ import { JobQueue } from "../src/scheduler/job-queue";
 import { createHealthTool } from "../src/tools/admin/health";
 import { type HttpHandle, startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -123,111 +125,127 @@ async function collect(
 }
 
 describe("notifications/tasks (THE-583)", () => {
-  it("acknowledges the task subscription and pushes the caller's own task changes", async () => {
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "v1", caller: "agent-1" } });
-      const frames = await collect(handle.port, jwt, () => {
-        queue.recordOutcome(job.id, { ok: true, result: { ran: true } });
-      });
-      const ack = frames.find((f) => f.method === "notifications/subscriptions/acknowledged");
-      expect(ack?.params?.notifications?.[TASKS]).toBe(true);
-      const push = frames.find((f) => f.method === "notifications/tasks");
-      expect(push).toBeDefined();
-      expect(push?.params?.taskId).toBe(job.id);
-      // Full state on the frame — the point is eliminating the extra tasks/get round trip.
-      expect(push?.params).toHaveProperty("status");
-      expect(push?.params).toHaveProperty("ttlMs");
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
-
-  it("NEVER pushes another caller's task", async () => {
-    // The isolation case. tasks/get can be perfectly scoped while the push side announces
-    // everyone's work to everyone — and nothing would look wrong from either end.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const theirs = queue.enqueue("mcp_tool_call", {
-        owner: { vaultId: "v1", caller: "agent-2" },
-      });
-      const frames = await collect(handle.port, jwt, () => {
-        queue.recordOutcome(theirs.id, { ok: true, result: {} });
-      });
-      expect(frames.some((f) => f.method === "notifications/tasks")).toBe(false);
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
-
-  it("NEVER pushes internal maintenance work", async () => {
-    // Every pre-existing enqueue call site is this case: no owner, never MCP-visible.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const internal = queue.enqueue("reconcile");
-      const frames = await collect(handle.port, jwt, () => {
-        queue.recordOutcome(internal.id, { ok: true, result: {} });
-      });
-      expect(frames.some((f) => f.method === "notifications/tasks")).toBe(false);
-      expect(JSON.stringify(frames)).not.toContain("reconcile");
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
-
-  it("leaves a core subscriptions/listen to the SDK untouched", async () => {
-    // Only intercepted when the client actually asked for task notifications; shadowing the core
-    // stream would be a regression in the feature this was built alongside.
-    const { handle } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const ac = new AbortController();
-      const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
-        method: "POST",
-        signal: ac.signal,
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json, text/event-stream",
-          authorization: `Bearer ${jwt}`,
-          "mcp-protocol-version": MODERN,
-          "mcp-method": "subscriptions/listen",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "subscriptions/listen",
-          params: {
-            notifications: { toolsListChanged: true },
-            _meta: {
-              "io.modelcontextprotocol/protocolVersion": MODERN,
-              "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" },
-              "io.modelcontextprotocol/clientCapabilities": {},
-            },
-          },
-        }),
-      });
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("no stream body");
-      const dec = new TextDecoder();
-      setTimeout(() => ac.abort(), 1500);
-      let text = "";
+  it(
+    "acknowledges the task subscription and pushes the caller's own task changes",
+    async () => {
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
       try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          text += dec.decode(value);
-        }
-      } catch {
-        /* deadline */
+        const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "v1", caller: "agent-1" } });
+        const frames = await collect(handle.port, jwt, () => {
+          queue.recordOutcome(job.id, { ok: true, result: { ran: true } });
+        });
+        const ack = frames.find((f) => f.method === "notifications/subscriptions/acknowledged");
+        expect(ack?.params?.notifications?.[TASKS]).toBe(true);
+        const push = frames.find((f) => f.method === "notifications/tasks");
+        expect(push).toBeDefined();
+        expect(push?.params?.taskId).toBe(job.id);
+        // Full state on the frame — the point is eliminating the extra tasks/get round trip.
+        expect(push?.params).toHaveProperty("status");
+        expect(push?.params).toHaveProperty("ttlMs");
+      } finally {
+        await handle.close();
       }
-      // The SDK's ack echoes the CORE filter, not the extension key.
-      expect(text).toContain("notifications/subscriptions/acknowledged");
-      expect(text).toContain("toolsListChanged");
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "NEVER pushes another caller's task",
+    async () => {
+      // The isolation case. tasks/get can be perfectly scoped while the push side announces
+      // everyone's work to everyone — and nothing would look wrong from either end.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const theirs = queue.enqueue("mcp_tool_call", {
+          owner: { vaultId: "v1", caller: "agent-2" },
+        });
+        const frames = await collect(handle.port, jwt, () => {
+          queue.recordOutcome(theirs.id, { ok: true, result: {} });
+        });
+        expect(frames.some((f) => f.method === "notifications/tasks")).toBe(false);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "NEVER pushes internal maintenance work",
+    async () => {
+      // Every pre-existing enqueue call site is this case: no owner, never MCP-visible.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const internal = queue.enqueue("reconcile");
+        const frames = await collect(handle.port, jwt, () => {
+          queue.recordOutcome(internal.id, { ok: true, result: {} });
+        });
+        expect(frames.some((f) => f.method === "notifications/tasks")).toBe(false);
+        expect(JSON.stringify(frames)).not.toContain("reconcile");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "leaves a core subscriptions/listen to the SDK untouched",
+    async () => {
+      // Only intercepted when the client actually asked for task notifications; shadowing the core
+      // stream would be a regression in the feature this was built alongside.
+      const { handle } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const ac = new AbortController();
+        const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+          method: "POST",
+          signal: ac.signal,
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${jwt}`,
+            "mcp-protocol-version": MODERN,
+            "mcp-method": "subscriptions/listen",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "subscriptions/listen",
+            params: {
+              notifications: { toolsListChanged: true },
+              _meta: {
+                "io.modelcontextprotocol/protocolVersion": MODERN,
+                "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" },
+                "io.modelcontextprotocol/clientCapabilities": {},
+              },
+            },
+          }),
+        });
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("no stream body");
+        const dec = new TextDecoder();
+        setTimeout(() => ac.abort(), 1500);
+        let text = "";
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            text += dec.decode(value);
+          }
+        } catch {
+          /* deadline */
+        }
+        // The SDK's ack echoes the CORE filter, not the extension key.
+        expect(text).toContain("notifications/subscriptions/acknowledged");
+        expect(text).toContain("toolsListChanged");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 });

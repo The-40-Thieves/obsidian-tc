@@ -16,6 +16,7 @@
 // receives an event published by something outside any request at all (the vault watcher's real
 // case). A test that only checked the method routes would have passed against the old per-request
 // handler too, right up until a client tried to hold the stream open.
+
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
@@ -25,6 +26,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { createHealthTool } from "../src/tools/admin/health";
 import { type HttpHandle, startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -141,57 +143,69 @@ async function listen(
 }
 
 describe("subscriptions/listen (SEP-2575)", () => {
-  it("acknowledges the subscription and DELIVERS an event published outside any request", async () => {
-    const handle = await boot();
-    const jwt = await token();
-    try {
-      const frames = await listen(
-        handle.port,
-        jwt,
-        { toolsListChanged: true },
-        // The real case: nothing is in flight when the vault watcher fires. Publishing through the
-        // handle is the only path an out-of-band change has to an open stream.
-        () => handle.notify.toolsChanged(),
-        2,
-      );
-      expect(frames.length).toBeGreaterThanOrEqual(1);
-      const methods = frames.map((f) => (f as { method?: string }).method);
-      expect(methods).toContain("notifications/tools/list_changed");
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "acknowledges the subscription and DELIVERS an event published outside any request",
+    async () => {
+      const handle = await boot();
+      const jwt = await token();
+      try {
+        const frames = await listen(
+          handle.port,
+          jwt,
+          { toolsListChanged: true },
+          // The real case: nothing is in flight when the vault watcher fires. Publishing through the
+          // handle is the only path an out-of-band change has to an open stream.
+          () => handle.notify.toolsChanged(),
+          2,
+        );
+        expect(frames.length).toBeGreaterThanOrEqual(1);
+        const methods = frames.map((f) => (f as { method?: string }).method);
+        expect(methods).toContain("notifications/tools/list_changed");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("does not deliver a type the client did not opt into", async () => {
-    // Opt-in is the whole point of the mechanism: a stream that receives everything is the old
-    // standalone SSE endpoint this replaced.
-    const handle = await boot();
-    const jwt = await token();
-    try {
-      const frames = await listen(
-        handle.port,
-        jwt,
-        { toolsListChanged: true },
-        () => handle.notify.promptsChanged(),
-        2,
-        4000,
-      );
-      const methods = frames.map((f) => (f as { method?: string }).method);
-      expect(methods).not.toContain("notifications/prompts/list_changed");
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "does not deliver a type the client did not opt into",
+    async () => {
+      // Opt-in is the whole point of the mechanism: a stream that receives everything is the old
+      // standalone SSE endpoint this replaced.
+      const handle = await boot();
+      const jwt = await token();
+      try {
+        const frames = await listen(
+          handle.port,
+          jwt,
+          { toolsListChanged: true },
+          () => handle.notify.promptsChanged(),
+          2,
+          4000,
+        );
+        const methods = frames.map((f) => (f as { method?: string }).method);
+        expect(methods).not.toContain("notifications/prompts/list_changed");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("publishing with no stream open is a no-op, not a throw", async () => {
-    // The common case by far: the watcher fires constantly and nobody is listening.
-    const handle = await boot();
-    try {
-      expect(() => handle.notify.toolsChanged()).not.toThrow();
-      expect(() => handle.notify.resourcesChanged()).not.toThrow();
-      expect(() => handle.notify.resourceUpdated("obsidian://v1/x.md")).not.toThrow();
-    } finally {
-      await handle.close();
-    }
-  }, 20_000);
+  it(
+    "publishing with no stream open is a no-op, not a throw",
+    async () => {
+      // The common case by far: the watcher fires constantly and nobody is listening.
+      const handle = await boot();
+      try {
+        expect(() => handle.notify.toolsChanged()).not.toThrow();
+        expect(() => handle.notify.resourcesChanged()).not.toThrow();
+        expect(() => handle.notify.resourceUpdated("obsidian://v1/x.md")).not.toThrow();
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 });

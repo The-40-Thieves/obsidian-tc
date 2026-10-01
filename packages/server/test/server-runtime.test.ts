@@ -26,6 +26,7 @@ import {
 import { type Stores, wireStores } from "../src/runtime/stores";
 import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
 import { DEFAULT_TRACE_FOLDER, resolveTraceDirs } from "../src/workspace/sessions";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 // Symlink creation needs a privilege Windows does not grant by default — probed, not
@@ -140,7 +141,7 @@ describe("unwindReversed — reverse-ownership-order cleanup", () => {
 // so raising it where real I/O happens costs nothing and removes a class of false failures. A
 // genuine hang still fails, just 30s later. Deliberately NOT a retry: retries would also hide a
 // real intermittent bug, and one observed stall is not evidence of one.
-const STORE_IO_TIMEOUT_MS = 30_000;
+const STORE_IO_TIMEOUT_MS = stallTimeout(30_000);
 
 describe("wireRuntimeCore — argv-free composition with unwind on failure", {
   timeout: STORE_IO_TIMEOUT_MS,

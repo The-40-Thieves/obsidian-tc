@@ -5,6 +5,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const ENV_URL = "OBSIDIAN_TC_GATEWAY_URL";
@@ -77,51 +78,55 @@ describe("THE-822 follow-up: plane disabled + gateway configured -> reflect stay
     }
   });
 
-  it("reflect runs a real synthesis pass (available: true, live gateway) with plane.enabled: false", async () => {
-    globalThis.fetch = stubChatFetch();
+  it(
+    "reflect runs a real synthesis pass (available: true, live gateway) with plane.enabled: false",
+    async () => {
+      globalThis.fetch = stubChatFetch();
 
-    const vaultDir = tmpDir("otc-plane-disabled-vault-");
-    const config = configFromVaultPath(vaultDir);
-    config.cacheDir = tmpDir("otc-plane-disabled-cache-");
-    // The exact scenario THE-822's acceptance criterion 4 named: plane OFF, gateway present.
-    config.plane.enabled = false;
-    // Deterministic lexical routing — a quoted phrase short-circuits routeQuery to "lexical"
-    // (search/router.ts) so this test never touches the embeddings provider at all. classRouter is
-    // dark by default (retrieval.schema.ts), so it must be turned on for that short-circuit to run.
-    config.retrieval.classRouter = true;
+      const vaultDir = tmpDir("otc-plane-disabled-vault-");
+      const config = configFromVaultPath(vaultDir);
+      config.cacheDir = tmpDir("otc-plane-disabled-cache-");
+      // The exact scenario THE-822's acceptance criterion 4 named: plane OFF, gateway present.
+      config.plane.enabled = false;
+      // Deterministic lexical routing — a quoted phrase short-circuits routeQuery to "lexical"
+      // (search/router.ts) so this test never touches the embeddings provider at all. classRouter is
+      // dark by default (retrieval.schema.ts), so it must be turned on for that short-circuit to run.
+      config.retrieval.classRouter = true;
 
-    const runtime = await buildServerRuntime(config, join(vaultDir, "config.json"));
-    try {
-      const db: Database = openMemoryDb();
-      provisionCacheDb(db);
-      const ctx = {
-        caller: "test",
-        authenticated: true,
-        grantedScopes: new Set(["*"]),
-        vaultId: "main",
-        db,
-      };
+      const runtime = await buildServerRuntime(config, join(vaultDir, "config.json"));
+      try {
+        const db: Database = openMemoryDb();
+        provisionCacheDb(db);
+        const ctx = {
+          caller: "test",
+          authenticated: true,
+          grantedScopes: new Set(["*"]),
+          vaultId: "main",
+          db,
+        };
 
-      const res = un<ReflectData>(
-        await runtime.registry.dispatch(
-          "reflect",
-          { vault: "main", query: '"unbound roles regression probe"' },
-          ctx as never,
-        ),
-      );
+        const res = un<ReflectData>(
+          await runtime.registry.dispatch(
+            "reflect",
+            { vault: "main", query: '"unbound roles regression probe"' },
+            ctx as never,
+          ),
+        );
 
-      // Not vacuous: `available: false` with a "inference gateway not configured" message is a
-      // DIFFERENT, equally valid shape this same tool returns when `roles` is null
-      // (tools/m7/knowledge/reflect.ts) — asserting `available` alone without also pinning the
-      // live-gateway answer would pass whether or not `roles` actually reached wireDomainTools.
-      expect(res.available).toBe(true);
-      expect(res.answer).toBe("the stubbed answer");
-    } finally {
-      await runtime.close("test cleanup");
-    }
-    // THE-856: this asserts a wiring invariant (reflect stays available when plane.enabled=false),
-    // not a latency budget — the default 5s flakes only on windows-latest, where the ~24s
-    // perf-isolate test immediately preceding it leaves the runner saturated. A generous 15s
-    // absorbs that contention without weakening the assertion.
-  }, 15000);
+        // Not vacuous: `available: false` with a "inference gateway not configured" message is a
+        // DIFFERENT, equally valid shape this same tool returns when `roles` is null
+        // (tools/m7/knowledge/reflect.ts) — asserting `available` alone without also pinning the
+        // live-gateway answer would pass whether or not `roles` actually reached wireDomainTools.
+        expect(res.available).toBe(true);
+        expect(res.answer).toBe("the stubbed answer");
+      } finally {
+        await runtime.close("test cleanup");
+      }
+      // THE-856: this asserts a wiring invariant (reflect stays available when plane.enabled=false),
+      // not a latency budget — the default 5s flakes only on windows-latest, where the ~24s
+      // perf-isolate test immediately preceding it leaves the runner saturated. A generous 15s
+      // absorbs that contention without weakening the assertion.
+    },
+    stallTimeout(15000),
+  );
 });

@@ -9,6 +9,7 @@
 // The isolation cases are the point. A `tasks/get` that answered for someone else's id would look
 // completely normal in a passing suite — the queue would return a job, the projection would render
 // it, and nothing would throw.
+
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
@@ -20,6 +21,7 @@ import { JobQueue } from "../src/scheduler/job-queue";
 import { createHealthTool } from "../src/tools/admin/health";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const MODERN = "2026-07-28";
 const LEGACY = "2025-11-25";
@@ -144,248 +146,314 @@ async function rpc(
 }
 
 describe("tasks/get over the wire (THE-583)", () => {
-  it("returns a task the caller owns", async () => {
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
-      const r = await rpc(handle.port, jwt, "tasks/get", { taskId: job.id });
-      expect(r.error).toBeUndefined();
-      expect(r.result.taskId).toBe(job.id);
-      expect(r.result.status).toBe("working");
-      expect(r.result.pollIntervalMs).toBeGreaterThan(0);
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "returns a task the caller owns",
+    async () => {
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
+        const r = await rpc(handle.port, jwt, "tasks/get", { taskId: job.id });
+        expect(r.error).toBeUndefined();
+        expect(r.result.taskId).toBe(job.id);
+        expect(r.result.status).toBe("working");
+        expect(r.result.pollIntervalMs).toBeGreaterThan(0);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("HIDES internal maintenance work — the jobs nobody asked for", async () => {
-    // Reconcile, contradiction, synthesis, audit: all enqueued with no owner. Their payload and
-    // last_error carry vault paths and error text, and they are not the caller's tasks.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const internal = queue.enqueue("reconcile");
-      const r = await rpc(handle.port, jwt, "tasks/get", { taskId: internal.id });
-      expect(r.result).toBeUndefined();
-      expect(JSON.stringify(r)).not.toContain("reconcile");
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "HIDES internal maintenance work — the jobs nobody asked for",
+    async () => {
+      // Reconcile, contradiction, synthesis, audit: all enqueued with no owner. Their payload and
+      // last_error carry vault paths and error text, and they are not the caller's tasks.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const internal = queue.enqueue("reconcile");
+        const r = await rpc(handle.port, jwt, "tasks/get", { taskId: internal.id });
+        expect(r.result).toBeUndefined();
+        expect(JSON.stringify(r)).not.toContain("reconcile");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("HIDES another caller's task, indistinguishably from a missing one", async () => {
-    // Identical answers, deliberately: a different error for "exists but not yours" confirms an id
-    // is real, which is enough to enumerate another caller's ids by probing.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const theirs = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-2" } });
-      const foreign = await rpc(handle.port, jwt, "tasks/get", { taskId: theirs.id });
-      const missing = await rpc(handle.port, jwt, "tasks/get", { taskId: "no-such-task" });
-      expect(foreign.result).toBeUndefined();
-      expect(missing.result).toBeUndefined();
-      expect(foreign.error?.code).toBe(missing.error?.code);
-      expect(foreign.error?.message).toBe(missing.error?.message);
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "HIDES another caller's task, indistinguishably from a missing one",
+    async () => {
+      // Identical answers, deliberately: a different error for "exists but not yours" confirms an id
+      // is real, which is enough to enumerate another caller's ids by probing.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const theirs = queue.enqueue("caller_work", {
+          owner: { vaultId: "v1", caller: "agent-2" },
+        });
+        const foreign = await rpc(handle.port, jwt, "tasks/get", { taskId: theirs.id });
+        const missing = await rpc(handle.port, jwt, "tasks/get", { taskId: "no-such-task" });
+        expect(foreign.result).toBeUndefined();
+        expect(missing.result).toBeUndefined();
+        expect(foreign.error?.code).toBe(missing.error?.code);
+        expect(foreign.error?.message).toBe(missing.error?.message);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("is NOT served on a 2025 connection — Tasks does not exist in that revision", async () => {
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
-      const r = await rpc(handle.port, jwt, "tasks/get", { taskId: job.id }, LEGACY);
-      expect(r.result).toBeUndefined();
-      expect(r.error).toBeDefined();
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "is NOT served on a 2025 connection — Tasks does not exist in that revision",
+    async () => {
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
+        const r = await rpc(handle.port, jwt, "tasks/get", { taskId: job.id }, LEGACY);
+        expect(r.result).toBeUndefined();
+        expect(r.error).toBeDefined();
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 });
 
 describe("tasks/cancel over the wire (THE-583)", () => {
-  it("requests cancellation and acknowledges with an EMPTY result", async () => {
-    // The queue honours cancellation at the runner's next checkpoint, so there is no outcome to
-    // report yet — which is exactly why the schema makes this an empty ack.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
-      const r = await rpc(handle.port, jwt, "tasks/cancel", { taskId: job.id });
-      expect(r.error).toBeUndefined();
-      // `CancelTaskResult = Result` — an EMPTY acknowledgement. Returning the projected task would
-      // read as a report of the outcome, which cancellation cannot give: the work may still be
-      // running and may still reach a non-`cancelled` terminal state.
-      expect(r.result).toEqual({});
-      // The request itself did land, which is what the client asked for.
-      expect(queue.isCancelRequested(job.id)).toBe(true);
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "requests cancellation and acknowledges with an EMPTY result",
+    async () => {
+      // The queue honours cancellation at the runner's next checkpoint, so there is no outcome to
+      // report yet — which is exactly why the schema makes this an empty ack.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
+        const r = await rpc(handle.port, jwt, "tasks/cancel", { taskId: job.id });
+        expect(r.error).toBeUndefined();
+        // `CancelTaskResult = Result` — an EMPTY acknowledgement. Returning the projected task would
+        // read as a report of the outcome, which cancellation cannot give: the work may still be
+        // running and may still reach a non-`cancelled` terminal state.
+        expect(r.result).toEqual({});
+        // The request itself did land, which is what the client asked for.
+        expect(queue.isCancelRequested(job.id)).toBe(true);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("refuses to cancel a task the caller does not own", async () => {
-    // The one that matters most: cancelling someone else's work is a write, not a read.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const theirs = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-2" } });
-      const r = await rpc(handle.port, jwt, "tasks/cancel", { taskId: theirs.id });
-      expect(r.result).toBeUndefined();
-      expect(queue.isCancelRequested(theirs.id)).toBe(false);
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "refuses to cancel a task the caller does not own",
+    async () => {
+      // The one that matters most: cancelling someone else's work is a write, not a read.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const theirs = queue.enqueue("caller_work", {
+          owner: { vaultId: "v1", caller: "agent-2" },
+        });
+        const r = await rpc(handle.port, jwt, "tasks/cancel", { taskId: theirs.id });
+        expect(r.result).toBeUndefined();
+        expect(queue.isCancelRequested(theirs.id)).toBe(false);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("refuses to cancel internal maintenance work", async () => {
-    // Otherwise any caller could stop the server's own reconcile.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const internal = queue.enqueue("reconcile");
-      const r = await rpc(handle.port, jwt, "tasks/cancel", { taskId: internal.id });
-      expect(r.result).toBeUndefined();
-      expect(queue.isCancelRequested(internal.id)).toBe(false);
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "refuses to cancel internal maintenance work",
+    async () => {
+      // Otherwise any caller could stop the server's own reconcile.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const internal = queue.enqueue("reconcile");
+        const r = await rpc(handle.port, jwt, "tasks/cancel", { taskId: internal.id });
+        expect(r.result).toBeUndefined();
+        expect(queue.isCancelRequested(internal.id)).toBe(false);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 });
 
 describe("tasks/update over the wire (THE-583)", () => {
-  it("acknowledges with an EMPTY result", async () => {
-    // `UpdateTaskResult = Result`. Every key is unknown on this server — nothing in the queue can
-    // ask its caller a question mid-run, so no task reaches `input_required` and no inputRequests
-    // are ever outstanding. The spec's instruction for that case is to ignore unknown keys and
-    // acknowledge, NOT to error: it is not a client mistake, and an error makes a conformant client
-    // retry something that will never succeed.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
-      const r = await rpc(handle.port, jwt, "tasks/update", {
-        taskId: job.id,
-        inputResponses: { confirm: { action: "accept", content: {} } },
-      });
-      expect(r.error).toBeUndefined();
-      expect(r.result).toEqual({});
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "acknowledges with an EMPTY result",
+    async () => {
+      // `UpdateTaskResult = Result`. Every key is unknown on this server — nothing in the queue can
+      // ask its caller a question mid-run, so no task reaches `input_required` and no inputRequests
+      // are ever outstanding. The spec's instruction for that case is to ignore unknown keys and
+      // acknowledge, NOT to error: it is not a client mistake, and an error makes a conformant client
+      // retry something that will never succeed.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
+        const r = await rpc(handle.port, jwt, "tasks/update", {
+          taskId: job.id,
+          inputResponses: { confirm: { action: "accept", content: {} } },
+        });
+        expect(r.error).toBeUndefined();
+        expect(r.result).toEqual({});
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("rejects a call with no inputResponses — the schema makes it REQUIRED", async () => {
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
-      const r = await rpc(handle.port, jwt, "tasks/update", { taskId: job.id });
-      expect(r.result).toBeUndefined();
-      expect(r.error?.code).toBe(-32602);
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "rejects a call with no inputResponses — the schema makes it REQUIRED",
+    async () => {
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
+        const r = await rpc(handle.port, jwt, "tasks/update", { taskId: job.id });
+        expect(r.result).toBeUndefined();
+        expect(r.error?.code).toBe(-32602);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("refuses to update a task the caller does not own", async () => {
-    // Same isolation as get/cancel, and it must be checked BEFORE the ack: an unconditional empty
-    // result would confirm nothing, but it would also mean the ownership branch never runs — and
-    // the next person to give this method real behaviour would inherit an unguarded path.
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const theirs = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-2" } });
-      const r = await rpc(handle.port, jwt, "tasks/update", {
-        taskId: theirs.id,
-        inputResponses: {},
-      });
-      expect(r.result).toBeUndefined();
-      expect(r.error).toBeDefined();
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "refuses to update a task the caller does not own",
+    async () => {
+      // Same isolation as get/cancel, and it must be checked BEFORE the ack: an unconditional empty
+      // result would confirm nothing, but it would also mean the ownership branch never runs — and
+      // the next person to give this method real behaviour would inherit an unguarded path.
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const theirs = queue.enqueue("caller_work", {
+          owner: { vaultId: "v1", caller: "agent-2" },
+        });
+        const r = await rpc(handle.port, jwt, "tasks/update", {
+          taskId: theirs.id,
+          inputResponses: {},
+        });
+        expect(r.result).toBeUndefined();
+        expect(r.error).toBeDefined();
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("refuses to update internal maintenance work", async () => {
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const internal = queue.enqueue("reconcile");
-      const r = await rpc(handle.port, jwt, "tasks/update", {
-        taskId: internal.id,
-        inputResponses: {},
-      });
-      expect(r.result).toBeUndefined();
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "refuses to update internal maintenance work",
+    async () => {
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const internal = queue.enqueue("reconcile");
+        const r = await rpc(handle.port, jwt, "tasks/update", {
+          taskId: internal.id,
+          inputResponses: {},
+        });
+        expect(r.result).toBeUndefined();
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("is NOT served on a 2025 connection", async () => {
-    const { handle, queue } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
-      const r = await rpc(
-        handle.port,
-        jwt,
-        "tasks/update",
-        { taskId: job.id, inputResponses: {} },
-        LEGACY,
-      );
-      expect(r.result).toBeUndefined();
-      expect(r.error).toBeDefined();
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "is NOT served on a 2025 connection",
+    async () => {
+      const { handle, queue } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const job = queue.enqueue("caller_work", { owner: { vaultId: "v1", caller: "agent-1" } });
+        const r = await rpc(
+          handle.port,
+          jwt,
+          "tasks/update",
+          { taskId: job.id, inputResponses: {} },
+          LEGACY,
+        );
+        expect(r.result).toBeUndefined();
+        expect(r.error).toBeDefined();
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 });
 
 describe("task creation is SERVER-DIRECTED off the client capability (THE-583)", () => {
-  it("returns a CreateTaskResult when the client declared the Tasks extension", async () => {
-    // The decisive one: the SDK VALIDATES outbound tools/call results against the era's wire schema,
-    // and the Tasks extension has no SDK runtime. If `resultType: "task"` did not survive that
-    // validation, task creation could not ride tools/call at all.
-    const { handle } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const r = await callTool(handle.port, jwt, "slow_thing", META_TASKS);
-      expect(r.error).toBeUndefined();
-      expect(r.result.resultType).toBe("task");
-      expect(typeof r.result.taskId).toBe("string");
-      expect(r.result.status).toBe("working");
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "returns a CreateTaskResult when the client declared the Tasks extension",
+    async () => {
+      // The decisive one: the SDK VALIDATES outbound tools/call results against the era's wire schema,
+      // and the Tasks extension has no SDK runtime. If `resultType: "task"` did not survive that
+      // validation, task creation could not ride tools/call at all.
+      const { handle } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const r = await callTool(handle.port, jwt, "slow_thing", META_TASKS);
+        expect(r.error).toBeUndefined();
+        expect(r.result.resultType).toBe("task");
+        expect(typeof r.result.taskId).toBe("string");
+        expect(r.result.status).toBe("working");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("runs SYNCHRONOUSLY for a client that did not declare it — never hand it a handle", async () => {
-    // "Never return a task to a client that did not declare support." Such a client cannot poll
-    // `tasks/get`, so a handle would lose the work outright.
-    const { handle } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const r = await callTool(handle.port, jwt, "slow_thing", META);
-      expect(r.error).toBeUndefined();
-      expect(r.result.resultType).not.toBe("task");
-      expect(r.result.taskId).toBeUndefined();
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "runs SYNCHRONOUSLY for a client that did not declare it — never hand it a handle",
+    async () => {
+      // "Never return a task to a client that did not declare support." Such a client cannot poll
+      // `tasks/get`, so a handle would lose the work outright.
+      const { handle } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const r = await callTool(handle.port, jwt, "slow_thing", META);
+        expect(r.error).toBeUndefined();
+        expect(r.result.resultType).not.toBe("task");
+        expect(r.result.taskId).toBeUndefined();
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("runs synchronously for a NON-augmentable tool even with the capability", async () => {
-    const { handle } = await boot();
-    const jwt = await tokenFor("agent-1");
-    try {
-      const r = await callTool(handle.port, jwt, "health", META_TASKS);
-      expect(r.result?.resultType).not.toBe("task");
-    } finally {
-      await handle.close();
-    }
-  }, 25_000);
+  it(
+    "runs synchronously for a NON-augmentable tool even with the capability",
+    async () => {
+      const { handle } = await boot();
+      const jwt = await tokenFor("agent-1");
+      try {
+        const r = await callTool(handle.port, jwt, "health", META_TASKS);
+        expect(r.result?.resultType).not.toBe("task");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 });

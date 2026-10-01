@@ -1,6 +1,7 @@
 // `auth.mode: "oidc"` over the real HTTP transport and /metrics: the edge stays undifferentiated,
 // the identity feeds the SAME scope/vault/persona pipeline jwt mode uses (parity), and Protected
 // Resource Metadata advertises the external issuer.
+
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,6 +14,7 @@ import { createMetricsApp } from "../src/metrics/endpoint";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
 import { AUDIENCE, ISSUER, type MockIdp, publicResolver, startMockIdp } from "./oidc-mock-provider";
+import { stallTimeout } from "./stall-timeouts";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -140,67 +142,79 @@ const hsToken = (claims: Record<string, unknown>) => {
 };
 
 describe("oidc over HTTP", () => {
-  it("a valid IdP token reaches the tool with its mapped identity", async () => {
-    const h = await bootOidc();
-    try {
-      const r = await whoami(h.port, await idp.sign({ scope: "read:notes write:notes" }));
-      expect(r.status).toBe(200);
-      expect(r.body).toMatchObject({
-        caller: "user-1",
-        vaultId: "main",
-        scopes: ["read:notes", "write:notes"],
-        persona: null,
-      });
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
-
-  it("every refusal is the same undifferentiated 401; the reason goes only to the operator sink", async () => {
-    const seen: string[] = [];
-    const h = await bootOidc({}, {}, (d) => seen.push(d.reason));
-    try {
-      const now = Math.floor(Date.now() / 1000);
-      const bad = [
-        await idp.sign({ exp: now - 600 }),
-        await idp.sign({ iss: "https://evil.test" }),
-        await idp.sign({ aud: "https://other.example.com" }),
-        "not-a-jwt",
-      ];
-      const bodies: string[] = [];
-      for (const t of bad) {
-        const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            accept: "application/json, text/event-stream",
-            authorization: `Bearer ${t}`,
-          },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+  it(
+    "a valid IdP token reaches the tool with its mapped identity",
+    async () => {
+      const h = await bootOidc();
+      try {
+        const r = await whoami(h.port, await idp.sign({ scope: "read:notes write:notes" }));
+        expect(r.status).toBe(200);
+        expect(r.body).toMatchObject({
+          caller: "user-1",
+          vaultId: "main",
+          scopes: ["read:notes", "write:notes"],
+          persona: null,
         });
-        expect(res.status).toBe(401);
-        bodies.push(await res.text());
+      } finally {
+        await h.close();
       }
-      expect(new Set(bodies).size).toBe(1);
-      expect(seen.slice(0, 3)).toEqual(["token_expired", "issuer_mismatch", "audience_mismatch"]);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+    },
+    stallTimeout(30_000),
+  );
 
-  it("no verifier (should never happen) refuses rather than admitting: fail closed", async () => {
-    const parsed = ServerConfigSchema.parse({
-      ...CONFIG_BASE,
-      auth: { mode: "oidc", oidc: { issuer: ISSUER, audience: AUDIENCE } },
-    });
-    const h = await boot(parsed, {});
-    try {
-      const r = await whoami(h.port, await idp.sign());
-      expect([401, 500]).toContain(r.status);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+  it(
+    "every refusal is the same undifferentiated 401; the reason goes only to the operator sink",
+    async () => {
+      const seen: string[] = [];
+      const h = await bootOidc({}, {}, (d) => seen.push(d.reason));
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const bad = [
+          await idp.sign({ exp: now - 600 }),
+          await idp.sign({ iss: "https://evil.test" }),
+          await idp.sign({ aud: "https://other.example.com" }),
+          "not-a-jwt",
+        ];
+        const bodies: string[] = [];
+        for (const t of bad) {
+          const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              accept: "application/json, text/event-stream",
+              authorization: `Bearer ${t}`,
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+          });
+          expect(res.status).toBe(401);
+          bodies.push(await res.text());
+        }
+        expect(new Set(bodies).size).toBe(1);
+        expect(seen.slice(0, 3)).toEqual(["token_expired", "issuer_mismatch", "audience_mismatch"]);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "no verifier (should never happen) refuses rather than admitting: fail closed",
+    async () => {
+      const parsed = ServerConfigSchema.parse({
+        ...CONFIG_BASE,
+        auth: { mode: "oidc", oidc: { issuer: ISSUER, audience: AUDIENCE } },
+      });
+      const h = await boot(parsed, {});
+      try {
+        const r = await whoami(h.port, await idp.sign());
+        expect([401, 500]).toContain(r.status);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
   // The same claims, delivered by an HS256 jwt-mode server and by an IdP through oidc mode, must
   // resolve to the same caller context: scopes, vault binding and persona all flow into one
@@ -232,88 +246,104 @@ describe("oidc over HTTP", () => {
       { name: "no scopes", jwt: { sub: "u" }, oidc: { sub: "u" } },
     ];
     for (const c of cases) {
-      it(c.name, async () => {
+      it(
+        c.name,
+        async () => {
+          const j = await bootJwt();
+          const o = await bootOidc(c.oidcCfg);
+          try {
+            const a = await whoami(j.port, await hsToken(c.jwt));
+            const b = await whoami(
+              o.port,
+              await idp.sign(c.oidc, { unset: c.oidc.scope === undefined ? ["scope"] : [] }),
+            );
+            expect(b.status).toBe(a.status);
+            expect(b.body).toEqual(a.body);
+            expect(a.status).toBe(200);
+          } finally {
+            await j.close();
+            await o.close();
+          }
+        },
+        stallTimeout(30_000),
+      );
+    }
+
+    it(
+      "a persona outside the bound vault is refused identically",
+      async () => {
         const j = await bootJwt();
-        const o = await bootOidc(c.oidcCfg);
+        const o = await bootOidc({
+          claimMapping: {
+            persona: "p",
+            allowedPersonas: ["researcher"],
+            vault: "v",
+            allowedVaults: ["scratch"],
+          },
+        });
         try {
-          const a = await whoami(j.port, await hsToken(c.jwt));
-          const b = await whoami(
-            o.port,
-            await idp.sign(c.oidc, { unset: c.oidc.scope === undefined ? ["scope"] : [] }),
+          const a = await whoami(
+            j.port,
+            await hsToken({ sub: "u", persona: "researcher", vault: "scratch" }),
           );
-          expect(b.status).toBe(a.status);
-          expect(b.body).toEqual(a.body);
-          expect(a.status).toBe(200);
+          const b = await whoami(o.port, await idp.sign({ p: "researcher", v: "scratch" }));
+          expect([a.status, b.status]).toEqual([401, 401]);
         } finally {
           await j.close();
           await o.close();
         }
-      }, 30_000);
-    }
-
-    it("a persona outside the bound vault is refused identically", async () => {
-      const j = await bootJwt();
-      const o = await bootOidc({
-        claimMapping: {
-          persona: "p",
-          allowedPersonas: ["researcher"],
-          vault: "v",
-          allowedVaults: ["scratch"],
-        },
-      });
-      try {
-        const a = await whoami(
-          j.port,
-          await hsToken({ sub: "u", persona: "researcher", vault: "scratch" }),
-        );
-        const b = await whoami(o.port, await idp.sign({ p: "researcher", v: "scratch" }));
-        expect([a.status, b.status]).toEqual([401, 401]);
-      } finally {
-        await j.close();
-        await o.close();
-      }
-    }, 30_000);
+      },
+      stallTimeout(30_000),
+    );
   });
 
   describe("Protected Resource Metadata", () => {
-    it("serves the external issuer as the authorization server and challenges with resource_metadata", async () => {
-      const h = await bootOidc({}, { resource: RESOURCE, scopesSupported: ["read:notes"] });
-      try {
-        for (const path of [
-          "/.well-known/oauth-protected-resource",
-          "/.well-known/oauth-protected-resource/mcp",
-        ]) {
-          const res = await fetch(`http://127.0.0.1:${h.port}${path}`);
-          expect(res.status).toBe(200);
-          expect(await res.json()).toEqual({
-            resource: RESOURCE,
-            authorization_servers: [ISSUER],
-            scopes_supported: ["read:notes"],
-            bearer_methods_supported: ["header"],
-          });
+    it(
+      "serves the external issuer as the authorization server and challenges with resource_metadata",
+      async () => {
+        const h = await bootOidc({}, { resource: RESOURCE, scopesSupported: ["read:notes"] });
+        try {
+          for (const path of [
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/mcp",
+          ]) {
+            const res = await fetch(`http://127.0.0.1:${h.port}${path}`);
+            expect(res.status).toBe(200);
+            expect(await res.json()).toEqual({
+              resource: RESOURCE,
+              authorization_servers: [ISSUER],
+              scopes_supported: ["read:notes"],
+              bearer_methods_supported: ["header"],
+            });
+          }
+          const r = await whoami(h.port, "junk");
+          expect(r.status).toBe(401);
+          const challenge = r.headers.get("www-authenticate") ?? "";
+          expect(challenge).toContain(
+            'resource_metadata="https://vault.example.com/.well-known/oauth-protected-resource/mcp"',
+          );
+          expect(challenge).toContain('scope="read:notes"');
+        } finally {
+          await h.close();
         }
-        const r = await whoami(h.port, "junk");
-        expect(r.status).toBe(401);
-        const challenge = r.headers.get("www-authenticate") ?? "";
-        expect(challenge).toContain(
-          'resource_metadata="https://vault.example.com/.well-known/oauth-protected-resource/mcp"',
-        );
-        expect(challenge).toContain('scope="read:notes"');
-      } finally {
-        await h.close();
-      }
-    }, 30_000);
+      },
+      stallTimeout(30_000),
+    );
 
-    it("without a configured resource no PRM is served (RFC 9728 requires resource)", async () => {
-      const h = await bootOidc();
-      try {
-        expect(
-          (await fetch(`http://127.0.0.1:${h.port}/.well-known/oauth-protected-resource`)).status,
-        ).toBe(404);
-      } finally {
-        await h.close();
-      }
-    }, 30_000);
+    it(
+      "without a configured resource no PRM is served (RFC 9728 requires resource)",
+      async () => {
+        const h = await bootOidc();
+        try {
+          expect(
+            (await fetch(`http://127.0.0.1:${h.port}/.well-known/oauth-protected-resource`)).status,
+          ).toBe(404);
+        } finally {
+          await h.close();
+        }
+      },
+      stallTimeout(30_000),
+    );
   });
 });
 

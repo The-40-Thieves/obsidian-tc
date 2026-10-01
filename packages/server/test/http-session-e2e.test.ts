@@ -15,6 +15,7 @@
 // The in-memory `ActiveSessionTracker` is deliberately NOT wired into these tools. It is the
 // mechanism that made stdio work and HTTP not work, and leaving it out means a pass here can only
 // come from the durable SQLite path.
+
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
@@ -32,6 +33,7 @@ import { buildSessionTools } from "../src/tools/m5/session-tools";
 import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -192,150 +194,173 @@ function loggedSessions(edb: Database): Array<string | null> {
 }
 
 describe("THE-726 end-to-end: a dispatch over HTTP lands a non-NULL session_id", () => {
-  it("correlates a retrieval to the session the SAME principal opened over the same transport", async () => {
-    const h = await boot();
-    try {
-      // `sub` is the observed principal; `caller` below is the declared one. They differ on purpose
-      // — if this test used the same string for both, it would pass identically against a resolver
-      // keyed on the caller-supplied field, which is precisely the vulnerable implementation.
-      const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
+  it(
+    "correlates a retrieval to the session the SAME principal opened over the same transport",
+    async () => {
+      const h = await boot();
+      try {
+        // `sub` is the observed principal; `caller` below is the declared one. They differ on purpose
+        // — if this test used the same string for both, it would pass identically against a resolver
+        // keyed on the caller-supplied field, which is precisely the vulnerable implementation.
+        const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
 
-      // The baseline that made the bug invisible for months: before any session exists, the probe
-      // logs a NULL. This assertion is what gives the next one meaning — without it, a resolver
-      // that returned a constant would look like a fix.
-      await call(h.port, alice, "probe_retrieval", {});
-      expect(loggedSessions(h.edb)).toEqual([null]);
+        // The baseline that made the bug invisible for months: before any session exists, the probe
+        // logs a NULL. This assertion is what gives the next one meaning — without it, a resolver
+        // that returned a constant would look like a fix.
+        await call(h.port, alice, "probe_retrieval", {});
+        expect(loggedSessions(h.edb)).toEqual([null]);
 
-      const started = await call(h.port, alice, "start_session", {
-        vault: "main",
-        caller: "agent-alpha",
-      });
-      const sessionId = started.session_id as string;
-      expect(sessionId).toMatch(/^sess_[0-9a-f]{24}$/);
+        const started = await call(h.port, alice, "start_session", {
+          vault: "main",
+          caller: "agent-alpha",
+        });
+        const sessionId = started.session_id as string;
+        expect(sessionId).toMatch(/^sess_[0-9a-f]{24}$/);
 
-      // The claim. A second, entirely independent HTTP request — new context, new handler serving
-      // unit, nothing cached between them — carries the session, and the retrieval row records it.
-      const probed = await call(h.port, alice, "probe_retrieval", {});
-      expect(probed.session_id).toBe(sessionId);
-      expect(loggedSessions(h.edb)).toEqual([null, sessionId]);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        // The claim. A second, entirely independent HTTP request — new context, new handler serving
+        // unit, nothing cached between them — carries the session, and the retrieval row records it.
+        const probed = await call(h.port, alice, "probe_retrieval", {});
+        expect(probed.session_id).toBe(sessionId);
+        expect(loggedSessions(h.edb)).toEqual([null, sessionId]);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("does NOT hand one principal's session to another who merely declares its `caller`", async () => {
-    const h = await boot();
-    try {
-      const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
-      const mallory = await tokenFor("mallory", ["write:workspace", "read:notes"], "main");
+  it(
+    "does NOT hand one principal's session to another who merely declares its `caller`",
+    async () => {
+      const h = await boot();
+      try {
+        const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
+        const mallory = await tokenFor("mallory", ["write:workspace", "read:notes"], "main");
 
-      const started = await call(h.port, alice, "start_session", {
-        vault: "main",
-        caller: "agent-alpha",
-      });
-      const aliceSession = started.session_id as string;
+        const started = await call(h.port, alice, "start_session", {
+          vault: "main",
+          caller: "agent-alpha",
+        });
+        const aliceSession = started.session_id as string;
 
-      // mallory holds write:workspace legitimately. She declares alice's exact `caller` string,
-      // which is free text on start_session's input and therefore hers to choose. Holding that scope
-      // must not imply the right to read alice's retrieval correlation.
-      const probed = await call(h.port, mallory, "probe_retrieval", {});
-      expect(probed.session_id).toBeNull();
+        // mallory holds write:workspace legitimately. She declares alice's exact `caller` string,
+        // which is free text on start_session's input and therefore hers to choose. Holding that scope
+        // must not imply the right to read alice's retrieval correlation.
+        const probed = await call(h.port, mallory, "probe_retrieval", {});
+        expect(probed.session_id).toBeNull();
 
-      // THE COLLISION, which is the assertion that actually pins the column choice. The two fields
-      // live in different namespaces and nothing keeps them apart: `caller` is free text a client
-      // picks (typically a role name — "agent-alpha", "claude-code"), while `principal` is a token
-      // `sub` an issuer mints. A principal whose name happens to equal alice's declared string is
-      // an ordinary accident, and under a resolver keyed on `caller` it silently inherits alice's
-      // session. Asserted before mallory opens her own session so there is exactly one row bearing
-      // this `caller` and the leak, if it happened, could only be alice's.
-      const impostor = await tokenFor("agent-alpha", ["write:workspace", "read:notes"], "main");
-      expect((await call(h.port, impostor, "probe_retrieval", {})).session_id).toBeNull();
+        // THE COLLISION, which is the assertion that actually pins the column choice. The two fields
+        // live in different namespaces and nothing keeps them apart: `caller` is free text a client
+        // picks (typically a role name — "agent-alpha", "claude-code"), while `principal` is a token
+        // `sub` an issuer mints. A principal whose name happens to equal alice's declared string is
+        // an ordinary accident, and under a resolver keyed on `caller` it silently inherits alice's
+        // session. Asserted before mallory opens her own session so there is exactly one row bearing
+        // this `caller` and the leak, if it happened, could only be alice's.
+        const impostor = await tokenFor("agent-alpha", ["write:workspace", "read:notes"], "main");
+        expect((await call(h.port, impostor, "probe_retrieval", {})).session_id).toBeNull();
 
-      // And declaring it on her OWN session must not make that session alice's either.
-      const mallorySession = (
-        await call(h.port, mallory, "start_session", { vault: "main", caller: "agent-alpha" })
-      ).session_id as string;
-      const probedAgain = await call(h.port, mallory, "probe_retrieval", {});
-      expect(probedAgain.session_id).toBe(mallorySession);
-      expect(probedAgain.session_id).not.toBe(aliceSession);
+        // And declaring it on her OWN session must not make that session alice's either.
+        const mallorySession = (
+          await call(h.port, mallory, "start_session", { vault: "main", caller: "agent-alpha" })
+        ).session_id as string;
+        const probedAgain = await call(h.port, mallory, "probe_retrieval", {});
+        expect(probedAgain.session_id).toBe(mallorySession);
+        expect(probedAgain.session_id).not.toBe(aliceSession);
 
-      // alice is unaffected throughout.
-      expect((await call(h.port, alice, "probe_retrieval", {})).session_id).toBe(aliceSession);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        // alice is unaffected throughout.
+        expect((await call(h.port, alice, "probe_retrieval", {})).session_id).toBe(aliceSession);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("stops correlating once the session is ended, on the next request", async () => {
-    const h = await boot();
-    try {
-      const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
-      const sessionId = (
-        await call(h.port, alice, "start_session", { vault: "main", caller: "agent-alpha" })
-      ).session_id as string;
-      expect((await call(h.port, alice, "probe_retrieval", {})).session_id).toBe(sessionId);
+  it(
+    "stops correlating once the session is ended, on the next request",
+    async () => {
+      const h = await boot();
+      try {
+        const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
+        const sessionId = (
+          await call(h.port, alice, "start_session", { vault: "main", caller: "agent-alpha" })
+        ).session_id as string;
+        expect((await call(h.port, alice, "probe_retrieval", {})).session_id).toBe(sessionId);
 
-      await call(h.port, alice, "end_session", { vault: "main", session_id: sessionId });
+        await call(h.port, alice, "end_session", { vault: "main", session_id: sessionId });
 
-      // Resolution is per request, so the very next dispatch must already see it closed. A cached
-      // context would keep correlating a dead session indefinitely.
-      expect((await call(h.port, alice, "probe_retrieval", {})).session_id).toBeNull();
-      expect(loggedSessions(h.edb)).toEqual([sessionId, null]);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        // Resolution is per request, so the very next dispatch must already see it closed. A cached
+        // context would keep correlating a dead session indefinitely.
+        expect((await call(h.port, alice, "probe_retrieval", {})).session_id).toBeNull();
+        expect(loggedSessions(h.edb)).toEqual([sessionId, null]);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("does not attach a session opened against a vault this token is not bound to", async () => {
-    const h = await boot();
-    try {
-      // Same principal, two tokens. This is the case the vault match in contextFromAuthInfo exists
-      // for: attaching `main`'s session to an `agents`-bound request would point its JSONL trace at
-      // a vault the request cannot touch (THE-267 makes dispatch reject the vault argument, but the
-      // session is attached by the transport, below that check).
-      const onMain = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
-      const onAgents = await tokenFor("alice", ["write:workspace", "read:notes"], "agents");
+  it(
+    "does not attach a session opened against a vault this token is not bound to",
+    async () => {
+      const h = await boot();
+      try {
+        // Same principal, two tokens. This is the case the vault match in contextFromAuthInfo exists
+        // for: attaching `main`'s session to an `agents`-bound request would point its JSONL trace at
+        // a vault the request cannot touch (THE-267 makes dispatch reject the vault argument, but the
+        // session is attached by the transport, below that check).
+        const onMain = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
+        const onAgents = await tokenFor("alice", ["write:workspace", "read:notes"], "agents");
 
-      const mainSession = (
-        await call(h.port, onMain, "start_session", { vault: "main", caller: "agent-alpha" })
-      ).session_id as string;
+        const mainSession = (
+          await call(h.port, onMain, "start_session", { vault: "main", caller: "agent-alpha" })
+        ).session_id as string;
 
-      expect((await call(h.port, onAgents, "probe_retrieval", {})).session_id).toBeNull();
-      expect((await call(h.port, onMain, "probe_retrieval", {})).session_id).toBe(mainSession);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        expect((await call(h.port, onAgents, "probe_retrieval", {})).session_id).toBeNull();
+        expect((await call(h.port, onMain, "probe_retrieval", {})).session_id).toBe(mainSession);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("keeps concurrent principals' sessions separate under interleaved dispatch", async () => {
-    const h = await boot();
-    try {
-      const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
-      const bob = await tokenFor("bob", ["write:workspace", "read:notes"], "main");
-      const a = (
-        await call(h.port, alice, "start_session", { vault: "main", caller: "shared-declaration" })
-      ).session_id as string;
-      const b = (
-        await call(h.port, bob, "start_session", { vault: "main", caller: "shared-declaration" })
-      ).session_id as string;
-      expect(a).not.toBe(b);
+  it(
+    "keeps concurrent principals' sessions separate under interleaved dispatch",
+    async () => {
+      const h = await boot();
+      try {
+        const alice = await tokenFor("alice", ["write:workspace", "read:notes"], "main");
+        const bob = await tokenFor("bob", ["write:workspace", "read:notes"], "main");
+        const a = (
+          await call(h.port, alice, "start_session", {
+            vault: "main",
+            caller: "shared-declaration",
+          })
+        ).session_id as string;
+        const b = (
+          await call(h.port, bob, "start_session", { vault: "main", caller: "shared-declaration" })
+        ).session_id as string;
+        expect(a).not.toBe(b);
 
-      // Sequential assertions can pass on a resolver that memoises the first principal it saw;
-      // concurrency is where that actually bites.
-      const [pa, pb, pa2] = await Promise.all([
-        call(h.port, alice, "probe_retrieval", {}),
-        call(h.port, bob, "probe_retrieval", {}),
-        call(h.port, alice, "probe_retrieval", {}),
-      ]);
-      expect(pa.session_id).toBe(a);
-      expect(pb.session_id).toBe(b);
-      expect(pa2.session_id).toBe(a);
+        // Sequential assertions can pass on a resolver that memoises the first principal it saw;
+        // concurrency is where that actually bites.
+        const [pa, pb, pa2] = await Promise.all([
+          call(h.port, alice, "probe_retrieval", {}),
+          call(h.port, bob, "probe_retrieval", {}),
+          call(h.port, alice, "probe_retrieval", {}),
+        ]);
+        expect(pa.session_id).toBe(a);
+        expect(pb.session_id).toBe(b);
+        expect(pa2.session_id).toBe(a);
 
-      // Both declared the identical `caller`, so a row set that came out all-one-session would mean
-      // the declaration won.
-      expect(new Set(loggedSessions(h.edb))).toEqual(new Set([a, b]));
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        // Both declared the identical `caller`, so a row set that came out all-one-session would mean
+        // the declaration won.
+        expect(new Set(loggedSessions(h.edb))).toEqual(new Set([a, b]));
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 });

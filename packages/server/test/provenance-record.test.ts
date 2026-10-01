@@ -4,6 +4,7 @@
 // tool that really writes a file, so the digests are checked against bytes on disk. The trust
 // tagging is checked end to end: through the MCP server with `_meta` claims (self_reported), and
 // through the HTTP transport with a verified jwt versus `auth.mode: none` (authVerified).
+
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
@@ -21,6 +22,7 @@ import { resolveHostId } from "../src/provenance/recorder";
 import { extractClaimedProvenance, PROVENANCE_META_KEY } from "../src/provenance/types";
 import { startHttp } from "../src/transports/http";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const root = makeTempDir("obtc-prov-rec-");
@@ -378,52 +380,64 @@ describe("authVerified only after jwt/oidc acceptance (HTTP transport)", () => {
       .sign(new TextEncoder().encode(secret));
   };
 
-  it("a verified token: principal is `verified`; the claimed model stays self_reported", async () => {
-    const fx = await provenanceFixture();
-    const h = await boot("jwt", fx);
-    try {
-      expect(await call(h.port, await token("agent-http"), "h1.md")).toBe(200);
-    } finally {
-      await h.close();
-    }
-    const [rec] = records(fx);
-    expect(rec.verified).toMatchObject({ principal: "agent-http", transport: "http" });
-    expect(rec.unauthenticated).toEqual({});
-    expect(rec.self_reported).toMatchObject({
-      model: "http-claimed",
-      client: { name: "http-client", version: "1" },
-    });
-  }, 30_000);
+  it(
+    "a verified token: principal is `verified`; the claimed model stays self_reported",
+    async () => {
+      const fx = await provenanceFixture();
+      const h = await boot("jwt", fx);
+      try {
+        expect(await call(h.port, await token("agent-http"), "h1.md")).toBe(200);
+      } finally {
+        await h.close();
+      }
+      const [rec] = records(fx);
+      expect(rec.verified).toMatchObject({ principal: "agent-http", transport: "http" });
+      expect(rec.unauthenticated).toEqual({});
+      expect(rec.self_reported).toMatchObject({
+        model: "http-claimed",
+        client: { name: "http-client", version: "1" },
+      });
+    },
+    stallTimeout(30_000),
+  );
 
-  it("a token that fails verification reaches no write and leaves no record", async () => {
-    const fx = await provenanceFixture();
-    const h = await boot("jwt", fx);
-    let status = 0;
-    try {
-      status = await call(
-        h.port,
-        await token("intruder", "a-different-secret-0123456789abcdef"),
-        "h2.md",
-      );
-    } finally {
-      await h.close();
-    }
-    expect(status).toBe(401);
-    expect(rowsFor(fx.db)).toHaveLength(0);
-  }, 30_000);
+  it(
+    "a token that fails verification reaches no write and leaves no record",
+    async () => {
+      const fx = await provenanceFixture();
+      const h = await boot("jwt", fx);
+      let status = 0;
+      try {
+        status = await call(
+          h.port,
+          await token("intruder", "a-different-secret-0123456789abcdef"),
+          "h2.md",
+        );
+      } finally {
+        await h.close();
+      }
+      expect(status).toBe(401);
+      expect(rowsFor(fx.db)).toHaveLength(0);
+    },
+    stallTimeout(30_000),
+  );
 
-  it("auth.mode none: the loopback label is unauthenticated, never verified", async () => {
-    const fx = await provenanceFixture();
-    const h = await boot("none", fx);
-    try {
-      expect(await call(h.port, undefined, "h3.md")).toBe(200);
-    } finally {
-      await h.close();
-    }
-    const [rec] = records(fx);
-    expect(rec.verified.principal).toBeUndefined();
-    expect(rec.unauthenticated).toEqual({ principal: "http-local" });
-  }, 30_000);
+  it(
+    "auth.mode none: the loopback label is unauthenticated, never verified",
+    async () => {
+      const fx = await provenanceFixture();
+      const h = await boot("none", fx);
+      try {
+        expect(await call(h.port, undefined, "h3.md")).toBe(200);
+      } finally {
+        await h.close();
+      }
+      const [rec] = records(fx);
+      expect(rec.verified.principal).toBeUndefined();
+      expect(rec.unauthenticated).toEqual({ principal: "http-local" });
+    },
+    stallTimeout(30_000),
+  );
 });
 
 describe("path guard: what a digest may read", () => {

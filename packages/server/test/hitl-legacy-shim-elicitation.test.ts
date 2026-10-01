@@ -44,6 +44,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { startHttp } from "../src/transports/http";
 import { requireConfirmation } from "../src/vault/hitl";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 // The exact SDK version this suite's shim-reachability assumptions are proven against — bump
 // deliberately (and re-verify the trace above) if this package version changes.
@@ -522,95 +523,103 @@ describe("THE-1106 fix round 1: legacyElicitationShim is STDIO-ONLY (addendum 2)
       .sign(new TextEncoder().encode(SECRET));
   }
 
-  it("a legacy-era HTTP session with elicitation:{} still gets the plain error, no round trip", async () => {
-    // THE-1106 fix round 2 (LOW 2, cross-vendor review): this behavioural test alone is WEAKER
-    // than it looks — stateless legacy HTTP never runs a real `initialize` handshake on its
-    // ephemeral Server instance, so `canElicit` already fails regardless of what `legacyShim` was
-    // passed at construction; this test would still pass even with the explicit assertion removed
-    // entirely (measured). The REAL proof that HTTP construction passes `{ legacyShim: false }` —
-    // not merely that this ONE client shape happens not to trigger it — is the constructor-spy
-    // unit test in test/hitl-legacy-shim-construction.test.ts. Kept here as an end-to-end sanity
-    // check of the observable behaviour, not as the primary evidence.
-    const h = await bootHttp();
-    const jwt = await token();
-    try {
-      // No mcp-protocol-version header at all == legacy (matches http.ts's era classification for
-      // an unversioned/pre-2026 request). The response comes back as a normal, single, synchronous
-      // JSON-RPC result carrying the plain error, not a hung request awaiting a leg — a "spy on the
-      // wire" isn't meaningful over stateless request/response HTTP (no persistent socket to push
-      // a server-initiated request down mid-response).
-      const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json, text/event-stream",
-          authorization: `Bearer ${jwt}`,
-          "mcp-method": "tools/call",
-          "mcp-name": "danger_write",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: "danger_write",
-            arguments: { path: "a.md" },
-            _meta: {
-              "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" },
-              "io.modelcontextprotocol/clientCapabilities": { elicitation: {} },
-            },
+  it(
+    "a legacy-era HTTP session with elicitation:{} still gets the plain error, no round trip",
+    async () => {
+      // THE-1106 fix round 2 (LOW 2, cross-vendor review): this behavioural test alone is WEAKER
+      // than it looks — stateless legacy HTTP never runs a real `initialize` handshake on its
+      // ephemeral Server instance, so `canElicit` already fails regardless of what `legacyShim` was
+      // passed at construction; this test would still pass even with the explicit assertion removed
+      // entirely (measured). The REAL proof that HTTP construction passes `{ legacyShim: false }` —
+      // not merely that this ONE client shape happens not to trigger it — is the constructor-spy
+      // unit test in test/hitl-legacy-shim-construction.test.ts. Kept here as an end-to-end sanity
+      // check of the observable behaviour, not as the primary evidence.
+      const h = await bootHttp();
+      const jwt = await token();
+      try {
+        // No mcp-protocol-version header at all == legacy (matches http.ts's era classification for
+        // an unversioned/pre-2026 request). The response comes back as a normal, single, synchronous
+        // JSON-RPC result carrying the plain error, not a hung request awaiting a leg — a "spy on the
+        // wire" isn't meaningful over stateless request/response HTTP (no persistent socket to push
+        // a server-initiated request down mid-response).
+        const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${jwt}`,
+            "mcp-method": "tools/call",
+            "mcp-name": "danger_write",
           },
-        }),
-      });
-      const text = await res.text();
-      const line = text.split("\n").find((l) => l.startsWith("data: "));
-      const body = JSON.parse(line ? line.slice(6) : text || "{}");
-      const content = body.result?.content as Array<{ type: string; text: string }> | undefined;
-      expect(content?.[0]?.text).toContain("Error [elicit_required]");
-      expect(body.result?.resultType).not.toBe("input_required");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "danger_write",
+              arguments: { path: "a.md" },
+              _meta: {
+                "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" },
+                "io.modelcontextprotocol/clientCapabilities": { elicitation: {} },
+              },
+            },
+          }),
+        });
+        const text = await res.text();
+        const line = text.split("\n").find((l) => l.startsWith("data: "));
+        const body = JSON.parse(line ? line.slice(6) : text || "{}");
+        const content = body.result?.content as Array<{ type: string; text: string }> | undefined;
+        expect(content?.[0]?.text).toContain("Error [elicit_required]");
+        expect(body.result?.resultType).not.toBe("input_required");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("the modern SEP-2260 inputRequired path is still unaffected on HTTP (regression guard)", async () => {
-    const h = await bootHttp();
-    const jwt = await token();
-    try {
-      const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json, text/event-stream",
-          authorization: `Bearer ${jwt}`,
-          "mcp-protocol-version": MODERN,
-          "mcp-method": "tools/call",
-          "mcp-name": "danger_write",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: "danger_write",
-            arguments: { path: "a.md" },
-            _meta: {
-              "io.modelcontextprotocol/protocolVersion": MODERN,
-              "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" },
-              "io.modelcontextprotocol/clientCapabilities": { elicitation: { form: {} } },
-            },
+  it(
+    "the modern SEP-2260 inputRequired path is still unaffected on HTTP (regression guard)",
+    async () => {
+      const h = await bootHttp();
+      const jwt = await token();
+      try {
+        const res = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${jwt}`,
+            "mcp-protocol-version": MODERN,
+            "mcp-method": "tools/call",
+            "mcp-name": "danger_write",
           },
-        }),
-      });
-      const text = await res.text();
-      const line = text.split("\n").find((l) => l.startsWith("data: "));
-      const body = JSON.parse(line ? line.slice(6) : text || "{}");
-      expect(body.result?.resultType).toBe("input_required");
-      expect(typeof body.result?.requestState).toBe("string");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "danger_write",
+              arguments: { path: "a.md" },
+              _meta: {
+                "io.modelcontextprotocol/protocolVersion": MODERN,
+                "io.modelcontextprotocol/clientInfo": { name: "t", version: "1" },
+                "io.modelcontextprotocol/clientCapabilities": { elicitation: { form: {} } },
+              },
+            },
+          }),
+        });
+        const text = await res.text();
+        const line = text.split("\n").find((l) => l.startsWith("data: "));
+        const body = JSON.parse(line ? line.slice(6) : text || "{}");
+        expect(body.result?.resultType).toBe("input_required");
+        expect(typeof body.result?.requestState).toBe("string");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 });
 
 describe("THE-1106 fix round 1: clientSupportsFormElicitation predicate", () => {

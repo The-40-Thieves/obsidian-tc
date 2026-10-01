@@ -21,6 +21,7 @@ import { createHealthTool } from "../src/tools/admin/health";
 import { type HttpHandle, startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -72,7 +73,7 @@ beforeAll(async () => {
   jwt = await new SignJWT({ sub: "a", scopes: ["*"], aud: "http://test", iat: now, exp: now + 600 })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .sign(new TextEncoder().encode(SECRET));
-}, 30_000);
+}, stallTimeout(30_000));
 
 afterAll(async () => {
   await handle?.close();
@@ -119,51 +120,75 @@ async function rpc(
 }
 
 describe("SEP-2567 — protocol sessions are gone", () => {
-  it("never issues an Mcp-Session-Id", async () => {
-    const r = await rpc("tools/list");
-    expect(r.headers.get("mcp-session-id")).toBeNull();
-    expect(r.body.error).toBeUndefined();
-  }, 20_000);
+  it(
+    "never issues an Mcp-Session-Id",
+    async () => {
+      const r = await rpc("tools/list");
+      expect(r.headers.get("mcp-session-id")).toBeNull();
+      expect(r.body.error).toBeUndefined();
+    },
+    stallTimeout(20_000),
+  );
 
-  it("serves a request that carries no session header at all", async () => {
-    // The whole point of statelessness: no prior exchange is required.
-    const r = await rpc("tools/list");
-    expect(Array.isArray(r.body.result?.tools)).toBe(true);
-  }, 20_000);
+  it(
+    "serves a request that carries no session header at all",
+    async () => {
+      // The whole point of statelessness: no prior exchange is required.
+      const r = await rpc("tools/list");
+      expect(Array.isArray(r.body.result?.tools)).toBe(true);
+    },
+    stallTimeout(20_000),
+  );
 });
 
 describe("SEP-2575 — removed methods stay removed", () => {
   // A method the revision deleted, still answered, is a conformance failure no feature test notices.
   for (const method of ["ping", "logging/setLevel", "initialize"]) {
-    it(`refuses ${method}`, async () => {
-      const r = await rpc(method, method === "logging/setLevel" ? { level: "debug" } : {});
-      expect(r.body.result).toBeUndefined();
-      expect(r.body.error).toBeDefined();
-    }, 20_000);
+    it(
+      `refuses ${method}`,
+      async () => {
+        const r = await rpc(method, method === "logging/setLevel" ? { level: "debug" } : {});
+        expect(r.body.result).toBeUndefined();
+        expect(r.body.error).toBeDefined();
+      },
+      stallTimeout(20_000),
+    );
   }
 });
 
 describe("SEP-2575 — server/discover replaces the handshake", () => {
-  it("advertises versions, capabilities and the tasks extension", async () => {
-    const r = await rpc("server/discover");
-    expect(r.body.error).toBeUndefined();
-    expect(r.body.result.supportedVersions).toContain(MODERN);
-    expect(r.body.result.capabilities).toBeDefined();
-    expect(r.body.result.capabilities.extensions["io.modelcontextprotocol/tasks"]).toBeDefined();
-  }, 20_000);
+  it(
+    "advertises versions, capabilities and the tasks extension",
+    async () => {
+      const r = await rpc("server/discover");
+      expect(r.body.error).toBeUndefined();
+      expect(r.body.result.supportedVersions).toContain(MODERN);
+      expect(r.body.result.capabilities).toBeDefined();
+      expect(r.body.result.capabilities.extensions["io.modelcontextprotocol/tasks"]).toBeDefined();
+    },
+    stallTimeout(20_000),
+  );
 
-  it("declares listChanged, without which a subscription filter is silently empty", async () => {
-    const r = await rpc("server/discover");
-    expect(r.body.result.capabilities.tools.listChanged).toBe(true);
-    expect(r.body.result.capabilities.prompts.listChanged).toBe(true);
-  }, 20_000);
+  it(
+    "declares listChanged, without which a subscription filter is silently empty",
+    async () => {
+      const r = await rpc("server/discover");
+      expect(r.body.result.capabilities.tools.listChanged).toBe(true);
+      expect(r.body.result.capabilities.prompts.listChanged).toBe(true);
+    },
+    stallTimeout(20_000),
+  );
 });
 
 describe("SEP-2322 — every result carries resultType", () => {
-  it('tags an ordinary result "complete"', async () => {
-    const r = await rpc("tools/list");
-    expect(r.body.result.resultType).toBe("complete");
-  }, 20_000);
+  it(
+    'tags an ordinary result "complete"',
+    async () => {
+      const r = await rpc("tools/list");
+      expect(r.body.result.resultType).toBe("complete");
+    },
+    stallTimeout(20_000),
+  );
 });
 
 describe("SEP-2549 — cacheable results carry ttlMs and cacheScope", () => {
@@ -176,107 +201,127 @@ describe("SEP-2549 — cacheable results carry ttlMs and cacheScope", () => {
     ["resources/read", { uri: "obsidian-tc://v1/note.md" }, "obsidian-tc://v1/note.md"],
   ];
   for (const [method, params, name] of cases) {
-    it(`${method} carries both`, async () => {
-      const r = await rpc(method, params, name);
-      expect(r.body.error).toBeUndefined();
-      expect(typeof r.body.result.ttlMs).toBe("number");
-      expect(["public", "private"]).toContain(r.body.result.cacheScope);
-    }, 20_000);
+    it(
+      `${method} carries both`,
+      async () => {
+        const r = await rpc(method, params, name);
+        expect(r.body.error).toBeUndefined();
+        expect(typeof r.body.result.ttlMs).toBe("number");
+        expect(["public", "private"]).toContain(r.body.result.cacheScope);
+      },
+      stallTimeout(20_000),
+    );
   }
 
-  it("keeps prompts PUBLIC and tools PRIVATE — cacheScope is a security decision", async () => {
-    // tools/list is filtered by grantedScopes, so a shared cache reusing one caller's response for
-    // another is a scope leak. prompts/list is identical for every caller.
-    const tools = await rpc("tools/list");
-    const prompts = await rpc("prompts/list");
-    expect(tools.body.result.cacheScope).toBe("private");
-    expect(prompts.body.result.cacheScope).toBe("public");
-  }, 20_000);
+  it(
+    "keeps prompts PUBLIC and tools PRIVATE — cacheScope is a security decision",
+    async () => {
+      // tools/list is filtered by grantedScopes, so a shared cache reusing one caller's response for
+      // another is a scope leak. prompts/list is identical for every caller.
+      const tools = await rpc("tools/list");
+      const prompts = await rpc("prompts/list");
+      expect(tools.body.result.cacheScope).toBe("private");
+      expect(prompts.body.result.cacheScope).toBe("public");
+    },
+    stallTimeout(20_000),
+  );
 });
 
 describe("SEP-2243 — required request headers", () => {
-  it("rejects a body/header mismatch with the RENUMBERED code -32020", async () => {
-    // The 2026 error-allocation policy moved HeaderMismatch from -32001 to -32020.
-    const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        authorization: `Bearer ${jwt}`,
-        "mcp-protocol-version": MODERN,
-        "mcp-method": "tools/call",
-        // Mcp-Name deliberately absent while the body names a tool.
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: {
-          name: "health",
-          arguments: {},
-          _meta: {
-            "io.modelcontextprotocol/protocolVersion": MODERN,
-            "io.modelcontextprotocol/clientInfo": { name: "c", version: "1" },
-            "io.modelcontextprotocol/clientCapabilities": {},
-          },
+  it(
+    "rejects a body/header mismatch with the RENUMBERED code -32020",
+    async () => {
+      // The 2026 error-allocation policy moved HeaderMismatch from -32001 to -32020.
+      const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${jwt}`,
+          "mcp-protocol-version": MODERN,
+          "mcp-method": "tools/call",
+          // Mcp-Name deliberately absent while the body names a tool.
         },
-      }),
-    });
-    const body = (await res.json()) as { error?: { code?: number } };
-    expect(body.error?.code).toBe(-32020);
-  }, 20_000);
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "health",
+            arguments: {},
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": MODERN,
+              "io.modelcontextprotocol/clientInfo": { name: "c", version: "1" },
+              "io.modelcontextprotocol/clientCapabilities": {},
+            },
+          },
+        }),
+      });
+      const body = (await res.json()) as { error?: { code?: number } };
+      expect(body.error?.code).toBe(-32020);
+    },
+    stallTimeout(20_000),
+  );
 });
 
 describe("SEP-2575 — SSE resumability was removed", () => {
-  it("does not advertise a resumable stream (no Last-Event-ID contract)", async () => {
-    // A broken stream loses the in-flight request; clients re-issue with a new id. Emitting SSE
-    // event ids would advertise a redelivery guarantee this revision deleted.
-    const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        authorization: `Bearer ${jwt}`,
-        "mcp-protocol-version": MODERN,
-        "mcp-method": "tools/list",
-        "last-event-id": "42",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/list",
-        params: {
-          _meta: {
-            "io.modelcontextprotocol/protocolVersion": MODERN,
-            "io.modelcontextprotocol/clientInfo": { name: "c", version: "1" },
-            "io.modelcontextprotocol/clientCapabilities": {},
-          },
+  it(
+    "does not advertise a resumable stream (no Last-Event-ID contract)",
+    async () => {
+      // A broken stream loses the in-flight request; clients re-issue with a new id. Emitting SSE
+      // event ids would advertise a redelivery guarantee this revision deleted.
+      const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${jwt}`,
+          "mcp-protocol-version": MODERN,
+          "mcp-method": "tools/list",
+          "last-event-id": "42",
         },
-      }),
-    });
-    const text = await res.text();
-    // The request is served normally; the header is simply not a resumption cursor.
-    expect(text).toContain('"result"');
-    expect(text).not.toMatch(/^id: /m);
-  }, 20_000);
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: {
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": MODERN,
+              "io.modelcontextprotocol/clientInfo": { name: "c", version: "1" },
+              "io.modelcontextprotocol/clientCapabilities": {},
+            },
+          },
+        }),
+      });
+      const text = await res.text();
+      // The request is served normally; the header is simply not a resumption cursor.
+      expect(text).toContain('"result"');
+      expect(text).not.toMatch(/^id: /m);
+    },
+    stallTimeout(20_000),
+  );
 });
 
 describe("2025 clients keep working (dual-era)", () => {
-  it("serves a 2025-11-25 tools/list unchanged", async () => {
-    // LiteLLM's client ceilings at 2025-11-25. Breaking it is not an option.
-    const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        authorization: `Bearer ${jwt}`,
-        "mcp-protocol-version": "2025-11-25",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-    });
-    const text = await res.text();
-    const line = text.split("\n").find((l) => l.startsWith("data: "));
-    const body = JSON.parse(line ? line.slice(6) : text);
-    expect(Array.isArray(body.result?.tools)).toBe(true);
-  }, 20_000);
+  it(
+    "serves a 2025-11-25 tools/list unchanged",
+    async () => {
+      // LiteLLM's client ceilings at 2025-11-25. Breaking it is not an option.
+      const res = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${jwt}`,
+          "mcp-protocol-version": "2025-11-25",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      });
+      const text = await res.text();
+      const line = text.split("\n").find((l) => l.startsWith("data: "));
+      const body = JSON.parse(line ? line.slice(6) : text);
+      expect(Array.isArray(body.result?.tools)).toBe(true);
+    },
+    stallTimeout(20_000),
+  );
 });
