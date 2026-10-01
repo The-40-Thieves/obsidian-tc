@@ -1,8 +1,10 @@
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/server";
 import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import { type ResponseFormat, resolveResponseFormat } from "../tools/response-format";
 import { enforcePathAcl } from "../vault/acl-path";
 import { readableRel } from "../vault/acl-read-filter";
+import { splitFrontmatterBody } from "../vault/frontmatter";
 import { noteExists, readNote, statNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
@@ -199,6 +201,12 @@ export function listResources(
  * `aclFor` is REQUIRED for the same reason: the folder/rule-scope ACL enforced is the one of the
  * vault the URI resolves to (per-vault override, else the root default), not `ctx.acl` blindly —
  * see aclOfVault. read_resources calls this per item, so both surfaces share the one rule.
+ *
+ * `format` (GH #1027): "concise" returns the note body without its frontmatter block (read_note's
+ * concise body); "detailed" (the default, byte-identical to before) returns the raw markdown.
+ * Everything before the final return, the scope, vault binding, ACLs and the size ceiling (checked
+ * against the RAW size), is the same for both. resources/read carries no parameters, so its caller
+ * resolves `format` from the config default alone; read_resources resolves it per call.
  */
 export function readResource(
   vaultRegistry: VaultRegistry,
@@ -206,6 +214,7 @@ export function readResource(
   uri: string,
   maxResourceBytes: number,
   aclFor: VaultAclResolver,
+  format: ResponseFormat = "detailed",
 ): ReadResourceResult {
   assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
   const { vaultId, relPath } = parseResourceUri(uri);
@@ -244,7 +253,8 @@ export function readResource(
       { uri, size: stat.size, budget: maxResourceBytes },
     );
   const { raw } = readNote(abs);
-  return { contents: [{ uri, mimeType: MIME_MARKDOWN, text: raw }] };
+  const text = format === "concise" ? splitFrontmatterBody(raw) : raw;
+  return { contents: [{ uri, mimeType: MIME_MARKDOWN, text }] };
 }
 
 /**
@@ -253,13 +263,24 @@ export function readResource(
  * and the registry's per-vault ACL resolver — so the server cannot pass one and forget the other.
  */
 export function readResourceFor(
-  registry: Pick<ToolRegistry, "maxResponseBytes" | "aclFor">,
+  opts: {
+    registry: Pick<ToolRegistry, "maxResponseBytes" | "aclFor">;
+    /** GH #1027: `tools.defaults.responseFormat`. resources/read has no parameters, so this is the
+     *  only thing that can select the concise shape. */
+    responseFormat?: ResponseFormat | undefined;
+  },
   vaultRegistry: VaultRegistry,
   ctx: CallerContext,
   uri: string,
 ): ReadResourceResult {
-  return readResource(vaultRegistry, ctx, uri, registry.maxResponseBytes, (id) =>
-    registry.aclFor(id),
+  const { registry } = opts;
+  return readResource(
+    vaultRegistry,
+    ctx,
+    uri,
+    registry.maxResponseBytes,
+    (id) => registry.aclFor(id),
+    resolveResponseFormat({}, opts.responseFormat),
   );
 }
 

@@ -390,6 +390,90 @@ describe("append_active_file / patch_active_file", () => {
   });
 });
 
+describe("response_format (GH #1027): the active-file tools hand it to their delegates", () => {
+  const PATCH = {
+    vault: "test",
+    operation: "append",
+    anchor: { type: "heading", heading: "Todo" },
+    content: "- two",
+  };
+  const keys = (o: unknown): string[] => Object.keys(o as object).sort();
+
+  it("patch_active_file: unset and detailed carry patch_note's full ack; concise is the short one", async () => {
+    const run = async (extra: Record<string, unknown>) => {
+      const h = harness({ files: { "Notes/a.md": NOTE_A } });
+      h.focus("Notes/a.md");
+      return okData(await h.call("patch_active_file", { ...PATCH, ...extra }));
+    };
+    const unset = await run({});
+    const detailed = await run({ response_format: "detailed" });
+    expect(keys(detailed)).toEqual(keys(unset));
+    expect(keys(unset)).toEqual(
+      expect.arrayContaining(["anchor", "operation", "prev_hash", "content_hash", "path", "vault"]),
+    );
+    const concise = await run({ response_format: "concise" });
+    expect(keys(concise)).toEqual(["content_hash", "path", "vault"]);
+    expect(concise.path).toBe("Notes/a.md");
+    expect(concise.content_hash).toBe(unset.content_hash);
+    // The legacy alias is accepted on the same input.
+    expect(keys(await run({ verbosity: "terse" }))).toEqual(["content_hash", "path", "vault"]);
+  });
+
+  it("patch_active_file still edits the note and still reports a blast radius when concise", async () => {
+    const h = harness({ files: { "Notes/a.md": NOTE_A } });
+    h.focus("Notes/a.md");
+    const d = okData(
+      await h.call("patch_active_file", {
+        vault: "test",
+        operation: "replace_text",
+        anchor: { type: "heading", heading: "Todo" },
+        old_string: "- one",
+        new_string: "- uno",
+        response_format: "concise",
+      }),
+    );
+    expect(keys(d)).toEqual(["bytes_removed", "content_hash", "lines_removed", "path", "vault"]);
+    expect(h.read("Notes/a.md")).toContain("- uno");
+  });
+
+  it("get_active_file: concise is read_note's body-only read plus the active-file fields", async () => {
+    const files = { "Notes/a.md": `---\ntitle: A\n---\n${NOTE_A}` };
+    const h = harness({ files });
+    h.focus("Notes/a.md");
+    const full = okData(await h.call("get_active_file", { vault: "test" }));
+    expect(full.content).toBe(files["Notes/a.md"]);
+    const d = okData(
+      await h.call("get_active_file", { vault: "test", response_format: "concise" }),
+    );
+    expect(keys(d)).toEqual(["body", "content_hash", "extension", "is_markdown", "path", "vault"]);
+    expect(d.body).toBe(NOTE_A);
+    expect(d.content_hash).toBe(full.content_hash);
+  });
+
+  it("get_active_file: a non-markdown active file answers the same metadata in both formats", async () => {
+    const h = harness({ files: { "Boards/plan.canvas": "{}" } });
+    h.focus("Boards/plan.canvas");
+    const full = okData(await h.call("get_active_file", { vault: "test" }));
+    const d = okData(
+      await h.call("get_active_file", { vault: "test", response_format: "concise" }),
+    );
+    expect(d).toEqual(full);
+  });
+
+  it("append_active_file and update_active_file already inherit the parameter from their delegates", async () => {
+    const h = harness({ files: { "Notes/a.md": NOTE_A } });
+    h.focus("Notes/a.md");
+    const ap = okData(
+      await h.call("append_active_file", {
+        vault: "test",
+        content: "- two",
+        response_format: "concise",
+      }),
+    );
+    expect(keys(ap)).toEqual(["content_hash", "path", "vault"]);
+  });
+});
+
 describe("delete_active_file", () => {
   it("is destructive: no token -> elicit_required, note untouched; with the token it is trashed", async () => {
     const h = harness({ files: { "Notes/a.md": NOTE_A } });

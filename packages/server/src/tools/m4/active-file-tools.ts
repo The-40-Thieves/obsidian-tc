@@ -37,6 +37,7 @@ import {
   WriteInput,
   WriteNoteOutput,
 } from "../m1/notes/schemas";
+import { ResponseFormatInput } from "../response-format";
 import {
   bridgeTimeouts,
   companionUnreachable,
@@ -151,7 +152,9 @@ async function delegate(
 const { path: _path, ...ActivePatchShape } = PatchInputShape;
 const PatchActiveInput = z.object(ActivePatchShape).strict().superRefine(refinePatchInput);
 
-const ReadActiveInput = z.object({ vault: VaultId, anchor: PatchAnchor.optional() }).strict();
+const ReadActiveInput = z
+  .object({ vault: VaultId, anchor: PatchAnchor.optional(), ...ResponseFormatInput })
+  .strict();
 
 /** get_active_file's result: read_note's fields for a markdown note; metadata alone otherwise. */
 const GetActiveOutput = ReadNoteOutput.partial().extend({
@@ -175,7 +178,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       domain: "workspace",
       vaultArg: "vault",
       description:
-        "Read the note currently open in the live Obsidian session (same result as read_note, including the optional anchor section). Resolves the active file through the companion plugin, then reads it under the normal read scope and folder ACL. When the active file is not markdown (a canvas, PDF or image) it returns its path, extension and stat only. Errors, never guesses: note_not_found with reason no_active_file when nothing is open; plugin_unreachable / requires_live_obsidian when there is no live session.",
+        "Read the note currently open in the live Obsidian session (same result as read_note, including the optional anchor section). Resolves the active file through the companion plugin, then reads it under the normal read scope and folder ACL. response_format=concise is read_note's (the body, or just the section, without frontmatter). When the active file is not markdown (a canvas, PDF or image) it returns its path, extension and stat only. Errors, never guesses: note_not_found with reason no_active_file when nothing is open; plugin_unreachable / requires_live_obsidian when there is no live session.",
       inputSchema: ReadActiveInput,
       outputSchema: GetActiveOutput,
       requiredScopes: ["read:notes"],
@@ -188,7 +191,13 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
           const note = (await delegate(
             lookup,
             "read_note",
-            { vault: input.vault, path: input.path, anchor: input.anchor },
+            {
+              vault: input.vault,
+              path: input.path,
+              anchor: input.anchor,
+              response_format: input.response_format,
+              verbosity: input.verbosity,
+            },
             ctx,
           )) as z.infer<typeof ReadNoteOutput>;
           return { ...note, extension, is_markdown: true };
@@ -249,7 +258,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       domain: "workspace",
       vaultArg: "vault",
       description:
-        "Patch a section of the note currently open in the live Obsidian session (patch_note, aimed at the active note): append, prepend, replace or replace_text under a heading, block reference or the frontmatter preamble. Same anchors, prev_hash compare-and-swap, confirm_replace guard, snapshot and memoryDefense rules as patch_note. Refuses a non-markdown active file.",
+        "Patch a section of the note currently open in the live Obsidian session (patch_note, aimed at the active note): append, prepend, replace or replace_text under a heading, block reference or the frontmatter preamble. Same anchors, prev_hash compare-and-swap, confirm_replace guard, snapshot and memoryDefense rules as patch_note; response_format=concise is patch_note's acknowledgement. Refuses a non-markdown active file.",
       inputSchema: PatchActiveInput,
       outputSchema: PatchNoteOutput,
       requiredScopes: ["write:notes"],

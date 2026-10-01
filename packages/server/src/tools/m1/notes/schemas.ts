@@ -98,9 +98,16 @@ export const ReadNotesOutput = z.object({
 });
 
 /** One read_resources item, in request order: the same `{uri, mimeType, text}` a single
- *  resources/read returns, or a per-item error (`size` + `budget` accompany `too_large`). */
+ *  resources/read returns, or a per-item error (`size` + `budget` accompany `too_large`).
+ *  GH #1027: response_format=concise drops mimeType (always text/markdown) and the frontmatter
+ *  block from `text`. */
 export const ReadResourcesItem = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), uri: z.string(), mimeType: z.string(), text: z.string() }),
+  z.object({
+    ok: z.literal(true),
+    uri: z.string(),
+    mimeType: z.string().optional(),
+    text: z.string(),
+  }),
   z.object({
     ok: z.literal(false),
     uri: z.string(),
@@ -119,12 +126,15 @@ export const ReadResourcesOutput = z.object({
   next_cursor: z.string().nullable(),
 });
 
+// GH #1027: response_format=concise returns {vault, notes: [{path}], next_cursor}.
 export const ListNotesOutput = z.object({
   vault: z.string(),
-  folder: z.string(),
-  notes: z.array(z.object({ path: z.string(), size: z.number(), mtime: z.number() })),
+  folder: z.string().optional(),
+  notes: z.array(
+    z.object({ path: z.string(), size: z.number().optional(), mtime: z.number().optional() }),
+  ),
   next_cursor: z.string().nullable(),
-  total_returned: z.number(),
+  total_returned: z.number().optional(),
 });
 
 export const NoteExistsOutput = z.object({
@@ -313,6 +323,7 @@ export const PatchInputShape = {
   // for replace_text (a bounded, uniqueness-checked substitution is not the operation this
   // guards against).
   confirm_replace: z.boolean().default(false),
+  ...ResponseFormatInput,
 };
 
 /** The cross-field rules of a patch request: which of content / old_string / new_string each
@@ -373,12 +384,7 @@ export function refinePatchInput(
   }
 }
 
-// response_format is deliberately NOT in PatchInputShape: patch_active_file derives its own input from
-// that shape and does not shape its response, so accepting the parameter there would be a silent no-op.
-export const PatchInput = z
-  .object({ ...PatchInputShape, ...ResponseFormatInput })
-  .strict()
-  .superRefine(refinePatchInput);
+export const PatchInput = z.object(PatchInputShape).strict().superRefine(refinePatchInput);
 
 export const MoveInput = z
   .object({
@@ -421,6 +427,7 @@ export const ListInput = z
     folder: VaultPath.optional(),
     recursive: z.boolean().default(true),
     extensions: z.array(z.string().min(1)).optional(),
+    ...ResponseFormatInput,
   })
   .merge(Pagination)
   .strict();

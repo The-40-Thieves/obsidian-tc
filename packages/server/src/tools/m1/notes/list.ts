@@ -9,6 +9,7 @@ import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { noteExists } from "../../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
+import { resolveResponseFormat } from "../../response-format";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { ListInput, ListNotesOutput, NoteExistsOutput } from "./schemas";
@@ -17,7 +18,8 @@ export function createListNotesTool(deps: M1Deps): ToolDefinition {
   return defineTool({
     name: "list_notes",
     domain: "notes",
-    description: "List notes under a folder (read-ACL filtered), with cursor pagination.",
+    description:
+      "List notes under a folder (read-ACL filtered), with cursor pagination. response_format=concise returns {vault, notes: [{path}], next_cursor}, without size, mtime, folder and total_returned.",
     inputSchema: ListInput,
     outputSchema: ListNotesOutput,
     requiredScopes: ["read:notes"],
@@ -34,6 +36,8 @@ export function createListNotesTool(deps: M1Deps): ToolDefinition {
       const limit = input.limit ?? 200;
       const page = visible.slice(0, limit);
       const next = visible.length > limit ? (page[page.length - 1]?.relPath ?? null) : null;
+      if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+        return { vault: v.id, notes: page.map((e) => ({ path: e.relPath })), next_cursor: next };
       return {
         vault: v.id,
         folder: sub ?? "",

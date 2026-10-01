@@ -63,6 +63,8 @@ function isExternal(kind: string, target: string): boolean {
 /** Mirrors vault/links.ts's LinkKind. */
 const LinkKindSchema = z.enum(["wikilink", "markdown", "embed"]);
 
+// GH #1027: response_format=concise drops raw/kind/display/col and omits null heading/target_path/
+// candidates, so those are optional here; a detailed response always carries all of them.
 const GetOutgoingLinksOutput = z.object({
   vault: z.string(),
   path: z.string(),
@@ -73,20 +75,21 @@ const GetOutgoingLinksOutput = z.object({
   }),
   links: z.array(
     z.object({
-      raw: z.string(),
-      kind: LinkKindSchema,
+      raw: z.string().optional(),
+      kind: LinkKindSchema.optional(),
       target: z.string(),
-      display: z.string().nullable(),
-      heading: z.string().nullable(),
+      display: z.string().nullable().optional(),
+      heading: z.string().nullable().optional(),
       line: z.number().int(),
-      col: z.number().int(),
+      col: z.number().int().optional(),
       resolved: z.boolean(),
-      target_path: z.string().nullable(),
-      candidates: z.array(z.string()).nullable(),
+      target_path: z.string().nullable().optional(),
+      candidates: z.array(z.string()).nullable().optional(),
     }),
   ),
 });
 
+// GH #1027: response_format=concise keeps {source_path, line} per backlink.
 const GetBacklinksOutput = z.object({
   vault: z.string(),
   path: z.string(),
@@ -96,10 +99,10 @@ const GetBacklinksOutput = z.object({
     z.object({
       source_path: z.string(),
       line: z.number().int(),
-      col: z.number().int(),
-      raw: z.string(),
-      kind: LinkKindSchema,
-      display: z.string().nullable(),
+      col: z.number().int().optional(),
+      raw: z.string().optional(),
+      kind: LinkKindSchema.optional(),
+      display: z.string().nullable().optional(),
     }),
   ),
 });
@@ -234,9 +237,14 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "List a note's outgoing links (code-block links excluded), each resolved to a target path.",
+        "List a note's outgoing links (code-block links excluded), each resolved to a target path. response_format=concise returns {target, line, resolved} per link, plus heading, target_path and candidates when present, without raw, kind, display and col.",
       inputSchema: z
-        .object({ vault: VaultId, path: VaultPath, include_embeds: z.boolean().default(true) })
+        .object({
+          vault: VaultId,
+          path: VaultPath,
+          include_embeds: z.boolean().default(true),
+          ...ResponseFormatInput,
+        })
         .strict(),
       outputSchema: GetOutgoingLinksOutput,
       requiredScopes: ["read:notes"],
@@ -268,6 +276,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
               candidates: r.candidates ?? null,
             };
           });
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           vault: v.id,
           path: rel,
@@ -276,7 +285,16 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             resolved: links.filter((l) => l.resolved).length,
             unresolved: links.filter((l) => !l.resolved && !isExternal(l.kind, l.target)).length,
           },
-          links,
+          links: concise
+            ? links.map((l) => ({
+                target: l.target,
+                line: l.line,
+                resolved: l.resolved,
+                ...(l.heading !== null ? { heading: l.heading } : {}),
+                ...(l.target_path !== null ? { target_path: l.target_path } : {}),
+                ...(l.candidates !== null ? { candidates: l.candidates } : {}),
+              }))
+            : links,
         };
       },
     }),
@@ -285,12 +303,14 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       name: "get_backlinks",
       domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Find every note that links to the given note, with source line/column.",
+      description:
+        "Find every note that links to the given note, with source line/column. response_format=concise returns {source_path, line} per backlink, without col, raw, kind and display.",
       inputSchema: z
         .object({
           vault: VaultId,
           path: VaultPath,
           limit: z.number().int().positive().max(5000).default(500),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: GetBacklinksOutput,
@@ -328,7 +348,16 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           }
           if (truncated) break;
         }
-        return { vault: v.id, path: rel, total: backlinks.length, truncated, backlinks };
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        return {
+          vault: v.id,
+          path: rel,
+          total: backlinks.length,
+          truncated,
+          backlinks: concise
+            ? backlinks.map((b) => ({ source_path: b.source_path, line: b.line }))
+            : backlinks,
+        };
       },
     }),
 

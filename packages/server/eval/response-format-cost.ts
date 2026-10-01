@@ -27,6 +27,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { createPagingDeps } from "../src/mcp/byte-page";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { buildResourceUri } from "../src/mcp/resources";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
@@ -210,6 +211,41 @@ async function main(): Promise<void> {
   }));
   await measure("search_vault", "mode=text", () => ({ vault: v, query: "memory", mode: "text" }));
   await measure("note_quality_report", "limit 50", () => ({ vault: v, limit: 50 }));
+
+  // Part 2. A note with many outgoing links and the most-linked-to note, found by scanning the
+  // first 80 notes, so the link rows measure a real call rather than an empty list.
+  let linkiest = median;
+  let linkiestCount = -1;
+  const inbound = new Map<string, number>();
+  for (const p of notes.slice(0, 80)) {
+    const out = (await call("get_outgoing_links", {
+      vault: v,
+      path: p,
+      response_format: "detailed",
+    })) as { links: Array<{ target_path?: string | null }> };
+    if (out.links.length > linkiestCount) {
+      linkiest = p;
+      linkiestCount = out.links.length;
+    }
+    for (const l of out.links)
+      if (l.target_path) inbound.set(l.target_path, (inbound.get(l.target_path) ?? 0) + 1);
+  }
+  const mostLinked = [...inbound.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? median;
+  await measure("read_frontmatter", "median note", () => ({ vault: v, path: median }));
+  await measure("get_outgoing_links", `${linkiestCount} links`, () => ({
+    vault: v,
+    path: linkiest,
+  }));
+  await measure("get_backlinks", `${inbound.get(mostLinked) ?? 0} backlinks`, () => ({
+    vault: v,
+    path: mostLinked,
+  }));
+  await measure("list_notes", "default limit (200)", () => ({ vault: v }));
+  // read_resources shares readResource with resources/read, whose only selector is the config
+  // default; the same text comes back either way, so this row is the resources/read figure too.
+  await measure("read_resources", "5 notes (= resources/read x5)", () => ({
+    uris: spare.slice(0, 5).map((p) => buildResourceUri(v, p)),
+  }));
 
   const pct = (a: number, b: number): string => `${(((a - b) / a) * 100).toFixed(1)}%`;
   const lines = [

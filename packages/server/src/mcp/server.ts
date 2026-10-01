@@ -16,6 +16,7 @@ import type { ElicitCodec } from "../elicit-request-state";
 import { recordHitlAnswer } from "../hitl-telemetry";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
+import type { ResponseFormat } from "../tools/response-format";
 import type { VaultRegistry } from "../vault/registry";
 import { capabilityHiddenCheck } from "./capability-hidden";
 import {
@@ -109,6 +110,12 @@ export interface McpServerOptions {
   name: string;
   version: string;
   registry: ToolRegistry;
+  /**
+   * GH #1027: `tools.defaults.responseFormat`. resources/read takes no parameters, so this config
+   * default is the only thing that can select the concise shape there (read_resources, the tool
+   * form, also takes a per-call response_format).
+   */
+  responseFormat?: ResponseFormat;
   /**
    * Vault registry — the resources handlers use it to resolve a vaultId to its root path.
    * Optional so non-resources callers (e.g. roundtrip tests) need not supply it; resources
@@ -768,7 +775,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
             }
             // Synchronous, so a try/catch rather than .catch — the miss must surface as -32602.
             try {
-              return readResourceFor(opts.registry, vaultRegistry, ctx, req.params.uri);
+              return readResourceFor(opts, vaultRegistry, ctx, req.params.uri);
             } catch (e) {
               throw asResourceProtocolError(e, req.params.uri);
             }
