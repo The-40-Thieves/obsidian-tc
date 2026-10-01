@@ -32,6 +32,7 @@ import {
   type TraceRecord,
 } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { type M5Deps, memoryDefenseFor, parseIso } from "./shared";
 
 /**
@@ -100,11 +101,12 @@ const TraceRecordOutput = z
   })
   .catchall(z.unknown());
 
+// GH #1027: response_format=concise drops args_hash, caller and total_returned.
 const GetSessionTracesOutput = z.object({
   vault: z.string(),
   items: z.array(TraceRecordOutput),
   next_cursor: z.string().nullable(),
-  total_returned: z.number(),
+  total_returned: z.number().optional(),
 });
 
 export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
@@ -294,7 +296,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
       name: "get_session_traces",
       domain: "knowledge",
       description:
-        "Replay JSONL trace records for one session, or across a started-at date window, with optional tool filtering.",
+        "Replay JSONL trace records for one session, or across a started-at date window, with optional tool filtering. response_format=concise drops args_hash and caller from each record and omits total_returned; every other field of a record is kept.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -302,6 +304,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           from: z.string().optional(),
           to: z.string().optional(),
           tool_filter: z.array(z.string()).optional(),
+          ...ResponseFormatInput,
         })
         .merge(Pagination)
         .strict(),
@@ -355,6 +358,12 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         const start = input.cursor ? Number.parseInt(input.cursor, 10) || 0 : 0;
         const page = filtered.slice(start, start + limit);
         const next = start + limit < filtered.length ? String(start + limit) : null;
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return {
+            vault: v.id,
+            items: page.map(({ args_hash: _h, caller: _c, ...rest }) => rest),
+            next_cursor: next,
+          };
         return { vault: v.id, items: page, next_cursor: next, total_returned: page.length };
       },
     }),

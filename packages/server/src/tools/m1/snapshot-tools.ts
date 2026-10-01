@@ -11,6 +11,7 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { captureSnapshot, listSnapshots, readSnapshot } from "../../vault/snapshots";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -30,18 +31,20 @@ const SnapshotNoteOutput = z.object({
 });
 
 /** Mirrors vault/snapshots.ts's SnapshotRow verbatim. */
+// GH #1027: response_format=concise returns {id, op, created_at} per snapshot (content_hash and size
+// dropped; read_snapshot returns them) and omits total, so those are optional here.
 const SnapshotRowOut = z.object({
   id: z.number(),
-  content_hash: z.string(),
+  content_hash: z.string().optional(),
   op: z.string(),
-  size: z.number(),
+  size: z.number().optional(),
   created_at: z.number(),
 });
 
 const ListSnapshotsOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  total: z.number(),
+  total: z.number().optional(),
   snapshots: z.array(SnapshotRowOut),
 });
 
@@ -105,12 +108,13 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
       domain: "notes",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "List a note's point-in-time snapshots, newest first (id, op, content_hash, size, created_at).",
+        "List a note's point-in-time snapshots, newest first (id, op, content_hash, size, created_at). response_format=concise returns {id, op, created_at} per snapshot, without content_hash, size and total.",
       inputSchema: z
         .object({
           vault: VaultId,
           path: VaultPath,
           limit: z.number().int().positive().max(500).default(50),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: ListSnapshotsOutput,
@@ -120,6 +124,12 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         const snapshots = listSnapshots(ctx.db, v.id, rel, input.limit);
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return {
+            vault: v.id,
+            path: rel,
+            snapshots: snapshots.map((s) => ({ id: s.id, op: s.op, created_at: s.created_at })),
+          };
         return { vault: v.id, path: rel, total: snapshots.length, snapshots };
       },
     }),

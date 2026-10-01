@@ -56,6 +56,7 @@ import {
   walkVault,
 } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M3Deps } from "./shared";
 
 function dirOf(rel: string): string {
@@ -69,6 +70,7 @@ const ListInput = z
     folder: VaultPath.optional(),
     extensions: z.array(z.string().min(1)).optional(),
     include_reference_count: z.boolean().default(false),
+    ...ResponseFormatInput,
   })
   .merge(Pagination)
   .strict();
@@ -138,21 +140,24 @@ const DeleteInput = z
  *  different helpers, two different representations, and this schema follows THIS handler's.
  *  `reference_count` is a conditional spread, so it is optional, present only when
  *  include_reference_count was requested. */
+// GH #1027: response_format=concise returns {path, reference_count?} per attachment (size, mtime and
+// mime dropped; mime is derivable from the extension) and omits folder, attachment_folder and
+// total_returned, so those are optional here; a detailed response always carries all of them.
 const AttachmentEntry = z.object({
   path: z.string(),
-  size: z.number(),
-  mtime: z.number(),
-  mime: z.string(),
+  size: z.number().optional(),
+  mtime: z.number().optional(),
+  mime: z.string().optional(),
   reference_count: z.number().int().optional(),
 });
 
 const ListAttachmentsOutput = z.object({
   vault: z.string(),
-  folder: z.string(),
-  attachment_folder: z.string(),
+  folder: z.string().optional(),
+  attachment_folder: z.string().optional(),
   attachments: z.array(AttachmentEntry),
   next_cursor: z.string().nullable(),
-  total_returned: z.number().int(),
+  total_returned: z.number().int().optional(),
 });
 
 /** get_attachment. `references` is a conditional spread (include_references), so optional —
@@ -205,7 +210,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       domain: "attachments",
       pathAcl: (input) => (input.folder ? [{ op: "read", path: input.folder }] : []),
       description:
-        "List attachment files in the vault (filtered by extension, read-ACL aware), with cursor pagination. Optionally count referencing notes per file.",
+        "List attachment files in the vault (filtered by extension, read-ACL aware), with cursor pagination. Optionally count referencing notes per file. response_format=concise returns {path, reference_count?} per attachment, without size, mtime, mime, folder, attachment_folder and total_returned.",
       inputSchema: ListInput,
       outputSchema: ListAttachmentsOutput,
       requiredScopes: ["read:attachments"],
@@ -222,23 +227,24 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         const limit = input.limit ?? 200;
         const page = visible.slice(0, limit);
         const next = visible.length > limit ? (page[page.length - 1]?.relPath ?? null) : null;
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        const attachments = page.map((e) => ({
+          path: e.relPath,
+          ...(concise ? {} : { size: e.size, mtime: e.mtime, mime: mimeOf(e.relPath) }),
+          ...(input.include_reference_count
+            ? {
+                reference_count: findAttachmentReferences(v.root, e.relPath).filter((p) =>
+                  readableRel(ctx.acl, p, ctx.grantedScopes),
+                ).length,
+              }
+            : {}),
+        }));
+        if (concise) return { vault: v.id, attachments, next_cursor: next };
         return {
           vault: v.id,
           folder: sub ?? "",
           attachment_folder: resolveAttachmentFolder(v.root),
-          attachments: page.map((e) => ({
-            path: e.relPath,
-            size: e.size,
-            mtime: e.mtime,
-            mime: mimeOf(e.relPath),
-            ...(input.include_reference_count
-              ? {
-                  reference_count: findAttachmentReferences(v.root, e.relPath).filter((p) =>
-                    readableRel(ctx.acl, p, ctx.grantedScopes),
-                  ).length,
-                }
-              : {}),
-          })),
+          attachments,
           next_cursor: next,
           total_returned: page.length,
         };

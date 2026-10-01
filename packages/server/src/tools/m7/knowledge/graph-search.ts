@@ -25,6 +25,8 @@ import { cachedGraphSearch, type QueryCacheContext } from "../../../search/query
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
+import { conciseGraphResults } from "./concise-search";
 import type { M7Deps } from "./deps";
 import {
   buildGraphSearchOptions,
@@ -192,7 +194,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
     name: "vault_graph_search",
     domain: "knowledge",
     description:
-      "Cross-domain / multi-hop semantic search with wikilink graph expansion (GraphRAG). Seeds by vector similarity, expands through the links_to graph (vault_edges), and fuses by RRF. Run index_vault first so the edge graph is populated. Returns chunks tagged seed|expansion with hop + via_edge. Optional `vaults[]` federates the same query across additional vaults (max 8), fusing per-vault ranked lists by RRF; each result is tagged with its source vault.",
+      "Cross-domain / multi-hop semantic search with wikilink graph expansion (GraphRAG). Seeds by vector similarity, expands through the links_to graph (vault_edges), and fuses by RRF. Run index_vault first so the edge graph is populated. Returns chunks tagged seed|expansion with hop + via_edge. Optional `vaults[]` federates the same query across additional vaults (max 8), fusing per-vault ranked lists by RRF; each result is tagged with its source vault. response_format=concise returns {chunk_id, path, content, rerank_score} per result (plus vault and changed_since_d when set) without source, hop, via_edge and root_seed, and drops route, query, hyde, variants_used, coverage, vaults_used and per_vault; mode_used, failed_variants and failed_vaults are kept.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -225,6 +227,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
         // Window floor (applied to updated_at); only meaningful paired with `as_of` — validated in
         // the handler below. Defaults to 0 (no lower bound) when `as_of` is given without it.
         since: z.number().int().nonnegative().optional(),
+        ...ResponseFormatInput,
       })
       .strict(),
     outputSchema: VaultGraphSearchOutput,
@@ -258,6 +261,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
       }
 
       const v = deps.vaultRegistry.resolve(input.vault);
+      const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
       // THE-451: trim-and-check so null/absent/blank are all byte-identical to no HyDE.
       const hyde = input.hypothetical_answer?.trim();
       const hydeActive = !!hyde;
@@ -295,6 +299,13 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
           variants,
           cacheContextFor(deps, ctx, v.id, denseText),
         );
+        if (concise)
+          return {
+            vault: v.id,
+            mode_used: leg.mode_used,
+            ...(leg.failedVariants ? { failed_variants: leg.failedVariants } : {}),
+            results: conciseGraphResults(leg.results),
+          };
         return {
           vault: v.id,
           mode_used: leg.mode_used,
@@ -371,6 +382,14 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
         };
       }
 
+      if (concise)
+        return {
+          vault: v.id,
+          mode_used: primaryMeta?.mode_used ?? "graph",
+          ...(primaryMeta?.failedVariants ? { failed_variants: primaryMeta.failedVariants } : {}),
+          ...(failedVaults > 0 ? { failed_vaults: failedVaults } : {}),
+          results: conciseGraphResults(fused),
+        };
       return {
         vault: v.id,
         mode_used: primaryMeta?.mode_used ?? "graph",

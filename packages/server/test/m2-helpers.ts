@@ -55,6 +55,7 @@ export interface M2Vault {
   id: string;
   db: Database;
   registry: ToolRegistry;
+  vaultRegistry: VaultRegistry;
   provider: EmbeddingProvider;
   acl: FolderAcl;
   write(rel: string, content: string): void;
@@ -112,6 +113,7 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     id,
     db,
     registry,
+    vaultRegistry,
     provider,
     acl,
     write,

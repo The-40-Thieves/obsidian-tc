@@ -59,6 +59,13 @@ export const GraphSearchResultSchema = z.object({
   changed_since_d: z.boolean().optional(),
 });
 
+const ConciseableGraphSearchResultSchema = GraphSearchResultSchema.partial({
+  source: true,
+  hop: true,
+  via_edge: true,
+  root_seed: true,
+});
+
 /** THE-631: mirrors search/graph_search_stages/types.ts's CoverageEstimate. Additive and
  *  reported-only — see estimateCoverage() in search/graph_search.ts for exactly what each field
  *  means; it never feeds back into ranking. Present only on the graph-fusion arm of a search tool
@@ -346,7 +353,7 @@ export const VaultGraphSearchOutput = z.object({
       }),
     )
     .optional(),
-  results: z.array(GraphSearchResultSchema),
+  results: z.array(ConciseableGraphSearchResultSchema),
 });
 
 /** knowledge_search: `route` is present on the lexical arm and ABSENT on the graph arm — not null,
@@ -357,7 +364,7 @@ export const KnowledgeSearchOutput = z.object({
   route: z.array(z.string()).optional(),
   // THE-631: additive, reported-only — present on the graph arm, absent on lexical-route.
   coverage: CoverageEstimateSchema.optional(),
-  results: z.array(GraphSearchResultSchema),
+  results: z.array(ConciseableGraphSearchResultSchema),
 });
 
 export const KnowledgeCriticalOutput = z.object({

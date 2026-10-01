@@ -13,6 +13,7 @@ import { parseNote } from "../../vault/frontmatter";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { bootstrapConfigFor, type M5Deps } from "./shared";
 
 type BootstrapMode = "lightweight" | "standard" | "deep";
@@ -20,10 +21,12 @@ type BootstrapMode = "lightweight" | "standard" | "deep";
 // THE-417: written from the return statement, not from parseNote/readNote's own types — a loaded
 // entry is `{ path, content, frontmatter, content_hash }`, a subset assembled at the call site.
 // `frontmatter` mirrors parseNote's `Frontmatter | null` (Record<string, unknown> | null) verbatim.
+// GH #1027: `content` is the raw note INCLUDING its frontmatter block, so `frontmatter` is the same
+// data a second time; response_format=concise drops that copy.
 const LoadedNote = z.object({
   path: z.string(),
   content: z.string(),
-  frontmatter: z.record(z.string(), z.unknown()).nullable(),
+  frontmatter: z.record(z.string(), z.unknown()).nullable().optional(),
   content_hash: z.string(),
 });
 
@@ -44,12 +47,13 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
       name: "session_bootstrap",
       domain: "knowledge",
       description:
-        "Triage an opening session message (auto -> lightweight | standard | deep) and preload the matching vault context notes, so any MCP client gets session bootstrap, not only skill-enabled ones. Deep loads the configured deepPaths; standard loads the paths of every domain whose signals appear in the message; lightweight loads nothing. The routing table comes from server config (bootstrap.*); with none configured the tool degrades to lightweight. Read-only.",
+        "Triage an opening session message (auto -> lightweight | standard | deep) and preload the matching vault context notes, so any MCP client gets session bootstrap, not only skill-enabled ones. Deep loads the configured deepPaths; standard loads the paths of every domain whose signals appear in the message; lightweight loads nothing. The routing table comes from server config (bootstrap.*); with none configured the tool degrades to lightweight. Read-only. response_format=concise drops each loaded note's parsed frontmatter (it is still inside content).",
       inputSchema: z
         .object({
           vault: VaultId,
           message: z.string().default(""),
           mode: z.enum(["auto", "lightweight", "standard", "deep"]).default("auto"),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: SessionBootstrapOutput,
@@ -88,6 +92,7 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
         const truncated = unique.length > cfg.maxPaths;
         const selected = unique.slice(0, cfg.maxPaths);
 
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         const loaded: Array<Record<string, unknown>> = [];
         const skipped: Array<{ path: string; reason: string }> = [];
         for (const p of selected) {
@@ -107,7 +112,7 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
             loaded.push({
               path: rel,
               content: raw,
-              frontmatter: parsed.frontmatter,
+              ...(concise ? {} : { frontmatter: parsed.frontmatter }),
               content_hash: hash,
             });
           } catch (e) {

@@ -5,7 +5,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat, ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
@@ -25,6 +25,8 @@ export interface M3VaultOptions {
   /** Index-coordinator hook. Left unwired by default (the tools no-op on it); a test that needs
    *  to fault the post-write reindex step supplies a throwing one (THE-572). */
   reindex?: M3Deps["reindex"];
+  /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
+  responseFormat?: ResponseFormat;
 }
 
 export interface EventRow {
@@ -78,6 +80,7 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
     vaultRegistry,
     ...(opts.templaterBridge ? { templaterBridge: opts.templaterBridge } : {}),
     ...(opts.reindex ? { reindex: opts.reindex } : {}),
+    ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

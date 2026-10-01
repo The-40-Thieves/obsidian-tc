@@ -501,3 +501,26 @@ describe("search_and_read: cursor binding", () => {
     expect(good.ok).toBe(true);
   });
 });
+
+describe("search_and_read: response_format=concise (GH #1027)", () => {
+  it("a note cut to its share keeps truncated and size_bytes; a whole note drops both", async () => {
+    const { v } = await setup(
+      { "one.md": doc("One", "w".repeat(20_000)), "two.md": doc("Two") },
+      { maxResponseBytes: 8000 },
+    );
+    const full = await ok(v, { k: 2 });
+    const d = await ok(v, { k: 2, response_format: "concise" });
+    const one = d.notes.find((n) => n.path === "one.md");
+    const two = d.notes.find((n) => n.path === "two.md");
+    expect(one?.truncated).toBe(true);
+    expect(one?.size_bytes).toBe(full.notes.find((n) => n.path === "one.md")?.size_bytes);
+    expect(Object.keys(two ?? {}).sort()).toEqual([
+      "body",
+      "content_hash",
+      "path",
+      "rank",
+      "score",
+    ]);
+    expect(Buffer.byteLength(JSON.stringify(d))).toBeLessThanOrEqual(8000);
+  });
+});

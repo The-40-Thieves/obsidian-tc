@@ -17,6 +17,7 @@ import {
   relationsForEntity,
 } from "../../memory/entities";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M5Deps } from "./shared";
 
 /** THE-833: an entity is visible unless it's retired and the caller didn't opt in. Shared by
@@ -30,15 +31,28 @@ function isVisible(e: Pick<EntityRow, "status">, includeRetired: boolean): boole
 // "what a fact looks like on the wire" has exactly one definition. zod's safeParse silently
 // strips an undeclared field and reports success — every field ObservationView carries is
 // declared here, none silently dropped at the MCP boundary.
+// GH #1027: response_format=concise keeps the fact (`text`) and its `key` when it has one, plus
+// valid_to / superseded_by when set (the fact is no longer current), and drops valid_from, so those
+// are optional here; a detailed observation always carries all five.
 const ObservationSchema = z.object({
   text: z.string(),
-  key: z.string().nullable(),
-  valid_from: z.number(),
-  valid_to: z.number().nullable(),
-  superseded_by: z.string().nullable(),
+  key: z.string().nullable().optional(),
+  valid_from: z.number().optional(),
+  valid_to: z.number().nullable().optional(),
+  superseded_by: z.string().nullable().optional(),
 });
 
-function toObservationOutput(o: ObservationView): z.infer<typeof ObservationSchema> {
+function toObservationOutput(
+  o: ObservationView,
+  concise: boolean,
+): z.infer<typeof ObservationSchema> {
+  if (concise)
+    return {
+      text: o.text,
+      ...(o.key !== null ? { key: o.key } : {}),
+      ...(o.validTo !== null ? { valid_to: o.validTo } : {}),
+      ...(o.supersededBy !== null ? { superseded_by: o.supersededBy } : {}),
+    };
   return {
     text: o.text,
     key: o.key,
@@ -56,6 +70,7 @@ const EntityRelation = z.object({
   direction: z.enum(["out", "in"]),
 });
 
+// GH #1027: response_format=concise omits vault_path when null, created_at, updated_at and as_of.
 const GetEntityOutput = z.object({
   entity_id: z.string(),
   type: z.string(),
@@ -65,12 +80,14 @@ const GetEntityOutput = z.object({
   // schema for what valid_from/valid_to/superseded_by mean on each one.
   observations: z.array(ObservationSchema),
   relations: z.array(EntityRelation),
-  vault_path: z.string().nullable(),
-  created_at: z.number(),
-  updated_at: z.number(),
-  as_of: z.number(),
+  vault_path: z.string().nullable().optional(),
+  created_at: z.number().optional(),
+  updated_at: z.number().optional(),
+  as_of: z.number().optional(),
 });
 
+// GH #1027: response_format=concise drops the hop-by-hop `path` trail (distance stays) and the
+// query-level as_of and total_returned.
 const GraphNodeItem = z.object({
   entity_id: z.string(),
   type: z.string(),
@@ -78,7 +95,7 @@ const GraphNodeItem = z.object({
   status: z.enum(["active", "retired"]),
   distance: z.number(),
   // bfsGraph's GraphNode.path: the hop-by-hop trail from the seed, not a vault path.
-  path: z.array(z.object({ via_entity_id: z.string(), via_relation: z.string() })),
+  path: z.array(z.object({ via_entity_id: z.string(), via_relation: z.string() })).optional(),
   // THE-1130: each node's own observations, valid `as_of` the query's as_of (default: now) — same
   // shape and same filter get_entity applies, so "what did we believe as_of D" answers the same
   // way whether reached by a direct get_entity or by a graph traversal that passes through it.
@@ -87,11 +104,11 @@ const GraphNodeItem = z.object({
 
 const QueryEntityGraphOutput = z.object({
   vault: z.string(),
-  as_of: z.number(),
+  as_of: z.number().optional(),
   seed_entity_id: z.string(),
   items: z.array(GraphNodeItem),
   next_cursor: z.string().nullable(),
-  total_returned: z.number(),
+  total_returned: z.number().optional(),
 });
 
 export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
@@ -100,7 +117,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
       name: "get_entity",
       domain: "knowledge",
       description:
-        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set. Observations returned are filtered by as_of — a fact is included when valid_from <= as_of and (valid_to is unset or as_of < valid_to). Default as_of is now, so an as_of in the PAST excludes any observation added after that instant, even one that is still open today.",
+        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set. Observations returned are filtered by as_of — a fact is included when valid_from <= as_of and (valid_to is unset or as_of < valid_to). Default as_of is now, so an as_of in the PAST excludes any observation added after that instant, even one that is still open today. response_format=concise returns each observation as {text, key?} (plus valid_to and superseded_by when set) and omits vault_path when null, created_at, updated_at and as_of.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -109,6 +126,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
           name: z.string().optional(),
           include_retired: z.boolean().default(false),
           as_of: z.number().int().nonnegative().optional(),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: GetEntityOutput,
@@ -147,12 +165,26 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
           direction: r.direction,
         }));
         const asOf = input.as_of ?? (ctx.now ?? Date.now)();
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        const observations = observationsAsOf(ctx.db, e, asOf).map((o) =>
+          toObservationOutput(o, concise),
+        );
+        if (concise)
+          return {
+            entity_id: e.id,
+            type: e.entity_type,
+            name: e.name,
+            status: e.status,
+            observations,
+            relations,
+            ...(e.vault_path !== null ? { vault_path: e.vault_path } : {}),
+          };
         return {
           entity_id: e.id,
           type: e.entity_type,
           name: e.name,
           status: e.status,
-          observations: observationsAsOf(ctx.db, e, asOf).map(toObservationOutput),
+          observations,
           relations,
           vault_path: e.vault_path,
           created_at: e.created_at,
@@ -166,7 +198,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
       name: "query_entity_graph",
       domain: "knowledge",
       description:
-        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. Each returned node's observations are filtered by as_of (default now — see get_entity's own description for the exact rule), so a graph walk answers 'what did we believe as_of D' the same way a direct get_entity does. Domain: knowledge.",
+        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. Each returned node's observations are filtered by as_of (default now — see get_entity's own description for the exact rule), so a graph walk answers 'what did we believe as_of D' the same way a direct get_entity does. response_format=concise drops each node's hop-by-hop path (distance stays), shapes observations as get_entity does, and omits as_of and total_returned. Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -177,6 +209,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
           direction: z.enum(["out", "in", "both"]).default("both"),
           include_retired: z.boolean().default(false),
           as_of: z.number().int().nonnegative().optional(),
+          ...ResponseFormatInput,
         })
         .merge(Pagination)
         .strict(),
@@ -204,19 +237,27 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
         const page = nodes.slice(start, start + limit);
         const next = start + limit < nodes.length ? String(start + limit) : null;
         const asOf = input.as_of ?? (ctx.now ?? Date.now)();
-        return {
-          vault: v.id,
-          as_of: asOf,
-          seed_entity_id: seed.id,
-          items: page.map((n) => ({
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        const items = page.map((n) => {
+          const observations = observationsAsOf(ctx.db, n.entity, asOf).map((o) =>
+            toObservationOutput(o, concise),
+          );
+          return {
             entity_id: n.entity.id,
             type: n.entity.entity_type,
             name: n.entity.name,
             status: n.entity.status,
             distance: n.distance,
-            path: n.path,
-            observations: observationsAsOf(ctx.db, n.entity, asOf).map(toObservationOutput),
-          })),
+            ...(concise ? {} : { path: n.path }),
+            observations,
+          };
+        });
+        if (concise) return { vault: v.id, seed_entity_id: seed.id, items, next_cursor: next };
+        return {
+          vault: v.id,
+          as_of: asOf,
+          seed_entity_id: seed.id,
+          items,
           next_cursor: next,
           total_returned: page.length,
         };

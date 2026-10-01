@@ -530,11 +530,13 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   const memoryDefense = (vaultId: string): VaultMemoryDefenseConfig =>
     deps.memoryDefenseByVault.get(vaultId) ?? MEMORY_DEFENSE_OFF;
 
+  // GH #1027: tools.defaults.responseFormat, threaded to every domain whose tools take response_format.
+  const responseFormat = config.tools?.defaults?.responseFormat;
+
   registerM2Tools(registry, {
     vaultRegistry: deps.vaultRegistry,
     embeddingProvider: deps.embeddingProvider,
-    // GH #1027: tools.defaults.responseFormat, for the search tools.
-    responseFormat: config.tools?.defaults?.responseFormat,
+    responseFormat,
     // THE-230: serve-path retrieval logging (experiential.logRetrievals).
     ...(deps.retrievalLog ? { retrievalLog: deps.retrievalLog } : {}),
     // THE-406: index_vault must index with the same enrichment as the boot reconcile.
@@ -595,6 +597,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   });
   registerM3Tools(registry, {
     vaultRegistry: deps.vaultRegistry,
+    responseFormat,
     reindex: deps.reindex,
     // THE-207: periodic-note creation can expand its template through Templater; openBridge
     // applies the same degradation gate.
@@ -621,6 +624,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   const plurClient = createPlurBackend(config.plur);
   registerM5Tools(registry, {
     vaultRegistry: deps.vaultRegistry,
+    responseFormat,
     // THE-737: traces live beside cache.db / experiential.db now, not in the vault.
     cacheDir: config.cacheDir,
     activeSessions: deps.activeSessions,
@@ -679,6 +683,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // (W-WORKERS challenge), wired to the gateway seams (graceful when absent).
   registerM7Tools(registry, {
     vaultRegistry: deps.vaultRegistry,
+    responseFormat,
     embeddingProvider: deps.embeddingProvider,
     reranker: deps.reranker,
     roles: deps.roles,
@@ -729,8 +734,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over
   // agent_episodes / chunk_retrievals. With the store closed the tools report unavailable.
   registerM8Tools(registry, {
-    // GH #1027: tools.defaults.responseFormat, for note_quality_report.
-    responseFormat: config.tools?.defaults?.responseFormat,
+    responseFormat,
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
     // THE-643 item 3: note_quality_report's activation_conflict aggregate reuses the SAME bubble
     // lookup M7 uses for rerank (dark unless experiential.activationRerank) rather than opening a

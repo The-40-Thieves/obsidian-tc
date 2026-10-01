@@ -9,6 +9,8 @@ import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
+import { conciseGraphResults } from "./concise-search";
 import type { M7Deps } from "./deps";
 import {
   buildGraphSearchOptions,
@@ -29,7 +31,7 @@ export function createKnowledgeSearchTool(
     name: "knowledge_search",
     domain: "docs",
     description:
-      "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault.",
+      "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault. response_format=concise returns {chunk_id, path, content, rerank_score} per result without source, hop, via_edge and root_seed, and drops route and coverage.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -43,6 +45,7 @@ export function createKnowledgeSearchTool(
         // Window floor (applied to updated_at); only meaningful paired with `as_of` — validated in
         // the handler below. Defaults to 0 (no lower bound) when `as_of` is given without it.
         since: z.number().int().nonnegative().optional(),
+        ...ResponseFormatInput,
       })
       .strict(),
     outputSchema: KnowledgeSearchOutput,
@@ -70,6 +73,7 @@ export function createKnowledgeSearchTool(
           vault: v.id,
           kind: v.kind,
         });
+      const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
       let route = deps.classRouter
         ? routeQuery(ctx.db, v.id, input.query, {
             isReadable: (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
@@ -110,7 +114,18 @@ export function createKnowledgeSearchTool(
           hits: retrievalHits(results),
           policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
         });
-        return { vault: v.id, mode_used: "lexical-route", route: route.signals, results };
+        if (concise)
+          return {
+            vault: v.id,
+            mode_used: "lexical-route" as const,
+            results: conciseGraphResults(results),
+          };
+        return {
+          vault: v.id,
+          mode_used: "lexical-route" as const,
+          route: route.signals,
+          results,
+        };
       }
       const results = await cachedGraphSearch(
         ctx.db,
@@ -143,9 +158,11 @@ export function createKnowledgeSearchTool(
         // The lexical class returned early above, so this path always fused.
         policy: policy.record("static"),
       });
+      if (concise)
+        return { vault: v.id, mode_used: "graph" as const, results: conciseGraphResults(results) };
       return {
         vault: v.id,
-        mode_used: "graph",
+        mode_used: "graph" as const,
         // THE-631: present only when graphSearch actually ran (absent on a cache HIT).
         ...(coverage.get() ? { coverage: coverage.get() } : {}),
         results,

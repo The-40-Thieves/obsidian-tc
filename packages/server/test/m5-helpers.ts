@@ -6,7 +6,12 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type {
+  BootstrapConfig,
+  ResponseFormat,
+  ToolResult,
+  VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { type FakeRequestInfo, type FakeRoute, fakeBridgeTransport } from "../src/bridge";
 import { provisionCacheDb } from "../src/db/provision";
@@ -42,6 +47,10 @@ export interface M5VaultOptions {
   /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter — pass a real
    *  MetricsRecorder to assert on it from a test. */
   metrics?: MetricsRecorder;
+  /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
+  responseFormat?: ResponseFormat;
+  /** session_bootstrap's routing table (server config `bootstrap`); absent -> degrades to lightweight. */
+  bootstrap?: BootstrapConfig;
 }
 
 export interface M5EventRow {
@@ -121,6 +130,8 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
       ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
       : {}),
     ...(opts.metrics ? { metrics: opts.metrics } : {}),
+    ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+    ...(opts.bootstrap ? { bootstrap: opts.bootstrap } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

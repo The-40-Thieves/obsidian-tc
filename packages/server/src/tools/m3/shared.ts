@@ -2,13 +2,16 @@
 // Workspaces). WP7: M3Deps lives in its own leaf module so implementation files can import it
 // without pulling in index.ts's barrel — which imports every implementation file back, and
 // previously made each of those a two-node import cycle through ./index.
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { BridgeClient } from "../../bridge";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { VaultRegistry } from "../../vault/registry";
 
 export interface M3Deps {
   vaultRegistry: VaultRegistry;
+  /** GH #1027: `tools.defaults.responseFormat`, the format a call that names neither
+   *  `response_format` nor the legacy `verbosity` alias gets. Absent -> "detailed". */
+  responseFormat?: ResponseFormat;
   /** THE-207: optional Templater bridge for periodic-note template expansion. When absent,
    *  or the companion/Templater is unavailable, creation degrades to a verbatim template copy. */
   templaterBridge?: (vaultId: string) => { client: BridgeClient; timeoutMs: number };
