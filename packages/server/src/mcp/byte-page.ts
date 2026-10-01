@@ -165,11 +165,46 @@ function bindingHash(tool: string, args: unknown): string {
   return argsHash(tool, args);
 }
 
-async function startOffset<K, E>(o: PaginateByBytesOptions<K, E>, principal: string, hash: string) {
-  if (o.cursor === undefined) return 0;
+/** What a cursor is bound to: the tool, the caller, and the request (`cursor` excluded). */
+export interface PageBinding {
+  tool: string;
+  principal: string | null;
+  args: unknown;
+}
+
+// 128-bit digest (not throttle.ts callerHash, which is 8 hex for metric cardinality): this one is a
+// security binding. `null` (stdio, no principal) is its own distinct value.
+const principalDigest = (principal: string | null): string =>
+  argsHash("principal", principal ?? null);
+
+/** Mint a continuation cursor carrying `offset`, bound to `binding`. Not only for item lists: any
+ *  paged read (get_provenance pages by record seq) takes its cursors from here, so a client cannot
+ *  hand-make one. */
+export function mintPageCursor(
+  paging: PagingDeps,
+  binding: PageBinding,
+  offset: number,
+): Promise<string> {
+  return paging.codec.mint({
+    v: 1,
+    t: binding.tool,
+    p: principalDigest(binding.principal),
+    h: bindingHash(binding.tool, binding.args),
+    o: offset,
+  });
+}
+
+/** Verify a cursor against `binding` and return the offset it carries (a safe integer). Any
+ *  failure is a structured `invalid_input` with `details.reason`: `expired`, `invalid` (bad
+ *  signature / malformed / not issued by this server), `foreign` or `request_mismatch`. */
+export async function readPageCursor(
+  paging: PagingDeps,
+  binding: PageBinding,
+  cursor: string,
+): Promise<number> {
   let payload: CursorPayload;
   try {
-    payload = await o.paging.codec.verify(o.cursor);
+    payload = await paging.codec.verify(cursor);
   } catch (e) {
     const reason = (e as Error)?.message === "expired" ? "expired" : "invalid";
     throw err.invalidInput(`continuation cursor is ${reason}`, { reason });
@@ -181,21 +216,27 @@ async function startOffset<K, E>(o: PaginateByBytesOptions<K, E>, principal: str
     typeof payload.t === "string" &&
     typeof payload.p === "string" &&
     typeof payload.h === "string" &&
-    Number.isInteger(payload.o);
+    Number.isSafeInteger(payload.o);
   if (!shapeOk) throw err.invalidInput("continuation cursor is invalid", { reason: "invalid" });
-  if (payload.t !== o.binding.tool || payload.p !== principal)
+  if (payload.t !== binding.tool || payload.p !== principalDigest(binding.principal))
     throw err.invalidInput("continuation cursor was not issued to this caller for this tool", {
       reason: "foreign",
     });
-  if (payload.h !== hash)
+  if (payload.h !== bindingHash(binding.tool, binding.args))
     throw err.invalidInput("continuation cursor does not match this request's arguments", {
       reason: "request_mismatch",
     });
-  if (payload.o < 1 || payload.o >= o.items.length)
+  return payload.o;
+}
+
+async function startOffset<K, E>(o: PaginateByBytesOptions<K, E>) {
+  if (o.cursor === undefined) return 0;
+  const offset = await readPageCursor(o.paging, o.binding, o.cursor);
+  if (offset < 1 || offset >= o.items.length)
     throw err.invalidInput("continuation cursor is out of range for this request", {
       reason: "invalid",
     });
-  return payload.o;
+  return offset;
 }
 
 export async function paginateByBytes<K, E>(o: PaginateByBytesOptions<K, E>): Promise<BytePage<E>> {
@@ -206,7 +247,7 @@ export async function paginateByBytes<K, E>(o: PaginateByBytesOptions<K, E>): Pr
   const hash = bindingHash(tool, o.binding.args);
   const budget = o.paging.budgetBytes();
   const n = o.items.length;
-  const start = await startOffset(o, principal, hash);
+  const start = await startOffset(o);
 
   const mint = (offset: number) =>
     o.paging.codec.mint({ v: 1, t: tool, p: principal, h: hash, o: offset });

@@ -40,6 +40,20 @@ export const ProvenanceConfigSchema = z
       .describe(
         "Days a provenance row is kept before the maintenance sweep prunes it. ABSENT (the default) keeps rows forever: this is an audit trail, and pruning it is an explicit decision. Pruning removes a contiguous prefix and moves a signed anchor up to the last row dropped, so the remaining chain still verifies.",
       ),
+    query: z
+      .object({
+        maxScanRows: z
+          .number()
+          .int()
+          .min(1000)
+          .max(10_000_000)
+          .default(100_000)
+          .describe(
+            "Most provenance rows one get_provenance call examines. A query is one newest-first pass over the vault's chain (the signed body is the only record of a path, so there is no index to seek by); each row examined costs one substring test over its ~0.5 KB body, so the default 100000 is a few hundred milliseconds at worst. A chain longer than this is read newest-first and the answer carries scan_truncated: older history was not examined. Raise it for a long-retention vault; `obsidian-tc provenance verify` is not bounded by it.",
+          ),
+      })
+      .prefault({})
+      .describe("Limits on the get_provenance query."),
     stamp: z
       .object({
         gitTrailers: z

@@ -7,11 +7,14 @@ import { buildGraphAnalyticsTools } from "./graph-analytics-tools";
 import { buildGraphHealthTools } from "./graph-health-tools";
 import { buildLinksTools } from "./links-tools";
 import { buildNotesTools } from "./notes-tools";
+import { buildProvenanceTools } from "./provenance-tools";
 import { buildRegistryTools } from "./registry-tools";
 import type { M1Deps } from "./shared";
 import { buildSnapshotTools } from "./snapshot-tools";
 import { buildTagsTools } from "./tags-tools";
 
+export type { ProvenanceRecorder } from "../../provenance/recorder";
+export { provenanceDepsOf } from "./provenance-tools";
 export type { M1Deps } from "./shared";
 
 export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {
@@ -26,4 +29,6 @@ export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {
   for (const tool of buildGraphAnalyticsTools()) registry.register(tool);
   for (const tool of buildGraphHealthTools(deps)) registry.register(tool);
   for (const tool of buildSnapshotTools(deps)) registry.register(tool);
+  for (const tool of buildProvenanceTools(deps, (id) => registry.aclFor(id)))
+    registry.register(tool);
 }
