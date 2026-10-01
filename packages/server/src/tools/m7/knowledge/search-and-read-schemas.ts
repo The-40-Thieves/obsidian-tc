@@ -17,9 +17,11 @@ export const SearchAndReadNote = z.object({
   body: z.string(),
   /** Hash of the WHOLE note, so it round-trips into patch_note's prev_hash in either mode. */
   content_hash: z.string(),
-  /** UTF-8 bytes of `body` before any cut. */
-  size_bytes: z.number().int().nonnegative(),
-  truncated: z.boolean(),
+  /** UTF-8 bytes of `body` before any cut. GH #1027: response_format=concise keeps it only on a
+   *  truncated item, where it is the full size to fetch whole; absent otherwise. */
+  size_bytes: z.number().int().nonnegative().optional(),
+  /** GH #1027: concise omits it when false (absent means not truncated). */
+  truncated: z.boolean().optional(),
 });
 
 export const SearchAndReadError = z.object({

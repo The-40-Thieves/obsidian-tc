@@ -45,6 +45,7 @@ import {
 } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M3Deps } from "./shared";
 
 const PeriodEnum = z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]);
@@ -255,18 +256,20 @@ const AppendToPeriodicNoteOutput = z.object({
   ...RedactionsField,
 });
 
+// GH #1027: response_format=concise returns {date, path} per item (period echoes the input, mtime
+// dropped) and omits the top-level period, so those are optional here; detailed carries them all.
 const ListPeriodicNotesOutput = z.object({
   vault: z.string(),
-  period: PeriodEnum,
+  period: PeriodEnum.optional(),
   total: z.number().int(),
   items: z.array(
     z.object({
-      period: PeriodEnum,
+      period: PeriodEnum.optional(),
       date: z.string(),
       path: z.string(),
       // statNote's mtime — an ISO-string, NOT the WalkEntry epoch-millis mtime used in
       // attachment-tools.ts's list_attachments; the two helpers disagree on representation.
-      mtime: z.string(),
+      mtime: z.string().optional(),
     }),
   ),
   // Present only when the scan hit LIST_MAX_STEPS before reaching `to`.
@@ -599,13 +602,14 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
       name: "list_periodic_notes",
       domain: "workspace",
       description:
-        "Enumerate existing periodic notes in a date range (probes the configured format/folder). Defaults to a recent window when from/to are omitted.",
+        "Enumerate existing periodic notes in a date range (probes the configured format/folder). Defaults to a recent window when from/to are omitted. response_format=concise returns {date, path} per item, without period and mtime; total, overflow and next_cursor are kept.",
       inputSchema: z
         .object({
           vault: VaultId,
           period: PeriodEnum,
           from: z.string().optional(),
           to: z.string().optional(),
+          ...ResponseFormatInput,
         })
         .merge(Pagination)
         .strict(),
@@ -646,11 +650,12 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const page = found.slice(start, start + limit);
         const nextStart = start + page.length;
         const next = nextStart < found.length ? String(nextStart) : undefined;
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           vault: v.id,
-          period: input.period,
+          ...(concise ? {} : { period: input.period }),
           total: found.length,
-          items: page,
+          items: concise ? page.map((p) => ({ date: p.date, path: p.path })) : page,
           ...(overflow ? { overflow: true } : {}),
           ...(next ? { next_cursor: next } : {}),
         };

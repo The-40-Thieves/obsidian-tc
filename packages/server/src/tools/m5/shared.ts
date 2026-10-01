@@ -9,6 +9,7 @@ import {
   BootstrapConfigSchema,
   DEFAULT_MEMORY_FOLDER,
   err,
+  type ResponseFormat,
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../../metrics/registry";
@@ -29,6 +30,9 @@ export { DEFAULT_TRACE_FOLDER };
 
 export interface M5Deps {
   vaultRegistry: VaultRegistry;
+  /** GH #1027: `tools.defaults.responseFormat`, the format a call that names neither
+   *  `response_format` nor the legacy `verbosity` alias gets. Absent -> "detailed". */
+  responseFormat?: ResponseFormat;
   /** THE-737: where session traces live now. Traces moved OUT of the vault because a
    *  vault-resident trace is reachable through `read_note` (`.obsidian-tc` is not in
    *  DEFAULT_DENY_ROOTS). Same directory as cache.db / experiential.db. */

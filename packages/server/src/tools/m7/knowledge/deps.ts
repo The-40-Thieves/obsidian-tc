@@ -1,6 +1,7 @@
 // WP2 slice 1: M7Deps, moved verbatim out of knowledge-tools.ts. Types only — no runtime code
 // belongs here, and nothing here may import knowledge-tools.ts (the facade) or retrieval-runtime.ts.
 import type {
+  ResponseFormat,
   VaultMemoryDefenseConfig,
   VaultReflectConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
@@ -19,6 +20,9 @@ import type { VaultRegistry } from "../../../vault/registry";
 
 export interface M7Deps {
   vaultRegistry: VaultRegistry;
+  /** GH #1027: `tools.defaults.responseFormat`, the format a call that names neither
+   *  `response_format` nor the legacy `verbosity` alias gets. Absent -> "detailed". */
+  responseFormat?: ResponseFormat;
   embeddingProvider: EmbeddingProvider;
   /** Rerank seam → gateway /rerank passthrough; null when the gateway is unconfigured. */
   reranker: Reranker | null;

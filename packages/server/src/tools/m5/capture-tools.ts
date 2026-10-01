@@ -33,6 +33,7 @@ import { type Frontmatter, serializeNote } from "../../vault/frontmatter";
 import { noteExists, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { type M5Deps, memoryDefenseFor } from "./shared";
 
 function splitTags(tags: string | null): string[] {
@@ -85,16 +86,19 @@ const PoisonAssessmentOut = z
   .object({ risk: z.enum(["none", "suspect", "high"]), signals: z.array(z.string()) })
   .nullable();
 
+// GH #1027: response_format=concise omits every null/empty field of an item (title, tags, source,
+// target_path_hint, committed_at, committed_path) and total_returned. poison_assessment is a safety
+// signal and is ALWAYS present, null (never scanned) included.
 const CaptureQueueItem = z.object({
   capture_id: z.string(),
-  title: z.string().nullable(),
+  title: z.string().nullable().optional(),
   content_preview: z.string(),
-  tags: z.array(z.string()),
-  source: z.string().nullable(),
+  tags: z.array(z.string()).optional(),
+  source: z.string().nullable().optional(),
   captured_at: z.number(),
-  target_path_hint: z.string().nullable(),
-  committed_at: z.number().nullable(),
-  committed_path: z.string().nullable(),
+  target_path_hint: z.string().nullable().optional(),
+  committed_at: z.number().nullable().optional(),
+  committed_path: z.string().nullable().optional(),
   // THE-855: surfaced so a reviewer sees the (content-derived, unspoofable) poison verdict before
   // calling commit_capture. A numeric channel-`trust` field was dropped on cross-vendor review —
   // it was keyed on the caller-asserted `source`, so it would not be authoritative.
@@ -105,7 +109,7 @@ const ListCaptureQueueOutput = z.object({
   vault: z.string(),
   items: z.array(CaptureQueueItem),
   next_cursor: z.string().nullable(),
-  total_returned: z.number(),
+  total_returned: z.number().optional(),
 });
 
 const CommitCaptureOutput = z.object({
@@ -241,12 +245,13 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       name: "list_capture_queue",
       domain: "knowledge",
       description:
-        "List captures in the queue (pending by default; committed:true lists committed), newest first. Each item carries the poison-scan verdict assessed at enqueue time — review poison_assessment before calling commit_capture.",
+        "List captures in the queue (pending by default; committed:true lists committed), newest first. Each item carries the poison-scan verdict assessed at enqueue time — review poison_assessment before calling commit_capture. response_format=concise omits null and empty fields (title, tags, source, target_path_hint, committed_at, committed_path) and total_returned; poison_assessment is always kept.",
       inputSchema: z
         .object({
           vault: VaultId,
           committed: z.boolean().default(false),
           source: z.string().optional(),
+          ...ResponseFormatInput,
         })
         .merge(Pagination)
         .strict(),
@@ -264,26 +269,41 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
         const page = rows.slice(0, limit);
         const last = page[page.length - 1];
         const next = rows.length > limit && last ? captureCursor(last) : null;
-        return {
-          vault: v.id,
-          items: page.map((r) => ({
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        const items = page.map((r) => {
+          const tags = visibleTags(splitTags(r.tags));
+          const poison_assessment =
+            r.poison_risk === null
+              ? null
+              : { risk: r.poison_risk, signals: parseSignals(r.poison_signals) };
+          if (!concise)
+            return {
+              capture_id: r.id,
+              title: r.title,
+              content_preview: r.content.slice(0, 200),
+              tags,
+              source: r.source,
+              captured_at: r.captured_at,
+              target_path_hint: r.target_path_hint,
+              committed_at: r.committed_at,
+              committed_path: r.committed_path,
+              poison_assessment,
+            };
+          return {
             capture_id: r.id,
-            title: r.title,
+            ...(r.title !== null ? { title: r.title } : {}),
             content_preview: r.content.slice(0, 200),
-            tags: visibleTags(splitTags(r.tags)),
-            source: r.source,
+            ...(tags.length > 0 ? { tags } : {}),
+            ...(r.source !== null ? { source: r.source } : {}),
             captured_at: r.captured_at,
-            target_path_hint: r.target_path_hint,
-            committed_at: r.committed_at,
-            committed_path: r.committed_path,
-            poison_assessment:
-              r.poison_risk === null
-                ? null
-                : { risk: r.poison_risk, signals: parseSignals(r.poison_signals) },
-          })),
-          next_cursor: next,
-          total_returned: page.length,
-        };
+            ...(r.target_path_hint !== null ? { target_path_hint: r.target_path_hint } : {}),
+            ...(r.committed_at !== null ? { committed_at: r.committed_at } : {}),
+            ...(r.committed_path !== null ? { committed_path: r.committed_path } : {}),
+            poison_assessment,
+          };
+        });
+        if (concise) return { vault: v.id, items, next_cursor: next };
+        return { vault: v.id, items, next_cursor: next, total_returned: page.length };
       },
     }),
 

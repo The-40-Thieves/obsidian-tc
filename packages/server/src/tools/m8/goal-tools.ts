@@ -10,6 +10,7 @@ import { closeGoal, listGoals, setGoal } from "../../experiential/goals";
 import { enforceMemoryDefense } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { availableWith, type M8Deps, memoryDefenseFor, UNAVAILABLE } from "./shared";
 
 export function buildGoalTools(deps: M8Deps): ToolDefinition[] {
@@ -93,27 +94,29 @@ export function buildGoalTools(deps: M8Deps): ToolDefinition[] {
       name: "list_goals",
       domain: "knowledge",
       description:
-        "List a vault's stated goals, newest first. Defaults to OPEN goals only — a consumer that forgets to filter should see current intent rather than a graveyard of closed ones. Pass status to narrow to a terminal state, or 'any' for the full history. 'expired' (the deadline sweep's verdict) and 'abandoned' (the user's) are deliberately distinct and must not be counted together.",
+        "List a vault's stated goals, newest first. Defaults to OPEN goals only — a consumer that forgets to filter should see current intent rather than a graveyard of closed ones. Pass status to narrow to a terminal state, or 'any' for the full history. 'expired' (the deadline sweep's verdict) and 'abandoned' (the user's) are deliberately distinct and must not be counted together. response_format=concise returns {id, text, status} per goal plus target_date and closed_at when set, without source, created_at and count.",
       inputSchema: z
         .object({
           vault: VaultId,
           status: z.enum(["open", "completed", "abandoned", "expired", "any"]).default("open"),
           limit: z.number().int().positive().max(200).default(50),
+          ...ResponseFormatInput,
         })
         .strict(),
       vaultArg: "vault",
+      // GH #1027: concise omits count, source, created_at and a null target_date / closed_at.
       outputSchema: availableWith({
         vault: z.string(),
-        count: z.number().int(),
+        count: z.number().int().optional(),
         goals: z.array(
           z.object({
             id: z.string(),
             text: z.string(),
             status: z.string(),
-            source: z.string(),
-            created_at: z.number(),
-            target_date: z.number().nullable(),
-            closed_at: z.number().nullable(),
+            source: z.string().optional(),
+            created_at: z.number().optional(),
+            target_date: z.number().nullable().optional(),
+            closed_at: z.number().nullable().optional(),
           }),
         ),
       }),
@@ -125,6 +128,18 @@ export function buildGoalTools(deps: M8Deps): ToolDefinition[] {
           status: input.status,
           limit: input.limit,
         });
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return {
+            available: true as const,
+            vault: input.vault,
+            goals: rows.map((r) => ({
+              id: r.id,
+              text: r.text,
+              status: r.status,
+              ...(r.target_date !== null ? { target_date: r.target_date } : {}),
+              ...(r.closed_at !== null ? { closed_at: r.closed_at } : {}),
+            })),
+          };
         return {
           available: true as const,
           vault: input.vault,

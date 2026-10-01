@@ -8,7 +8,9 @@ import { z } from "zod";
 import { fuseEpisodeRanks, semanticRankEpisodes } from "../../experiential/episode-search";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import {
+  conciseEpisode,
   EpisodeProjection,
   type EpisodeRow,
   projectEpisode,
@@ -31,7 +33,7 @@ export function buildWorkSearchTool(deps: M8Deps): ToolDefinition[] {
       name: "work_search",
       domain: "knowledge",
       description:
-        "Search the experiential work-memory (agent_episodes) — what the agent actually did. MEMORY semantics with the work-memory reader contract enforced: only evaluator-approved (eligible) episodes by default, tombstoned/expired rows never surface, results are partitioned to the calling principal, and a trust floor (default 0.3) excludes high-risk content. include_pending opts into not-yet-evaluated episodes (still trust-floored); any_caller crosses the agent partition and requires the admin:workspace scope (P1.7: the partition is an authorization boundary, not a free filter). `semantic` (opt-in) fuses a cosine-similarity channel over `summary` alongside the lexical match via Reciprocal Rank Fusion, so a paraphrased query can find an episode the lexical LIKE match misses — lexical stays the exact-match failsafe for names/dates/ids, and the SAME reader-contract filters above apply to both channels identically (the fused pool is never wider than what lexical alone could already see). Degrades silently to lexical-only when no `query`, no embedding provider is configured, or the provider errors.",
+        "Search the experiential work-memory (agent_episodes) — what the agent actually did. MEMORY semantics with the work-memory reader contract enforced: only evaluator-approved (eligible) episodes by default, tombstoned/expired rows never surface, results are partitioned to the calling principal, and a trust floor (default 0.3) excludes high-risk content. include_pending opts into not-yet-evaluated episodes (still trust-floored); any_caller crosses the agent partition and requires the admin:workspace scope (P1.7: the partition is an authorization boundary, not a free filter). `semantic` (opt-in) fuses a cosine-similarity channel over `summary` alongside the lexical match via Reciprocal Rank Fusion, so a paraphrased query can find an episode the lexical LIKE match misses — lexical stays the exact-match failsafe for names/dates/ids, and the SAME reader-contract filters above apply to both channels identically (the fused pool is never wider than what lexical alone could already see). Degrades silently to lexical-only when no `query`, no embedding provider is configured, or the provider errors. response_format=concise returns each episode without vault, caller, channel, episode_type, duration_ms, result_size and null or empty fields; trust, eligibility and a true blocked flag are kept.",
       inputSchema: z
         .object({
           query: z.string().min(1).optional(),
@@ -43,6 +45,7 @@ export function buildWorkSearchTool(deps: M8Deps): ToolDefinition[] {
           include_pending: z.boolean().default(false),
           any_caller: z.boolean().default(false),
           semantic: z.boolean().default(false),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: availableWith({
@@ -160,13 +163,18 @@ export function buildWorkSearchTool(deps: M8Deps): ToolDefinition[] {
 
         const visiblePrev = visiblePrevIds(edb, rows);
         return {
-          available: true,
+          available: true as const,
           floor: {
             min_trust: input.min_trust,
             include_pending: input.include_pending,
             semantic_used: semanticUsed,
           },
-          results: rows.map((r) => projectEpisode(r, visiblePrev)),
+          results: rows.map((r) => {
+            const p = projectEpisode(r, visiblePrev);
+            return resolveResponseFormat(input, deps.responseFormat) === "concise"
+              ? conciseEpisode(p)
+              : p;
+          }),
         };
       },
     }),

@@ -130,29 +130,36 @@ const FindUnresolvedLinksOutput = z.object({
   ),
 });
 
+// GH #1027: response_format=concise drops the from_target echo, the to_target echo unless the
+// memoryDefense scan redacted it, and (on a real run) the per-note change list, whose totals
+// notes_changed / links_rewritten stay. A dry run keeps `changes`: it is the preview.
 const RewriteLinkOutput = z.object({
   vault: z.string(),
   dry_run: z.boolean(),
-  from_target: z.string(),
-  to_target: z.string(),
+  from_target: z.string().optional(),
+  to_target: z.string().optional(),
   notes_changed: z.number().int(),
   links_rewritten: z.number().int(),
-  changes: z.array(z.object({ path: z.string(), count: z.number().int() })),
+  changes: z.array(z.object({ path: z.string(), count: z.number().int() })).optional(),
 });
 
+// GH #1027: response_format=concise on a real run drops the removed[] list (removed_count stays) and
+// prev_hash; a dry run keeps both, since they are what the confirming call needs.
 const PruneHubLinksOutput = z.object({
   vault: z.string(),
   path: z.string(),
   dry_run: z.boolean(),
   removed_count: z.number().int(),
-  removed: z.array(
-    z.object({
-      target: z.string(),
-      line: z.number().int(),
-      reason: z.enum(["unresolved", "duplicate"]),
-    }),
-  ),
-  prev_hash: z.string(),
+  removed: z
+    .array(
+      z.object({
+        target: z.string(),
+        line: z.number().int(),
+        reason: z.enum(["unresolved", "duplicate"]),
+      }),
+    )
+    .optional(),
+  prev_hash: z.string().optional(),
   content_hash: z.string(),
 });
 
@@ -179,6 +186,7 @@ const RewriteInput = z
     // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
     // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
     elicit_token: ElicitToken.optional(),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -225,6 +233,7 @@ const PruneInput = z
     prev_hash: z.string().optional(),
     // THE-824: see RewriteInput's elicit_token above.
     elicit_token: ElicitToken.optional(),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -458,7 +467,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       domain: "links",
       vaultArg: "vault",
       description:
-        "Repoint every link to `from_target` at `to_target` across the vault. Defaults to dry_run; a real run requires confirmation.",
+        "Repoint every link to `from_target` at `to_target` across the vault. Defaults to dry_run; a real run requires confirmation. response_format=concise drops the from_target/to_target echo (to_target stays when the memoryDefense scan redacted it) and, on a real run, the per-note changes list; notes_changed and links_rewritten stay.",
       inputSchema: RewriteInput,
       outputSchema: RewriteLinkOutput,
       requiredScopes: ["write:notes"],
@@ -502,18 +511,23 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             deps.reindex?.(v.id, e.rel, e.text);
           }
         }
+        // Security review round (MEDIUM #7): echo the SCANNED to_target, not the raw
+        // caller-supplied one — a secret-shaped to_target spliced into every edit's body above
+        // must not still come back unredacted in this same response, dry_run or not (a preview
+        // is exactly as much of a leak surface as a real write).
+        const toTarget = redactedEcho(mdConfig, input.to_target);
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        const changes = edits.map((e) => ({ path: e.rel, count: e.count }));
         return {
           vault: v.id,
           dry_run: input.dry_run,
-          from_target: input.from_target,
-          // Security review round (MEDIUM #7): echo the SCANNED to_target, not the raw
-          // caller-supplied one — a secret-shaped to_target spliced into every edit's body above
-          // must not still come back unredacted in this same response, dry_run or not (a preview
-          // is exactly as much of a leak surface as a real write).
-          to_target: redactedEcho(mdConfig, input.to_target),
+          // concise: the caller already knows what it asked for. A redacted to_target is the one
+          // echo that tells it something it did not send, so that one stays.
+          ...(concise ? {} : { from_target: input.from_target }),
+          ...(!concise || toTarget !== input.to_target ? { to_target: toTarget } : {}),
           notes_changed: edits.length,
           links_rewritten: totalLinks,
-          changes: edits.map((e) => ({ path: e.rel, count: e.count })),
+          ...(concise && !input.dry_run ? {} : { changes }),
         };
       },
     }),
@@ -526,7 +540,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       // it, enforced handler-side (each edit calls enforcePathAcl write) — not input-derivable.
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Prune unresolved and/or duplicate links from a hub note. Defaults to dry_run; a real run requires confirmation.",
+        "Prune unresolved and/or duplicate links from a hub note. Defaults to dry_run; a real run requires confirmation. response_format=concise drops removed[] and prev_hash on a real run; removed_count and content_hash stay, and a dry run keeps both.",
       inputSchema: PruneInput,
       outputSchema: PruneHubLinksOutput,
       requiredScopes: ["write:notes"],
@@ -577,13 +591,14 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           writeNoteAtomic(abs, finalText, false);
           deps.reindex?.(v.id, rel, finalText);
         }
+        const slim =
+          resolveResponseFormat(input, deps.responseFormat) === "concise" && !input.dry_run;
         return {
           vault: v.id,
           path: rel,
           dry_run: input.dry_run,
           removed_count: removed.length,
-          removed,
-          prev_hash: hash,
+          ...(slim ? {} : { removed, prev_hash: hash }),
           content_hash: contentHash(finalText),
         };
       },

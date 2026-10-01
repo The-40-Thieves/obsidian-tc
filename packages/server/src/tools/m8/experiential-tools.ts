@@ -35,6 +35,7 @@ import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { activationConflict, maxActivationByPath } from "./activation-conflict";
 import {
+  conciseEpisode,
   EpisodeProjection,
   type EpisodeRow,
   projectEpisode,
@@ -70,7 +71,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_episodes",
       domain: "knowledge",
       description:
-        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7). Set unstamped_debt to see judgeable work that still carries no verdict — yours, or every principal's when combined with any_caller — pair it with `until` to mean 'older than' — then clear it with work_result. Protocol traffic and the verdict verbs themselves never appear there; they are not work anyone can judge.",
+        "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7). Set unstamped_debt to see judgeable work that still carries no verdict — yours, or every principal's when combined with any_caller — pair it with `until` to mean 'older than' — then clear it with work_result. Protocol traffic and the verdict verbs themselves never appear there; they are not work anyone can judge. response_format=concise returns each episode without vault, caller, channel, episode_type, duration_ms, result_size and null or empty fields; trust, eligibility, session_id and a true blocked flag are kept.",
       inputSchema: z
         .object({
           session_id: z.string().optional(),
@@ -81,6 +82,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           any_caller: z.boolean().default(false),
           unstamped_debt: z.boolean().default(false),
           k: z.number().int().positive().max(500).default(50),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: availableWith({ episodes: z.array(EpisodeProjection) }),
@@ -135,7 +137,14 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           )
           .all(...params, input.k) as EpisodeRow[];
         const visiblePrev = visiblePrevIds(deps.edb, rows);
-        return { available: true, episodes: rows.map((r) => projectEpisode(r, visiblePrev)) };
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        return {
+          available: true as const,
+          episodes: rows.map((r) => {
+            const p = projectEpisode(r, visiblePrev);
+            return concise ? conciseEpisode(p) : p;
+          }),
+        };
       },
     }),
 
@@ -143,12 +152,13 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "work_episode_chain",
       domain: "knowledge",
       description:
-        "Walk an episode's amendment chain in one call. `prev_id` links each episode to the caller's previous one, and following it hop by hop cost one round trip per link. Returns the chain newest-first starting at `id`. The work-memory reader contract applies at every hop, not just the first: tombstoned rows never surface, expired rows are excluded, and the walk stays inside the calling principal unless any_caller (admin:workspace, P1.7). The walk STOPS at the first hop that fails those filters rather than skipping over it — a gap in a returned chain would itself disclose that a hidden episode exists.",
+        "Walk an episode's amendment chain in one call. `prev_id` links each episode to the caller's previous one, and following it hop by hop cost one round trip per link. Returns the chain newest-first starting at `id`. The work-memory reader contract applies at every hop, not just the first: tombstoned rows never surface, expired rows are excluded, and the walk stays inside the calling principal unless any_caller (admin:workspace, P1.7). The walk STOPS at the first hop that fails those filters rather than skipping over it — a gap in a returned chain would itself disclose that a hidden episode exists. response_format=concise returns each episode as work_episodes does; truncated is always kept.",
       inputSchema: z
         .object({
           id: z.string().min(1),
           k: z.number().int().positive().max(200).default(50),
           any_caller: z.boolean().default(false),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: availableWith({
@@ -194,9 +204,13 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         }
         const truncated = chain.length === input.k && chain[chain.length - 1]?.prev_id !== null;
         const visiblePrev = visiblePrevIds(deps.edb, chain);
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
-          available: true,
-          chain: chain.map((r) => projectEpisode(r, visiblePrev)),
+          available: true as const,
+          chain: chain.map((r) => {
+            const p = projectEpisode(r, visiblePrev);
+            return concise ? conciseEpisode(p) : p;
+          }),
           truncated,
         };
       },
@@ -459,34 +473,36 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "gap_report",
       domain: "knowledge",
       description:
-        "Read-only view of the latest gap-detector pass: which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `obsidian-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL before being returned.",
+        "Read-only view of the latest gap-detector pass: which of the pass's queries scored below the calibrated coverage floor, with their nearest-hit context. Populated by the offline `obsidian-tc gaps` pass; computed_at tells you how fresh it is, and null means no pass has ever been persisted for this vault. Never recomputes — a fresh reading requires re-running the CLI pass. Nearest-hit paths are filtered to the caller's read ACL before being returned. response_format=concise returns {id, query, top_score, gap} per item, without results and nearest, and omits threshold, min_results and returned; computed_at, total, gaps and gap_rate are kept.",
       inputSchema: z
         .object({
           vault: VaultId,
           gaps_only: z.boolean().default(false),
           limit: z.number().int().positive().max(500).default(50),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: availableWith({
         vault: z.string(),
         // Null distinguishes "no pass has ever run" from a pass that found nothing.
         computed_at: z.number().nullable(),
-        threshold: z.number(),
-        min_results: z.number().int(),
+        // GH #1027: concise omits threshold, min_results, returned, and each item's results / nearest.
+        threshold: z.number().optional(),
+        min_results: z.number().int().optional(),
         // Pass-level stats — always over the FULL persisted pass, unaffected by gaps_only/limit.
         total: z.number().int(),
         gaps: z.number().int(),
         gap_rate: z.number(),
         // items.length after gaps_only/limit narrowing (and ACL-filtered nearest paths within it).
-        returned: z.number().int(),
+        returned: z.number().int().optional(),
         items: z.array(
           z.object({
             id: z.string(),
             query: z.string(),
             top_score: z.number().nullable(),
-            results: z.number().int(),
+            results: z.number().int().optional(),
             gap: z.boolean(),
-            nearest: z.array(z.object({ path: z.string(), score: z.number() })),
+            nearest: z.array(z.object({ path: z.string(), score: z.number() })).optional(),
           }),
         ),
       }),
@@ -519,19 +535,36 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         const filtered = input.gaps_only ? allItems.filter((i) => i.gap) : allItems;
         const items = filtered.slice(0, input.limit);
         const gaps = restricted ? allItems.filter((i) => i.gap).length : (existing?.gaps ?? 0);
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        const gapRate = restricted
+          ? allItems.length === 0
+            ? 0
+            : gaps / allItems.length
+          : (existing?.gap_rate ?? 0);
+        if (concise)
+          return {
+            available: true as const,
+            vault: existing?.vault_id ?? input.vault,
+            computed_at: existing?.computed_at ?? null,
+            total: existing?.total ?? 0,
+            gaps,
+            gap_rate: gapRate,
+            items: items.map((i) => ({
+              id: i.id,
+              query: i.query,
+              top_score: i.top_score,
+              gap: i.gap,
+            })),
+          };
         return {
-          available: true,
+          available: true as const,
           vault: existing?.vault_id ?? input.vault,
           computed_at: existing?.computed_at ?? null,
           threshold,
           min_results: minResults,
           total: existing?.total ?? 0,
           gaps,
-          gap_rate: restricted
-            ? allItems.length === 0
-              ? 0
-              : gaps / allItems.length
-            : (existing?.gap_rate ?? 0),
+          gap_rate: gapRate,
           returned: items.length,
           items,
         };

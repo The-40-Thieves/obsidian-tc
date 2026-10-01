@@ -37,6 +37,7 @@ import { normalizeVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
 import { resolveSection } from "../../m1/notes/anchors";
 import { readVaultNote } from "../../m1/notes/read";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import type { M7Deps } from "./deps";
 import { searchOneVault } from "./graph-search";
 import { cacheContextFor, type RetrievalRuntime } from "./retrieval-runtime";
@@ -96,6 +97,18 @@ function cutToCap(note: Note, cap: number): Note {
   if (bytes(note) <= cap) return note;
   const cut = { ...note, body: "", truncated: true };
   return { ...cut, body: clip(note.body, cap - bytes(cut)) };
+}
+
+/** GH #1027: the concise form of a (possibly cut) note: an untruncated item drops size_bytes and
+ *  truncated, and a resolved section drops section_resolved (absent means it resolved). A truncated
+ *  item keeps size_bytes, the full size it would take to fetch whole. */
+function conciseNote(note: Note): Note {
+  const { size_bytes, truncated, section_resolved, ...rest } = note;
+  return {
+    ...rest,
+    ...(section_resolved === false ? { section_resolved } : {}),
+    ...(truncated === true ? { truncated, size_bytes } : {}),
+  };
 }
 
 function chunkHeadings(db: Database, vaultId: string, chunkIds: string[]): Map<string, string[]> {
@@ -207,7 +220,7 @@ export function createSearchAndReadTool(
     name: "search_and_read",
     domain: "search",
     description:
-      "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires.",
+      "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns {path, rank, score, body, content_hash} per note without frontmatter (note mode) or chunk_id (section mode); size_bytes and truncated appear only on a truncated item, and section_resolved only when false.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -228,6 +241,7 @@ export function createSearchAndReadTool(
           .max(4096)
           .optional()
           .describe("The next_cursor of a previous page of this same request."),
+        ...ResponseFormatInput,
       })
       .strict(),
     outputSchema: SearchAndReadOutput,
@@ -265,6 +279,7 @@ export function createSearchAndReadTool(
         remember(selectionKey, items);
       }
 
+      const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
       const budget = paging.budgetBytes();
       const share = Math.floor((budget - ENVELOPE_RESERVE) / Math.max(1, items.length));
       const cap = Math.max(
@@ -292,7 +307,7 @@ export function createSearchAndReadTool(
             if (input.mode === "note") {
               note = {
                 ...base,
-                frontmatter: parsed.frontmatter,
+                ...(concise ? {} : { frontmatter: parsed.frontmatter }),
                 body: parsed.body,
                 size_bytes: Buffer.byteLength(parsed.body, "utf8"),
                 truncated: false,
@@ -305,7 +320,7 @@ export function createSearchAndReadTool(
               const body = sec ?? item.content ?? parsed.body;
               note = {
                 ...base,
-                chunk_id: item.chunkId,
+                ...(concise ? {} : { chunk_id: item.chunkId }),
                 heading: item.heading ?? null,
                 section_resolved: sec !== null,
                 body,
@@ -313,7 +328,8 @@ export function createSearchAndReadTool(
                 truncated: false,
               };
             }
-            return { kind: "note", note: cutToCap(note, cap) };
+            const cut = cutToCap(note, cap);
+            return { kind: "note", note: concise ? conciseNote(cut) : cut };
           } catch (e) {
             const code = e instanceof ObsidianTcError ? e.code : "internal_error";
             // Denied and missing are one answer: neither names the path.

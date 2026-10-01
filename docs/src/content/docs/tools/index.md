@@ -213,10 +213,71 @@ block (the URI and MIME type are kept). The scope, vault binding, folder ACL, si
 (judged on the raw note) and cache hints are the same in both formats. `find_orphans` already
 returns bare paths, so it takes no parameter.
 
+The listing, graph, memory and episode tools also take it: `list_attachments`,
+`list_periodic_notes`, `list_snapshots`, `list_capture_queue`, `list_goals`, `search_and_read`,
+`vault_graph_search`, `knowledge_search`, `get_entity`, `query_entity_graph`,
+`get_session_traces`, `session_bootstrap`, `work_episodes`, `work_episode_chain`,
+`work_search`, `gap_report`, `rewrite_link` and `prune_hub_links`. Their concise shapes keep
+what a caller acts on and drop the rest:
+
+- `list_attachments` returns `{ path }` per file plus `reference_count` when requested (no size,
+  mtime, MIME type, folder echoes or `total_returned`); `list_periodic_notes` returns
+  `{ date, path }` per item (no period or mtime); `list_snapshots` returns `{ id, op, created_at }`
+  per snapshot (no `content_hash`, size or total); `list_goals` returns `{ id, text, status }`
+  plus `target_date` and `closed_at` when set.
+- `search_and_read` returns `{ path, rank, score, body, content_hash }` per note, without
+  frontmatter (note mode) or `chunk_id` (section mode). `size_bytes` and `truncated` appear only on
+  a note that was cut to its share, since there they say how much to fetch with `read_note`.
+- `vault_graph_search` and `knowledge_search` keep `chunk_id`, `path`, `content`, `rerank_score`,
+  `vault` and `changed_since_d` per hit, and drop the retrieval provenance (arm, hop, edge, seed)
+  and the `route` and `coverage` blocks. `vault_graph_search` also keeps `mode_used`,
+  `failed_variants` and `failed_vaults`.
+- `get_entity` and `query_entity_graph` return each observation as `{ text, key }`, plus
+  `valid_to` and `superseded_by` when the fact is no longer current; they omit `valid_from`,
+  `created_at`, `updated_at`, `as_of`, the hop-by-hop `path` and a null `vault_path`.
+- `list_capture_queue` omits null and empty item fields; `get_session_traces` drops `args_hash` and
+  `caller`; `session_bootstrap` drops each loaded note's parsed frontmatter (the note text in
+  `content` is whole).
+- `work_episodes`, `work_episode_chain` and `work_search` keep id, time, session, tool, status,
+  error code, summary, `trust`, `eligibility`, a true `blocked` and the amendment link, and drop
+  vault, caller, channel, episode type, duration, result size and every null or empty field.
+  `gap_report` keeps `{ id, query, top_score, gap }` per query (no `results` or `nearest`) and the
+  totals.
+- `rewrite_link` and `prune_hub_links` on a real run return the counts (`notes_changed`,
+  `links_rewritten`, `removed_count`) and `content_hash` without the per-note change list,
+  `removed[]` and `prev_hash`. A dry run keeps them, because they are the preview and the inputs
+  of the confirming call.
+
 Concise never drops a safety signal: a non-empty `quality_warning`, a `poison_assessment`
-other than `none`, `redactions`, and a `patch_note` call's removed-line and removed-byte
-counts are kept, and errors are never shaped. Because `concise` omits fields, the advertised
-output schema marks those fields optional; a `detailed` result always carries them.
+other than `none` (`list_capture_queue` always keeps it), `redactions`, a redacted `to_target`
+echo from `rewrite_link`, the trust and eligibility of a work episode, and a `patch_note` call's
+removed-line and removed-byte counts are kept, and errors are never shaped. Because `concise`
+omits fields, the advertised output schema marks those fields optional; a `detailed` result
+always carries them.
+
+### Tools with no `response_format`
+
+Each of these was reviewed and takes no parameter, because there is nothing a caller could spare:
+
+| Tool | Why |
+| --- | --- |
+| `list_tags`, `list_properties` | One `{ name, count }`-style row per entry: already minimal. |
+| `list_vaults`, `list_kanban_boards` | One minimal row per entry. |
+| `list_workspaces` | Workspace names only. |
+| `list_bookmarks` | The item tree and the compare-and-swap `content_hash` are the payload. |
+| `list_commands`, `list_quickadd_actions`, `list_templates` | Opaque plugin passthrough: `{ id, name }`, `{ name, type }` or `{ path, name }` per entry. |
+| `list_tasks` | Every field is task data, and empty optional fields are already omitted. |
+| `list_contradictions` | The rationale is the product. |
+| `episode_stats` | Aggregate counts only. |
+| `find_orphans` | Bare paths already. |
+| `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search` | Read-only proxies of an external payload this server does not own. |
+
+Every other tool is not yet covered: the git tools, the bases, canvas, Excalidraw, Kanban and
+table tools, the bundle and OCR tools, `vault_context`, `reflect`, `knowledge_challenge`,
+`explain_answer`, `diagnose_retrieval`, `knowledge_get_critical`, the memory, session and goal
+writes, and the vault, index and server administration tools. They return the full payload in
+both formats. A test fails when a newly registered tool is in none of the three groups (covered,
+listed above, or not yet covered), so the decision cannot be skipped.
 
 ## Degradation & errors
 

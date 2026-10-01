@@ -108,7 +108,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "vault_graph_search",
     description:
-      "Cross-domain / multi-hop semantic search with wikilink graph expansion (GraphRAG). Seeds by vector similarity, expands through the links_to graph (vault_edges), and fuses by RRF. Run index_vault first so the edge graph is populated. Returns chunks tagged seed|expansion with hop + via_edge. Optional `vaults[]` federates the same query across additional vaults (max 8), fusing per-vault ranked lists by RRF; each result is tagged with its source vault.",
+      "Cross-domain / multi-hop semantic search with wikilink graph expansion (GraphRAG). Seeds by vector similarity, expands through the links_to graph (vault_edges), and fuses by RRF. Run index_vault first so the edge graph is populated. Returns chunks tagged seed|expansion with hop + via_edge. Optional `vaults[]` federates the same query across additional vaults (max 8), fusing per-vault ranked lists by RRF; each result is tagged with its source vault. response_format=concise returns {chunk_id, path, content, rerank_score} per result (plus vault and changed_since_d when set) without source, hop, via_edge and root_seed, and drops route, query, hyde, variants_used, coverage, vaults_used and per_vault; mode_used, failed_variants and failed_vaults are kept.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["external-network", "knowledge", "search"],
@@ -119,9 +119,11 @@ const EXPECTED: ToolSnapshot[] = [
       "hypothetical_answer",
       "queries",
       "query",
+      "response_format",
       "since",
       "vault",
       "vaults",
+      "verbosity",
     ],
     outputKeys: [
       "coverage",
@@ -141,12 +143,21 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "search_and_read",
     description:
-      "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires.",
+      "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns {path, rank, score, body, content_hash} per note without frontmatter (note mode) or chunk_id (section mode); size_bytes and truncated appear only on a truncated item, and section_resolved only when false.",
     domain: "search",
     requiredScopes: ["read:notes"],
     tags: ["external-network", "knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["cursor", "k", "max_bytes_per_item", "mode", "query", "vault"],
+    inputKeys: [
+      "cursor",
+      "k",
+      "max_bytes_per_item",
+      "mode",
+      "query",
+      "response_format",
+      "vault",
+      "verbosity",
+    ],
     outputKeys: ["errors", "mode", "next_cursor", "notes", "vault"],
   },
   {
@@ -180,12 +191,12 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "knowledge_search",
     description:
-      "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault.",
+      "Semantic + keyword search over a vendor / external-docs corpus (a reserved read-only docs vault), with wikilink graph expansion and RRF fusion. The docs-scoped analogue of vault_graph_search: bind `vault` to the docs corpus id. Returns source-attributed chunks tagged seed|expansion. Gated on read:docs so it stays isolated from the private vault. response_format=concise returns {chunk_id, path, content, rerank_score} per result without source, hop, via_edge and root_seed, and drops route and coverage.",
     domain: "docs",
     requiredScopes: ["read:docs"],
     tags: ["docs", "external-network", "knowledge", "search"],
     hasPathAcl: false,
-    inputKeys: ["as_of", "final_top_k", "query", "since", "vault"],
+    inputKeys: ["as_of", "final_top_k", "query", "response_format", "since", "vault", "verbosity"],
     outputKeys: ["coverage", "mode_used", "results", "route", "vault"],
   },
   {

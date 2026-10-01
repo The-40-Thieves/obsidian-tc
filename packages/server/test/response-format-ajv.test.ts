@@ -34,9 +34,7 @@ async function validateAgainstAdvertised(
   const w = await makeWorld();
   worlds.push(w);
   const data = dataOf(await runScenario(w, s, extra));
-  const def = registryOf(w, s)
-    .list()
-    .find((t) => t.name === s.tool);
+  const def = (await registryOf(w, s)).list().find((t) => t.name === s.tool);
   if (!def?.outputSchema) throw new Error(`${s.tool} advertises no outputSchema`);
   // The zod path too: strict-mode dispatch already parsed it, but say so explicitly.
   expect(def.outputSchema.safeParse(data).success, `${s.name} zod`).toBe(true);
@@ -65,9 +63,7 @@ describe("the validator is actually strict (negative controls)", () => {
     worlds.push(w);
     const s = SCENARIOS.find((x) => x.name === scenarioName);
     if (!s) throw new Error(scenarioName);
-    const def = registryOf(w, s)
-      .list()
-      .find((t) => t.name === tool);
+    const def = (await registryOf(w, s)).list().find((t) => t.name === tool);
     // biome-ignore lint/style/noNonNullAssertion: every tool under test advertises an outputSchema
     return new AjvJsonSchemaValidator().getValidator(toJson(def!.outputSchema!) as never);
   }

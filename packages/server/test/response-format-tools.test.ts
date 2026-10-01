@@ -7,9 +7,11 @@
 //   - errors are never trimmed.
 // The ajv check against the ADVERTISED JSON schema lives in response-format-ajv.test.ts.
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { issueElicitToken } from "../src/elicit";
 import {
   dataOf,
   makeWorld,
+  registryOf,
   runScenario,
   SCENARIOS,
   type Scenario,
@@ -35,9 +37,12 @@ const scenario = (name: string): Scenario => {
   if (!s) throw new Error(`no scenario ${name}`);
   return s;
 };
-/** mtime/ctime legitimately differ between two fresh worlds (stat, and list_notes' per-note mtime). */
+/** mtime/ctime legitimately differ between two fresh worlds (stat, and list_notes' per-note mtime), and
+ *  so does a memory read's wall-clock as_of. */
 const strip = (d: unknown): unknown =>
-  JSON.parse(JSON.stringify(d, (k, v) => (k === "stat" || k === "mtime" ? undefined : v)));
+  JSON.parse(
+    JSON.stringify(d, (k, v) => (k === "stat" || k === "mtime" || k === "as_of" ? undefined : v)),
+  );
 const keys = (o: unknown): string[] => Object.keys(o as object).sort();
 const items = (d: Record<string, unknown>, field: string): Array<Record<string, unknown>> =>
   d[field] as Array<Record<string, unknown>>;
@@ -48,15 +53,33 @@ async function call(s: Scenario, extra: Record<string, unknown>, rf?: "concise" 
   return dataOf(await runScenario(w, s, extra));
 }
 
+/** A volatile (random ids, wall-clock times) scenario is read-only: run every variant in ONE world. */
+async function callAll(
+  s: Scenario,
+  variants: Array<Record<string, unknown>>,
+  rf?: "concise" | "detailed",
+) {
+  const w = await world(rf);
+  const out: Array<Record<string, unknown>> = [];
+  for (const extra of variants) out.push(dataOf(await runScenario(w, s, extra)));
+  return out;
+}
+
 describe("parity: unset == explicit detailed == legacy full, byte for byte", () => {
   for (const s of SCENARIOS) {
     it(`${s.name}`, async () => {
-      const unset = strip(await call(s, {}));
-      const explicit = strip(await call(s, { response_format: "detailed" }));
+      const [u, e, l] = s.volatile
+        ? await callAll(s, [{}, { response_format: "detailed" }, { verbosity: "full" }])
+        : [
+            await call(s, {}),
+            await call(s, { response_format: "detailed" }),
+            await call(s, { verbosity: "full" }),
+          ];
+      const unset = strip(u);
+      const explicit = strip(e);
       expect(explicit).toEqual(unset);
       expect(JSON.stringify(explicit)).toBe(JSON.stringify(unset));
-      const legacy = strip(await call(s, { verbosity: "full" }));
-      expect(legacy).toEqual(unset);
+      expect(strip(l)).toEqual(unset);
     });
   }
 });
@@ -494,6 +517,255 @@ describe("safety signals survive concise", () => {
   });
 });
 
+describe("part 3 concise shapes", () => {
+  /** Run a confirmation-gated tool for real: the elicit_required round trip, then the token. */
+  async function confirmed(
+    v: World["m1"],
+    tool: string,
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const need = await v.call(tool, input);
+    if (need.ok || need.error.code !== "elicit_required")
+      throw new Error("expected elicit_required");
+    const argsHash = String((need.error.details as { args_hash?: string }).args_hash);
+    const token = issueElicitToken(v.db, {
+      vaultId: v.id,
+      toolName: tool,
+      argsHash,
+      caller: "test",
+    });
+    return dataOf(await v.call(tool, input, { elicitToken: token }));
+  }
+  const rewrite = { vault: "test", from_target: "b", to_target: "c", dry_run: false };
+  const prune = { vault: "test", path: "a.md", dry_run: false };
+
+  it("rewrite_link real run: counts stay, the echoes and the change list go", async () => {
+    const full = await confirmed((await world()).m1, "rewrite_link", rewrite);
+    const d = await confirmed((await world()).m1, "rewrite_link", {
+      ...rewrite,
+      response_format: "concise",
+    });
+    expect(keys(full)).toEqual([
+      "changes",
+      "dry_run",
+      "from_target",
+      "links_rewritten",
+      "notes_changed",
+      "to_target",
+      "vault",
+    ]);
+    expect(keys(d)).toEqual(["dry_run", "links_rewritten", "notes_changed", "vault"]);
+    expect(d.dry_run).toBe(false);
+    expect(d.notes_changed).toBe(full.notes_changed);
+    expect(d.links_rewritten).toBe(full.links_rewritten);
+    expect(d.notes_changed).toBeGreaterThan(0);
+  });
+
+  it("rewrite_link dry run keeps the preview (changes) in concise", async () => {
+    const d = await call(scenario("rewrite_link (dry run)"), { response_format: "concise" });
+    expect(keys(d)).toEqual(["changes", "dry_run", "links_rewritten", "notes_changed", "vault"]);
+    expect(items(d, "changes").length).toBe(d.notes_changed);
+  });
+
+  it("prune_hub_links real run: removed_count and content_hash stay, removed[] and prev_hash go", async () => {
+    const full = await confirmed((await world()).m1, "prune_hub_links", prune);
+    const d = await confirmed((await world()).m1, "prune_hub_links", {
+      ...prune,
+      response_format: "concise",
+    });
+    expect(keys(full)).toEqual([
+      "content_hash",
+      "dry_run",
+      "path",
+      "prev_hash",
+      "removed",
+      "removed_count",
+      "vault",
+    ]);
+    expect(keys(d)).toEqual(["content_hash", "dry_run", "path", "removed_count", "vault"]);
+    expect(d.removed_count).toBe(full.removed_count);
+    expect(d.removed_count).toBeGreaterThan(0);
+    expect(d.content_hash).toBe(full.content_hash);
+  });
+
+  it("prune_hub_links dry run keeps removed[] and prev_hash, the inputs of the confirming call", async () => {
+    const d = await call(scenario("prune_hub_links (dry run)"), { response_format: "concise" });
+    expect(keys(d)).toEqual([
+      "content_hash",
+      "dry_run",
+      "path",
+      "prev_hash",
+      "removed",
+      "removed_count",
+      "vault",
+    ]);
+  });
+
+  it("list_capture_queue: null and empty fields are omitted, poison_assessment never is", async () => {
+    const d = await call(scenario("list_capture_queue"), { response_format: "concise" });
+    expect(keys(d)).toEqual(["items", "next_cursor", "vault"]);
+    const rows = items(d, "items");
+    const suspect = rows.find((r) => String(r.content_preview).startsWith("From now on"));
+    const clean = rows.find((r) => r.title === "Clean capture");
+    expect(keys(suspect)).toEqual([
+      "capture_id",
+      "captured_at",
+      "content_preview",
+      "poison_assessment",
+    ]);
+    expect(suspect?.poison_assessment).toEqual({ risk: "suspect", signals: ["persistence"] });
+    expect(keys(clean)).toEqual([
+      "capture_id",
+      "captured_at",
+      "content_preview",
+      "poison_assessment",
+      "source",
+      "tags",
+      "title",
+    ]);
+    expect(clean?.poison_assessment).toEqual({ risk: "none", signals: [] });
+  });
+
+  it("session_bootstrap: loaded[] drops the parsed frontmatter; the note is still whole in content", async () => {
+    const full = await call(scenario("session_bootstrap"), {});
+    const d = await call(scenario("session_bootstrap"), { response_format: "concise" });
+    const loaded = items(d, "loaded");
+    expect(loaded.length).toBeGreaterThan(0);
+    expect(loaded.length).toBe(items(full, "loaded").length);
+    for (const [i, n] of loaded.entries()) {
+      expect(keys(n)).toEqual(["content", "content_hash", "path"]);
+      expect(n.content).toBe(items(full, "loaded")[i]?.content);
+    }
+    expect(loaded[0]?.content).toContain("title: Alpha");
+    expect(d.truncated).toBe(full.truncated);
+    expect(d.skipped).toEqual(full.skipped);
+  });
+
+  it("get_entity: a superseded observation keeps valid_to and superseded_by", async () => {
+    const { makeM5Vault } = await import("./m5-helpers");
+    const v = makeM5Vault({ responseFormat: "concise" });
+    try {
+      const mk = await v.call(
+        "create_entity",
+        { vault: "test", type: "probe", name: "P", materialize: false },
+        { now: () => 100 },
+      );
+      const id = String(dataOf(mk).entity_id);
+      for (const [text, now] of [
+        ["first", 200],
+        ["second", 300],
+      ] as const)
+        await v.call(
+          "add_observation",
+          { vault: "test", entity_id: id, observation: text, key: "employer" },
+          { now: () => now },
+        );
+      const d = dataOf(await v.call("get_entity", { vault: "test", entity_id: id, as_of: 299 }));
+      const obs = items(d, "observations");
+      expect(obs).toHaveLength(1);
+      expect(keys(obs[0])).toEqual(["key", "superseded_by", "text", "valid_to"]);
+      expect(obs[0]?.valid_to).toBe(300);
+      expect(typeof obs[0]?.superseded_by).toBe("string");
+      // The open observation carries neither field.
+      const now = dataOf(await v.call("get_entity", { vault: "test", entity_id: id, as_of: 300 }));
+      expect(items(now, "observations").map(keys)).toEqual([["key", "text"]]);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("work_episodes: the provenance a reader trusts on (trust, eligibility, session_id, error_code) stays", async () => {
+    const d = await call(scenario("work_episodes"), { response_format: "concise" });
+    const rows = items(d, "episodes");
+    expect(rows.length).toBe(3);
+    for (const r of rows) {
+      expect(r.trust).toBe(0.6);
+      expect(r.eligibility).toBe("eligible");
+      expect(r.session_id).toBe("sess-1");
+      for (const dropped of [
+        "vault",
+        "caller",
+        "channel",
+        "episode_type",
+        "duration_ms",
+        "blocked",
+      ])
+        expect(r, dropped).not.toHaveProperty(dropped);
+    }
+    expect(rows.find((r) => r.id === "ep-2")?.error_code).toBe("note_not_found");
+    expect(rows.find((r) => r.id === "ep-3")?.prev_id).toBe("ep-2");
+  });
+
+  it("gap_report: every item keeps its verdict (gap) and top_score", async () => {
+    const full = await call(scenario("gap_report"), {});
+    const d = await call(scenario("gap_report"), { response_format: "concise" });
+    expect(d.gaps).toBe(full.gaps);
+    expect(items(d, "items").map((i) => [i.id, i.gap, i.top_score])).toEqual(
+      items(full, "items").map((i) => [i.id, i.gap, i.top_score]),
+    );
+  });
+});
+
+describe("part 3 safety signals survive concise", () => {
+  it("rewrite_link keeps a redacted to_target echo (the one echo that differs from what was sent)", async () => {
+    const { makeTestVault } = await import("./m1-helpers");
+    // Assembled at runtime so no literal in source matches a secret pattern.
+    const secret = ["gh", "p_", "M1n2B3v4C5x6Z7a8S9d0F1g2H3j4K5l6"].join("");
+    const v = makeTestVault({
+      files: { "b.md": "# B\n", "a.md": "see [[b]]\n" },
+      memoryDefense: { mode: "redact", pii: false },
+    });
+    try {
+      const input = {
+        vault: "test",
+        from_target: "b",
+        to_target: secret,
+        dry_run: true,
+        response_format: "concise",
+      };
+      const d = dataOf(await v.call("rewrite_link", input));
+      expect(d.to_target).toBeDefined();
+      expect(d.to_target).not.toBe(secret);
+      expect(d).not.toHaveProperty("from_target");
+      // A clean to_target is not echoed back.
+      const clean = dataOf(await v.call("rewrite_link", { ...input, to_target: "c" }));
+      expect(clean).not.toHaveProperty("to_target");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("list_capture_queue keeps poison_assessment on every item, including a never-scanned null", async () => {
+    const w = await world();
+    const m5 = await w.domain("m5");
+    // Every concise item carries the key, whatever its value.
+    const d = dataOf(
+      await m5.dispatch("list_capture_queue", { vault: "test", response_format: "concise" }),
+    );
+    for (const it of items(d, "items")) expect(it).toHaveProperty("poison_assessment");
+  });
+
+  it("work_episodes and work_search keep trust and eligibility on every row", async () => {
+    for (const [name, field] of [
+      ["work_episodes", "episodes"],
+      ["work_search", "results"],
+    ] as const) {
+      const d = await call(scenario(name), { response_format: "concise" });
+      expect(items(d, field).length, name).toBeGreaterThan(0);
+      for (const r of items(d, field)) {
+        expect(r, name).toHaveProperty("trust");
+        expect(r, name).toHaveProperty("eligibility");
+      }
+    }
+  });
+
+  it("note_quality_report and read_notes keep their per-item safety fields (part 1, still holding)", async () => {
+    const d = await call(scenario("note_quality_report"), { response_format: "concise" });
+    const a = items(d, "notes").find((n) => n.path === "a.md");
+    expect(a?.flags).toEqual(["stale_edit", "orphan"]);
+  });
+});
+
 describe("precedence through dispatch: explicit > alias > config default > detailed", () => {
   const s = () => scenario("append_note (clean scored note)");
 
@@ -527,10 +799,15 @@ describe("precedence through dispatch: explicit > alias > config default > detai
     expect(keys(items(d, "items")[0])).toContain("line");
   });
 
-  it("the config default reaches every domain (m1 notes, m1 frontmatter/links, m2, m8)", async () => {
+  it("the config default reaches every domain (m1, m2, m3, m5, m7, m8)", async () => {
     for (const s of SCENARIOS) {
-      const viaConfig = strip(await call(s, {}, "concise"));
-      const viaParam = strip(await call(s, { response_format: "concise" }));
+      // A volatile scenario cannot be compared across two worlds: ask the configured world both ways.
+      const [viaConfig, viaParam] = s.volatile
+        ? (await callAll(s, [{}, { response_format: "concise" }], "concise")).map(strip)
+        : [
+            strip(await call(s, {}, "concise")),
+            strip(await call(s, { response_format: "concise" })),
+          ];
       expect(viaConfig, s.name).toEqual(viaParam);
     }
   });
@@ -566,9 +843,7 @@ describe("the parameter is advertised", () => {
   it("every touched tool's input schema accepts response_format and the legacy verbosity alias", async () => {
     const w = await world();
     for (const s of SCENARIOS) {
-      const reg =
-        s.domain === "m1" ? w.m1.registry : s.domain === "m2" ? w.m2.registry : w.m8.registry;
-      const def = reg.list().find((t) => t.name === s.tool);
+      const def = (await registryOf(w, s)).list().find((t) => t.name === s.tool);
       expect(def, s.tool).toBeDefined();
       const props = Object.keys(topLevelShape(def?.inputSchema) ?? {});
       expect(props, s.tool).toContain("response_format");
