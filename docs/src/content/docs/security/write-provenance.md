@@ -141,10 +141,13 @@ recording fault is on file, and notes (without warning) a fresh install that has
 ```
 
 Records come back **newest first** (by sequence number). `limit` is 1 to 200 (default 50); when more
-remain, `next_cursor` is the sequence number to pass as `cursor` for the next page. `since` and
+remain, `next_cursor` is an opaque, signed cursor to pass as `cursor` for the next page of the same
+request. It is bound to the caller, the tool and the exact arguments and it expires, like the other
+paged reads; a cursor the server did not issue for this request (a made-up number, another request's
+cursor) is an `invalid_input` error. `since` and
 `until` are epoch milliseconds, inclusive. Each record has the tool, `outcome`, `ts`, the sha256
 `before` and `after` of the queried path, `seq`, the record `hash`, every readable path the call
-named, and the attribution in the same three groups as the stored record. They are returned
+named (`paths_truncated` when the call named more than the record lists), and the attribution in the same three groups as the stored record. They are returned
 **separately and never merged**: `verified` is what the server established, `unauthenticated` is a
 label the server saw and nobody proved, and `self_reported` is what the client said about itself
 (`model`, `project`, `agent`, `machine`, `client`) and can be false. Decide nothing from
@@ -166,20 +169,29 @@ of the vault being queried:
   an empty page.
 - A record that names several paths (a move, a copy, a bulk call) lists **only the paths the caller
   can read**. A path they cannot read is left out with no placeholder and no count, and a record
-  keeps only its readable entries.
+  keeps only its readable entries. Nothing derived from a left-out path is returned either: when a
+  record had a path left out, its `hash` is a hash of the view the caller can see, not the stored
+  record hash (which covers the hidden path, so it would let a caller test a guess at it), and it
+  never carries `paths_truncated`. A record with nothing left out returns its stored hash.
 - A vault's records and its ACL never serve another vault.
 
 **Moves.** A record lists a move as a `[from, to]` pair. When the newest `move_note`,
 `bulk_move_notes` or `move_attachment` record moved a file onto the queried path, the history of
 the source path is part of the result (`previous_paths`, and each record's `path` says which path it
 matched), and the walk repeats for that source, up to 32 moves. The walk stops at a source the
-caller cannot read, so it never learns the source existed. Records from before the file arrived at a
+caller cannot read, so it never learns the source existed. A move record is followed **only if it
+verifies** (the same per-record check as `include_verification`, run whether or not it was
+asked for). A move that fails it (an edited body, a bad or missing signature, an indexed column that
+disagrees, or no key registry to check a signed record with) is not followed: the result carries
+`lineage_incomplete` with the `reason` (a verify problem code, `unverifiable`, or `max_hops`) and the
+`seq` of that record, and neither the earlier paths nor their records are returned. Without a key
+registry (stdio-only) unsigned records are the norm and are followed. Records from before the file arrived at a
 path (a previous occupant it overwrote) are not part of its history. Moves are **not** followed
 forwards: the old path shows its history up to the move, not what became of the file. Renames done by
 other means (a tool that only deletes and creates) are plain writes, so they are not linked.
 
 **Verification.** With `include_verification`, each record carries `verification`:
-`signature` is `valid`, `invalid`, `unknown_key`, `unsigned`, or `unverifiable` (no key registry,
+`signature` is `valid` only when the signature verifies **and** the body still hashes to the signed hash and agrees with its indexed columns; a record whose content was edited is `invalid` (a chain break is `chain_link`, and does not change `signature`). Otherwise it is `unknown_key`, `unsigned`, or `unverifiable` (no key registry,
 for instance a stdio-only deployment, or an unreadable one: signatures cannot be checked, which is
 not evidence of tampering); `chain_link` is `ok` or `broken`; `problems` lists the codes
 `provenance verify` uses; `ok` is true only for a valid signature with no problem. This reuses the
@@ -189,10 +201,17 @@ the chain is complete: a removed later record or a forged head is only visible t
 file can forge records but not signatures (see the limits above).
 
 **Limits.** A record stores the paths the call named, up to 500 per call (see `paths_omitted`): a
-note beyond that cap in a bulk call has no record that names it. The records have no path index, so
-a query scans the vault's chain with a text prefilter on the file name; a deployment that keeps its
-whole history (`retentionDays` unset) and writes a lot pays for that in latency, and `retentionDays` bounds
-it.
+note beyond that cap in a bulk call has no record that names it. The records have no path index (a
+stored path is the spelling the call named, which only normalizes in code, so an index column would
+need a backfill SQL cannot do), so a query is **one newest-first pass** over the vault's chain with a
+text prefilter on the file name, following moves in the same pass. The pass examines at most
+`provenance.query.maxScanRows` rows (default 100000; about half a second at the worst measured, on a
+loaded 4-core host, for a 100000-row chain with no match). A longer chain is read newest-first and
+the result carries `scan_truncated: true`: older history was not examined. A path whose only history
+lies beyond the budget answers `not_found`, like a path with none (an unreadable path must look the
+same). Raise the budget for a long-retention vault, or bound the chain with `retentionDays`; `provenance verify`
+is not bounded by it. Each page restarts the pass from the newest record, so a deep page costs what the
+first one does.
 
 ## Recording faults
 
@@ -296,6 +315,7 @@ obsidian_tc_provenance:
     "enabled": true,
     "host": { "mode": "hashed" },
     "retentionDays": 365,
+    "query": { "maxScanRows": 100000 },
     "stamp": { "gitTrailers": false, "frontmatter": false, "frontmatterKey": "obsidian_tc_provenance" }
   }
 }
@@ -305,6 +325,8 @@ obsidian_tc_provenance:
 - `host.mode` is `"hashed"` (default, a stable digest of the machine's hostname) or `"label"`,
   which records `host.label` verbatim and requires it.
 - `retentionDays` is absent by default, which keeps records forever.
+- `query.maxScanRows` (1000 to 10000000, default 100000) is the most rows one `get_provenance` call
+  examines.
 - `stamp.gitTrailers` and `stamp.frontmatter` default to `false`; `stamp.frontmatterKey` names the
   key (letters, digits, `_` and `-`, up to 64 characters). Setting either stamp while `enabled` is
   `false` is a configuration error.

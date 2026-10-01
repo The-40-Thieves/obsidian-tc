@@ -100,14 +100,12 @@ describe("get_provenance records", () => {
     for (let i = 0; i < 5; i++) f.add({ paths: ["a.md"] });
     const p1 = await data(f, { path: "a.md", limit: 2 });
     expect(seqs(p1)).toEqual([5, 4]);
-    expect(p1.next_cursor).toBe("4");
+    expect(p1.next_cursor).toEqual(expect.any(String)); // opaque and signed, not a bare seq
     const p2 = await data(f, { path: "a.md", limit: 2, cursor: p1.next_cursor });
     expect(seqs(p2)).toEqual([3, 2]);
     const p3 = await data(f, { path: "a.md", limit: 2, cursor: p2.next_cursor });
     expect(seqs(p3)).toEqual([1]);
     expect(p3.next_cursor).toBeNull();
-    // A page past the end is empty, not an error.
-    expect(seqs(await data(f, { path: "a.md", cursor: "1" }))).toEqual([]);
   });
 
   it("rejects a cursor that is not a previous next_cursor", async () => {

@@ -61,4 +61,6 @@ export interface M1Deps {
    *  per call because the registry opens after the tools register. Absent or returning undefined
    *  (no registry: stdio-only) -> a signed record reports `unverifiable`, never `valid`. */
   provenanceKeys?: () => KeyResolver | undefined;
+  /** get_provenance's per-query row budget (`provenance.query.maxScanRows`). Absent: the tool's default. */
+  provenanceMaxScanRows?: number;
 }

@@ -28,7 +28,6 @@ import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
-import type { ProvenanceRecorder } from "../provenance/recorder";
 import type { ProvenanceStamper } from "../provenance/stamp";
 import { buildLocalReranker } from "../providers/registry";
 import {
@@ -45,7 +44,7 @@ import { guardReranker, type Reranker, type RerankOutcome } from "../search/rera
 import type { VecRebuildEvent } from "../search/vec";
 import type { RateLimiter } from "../throttle";
 import { createHealthTool, createIndexStatusTool } from "../tools/admin/health";
-import { registerM1Tools } from "../tools/m1";
+import { type ProvenanceRecorder, provenanceDepsOf, registerM1Tools } from "../tools/m1";
 import { registerM2Tools } from "../tools/m2";
 import { registerM3Tools } from "../tools/m3";
 import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../tools/m4";
@@ -393,8 +392,7 @@ export interface M1WiringDeps {
   metrics?: MetricsRecorder;
   /** `provenance.stamp.*`: present only when a stamp is on (governance builds it). */
   provenanceStamp?: ProvenanceStamper | undefined;
-  /** The write-provenance recorder (absent when disabled): get_provenance verifies records against
-   *  the keys it is given once the auth registry opens. */
+  /** The write-provenance recorder (absent when disabled): get_provenance's keys and budget. */
   provenance?: ProvenanceRecorder;
 }
 
@@ -428,7 +426,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     ...(deps.memoryDefense ? { memoryDefense: deps.memoryDefense } : {}),
     ...(deps.metrics ? { metrics: deps.metrics } : {}),
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
-    ...(deps.provenance ? { provenanceKeys: () => deps.provenance?.keyResolver() } : {}),
+    ...(deps.provenance ? provenanceDepsOf(deps.provenance, config) : {}),
     // Bulk-read continuation cursors: HMAC key from auth.jwtSecret (random per process without
     // one) and the registry's live byte budget, so a lowered maxResponseBytes shrinks the pages.
     paging: createPagingDeps({

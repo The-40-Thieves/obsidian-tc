@@ -55,6 +55,8 @@ export interface TestVaultOptions {
   aclByVault?: Record<string, Partial<AclConfigT>>;
   /** get_provenance's include_verification: the registry's public keys. Unwired by default. */
   provenanceKeys?: () => KeyResolver | undefined;
+  /** get_provenance's per-query row budget (`provenance.query.maxScanRows`). Default: the tool's. */
+  provenanceMaxScanRows?: number;
   /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
   registryOpts?: Partial<RegistryOptions>;
 }
@@ -130,6 +132,9 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
       : {}),
     ...(opts.metrics ? { metrics: opts.metrics } : {}),
     ...(opts.provenanceKeys ? { provenanceKeys: opts.provenanceKeys } : {}),
+    ...(opts.provenanceMaxScanRows !== undefined
+      ? { provenanceMaxScanRows: opts.provenanceMaxScanRows }
+      : {}),
     paging: createPagingDeps({
       secret: "test-secret",
       budgetBytes: () => registry.maxResponseBytes,

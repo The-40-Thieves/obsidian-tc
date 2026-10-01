@@ -13,6 +13,8 @@ import type { M1Deps } from "./shared";
 import { buildSnapshotTools } from "./snapshot-tools";
 import { buildTagsTools } from "./tags-tools";
 
+export type { ProvenanceRecorder } from "../../provenance/recorder";
+export { provenanceDepsOf } from "./provenance-tools";
 export type { M1Deps } from "./shared";
 
 export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {

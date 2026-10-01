@@ -2,9 +2,6 @@
 // only as private as its path filter. Red cases first: an unreadable path must be indistinguishable
 // from a path that was never written, a record naming several paths must not reveal the ones the
 // caller cannot read, and one vault's records and ACL must never serve another vault.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -19,7 +16,7 @@ import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { CLOCK0, provenanceFixture } from "./provenance-helpers";
 import { h, moved, queryFixture } from "./provenance-query-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -58,10 +55,10 @@ describe("RED: an unreadable path answers exactly like a path that was never wri
     expect((await f.get({ path: "pub/known.md" })).ok).toBe(true);
   });
 
-  it("an unreadable path with since/until or a cursor is an empty page, the same as a never-written one", async () => {
+  it("an unreadable path with since/until is an empty page, the same as a never-written one", async () => {
     const f = await make({ acl: READ_PUB });
     f.add({ paths: ["secret/x.md"] });
-    for (const extra of [{ since: 1 }, { until: CLOCK0 + 99 }, { cursor: "5" }]) {
+    for (const extra of [{ since: 1 }, { until: CLOCK0 + 99 }]) {
       const a = await f.get({ path: "secret/x.md", ...extra });
       const b = await f.get({ path: "pub/never.md", ...extra });
       expect(a.ok && b.ok).toBe(true);
@@ -72,6 +69,20 @@ describe("RED: an unreadable path answers exactly like a path that was never wri
           .join("pub/never.md"),
       ).toBe(JSON.stringify(b.ok && b.data));
     }
+  });
+
+  it("a cursor issued for another request is refused the same way for an unreadable and a never-written path", async () => {
+    const f = await make({ acl: READ_PUB });
+    f.add({ paths: ["pub/seed.md"] });
+    f.add({ paths: ["pub/seed.md"] });
+    f.add({ paths: ["secret/x.md"] });
+    const page = await f.get({ path: "pub/seed.md", limit: 1 });
+    const cursor = page.ok ? (page.data as { next_cursor: string }).next_cursor : "";
+    expect(cursor).not.toBe("");
+    const a = await f.get({ path: "secret/x.md", cursor });
+    const b = await f.get({ path: "pub/never.md", cursor });
+    expect(shape(a, "secret/x.md")).toBe(shape(b, "pub/never.md"));
+    expect(a.ok || a.error.code).toBe("invalid_input");
   });
 
   it("the hard default-deny roots are not_found too", async () => {
@@ -212,8 +223,8 @@ describe("RED: a record naming several paths never reveals one the caller cannot
 describe("cross-vault isolation", () => {
   async function twoVaults() {
     const fx = await provenanceFixture();
-    const alpha = mkdtempSync(join(tmpdir(), "obtc-prov-alpha-"));
-    const beta = mkdtempSync(join(tmpdir(), "obtc-prov-beta-"));
+    const alpha = makeTempDir("obtc-prov-alpha-");
+    const beta = makeTempDir("obtc-prov-beta-");
     cleanups.push(() => {
       rmTemp(alpha);
       rmTemp(beta);
