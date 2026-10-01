@@ -4,8 +4,7 @@
 // Uses the FULL manifest chain (CACHE_MIGRATION_FILES), not a hand-built one, so migration
 // 20260903_001 is always present here — this file is exactly the "manifest-driven" test category
 // CLAUDE.md/`just migration-impact` describes.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -20,7 +19,7 @@ import { applyNoteWrites } from "../src/search/indexing/persist-note-plan";
 import { existingSummaryHash, upsertNoteSummary } from "../src/search/note-summaries";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -48,7 +47,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   it("an excluded note is chunked and stored, but NEVER embedded — zero embed calls for it", async () => {
     embedCalls = 0;
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-"));
+    const root = makeTempDir("obtc-egress-");
     try {
       writeFileSync(join(root, "Public.md"), "a public note about apples");
       mkdirSync(join(root, "Private"), { recursive: true });
@@ -97,7 +96,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   it("real glob semantics: Private.md and Privateer.md (files, not the Private/ folder) are NOT excluded", async () => {
     embedCalls = 0;
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-glob-"));
+    const root = makeTempDir("obtc-egress-glob-");
     try {
       writeFileSync(join(root, "Private.md"), "a file literally named Private.md");
       writeFileSync(join(root, "Privateer.md"), "a file that merely starts with Private");
@@ -125,7 +124,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
 
   it("audit's null-embedding count stays 0 for an excluded chunk (the marker's whole point)", async () => {
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-audit-"));
+    const root = makeTempDir("obtc-egress-audit-");
     try {
       writeFileSync(join(root, "Private.md"), "a private secret about oranges");
       await indexVault({
@@ -219,7 +218,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   it("a renamed-OUT-of-excluded folder is re-embedded on the next pass (content_hash unchanged)", async () => {
     embedCalls = 0;
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-rename-"));
+    const root = makeTempDir("obtc-egress-rename-");
     try {
       writeFileSync(join(root, "Private.md"), "stable content, never edited");
       const args = {
@@ -258,7 +257,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   // excluded.
   it("a note transitioning to excluded has its note_summaries row deleted, not merely its chunk vectors", async () => {
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-summary-"));
+    const root = makeTempDir("obtc-egress-summary-");
     try {
       writeFileSync(join(root, "Journal.md"), "stable content, never edited");
       const args = {
@@ -307,7 +306,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   // from the ALREADY-excluded state -- no transition anywhere in it.
   it("an ALREADY-excluded note (stamped on a previous pass, no transition) loses its summary on the NEXT reconcile", async () => {
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-stale-summary-"));
+    const root = makeTempDir("obtc-egress-stale-summary-");
     try {
       writeFileSync(join(root, "Journal.md"), "stable content, never edited");
       const args = {
@@ -357,7 +356,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
   // written when the note still had content.
   it("an excluded note with NO chunks at all (plan: null) still loses its summary — the walk sweeps it", async () => {
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-empty-"));
+    const root = makeTempDir("obtc-egress-empty-");
     try {
       writeFileSync(join(root, "Emptied.md"), "");
       upsertNoteSummary(db, "v1", {
@@ -459,7 +458,7 @@ describe("index-time embedding — egress.excludePaths (THE-934)", () => {
 
   it("control: a note that is NOT excluded keeps its summary row across reconciles", async () => {
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-egress-keep-summary-"));
+    const root = makeTempDir("obtc-egress-keep-summary-");
     try {
       writeFileSync(join(root, "Journal.md"), "stable content, never edited");
       const args = {

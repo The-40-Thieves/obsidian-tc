@@ -10,8 +10,7 @@
 // same `undefined` a fresh install also produces (a Greptile-flagged + T-Rex-verified finding: a
 // read-only cache.db was misreported as "no cache.db yet").
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { probeDbSpace } from "../src/cli/commands/doctor-probes";
@@ -23,6 +22,7 @@ import { type DbSpaceView, dbSpaceCheck } from "../src/doctor/db-space";
 import { ensureNotesFts } from "../src/search/fts";
 import { createDanglingWalDb } from "./dangling-wal-fixture";
 import { stallTimeout } from "./stall-timeouts";
+import { makeTempDir } from "./tmp";
 
 const ctx = { serverVersion: "test" };
 const run = (view: DbSpaceView) => dbSpaceCheck(view).run(ctx);
@@ -90,7 +90,7 @@ function sha256(path: string): string {
 
 describe("probeDbSpace — a real cache.db", () => {
   it("reports 'missing' when cache.db does not exist yet", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-empty-"));
+    const cacheDir = makeTempDir("obtc-dbspace-empty-");
     try {
       expect(await probeDbSpace(cacheDir, 5000)).toEqual({ status: "missing" });
     } finally {
@@ -99,7 +99,7 @@ describe("probeDbSpace — a real cache.db", () => {
   });
 
   it("reads file size, freelist bytes, and notes_fts's <t>_data row count off a real file", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-real-"));
+    const cacheDir = makeTempDir("obtc-dbspace-real-");
     try {
       const dbPath = join(cacheDir, "cache.db");
       const db = await openDatabase(dbPath);
@@ -143,7 +143,7 @@ describe("probeDbSpace — a real cache.db", () => {
   // chmod does on Windows would be worse than not testing it at all.
   describe.skipIf(process.platform === "win32")("file permission states", () => {
     it("chmod 0444 (readable, not writable) is 'ok' now that the opener is readonly", async () => {
-      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-ro444-"));
+      const cacheDir = makeTempDir("obtc-dbspace-ro444-");
       try {
         const dbPath = join(cacheDir, "cache.db");
         const db = await openDatabase(dbPath);
@@ -160,7 +160,7 @@ describe("probeDbSpace — a real cache.db", () => {
     });
 
     it("chmod 0000 (unreadable) reports 'unopenable' with a reason, distinct from 'missing'", async () => {
-      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-ro000-"));
+      const cacheDir = makeTempDir("obtc-dbspace-ro000-");
       try {
         const dbPath = join(cacheDir, "cache.db");
         const db = await openDatabase(dbPath);
@@ -185,7 +185,7 @@ describe("probeDbSpace — a real cache.db", () => {
   // F2: the opener must be readonly, so an inspection of a still-DELETE-mode database changes
   // neither its bytes nor its journal mode.
   it("never mutates a DELETE-mode database's bytes or journal mode", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-delete-mode-"));
+    const cacheDir = makeTempDir("obtc-dbspace-delete-mode-");
     try {
       const dbPath = join(cacheDir, "cache.db");
       // Built via BARE node:sqlite (not this repo's openDatabase, which always sets WAL) so the
@@ -227,7 +227,7 @@ describe("probeDbSpace — a real cache.db", () => {
   // fixed by opening a normal read-write file descriptor and never issuing a write statement (see
   // bun-sqlite.ts's comment for the full incident); this test pins that fix.
   it("reads a WAL-mode fixture successfully and still mutates neither its bytes nor journal mode", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-wal-"));
+    const cacheDir = makeTempDir("obtc-dbspace-wal-");
     try {
       const dbPath = join(cacheDir, "cache.db");
       const db = await openDatabase(dbPath); // openDatabase's own pragmas set journal_mode = WAL
@@ -278,7 +278,7 @@ describe("probeDbSpace — a real cache.db", () => {
   it("a dangling WAL (writer killed before it could checkpoint) is left byte-for-byte unchanged by a successful readonly probe", {
     timeout: stallTimeout(15_000),
   }, async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-dangling-wal-"));
+    const cacheDir = makeTempDir("obtc-dbspace-dangling-wal-");
     try {
       const dbPath = await createDanglingWalDb(cacheDir);
       const hashBefore = sha256(dbPath);
@@ -304,7 +304,7 @@ describe("probeDbSpace — a real cache.db", () => {
   // one documented residual side effect (SQLite's own checkpoint-on-close against a dangling WAL)
   // can change bytes even though this code issued no write.
   it("the forced fallback path preserves journal_mode and every row, but does not promise unchanged bytes", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-forced-fallback-"));
+    const cacheDir = makeTempDir("obtc-dbspace-forced-fallback-");
     try {
       const dbPath = join(cacheDir, "cache.db");
       const db = await openDatabase(dbPath); // openDatabase's own pragmas set journal_mode = WAL
@@ -346,7 +346,7 @@ describe("probeDbSpace — a real cache.db", () => {
   // invisible to an operator reading the doctor row. The row now names it, with the consequence
   // (SQLite's own checkpoint-on-close against a dangling WAL) spelled out rather than implied.
   it("H2: the doctor row says so when the inspection connection fell back", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-row-fallback-"));
+    const cacheDir = makeTempDir("obtc-dbspace-row-fallback-");
     const priorEnv = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"));
@@ -382,7 +382,7 @@ describe("probeDbSpace — a real cache.db", () => {
   // succeeds), so pinning "native" here pins the platform, not this code. The fallback WORDING is
   // pinned deterministically by the forced-fallback test above.
   it("H2: an ordinary probe reports its open mode, and the notice tracks it", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-row-native-"));
+    const cacheDir = makeTempDir("obtc-dbspace-row-native-");
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"));
       provisionCacheDb(db, { version: "test" });
@@ -412,7 +412,7 @@ describe("readonly open fallback condition (breaker ruling)", () => {
   const withDb = async (
     fn: (dbPath: string, dir: string) => void | Promise<void>,
   ): Promise<void> => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-cond-"));
+    const cacheDir = makeTempDir("obtc-ro-cond-");
     try {
       const dbPath = join(cacheDir, "cache.db");
       const db = await openDatabase(dbPath);
@@ -444,7 +444,7 @@ describe("readonly open fallback condition (breaker ruling)", () => {
   });
 
   it("a missing file errors and is NOT created by a fallback open", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-missing-"));
+    const cacheDir = makeTempDir("obtc-ro-missing-");
     try {
       const dbPath = join(cacheDir, "cache.db");
       await expect(openDatabase(dbPath, 5000, { readonly: true })).rejects.toThrow(
@@ -462,7 +462,7 @@ describe("readonly open fallback condition (breaker ruling)", () => {
   // better-sqlite3 wherever it resolves (its own `fileMustExist: true` fallback refuses to create),
   // so the defect is invisible through the shared entry point on a dev machine or CI runner.
   it("openNodeSqlite: a missing file is never created by the fallback open", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-missing-ns-"));
+    const cacheDir = makeTempDir("obtc-ro-missing-ns-");
     try {
       const dbPath = join(cacheDir, "cache.db");
       await expect(openNodeSqlite(dbPath, 5000, { readonly: true })).rejects.toThrow();
@@ -479,7 +479,7 @@ describe("readonly open fallback condition (breaker ruling)", () => {
   it.skipIf(process.platform === "win32")(
     "an unreadable file reaches the fallback open and reports that it failed too",
     async () => {
-      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-denied-"));
+      const cacheDir = makeTempDir("obtc-ro-denied-");
       const dbPath = join(cacheDir, "cache.db");
       try {
         const db = await openDatabase(dbPath);
@@ -520,7 +520,7 @@ describe("OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW — the real fallback path, on a
 
   for (const mode of ["1", "construct"]) {
     it(`a native readonly failure at the ${mode === "1" ? "probe" : "construction"} step falls back and reads`, async () => {
-      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-ro-throw-"));
+      const cacheDir = makeTempDir("obtc-ro-throw-");
       try {
         const db = await openDatabase(join(cacheDir, "cache.db"));
         provisionCacheDb(db, { version: "test" });

@@ -7,7 +7,7 @@
 // notice a release that lost all eight.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -78,10 +78,14 @@ function run({ assets, manifestLines, checksummed, shasums }) {
   );
   const sigs = join(dir, "signature-manifest.tsv");
   writeFileSync(sigs, manifestLines.length ? `${manifestLines.join("\n")}\n` : "");
-  return spawnSync("bash", [SCRIPT, "123456", sums, sigs], {
-    encoding: "utf8",
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GITHUB_REPOSITORY: "o/r" },
-  });
+  try {
+    return spawnSync("bash", [SCRIPT, "123456", sums, sigs], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GITHUB_REPOSITORY: "o/r" },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 test("a complete release passes and reports all 19 bundles", () => {

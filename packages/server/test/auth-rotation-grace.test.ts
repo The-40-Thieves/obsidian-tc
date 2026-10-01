@@ -2,8 +2,7 @@
 // properties that must hold whether or not the reaper ever ran: a key stops verifying at
 // `retire_after`, and verification and minting need nothing but registry keys once the `config`
 // key is retired.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeProtectedHeader, SignJWT } from "jose";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,7 +17,7 @@ import { provisionAuthDb } from "../src/db/provision";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const T0 = 1_800_000_000_000;
@@ -30,7 +29,7 @@ afterAll(() => {
 function fixture(opts: { configSecret?: string | null } = {}) {
   const db = openMemoryDb();
   provisionAuthDb(db);
-  const dir = mkdtempSync(join(tmpdir(), "auth-grace-"));
+  const dir = makeTempDir("auth-grace-");
   dirs.push(dir);
   const clock = { t: T0 };
   const configSecret = opts.configSecret === null ? undefined : (opts.configSecret ?? SECRET);
@@ -105,7 +104,7 @@ describe("reaper: persists retiring -> retired", () => {
   });
 
   it("server start (openAuthRegistry with reap) persists an elapsed window", async () => {
-    const root = mkdtempSync(join(tmpdir(), "auth-grace-open-"));
+    const root = makeTempDir("auth-grace-open-");
     dirs.push(root);
     const cfg = {
       cacheDir: join(root, "cache"),
@@ -271,7 +270,7 @@ describe("grace default from config (auth.rotationGraceSeconds), overridden by -
   afterEach(() => vi.restoreAllMocks());
 
   function deployment(auth: Record<string, unknown>) {
-    const root = mkdtempSync(join(tmpdir(), "auth-grace-cfg-"));
+    const root = makeTempDir("auth-grace-cfg-");
     dirs.push(root);
     const vault = join(root, "vault");
     mkdirSync(vault);

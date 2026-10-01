@@ -1,11 +1,10 @@
 // FIVE refusals, all at boot. Every `rejects` is awaited: in Vitest 4 an un-awaited one PASSES
 // even when the code is wrong, and these guard a security boundary.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadProviderModule } from "../src/providers/module-loader";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // Every fixture dir is tracked and removed in afterEach. This suite is the worst case for the
 // Windows teardown class this file's `rmTemp` exists for: each fixture writes a `.mjs` that
@@ -29,7 +28,7 @@ afterEach(() => {
 });
 
 function fixture(contents: string): { dir: string; file: string } {
-  const dir = mkdtempSync(join(tmpdir(), "otc-provider-"));
+  const dir = makeTempDir("otc-provider-");
   tmpDirs.push(dir);
   writeFileSync(join(dir, "provider.mjs"), contents, "utf8");
   return { dir, file: "provider.mjs" };

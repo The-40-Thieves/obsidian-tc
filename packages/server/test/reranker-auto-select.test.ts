@@ -27,8 +27,7 @@
 //     deleted, either way. If the real `dist/` exists but is PARTIAL (present directory, missing
 //     `index.js`), this case is skipped rather than risking `tsc` mixing its output with whatever is
 //     already there.
-import { existsSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
@@ -47,7 +46,7 @@ import {
   stageRerankerLocalSource,
   writeRerankerLocalAnchorOnly,
 } from "./reranker-local-stage";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RERANKER_LOCAL_DIR = join(HERE, "..", "..", "reranker-local");
@@ -117,7 +116,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
       // Staged anchor-only tree (no dist) — proves resolveSourceCheckoutLocalRerankerPath's own
       // walk behaves correctly, independent of the real checkout (GH #958 review round 2, findings
       // 1 and 5).
-      const anchorRoot = mkdtempSync(join(tmpdir(), "obtc-reranker-auto-select-unbuilt-"));
+      const anchorRoot = makeTempDir("obtc-reranker-auto-select-unbuilt-");
       try {
         const startDir = writeRerankerLocalAnchorOnly(anchorRoot);
         const sourceCheckout = resolveSourceCheckoutLocalRerankerPath(startDir);
@@ -195,7 +194,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
       // Unique per file: reranker-local-resolution.test.ts stages its OWN copy under its own root,
       // so the two can run in parallel without racing each other (unlike the real dist they both
       // used to share).
-      stageRoot = mkdtempSync(join(tmpdir(), "obtc-reranker-auto-select-"));
+      stageRoot = makeTempDir("obtc-reranker-auto-select-");
       const stagedPkg = stageRerankerLocalSource(RERANKER_LOCAL_DIR, stageRoot);
       stagedDistEntry = buildStagedRerankerLocal(stagedPkg);
       expect(existsSync(stagedDistEntry)).toBe(true);

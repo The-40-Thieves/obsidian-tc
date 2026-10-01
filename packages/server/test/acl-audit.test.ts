@@ -4,9 +4,6 @@
 // handler resolves paths via resolveVaultPath, and the audit reports any it touches that the
 // central stage never ACL-checked.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -18,7 +15,7 @@ import {
   setAclAuditMode,
 } from "../src/vault/acl-audit";
 import { resolveVaultPath } from "../src/vault/paths";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const stubDb = {
   prepare() {
@@ -30,7 +27,7 @@ describe("ACL audit: pathAcl mirrors handler fs usage (issue #280)", () => {
   let root: string;
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "obtc-acl-audit-"));
+    root = makeTempDir("obtc-acl-audit-");
     setAclAuditMode("on");
     clearCollectedViolations();
   });

@@ -1,11 +1,10 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { makeTestVault } from "./m1-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("Domain 1: multi-vault registry", () => {
   it("list_vaults returns configured vaults", async () => {
@@ -26,7 +25,7 @@ describe("Domain 1: multi-vault registry", () => {
 
   it("THE-924: a vaultBound caller sees only its own vault; an unbound caller sees all", async () => {
     const v = makeTestVault();
-    const dir = mkdtempSync(join(tmpdir(), "obtc-vaultbound-"));
+    const dir = makeTempDir("obtc-vaultbound-");
     try {
       const add = await v.call("add_vault", { vault_id: "other", path: dir });
       expect(add.ok).toBe(true);
@@ -123,7 +122,7 @@ describe("Domain 1: multi-vault registry", () => {
 describe("THE-376 add_vault (runtime registration)", () => {
   it("registers a new vault at runtime, usable immediately; rejects dup id + missing path", async () => {
     const v = makeTestVault();
-    const dir = mkdtempSync(join(tmpdir(), "obtc-addvault-"));
+    const dir = makeTempDir("obtc-addvault-");
     writeFileSync(join(dir, "hello.md"), "hi");
     try {
       const add = await v.call("add_vault", { vault_id: "extra", path: dir });

@@ -4,8 +4,7 @@
 // capturing every request) so the plur proxy is exercised with no live plur. Mirrors
 // m4-helpers; capture/memory/workspace need no bridge, so plur is opt-in per test.
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -20,7 +19,7 @@ import { createPlurClient } from "../src/plur/client";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const PLUR_ENDPOINT = "http://127.0.0.1:7077";
 export const PLUR_TOKEN = "plur-secret";
@@ -80,7 +79,7 @@ export interface M5Vault {
 }
 
 export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m5-"));
+  const root = makeTempDir("obtc-m5-");
   const id = opts.vaultId ?? "test";
   const write = (rel: string, content: string): void => {
     const abs = join(root, rel);
@@ -91,7 +90,7 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
 
   // THE-737: traces live in cacheDir now. This MUST NOT be the vault root — pointing it there
   // would put traces back inside the vault and make the containment test pass vacuously.
-  const cacheDir = mkdtempSync(join(tmpdir(), "obtc-m5-cache-"));
+  const cacheDir = makeTempDir("obtc-m5-cache-");
   const db = openMemoryDb();
   provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
@@ -160,6 +159,11 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
       db
         .prepare("SELECT tool_name, status, error_code FROM event_log ORDER BY rowid")
         .all() as M5EventRow[],
-    cleanup: () => rmTemp(root),
+    // The cache dir is a second makeTempDir: removing only `root` left one obtc-m5-cache-* behind
+    // per vault (183 of the 214 leaks in the 2026-09-30 audit run).
+    cleanup: () => {
+      rmTemp(root);
+      rmTemp(cacheDir);
+    },
   };
 }

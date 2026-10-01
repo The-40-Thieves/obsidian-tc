@@ -8,13 +8,12 @@
 // only resolves under the Bun runtime, and this suite runs under Node (see CLAUDE.md). Verified by
 // an inventory-style source scan instead — see the last test below.
 
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openBetterSqlite3 } from "../src/db/node-better-sqlite3";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NON_DEFAULT_MS = 12345;
 
@@ -30,7 +29,7 @@ try {
 
 describe.skipIf(!bsqlOk)("openBetterSqlite3 threads busyTimeoutMs (THE-935)", () => {
   it("applies the configured value, not the default", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-bsql-busy-"));
+    const dir = makeTempDir("otc-bsql-busy-");
     try {
       const db = await openBetterSqlite3(join(dir, "t.db"), NON_DEFAULT_MS);
       expect((db.prepare("PRAGMA busy_timeout").get() as { timeout: number }).timeout).toBe(
@@ -45,7 +44,7 @@ describe.skipIf(!bsqlOk)("openBetterSqlite3 threads busyTimeoutMs (THE-935)", ()
 
 describe("openNodeSqlite threads busyTimeoutMs (THE-935)", () => {
   it("applies the configured value, not the default", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-nsql-busy-"));
+    const dir = makeTempDir("otc-nsql-busy-");
     try {
       const db = await openNodeSqlite(join(dir, "t.db"), NON_DEFAULT_MS);
       expect((db.prepare("PRAGMA busy_timeout").get() as { timeout: number }).timeout).toBe(

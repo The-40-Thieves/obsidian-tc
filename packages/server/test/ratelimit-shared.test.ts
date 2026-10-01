@@ -1,14 +1,13 @@
 // The point of the shared backends: limits that hold ACROSS handles, and across a restart.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BucketSpec } from "../src/ratelimit/backend";
 import { openSqliteBackend } from "../src/ratelimit/sqlite-backend";
 import { RateLimiter } from "../src/throttle";
 import { redisExistenceFloor, STORE_KINDS, type Store } from "./ratelimit-harness";
+import { makeTempDir } from "./tmp";
 
 redisExistenceFloor();
 
@@ -88,7 +87,7 @@ describe("sqlite: separate PROCESSES share one ratelimit.db", () => {
   it.skipIf(!hasBun)(
     "three bun processes and this node process race for 50 tokens: exactly 50 are granted",
     async () => {
-      dir = mkdtempSync(join(tmpdir(), "otc-ratelimit-mp-"));
+      dir = makeTempDir("otc-ratelimit-mp-");
       const child = fileURLToPath(new URL("./fixtures/ratelimit-child.ts", import.meta.url));
       const runChild = () =>
         new Promise<number>((resolve, reject) => {

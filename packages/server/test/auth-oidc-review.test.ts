@@ -1,9 +1,3 @@
-// Security-review fixes for `auth.mode: "oidc"`. Each block is one finding of the grok review of
-// PR #1040, written RED first. The shapes are the real ones IdPs emit (Keycloak, Auth0, Entra,
-// Cognito), because a guard tested on shapes its author invented passes the shapes nobody hit.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   grantsScope,
   type ServerConfig,
@@ -19,7 +13,7 @@ import { signAndRecord } from "../src/cli/commands/token-mint";
 import { provisionAuthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 import { AUDIENCE, ISSUER, type MockIdp, publicResolver, startMockIdp } from "./oidc-mock-provider";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let idp: MockIdp;
 beforeEach(async () => {
@@ -65,7 +59,7 @@ afterAll(() => {
 
 /** A registry over an in-memory auth.db with durable markers, so table loss is detectable. */
 function registryFixture() {
-  const dir = mkdtempSync(join(tmpdir(), "oidc-review-"));
+  const dir = makeTempDir("oidc-review-");
   dirs.push(dir);
   const db = openMemoryDb();
   provisionAuthDb(db);

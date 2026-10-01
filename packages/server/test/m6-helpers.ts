@@ -6,8 +6,7 @@
 // token bound to argsHash(name, input) and supplies it via ctx — the canonical path
 // (the token is never part of the tool input, which would change the args hash).
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -22,7 +21,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import type { M6Deps } from "../src/tools/m6/shared";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const DEFAULT_THROTTLE = ServerConfigSchema.parse({ vaults: [{ id: "x", path: "/x" }] }).throttle;
 
@@ -85,7 +84,7 @@ export interface M6Vault {
 }
 
 export function makeM6Vault(opts: M6VaultOptions): M6Vault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m6-"));
+  const root = makeTempDir("obtc-m6-");
   const id = opts.vaultId ?? "test";
   const write = (rel: string, content: string): void => {
     const abs = join(root, rel);

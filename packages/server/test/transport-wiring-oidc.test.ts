@@ -1,13 +1,10 @@
-// wireTransports and `auth.mode: "oidc"`: discovery runs at boot and a failure refuses to start.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, expect, it } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { wireTransports } from "../src/runtime/transport-wiring";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -15,7 +12,7 @@ afterAll(() => {
 });
 
 it("wireTransports refuses to boot an oidc server whose IdP cannot be discovered, naming the issuer", async () => {
-  const root = mkdtempSync(join(tmpdir(), "tw-oidc-"));
+  const root = makeTempDir("tw-oidc-");
   dirs.push(root);
   const config = ServerConfigSchema.parse({
     vaults: [{ id: "v1", path: root }],

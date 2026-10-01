@@ -1,9 +1,3 @@
-// `auth.algorithms` is ONE allowlist for every verify surface. `["EdDSA"]` must refuse HS256 on the
-// MCP edge, on /metrics, and whatever key source would otherwise have verified it (config secret,
-// registry key); it must also refuse a JWKS token signed with an algorithm outside the list.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { AuthRejection } from "../src/auth/jwt";
@@ -15,7 +9,7 @@ import { provisionAuthDb } from "../src/db/provision";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -43,7 +37,7 @@ async function reasonOf(p: Promise<unknown>): Promise<string> {
 function registryFixture() {
   const db = openMemoryDb();
   provisionAuthDb(db);
-  const dir = mkdtempSync(join(tmpdir(), "auth-algs-"));
+  const dir = makeTempDir("auth-algs-");
   dirs.push(dir);
   return createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(dir) });
 }

@@ -6,13 +6,12 @@
 // shaped it are each covered: no-Obsidian is a first-class state, explicit paths are an escape
 // hatch, and a per-vault config-dir override is honoured.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveCapabilityProfile } from "../src/capability/profile";
 import { nativeBindingActive } from "../src/search/native";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let root: string;
 const manifest = (id: string) => ({
@@ -46,7 +45,7 @@ function makeVault(
 const noEnrich = async () => ({ gpus: [] });
 
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), "obtc-prof-"));
+  root = makeTempDir("obtc-prof-");
 });
 afterAll(() => {
   rmTemp(root);

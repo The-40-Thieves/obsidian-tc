@@ -12,8 +12,7 @@
 //    caller holding the tool-level scope (e.g. write:periodic) but NOT the path's rule-scope could
 //    still write there. These tests fail against the pre-fix code for exactly that reason.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -26,11 +25,11 @@ import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM5Vault } from "./m5-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("THE-567 create_periodic_note: template_override is centrally enforced (extractor route)", () => {
   function setup() {
-    const root = mkdtempSync(join(tmpdir(), "obtc-567-central-"));
+    const root = makeTempDir("obtc-567-central-");
     const db: Database = openMemoryDb();
     provisionCacheDb(db);
     // templates/** carries a rule-scope; the daily-note target itself has no rule (unrestricted),

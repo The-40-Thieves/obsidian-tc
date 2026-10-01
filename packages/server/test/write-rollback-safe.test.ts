@@ -4,23 +4,15 @@
 // They now go through the no-follow, no-replace move. Also: write_attachment marked the effect
 // committed BEFORE the write (see write-rollback-marker.test.ts for that half).
 import * as fs from "node:fs";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 import { type Backend, loadNotesIo, trySymlink } from "./write-io-backends";
 
 const made: string[] = [];
 function tmp(prefix: string): string {
-  const d = fs.realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const d = fs.realpathSync(makeTempDir(prefix));
   made.push(d);
   return d;
 }

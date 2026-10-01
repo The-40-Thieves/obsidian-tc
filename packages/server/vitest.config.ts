@@ -15,7 +15,13 @@ export default defineConfig({
     // why) so `os.tmpdir()` never hands a fixture a symlinked-ancestor path.
     // Second entry pins HOME/USERPROFILE (test/home-isolation-setup.ts) AFTER the tmpdir fix, since
     // it builds its directory from `os.tmpdir()`.
+    // Run-scoped private TMPDIR + leak gate (test/tmp-guard.ts): the globalSetup fails the run
+    // naming every test file that leaves a temp entry behind, so the setup below runs inside a
+    // per-file directory it points TMPDIR at. That setup MUST stay first: the two after it read
+    // `tmpdir()`.
+    globalSetup: [resolve(here, "test/tmp-guard-global-setup.ts")],
     setupFiles: [
+      resolve(here, "test/tmp-guard-setup.ts"),
       resolve(here, "test/tmpdir-realpath-setup.ts"),
       resolve(here, "test/home-isolation-setup.ts"),
     ],

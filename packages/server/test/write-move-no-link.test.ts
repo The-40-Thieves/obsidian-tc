@@ -3,11 +3,10 @@
 // REPLACES — a destination created between the check and the rename was silently destroyed. It is
 // now an exclusive-create copy of the bytes (O_CREAT|O_EXCL) followed by an unlink of the source.
 import * as fs from "node:fs";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 import { loadNotesIo } from "./write-io-backends";
 
 const fault: { link: string | null; lstatMisses: string | null } = {
@@ -41,7 +40,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 const made: string[] = [];
 function tmp(): string {
-  const d = fs.realpathSync(mkdtempSync(join(tmpdir(), "otc-nl-")));
+  const d = fs.realpathSync(makeTempDir("otc-nl-"));
   made.push(d);
   return d;
 }

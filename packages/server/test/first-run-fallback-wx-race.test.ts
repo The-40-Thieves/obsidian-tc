@@ -12,12 +12,11 @@
 // This test instead builds the one state a genuine loser observes deterministically — a marker
 // already held, target still absent — then completes the "winner" on a delay, proving the loser's
 // retry loop picks up the winner's file instead of failing immediately.
-import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registryCandidates } from "../src/capability/locate";
-import { rmTemp, stubHomedir } from "./tmp";
+import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -33,7 +32,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

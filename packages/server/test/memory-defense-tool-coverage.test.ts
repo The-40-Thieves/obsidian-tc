@@ -1,12 +1,3 @@
-// Registry-driven inventory gate — every MUTATING tool (destructive, or carrying a mutating
-// scope) must be accounted for as either scanned by memoryDefense (MEMORY_DEFENSE_COVERED) or a
-// documented non-note-content exemption (MEMORY_DEFENSE_EXEMPT). A new writer that lands in
-// neither set fails this test — same "enumerate from the registry, not a hand list" shape as
-// acl-extraction-coverage.test.ts's EXEMPT_NO_PATH gate, which this file's registry
-// assembly mirrors verbatim (registration only builds tool definitions; no live backend needed).
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -24,7 +15,7 @@ import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
@@ -160,7 +151,7 @@ const MEMORY_DEFENSE_EXEMPT = new Map<string, string>([
 ]);
 
 describe("memoryDefense tool-coverage inventory", () => {
-  const root = mkdtempSync(join(tmpdir(), "obtc-memdef-cov-"));
+  const root = makeTempDir("obtc-memdef-cov-");
   afterAll(() => rmTemp(root));
 
   function buildRegistry(): ToolRegistry {

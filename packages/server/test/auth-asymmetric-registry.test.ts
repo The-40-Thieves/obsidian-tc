@@ -2,8 +2,7 @@
 // algorithm coming from the registry row and never from the token header alone, and the JWKS
 // document carrying public material only.
 import { createPublicKey } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { decodeProtectedHeader, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
@@ -17,7 +16,7 @@ import { provisionAuthDb, provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const T0 = 1_800_000_000_000;
@@ -29,7 +28,7 @@ afterAll(() => {
 function fixture() {
   const db = openMemoryDb();
   provisionAuthDb(db);
-  const dir = mkdtempSync(join(tmpdir(), "auth-asym-"));
+  const dir = makeTempDir("auth-asym-");
   dirs.push(dir);
   const clock = { t: T0 };
   const registry = createAuthRegistry(db, {

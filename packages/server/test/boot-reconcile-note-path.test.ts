@@ -14,8 +14,7 @@
 // IndexStats.frontmatter_failures -> reconcileResultsForVault -> applyReconcileOutcome's stderr
 // line (runtime/reconcile-outcome.ts). A test that only asserted on parseNote in isolation could
 // pass while the note path was still dropped somewhere along that chain.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -27,7 +26,7 @@ import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reco
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const INIT_SQL = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260519_001_initial.sql", import.meta.url)),
@@ -59,7 +58,7 @@ function baseDb(): Database {
 describe("boot reconcile names the offending note on malformed frontmatter", () => {
   it("indexVault resolves, skipping the note, and names its path AND the YAML line/column (THE-1073)", async () => {
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-reconcile-path-"));
+    const root = makeTempDir("obtc-reconcile-path-");
     try {
       writeFileSync(join(root, "good.md"), "# Fine\nnothing wrong here\n");
       writeFileSync(join(root, "broken.md"), "---\na: [1, 2\nb: bad\n---\nbody\n");

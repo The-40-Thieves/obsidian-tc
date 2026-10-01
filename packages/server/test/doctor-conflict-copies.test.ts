@@ -4,18 +4,17 @@
 // Fixtures build a real temp directory tree rather than mocking `readdirSync` — the check's own
 // job is the walk (skip node_modules/.git, bound depth and file count, never follow symlinks), and
 // that behaviour is only honestly exercised against a real filesystem.
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { conflictCopiesCheck, resolveInstallRoot } from "../src/doctor/conflict-copies";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const ctx = { serverVersion: "test" };
 
 const tmpDirs: string[] = [];
 const tmpDir = (): string => {
-  const d = mkdtempSync(join(tmpdir(), "the939-"));
+  const d = makeTempDir("the939-");
   tmpDirs.push(d);
   return d;
 };

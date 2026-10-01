@@ -4,16 +4,15 @@
 // renamex EXCL; JS fallback: link + unlink), so the loser gets note_exists and nothing is lost.
 // Runs on BOTH backends; the tool-level table is in write-no-replace-tools.test.ts.
 import * as fs from "node:fs";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 import { type Backend, loadNotesIo } from "./write-io-backends";
 
 const made: string[] = [];
 function tmp(): string {
-  const d = fs.realpathSync(mkdtempSync(join(tmpdir(), "otc-nr-")));
+  const d = fs.realpathSync(makeTempDir("otc-nr-"));
   made.push(d);
   return d;
 }

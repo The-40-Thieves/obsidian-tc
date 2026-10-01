@@ -5,15 +5,7 @@
 // tested against a REAL filesystem, because the whole feature is an assertion about what the OS
 // reports; a mocked fs.watch would only prove the test's own model of inotify.
 
-import {
-  linkSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { linkSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,7 +18,7 @@ import {
   shouldWatchPath,
   startVaultWatch,
 } from "../src/vault/watcher";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // The package's OWN `nativeLoaded` flag (see native-contract.test.ts for why this, and not
 // `search/native.ts`'s loader, is the correct gate).
@@ -45,7 +37,7 @@ const isRealNative =
 const arm = (): Promise<void> => new Promise((r) => setTimeout(r, 400));
 
 function makeVault(): string {
-  return mkdtempSync(join(tmpdir(), "tc-watch-"));
+  return makeTempDir("tc-watch-");
 }
 
 // Creating a symlink needs a privilege Windows does not grant by default, so the symlink case is
@@ -55,7 +47,7 @@ function makeVault(): string {
 // matters most on the platform where it still works.
 let symlinkOk = true;
 try {
-  const probe = mkdtempSync(join(tmpdir(), "tc-sl-probe-"));
+  const probe = makeTempDir("tc-sl-probe-");
   symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
   rmTemp(probe);
 } catch {
@@ -215,7 +207,7 @@ describe("resolveWatchedPath — classification and the two alias guards", () =>
     // cannot reach. readNote alone would NOT catch this — its open() follows the link and its fstat
     // then describes the target, which for an ordinary file passes every check.
     const root = makeVault();
-    const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
+    const outside = makeTempDir("tc-outside-");
     writeFileSync(join(outside, "secret.txt"), "SENSITIVE-OUTSIDE-VAULT", "utf8");
     symlinkSync(join(outside, "secret.txt"), join(root, "evil.md"));
     const r = resolveWatchedPath(root, "evil.md");
@@ -238,7 +230,7 @@ describe("resolveWatchedPath — classification and the two alias guards", () =>
     // so this exercises the Rust guard at packages/native/src/lib.rs:252, while CI's build-test
     // builds no native module and so exercises the JS fallback in notes-io.ts.
     const root = makeVault();
-    const outside = mkdtempSync(join(tmpdir(), "tc-outside-"));
+    const outside = makeTempDir("tc-outside-");
     const secret = join(outside, "secret.md");
     writeFileSync(secret, "TOP-SECRET-OUTSIDE-VAULT", "utf8");
     linkSync(secret, join(root, "innocent.md"));
@@ -639,7 +631,7 @@ describe("THE-1081 / #946 review round — flush through a symlinked-ancestor ro
   it.skipIf(!symlinkOk)(
     "upserts, not refuses, when given the CANONICAL root (the fixed wiring)",
     async () => {
-      const base = mkdtempSync(join(tmpdir(), "tc-watch-symlink-"));
+      const base = makeTempDir("tc-watch-symlink-");
       try {
         const real = join(base, "real-root");
         const link = join(base, "link-root");
@@ -683,7 +675,7 @@ describe("THE-1081 / #946 review round — flush through a symlinked-ancestor ro
   it.skipIf(!symlinkOk || !isRealNative)(
     "refuses (deindexes) a raw symlinked-ancestor root — the exact bug this ticket fixes",
     async () => {
-      const base = mkdtempSync(join(tmpdir(), "tc-watch-symlink-raw-"));
+      const base = makeTempDir("tc-watch-symlink-raw-");
       try {
         const real = join(base, "real-root");
         const link = join(base, "link-root");

@@ -27,8 +27,7 @@
 // index resources (a working embeddings provider, vec/fts, …), which is real weight this test does
 // not need to pull in — `wireGovernance` is the one function that actually decides the ACL question,
 // and it is exported and callable in isolation.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { withReadOnlyAcl } from "../src/cli/commands/rerun";
@@ -39,7 +38,7 @@ import { MetricsRecorder } from "../src/metrics/registry";
 import { type Governance, wireGovernance } from "../src/runtime/governance";
 import { registerM1Tools } from "../src/tools/m1";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const WITH_OWN = "with-own";
 const NO_OWN = "no-own";
@@ -51,8 +50,8 @@ function buildForcedConfig(): {
   cfg: ReturnType<typeof finalizeConfig>;
   rootFor: Record<string, string>;
 } {
-  const rootWithOwn = mkdtempSync(join(tmpdir(), "obtc-gov-withown-"));
-  const rootNoOwn = mkdtempSync(join(tmpdir(), "obtc-gov-noown-"));
+  const rootWithOwn = makeTempDir("obtc-gov-withown-");
+  const rootNoOwn = makeTempDir("obtc-gov-noown-");
   for (const [root, rel] of [
     [rootWithOwn, "a.md"],
     [rootNoOwn, "a.md"],

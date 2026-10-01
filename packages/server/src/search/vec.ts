@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +62,16 @@ export function materializeEmbeddedVec(): string | undefined {
   if (embeddedVecPath) return embeddedVecPath;
   if (!EMBEDDED_VEC_BASE64) return undefined;
   const dir = mkdtempSync(join(tmpdir(), "otc-vec-"));
+  // The binary is only needed for this process's lifetime; without this, every start of a compiled
+  // release left one copy of it in the system temp dir. Best-effort: Windows will not unlink a DLL
+  // that is still mapped, and an exit hook must never throw.
+  process.once("exit", () => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // still mapped, or already gone: the OS temp reaper owns it now
+    }
+  });
   chmodSync(dir, 0o700);
   const out = join(dir, `vec0.${vecExtension()}`);
   writeFileSync(out, Buffer.from(EMBEDDED_VEC_BASE64, "base64"));

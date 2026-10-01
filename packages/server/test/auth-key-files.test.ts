@@ -5,7 +5,6 @@
 import {
   chmodSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -14,7 +13,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { AuthRejection } from "../src/auth/jwt";
@@ -24,7 +22,7 @@ import { createTokenVerifier } from "../src/auth/verifier";
 import { signAndRecord } from "../src/cli/commands/token-mint";
 import { provisionAuthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const posix = process.platform !== "win32";
@@ -34,7 +32,7 @@ afterAll(() => {
 });
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "auth-keyfiles-"));
+  const dir = makeTempDir("auth-keyfiles-");
   dirs.push(dir);
   const db = openMemoryDb();
   provisionAuthDb(db);

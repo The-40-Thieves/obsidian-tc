@@ -10,8 +10,7 @@
 // rule that the bridge bearer token never reaches a result or the audit trail —
 // hold uniformly across the mixed surface, driven entirely through dispatch.
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -35,7 +34,7 @@ import { registerM2Tools } from "../src/tools/m2";
 import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const BASE = "http://127.0.0.1:27124";
 const API_KEY = "test-key";
@@ -84,7 +83,7 @@ interface IntegrationVault {
 // Build the combined M2 + M4 registry exactly as cli.ts does: one client, one
 // request log, one capability snapshot, one vault — shared across both milestones.
 function makeVault(opts: IntegrationVaultOptions = {}): IntegrationVault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m4int-"));
+  const root = makeTempDir("obtc-m4int-");
   const id = "test";
   const write = (rel: string, content: string): void => {
     const abs = join(root, rel);

@@ -2,9 +2,7 @@
 // the full design. RED on pre-fix main: `resolveAndApplyVaultIdentity` did not exist, a renamed
 // vault id's rows stayed orphaned under the old id forever, and two zero-config "main" vaults
 // silently shared rows under one id with no refusal.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate";
@@ -32,6 +30,7 @@ import {
 } from "../src/vault/identity";
 import { canonicalizeVaultRoot } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { makeTempDir } from "./tmp";
 
 // Fix round (Medium 5, cross-vendor review): a controllable override for
 // `canonicalizeVaultRootWithStatus`, so a realpath failure (missing dir, transient lock) can be
@@ -68,7 +67,7 @@ function stores(): { cacheDb: Database; edb: Database } {
  *  nothing here, but canonicalizeVaultRoot needs a real path on disk. */
 const tmpDirs: string[] = [];
 function tmpVaultRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), "vault-identity-test-"));
+  const d = makeTempDir("vault-identity-test-");
   tmpDirs.push(d);
   // Canonicalized the SAME way `resolveVaultIdentity` canonicalizes it (registry.ts's
   // `canonicalizeVaultRoot`, realpathSync.native under the hood) — CI's Windows runners resolve

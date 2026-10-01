@@ -4,8 +4,7 @@
 // (M3 round-trip discipline); parse-back recovers observations + [[link]] targets
 // including aliases/headings/blocks; path-safety (no traversal) and ACL enforcement.
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -19,7 +18,7 @@ import {
   sectionBullets,
 } from "../src/memory/materialize";
 import { parseNote } from "../src/vault/frontmatter";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 /** An open (validTo: null), unkeyed observation view unless overridden — the common case for
  *  these tests, which mostly care about text/relations, not intervals. */
@@ -32,7 +31,7 @@ function tempVault(): {
   cleanup: () => void;
   write: (rel: string, c: string) => void;
 } {
-  const root = mkdtempSync(join(tmpdir(), "obtc-mat-"));
+  const root = makeTempDir("obtc-mat-");
   return {
     root,
     cleanup: () => rmTemp(root),

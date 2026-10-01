@@ -6,8 +6,7 @@
 // Obsidian state declare "none" and must keep working on args_hash. Also: the registration guard
 // (a HITL-gated tool with no declaration cannot register) and the headless-mint decision.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -39,7 +38,7 @@ import { registerM6Tools } from "../src/tools/m6";
 import { VaultRegistry } from "../src/vault/registry";
 import { cacheTraceRelPath, genSessionId, insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "test";
 const CALLER = "test";
@@ -63,8 +62,8 @@ const ZERO_BY_VERDICT = {
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
 
 function boot(files: Record<string, string> = {}) {
-  const root = mkdtempSync(join(tmpdir(), "obtc-targets-"));
-  const cacheDir = mkdtempSync(join(tmpdir(), "obtc-targets-cache-"));
+  const root = makeTempDir("obtc-targets-");
+  const cacheDir = makeTempDir("obtc-targets-cache-");
   const write = (rel: string, content: string) => {
     mkdirSync(dirname(join(root, rel)), { recursive: true });
     writeFileSync(join(root, rel), content);

@@ -3,8 +3,7 @@
 // injected deterministic fake embedding provider (no live service), and a
 // CallerContext factory granting all scopes.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ResponseFormat, ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -17,7 +16,7 @@ import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 export interface M2VaultOptions {
   files?: Record<string, string>;
@@ -69,7 +68,7 @@ export interface M2Vault {
 }
 
 export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m2-"));
+  const root = makeTempDir("obtc-m2-");
   const id = opts.vaultId ?? "test";
   const write = (rel: string, content: string): void => {
     const abs = join(root, rel);

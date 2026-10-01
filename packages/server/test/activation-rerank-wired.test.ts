@@ -18,9 +18,7 @@
 // a SINGLE bounded pass: the one-position bound is what makes the activation feedback loop safe,
 // and both the wiring comment and the query-cache key justification rest on it.
 
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
@@ -30,7 +28,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "main";
 
@@ -78,7 +76,7 @@ function un<T>(r: unknown): T {
   return (r as { data: T }).data;
 }
 
-const root = mkdtempSync(join(tmpdir(), "obtc-activation-inert-"));
+const root = makeTempDir("obtc-activation-inert-");
 afterAll(() => rmTemp(root));
 
 /** Mirrors runtime/stores.ts's `activationFor = experiential.activationRerank

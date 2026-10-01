@@ -3,8 +3,7 @@
 // in-flight entry; onIndexVaultComplete/onIndexVaultError both clear it) so a real registry dispatch
 // of index_vault, observed concurrently through a real registry dispatch of get_index_status,
 // exercises the exact wiring production uses rather than a hand-fed value.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -21,7 +20,7 @@ import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM2Vault } from "./m2-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 /** A deferred promise the test releases by hand, to hold a provider call mid-flight (mirrors
  *  test/index-coordinator.test.ts's helper). */
@@ -73,8 +72,8 @@ function makeTwoVaultHarness(
       writeFileSync(abs, content);
     }
   };
-  const rootA = mkdtempSync(join(tmpdir(), "obtc-inflight-a-"));
-  const rootB = mkdtempSync(join(tmpdir(), "obtc-inflight-b-"));
+  const rootA = makeTempDir("obtc-inflight-a-");
+  const rootB = makeTempDir("obtc-inflight-b-");
   writeAll(rootA, files.a);
   writeAll(rootB, files.b);
 

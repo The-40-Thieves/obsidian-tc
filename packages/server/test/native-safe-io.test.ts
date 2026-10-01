@@ -5,12 +5,11 @@
 // (Windows without admin/developer mode) — so the symlink-rejection assertions run on Linux/macOS CI
 // where the native module is built and symlinks are freely creatable.
 
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { nativeVaultIo, readNote, writeNoteAtomic } from "../src/vault/notes-io";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 /** Try to create a symlink; return false if the host forbids it (Windows without privilege). */
 function trySymlink(target: string, link: string, type: "dir" | "file"): boolean {
@@ -25,7 +24,7 @@ function trySymlink(target: string, link: string, type: "dir" | "file"): boolean
 describe("THE-272 native symlink-safe vault I/O", () => {
   it("reads a normal note through the native path", () => {
     if (!nativeVaultIo) return;
-    const root = mkdtempSync(join(tmpdir(), "otc-safe-"));
+    const root = makeTempDir("otc-safe-");
     try {
       writeFileSync(join(root, "note.md"), "hello native\n");
       expect(readNote(join(root, "note.md")).raw).toBe("hello native\n");
@@ -36,7 +35,7 @@ describe("THE-272 native symlink-safe vault I/O", () => {
 
   it("writes atomically through the native path (nested dir)", () => {
     if (!nativeVaultIo) return;
-    const root = mkdtempSync(join(tmpdir(), "otc-safe-"));
+    const root = makeTempDir("otc-safe-");
     try {
       writeNoteAtomic(join(root, "sub", "note.md"), "written\n", true);
       expect(readFileSync(join(root, "sub", "note.md"), "utf8")).toBe("written\n");
@@ -47,8 +46,8 @@ describe("THE-272 native symlink-safe vault I/O", () => {
 
   it("refuses to read a note whose ANCESTOR directory is a symlink", () => {
     if (!nativeVaultIo) return;
-    const root = mkdtempSync(join(tmpdir(), "otc-toctou-"));
-    const outside = mkdtempSync(join(tmpdir(), "otc-outside-"));
+    const root = makeTempDir("otc-toctou-");
+    const outside = makeTempDir("otc-outside-");
     try {
       // Attacker plants a secret outside and swaps `sub` for a symlink to it.
       writeFileSync(join(outside, "note.md"), "SECRET\n");
@@ -64,8 +63,8 @@ describe("THE-272 native symlink-safe vault I/O", () => {
 
   it("refuses to read a note that is itself a symlink", () => {
     if (!nativeVaultIo) return;
-    const root = mkdtempSync(join(tmpdir(), "otc-toctou-"));
-    const outside = mkdtempSync(join(tmpdir(), "otc-outside-"));
+    const root = makeTempDir("otc-toctou-");
+    const outside = makeTempDir("otc-outside-");
     try {
       writeFileSync(join(outside, "secret.md"), "SECRET\n");
       mkdirSync(join(root, "pub"));

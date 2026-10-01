@@ -1,7 +1,3 @@
-// wireTransports and the auth registry: the boot refusal for a jwt server with no key anywhere, the
-// server-start reaper trigger, and the obsidian_tc_auth_keys gauge being bound to the live registry.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
@@ -12,7 +8,7 @@ import { provisionAuthDb } from "../src/db/provision";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { wireTransports } from "../src/runtime/transport-wiring";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -21,7 +17,7 @@ afterAll(() => {
 });
 
 function configFor(auth: Record<string, unknown>) {
-  const root = mkdtempSync(join(tmpdir(), "tw-auth-"));
+  const root = makeTempDir("tw-auth-");
   dirs.push(root);
   const config = ServerConfigSchema.parse({
     vaults: [{ id: "v1", path: root }],
@@ -114,7 +110,7 @@ describe("obsidian_tc_auth_keys gauge", () => {
 
     const db = openMemoryDb();
     provisionAuthDb(db);
-    const dir = mkdtempSync(join(tmpdir(), "tw-gauge-"));
+    const dir = makeTempDir("tw-gauge-");
     dirs.push(dir);
     const clock = { t: 1_800_000_000_000 };
     const registry = createAuthRegistry(db, {

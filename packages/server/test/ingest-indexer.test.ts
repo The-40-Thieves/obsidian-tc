@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -9,7 +8,7 @@ import type { EmbeddingProvider } from "../src/embeddings";
 import { type IndexedChunk, indexNote, indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const INIT_SQL = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260519_001_initial.sql", import.meta.url)),
@@ -68,7 +67,7 @@ describe("W-INGEST indexer fold", () => {
 
   it("indexVault produces forward+reverse links_to and unresolved edges into vault_edges", async () => {
     const db = baseDb();
-    const root = mkdtempSync(join(tmpdir(), "obtc-ingest-"));
+    const root = makeTempDir("obtc-ingest-");
     try {
       writeFileSync(join(root, "A.md"), "links to [[B]] and [[Ghost]]");
       writeFileSync(join(root, "B.md"), "the target note");

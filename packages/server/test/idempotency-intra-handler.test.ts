@@ -24,8 +24,7 @@
 // duplicated user content. `append_note` — covered below — is the member of that group whose write
 // is genuinely non-idempotent.
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -43,7 +42,7 @@ import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM5Vault } from "./m5-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-573 #2 interleave test below needs to observe a real BEGIN IMMEDIATE landing (or not)
 // exactly while add_observation is rendering its note projection. materializeEntity is the only
@@ -751,8 +750,8 @@ describe("THE-573 #2: add_observation's read + render + append now share ONE wri
   });
 
   it("a real second connection cannot begin a write while ours is rendering, so the note never diverges from SQLite", async () => {
-    const dbDir = mkdtempSync(join(tmpdir(), "obtc-interleave-db-"));
-    const root = mkdtempSync(join(tmpdir(), "obtc-interleave-vault-"));
+    const dbDir = makeTempDir("obtc-interleave-db-");
+    const root = makeTempDir("obtc-interleave-vault-");
     let dbA: Database | undefined;
     let dbB: Database | undefined;
     try {

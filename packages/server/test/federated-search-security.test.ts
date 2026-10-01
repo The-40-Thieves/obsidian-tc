@@ -11,8 +11,7 @@
 //      lower-level gap before proving the layer above it closes it) that shows central dispatch's
 //      `enforceVaultBinding` CANNOT catch this by construction, so the handler-level check is load-
 //      bearing, not redundant.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -27,7 +26,7 @@ import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const DIMS = 32;
 const GRANTED = new Set(["read:notes"]);
@@ -73,8 +72,8 @@ async function buildHarness(
     cache?: boolean;
   } = {},
 ): Promise<Harness> {
-  const rootA = mkdtempSync(join(tmpdir(), "obtc-fed-a-"));
-  const rootB = mkdtempSync(join(tmpdir(), "obtc-fed-b-"));
+  const rootA = makeTempDir("obtc-fed-a-");
+  const rootB = makeTempDir("obtc-fed-b-");
   const write = (root: string, rel: string, content: string): void => {
     const abs = join(root, rel);
     mkdirSync(dirname(abs), { recursive: true });

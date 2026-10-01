@@ -9,9 +9,6 @@
 // Assembly mirrors tool-count.test.ts: registration only builds tool definitions (handlers close
 // over deps), so cheap stubs suffice and no live backend is needed.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { isMutatingScope } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -32,7 +29,7 @@ import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
@@ -111,7 +108,7 @@ const EXEMPT_NO_PATH = new Set<string>([
 ]);
 
 describe("THE-414 folder-ACL path-extraction coverage", () => {
-  const root = mkdtempSync(join(tmpdir(), "obtc-acl-cov-"));
+  const root = makeTempDir("obtc-acl-cov-");
   afterAll(() => rmTemp(root));
 
   function buildRegistry(): ToolRegistry {
@@ -264,7 +261,7 @@ describe("THE-414 central pathAcl enforcement (handler does not gate)", () => {
   }
 
   it("denies a write outside the whitelist even though the handler never checks", async () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-central-"));
+    const root = makeTempDir("obtc-central-");
     try {
       const call = setup(root);
       const denied = await call("outside.md");

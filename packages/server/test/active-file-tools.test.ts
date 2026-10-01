@@ -6,8 +6,7 @@
 // delete_note handlers (M1 is registered beside M4), so these tests pin the resolution and binding
 // seams and only spot-check that the delegate's own behavior (CAS, snapshot, memoryDefense, the
 // overwrite confirmation) is the one that runs.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,7 +20,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const ACTIVE = "GET /obsidian-tc/v1/files/active";
 const active = (path: string | null, extension?: string | null): FakeRoute => ({
@@ -66,7 +65,7 @@ function harness(
   } = {},
 ): Harness {
   const mk = (files: Record<string, string>) => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-active-"));
+    const root = makeTempDir("obtc-active-");
     cleanups.push(() => rmTemp(root));
     for (const [rel, content] of Object.entries(files)) {
       mkdirSync(dirname(join(root, rel)), { recursive: true });

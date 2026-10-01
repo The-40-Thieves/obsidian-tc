@@ -6,13 +6,12 @@
 // processing order, and array order here is a guarantee `Array.prototype.map` gives; a real
 // vault's `readdirSync` enumeration order is not, so this is the one place that can pin the bug
 // without depending on filesystem traversal order.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeNotesAllOrNothingGuarded } from "../src/vault/notes-io";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function fakeOpenAiKey(): string {
   return ["sk", "-", "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
@@ -21,7 +20,7 @@ function fakeOpenAiKey(): string {
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "otc-notes-io-aon-"));
+  dir = makeTempDir("otc-notes-io-aon-");
 });
 
 afterEach(() => {

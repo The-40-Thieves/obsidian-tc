@@ -13,8 +13,7 @@
 // root, or a `writePaths` allowlist, must be enforced exactly like an MCP client would see), and a
 // dry run must print where its vault/cache/mode landed and never create a cache directory that did
 // not already exist.
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +21,7 @@ import { parseCliArgs } from "../src/cli/args";
 import { run_memory_import } from "../src/cli/commands/memory-import";
 import { type CliRun, runBunSync } from "./spawn-cli";
 import { stallTimeout } from "./stall-timeouts";
+import { makeTempDir } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 // Each real spawn is one cold `bun` boot; vitest's own default (5s) is what applied before.
@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 function scratch(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   dirs.push(d);
   return d;
 }

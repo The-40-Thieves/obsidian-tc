@@ -1,10 +1,3 @@
-// /.well-known/jwks.json must not let a downstream cache outlive a retiring key's window: a key stops
-// verifying here at its `retire_after`, so `max-age` is capped at the seconds left until the earliest
-// retirement among the PUBLISHED keys, and drops to `no-cache` when that is under a second. An ETag
-// over the key set lets a cache revalidate instead of guessing.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
@@ -13,7 +6,7 @@ import { provisionAuthDb, provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const T0 = 1_800_000_000_000;
@@ -25,7 +18,7 @@ afterAll(() => {
 function fixture() {
   const db = openMemoryDb();
   provisionAuthDb(db);
-  const dir = mkdtempSync(join(tmpdir(), "auth-jwks-cache-"));
+  const dir = makeTempDir("auth-jwks-cache-");
   dirs.push(dir);
   const clock = { t: T0 };
   const registry = createAuthRegistry(db, {

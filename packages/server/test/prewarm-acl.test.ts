@@ -28,8 +28,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
@@ -49,7 +48,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 const RARE_TERM = "glorbnaxis";
@@ -111,7 +110,7 @@ interface ContextData {
 /** THE-694: one shared unit vector — see the embed stub. */
 const UNIT_VEC = [1, 0, 0, 0];
 
-const root = mkdtempSync(join(tmpdir(), "obtc-pwacl-"));
+const root = makeTempDir("obtc-pwacl-");
 afterAll(() => rmTemp(root));
 
 function harness(db: Database, prewarmDir: string) {
@@ -153,7 +152,7 @@ writeFileSync(join(root, "memory", "_next-session.md"), SIGNAL_TEXT);
 describe("prewarm cache ACL leak (THE-543)", () => {
   it("leak test: a bundle composed under a BROAD ACL is never served to a NARROW-ACL caller", async () => {
     const db = cacheDb();
-    const dir = mkdtempSync(join(tmpdir(), "obtc-pwacl-leak-"));
+    const dir = makeTempDir("obtc-pwacl-leak-");
     try {
       const { registry, ctxFor } = harness(db, dir);
 
@@ -186,7 +185,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
 
   it("layer 3 (re-filter on read): a bundle with a matching key but a disallowed path is a full miss, not a partial return", async () => {
     const db = cacheDb();
-    const dir = mkdtempSync(join(tmpdir(), "obtc-pwacl-layer3-"));
+    const dir = makeTempDir("obtc-pwacl-layer3-");
     try {
       const { registry, ctxFor } = harness(db, dir);
       // Hand-craft an entry keyed EXACTLY as the narrow caller would look it up (correct
@@ -226,7 +225,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
 
   it("staleness test: a source note change without touching the signal note is not served", async () => {
     const db = cacheDb();
-    const dir = mkdtempSync(join(tmpdir(), "obtc-pwacl-stale-"));
+    const dir = makeTempDir("obtc-pwacl-stale-");
     try {
       const { registry, ctxFor } = harness(db, dir);
       const first = un<ContextData>(
@@ -253,7 +252,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
 
   it("cache still works: same principal, same generation, unchanged signal is still a hit", async () => {
     const db = cacheDb();
-    const dir = mkdtempSync(join(tmpdir(), "obtc-pwacl-hit-"));
+    const dir = makeTempDir("obtc-pwacl-hit-");
     try {
       const { registry, ctxFor } = harness(db, dir);
       const first = un<ContextData>(
@@ -292,7 +291,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
     );
     ensureChunkFts(db, { now: () => NOW, enrich: false });
 
-    const dir = mkdtempSync(join(tmpdir(), "obtc-pwacl-premig-"));
+    const dir = makeTempDir("obtc-pwacl-premig-");
     try {
       expect(() => readGeneration(db, "main")).not.toThrow();
       expect(readGeneration(db, "main")).toBe(0);
@@ -312,7 +311,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
   });
 
   it("both writers: the CLI scheduled-prefetch writer (cli.ts) keys its entry the same way and cannot leak to a narrower live caller", async () => {
-    const cliDir = mkdtempSync(join(tmpdir(), "obtc-pwacl-cli-"));
+    const cliDir = makeTempDir("obtc-pwacl-cli-");
     const vaultDir = join(cliDir, "vault");
     const cacheDirPath = join(cliDir, "cache");
     mkdirSync(join(vaultDir, "memory"), { recursive: true });

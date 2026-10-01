@@ -29,13 +29,12 @@
 // the next reconcile re-plans and re-embeds those notes from scratch, same as any other
 // self-healing skip in that file. See test 2 below for the stdin-EOF half of the same fix.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // The CLI ships for both runtimes (`node dist/cli.js` is the .mcpb bundle's own invocation; `bun
 // dist/cli.js` is the path a bun-first client takes) and the bug this file reproduces is a
@@ -83,7 +82,7 @@ beforeAll(() => {
 
 const tmpDirs: string[] = [];
 function tmpDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 }

@@ -2,8 +2,7 @@
 // directory, an in-memory cache DB on the committed schema, M1 + M5 registered on one
 // ToolRegistry (the same pair cli/commands/memory-import.ts wires), and a bound `dispatch`
 // closure matching memory-import/apply.ts's Dispatch type. Mirrors m5-helpers.ts's makeM5Vault.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
@@ -14,7 +13,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 export interface MemoryImportHarness {
   vaultRoot: string;
@@ -28,11 +27,11 @@ export interface MemoryImportHarness {
 }
 
 export function makeMemoryImportHarness(vaultId = "test"): MemoryImportHarness {
-  const vaultRoot = mkdtempSync(join(tmpdir(), "obtc-memimport-vault-"));
-  const importRoot = mkdtempSync(join(tmpdir(), "obtc-memimport-src-"));
+  const vaultRoot = makeTempDir("obtc-memimport-vault-");
+  const importRoot = makeTempDir("obtc-memimport-src-");
   // Review finding: this dir used to be created and never removed (mkdtempSync leak) — every
   // test run left one more empty `obtc-memimport-cache-*` directory behind in the OS temp dir.
-  const cacheDir = mkdtempSync(join(tmpdir(), "obtc-memimport-cache-"));
+  const cacheDir = makeTempDir("obtc-memimport-cache-");
   const db = openMemoryDb();
   provisionCacheDb(db);
   const vaultRegistry = new VaultRegistry([{ id: vaultId, path: vaultRoot }]);

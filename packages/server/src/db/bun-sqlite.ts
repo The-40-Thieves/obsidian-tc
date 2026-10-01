@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyConnectionPragmas } from "./apply-pragmas";
@@ -27,6 +27,14 @@ function useEmbeddedSqlite(BunDatabase: { setCustomSQLite?: (p: string) => void 
   if (process.platform !== "darwin" || !EMBEDDED_SQLITE_BASE64) return;
   try {
     const dir = mkdtempSync(join(tmpdir(), "otc-sqlite-"));
+    // Needed only for this process's lifetime (see search/vec.ts): remove it on exit, best-effort.
+    process.once("exit", () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // still mapped, or already gone
+      }
+    });
     chmodSync(dir, 0o700);
     const out = join(dir, "libsqlite3.dylib");
     writeFileSync(out, Buffer.from(EMBEDDED_SQLITE_BASE64, "base64"));

@@ -3,19 +3,18 @@
 // not tool-wiring.ts reads the key, so this goes through the real runtime. It also pins that a
 // hand-built config lacking `tools` (an embedder bypassing ServerConfigSchema) still wires, and
 // gets the shipped default (detailed) rather than a TypeError at startup.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { provisionCacheDb } from "../src/db/provision";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 const tmp = (p: string): string => {
-  const d = mkdtempSync(join(tmpdir(), p));
+  const d = makeTempDir(p);
   dirs.push(d);
   return d;
 };

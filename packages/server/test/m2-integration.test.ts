@@ -3,9 +3,6 @@
 // and then found by both lexical and semantic M2 search — all through the full
 // M0 dispatch pipeline against a real on-disk temp vault, with audit rows asserted.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -17,7 +14,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function dataOf(res: ToolResult): any {
   if (!res.ok) throw new Error(`expected ok, got ${res.error.code}`);
@@ -26,7 +23,7 @@ function dataOf(res: ToolResult): any {
 
 describe("M1 + M2 cross-milestone integration (one shared registry)", () => {
   it("write_note -> index_vault -> search finds the note end-to-end", async () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-m12-"));
+    const root = makeTempDir("obtc-m12-");
     const db = openMemoryDb();
     provisionCacheDb(db);
     const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);

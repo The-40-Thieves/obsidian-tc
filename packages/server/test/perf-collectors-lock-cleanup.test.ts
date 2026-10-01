@@ -8,7 +8,10 @@
 // and failed the whole isolate integration test. A temp-directory cleanup took down the
 // measurement it existed to clean up after — and it did so ONLY on Windows, so Linux and macOS
 // both reported green.
-import { describe, expect, it, vi } from "vitest";
+import { readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -24,6 +27,15 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 describe("collectLock — cleanup cannot fail the measurement (THE-458)", () => {
+  // The mock above makes the collector's own removal fail ON PURPOSE, so the probe directory it
+  // leaves is this test's to remove, with the real rmSync (the mocked one would throw again).
+  afterEach(async () => {
+    const { rmSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    for (const name of readdirSync(tmpdir()).filter((n) => n.startsWith("tc-perf-lock-"))) {
+      rmSync(join(tmpdir(), name), { recursive: true, force: true });
+    }
+  });
+
   it("still returns its metrics when temp-dir removal throws EBUSY", async () => {
     const { collectLock } = await import("../eval/perf/collectors/lock");
     const samples = await collectLock();

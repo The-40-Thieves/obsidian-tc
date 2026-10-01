@@ -10,18 +10,14 @@
 // every test file — present and future — instead of a per-test stub each author has to remember.
 // A test that needs its OWN home still calls `stubHomedir` (tmp.ts); its restore now returns to
 // this pinned directory, never the real one.
-import { mkdtempSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll } from "vitest";
-import { rmTemp, stubHomedir } from "./tmp";
+import { makeTempDir, stubHomedir } from "./tmp";
 
-// `mkdtempSync` under the realpath'd tmpdir (tmpdir-realpath-setup.ts runs first), so the pinned
-// home is never under a symlinked ancestor either.
-const home = mkdtempSync(join(realpathSync(tmpdir()), "otc-test-home-"));
+// `makeTempDir` under the realpath'd tmpdir (tmpdir-realpath-setup.ts runs first), so the pinned
+// home is never under a symlinked ancestor either. It is removed by makeTempDir's own file-end and
+// process-exit sweeps, which (unlike an afterAll here) also run for a file whose tests are all
+// skipped — live-companion.test.ts leaked one of these per run until it moved here.
+const home = makeTempDir("otc-test-home-");
 const restore = stubHomedir(home);
 
-afterAll(() => {
-  restore();
-  rmTemp(home);
-});
+afterAll(restore);

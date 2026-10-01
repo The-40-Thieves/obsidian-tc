@@ -4,8 +4,7 @@
 // `fakeObsidianEnv` fixture so `resolveCapabilityProfile`'s real locateRegistry() finds exactly
 // what each test sets up, never anything on the real host running these tests.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,7 +16,7 @@ import {
 } from "../src/cli/setup/first-run-fallback";
 import { loadConfig } from "../src/config/load";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp, stubHomedir } from "./tmp";
+import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROBE = join(HERE, "first-run-fallback-probe.ts");
@@ -27,7 +26,7 @@ const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).statu
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

@@ -1,8 +1,3 @@
-// Revocation: a minted token can be killed before it expires, on every path that verifies a bearer.
-// mint -> verify ok -> revoke -> verify rejected, with the token's own `exp` still in the future.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
@@ -16,7 +11,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -27,7 +22,7 @@ afterAll(() => {
 function fixture() {
   const db = openMemoryDb();
   provisionAuthDb(db);
-  const dir = mkdtempSync(join(tmpdir(), "auth-registry-"));
+  const dir = makeTempDir("auth-registry-");
   dirs.push(dir);
   const registry = createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(dir) });
   return { db, dir, registry };

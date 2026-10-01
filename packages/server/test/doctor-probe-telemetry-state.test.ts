@@ -1,22 +1,14 @@
-// probeTelemetryState (THE-1125) — the DB-touching half doctor-telemetry.test.ts's pure check
-// factory doesn't cover. Same real-file-probe shape as doctor-db-space.test.ts.
-//
-// Each db handle below is already closed before cleanup; `rmTemp` (test/tmp.ts) is still used
-// in place of bare `rmSync` as the repo's Windows-safe retrying remove, for the same reason its
-// own header gives — a handle released moments later (GC, antivirus scan) shouldn't flake CI.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { probeTelemetryState } from "../src/cli/commands/doctor-probes";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { getOrCreateInstallId, recordSendResult } from "../src/telemetry/state";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("probeTelemetryState", () => {
   it("reports the config-only view when cache.db does not exist yet (a fresh install)", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-probe-missing-"));
+    const cacheDir = makeTempDir("obtc-telemetry-probe-missing-");
     try {
       const view = await probeTelemetryState(cacheDir, 5000, {
         enabled: true,
@@ -29,7 +21,7 @@ describe("probeTelemetryState", () => {
   });
 
   it("reports the config-only view when telemetry_state has never been created (never sent)", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-probe-unseeded-"));
+    const cacheDir = makeTempDir("obtc-telemetry-probe-unseeded-");
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
       provisionCacheDb(db, { version: "test" });
@@ -43,7 +35,7 @@ describe("probeTelemetryState", () => {
   });
 
   it("reports installId/lastSendAt/lastError once a real send has been attempted", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-probe-real-"));
+    const cacheDir = makeTempDir("obtc-telemetry-probe-real-");
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"), 5000);
       provisionCacheDb(db, { version: "test" });

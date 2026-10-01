@@ -1,12 +1,3 @@
-// THE-627: which client software made the call, read from per-request MCP `_meta`.
-//
-// The assertion that matters most is not "it parses a well-formed value" — it is that every absent
-// or malformed path records NULL and never a placeholder. A literal "unknown" in the column would be
-// indistinguishable from a client that genuinely reports that name, which is a failure encoded as a
-// valid domain value (the THE-613 shape). So the round-trip below asserts on the DB row, not on the
-// extractor's return.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -19,7 +10,7 @@ import {
 import { getSession, insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
 
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
 // accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
@@ -27,7 +18,7 @@ import { rmTemp } from "./tmp";
 // teardown with every assertion passing, the exact shape PR #627 exists to remove.
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

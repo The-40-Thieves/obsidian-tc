@@ -1,7 +1,6 @@
 // THE-291 part 3A — notes metadata + FTS substrate.
 
-import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -13,7 +12,7 @@ import { ensureNotesFts, hasNotesTable } from "../src/search/fts";
 import { deindexNote, indexNote, indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const notesSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260702_001_notes.sql", import.meta.url)),
@@ -38,7 +37,7 @@ const provider: EmbeddingProvider = {
 } as unknown as EmbeddingProvider;
 
 function tmpVault(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "obtc-291b-"));
+  const root = makeTempDir("obtc-291b-");
   for (const [rel, content] of Object.entries(files)) {
     const abs = join(root, rel);
     mkdirSync(dirname(abs), { recursive: true });

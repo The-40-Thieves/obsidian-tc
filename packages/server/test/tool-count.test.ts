@@ -4,9 +4,6 @@
 // live backends are needed. Add or remove the tool's line in registered-tools.txt (sorted, one name
 // per line) when the surface changes; the docs state no count, so nothing else needs bumping.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
@@ -27,7 +24,7 @@ import { openMemoryDb } from "./helpers";
 // than keeping a second literal in step by remembering (THE-548). See that file for the parsing
 // contract check-version-coherence.mjs depends on.
 import { REGISTERED_TOOL_COUNT, REGISTERED_TOOL_NAMES } from "./registered-tool-count";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
@@ -38,7 +35,7 @@ const NO_THROTTLE = {
 };
 
 describe("THE-306 registered tool count", () => {
-  const root = mkdtempSync(join(tmpdir(), "obtc-count-"));
+  const root = makeTempDir("obtc-count-");
   afterAll(() => rmTemp(root));
 
   it("registers exactly the documented tool surface", () => {

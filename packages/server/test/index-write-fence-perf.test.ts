@@ -6,8 +6,7 @@
 // read+upsert per note, and pinning CI to a noisy exact timing would be its own maintenance cost
 // (see the repo's perf-gate blind-spot note); the generous ceiling below only catches something
 // turning O(n) into O(n^2) or network-shaped.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -15,12 +14,12 @@ import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const N = 1000;
 
 function makeVault(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = makeTempDir(prefix);
   for (let i = 0; i < N; i++) {
     writeFileSync(join(root, `note-${i}.md`), `# Note ${i}\nSome body content for note ${i}.\n`);
   }

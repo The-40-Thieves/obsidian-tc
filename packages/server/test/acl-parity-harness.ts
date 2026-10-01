@@ -1,8 +1,7 @@
 // Shared fixture for the read-ACL parity tests (search-acl-parity / content-leak-parity): three
 // indexed vaults, one rule-scoped note, the read_notes ORACLE and the assertNoLeak scan. Each parity
 // file owns its surface list; this owns what "a leak" means so the two cannot drift.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, expect } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -17,7 +16,7 @@ import { registerM2Tools } from "../src/tools/m2";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 export const MAIN = "main";
 export const OTHER = "other";
@@ -72,7 +71,7 @@ export interface HarnessParts {
 }
 
 async function build(acls: AclSpec, extra?: (registry: ToolRegistry, parts: HarnessParts) => void) {
-  const roots = [MAIN, OTHER, DOCS].map((id) => mkdtempSync(join(tmpdir(), `obtc-parity-${id}-`)));
+  const roots = [MAIN, OTHER, DOCS].map((id) => makeTempDir(`obtc-parity-${id}-`));
   for (const root of roots)
     for (const [rel, content] of Object.entries(FILES)) {
       const abs = join(root, rel);

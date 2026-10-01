@@ -29,7 +29,6 @@ import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -58,7 +57,7 @@ import {
   insertSession,
 } from "../src/workspace/sessions";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 // `mkdtempSync`'s own suffix is plain alphanumeric, appended with no separator — this matches
@@ -78,7 +77,7 @@ const RERUN_TMP_RE = /^obtc-rerun-[a-zA-Z0-9]+$/;
 // writes into. Restored in afterAll; each vitest fork runs one file, but restoring costs nothing.
 const TMP_ENV_KEYS = ["TMPDIR", "TMP", "TEMP"] as const;
 const savedTmpEnv = TMP_ENV_KEYS.map((k) => [k, process.env[k]] as const);
-const PRIVATE_TMP = mkdtempSync(join(tmpdir(), "obtc-mcp-sbx-tmp-"));
+const PRIVATE_TMP = makeTempDir("obtc-mcp-sbx-tmp-");
 beforeAll(() => {
   for (const k of TMP_ENV_KEYS) process.env[k] = PRIVATE_TMP;
 });
@@ -143,8 +142,8 @@ afterEach(async () => {
  *  `wireStoresBehindBootstrapBarrier` provisions `cache.db`, and re-provisioning it ourselves first
  *  would race that. */
 async function boot(): Promise<Harness> {
-  const vaultDir = mkdtempSync(join(tmpdir(), "obtc-mcp-sbx-vault-"));
-  const cacheDir = mkdtempSync(join(tmpdir(), "obtc-mcp-sbx-cache-"));
+  const vaultDir = makeTempDir("obtc-mcp-sbx-vault-");
+  const cacheDir = makeTempDir("obtc-mcp-sbx-cache-");
   tmpDirs.push(vaultDir, cacheDir);
   const config = configFromVaultPath(vaultDir);
   config.cacheDir = cacheDir;
@@ -399,7 +398,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     runtimes.splice(runtimes.indexOf(runtime), 1);
     openDbs.splice(openDbs.indexOf(db), 1);
 
-    const confDir = mkdtempSync(join(tmpdir(), "obtc-mcp-sbx-conf-"));
+    const confDir = makeTempDir("obtc-mcp-sbx-conf-");
     tmpDirs.push(confDir);
     const configPath = join(confDir, "config.json");
     writeFileSync(

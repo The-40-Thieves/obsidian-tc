@@ -6,8 +6,7 @@
 // call is refused as `replay_drift` — never a generic failure and never a silent stale apply — on
 // every route a confirmation can arrive by: a token minted directly, a token minted headlessly by
 // `obsidian-tc elicit`, a 2026-era requestState, and the lean facade's call_capability.
-import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -28,13 +27,13 @@ import { createMcpServer } from "../src/mcp/server";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "test";
 const CALLER = "test";
 
 function boot(files: Record<string, string>) {
-  const root = mkdtempSync(join(tmpdir(), "obtc-drift-"));
+  const root = makeTempDir("obtc-drift-");
   for (const [rel, content] of Object.entries(files)) writeFileSync(join(root, rel), content);
   const db = openMemoryDb();
   provisionCacheDb(db);

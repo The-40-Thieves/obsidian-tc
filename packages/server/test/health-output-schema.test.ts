@@ -1,17 +1,3 @@
-// THE-1073 fix round 2 (HIGH, both reviewers) — server_health's ACTUAL emitted payload, checked
-// against its advertised outputSchema the way a real MCP client checks it: with the SDK's own
-// AjvJsonSchemaValidator over the JSON Schema toJson() emits, not with zod's own safeParse.
-//
-// zod's safeParse SILENTLY STRIPS unknown keys off a non-strict z.object and reports success —
-// that is exactly what let fix round 1 through: it added `kind` to `health.reconcileErrors`
-// (runtime/reconcile-outcome.ts) to pick a stderr hint, and `IndexHealthSnapshotOutput`'s
-// `reconcile_errors: z.array(z.object({ vault, error }))` (tools/admin/health.ts) happily parsed
-// the extra field away. The JSON Schema `toJson()` converts to carries `additionalProperties:
-// false` regardless, and the SDK's ajv validator — what `Client.callTool` actually runs — rejects
-// the UNSTRIPPED payload outright. This test is the gate that stays red for that whole class of
-// drift, not just this one field.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
@@ -29,7 +15,7 @@ import { TelemetryCollector } from "../src/telemetry/collector";
 import { sendTelemetry } from "../src/telemetry/sender";
 import { wireTelemetry } from "../src/telemetry/wiring";
 import { createHealthTool, type HealthInfo } from "../src/tools/admin/health";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 /** A clean IndexStats with one frontmatter failure — every field IndexStats requires. */
 function statsWithFrontmatterFailure(): IndexStats {
@@ -249,7 +235,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   // into the health tool — the only way to be sure every field that function can ever return is
   // covered here, not just the ones a fixture author remembered to write down.
   it("the telemetry block, from a REAL wireTelemetry(...).getStatus() after a seeded send, validates under ajv", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-health-telemetry-ajv-"));
+    const cacheDir = makeTempDir("obtc-health-telemetry-ajv-");
     let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
     try {
       db = await openDatabase(join(cacheDir, "cache.db"), 5000);

@@ -4,8 +4,7 @@
 // content (and therefore fence generation) is unchanged between two reconcile passes must still
 // embed ZERO chunks on the second pass, counted directly at the provider boundary rather than
 // inferred from IndexStats.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -17,11 +16,11 @@ import {
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("index_vault does not duplicate embedding work across unchanged reconcile passes (GH #995 follow-up)", () => {
   it("issues zero embed() calls on a second pass over unchanged content", async () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-no-dup-embed-"));
+    const root = makeTempDir("obtc-no-dup-embed-");
     for (let i = 0; i < 5; i++) {
       writeFileSync(join(root, `note-${i}.md`), `# Note ${i}\nSome stable body for note ${i}.\n`);
     }

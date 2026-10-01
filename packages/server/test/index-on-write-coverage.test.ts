@@ -1,7 +1,6 @@
 // THE-291 part 1 — every M1 note mutation must fire the index-on-write seam.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -9,7 +8,7 @@ import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const stubDb = {
   prepare() {
@@ -18,7 +17,7 @@ const stubDb = {
 } as unknown as Database;
 
 function harness() {
-  const root = mkdtempSync(join(tmpdir(), "obtc-291a-"));
+  const root = makeTempDir("obtc-291a-");
   const write = (rel: string, content: string): void => {
     const abs = join(root, rel);
     mkdirSync(dirname(abs), { recursive: true });

@@ -10,9 +10,7 @@
 // on the config value alone would prove nothing — that would pass even if buildGraphSearchOptions
 // silently dropped it, which is exactly the bug this ticket closes).
 
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
@@ -23,7 +21,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "main";
 
@@ -82,7 +80,7 @@ function spyReranker(): { reranker: Reranker; calls: Array<{ query: string; docs
   return { reranker, calls };
 }
 
-const root = mkdtempSync(join(tmpdir(), "obtc-gated-rerank-wiring-"));
+const root = makeTempDir("obtc-gated-rerank-wiring-");
 afterAll(() => rmTemp(root));
 
 function harness(retrieval: { gatedRerank?: boolean } | undefined, reranker: Reranker | null) {

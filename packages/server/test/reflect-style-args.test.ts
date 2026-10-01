@@ -4,8 +4,7 @@
 // not a model behaviour); an out-of-range [n] is left as-is and reported; `detail` changes the
 // prompt; and precedence is call argument > per-vault config > default.
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
@@ -21,7 +20,7 @@ import {
 } from "../src/tools/m7/knowledge/retrieval-runtime";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 
@@ -48,7 +47,7 @@ function un<T>(r: unknown): T {
   return (r as { data: T }).data;
 }
 
-const root = mkdtempSync(join(tmpdir(), "obtc-reflect-style-"));
+const root = makeTempDir("obtc-reflect-style-");
 afterAll(() => rmTemp(root));
 
 interface Captured {

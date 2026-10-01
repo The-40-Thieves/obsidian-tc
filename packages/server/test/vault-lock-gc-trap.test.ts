@@ -18,13 +18,11 @@
 // Bun only: the trap is Bun-specific (bun:sqlite's own GC-finalizer semantics), so this whole file
 // is skipped, not failed, when bun is absent — mirroring every other bun-only probe test here.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BAD_HOLDER_PROBE = join(HERE, "vault-lock-gc-trap-bad-holder-probe.ts");
@@ -35,7 +33,7 @@ const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).statu
 
 const tmpDirs: string[] = [];
 function tmpDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "otc-vault-lock-gc-"));
+  const d = makeTempDir("otc-vault-lock-gc-");
   tmpDirs.push(d);
   return d;
 }

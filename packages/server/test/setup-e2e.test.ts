@@ -4,8 +4,7 @@
 // reports the effective embeddings source as "configured" — the exact GH #995 property this command
 // exists to establish: a decision `setup` writes down must never look like something boot merely
 // defaulted to or kept.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registryCandidates } from "../src/capability/locate";
@@ -13,11 +12,11 @@ import { run_config_show } from "../src/cli/commands/config-show";
 import { run_setup } from "../src/cli/commands/setup";
 import { resolveServeConfigWithProvenance } from "../src/cli/resolve-config";
 import { loadConfig } from "../src/config/load";
-import { rmTemp, stubHomedir } from "./tmp";
+import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

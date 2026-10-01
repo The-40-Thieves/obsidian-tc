@@ -3,8 +3,7 @@
 // ToolRegistry with the M1 tools registered (verifyElicit wired so the HITL
 // cycle runs end-to-end through dispatch), and a CallerContext factory.
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
   ResponseFormat,
@@ -21,7 +20,7 @@ import type { MetricsRecorder } from "../src/metrics/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 export interface TestVaultOptions {
   files?: Record<string, string>;
@@ -85,7 +84,7 @@ export interface TestVault {
 }
 
 export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-vault-"));
+  const root = makeTempDir("obtc-vault-");
   const id = opts.vaultId ?? "test";
   const writeFile = (rel: string, content: string): void => {
     const abs = join(root, rel);

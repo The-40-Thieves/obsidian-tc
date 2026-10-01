@@ -9,8 +9,7 @@
 // green — and the mutation below would not go red either. makeTestVault registers M1 tools, takes
 // `acl: { readOnly: true }`, and builds its ToolRegistry with NO aclResolver (m1-helpers.ts:75), so
 // nothing swaps ctx.acl mid-dispatch.
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { withReadOnlyAcl } from "../src/cli/commands/rerun";
@@ -33,6 +32,7 @@ import {
 } from "../src/workspace/rerun-verdict";
 import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { makeTestVault, type TestVault } from "./m1-helpers";
+import { makeTempDir } from "./tmp";
 
 let v: TestVault | undefined;
 let cacheDir: string | undefined;
@@ -47,7 +47,7 @@ afterEach(() => {
 
 /** A vault whose ACL is read-only unless `writable` — the mutation in Step 5 flips this. */
 function readOnlyVault(files: Record<string, string>, writable = false): TestVault {
-  cacheDir = mkdtempSync(join(tmpdir(), "obtc-rerun-cache-"));
+  cacheDir = makeTempDir("obtc-rerun-cache-");
   return makeTestVault({ files, acl: { readOnly: !writable } });
 }
 
@@ -350,7 +350,7 @@ describe("THE-645 item 3 fix round 2 — what observe mode must refuse, and what
   // MUTATING_FAMILIES, which would change behaviour for the whole server.
   it("refuses a recorded admin: call, and does not register the vault", async () => {
     v = readOnlyVault({ "a.md": "hello" });
-    const intruderRoot = mkdtempSync(join(tmpdir(), "obtc-rerun-intruder-"));
+    const intruderRoot = makeTempDir("obtc-rerun-intruder-");
     dirsToClean.push(intruderRoot);
     const id = seedSession(
       v,

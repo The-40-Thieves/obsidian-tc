@@ -1,6 +1,5 @@
 // Config surface and zero-config guarantees for the rate-limit backends.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +10,7 @@ import {
   resolveRedisUrl,
 } from "../src/ratelimit/create";
 import { MemoryBackend } from "../src/ratelimit/memory-backend";
+import { makeTempDir } from "./tmp";
 
 const base = { vaults: [{ id: "v", path: "/tmp/v" }], cacheDir: "/tmp/c" };
 
@@ -62,7 +62,7 @@ describe("resolveRedisUrl", () => {
   });
 
   it("reads urlFile, and urlFile wins over urlEnv", () => {
-    const d = mkdtempSync(join(tmpdir(), "otc-redisurl-"));
+    const d = makeTempDir("otc-redisurl-");
     dirs.push(d);
     const f = join(d, "url");
     writeFileSync(f, "redis://from-file:6379\n");
@@ -83,7 +83,7 @@ describe("resolveRedisUrl", () => {
   });
 
   it("refuses an unreadable or empty urlFile without echoing its content", () => {
-    const d = mkdtempSync(join(tmpdir(), "otc-redisurl-"));
+    const d = makeTempDir("otc-redisurl-");
     dirs.push(d);
     expect(() => resolveRedisUrl({ ...ref, urlFile: join(d, "missing") }, {})).toThrow(/urlFile/);
     const f = join(d, "empty");

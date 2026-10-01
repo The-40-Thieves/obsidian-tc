@@ -1,17 +1,17 @@
 // THE-1122 review — `probeStoredEmbeddingsProvider`, the DB-touching half of the upgrade-note
 // feature (doctor-embeddings-upgrade-note.test.ts covers the pure check-factory half). Mirrors
 // doctor-db-space.test.ts's real-file-probe shape.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { probeStoredEmbeddingsProvider } from "../src/cli/commands/doctor-probes";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
+import { makeTempDir } from "./tmp";
 
 describe("probeStoredEmbeddingsProvider", () => {
   it("returns undefined when cache.db does not exist yet (a fresh install)", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-storedprovider-missing-"));
+    const cacheDir = makeTempDir("obtc-storedprovider-missing-");
     try {
       expect(await probeStoredEmbeddingsProvider(cacheDir, 5000)).toBeUndefined();
     } finally {
@@ -20,7 +20,7 @@ describe("probeStoredEmbeddingsProvider", () => {
   });
 
   it("returns undefined when cache.db exists but vec_index_fingerprint has never been written", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-storedprovider-no-fp-"));
+    const cacheDir = makeTempDir("obtc-storedprovider-no-fp-");
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"));
       provisionCacheDb(db, { version: "test" });
@@ -32,7 +32,7 @@ describe("probeStoredEmbeddingsProvider", () => {
   });
 
   it("reads the provider (field 0 of the pipe-delimited fingerprint) off a real stored row", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-storedprovider-real-"));
+    const cacheDir = makeTempDir("obtc-storedprovider-real-");
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"));
       provisionCacheDb(db, { version: "test" });

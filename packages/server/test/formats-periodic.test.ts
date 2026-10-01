@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -11,7 +10,7 @@ import {
   resolvePeriodicPath,
   toISODate,
 } from "../src/formats/periodic";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function codeOf(fn: () => unknown): string {
   try {
@@ -59,7 +58,7 @@ describe("formats/periodic resolver", () => {
   });
 
   it("falls back to Obsidian defaults when no config is present", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-pn-"));
+    const root = makeTempDir("obtc-pn-");
     try {
       const r = resolvePeriodicConfig(root, "daily");
       expect(r.source).toBe("default");
@@ -72,7 +71,7 @@ describe("formats/periodic resolver", () => {
   });
 
   it("honors the periodic-notes plugin config (format + folder)", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-pn-"));
+    const root = makeTempDir("obtc-pn-");
     try {
       const cfg = join(root, ".obsidian", "plugins", "periodic-notes", "data.json");
       mkdirSync(dirname(cfg), { recursive: true });
@@ -88,7 +87,7 @@ describe("formats/periodic resolver", () => {
   });
 
   it("honors the daily-notes core plugin config as a daily fallback", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-pn-"));
+    const root = makeTempDir("obtc-pn-");
     try {
       const dir = join(root, ".obsidian");
       mkdirSync(dir, { recursive: true });

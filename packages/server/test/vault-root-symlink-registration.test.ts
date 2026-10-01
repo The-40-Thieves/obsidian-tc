@@ -25,14 +25,13 @@
 //   3. The same read/write succeeds through the JS fallback (OBSIDIAN_TC_FORCE_JS_FALLBACK=1).
 //   4. A symlink INSIDE the vault escaping the root is still refused by both backends — this
 //      ticket does not relax `open_parent`'s per-component rule or paths.ts's containment check.
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveVaultPath, walkVault, walkVaultStream } from "../src/vault/paths";
 import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const requireCjs = createRequire(import.meta.url);
 
@@ -52,7 +51,7 @@ describe("THE-1081 / #946 — vault root canonicalization at registration", () =
   let linkedRootDir: string;
 
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), "obtc-root-symlink-"));
+    base = makeTempDir("obtc-root-symlink-");
     realRootDir = join(base, "real-root");
     linkedRootDir = join(base, "link-root");
     mkdirSync(realRootDir);
@@ -144,7 +143,7 @@ describe("THE-1081 / #946 review round — missing-at-boot root, resolved later"
   let base: string;
 
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), "obtc-late-root-"));
+    base = makeTempDir("obtc-late-root-");
   });
   afterEach(() => {
     rmTemp(base);

@@ -9,9 +9,7 @@
 // Two layers: real child processes stressing each DB chain (the actual multi-client shape), and an
 // in-process deterministic test of the lose-the-race path.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,7 +17,7 @@ import { applyConnectionPragmas } from "../src/db/apply-pragmas";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES } from "../src/db/migration-manifest";
 import { AUTH_MIGRATIONS, CACHE_MIGRATIONS } from "../src/db/provision";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -35,7 +33,7 @@ afterEach(() => {
   for (const d of tmpDirs.splice(0)) rmTemp(d);
 });
 function tmpDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "otc-migrate-race-"));
+  const d = makeTempDir("otc-migrate-race-");
   tmpDirs.push(d);
   return d;
 }

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ import {
   resolveServeConfig,
   resolveServeConfigWithProvenance,
 } from "../src/cli/args";
-import { rmTemp, stubHomedir } from "./tmp";
+import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
 // THE-685: every temp dir this suite creates is tracked and removed. These calls previously had NO
 // teardown at all - a leak on every OS, invisible on POSIX (where /tmp is reaped) and unbounded on
@@ -19,7 +19,7 @@ import { rmTemp, stubHomedir } from "./tmp";
 // derived from suites that already had teardown, so by construction it could not reach this one.
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };
@@ -403,7 +403,7 @@ describe("resolveServeConfigWithProvenance (THE-825)", () => {
 // `readConfigFile` call surfaces a raw `SyntaxError` — useless to an operator who has no idea that
 // path is even in play, since they never passed `--config` at all.
 describe("resolveServeConfigWithProvenance — unparseable default-path config (fix round, finding 4)", () => {
-  const home = mkdtempSync(join(tmpdir(), "otc-default-poison-home-"));
+  const home = makeTempDir("otc-default-poison-home-");
   let restoreHome: (() => void) | undefined;
   beforeEach(() => {
     restoreHome = stubHomedir(home);
@@ -425,7 +425,7 @@ describe("resolveServeConfigWithProvenance — unparseable default-path config (
   });
 
   it("leaves an EXPLICIT --config path's own parse error unchanged (not the default-path hint)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-explicit-poison-"));
+    const dir = makeTempDir("otc-explicit-poison-");
     tmpDirs.push(dir);
     const file = join(dir, "c.json");
     writeFileSync(file, "");

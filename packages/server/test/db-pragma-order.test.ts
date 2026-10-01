@@ -1,18 +1,7 @@
-// THE-745 / #719: SQLite's busy handler is per-connection state installed BY the `busy_timeout`
-// pragma. Until that statement runs, the connection has no handler at all and contention returns
-// SQLITE_BUSY immediately rather than retrying — so any pragma applied BEFORE it is unprotected.
-//
-// These tests contend two REAL connections against one file rather than asserting on the pragma
-// list, because the settled state is identical under both orderings: `PRAGMA busy_timeout` reads
-// back 5000 either way, which is why db-baseline.test.ts passed throughout. The defect lives on
-// the TIME axis, so that is the axis asserted here.
-
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { connectionPragmas, DEFAULT_BUSY_TIMEOUT_MS } from "../src/db/pragmas";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 interface RawDb {
   exec(sql: string): void;
@@ -50,7 +39,7 @@ function orderBeforeFix(busyTimeoutMs: number): string[] {
  * report in #719 and exactly why a long-running deployment never reproduces it.
  */
 async function timeApply(pragmas: string[]): Promise<{ ms: number; threw: boolean }> {
-  const dir = mkdtempSync(join(tmpdir(), "pragma-order-"));
+  const dir = makeTempDir("pragma-order-");
   try {
     const path = join(dir, "cache.db");
     const seed = await rawOpen(path);

@@ -4,7 +4,6 @@
 // cleanup retry eventually removes a directory whose first removal attempt failed.
 
 import { existsSync, mkdirSync, mkdtempSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -13,7 +12,7 @@ import {
   scheduleDeferredCleanup,
   sweepStaleSandboxDirs,
 } from "../src/workspace/rerun-sandbox-cleanup";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const tmpDirs: string[] = [];
 
@@ -39,7 +38,7 @@ function mintAgedSandboxDir(root: string, ageMs: number, now: number): string {
 
 describe("sweepStaleSandboxDirs", () => {
   it("removes an obtc-rerun-* dir older than maxAgeMs", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-sweep-test-"));
+    const root = makeTempDir("obtc-sweep-test-");
     tmpDirs.push(root);
     const now = Date.now();
     const stale = mintAgedSandboxDir(root, 2 * 60 * 60 * 1000, now); // 2h old
@@ -50,7 +49,7 @@ describe("sweepStaleSandboxDirs", () => {
   });
 
   it("ignores an obtc-rerun-* dir younger than maxAgeMs", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-sweep-test-"));
+    const root = makeTempDir("obtc-sweep-test-");
     tmpDirs.push(root);
     const now = Date.now();
     const fresh = mintAgedSandboxDir(root, 5_000, now); // 5s old
@@ -61,7 +60,7 @@ describe("sweepStaleSandboxDirs", () => {
   });
 
   it("ignores an entry whose name does not match the mint shape exactly, however old", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-sweep-test-"));
+    const root = makeTempDir("obtc-sweep-test-");
     tmpDirs.push(root);
     const now = Date.now();
     // A differently-suffixed fixture shape other test files mint (session-rerun-tool-sandbox.test.ts's

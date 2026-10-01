@@ -37,7 +37,7 @@
 //     [--seed-phrase <word>] [--omit-seed-phrase] [--require-ollama-config]
 //     [--expect-local-embeddings] [--reconcile-timeout-ms <ms>]
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -92,6 +92,7 @@ async function assertPortClosed(port: number): Promise<void> {
 
 function makeFixtureVault(): string {
   const dir = mkdtempSync(join(tmpdir(), "obtc-zero-config-smoke-"));
+  process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
   const phrase = omitSeedPhrase ? "unrelated-marker-text" : seedPhrase;
   const notes: Record<string, string> = {
     "welcome.md": `---\ntags: [reference, smoke]\n---\n# Welcome\n\nThe load-bearing phrase is ${phrase}.\n\nSee [[architecture]] and [[glossary]].\n`,
@@ -106,6 +107,7 @@ function makeFixtureVault(): string {
 
 function makeRequiresOllamaConfig(vaultDir: string): string {
   const dir = mkdtempSync(join(tmpdir(), "obtc-zero-config-smoke-cfg-"));
+  process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, "requires-ollama.config.json");
   writeFileSync(
     path,

@@ -12,8 +12,7 @@
 // If packages/embedder-local has never been built (`bun run build` not yet run there), the
 // route-(iii)/(i) success cases are skipped rather than failing — same policy as
 // doctor-cli-bundle-reranker-resolution.test.ts for packages/shared/dist.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -23,7 +22,7 @@ import {
   resolveSourceCheckoutLocalEmbedderPath,
 } from "../src/providers/registry";
 import type { EmbeddingsConfigLike, ResolveContext } from "../src/providers/types";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EMBEDDER_LOCAL_DIR = join(HERE, "..", "..", "embedder-local");
@@ -55,7 +54,7 @@ function writeAnchorOnly(root: string): string {
 
 describe("resolveLocalEmbedderModule — the ladder", () => {
   it("fails cleanly — never throws — when nothing resolves", async () => {
-    const anchorRoot = mkdtempSync(join(tmpdir(), "obtc-embedder-local-unbuilt-"));
+    const anchorRoot = makeTempDir("obtc-embedder-local-unbuilt-");
     try {
       writeAnchorOnly(anchorRoot);
       const sourceCheckout = resolveSourceCheckoutLocalEmbedderPath(anchorRoot);
@@ -179,8 +178,8 @@ describe("buildLocalEmbeddingProvider", () => {
   });
 
   it("never writes outside the configured cacheDir, regardless of process cwd", async () => {
-    const scratchCacheDir = mkdtempSync(join(tmpdir(), "obtc-embedder-cachedir-test-"));
-    const elsewhereCwd = mkdtempSync(join(tmpdir(), "obtc-embedder-cwd-elsewhere-"));
+    const scratchCacheDir = makeTempDir("obtc-embedder-cachedir-test-");
+    const elsewhereCwd = makeTempDir("obtc-embedder-cwd-elsewhere-");
     const originalCwd = process.cwd();
     try {
       process.chdir(elsewhereCwd);

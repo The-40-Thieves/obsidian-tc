@@ -5,8 +5,7 @@
 // embedding identity", see queryActiveEmbeddingModels). Active rows (is_active = 1), and by
 // construction vec_chunks (which only ever holds active, dimension-matching rows — see
 // search/vec.ts's ensureVecChunks backfill), must survive untouched.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -21,7 +20,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const DIMS = 16;
 
@@ -37,7 +36,7 @@ interface Harness {
 }
 
 function makeHarness(extraVaultIds: readonly string[] = []): Harness {
-  const root = mkdtempSync(join(tmpdir(), "obtc-emb-inactive-"));
+  const root = makeTempDir("obtc-emb-inactive-");
   const abs = join(root, "a.md");
   writeFileSync(abs, "alpha content here");
   const db = openMemoryDb();

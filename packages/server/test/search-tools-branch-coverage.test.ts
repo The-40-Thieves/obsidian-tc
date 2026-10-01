@@ -2,8 +2,7 @@
 // coverage under vitest 4). Every case here asserts genuine behavior — a real hit set, a thrown
 // error code, or a logged field — never a bare "it ran" execution.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -17,7 +16,7 @@ import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM2Vault } from "./m2-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function payload(res: ToolResult): any {
   if (!res.ok) throw new Error(`expected ok, got ${res.error.code}`);
@@ -36,7 +35,7 @@ function makeCustomVault(opts: {
   metadataIndex?: { hasFts: boolean; ready: () => boolean };
   retrievalLog?: (e: RetrievalLogEvent) => void;
 }) {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m2-branch-"));
+  const root = makeTempDir("obtc-m2-branch-");
   for (const [rel, content] of Object.entries(opts.files ?? {})) {
     const abs = join(root, rel);
     mkdirSync(dirname(abs), { recursive: true });

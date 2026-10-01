@@ -17,10 +17,10 @@
 // reintroduces text patterns, these fail.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { astGrep } from "./ast-grep-bin.mjs";
 import { DECL_KINDS_BY_LANG, findDeclarations } from "./where-symbol.mjs";
 
@@ -45,6 +45,7 @@ if (!hasAstGrep && process.env.WHERE_SYMBOL_REQUIRE_ASTGREP === "1") {
 }
 
 const dir = mkdtempSync(join(tmpdir(), "where-symbol-"));
+after(() => rmSync(dir, { recursive: true, force: true }));
 
 // Every TS form that the old text patterns missed. The annotation/generics/heritage clauses are
 // the point — a bare `function f(a) {}` matched fine and hid the defect.

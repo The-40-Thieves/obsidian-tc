@@ -3,9 +3,6 @@
 // knowledge_challenge via openContradictionsForPaths). This is the direct reader: same plumbing,
 // no composition, so a caller can inspect flagged conflicts on a note set standalone.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -13,7 +10,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
 
@@ -35,7 +32,7 @@ function un<T>(r: unknown): T {
   return (r as { data: T }).data;
 }
 
-const root = mkdtempSync(join(tmpdir(), "obtc-list-contra-"));
+const root = makeTempDir("obtc-list-contra-");
 afterAll(() => rmTemp(root));
 
 function harness(scopes: string[], acl?: FolderAcl) {

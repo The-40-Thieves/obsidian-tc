@@ -3,13 +3,12 @@
 // (the M4 back-compat invariant) — and the OBSIDIAN_TC_PLUR_* env vars overlay the
 // endpoint/token the same way the JWT secret does, keeping the bearer off disk.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/load";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("M5 config schema", () => {
   it("leaves plur + per-vault memory/workspace undefined when omitted", () => {
@@ -63,7 +62,7 @@ describe("M5 config schema", () => {
 describe("loadConfig plur env overlay", () => {
   let dir: string;
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "otc-m5cfg-"));
+    dir = makeTempDir("otc-m5cfg-");
   });
   afterEach(() => {
     rmTemp(dir);

@@ -6,15 +6,7 @@
 // (a key was ever rotated in) and `.tokens-initialized` (a token or revocation was ever written).
 // One table emptying while the other survives is a stale restore or table-level damage, and reading
 // either as "never used" would revive a retired key or un-revoke every revoked jti.
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
@@ -32,7 +24,7 @@ import { openDatabase } from "../src/db/open";
 import { provisionAuthDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -40,7 +32,7 @@ afterAll(() => {
   for (const d of dirs.splice(0)) rmTemp(d);
 });
 const freshDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "auth-partial-"));
+  const dir = makeTempDir("auth-partial-");
   dirs.push(dir);
   return dir;
 };

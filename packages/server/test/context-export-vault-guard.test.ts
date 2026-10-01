@@ -6,16 +6,16 @@
 // though the destination is really inside the vault, letting the exfiltration bundle land
 // somewhere the indexer/Obsidian Sync would reach it. `isInsideConfiguredVaultRoot`
 // (cli/commands/context-export.ts) now checks both spellings of the root.
-import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
+import { mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isInsideConfiguredVaultRoot } from "../src/cli/commands/context-export";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("isInsideConfiguredVaultRoot — THE-1081 review round", () => {
   it("still refuses a destination inside the raw (lexical) configured root", () => {
-    const root = mkdtempSync(join(tmpdir(), "otc-ctxexport-"));
+    const root = makeTempDir("otc-ctxexport-");
     try {
       expect(isInsideConfiguredVaultRoot(join(root, "bundle.json"), root)).toBe(true);
       expect(isInsideConfiguredVaultRoot(join(tmpdir(), "elsewhere.json"), root)).toBe(false);
@@ -25,7 +25,7 @@ describe("isInsideConfiguredVaultRoot — THE-1081 review round", () => {
   });
 
   it("refuses a destination spelled via the CANONICAL root, when the config path is a symlinked ancestor", () => {
-    const base = mkdtempSync(join(tmpdir(), "otc-ctxexport-sym-"));
+    const base = makeTempDir("otc-ctxexport-sym-");
     try {
       const realRoot = join(base, "real-root");
       const linkRoot = join(base, "link-root");
@@ -44,7 +44,7 @@ describe("isInsideConfiguredVaultRoot — THE-1081 review round", () => {
   });
 
   it("refuses a destination spelled via the lexical (symlinked-ancestor) root too", () => {
-    const base = mkdtempSync(join(tmpdir(), "otc-ctxexport-sym2-"));
+    const base = makeTempDir("otc-ctxexport-sym2-");
     try {
       const realRoot = join(base, "real-root");
       const linkRoot = join(base, "link-root");
@@ -58,7 +58,7 @@ describe("isInsideConfiguredVaultRoot — THE-1081 review round", () => {
   });
 
   it("still allows a destination genuinely outside the vault, symlinked ancestor or not", () => {
-    const base = mkdtempSync(join(tmpdir(), "otc-ctxexport-sym3-"));
+    const base = makeTempDir("otc-ctxexport-sym3-");
     try {
       const realRoot = join(base, "real-root");
       const linkRoot = join(base, "link-root");

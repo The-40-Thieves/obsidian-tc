@@ -1,7 +1,6 @@
 // THE-295 — per-vault ACL: vault A writable, vault B restricted, one process.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl, makeIndexReadable, makeReindexGate } from "../src/acl";
@@ -9,7 +8,7 @@ import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const stubDb = {
   prepare() {
@@ -18,8 +17,8 @@ const stubDb = {
 } as unknown as Database;
 
 function harness() {
-  const rootA = mkdtempSync(join(tmpdir(), "obtc-295a-"));
-  const rootB = mkdtempSync(join(tmpdir(), "obtc-295b-"));
+  const rootA = makeTempDir("obtc-295a-");
+  const rootB = makeTempDir("obtc-295b-");
   const write = (root: string, rel: string, content: string): void => {
     const abs = join(root, rel);
     mkdirSync(dirname(abs), { recursive: true });

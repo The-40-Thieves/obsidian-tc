@@ -1,21 +1,3 @@
-// THE-822 follow-up — closes acceptance criterion 4's coverage gap: nothing asserted "gateway
-// present, plane off, reflect still functional". THE-822 gated createOnIndexedHook and
-// wireJobHandlers on plane.enabled at server-runtime.ts's call site (~421-531), but left
-// wireDomainTools's `roles` deliberately UNGATED — see plane.schema.ts's own comment: "[enabled:
-// false] does NOT gate `roles` itself, which stays live for other tools (e.g. reflect) regardless
-// of this flag." createOnIndexedHook/wireJobHandlers's own gating is already covered directly, at
-// the unit level, by plane-enabled-gates-ingest-and-jobs.test.ts — that IS the call site for those
-// two, since the `plane.enabled` check lives inside the functions themselves.
-//
-// wireDomainTools is different: it takes no `plane` dep at all (tools/m7/knowledge/deps.ts), so
-// the asymmetry lives entirely at server-runtime.ts's CALL SITE, which decides whether to pass the
-// full `roles` or a gated one. A unit test constructing wireDomainTools directly would pass even if
-// a future "simplification" nulled `roles` before that call — it would just be testing a value the
-// test itself chose. This test goes through `buildServerRuntime`, the actual composition root, so
-// a regression like `roles: config.plane.enabled ? roles : null` at that call site is what makes it
-// fail (verified by hand — see the task's watched-failure output).
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
@@ -23,7 +5,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const ENV_URL = "OBSIDIAN_TC_GATEWAY_URL";
 
@@ -79,7 +61,7 @@ interface ReflectData {
 describe("THE-822 follow-up: plane disabled + gateway configured -> reflect stays wired (buildServerRuntime call site)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

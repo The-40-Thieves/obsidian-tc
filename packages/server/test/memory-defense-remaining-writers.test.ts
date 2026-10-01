@@ -14,8 +14,7 @@
 // Every secret/PII value below is assembled at RUNTIME (string concatenation), never a single
 // literal in source that itself matches a SECRET_PATTERNS or PII regex — same house rule
 // memory-defense.test.ts documents in its own header.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ObsidianTcError, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -32,7 +31,7 @@ import { registerM7Tools } from "../src/tools/m7";
 import { persistGovernedNote } from "../src/vault/persist-note";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // ---------------------------------------------------------------------------------------------
 // Secret builders — every one assembled at runtime from pieces that are not individually
@@ -86,8 +85,8 @@ async function withHarness(
   mode: "block" | "redact",
   fn: (h: Harness) => Promise<void>,
 ): Promise<void> {
-  const vaultDir = mkdtempSync(join(tmpdir(), "otc-memdef-rw-vault-"));
-  const cacheDir = mkdtempSync(join(tmpdir(), "otc-memdef-rw-cache-"));
+  const vaultDir = makeTempDir("otc-memdef-rw-vault-");
+  const cacheDir = makeTempDir("otc-memdef-rw-cache-");
   const config = configFromVaultPath(vaultDir);
   config.cacheDir = cacheDir;
   const vault = config.vaults[0];
@@ -498,7 +497,7 @@ describe("memoryDefense block mode — remaining writers, real wiring, nothing p
 
 describe("memoryDefense block mode — reflect's persist primitive (persistGovernedNote)", () => {
   it("refuses secret-shaped content and writes nothing to disk", () => {
-    const root = mkdtempSync(join(tmpdir(), "otc-memdef-rw-persist-"));
+    const root = makeTempDir("otc-memdef-rw-persist-");
     try {
       const db = openMemoryDb();
       provisionCacheDb(db);
@@ -537,7 +536,7 @@ describe("memoryDefense block mode — reflect's persist primitive (persistGover
 // what is actually under test, not just the primitive.
 describe("memoryDefense block mode — reflect dispatched through its own handler (deps wiring)", () => {
   it("refuses a secret-shaped synthesis before persisting, via the real reflect dispatch path", async () => {
-    const root = mkdtempSync(join(tmpdir(), "otc-memdef-rw-reflect-dispatch-"));
+    const root = makeTempDir("otc-memdef-rw-reflect-dispatch-");
     try {
       const NOW = 1_700_000_000_000;
       const db = openMemoryDb();

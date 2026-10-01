@@ -1,20 +1,3 @@
-// WP3 (docs/plans/2026-07-30-codebase-refactor-map.md): the invariant the map calls for and the
-// indexer never had a test proving — a failure PARTWAY THROUGH a note's persistence must leave no
-// partial state. indexNote writes a note's chunks, chunk_embeddings, chunk_fts and notes rows, then
-// bumps vault_generation, ALL inside one inWriteTransaction (indexer.ts). If the LAST statement in
-// that transaction (the vault_generation bump) throws, everything written earlier in the same
-// transaction must be rolled back too — that is exactly what BEGIN IMMEDIATE / ROLLBACK (db/txn.ts)
-// exists to guarantee, and this is the first test that actually drives a failure late enough to
-// prove it rather than assuming it.
-//
-// Uses a REAL file-backed SQLite connection (openNodeSqlite), not the in-memory test helper: an
-// in-memory db can't distinguish "rolled back" from "never happened", and a same-connection read
-// sees uncommitted writes either way. The distinguishing behaviour this test needs — writes made
-// under BEGIN IMMEDIATE actually reverting on ROLLBACK versus surviving because they were committed
-// early — only exists against a real connection/transaction.
-
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
@@ -22,7 +5,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database, Statement } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexNote } from "../src/search/indexer";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT_ID = "test";
 const PATH = "note.md";
@@ -67,7 +50,7 @@ describe("indexNote transaction rollback (WP3 invariant)", () => {
   });
 
   it("a failure on the LAST statement of the transaction leaves no partial state", async () => {
-    dir = mkdtempSync(join(tmpdir(), "otc-idx-rollback-"));
+    dir = makeTempDir("otc-idx-rollback-");
     real = await openNodeSqlite(join(dir, "cache.db"));
     provisionCacheDb(real);
 
@@ -134,7 +117,7 @@ describe("indexNote transaction rollback (WP3 invariant)", () => {
   });
 
   it("control: the same note indexes cleanly with no injected failure", async () => {
-    dir = mkdtempSync(join(tmpdir(), "otc-idx-rollback-ok-"));
+    dir = makeTempDir("otc-idx-rollback-ok-");
     real = await openNodeSqlite(join(dir, "cache.db"));
     provisionCacheDb(real);
     const provider = fakeEmbeddingProvider({ dimensions: 8 });

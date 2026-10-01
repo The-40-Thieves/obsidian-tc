@@ -6,9 +6,6 @@
 // find_notes_by_property (querying the `notes` table instead of walking the filesystem) need a
 // second, local harness that seeds that table directly.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -19,7 +16,7 @@ import { buildFrontmatterTools } from "../src/tools/m1/frontmatter-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function errCode(r: ToolResult): string {
   if (r.ok) throw new Error("expected an error result");
@@ -42,7 +39,7 @@ function makeIndexedVault(opts: { rows: IndexedRow[]; acl?: Partial<AclConfigT> 
   call: (name: string, input: Record<string, unknown>) => Promise<ToolResult>;
   cleanup: () => void;
 } {
-  const root = mkdtempSync(join(tmpdir(), "obtc-idx-vault-"));
+  const root = makeTempDir("obtc-idx-vault-");
   const db = openMemoryDb();
   provisionCacheDb(db);
   const insert = db.prepare(

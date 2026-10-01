@@ -19,20 +19,19 @@
 // `run_index` prints to stdout before any vec DDL runs (index.ts) — proven in every environment —
 // with the fingerprint/chunk_embeddings checks below as an ADDITIONAL, guarded assertion for the
 // ones that can see vec DDL, matching the pattern embeddings-sticky-every-caller.test.ts uses.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run_index } from "../src/cli/commands/index";
 import { tableExists } from "../src/db/introspect";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("run_index — GH #995 sticky embeddings provider (CLI one-shot path)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

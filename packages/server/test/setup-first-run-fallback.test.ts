@@ -1,8 +1,7 @@
 // PR B of GH #995's two-part follow-up: pure unit tests for cli/setup/first-run-fallback.ts's
 // gating/formatting logic — no filesystem, no detection pass. See test/setup-first-run-e2e.test.ts
 // for the real detect()+writeSetupConfig() path.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultSetupConfigPath } from "../src/cli/resolve-config";
@@ -12,7 +11,7 @@ import {
   NO_AUTO_SETUP_ENV_VAR,
   shouldAttemptFirstRunFallback,
 } from "../src/cli/setup/first-run-fallback";
-import { rmTemp, stubHomedir } from "./tmp";
+import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
 // Finding 5 (fix round, cross-vendor review): `shouldAttemptFirstRunFallback`'s own last check is
 // `!existsSync(defaultSetupConfigPath())` — a REAL filesystem read against the ACTUAL home dir
@@ -22,7 +21,7 @@ import { rmTemp, stubHomedir } from "./tmp";
 // gating logic under test.
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

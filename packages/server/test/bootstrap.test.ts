@@ -2,13 +2,12 @@
 // (never baked into the tree), so these assertions exercise the mechanism against a small synthetic
 // table and a temp vault.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildBootstrapTools } from "../src/tools/m5/bootstrap-tools";
 import { VaultRegistry } from "../src/vault/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const bootstrap = {
   deepPaths: ["CLAUDE.md", "missing.md"],
@@ -22,7 +21,7 @@ const bootstrap = {
 };
 
 describe("THE-101 session_bootstrap", () => {
-  const root = mkdtempSync(join(tmpdir(), "obtc-bootstrap-"));
+  const root = makeTempDir("obtc-bootstrap-");
   const tool: any = buildBootstrapTools({
     vaultRegistry: new VaultRegistry([{ id: "t", name: "t", path: root }]),
     bootstrap,

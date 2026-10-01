@@ -7,8 +7,7 @@
 // replay a workspace JSONL trace; a plur proxy call against the fake AND its degraded
 // path. Asserts DB/file state and event_log audit rows. No live plur, no live Obsidian.
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,7 +22,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const PLUR_TOKEN = "plur-key";
 
@@ -43,7 +42,7 @@ interface IntegrationVault {
 }
 
 function makeVault(opts: { plur?: boolean } = {}): IntegrationVault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m5int-"));
+  const root = makeTempDir("obtc-m5int-");
   const id = "test";
   const db = openMemoryDb();
   provisionCacheDb(db);

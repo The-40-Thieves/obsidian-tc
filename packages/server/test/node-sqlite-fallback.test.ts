@@ -1,12 +1,10 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("THE-276 node:sqlite fallback adapter", () => {
-  const dir = mkdtempSync(join(tmpdir(), "otc-ns-"));
+  const dir = makeTempDir("otc-ns-");
   afterAll(() => rmTemp(dir));
 
   it("implements the Database interface over the built-in node:sqlite", async () => {

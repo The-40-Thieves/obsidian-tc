@@ -12,12 +12,11 @@
 // Pure filesystem unit tests: no build, no dynamic import, just directory/file scaffolding under a
 // throwaway temp dir and direct calls with an injected `startDir` (the function's default reads
 // the real `import.meta.url`; tests never touch that).
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveSourceCheckoutLocalRerankerPath } from "../src/providers/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const REAL_NAME = "@the-40-thieves/obsidian-tc-reranker-local";
 
@@ -39,7 +38,7 @@ function writeAnchor(root: string, name: string): void {
 
 describe("resolveSourceCheckoutLocalRerankerPath — anchor + node_modules hardening", () => {
   it("rejects a decoy anchor (wrong package name) and keeps walking to the REAL anchor further up", () => {
-    dir = mkdtempSync(join(tmpdir(), "obtc-anchor-"));
+    dir = makeTempDir("obtc-anchor-");
     // Real anchor two levels up from `start`.
     writeAnchor(dir, REAL_NAME);
     // Decoy one level up from `start` — same file layout, wrong `name`.
@@ -56,7 +55,7 @@ describe("resolveSourceCheckoutLocalRerankerPath — anchor + node_modules harde
   });
 
   it("never even walks when the executing module's own path is under node_modules", () => {
-    dir = mkdtempSync(join(tmpdir(), "obtc-nm-"));
+    dir = makeTempDir("obtc-nm-");
     // A real, valid anchor exists above — proving the skip is unconditional, not "anchor not found".
     writeAnchor(dir, REAL_NAME);
     const start = join(dir, "node_modules", "some-installed-server", "dist");
@@ -70,7 +69,7 @@ describe("resolveSourceCheckoutLocalRerankerPath — anchor + node_modules harde
   // The guard checks a whole path SEGMENT, not a substring — a directory merely named with
   // "node_modules" as part of a longer word must not false-positive and skip a legitimate walk.
   it("does NOT skip for a directory whose NAME merely contains the substring 'node_modules'", () => {
-    dir = mkdtempSync(join(tmpdir(), "obtc-nm-substring-"));
+    dir = makeTempDir("obtc-nm-substring-");
     writeAnchor(dir, REAL_NAME);
     for (const decoySegment of ["node_modules_x", "my-node_modules-tools"]) {
       const start = join(dir, decoySegment, "nested");

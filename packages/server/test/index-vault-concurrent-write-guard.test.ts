@@ -7,8 +7,7 @@
 // indexNote commit can land between indexVault's plan-read and its apply. This reproduces the
 // interleaving deterministically (batch size 1, a pausable fake embed provider) and pins the guard
 // that must reject a plan computed against state a concurrent writer has since changed.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -22,7 +21,7 @@ import { MetricsRecorder } from "../src/metrics/registry";
 import { chunkId, indexNote, indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 /** A deferred promise the test releases by hand, to hold the fake provider's embed() mid-flight
  *  (mirrors test/index-coordinator.test.ts / test/index-vault-in-flight.test.ts). */
@@ -56,7 +55,7 @@ const FRESH = "## Section A\nAlpha FRESH_NEW aaa.\n\n## Section B\nBeta FRESH_NE
 
 describe("indexVault's batched apply guards against a concurrent index-on-write commit (THE-925)", () => {
   it("does not revert fresh content or prune a fresh chunk when write_note/watcher races the flush", async () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-925-"));
+    const root = makeTempDir("obtc-925-");
     const filePath = join(root, PATH);
     writeFileSync(filePath, OLD);
 

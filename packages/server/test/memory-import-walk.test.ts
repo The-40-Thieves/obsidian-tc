@@ -4,7 +4,7 @@
 // (checkedImportPath, backed by vault/paths.ts's resolveVaultPathChecked — see
 // [[feedback-delete-path-as-strict-as-write-path]]: a new read path over caller-supplied files
 // must reuse the write path's own containment guarantee, not a weaker ad hoc one).
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -13,13 +13,13 @@ import {
   checkedImportPath,
   walkImportDir,
 } from "../src/memory-import/walk";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // Same capability probe vault-watcher.test.ts / server-runtime.test.ts use: creating a symlink
 // needs a privilege Windows does not grant by default.
 let symlinkOk = true;
 try {
-  const probe = mkdtempSync(join(tmpdir(), "tc-mi-sl-probe-"));
+  const probe = makeTempDir("tc-mi-sl-probe-");
   symlinkSync(join(probe, "t"), join(probe, "l"), "file");
   rmTemp(probe);
 } catch {
@@ -28,7 +28,7 @@ try {
 
 describe("walkImportDir", () => {
   it("walks .md files and returns them sorted by source_path", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-"));
+    const root = makeTempDir("obtc-mi-walk-");
     try {
       mkdirSync(join(root, "sub"), { recursive: true });
       writeFileSync(join(root, "b.md"), "B");
@@ -43,7 +43,7 @@ describe("walkImportDir", () => {
   });
 
   it("does not recurse into dot-directories or read dot-files, and REPORTS both (not silent)", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-dot-"));
+    const root = makeTempDir("obtc-mi-walk-dot-");
     try {
       mkdirSync(join(root, ".git"), { recursive: true });
       writeFileSync(join(root, ".git", "config.md"), "nope");
@@ -61,7 +61,7 @@ describe("walkImportDir", () => {
   });
 
   it("reports a reserved Windows filename with its true reason, not a generic 'escapes' string", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-reserved-"));
+    const root = makeTempDir("obtc-mi-walk-reserved-");
     try {
       writeFileSync(join(root, "nul.md"), "content");
       const { skipped } = walkImportDir(root, { extensions: [".md"] });
@@ -80,7 +80,7 @@ describe("walkImportDir", () => {
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "reports an unreadable sub-directory against its own path, not silently",
     () => {
-      const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-unreadable-"));
+      const root = makeTempDir("obtc-mi-walk-unreadable-");
       try {
         mkdirSync(join(root, "locked"));
         writeFileSync(join(root, "locked", "a.md"), "a");
@@ -101,8 +101,8 @@ describe("walkImportDir", () => {
   );
 
   it.skipIf(!symlinkOk)("refuses a symlinked file with a reason, does not read through it", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-symlink-"));
-    const outside = mkdtempSync(join(tmpdir(), "obtc-mi-walk-outside-"));
+    const root = makeTempDir("obtc-mi-walk-symlink-");
+    const outside = makeTempDir("obtc-mi-walk-outside-");
     try {
       writeFileSync(join(outside, "secret.md"), "not yours");
       symlinkSync(join(outside, "secret.md"), join(root, "linked.md"), "file");
@@ -117,8 +117,8 @@ describe("walkImportDir", () => {
   });
 
   it.skipIf(!symlinkOk)("does not recurse into a symlinked directory", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-symdir-"));
-    const outside = mkdtempSync(join(tmpdir(), "obtc-mi-walk-symdir-outside-"));
+    const root = makeTempDir("obtc-mi-walk-symdir-");
+    const outside = makeTempDir("obtc-mi-walk-symdir-outside-");
     try {
       writeFileSync(join(outside, "leaked.md"), "leaked");
       symlinkSync(outside, join(root, "linked-dir"), "dir");
@@ -136,7 +136,7 @@ describe("walkImportDir", () => {
     // BOTH names now report nlink 2, so neither can be trusted as "the real one" and neither is
     // read. That is the correct, conservative behavior: aliasing is a property of the inode, not
     // of which name you happened to open.
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-walk-hardlink-"));
+    const root = makeTempDir("obtc-mi-walk-hardlink-");
     try {
       writeFileSync(join(root, "original.md"), "original content");
       linkSync(join(root, "original.md"), join(root, "aliased.md"));
@@ -160,7 +160,7 @@ describe("assertImportRootUsable", () => {
   });
 
   it("throws for a path that is a file, not a directory", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-notdir-"));
+    const root = makeTempDir("obtc-mi-notdir-");
     try {
       const file = join(root, "not-a-dir.md");
       writeFileSync(file, "x");
@@ -171,8 +171,8 @@ describe("assertImportRootUsable", () => {
   });
 
   it.skipIf(!symlinkOk)("throws when the import root ITSELF is a symlink", () => {
-    const outside = mkdtempSync(join(tmpdir(), "obtc-mi-rootsym-outside-"));
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-rootsym-"));
+    const outside = makeTempDir("obtc-mi-rootsym-outside-");
+    const root = makeTempDir("obtc-mi-rootsym-");
     const link = join(root, "link");
     try {
       symlinkSync(outside, link, "dir");
@@ -184,7 +184,7 @@ describe("assertImportRootUsable", () => {
   });
 
   it("does not throw for a real, existing directory", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-rootok-"));
+    const root = makeTempDir("obtc-mi-rootok-");
     try {
       expect(() => assertImportRootUsable(root)).not.toThrow();
     } finally {
@@ -203,7 +203,7 @@ describe("walkImportDir — root validation", () => {
 
 describe("checkedImportPath", () => {
   it("resolves a normal relative path inside the root", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-checked-"));
+    const root = makeTempDir("obtc-mi-checked-");
     try {
       mkdirSync(join(root, "notes"), { recursive: true });
       expect(checkedImportPath(root, "notes/a.md")).toBe(join(root, "notes", "a.md"));
@@ -213,7 +213,7 @@ describe("checkedImportPath", () => {
   });
 
   it("refuses a path that escapes the import root", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-checked-escape-"));
+    const root = makeTempDir("obtc-mi-checked-escape-");
     try {
       expect(() => checkedImportPath(root, "../../../../etc/passwd")).toThrow();
     } finally {
@@ -222,7 +222,7 @@ describe("checkedImportPath", () => {
   });
 
   it("refuses an absolute path", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-checked-abs-"));
+    const root = makeTempDir("obtc-mi-checked-abs-");
     try {
       expect(() => checkedImportPath(root, "/etc/passwd")).toThrow();
     } finally {

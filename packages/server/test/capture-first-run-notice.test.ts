@@ -2,7 +2,7 @@
 // for the pure formatter, plus marker-file coverage (mkdtempSync, same idiom
 // acl-symlink-canonical.test.ts already uses for filesystem-backed tests) since this notice's
 // whole point — unlike the plane one — is firing exactly ONCE per install.
-import { mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,7 +13,7 @@ import {
   formatCaptureFirstRunNotice,
   markCaptureNoticeShown,
 } from "../src/runtime/capture-first-run-notice";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
   it("captureContent on, never shown -> emits, naming location/retention/off-switch", () => {
@@ -75,7 +75,7 @@ describe("formatCaptureFirstRunNotice (THE-891 item 2)", () => {
 // untracked mkdtempSync is invisible to teardown and leaks on every run).
 const tmpDirs: string[] = [];
 function tmpCacheDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "otc-capture-notice-"));
+  const dir = makeTempDir("otc-capture-notice-");
   tmpDirs.push(dir);
   return dir;
 }

@@ -28,8 +28,7 @@
 // This is a strong regression gate for reordering/dropping stages that sit BETWEEN two observable
 // seams; it is not a complete stage-order gate for the stages listed above.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult, VaultKind } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -41,7 +40,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { RateLimiter } from "../src/throttle";
 import type { AclOp } from "../src/vault/acl-path";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -308,7 +307,7 @@ const scenarios: Scenario[] = [
     name: "ACL failure: central pathAcl denies AFTER HITL clears (load-bearing order)",
     async run() {
       const trace: string[] = [];
-      const root = mkdtempSync(join(tmpdir(), "wp4-acl-"));
+      const root = makeTempDir("wp4-acl-");
       try {
         mkdirSync(join(root, "finance"), { recursive: true });
         writeFileSync(join(root, "finance", "secret.md"), "x");
