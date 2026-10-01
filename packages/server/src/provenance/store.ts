@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { inWriteTransaction, type WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import { canonicalJson } from "../hash";
-import type { ProvenanceSigner } from "./signer";
+import { type ProvenanceSigner, verifyMessage } from "./signer";
 import { GENESIS_HASH, type ProvenanceBody, RECORD_VERSION } from "./types";
 
 export interface ProvenanceRow {
@@ -78,44 +78,107 @@ function writeHead(db: Database, h: Omit<HeadRow, "kid" | "sig">, signer?: Prove
   ).run(h.vault_id, h.head_seq, h.head_hash, h.pruned_seq, h.pruned_hash, kid, sig);
 }
 
-/** Where the next record chains from: the head row when there is one (so a removed tail shows up
- *  as a sequence gap instead of being papered over), else the last record, else genesis. */
-function chainTip(
-  db: Database,
-  vaultId: string,
-): { seq: number; hash: string; prunedSeq: number; prunedHash: string } {
-  const head = readHead(db, vaultId);
-  if (head !== undefined) {
-    return {
-      seq: head.head_seq,
-      hash: head.head_hash,
-      prunedSeq: head.pruned_seq,
-      prunedHash: head.pruned_hash,
-    };
+/** Raised by `appendProvenance` when a SIGNED head is on file and no signer is available (a key-file
+ *  or registry outage). Recording unsigned would put an unsigned head over a signed one, which reads
+ *  afterwards as "this deployment never signed"; the caller reports the write as omitted instead. */
+export class ProvenanceSignerUnavailable extends Error {
+  constructor(vaultId: string) {
+    super(
+      `signer unavailable: vault ${vaultId} has a signed chain head, which an unsigned record would downgrade`,
+    );
+    this.name = "ProvenanceSignerUnavailable";
   }
-  const last = db
-    .prepare("SELECT seq, hash FROM write_provenance WHERE vault_id = ? ORDER BY seq DESC LIMIT 1")
-    .get(vaultId) as { seq: number; hash: string } | undefined;
-  return {
-    seq: last?.seq ?? 0,
-    hash: last?.hash ?? GENESIS_HASH,
-    prunedSeq: 0,
-    prunedHash: GENESIS_HASH,
-  };
 }
 
-/** Append one record to `vaultId`'s chain, signed when `signer` is given. Returns its seq + hash. */
+interface ChainView {
+  head: HeadRow | undefined;
+  /** Where the next record chains from: the last record, else the head's pin, else genesis. */
+  tip: { seq: number; hash: string };
+  /** Why the committed head cannot be trusted; undefined when it checks out. */
+  fault: string | undefined;
+}
+
+type RecordEdge = { seq: number; hash: string; prev_hash: string; sig: string | null };
+
+/**
+ * The ONE place a committed head is validated, shared by append and prune: both extend or re-sign
+ * it, so both must first prove it is what the last honest writer left. A writer of cache.db without
+ * the signing key can forge `pruned_*`/`head_*` or delete rows, but the signature then no longer
+ * verifies, and a server that re-signed whatever it found would launder the forgery into a head
+ * `verify` accepts. Checks, in order: the head exists when records do; it pins the actual last
+ * record (or, with none left, its own anchor); the anchor matches the first surviving record; a
+ * signature that was there is still there and verifies under a registry key (any state).
+ */
+function checkHead(db: Database, vaultId: string, signer: ProvenanceSigner | undefined): ChainView {
+  const head = readHead(db, vaultId);
+  const edge = (order: "ASC" | "DESC") =>
+    db
+      .prepare(
+        `SELECT seq, hash, prev_hash, sig FROM write_provenance WHERE vault_id = ? ORDER BY seq ${order} LIMIT 1`,
+      )
+      .get(vaultId) as RecordEdge | undefined;
+  const last = edge("DESC");
+  const first = edge("ASC");
+  const tip = last
+    ? { seq: last.seq, hash: last.hash }
+    : head
+      ? { seq: head.head_seq, hash: head.head_hash }
+      : { seq: 0, hash: GENESIS_HASH };
+  return { head, tip, fault: headFault(head, last, first, signer) };
+}
+
+function headFault(
+  head: HeadRow | undefined,
+  last: RecordEdge | undefined,
+  first: RecordEdge | undefined,
+  signer: ProvenanceSigner | undefined,
+): string | undefined {
+  if (head === undefined) return last ? "the head row is missing but records exist" : undefined;
+  if (last) {
+    if (last.seq !== head.head_seq || last.hash !== head.head_hash) {
+      return `the head pins seq ${head.head_seq} but the chain ends at seq ${last.seq}`;
+    }
+  } else if (head.head_seq !== head.pruned_seq || head.head_hash !== head.pruned_hash) {
+    return `the head pins seq ${head.head_seq} but no records remain past the prune anchor`;
+  }
+  if (first && (first.seq !== head.pruned_seq + 1 || first.prev_hash !== head.pruned_hash)) {
+    return `the prune anchor (seq ${head.pruned_seq}) does not match the first surviving record (seq ${first.seq})`;
+  }
+  if (head.kid === null || head.sig === null) {
+    return last?.sig != null
+      ? "the head lost its signature while its records are signed"
+      : undefined;
+  }
+  const jwk = signer?.resolveKey(head.kid);
+  if (jwk === undefined)
+    return `the head is signed by kid ${head.kid}, which the registry has never held`;
+  return verifyMessage(jwk, headMessage(head), head.sig)
+    ? undefined
+    : `the head signature does not verify under kid ${head.kid}`;
+}
+
+/**
+ * Append one record to `vaultId`'s chain, signed when `signer` is given. Returns its seq + hash,
+ * plus `headFault` when the committed head failed validation: the record is still written (so the
+ * write is on the record), chained from the real last record and stamped `integrity.head_fault`, but
+ * the bad head row is left exactly as found, neither re-signed nor overwritten, so `verify` keeps
+ * failing and the evidence survives. Throws `ProvenanceSignerUnavailable` rather than put an
+ * unsigned head over a signed one.
+ */
 export function appendProvenance(
   db: Database,
   input: ProvenanceAppendInput,
   signer: ProvenanceSigner | undefined,
   hooks?: WriteTxnHooks,
-): { seq: number; hash: string } {
+): { seq: number; hash: string; headFault?: string } {
   return inWriteTransaction(
     db,
     "provenance_append",
     () => {
-      const tip = chainTip(db, input.vaultId);
+      if (signer === undefined && readHead(db, input.vaultId)?.sig != null) {
+        throw new ProvenanceSignerUnavailable(input.vaultId);
+      }
+      const { head, tip, fault } = checkHead(db, input.vaultId, signer);
       const body: ProvenanceBody = {
         v: RECORD_VERSION,
         vault: input.vaultId,
@@ -129,6 +192,7 @@ export function appendProvenance(
         verified: input.verified,
         unauthenticated: input.unauthenticated,
         self_reported: input.self_reported,
+        ...(fault !== undefined ? { integrity: { head_fault: fault } } : {}),
       };
       const text = canonicalJson(body);
       const hash = sha256Hex(text);
@@ -144,14 +208,15 @@ export function appendProvenance(
         signer?.kid ?? null,
         signer?.sign(recordMessage(hash)) ?? null,
       );
+      if (fault !== undefined) return { seq: body.seq, hash, headFault: fault };
       writeHead(
         db,
         {
           vault_id: input.vaultId,
           head_seq: body.seq,
           head_hash: hash,
-          pruned_seq: tip.prunedSeq,
-          pruned_hash: tip.prunedHash,
+          pruned_seq: head?.pruned_seq ?? 0,
+          pruned_hash: head?.pruned_hash ?? GENESIS_HASH,
         },
         signer,
       );
@@ -185,7 +250,8 @@ export const readHeadRow = readHead;
  * Drop every record of `vaultId` older than `cutoffMs`, as one contiguous prefix, and move the
  * signed prune anchor up to the last one dropped so the surviving chain still verifies. A record
  * newer than the cutoff stops the prefix even when a later one is older (clocks step backwards).
- * Returns how many rows went. Refuses (returns 0) to re-sign a signed head without a signer.
+ * Returns how many rows went. Refuses (returns 0) to re-sign a signed head without a signer, and to
+ * touch a chain whose head fails validation (`onFault` is told why; nothing is deleted or signed).
  */
 export function pruneProvenance(
   db: Database,
@@ -193,6 +259,7 @@ export function pruneProvenance(
   cutoffMs: number,
   signer: ProvenanceSigner | undefined,
   hooks?: WriteTxnHooks,
+  onFault?: (vaultId: string, reason: string) => void,
 ): number {
   return inWriteTransaction(
     db,
@@ -201,12 +268,16 @@ export function pruneProvenance(
       const firstKept = db
         .prepare("SELECT MIN(seq) AS s FROM write_provenance WHERE vault_id = ? AND ts >= ?")
         .get(vaultId, cutoffMs) as { s: number | null };
-      const tip = chainTip(db, vaultId);
       // An unsigned head over a signed one would be a silent downgrade (a missing signature then
       // reads as "this deployment never signed"): without a signer, leave a signed chain alone.
       if (signer === undefined && readHead(db, vaultId)?.sig != null) return 0;
+      const { head, tip, fault } = checkHead(db, vaultId, signer);
+      if (fault !== undefined) {
+        onFault?.(vaultId, fault);
+        return 0;
+      }
       const through = firstKept.s === null ? tip.seq : firstKept.s - 1;
-      if (through <= tip.prunedSeq) return 0;
+      if (through <= (head?.pruned_seq ?? 0)) return 0;
       const anchor = db
         .prepare("SELECT hash FROM write_provenance WHERE vault_id = ? AND seq = ?")
         .get(vaultId, through) as { hash: string } | undefined;

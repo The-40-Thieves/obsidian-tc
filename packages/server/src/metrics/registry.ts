@@ -13,6 +13,7 @@ import type { BusyReason, WriteTxnLabel } from "../db/txn";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { RerankOutcome } from "../search/rerank";
 import { MaintenanceCounters } from "./maintenance-counters";
+import { ProvenanceCounters } from "./provenance-counters";
 
 /** Per-vault gauge sample sources, read lazily at scrape time (G2.4 gauges are per `vault`). */
 export interface GaugeSources {
@@ -139,6 +140,8 @@ export class MetricsRecorder {
   private readonly vecFallbacks: Counter<string>;
   private readonly sqlBusy: Counter<string>;
   private readonly maintenance: MaintenanceCounters;
+  /** Write-provenance faults (read by the provenance recorder, which is handed this directly). */
+  readonly provenance: ProvenanceCounters;
   private readonly outputSchemaDrift: Counter<string>;
   private readonly activationRecomputeChunks: Counter<string>;
   private readonly vecRebuild: Counter<string>;
@@ -300,6 +303,7 @@ export class MetricsRecorder {
       registers,
     });
     this.maintenance = new MaintenanceCounters(registers);
+    this.provenance = new ProvenanceCounters(registers);
     this.idempotencyHits = new Counter({
       name: "obsidian_tc_idempotency_hits_total",
       help: "Idempotency cache hits, by vault and tool.",

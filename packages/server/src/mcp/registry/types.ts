@@ -468,5 +468,7 @@ export interface ProvenanceSink {
     ctx: CallerContext,
     root: string | undefined,
   ): Promise<object>;
-  commit(pending: object, outcome: "ok" | "error"): Promise<void>;
+  /** `result` is the handler's return value (ok outcome only): a tool that reports the hash of the
+   *  content it wrote has that hash, not a later disk read, recorded as the `after` digest. */
+  commit(pending: object, outcome: "ok" | "error", result?: unknown): Promise<void>;
 }

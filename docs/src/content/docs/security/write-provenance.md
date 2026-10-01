@@ -12,7 +12,8 @@ fails `obsidian-tc provenance verify`.
 Records hold **hashes and attribution only**: never note content, never prompts. They are written
 by the dispatch pipeline itself (one choke point for every mutating tool, derived from the tool
 registry, so a new mutating tool is covered by construction). Recording is **fail-open**: a fault
-in the recorder is reported on stderr and never fails or blocks the write it describes.
+in the recorder never fails or blocks the write it describes. A fault is not silent, though: see
+[Recording faults](#recording-faults).
 
 ## What is trusted
 
@@ -42,6 +43,17 @@ What a record does **not** claim:
   (directory, symlink, unreadable, or over the size cap). A symlink pointing outside the vault is
   never followed: it records `unhashable`. Beyond 500 paths per call the rest are counted in
   `paths_omitted`, not listed.
+- **The `after` digest is bound to the write where the tool reports it.** Tools that rewrite one
+  note (`write_note`, `append_note`, `patch_note`, `update_frontmatter`, the tag tools) return the
+  sha256 of the content they wrote, and that value is recorded, not a later read of the disk. For
+  every other tool the file is hashed after the handler returns, and the opened file descriptor is
+  checked to be the very file the vault-containment check vetted (same device and inode, with the
+  path re-resolved after the open), so a directory swapped for an outside symlink in that window
+  records `unhashable` instead of the outside file's hash. **Residual:** for those other tools
+  (move, copy, delete, bulk and structured-document tools) a writer that replaces the file inside
+  the vault between the handler returning and the digest being taken would have its bytes recorded
+  as that call's `after`. The attribution is still the caller's; the digest is then "what the file
+  held just after the call".
 - **Failed and denied calls are not recorded.** The exception is a call that threw after a named
   path had already changed: it is recorded with `outcome: "error"`.
 
@@ -67,6 +79,35 @@ A signed **head row** per vault pins the last record's sequence number and hash.
 removed *last* record would leave a perfectly valid shorter chain; with it, removal is a
 `head_mismatch`.
 
+### The head is validated before it is extended
+
+The head is what makes a deleted prefix or tail detectable, so the server never trusts a head it
+finds on disk. Before a new record extends it, and before retention re-anchors it, the head must
+pass four checks: it exists whenever records do; it pins the real last record (or its own prune
+anchor when none remain); its prune anchor equals the first surviving record's `prev` and sequence;
+and its signature, if it had one, still verifies under a registry key (any state). Only a head that
+passes is re-signed.
+
+If it fails, the server does **not** re-sign it and does **not** overwrite it. The write is still
+recorded, chained from the real last record and stamped with `integrity.head_fault` naming the
+failed check, so `provenance verify` reports `head_untrusted` for it (never hidden by
+`--allow-unsigned`) on top of the bad head itself. The failure is also logged to stderr, counted in
+`obsidian_tc_provenance_faults_total{kind="head_untrusted"}`, and fails the doctor check. Retention
+skips a vault whose head fails validation and logs why. The chain then stays failed until the
+operator restores `cache.db` from a trusted backup or archives it: re-baselining it silently would
+be exactly the laundering this prevents. A signer outage over a signed head records nothing for
+that write (counted as `omitted`) instead of writing an unsigned head over a signed one.
+
+**What a writer of `cache.db` without the signing key can and cannot do.** It can delete or edit
+rows, forge `pruned_*` or `head_*`, and strip signatures; every one of those fails verification and
+is no longer papered over by the next write. It cannot produce a head that verifies, because the
+head signature covers every head field. It can still delete **everything** (all records and the
+head row) and restart the chain at seq 1: with no external anchor that is indistinguishable from a
+vault that was never written to. It can also hide a stripped, unsigned chain from `--allow-unsigned`
+(see above), and a deployment with no EdDSA key is chain-only and can be rewritten wholesale. If
+the registry (`auth.db`) is lost, an old signed head names a key nobody holds, so the chain reports
+`head_unknown_kid` and new records are stamped `head_untrusted` until the registry is restored.
+
 ## Verifying
 
 ```bash
@@ -77,7 +118,7 @@ obsidian-tc provenance verify --allow-unsigned
 
 The command is read-only, opens `cache.db` and the registry read-only, and exits **1** when any
 chain fails. For each vault it prints the record count, how many are signed and unsigned, and every
-problem (`hash_mismatch`, `seq_gap`, `chain_break`, `head_mismatch`, `unknown_kid`, `bad_signature`,
+problem (`hash_mismatch`, `seq_gap`, `chain_break`, `head_mismatch`, `head_untrusted`, `unknown_kid`, `bad_signature`,
 and the head variants). If the auth registry was initialised but `<cacheDir>/auth.db` is lost, it refuses and
 says so: with no keys every signature would read as tampered when the truth is that nothing can be
 checked.
@@ -88,8 +129,19 @@ rewrite the chain. Pass the flag for stdio-only or pre-EdDSA deployments where c
 is what you have; a record that *has* a signature is always checked, flag or not.
 
 `obsidian-tc doctor` runs the same verification as the **provenance chain** check: it fails on any
-sign of tampering, warns when records exist without signatures or the chain cannot be read, and
-notes (without warning) a fresh install that has no EdDSA key yet.
+sign of tampering, warns when records exist without signatures, the chain cannot be read, or a
+recording fault is on file, and notes (without warning) a fresh install that has no EdDSA key yet.
+
+## Recording faults
+
+Because recording is fail-open, a committed write whose record could not be stored (a dropped
+table, a sequence collision, a signer outage over a signed head) would otherwise look like "no
+write happened", and the chain would still verify. Each such fault is therefore made visible three
+ways: a `[provenance]` line on stderr, the `obsidian_tc_provenance_faults_total` counter (labels
+`vault`, `tool`, `kind` of `omitted` or `head_untrusted`), and a `provenance_fault` row in
+`event_log`, which is what `obsidian-tc doctor` (a separate process) reads to warn "N committed
+writes left no record". The doctor warning ages out with `event_log` retention; the counter resets
+with the process. The write itself is never failed.
 
 ## Configuration
 

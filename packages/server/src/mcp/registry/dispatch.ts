@@ -490,7 +490,7 @@ export async function runDispatch(
         return r;
       },
     );
-    await provenance.settle("ok");
+    await provenance.settle("ok", out);
     spans?.stage("output_serialize");
     // WP4.3: output-schema validation (warn vs strict) — see registry/result-governance.ts's
     // checkOutputSchema for the full reasoning (unchanged, only relocated).

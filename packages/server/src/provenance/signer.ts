@@ -16,6 +16,9 @@ export interface ProvenanceSigner {
   kid: string;
   /** base64url EdDSA signature over `message` (UTF-8). */
   sign(message: string): string;
+  /** Every registry key by kid, whatever its state: what a head signature is checked against
+   *  before the head is extended or re-signed. */
+  resolveKey: KeyResolver;
 }
 
 /** Resolved per append, so a rotation is picked up by the very next record. */
@@ -25,7 +28,7 @@ export type SignerSource = () => ProvenanceSigner | undefined;
 export type KeyResolver = (kid: string) => PublicJwk | undefined;
 
 export function registrySignerSource(
-  registry: Pick<AuthRegistry, "signingKey">,
+  registry: Pick<AuthRegistry, "signingKey" | "listKeys">,
   onError?: (e: unknown) => void,
 ): SignerSource {
   // One entry: the imported key for the secret text last seen. The registry already re-reads the
@@ -45,6 +48,7 @@ export function registrySignerSource(
       return {
         kid: k.kid,
         sign: (message) => sign(null, Buffer.from(message, "utf8"), key).toString("base64url"),
+        resolveKey: (kid) => registryKeyResolver(registry.listKeys())(kid),
       };
     } catch (e) {
       // A lost registry or an unreadable key file: the record is written unsigned and this is

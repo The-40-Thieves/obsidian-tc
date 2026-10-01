@@ -19,6 +19,8 @@ export const PROVENANCE_META_KEY = "io.obsidian-tc/provenance";
 
 export const RECORD_VERSION = 1;
 export const GENESIS_HASH = "0".repeat(64);
+/** `event_log.event_type` of a recording fault (an omitted record, or a head that failed validation). */
+export const PROVENANCE_FAULT_EVENT = "provenance_fault";
 
 /** A sha256 hex digest, or `absent` (no file there) or `unhashable` (directory, symlink, too big
  *  or unreadable). Never a guess: a digest is either the file's bytes or one of these two words. */
@@ -61,6 +63,10 @@ export interface ProvenanceBody {
   };
   unauthenticated: { principal?: string };
   self_reported: ClaimedProvenance & { client?: { name: string; version?: string } };
+  /** Present only on a record written while the chain head FAILED validation (store.ts
+   *  `checkHead`): the server kept appending, but refused to sign the head over it. `verify`
+   *  reports every such record, and `--allow-unsigned` does not hide it. */
+  integrity?: { head_fault: string };
 }
 
 const CLAIMED_KEYS = ["model", "project", "agent", "machine"] as const;

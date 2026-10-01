@@ -10,6 +10,8 @@
 //   unknown_kid       signed by a key the registry has never held
 //   bad_signature     the signature does not verify under that key
 //   unsigned          written with no EdDSA key available (a problem unless allowUnsigned)
+//   head_untrusted    the record was written while the chain head failed validation (the server
+//                     refused to re-sign it); never hidden by allowUnsigned
 //   head_mismatch / head_missing / head_bad_signature / head_unsigned
 //                     the signed head disagrees with the chain (a removed tail), is gone, or is
 //                     not a valid signature
@@ -36,6 +38,7 @@ export type ProblemCode =
   | "bad_signature"
   | "unsigned"
   | "head_mismatch"
+  | "head_untrusted"
   | "head_missing"
   | "head_bad_signature"
   | "head_unknown_kid"
@@ -109,7 +112,9 @@ export function verifyVault(db: Database, vaultId: string, opts: VerifyOptions):
         detail: "record content does not match its hash",
       });
     }
-    let body: { vault?: unknown; seq?: unknown; ts?: unknown; prev?: unknown } | undefined;
+    let body:
+      | { vault?: unknown; seq?: unknown; ts?: unknown; prev?: unknown; integrity?: unknown }
+      | undefined;
     try {
       body = JSON.parse(r.body);
     } catch {
@@ -126,6 +131,14 @@ export function verifyVault(db: Database, vaultId: string, opts: VerifyOptions):
         code: "column_mismatch",
         seq: r.seq,
         detail: "an indexed column disagrees with the record body",
+      });
+    }
+    const fault = (body?.integrity as { head_fault?: unknown } | undefined)?.head_fault;
+    if (typeof fault === "string") {
+      problems.push({
+        code: "head_untrusted",
+        seq: r.seq,
+        detail: `written while the chain head failed validation: ${fault}`,
       });
     }
     if (r.prev_hash !== prev) {

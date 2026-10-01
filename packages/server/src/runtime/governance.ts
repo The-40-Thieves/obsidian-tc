@@ -118,6 +118,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
         host: deps.provenance.host,
         serverVersion: deps.provenance.serverVersion,
         ...(deps.provenance.hooks ? { hooks: deps.provenance.hooks } : {}),
+        metrics: deps.metrics.provenance,
         onError: (tool, vaultId, e) => {
           const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
           process.stderr.write(`[provenance] ${tool} (vault ${vaultId}): ${detail}\n`);

@@ -6,7 +6,7 @@
 // record, a bad or unknown-key signature). WARN when records exist with no signature: the chain is
 // then self-consistent but anyone with file access could have rewritten all of it. A fresh install
 // with no records and no EdDSA key is only a note: nothing is wrong yet, and the note says what
-// would make the next record signed.
+// would make the next record signed. WARN too when a committed write left no record (fail-open).
 import type { Check, CheckResult } from "./types";
 
 export interface ProvenanceVaultView {
@@ -25,6 +25,8 @@ export interface ProvenanceView {
   /** An active EdDSA registry key exists, so the next record is signed. */
   signingKeyActive: boolean;
   vaults: ProvenanceVaultView[];
+  /** Recording faults in event_log (see ProvenanceInspection.faults). */
+  faults?: { omitted: number; headUntrusted: number };
   /** Why the chain could not be read at all (an unreadable or unmigrated cache.db). */
   unreadable?: string;
 }
@@ -78,6 +80,18 @@ export function provenanceCheck(view: ProvenanceView): Check {
           issues: tampered.slice(0, MAX_ISSUES),
           remediation:
             "Run `obsidian-tc provenance verify` for the full list. A failed chain means records were changed, removed or forged after they were written: treat cache.db as untrusted for attribution.",
+        };
+      }
+      // Recording is fail-open, so an omitted record is otherwise indistinguishable from "no write
+      // happened": the chain verifies and is incomplete. Never ok while any is on file.
+      const omitted = view.faults?.omitted ?? 0;
+      if (omitted > 0) {
+        return {
+          status: "warning",
+          summary: `write provenance: ${omitted} committed write${omitted === 1 ? "" : "s"} left no record (a recording fault); the chain verifies but is incomplete`,
+          details,
+          remediation:
+            "Find the cause in the server log (`[provenance] ...`) and the obsidian_tc_provenance_faults_total counter. The events age out with event_log retention.",
         };
       }
       const unsigned = view.vaults.reduce((n, v) => n + v.unsigned, 0);

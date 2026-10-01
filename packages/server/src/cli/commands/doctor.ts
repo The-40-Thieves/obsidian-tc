@@ -384,6 +384,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       ...(r.registry.detail !== undefined ? { registryDetail: r.registry.detail } : {}),
       signingKeyActive: r.signingKeyActive,
       vaults: r.vaults,
+      faults: r.faults,
     }),
     (e: unknown) => ({
       registryState: "uninitialised" as const,

@@ -12,31 +12,30 @@
 //   * paths are the ones the call NAMES (the tool's `pathAcl` set). Notes a tool rewrites as a side
 //     effect, such as backlinks updated by a move, are not listed.
 //
-// Fail-open like the audit row: a recording fault is reported to `onError` and never turns a
-// committed write into an error.
+// Fail-open like the audit row: a recording fault never turns a committed write into an error. It
+// is made visible instead (`fault` below): stderr, a counter, and an `event_log` row that `doctor`
+// reads. An omitted record would otherwise look exactly like "no write happened".
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
 import { hostname } from "node:os";
+import { writeEvent } from "../audit";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import { vaultArgOf } from "../mcp/registry/input-binding";
 import type { CallerContext, ProvenanceSink, ToolDefinition } from "../mcp/registry/types";
-import { resolveVaultPathChecked } from "../vault/paths";
+import { normalizeVaultPath } from "../vault/paths";
+import { digestUnder } from "./digest";
 import type { SignerSource } from "./signer";
 import { appendProvenance } from "./store";
-import {
-  DIGEST_ABSENT,
-  DIGEST_UNHASHABLE,
-  type Digest,
-  type PathEntry,
-  type ProvenanceBody,
-} from "./types";
+import { type Digest, type PathEntry, PROVENANCE_FAULT_EVENT, type ProvenanceBody } from "./types";
 
 /** Paths recorded per call; more are counted in `paths_omitted`. Bounds the row and the hashing. */
 export const MAX_PATHS_PER_RECORD = 500;
-/** Largest file hashed; bigger is `unhashable` so one huge attachment cannot stall dispatch. */
-export const MAX_HASH_BYTES = 256 * 1024 * 1024;
+export { MAX_HASH_BYTES } from "./digest";
+
+/** What the recorder reports a fault to (the Prometheus recorder implements it). */
+export interface ProvenanceFaultMetrics {
+  incFault(vault: string, tool: string, kind: "omitted" | "head_untrusted"): void;
+}
 
 export interface ProvenanceRecorderOptions {
   db: Database;
@@ -46,8 +45,10 @@ export interface ProvenanceRecorderOptions {
   signer?: SignerSource;
   now?: () => number;
   hooks?: WriteTxnHooks;
-  /** Fail-open sink for a recording fault. */
+  /** Fail-open sink for a recording fault (the stderr line). */
   onError?: (tool: string, vaultId: string, e: unknown) => void;
+  /** Counter for the same faults; they are also written to `event_log` for `doctor`. */
+  metrics?: ProvenanceFaultMetrics;
 }
 
 export interface PendingProvenance {
@@ -59,40 +60,24 @@ export interface PendingProvenance {
   attribution: Pick<ProvenanceBody, "verified" | "unauthenticated" | "self_reported">;
 }
 
-/** sha256 of a regular file's bytes. The leaf is opened O_NOFOLLOW, so a symlink swapped in after
- *  the containment check is refused (ELOOP) instead of read. */
-async function digestOf(abs: string): Promise<Digest> {
-  let fh: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    fh = await open(abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const st = await fh.stat();
-    if (!st.isFile() || st.size > MAX_HASH_BYTES) return DIGEST_UNHASHABLE;
-    const h = createHash("sha256");
-    for await (const chunk of fh.createReadStream({ autoClose: false })) h.update(chunk as Buffer);
-    return h.digest("hex");
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    return code === "ENOENT" || code === "ENOTDIR" ? DIGEST_ABSENT : DIGEST_UNHASHABLE;
-  } finally {
-    await fh?.close().catch(() => undefined);
+/** The digest a write's own result vouches for: handlers that rewrite one note return the sha256 of
+ *  the exact content they wrote (`content_hash`), so that, not a later re-read of the disk, is the
+ *  record's `after` (a re-read can see bytes a concurrent writer planted after the handler
+ *  returned). Only for a single named path whose result `path` is that path. */
+function writtenDigest(result: unknown, named: Array<{ path: string }>): string | undefined {
+  const [only] = named;
+  if (named.length !== 1 || only === undefined || typeof result !== "object" || result === null) {
+    return undefined;
   }
-}
-
-/**
- * Digest of `path` under `root`. Containment is the write path's own guard
- * (`resolveVaultPathChecked`: lexical traversal plus a realpath check that refuses an in-vault
- * symlink or symlinked ancestor pointing outside the vault), so a digest can never be used to probe
- * a file the tools themselves could not touch. Anything it refuses is `unhashable`, never read.
- */
-function digestUnder(root: string | undefined, path: string): Promise<Digest> {
-  if (root === undefined) return Promise.resolve(DIGEST_UNHASHABLE);
-  let abs: string;
+  const { content_hash: hash, path } = result as { content_hash?: unknown; path?: unknown };
+  if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash) || typeof path !== "string") {
+    return undefined;
+  }
   try {
-    abs = resolveVaultPathChecked(root, path).abs;
+    return normalizeVaultPath(path) === normalizeVaultPath(only.path) ? hash : undefined;
   } catch {
-    return Promise.resolve(DIGEST_UNHASHABLE);
+    return undefined;
   }
-  return digestOf(abs);
 }
 
 export class ProvenanceRecorder implements ProvenanceSink {
@@ -144,17 +129,18 @@ export class ProvenanceRecorder implements ProvenanceSink {
    * Append the record for a settled call. `error` outcomes are recorded only when a named path's
    * digest actually moved. Never throws.
    */
-  async commit(p: PendingProvenance, outcome: "ok" | "error"): Promise<void> {
+  async commit(p: PendingProvenance, outcome: "ok" | "error", result?: unknown): Promise<void> {
     try {
+      const written = outcome === "ok" ? writtenDigest(result, p.before) : undefined;
       const paths: PathEntry[] = await Promise.all(
         p.before.map(async (b) => ({
           path: b.path,
           before: b.before,
-          after: await digestUnder(p.root, b.path),
+          after: written ?? (await digestUnder(p.root, b.path)),
         })),
       );
       if (outcome === "error" && !paths.some((e) => e.before !== e.after)) return;
-      appendProvenance(
+      const appended = appendProvenance(
         this.opts.db,
         {
           vaultId: p.vaultId,
@@ -168,8 +154,31 @@ export class ProvenanceRecorder implements ProvenanceSink {
         this.signerSource?.(),
         this.opts.hooks,
       );
+      if (appended.headFault !== undefined) {
+        this.fault("head_untrusted", p.tool, p.vaultId, new Error(appended.headFault));
+      }
     } catch (e) {
-      this.opts.onError?.(p.tool, p.vaultId, e);
+      this.fault("omitted", p.tool, p.vaultId, e);
+    }
+  }
+
+  /** Make a fault visible three ways: the stderr line, the counter, and an `event_log` row (the one
+   *  place `doctor`, a separate process, can see it). Never throws: this runs inside the fail-open
+   *  catch, and the event write may itself be failing for the same reason as the record. */
+  private fault(kind: "omitted" | "head_untrusted", tool: string, vaultId: string, e: unknown) {
+    this.opts.onError?.(tool, vaultId, e);
+    this.opts.metrics?.incFault(vaultId, tool, kind);
+    try {
+      writeEvent(this.opts.db, {
+        ts: this.now(),
+        vault_id: vaultId,
+        tool_name: tool,
+        status: "error",
+        error_code: `provenance_${kind}`,
+        event_type: PROVENANCE_FAULT_EVENT,
+      });
+    } catch {
+      // The counter and the stderr line above are what is left.
     }
   }
 

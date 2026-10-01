@@ -443,7 +443,18 @@ export function runMaintenanceSweep(
     const { days, signer, hooks } = opts.provenanceRetention;
     try {
       for (const vault of provenanceVaults(db)) {
-        provenancePruned += pruneProvenance(db, vault, t - days * 86_400_000, signer(), hooks);
+        provenancePruned += pruneProvenance(
+          db,
+          vault,
+          t - days * 86_400_000,
+          signer(),
+          hooks,
+          // Never prune over a head that fails validation: that would re-anchor, and so launder, it.
+          (v, reason) =>
+            process.stderr.write(
+              `[maintenance] provenance retention skipped vault ${v}: the chain head failed validation (${reason}); run \`obsidian-tc provenance verify\`\n`,
+            ),
+        );
       }
     } catch (e) {
       process.stderr.write(
