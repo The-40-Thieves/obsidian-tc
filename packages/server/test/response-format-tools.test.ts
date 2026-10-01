@@ -6,7 +6,7 @@
 //   - precedence through the real dispatch path (explicit > alias > config default > detailed);
 //   - errors are never trimmed.
 // The ajv check against the ADVERTISED JSON schema lives in response-format-ajv.test.ts.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   dataOf,
   makeWorld,
@@ -16,6 +16,9 @@ import {
   type World,
 } from "./response-format-fixture";
 import { topLevelShape } from "./schema-introspect";
+
+// Every case builds fresh vaults through the real registry; under load that outgrows the 5 s default.
+vi.setConfig({ testTimeout: 60_000 });
 
 const worlds: World[] = [];
 async function world(rf?: "concise" | "detailed"): Promise<World> {

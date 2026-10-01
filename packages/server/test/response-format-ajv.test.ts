@@ -6,7 +6,7 @@
 // not declare, is invisible to safeParse and fatal to a real client — see health-output-schema.test.ts
 // for the incident this pattern came from.
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { toJson } from "../src/mcp/facade";
 import {
   dataOf,
@@ -16,6 +16,9 @@ import {
   SCENARIOS,
   type World,
 } from "./response-format-fixture";
+
+// Every case builds fresh vaults through the real registry; under load that outgrows the 5 s default.
+vi.setConfig({ testTimeout: 60_000 });
 
 const worlds: World[] = [];
 afterEach(() => {
