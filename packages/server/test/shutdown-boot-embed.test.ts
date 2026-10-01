@@ -226,7 +226,7 @@ describe.each(["node", "bun"] as const)(
         const ok = await exitsWithin(server, EXIT_BOUND_MS);
         expect(ok).toBe(true);
       },
-      30_000,
+      stallTimeout(30_000),
     );
 
     it.skipIf(skip)(
@@ -239,7 +239,7 @@ describe.each(["node", "bun"] as const)(
         const ok = await exitsWithin(server, EXIT_BOUND_MS);
         expect(ok).toBe(true);
       },
-      30_000,
+      stallTimeout(30_000),
     );
   },
 );
