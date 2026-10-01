@@ -120,6 +120,21 @@ export function assertMemoryPathReadable(ctx: ReadCtx, root: string, rel: string
     });
 }
 
+/** Refuse (acl_denied) a projection path the caller may not `op` (write by default, delete for the
+ *  old path of a rename and for delete_entity). An entity's projection path is its ACL identity
+ *  whether or not the .md note is written: `materialize: false` only skips the file, while the
+ *  SQLite row is created, extended, linked, renamed or removed all the same. So every memory write
+ *  tool runs this on the computed path in BOTH modes, BEFORE any lookup, so the denial is a
+ *  function of the caller-supplied path alone (no existence oracle). */
+export function assertMemoryPathWritable(
+  ctx: Pick<CallerContext, "acl" | "grantedScopes">,
+  root: string,
+  rel: string,
+  op: "write" | "delete" = "write",
+): void {
+  enforcePathAcl(ctx.acl, op, rel, root, ctx.grantedScopes);
+}
+
 /** The relations of `e` whose far end the caller can read: exactly what get_entity shows. Every
  *  count, list and fingerprint a lifecycle tool derives from an entity's relations must come from
  *  this, never from raw `relationsForEntity` (which also holds the edges to hidden entities). */

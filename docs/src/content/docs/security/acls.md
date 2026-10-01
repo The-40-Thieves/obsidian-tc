@@ -42,8 +42,25 @@ nonexistent id returns (the same goes for the write and lifecycle tools that loo
 `add_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity`), it does
 not count toward by-name ambiguity, and `get_entity` omits relations to it. `query_entity_graph`
 never traverses an unreadable entity, so entities reachable only through one do not appear, and the
-page, `next_cursor` and `total_returned` are computed after that filtering. Write tools still need
-their own write ACL on top.
+page, `next_cursor` and `total_returned` are computed after that filtering.
+
+**Writes are gated on the same path, in both modes.** `write:memory` alone is not enough: every
+memory write tool also needs the folder write ACL on the entity's projection path, whether or not a
+note is materialized, because `materialize: false` only skips the file while the row (the source of
+truth, and what `get_entity` returns) is still created, extended, linked, renamed or removed.
+`create_entity`, `add_observation`, `link_entities`, `unlink_entities` and `rename_entity` (the new
+path, plus delete on the old path when the name changes) need `write` on that path, and
+`delete_entity` needs `delete`. A relation has two ends: the edge is the source's outgoing relation
+and the target's incoming one in `get_entity`, so `link_entities` and `unlink_entities` need `write`
+on BOTH the source's and the target's projection path, in both modes (a caller who can write only
+the source cannot add or remove an edge into an entity they cannot write). The one deliberate
+exception is `delete_entity`: deleting an entity you may
+delete removes its edges together with it, including edges from or to entities you cannot write,
+because the edge cannot outlive its endpoint. For `create_entity` the check runs right after the
+read check and before any collision lookup, so a denial is a function of the path alone: an
+existing and an absent entity in an unwritable folder get the identical `acl_denied`, and no row is
+created. A vault with a restricted `writePaths` or `deletePaths` must therefore list the memory
+folder for these tools to work; unrestricted configs are unchanged.
 
 The write and lifecycle tools do not leak around this either. `create_entity` and `rename_entity`
 need read access to the note path they claim, checked before any collision lookup, so "already

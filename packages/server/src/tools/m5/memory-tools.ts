@@ -40,10 +40,11 @@ import {
   setEntityVaultPath,
 } from "../../memory/entities";
 import { entityNotePath, sanitizeSegment } from "../../memory/materialize";
-import { enforcePathAcl } from "../../vault/acl-path";
 import { defineTool } from "../m1/define";
 import {
   assertMemoryPathReadable,
+  assertMemoryPathWritable,
+  currentNotePath,
   getReadableEntity,
   materializeProjection,
   rematerialize,
@@ -175,11 +176,11 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const now = (ctx.now ?? Date.now)();
         const folder = memoryFolderFor(deps, v.id);
         const notePath = entityNotePath(folder, type, name);
-        // READ (and, materializing, WRITE) the claimed path BEFORE the collision lookup, so "already
-        // exists" is only said to a caller who could read that entity; no orphan row on a denial.
+        // READ and WRITE the claimed path (in both modes: materialize:false still creates the row)
+        // BEFORE the collision lookup, so "already exists" is only said to a caller who could read
+        // that entity; no orphan row on a denial.
         assertMemoryPathReadable(ctx, v.root, notePath);
-        if (input.materialize)
-          enforcePathAcl(ctx.acl, "write", notePath, v.root, ctx.grantedScopes);
+        assertMemoryPathWritable(ctx, v.root, notePath);
         if (findEntity(ctx.db, v.id, type, name))
           throw err.invalidInput("entity already exists", { type, name });
         let e: EntityRow;
@@ -344,18 +345,10 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         return inWriteTransaction(ctx.db, "memory_observation", () => {
           const existing = getReadableEntity(deps, ctx, v.id, input.entity_id);
           if (!existing) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
-          // THE-567 fix: pre-check the materialization ACL BEFORE the SQLite append (mirrors
-          // create_entity) so a caller lacking the note folder's rule-scope cannot get the
-          // observation durably committed to the graph while only the note write is blocked.
-          // rematerialize() only touches a note when materialize===1, so gate on that condition.
-          if (existing.materialize === 1)
-            enforcePathAcl(
-              ctx.acl,
-              "write",
-              entityNotePath(memoryFolderFor(deps, v.id), existing.entity_type, existing.name),
-              v.root,
-              ctx.grantedScopes,
-            );
+          // THE-567 fix: pre-check the projection path's write ACL BEFORE the SQLite append
+          // (mirrors create_entity), in both modes, so a caller lacking the note folder's write
+          // access cannot get the observation durably committed to the graph.
+          assertMemoryPathWritable(ctx, v.root, currentNotePath(deps, v.id, existing));
 
           // THE-1130: the current full observation set, in blob order — nextViews below is built
           // from THIS in-memory snapshot (never re-read from SQLite) so the render, a few lines
@@ -481,19 +474,13 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const tgt = getReadableEntity(deps, ctx, v.id, input.target_id);
         if (!src) throw err.invalidInput("source entity not found", { entity_id: input.source_id });
         if (!tgt) throw err.invalidInput("target entity not found", { entity_id: input.target_id });
-        // THE-567 fix: pre-check the SOURCE's materialization ACL BEFORE the SQLite relation
-        // insert (mirrors create_entity) so a caller lacking the note folder's rule-scope cannot
-        // get the edge durably committed while only the note write is blocked. link_entities only
-        // re-materializes the source's note (the target's [[links]] projection is unaffected), so
-        // only the source path needs gating here.
-        if (src.materialize === 1)
-          enforcePathAcl(
-            ctx.acl,
-            "write",
-            entityNotePath(memoryFolderFor(deps, v.id), src.entity_type, src.name),
-            v.root,
-            ctx.grantedScopes,
-          );
+        // THE-567 fix: pre-check the materialization ACL BEFORE the SQLite relation insert
+        // (mirrors create_entity) so a caller lacking the note folder's rule-scope cannot get the
+        // edge durably committed while only the note write is blocked. An edge is two-ended: it is
+        // the source's outgoing relation AND the target's incoming one in get_entity, so BOTH
+        // projection paths need write, in both materialize modes (unlink_entities does the same).
+        assertMemoryPathWritable(ctx, v.root, currentNotePath(deps, v.id, src));
+        assertMemoryPathWritable(ctx, v.root, currentNotePath(deps, v.id, tgt));
         const mdConfig = memoryDefenseFor(deps, v.id);
         const scan = enforceMemoryDefense(
           mdConfig,
