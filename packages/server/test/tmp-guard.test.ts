@@ -57,6 +57,7 @@ describe("scanLeaks / formatLeakReport", () => {
     expect(report).toContain("9 place(s)");
     expect(report).toContain("test_leaky-suite/obtc-m5-cache-*  x2");
     expect(report).toContain("obtc-m5-cache x2");
+    expect(report).toContain("e.g. obtc-m5-cache-AbC123 [f.bin]");
     expect(report).toContain("makeTempDir()");
   });
 
@@ -76,10 +77,11 @@ describe("scanLeaks / formatLeakReport", () => {
 
   it("the default allowlist exempts the setup's own HOME pin and nothing a test would create", () => {
     const root = makeTempDir(RUN_ROOT_PREFIX);
-    for (const entry of ["otc-test-home-AbC123", ...INCIDENT_ENTRIES]) {
+    const owned = ["otc-test-home-AbC123", "__PSScriptPolicyTest_abc.0q0.ps1"];
+    for (const entry of [...owned, ...INCIDENT_ENTRIES]) {
       mkdirSync(join(root, "test_x", entry), { recursive: true });
     }
-    expect(scanLeaks(root).map((l) => l.entry)).not.toContain("otc-test-home-AbC123");
+    for (const entry of owned) expect(scanLeaks(root).map((l) => l.entry)).not.toContain(entry);
     expect(scanLeaks(root)).toHaveLength(INCIDENT_ENTRIES.length);
   });
 
@@ -159,8 +161,12 @@ describe("the leak gate in a child vitest run", () => {
         `const { makeTempDir } = await import(${url("tmp.ts")});\n${testBody}\n`,
     );
     // The child must start its OWN guard root, not inherit this file's.
+    // Its own tmp base too, inside `proj`, so whatever the child's vitest leaves in it (its module
+    // cache directory, on some OSes) is removed with `proj` instead of landing in this file's gate.
+    const childTmp = join(proj, "tmp");
+    mkdirSync(childTmp);
     const { [TMP_GUARD_ROOT_ENV]: _inherited, ...inherited } = process.env;
-    const env = { ...inherited, NO_COLOR: "1" };
+    const env = { ...inherited, NO_COLOR: "1", TMPDIR: childTmp, TMP: childTmp, TEMP: childTmp };
     const r = spawnSync(process.execPath, [vitestBin, "run", "--root", proj], {
       cwd: proj,
       encoding: "utf8",

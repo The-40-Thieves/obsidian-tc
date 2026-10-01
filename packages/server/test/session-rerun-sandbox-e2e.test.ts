@@ -30,7 +30,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import {
@@ -41,7 +41,7 @@ import {
 } from "../src/workspace/sessions";
 import { type CliRun, runBunSync } from "./spawn-cli";
 import { stallTimeout } from "./stall-timeouts";
-import { makeTempDir } from "./tmp";
+import { makeTempDir, sweepTempByPrefix } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -73,6 +73,11 @@ function runCliAsync(args: string[]): Promise<Run> {
     child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
   });
 }
+
+// The CLI child owns `obtc-rerun-*` sandbox dirs and, on Windows, deliberately leaves one when its
+// own removal hits a file lock (workspace/rerun-sandbox-cleanup.ts sweeps them on a LATER run).
+// This test is that later run's stand-in: the children are gone by now, so remove what they left.
+afterAll(() => sweepTempByPrefix("obtc-rerun-"));
 
 const dirs: string[] = [];
 afterEach(() => {

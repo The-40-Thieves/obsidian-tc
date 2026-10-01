@@ -5,12 +5,17 @@
 // were broken (e.g. accidentally reusing one build across samples), this test's hard-class CV
 // assertion below would catch it, because a shared/corrupted vault would not reproduce identical
 // deterministic counts run to run.
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { CALIBRATION_CHANNELS } from "../eval/perf/contention";
 import { checkHardStability } from "../eval/perf/isolate";
 import { runIsolatedSamples } from "../eval/perf/sample";
+import { sweepTempByPrefix } from "./tmp";
 
 describe("runIsolatedSamples() end-to-end (real bun subprocesses)", () => {
+  // The lock collector in each subprocess deliberately swallows a failed removal of its probe dir
+  // (Windows holds the WAL mapping briefly after close); the subprocesses have exited by now.
+  afterAll(() => sweepTempByPrefix("tc-perf-lock-"));
+
   it(
     "spawns N genuinely fresh subprocesses and every hard-class metric agrees exactly across them",
     async () => {

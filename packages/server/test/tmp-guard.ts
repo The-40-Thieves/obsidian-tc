@@ -36,6 +36,13 @@ export interface AllowedLeftover {
 }
 export const ALLOWED_LEFTOVERS: readonly AllowedLeftover[] = [
   {
+    entry: /^__PSScriptPolicyTest_/,
+    reason:
+      "Windows PowerShell writes one of these into %TEMP% every time a child powershell.exe starts " +
+      "(its execution-policy probe) and never removes it. The product's setup flow shells out to " +
+      "PowerShell; it is not a fixture's leak and cannot be tidied from a test.",
+  },
+  {
     entry: /^otc-test-home-/,
     reason:
       "the HOME pin that home-isolation-setup.ts creates for EVERY file. A file whose tests are " +
@@ -51,6 +58,8 @@ export interface Leak {
   /** The leftover's basename. */
   readonly entry: string;
   readonly bytes: number;
+  /** Up to a few names inside the leftover (empty for a plain file): enough to tell whose it is. */
+  readonly children: readonly string[];
 }
 
 /** A filesystem-safe, bounded name for a test file, relative to the package root. */
@@ -62,6 +71,14 @@ export function fileSlug(testPath: string | undefined, packageRoot: string): str
     .replace(/[^A-Za-z0-9._-]+/g, "_")
     .slice(-48);
   return slug.length > 0 ? slug : "unknown-file";
+}
+
+function firstChildren(path: string): string[] {
+  try {
+    return readdirSync(path).sort().slice(0, 4);
+  } catch {
+    return [];
+  }
 }
 
 function dirBytes(path: string): number {
@@ -102,12 +119,17 @@ export function scanLeaks(
       entries = readdirSync(fileDir);
     } catch {
       // A plain file placed directly in the root (not a per-file dir) is a leak of its own.
-      leaks.push({ file: ".", entry: file, bytes: dirBytes(fileDir) });
+      leaks.push({ file: ".", entry: file, bytes: dirBytes(fileDir), children: [] });
       continue;
     }
     for (const entry of entries.sort()) {
       if (allow.some((a) => a.entry.test(entry))) continue;
-      leaks.push({ file, entry, bytes: dirBytes(join(fileDir, entry)) });
+      leaks.push({
+        file,
+        entry,
+        bytes: dirBytes(join(fileDir, entry)),
+        children: firstChildren(join(fileDir, entry)),
+      });
     }
   }
   return leaks;
@@ -127,12 +149,12 @@ function prefixOf(entry: string): string {
  *  file that leaks one directory per test reads as one line, and every leaking file is named. */
 export function formatLeakReport(leaks: readonly Leak[], limit = 80): string {
   const total = leaks.reduce((n, l) => n + l.bytes, 0);
-  const groups = new Map<string, { count: number; bytes: number }>();
+  const groups = new Map<string, { count: number; bytes: number; sample: Leak }>();
   const prefixes = new Map<string, number>();
   for (const l of leaks) {
     const prefix = prefixOf(l.entry);
     const key = `${l.file}/${prefix}-*`;
-    const g = groups.get(key) ?? { count: 0, bytes: 0 };
+    const g = groups.get(key) ?? { count: 0, bytes: 0, sample: l };
     g.count += 1;
     g.bytes += l.bytes;
     groups.set(key, g);
@@ -142,8 +164,10 @@ export function formatLeakReport(leaks: readonly Leak[], limit = 80): string {
     `${leaks.length} temp entr${leaks.length === 1 ? "y" : "ies"} (${size(total)}) in ${groups.size} place(s) outlived the test file that created them:`,
   ];
   const rows = [...groups].sort((a, b) => b[1].bytes - a[1].bytes || b[1].count - a[1].count);
-  for (const [key, g] of rows.slice(0, limit))
-    lines.push(`  ${key}  x${g.count}  (${size(g.bytes)})`);
+  for (const [key, g] of rows.slice(0, limit)) {
+    const inside = g.sample.children.length > 0 ? ` [${g.sample.children.join(", ")}]` : "";
+    lines.push(`  ${key}  x${g.count}  (${size(g.bytes)})  e.g. ${g.sample.entry}${inside}`);
+  }
   if (rows.length > limit) lines.push(`  ... and ${rows.length - limit} more`);
   lines.push(
     `by prefix: ${[...prefixes]

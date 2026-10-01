@@ -5,7 +5,7 @@
 // Windows) at the root contains every `os.tmpdir()` caller in the test files, in the src code they
 // trigger, and in the CLIs they spawn. tmp-guard-setup.ts narrows it further to one directory per
 // test file so a leak names its file.
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -27,6 +27,10 @@ function vitestOwnTmpDir(project: unknown): string | undefined {
   return typeof vitest?._tmpDir === "string" ? vitest._tmpDir : undefined;
 }
 
+const leakKey = (l: { file: string; entry: string }): string => `${l.file}/${l.entry}`;
+const formatLockedList = (ls: readonly { file: string; entry: string }[]): string =>
+  ls.map(leakKey).join(", ");
+
 export default function setup(project?: unknown): () => void {
   const startTmp = tmpdir();
   const realTmp = realpathSync(startTmp);
@@ -47,10 +51,26 @@ export default function setup(project?: unknown): () => void {
       else process.env[key] = value;
     }
     delete process.env[TMP_GUARD_ROOT_ENV];
-    const leaks = scanLeaks(runRoot);
+    let leaks = scanLeaks(runRoot);
     // Delete BEFORE reporting: the point of the gate is to fail, not to fill the disk (a leaked
     // 600 MB stage copy per run is how / got to 97%).
-    rmSync(runRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    try {
+      rmSync(runRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    } catch (e) {
+      if (process.platform !== "win32") throw e;
+      // Windows will not delete a directory something still holds open (an in-process SQLite
+      // handle the code under test never closes, a child still exiting). What survives the
+      // removal attempt is an OS file lock, not a forgotten teardown, and the same fixtures run on
+      // Linux and macOS, where a forgotten teardown IS caught. Warn about it; fail for the rest.
+      const locked = existsSync(runRoot) ? new Set(scanLeaks(runRoot).map(leakKey)) : new Set();
+      const stillLocked = leaks.filter((l) => locked.has(leakKey(l)));
+      leaks = leaks.filter((l) => !locked.has(leakKey(l)));
+      if (stillLocked.length > 0) {
+        console.warn(
+          `[tmp-guard] (win32, not failing) locked by a live handle: ${formatLockedList(stillLocked)}`,
+        );
+      }
+    }
     if (vitestTmp && [startTmp, realTmp].includes(dirname(vitestTmp))) {
       rmSync(vitestTmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }

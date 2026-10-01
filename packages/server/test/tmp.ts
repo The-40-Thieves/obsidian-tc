@@ -12,7 +12,7 @@
 //
 // Closing handles deliberately is still better where a suite owns them; this is the backstop that
 // makes the whole class self-healing instead of fixing suites one at a time as they flake.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "vitest";
@@ -39,6 +39,20 @@ export function makeTempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   live.add(dir);
   return dir;
+}
+
+/** Remove every entry in `tmpdir()` whose name starts with `prefix`. For directories made by the
+ *  code UNDER test rather than by `makeTempDir` (a spawned CLI's sandbox, a collector's probe dir),
+ *  which only the test knows to look for. `tmpdir()` is this test file's own directory under the
+ *  run-wide gate, so nothing belonging to another file or process can match. Best-effort. */
+export function sweepTempByPrefix(prefix: string): void {
+  for (const name of readdirSync(tmpdir()).filter((n) => n.startsWith(prefix))) {
+    try {
+      rmTemp(join(tmpdir(), name));
+    } catch (e) {
+      console.warn(`[tmp] failed to clean up ${name}:`, e);
+    }
+  }
 }
 
 function sweepLive(): void {
