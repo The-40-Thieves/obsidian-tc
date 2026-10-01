@@ -105,7 +105,7 @@ head signature covers every head field. It can still delete **everything** (all 
 head row) and restart the chain at seq 1: with no external anchor that is indistinguishable from a
 vault that was never written to. It can also hide a stripped, unsigned chain from `--allow-unsigned`
 (see above), and a deployment with no EdDSA key is chain-only and can be rewritten wholesale. If
-the registry (`auth.db`) is lost, an old signed head names a key nobody holds, so the chain reports
+the auth registry database is lost, an old signed head names a key nobody holds, so the chain reports
 `head_unknown_kid` and new records are stamped `head_untrusted` until the registry is restored.
 
 ## Verifying
