@@ -14,9 +14,9 @@ import { afterAll } from "vitest";
 import { makeTempDir, stubHomedir } from "./tmp";
 
 // `makeTempDir` under the realpath'd tmpdir (tmpdir-realpath-setup.ts runs first), so the pinned
-// home is never under a symlinked ancestor either. It is removed by makeTempDir's own file-end and
-// process-exit sweeps, which (unlike an afterAll here) also run for a file whose tests are all
-// skipped — live-companion.test.ts leaked one of these per run until it moved here.
+// home is never under a symlinked ancestor either. It is removed by makeTempDir's own file-end,
+// signal and exit sweeps; tmp-guard.ts allowlists it because a file whose tests are all skipped
+// never runs afterAll and its worker's kill can race the gate's scan.
 const home = makeTempDir("otc-test-home-");
 const restore = stubHomedir(home);
 

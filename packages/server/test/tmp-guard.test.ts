@@ -74,6 +74,15 @@ describe("scanLeaks / formatLeakReport", () => {
     expect(scanLeaks(root).map((l) => l.entry)).toEqual(["stray.txt"]);
   });
 
+  it("the default allowlist exempts the setup's own HOME pin and nothing a test would create", () => {
+    const root = makeTempDir(RUN_ROOT_PREFIX);
+    for (const entry of ["otc-test-home-AbC123", ...INCIDENT_ENTRIES]) {
+      mkdirSync(join(root, "test_x", entry), { recursive: true });
+    }
+    expect(scanLeaks(root).map((l) => l.entry)).not.toContain("otc-test-home-AbC123");
+    expect(scanLeaks(root)).toHaveLength(INCIDENT_ENTRIES.length);
+  });
+
   it("an allowlist entry exempts only what it matches", () => {
     const root = makeTempDir(RUN_ROOT_PREFIX);
     mkdirSync(join(root, "test_x", "shared-model-cache"), { recursive: true });

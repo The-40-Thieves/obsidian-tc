@@ -25,15 +25,25 @@ export const RUN_ROOT_PREFIX = "obtc-run-";
  *  before its teardown could delete it; no suite runs for six hours. */
 export const STALE_RUN_ROOT_MS = 6 * 60 * 60 * 1000;
 
-/** A leftover that is allowed to survive a test file. Each entry needs a reason: this is for a
- *  genuinely shared cache that outlives a test by design, never for a fixture that forgot its
- *  teardown. Empty on purpose; a leak is fixed in the test, not allowlisted. */
+/** A leftover that is allowed to survive a test file. Each entry needs a reason: this is for what
+ *  the setup files themselves own and cannot reliably remove, never for a fixture that forgot its
+ *  teardown; a leak in a test is fixed in the test. Nothing allowlisted is left on disk: the run
+ *  root is deleted after the scan either way. */
 export interface AllowedLeftover {
   /** Matches the leftover's basename. */
   readonly entry: RegExp;
   readonly reason: string;
 }
-export const ALLOWED_LEFTOVERS: readonly AllowedLeftover[] = [];
+export const ALLOWED_LEFTOVERS: readonly AllowedLeftover[] = [
+  {
+    entry: /^otc-test-home-/,
+    reason:
+      "the HOME pin that home-isolation-setup.ts creates for EVERY file. A file whose tests are " +
+      "all skipped (ratelimit-redis without REDIS_URL, live-companion) never runs afterAll, and the " +
+      "worker's exit sweep races the globalSetup teardown's scan, so the pin can still be there. " +
+      "No test creates this prefix; the whole run root is removed right after the scan.",
+  },
+];
 
 export interface Leak {
   /** The per-test-file subdirectory the leftover sits in. */

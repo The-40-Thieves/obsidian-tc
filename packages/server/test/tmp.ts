@@ -54,9 +54,9 @@ function sweepLive(): void {
 afterAll(sweepLive);
 // Fallback for a worker that is torn down before (or without) afterAll: a file whose tests are all
 // skipped never runs its hooks, and vitest ends its worker with SIGTERM, which does not emit "exit"
-// at all. Measured: live-companion.test.ts (skipped without a live Obsidian) left a pinned-home
-// directory per run through exactly that gap. A signal handler replaces the default action, so it
-// sweeps and then re-raises the signal to keep the process dying the way it would have.
+// at all. A signal handler replaces the default action, so it sweeps and then re-raises the signal
+// to keep the process dying the way it would have. This is best-effort: the worker's kill can race
+// the run-wide gate's scan (see ALLOWED_LEFTOVERS in tmp-guard.ts for the one dir that matters).
 process.once("exit", sweepLive);
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.once(signal, () => {
