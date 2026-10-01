@@ -239,7 +239,7 @@ describe.each(["node", "bun"] as const)(
           expect(server.child.signalCode).toBeNull();
         }
       },
-      30_000,
+      stallTimeout(30_000),
     );
   },
 );

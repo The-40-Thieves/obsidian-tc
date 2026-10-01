@@ -16,6 +16,7 @@ import {
   shouldAttemptFirstRunFallback,
 } from "../src/cli/setup/first-run-fallback";
 import { loadConfig } from "../src/config/load";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp, stubHomedir } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -189,7 +190,7 @@ describe("attemptFirstRunFallback — concurrency", () => {
       const onDisk = JSON.parse(readFileSync(defaultSetupConfigPath(), "utf8"));
       expect(onDisk.vaults).toMatchObject([{ id: "main", path: vaultPaths.main }]);
     },
-    20_000,
+    stallTimeout(20_000),
   );
 });
 
