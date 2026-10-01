@@ -3,17 +3,16 @@
 // followed a planted symlink out of the vault (or into another folder), creating directories there
 // even when the open that followed then refused. Shared by every note and attachment writer.
 import * as fs from "node:fs";
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeM3Vault } from "./m3-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 import { type Backend, loadNotesIo, trySymlink } from "./write-io-backends";
 
 const made: string[] = [];
 function tmp(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   made.push(d);
   return fs.realpathSync(d);
 }

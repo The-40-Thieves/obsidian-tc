@@ -3,13 +3,12 @@
 // It used to be marked BEFORE the write, so a failed write whose rollback fully restored the prior
 // bytes still turned the retry into indeterminate_outcome.
 import * as fs from "node:fs";
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { makeM3Vault } from "./m3-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 import { trySymlink } from "./write-io-backends";
 
 // Fault injection for the write step of write_attachment: a queue of behaviours consumed per call.
@@ -57,7 +56,7 @@ const NEW = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]);
 
 const made: string[] = [];
 function tmp(prefix: string): string {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  const d = realpathSync(makeTempDir(prefix));
   made.push(d);
   return d;
 }

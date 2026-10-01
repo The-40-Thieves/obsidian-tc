@@ -5,19 +5,18 @@
 // all. `run_reflect` has no subprocess-free existing coverage (cli-smoke.test.ts only spawns the
 // real binary, for commands that need no fixture beyond a bare config), so this drives the
 // extracted function directly rather than adding a slow subprocess case for one guard.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { run_reflect } from "../src/cli/commands/reflect";
 import type { Cmd } from "../src/cli/shared";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let dir: string;
 let configPath: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "obtc-cli-reflect-"));
+  dir = makeTempDir("obtc-cli-reflect-");
   const vaultPath = join(dir, "vault");
   mkdirSync(vaultPath, { recursive: true });
   const cfg = {

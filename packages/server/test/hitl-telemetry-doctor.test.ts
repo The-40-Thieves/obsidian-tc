@@ -1,8 +1,3 @@
-// hitl.confirmations (src/doctor/hitl-confirmations.ts): doctor's per-tool view of confirmation
-// outcomes. Content-free by construction — it reads only the code rows hitl-telemetry.ts writes —
-// and a REPORT only: nothing here changes what a gate demands.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CapabilityProfile } from "../src/capability";
@@ -22,7 +17,7 @@ import {
 } from "../src/hitl-telemetry";
 import type { CallerContext } from "../src/mcp/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 50_000_000_000;
 const TTL_MS = 300_000;
@@ -166,7 +161,7 @@ describe("hitl.confirmations", () => {
 
 describe("probeHitlConfirmations (real cache.db)", () => {
   it("reads the window from disk; older rows and a missing db are handled", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "obtc-hitl-probe-"));
+    const dir = makeTempDir("obtc-hitl-probe-");
     try {
       expect(await probeHitlConfirmations(dir, 5000, { windowDays: 7, ttlSeconds: 300 })).toEqual({
         tools: [],

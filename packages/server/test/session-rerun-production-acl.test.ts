@@ -13,8 +13,7 @@
 // So this file builds a registry shaped like production instead: an `aclResolver` wired at
 // construction time, exactly the idiom `test/per-vault-acl.test.ts` (THE-295) uses. `makeTestVault`
 // cannot be reused here — it builds its own registry with no `aclResolver` by construction.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -26,13 +25,13 @@ import { VaultRegistry } from "../src/vault/registry";
 import { RERUN_SCOPES, rerunSession } from "../src/workspace/rerun";
 import { appendTrace, insertSession } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 /** A registry built the way `buildServerRuntime` builds one: `aclResolver` wired at construction,
  *  returning the SAME `FolderAcl` for every vault id — the shape Task 4's `withReadOnlyAcl` will
  *  produce. `readOnly` is the knob Step-5-equivalent mutation below flips. */
 function harness(readOnly: boolean) {
-  const root = mkdtempSync(join(tmpdir(), "obtc-rerun-prodacl-"));
+  const root = makeTempDir("obtc-rerun-prodacl-");
   const write = (rel: string, content: string): void => {
     const abs = join(root, rel);
     mkdirSync(dirname(abs), { recursive: true });
@@ -70,7 +69,7 @@ describe("THE-645 item 3 fix round 1 — rerun against a registry with a wired a
   it("DOES NOT WRITE when the registry's own aclResolver returns read-only — asserted on the note, not the verdict", async () => {
     h = harness(true);
     h.write("a.md", "original");
-    cacheDir = mkdtempSync(join(tmpdir(), "obtc-rerun-prodacl-cache-"));
+    cacheDir = makeTempDir("obtc-rerun-prodacl-cache-");
 
     const id = "sess_prodacl";
     const row = insertSession(h.db, {

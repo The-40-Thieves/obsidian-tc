@@ -15,8 +15,7 @@
 // asserted explicitly, by name, with the reasoning inline (below) — not silently ignored, and not
 // treated as a gate failure.
 
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -40,7 +39,7 @@ import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
 // accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
@@ -48,7 +47,7 @@ import { rmTemp } from "./tmp";
 // teardown with every assertion passing, the exact shape PR #627 exists to remove.
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

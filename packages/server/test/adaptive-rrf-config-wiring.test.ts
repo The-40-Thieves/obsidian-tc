@@ -5,9 +5,6 @@
 // rare-term query reorders the results identically to calling graphSearch directly with the same
 // adaptiveRrf option.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
@@ -17,7 +14,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "main";
 
@@ -65,7 +62,7 @@ function fusionDb() {
   return db;
 }
 
-const root = mkdtempSync(join(tmpdir(), "obtc-adaptive-rrf-wiring-"));
+const root = makeTempDir("obtc-adaptive-rrf-wiring-");
 afterAll(() => rmTemp(root));
 
 function harness(retrieval?: { adaptiveRrf?: { enabled?: boolean; gain?: number } }) {

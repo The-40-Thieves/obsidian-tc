@@ -1,7 +1,6 @@
 // `auth rotate-key|list|revoke` and the registry writes `token mint` now makes, driven through the
 // same functions cli.ts dispatches to, against a real config file and a real cache.db on disk.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeJwt, decodeProtectedHeader } from "jose";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +11,7 @@ import { parseCliArgs } from "../src/cli/args";
 import { run_auth } from "../src/cli/commands/auth";
 import { run_token_mint } from "../src/cli/commands/token-mint";
 import { openDatabase } from "../src/db/open";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -21,7 +20,7 @@ afterAll(() => {
 });
 
 function deployment() {
-  const root = mkdtempSync(join(tmpdir(), "auth-cli-"));
+  const root = makeTempDir("auth-cli-");
   dirs.push(root);
   const vault = join(root, "vault");
   mkdirSync(vault);

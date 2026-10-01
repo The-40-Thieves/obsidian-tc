@@ -15,7 +15,7 @@
 // is THIS arm's search_vault result, `baseline` is dense-only `search_semantic` over the same query
 // vectors (the same reference in both arms). `mode_used` / `mode_source` ride along per query; they
 // are labels, not content. One query's paths are never logged.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -87,6 +87,7 @@ let searchModePreference: { edb: Awaited<ReturnType<typeof provisionExperiential
 if (arm === "guided") {
   // A scratch experiential store, never the corpus's own: the profile is an input of the eval.
   const dir = mkdtempSync(join(tmpdir(), "smr-edb-"));
+  process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(dir, { recursive: true });
   const edb = await provisionExperientialDb(dir, experientialMigrations);
   for (let i = 0; i < profileAdds; i++)

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VaultPath } from "@the-40-thieves/obsidian-tc-shared";
@@ -23,7 +23,7 @@ import {
 } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -31,7 +31,7 @@ function freshDb(): Database {
   return db;
 }
 function tmpVault(): string {
-  return mkdtempSync(join(tmpdir(), "obtc-prim-"));
+  return makeTempDir("obtc-prim-");
 }
 
 describe("paths: safety + content hash", () => {
@@ -79,7 +79,7 @@ describe("paths: safety + content hash", () => {
     }
   });
   it("blocks escapes through an in-vault symlink (real-path containment)", () => {
-    const base = mkdtempSync(join(tmpdir(), "obtc-link-"));
+    const base = makeTempDir("obtc-link-");
     const root = join(base, "vault");
     const outside = join(base, "outside");
     mkdirSync(root, { recursive: true });
@@ -144,7 +144,7 @@ describe("paths: safety + content hash", () => {
     });
 
     it("a `..`-named symlink that leaves the vault is still refused by the real-path check", () => {
-      const base = mkdtempSync(join(tmpdir(), "obtc-dots-"));
+      const base = makeTempDir("obtc-dots-");
       const root = join(base, "vault");
       const outside = join(base, "outside");
       mkdirSync(root, { recursive: true });

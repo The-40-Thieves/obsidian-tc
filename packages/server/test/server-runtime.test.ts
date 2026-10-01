@@ -11,8 +11,7 @@
 //    resources (governance, then stores) in reverse order, and never touches indexResources' own
 //    cleanup because indexResources itself never finished constructing.
 
-import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
@@ -27,13 +26,13 @@ import {
 import { type Stores, wireStores } from "../src/runtime/stores";
 import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
 import { DEFAULT_TRACE_FOLDER, resolveTraceDirs } from "../src/workspace/sessions";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // Symlink creation needs a privilege Windows does not grant by default — probed, not
 // platform-sniffed, matching vault-watcher.test.ts's own `symlinkOk`.
 let symlinkOk = true;
 try {
-  const probe = mkdtempSync(join(tmpdir(), "otc-runtime-sl-probe-"));
+  const probe = makeTempDir("otc-runtime-sl-probe-");
   symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
   rmTemp(probe);
 } catch {
@@ -148,7 +147,7 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
 }, () => {
   const tmpDirs: string[] = [];
   const tmpCacheDir = (): string => {
-    const d = mkdtempSync(join(tmpdir(), "otc-runtime-core-"));
+    const d = makeTempDir("otc-runtime-core-");
     tmpDirs.push(d);
     return d;
   };
@@ -341,7 +340,7 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
 }, () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };
@@ -407,7 +406,7 @@ describe("buildServerRuntime — otel unwind when wireRuntimeCore itself throws"
 }, () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };
@@ -459,7 +458,7 @@ describe("buildServerRuntime — otel unwind when wireRuntimeCore itself throws"
 describe("buildServerRuntime — a symlinked vault root still boots (THE-1081 review round 2)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

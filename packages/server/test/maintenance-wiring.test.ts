@@ -5,8 +5,7 @@
 // THE-585 is the cautionary case: three gauges were declared, registered a `# TYPE` line, and
 // emitted nothing at all for many releases, because the only wiring lived in the boot function.
 // "Registered" is not "emitting"; these tests assert the VALUE arrives.
-import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { SweepCounts } from "../src/db/maintenance";
@@ -17,7 +16,7 @@ import { appendProvenance } from "../src/provenance/store";
 import { configureMaintenance, sweepTotal } from "../src/runtime/maintenance-wiring";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 10_000_000_000;
 
@@ -499,7 +498,7 @@ describe("configureMaintenance — morgiana spool sweep", () => {
   });
   /** A vault dir holding one 60-day-old spool file. NOW is the fixed wiring-test clock. */
   const seed = (): { cacheDir: string; file: string } => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "tc-spool-wire-"));
+    const cacheDir = makeTempDir("tc-spool-wire-");
     tmpDirs.push(cacheDir);
     mkdirSync(join(cacheDir, "v1"));
     const date = new Date(NOW - 60 * DAY).toISOString().slice(0, 10);

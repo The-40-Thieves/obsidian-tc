@@ -69,18 +69,16 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = join(HERE, "..");
@@ -242,7 +240,7 @@ describe.skipIf(!bunAvailable)(
   { timeout: 180_000 },
   () => {
     beforeAll(() => {
-      stage = mkdtempSync(join(tmpdir(), "obtc-bundle-reranker-"));
+      stage = makeTempDir("obtc-bundle-reranker-");
       reclaimStrandedSharedDistBackups();
 
       // 1) packages/shared: bun's bundler resolves it via ITS OWN package.json `main`

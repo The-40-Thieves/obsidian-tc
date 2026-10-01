@@ -12,11 +12,10 @@
 // wins the race" semantics, an instant zero-byte write) and touches `target`'s own name with
 // exactly ONE syscall — `renameSync` moving an already-complete, fsynced STAGED file onto it — so
 // `target` is never observably created-but-incomplete. Tests below are rewritten for that shape.
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function enotsupError(syscall: string): NodeJS.ErrnoException {
   const e = new Error(
@@ -63,7 +62,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

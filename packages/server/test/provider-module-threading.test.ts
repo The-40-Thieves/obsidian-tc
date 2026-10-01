@@ -1,30 +1,13 @@
-// Review round 2, Finding 2: the module gate's guards (module-loader.ts / registry.ts) were
-// mutation-tested in round 1, but `securityProfile` crosses FOUR hops before it reaches them
-// (buildServerRuntime -> RuntimeCoreDeps -> wireIndexResources -> createEmbeddingProviderAsync,
-// and separately buildServerRuntime -> wireGatewaySeams), and none of those hops were exercised —
-// delete `securityProfile` at any one of them and the hardened refusal goes silently inert with
-// the whole existing suite green, because `loadProviderModule`'s own `?? "trusted-local"` fallback
-// makes "value absent" indistinguishable from "value dropped in transit".
-//
-// Chose a BEHAVIOURAL test (construct the real wiring path, assert it rejects) over a source-scan
-// count, per the review: `buildServerRuntime` end-to-end is exactly as cheap as the existing
-// boot-failure tests in server-runtime.test.ts (same configFromVaultPath + tmp-dir pattern), and
-// unlike a synthetic call straight into `wireIndexResources`/`wireGatewaySeams`, it actually
-// exercises every hop the value crosses — including `dirname(configPath)` and the
-// RuntimeCoreDeps/IndexResourcesDeps plumbing — rather than assuming the outer boot code forwards
-// it correctly.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("module hatch — securityProfile threading (embeddings + reranker)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

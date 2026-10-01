@@ -3,8 +3,7 @@
 // append-only JSONL contract (round-trip, missing-file = empty, blank/torn-line
 // resilience, ordering preserved).
 
-import { appendFileSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -20,7 +19,7 @@ import {
   traceRelPath,
 } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -87,7 +86,7 @@ describe("session row lifecycle", () => {
 
 describe("append-only JSONL trace", () => {
   function tempFile(): { abs: string; cleanup: () => void } {
-    const dir = mkdtempSync(join(tmpdir(), "obtc-trace-"));
+    const dir = makeTempDir("obtc-trace-");
     return {
       abs: join(dir, "sub", "sess.jsonl"),
       cleanup: () => rmTemp(dir),

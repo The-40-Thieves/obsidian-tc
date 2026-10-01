@@ -1,18 +1,3 @@
-// GH #995 follow-up: commit-time freshness fencing for index writes, reproduced with TWO REAL
-// connections to the SAME on-disk cache.db — the actual cross-PROCESS shape the ticket describes.
-// index-coordinator.ts's per-key serialization is PROCESS-LOCAL: two processes racing the same
-// (vault, path) across the same cache.db were never serialized against each other, and indexNote
-// embeds BEFORE commit with no freshness check.
-//
-// Rather than orchestrating real-time concurrency (two live processes), each scenario drives the
-// production plan/apply split directly: connection A's plan is computed first (capturing its
-// note_write_fence generation baseline, exactly as planNoteWrites/computeNotePlan do in
-// production), connection B commits a FRESHER write or a deindex on ITS OWN connection, and only
-// THEN is connection A's already-computed plan applied — reproducing "an older write commits after
-// a newer one" / "a write commits after a deindex" by controlling commit ORDER, the same thing two
-// real processes racing would produce, without needing to fake real-time interleaving.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
@@ -23,14 +8,14 @@ import { fakeEmbeddingProvider } from "../src/embeddings";
 import { deindexNote, indexNote } from "../src/search/indexer";
 import { computeNotePlan } from "../src/search/indexing/note-plan";
 import { applyNoteWrites } from "../src/search/indexing/persist-note-plan";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
 const PATH = "note.md";
 const provider = fakeEmbeddingProvider({ dimensions: 8 });
 
 async function twoConnections(): Promise<{ dir: string; dbA: Database; dbB: Database }> {
-  const dir = mkdtempSync(join(tmpdir(), "obtc-write-fence-"));
+  const dir = makeTempDir("obtc-write-fence-");
   const dbPath = join(dir, "cache.db");
   const dbA = await openDatabase(dbPath);
   provisionCacheDb(dbA);

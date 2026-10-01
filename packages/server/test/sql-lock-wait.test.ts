@@ -3,8 +3,7 @@
 // SQLite's actual locking behavior, and a mocked timer would happily pass while measuring nothing
 // (the failure mode that made boot.tools_list_ms read 0.3 ms for a 59.6 ms path).
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
@@ -13,7 +12,7 @@ import type { Database } from "../src/db/types";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { makeM2Vault } from "./m2-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 const conns: Database[] = [];
@@ -24,7 +23,7 @@ afterEach(() => {
 
 /** Two independent connections to one file, as a reindex and a live tool call would be. */
 async function contendingPair(busyTimeoutMs: number): Promise<[Database, Database]> {
-  const dir = mkdtempSync(join(tmpdir(), "lockwait-"));
+  const dir = makeTempDir("lockwait-");
   dirs.push(dir);
   const path = join(dir, "cache.db");
   const a = await openNodeSqlite(path);

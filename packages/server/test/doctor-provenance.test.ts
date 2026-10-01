@@ -1,8 +1,7 @@
 // provenance.chain doctor check: any sign the evidence was altered is a FAIL; unsigned records are a
 // warning that names the fix; a fresh install (no records, no EdDSA key) is ok with a note. Also
 // drives the whole path from real rows: a chain verified by `inspectProvenance` feeds the view.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { resolveServeConfig } from "../src/cli/resolve-config";
@@ -11,7 +10,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { type ProvenanceView, provenanceCheck } from "../src/doctor/provenance";
 import { inspectProvenance } from "../src/provenance/inspect";
 import { appendProvenance } from "../src/provenance/store";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const ctx = { serverVersion: "test" };
 const base: ProvenanceView = {
@@ -108,7 +107,7 @@ describe("inspectProvenance (the view's source)", () => {
   });
 
   it("finds an unsigned chain in a real cache.db and tampering shows up as failing", async () => {
-    const root = mkdtempSync(join(tmpdir(), "doc-prov-"));
+    const root = makeTempDir("doc-prov-");
     dirs.push(root);
     const vault = join(root, "vault");
     mkdirSync(vault);

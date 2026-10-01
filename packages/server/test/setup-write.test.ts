@@ -4,23 +4,21 @@
 import {
   existsSync,
   lstatSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupDecision } from "../src/cli/setup/decide";
 import { buildSetupConfig, writeSetupConfig } from "../src/cli/setup/write";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

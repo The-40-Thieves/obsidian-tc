@@ -9,8 +9,7 @@
 // updates such a file in place; move/copy/bulk/attachment overwrite must not be stricter). Only a
 // name that does NOT exist is judged as new.
 import * as fs from "node:fs";
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,7 +18,7 @@ import { buildBulkTools } from "../src/tools/m6/bulk-tools";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM6Vault } from "./m6-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 import { type Backend, loadNotesIo } from "./write-io-backends";
 
 const posix = process.platform !== "win32";
@@ -192,7 +191,7 @@ describe("a memoryDefense refusal happens BEFORE the destination is trashed", ()
 describe.each(["native", "js"] as Backend[])("%s backend: replaceDestination", (backend) => {
   const made: string[] = [];
   function root(): string {
-    const d = realpathSync(mkdtempSync(join(tmpdir(), "otc-rd-")));
+    const d = realpathSync(makeTempDir("otc-rd-"));
     made.push(d);
     return d;
   }

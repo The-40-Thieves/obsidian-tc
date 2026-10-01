@@ -1,14 +1,12 @@
 // Shared fixture for the write-provenance tests: a cache.db, a real auth registry (own temp
 // keys dir, own auth.db) holding an EdDSA signing key, and a recorder wired to sign with it.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
 import { generateSigningKey } from "../src/auth/signing-keys";
 import { provisionAuthDb, provisionCacheDb } from "../src/db/provision";
 import { ProvenanceRecorder } from "../src/provenance/recorder";
 import { registryKeyResolver, registrySignerSource } from "../src/provenance/signer";
 import { openMemoryDb } from "./helpers";
+import { makeTempDir } from "./tmp";
 
 export const CLOCK0 = 1_800_000_000_000;
 
@@ -17,7 +15,7 @@ export async function provenanceFixture(opts: { signed?: boolean } = {}) {
   provisionCacheDb(db);
   const authDb = openMemoryDb();
   provisionAuthDb(authDb);
-  const dir = mkdtempSync(join(tmpdir(), "obtc-prov-"));
+  const dir = makeTempDir("obtc-prov-");
   const registry = createAuthRegistry(authDb, { keysDir: authKeysDir(dir) });
   const clock = { t: CLOCK0 };
   const rotate = async (graceSeconds = 3600) =>

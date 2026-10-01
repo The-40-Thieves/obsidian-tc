@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -10,7 +9,7 @@ import { buildRepresentationManifest } from "../src/search/representation";
 import { ensureVecChunks } from "../src/search/vec";
 import { assertLive, resolveMode } from "../src/vault/mode";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -18,7 +17,7 @@ function freshDb(): Database {
   return db;
 }
 function tmpVault(): string {
-  return mkdtempSync(join(tmpdir(), "obtc-backend-"));
+  return makeTempDir("obtc-backend-");
 }
 
 describe("resolveMode", () => {

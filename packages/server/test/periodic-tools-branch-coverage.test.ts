@@ -2,8 +2,7 @@
 // AST-aware branch remapping. Every test here asserts real caller-visible behavior (a returned
 // value, a file's actual content, or a thrown error's code) — never just "the branch executed".
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -16,7 +15,7 @@ import { registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM3Vault } from "./m3-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("periodic-tools branch coverage: stepDate across every period", () => {
   // stepDate's if/else-if/else chain (daily/weekly/monthly/quarterly/yearly) backs both the
@@ -634,7 +633,7 @@ describe("periodic-tools branch coverage: create_periodic_note's pathAcl extract
   // periodic-tools.ts:285 need a registry built with rootResolver, same as the THE-567 suite's own
   // local setup.
   function setup() {
-    const root = mkdtempSync(join(tmpdir(), "obtc-602-pathacl-"));
+    const root = makeTempDir("obtc-602-pathacl-");
     const db = openMemoryDb();
     provisionCacheDb(db);
     const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });

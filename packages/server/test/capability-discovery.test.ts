@@ -10,16 +10,15 @@
 //     then honours an explicit override. The override name is not derivable from the vault name.
 //   - "no Obsidian" is a first-class state: an absent registry yields an empty vault list, not a throw.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { discoverPlugins, parseRegistry, resolveConfigDir } from "../src/capability/discovery";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let root: string;
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), "obtc-cap-"));
+  root = makeTempDir("obtc-cap-");
 });
 afterAll(() => {
   rmTemp(root);

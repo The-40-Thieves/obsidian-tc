@@ -6,16 +6,7 @@
 // tokens for every vault.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SignJWT } from "jose";
@@ -35,7 +26,7 @@ import { openDatabase } from "../src/db/open";
 import { provisionAuthDb, provisionCacheDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -61,7 +52,7 @@ async function reasonOf(p: Promise<unknown>): Promise<string> {
 }
 
 function freshDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "auth-lost-"));
+  const dir = makeTempDir("auth-lost-");
   dirs.push(dir);
   return dir;
 }

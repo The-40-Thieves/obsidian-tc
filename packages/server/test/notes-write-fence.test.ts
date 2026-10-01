@@ -5,8 +5,7 @@
 // row after a successor's deindex tombstone, or overwrite fresher content, between the plan's read
 // and this write's commit — the exact class of race note_write_fence exists to close for chunks,
 // left open for metadata.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
@@ -15,7 +14,7 @@ import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { deindexNote, indexNote, indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
 const PATH = "note.md";
@@ -39,7 +38,7 @@ afterEach(() => {
 });
 
 async function twoConnections(): Promise<{ dir: string; dbA: Database; dbB: Database }> {
-  const dir = mkdtempSync(join(tmpdir(), "obtc-notes-fence-"));
+  const dir = makeTempDir("obtc-notes-fence-");
   const dbPath = join(dir, "cache.db");
   const dbA = await openDatabase(dbPath);
   provisionCacheDb(dbA);
@@ -146,7 +145,7 @@ describe("notes/FTS writes are fenced the same as chunk writes (cross-vendor rev
       deindexNote(dbB, VAULT, PATH, false, false, undefined, () => 2);
     });
 
-    const root = mkdtempSync(join(tmpdir(), "obtc-notes-fence-vault-"));
+    const root = makeTempDir("obtc-notes-fence-vault-");
     // On-disk content: same body as seeded (chunks unchanged -> null plan), different frontmatter
     // (notes.content_hash differs -> queued for flushNotes).
     writeFileSync(

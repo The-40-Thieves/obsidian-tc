@@ -6,8 +6,7 @@
 // `notes` rows — fix round 1 (MEDIUM, Opus): a hand-inserted-rows fixture cannot catch the probe
 // disagreeing with indexVault about which walked files get a `notes` row at all (a zero-byte note
 // gets none — see search/fts.ts's notesRowExpectedForSize, shared by both sides).
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
@@ -20,7 +19,7 @@ import {
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const ctx = { serverVersion: "test" };
 const run = (states?: IndexCoverageState[]) =>
@@ -114,8 +113,8 @@ describe("probeIndexCoverage (THE-1073)", () => {
     // The doctor probe test the ticket asks for, measured against the real writer: index THREE
     // real files (one with invalid YAML frontmatter — the actual THE-1073 scenario, not a
     // hand-inserted row), then probe. gamma.md is unindexed because indexVault itself skipped it.
-    const vaultRoot = mkdtempSync(join(tmpdir(), "obtc-coverage-vault-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-coverage-cache-"));
+    const vaultRoot = makeTempDir("obtc-coverage-vault-");
+    const cacheDir = makeTempDir("obtc-coverage-cache-");
     try {
       writeFileSync(join(vaultRoot, "alpha.md"), "# Alpha\n\nfine.");
       writeFileSync(join(vaultRoot, "beta.md"), "# Beta\n\nalso fine.");
@@ -162,8 +161,8 @@ describe("probeIndexCoverage (THE-1073)", () => {
   // (excluded from embedding, not from indexing) all sitting alongside a normal one. Reviewer
   // repro, adapted: a real indexVault pass with these four files must leave `missing` at 0.
   it("a real indexVault pass with an empty note, a secret-only note, and an egress-excluded note reads clean (0 missing)", async () => {
-    const vaultRoot = mkdtempSync(join(tmpdir(), "obtc-coverage-parity-vault-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-coverage-parity-cache-"));
+    const vaultRoot = makeTempDir("obtc-coverage-parity-vault-");
+    const cacheDir = makeTempDir("obtc-coverage-parity-cache-");
     try {
       writeFileSync(join(vaultRoot, "a.md"), "# A\n\nhello world");
       writeFileSync(join(vaultRoot, "empty.md"), "");
@@ -216,9 +215,9 @@ describe("probeIndexCoverage (THE-1073)", () => {
   // `[]` a fresh install with no cache.db yet gets — reading as a clean "ok, no vault to inspect"
   // instead of a warning. This must now surface as a per-vault `error`.
   it("a symlinked vault root reports a per-vault error, not a silent empty result", async () => {
-    const realRoot = mkdtempSync(join(tmpdir(), "obtc-coverage-real-"));
-    const linkParent = mkdtempSync(join(tmpdir(), "obtc-coverage-link-parent-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-coverage-symlink-cache-"));
+    const realRoot = makeTempDir("obtc-coverage-real-");
+    const linkParent = makeTempDir("obtc-coverage-link-parent-");
+    const cacheDir = makeTempDir("obtc-coverage-symlink-cache-");
     const symlinkRoot = join(linkParent, "vault-link");
     try {
       writeFileSync(join(realRoot, "a.md"), "# A\n\nfine.");
@@ -256,7 +255,7 @@ describe("probeIndexCoverage (THE-1073)", () => {
   });
 
   it("returns [] when cache.db does not exist yet — never throws on a fresh install", async () => {
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-coverage-nodb-"));
+    const cacheDir = makeTempDir("obtc-coverage-nodb-");
     try {
       const states = await probeIndexCoverage(cacheDir, [], 5_000);
       expect(states).toEqual([]);

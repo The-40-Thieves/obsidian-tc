@@ -7,8 +7,7 @@
 // PII regex — `.gitleaks.toml` already allowlists `packages/server/test/.*`, but this file follows
 // the stricter no-literal-secret rule regardless, so a trufflehog `--only-verified` pass or a
 // future tightened gitleaks config never has anything real-shaped to find here either.
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
@@ -27,7 +26,7 @@ import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // ---------------------------------------------------------------------------------------------
 // Secret/PII builders — every one assembles its result from pieces that are NOT individually
@@ -365,7 +364,7 @@ describe("memoryDefense off mode — 5 writers unchanged, no scan runs", () => {
 describe("memoryDefense block mode — real wiring (buildServerRuntime), all 7 writers, nothing persisted", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };
@@ -1603,7 +1602,7 @@ describe("review finding 6 — labeled_secret confidence tiers (block mode never
 
 describe("review finding 7 — set_goal resolves `vault` through the registry before looking up policy", () => {
   it("an unregistered vault id is refused with vault_not_found, not silently inserted", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-setgoal-vault-"));
+    const dir = makeTempDir("otc-setgoal-vault-");
     try {
       const registry = new ToolRegistry({});
       const vaultRegistry = new VaultRegistry([{ id: "main", path: dir }]);
@@ -1632,7 +1631,7 @@ describe("review finding 7 — set_goal resolves `vault` through the registry be
   });
 
   it("a registered vault id still resolves and set_goal succeeds, memoryDefense keyed by the RESOLVED id", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "otc-setgoal-vault2-"));
+    const dir = makeTempDir("otc-setgoal-vault2-");
     try {
       const registry = new ToolRegistry({});
       const vaultRegistry = new VaultRegistry([{ id: "main", path: dir }]);

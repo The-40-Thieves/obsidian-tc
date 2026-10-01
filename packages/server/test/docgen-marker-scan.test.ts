@@ -5,17 +5,16 @@
 // (different generator, gated by `map:check`) and docs/wiki + docs/src/content must not be
 // double-walked by the new top-level docs/ pass.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { candidateFiles, findGeneratedMarkers } from "../scripts/docgen/marker-scan";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let repoRoot: string;
 
 beforeEach(() => {
-  repoRoot = mkdtempSync(join(tmpdir(), "obtc-marker-scan-"));
+  repoRoot = makeTempDir("obtc-marker-scan-");
 });
 
 afterEach(() => {

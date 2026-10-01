@@ -6,14 +6,13 @@
 // (configured | kept-from-index | ambiguous-orphaned-index | default) as an ANNOTATION separate
 // from the plain `embeddings` block, so `embeddings.provider` itself never changes value and a
 // re-save can never pin a kept value as if the user had configured it.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run_config_show } from "../src/cli/commands/config-show";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SEEDED_DIMENSIONS = 768;
 
@@ -50,7 +49,7 @@ async function runConfigShow(configPath: string): Promise<Record<string, unknown
 describe("config show — effective embeddings provider + source (GH #995 fix round 2, finding 5)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

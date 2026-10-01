@@ -8,8 +8,7 @@
 //
 // Assembly mirrors acl-extraction-coverage.test.ts: registration only builds definitions, so cheap
 // stubs suffice.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -30,7 +29,7 @@ import { registerM8Tools } from "../src/tools/m8";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { provenanceFixture, rowsFor } from "./provenance-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NO_THROTTLE = {
   read: { perMinute: 1e6, burst: 1e6 },
@@ -40,7 +39,7 @@ const NO_THROTTLE = {
   admin: { perMinute: 1e6, burst: 1e6 },
 };
 
-const root = mkdtempSync(join(tmpdir(), "obtc-prov-cov-"));
+const root = makeTempDir("obtc-prov-cov-");
 afterAll(() => rmTemp(root));
 
 function buildRealRegistry(): ToolRegistry {

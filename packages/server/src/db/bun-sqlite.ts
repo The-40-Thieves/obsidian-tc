@@ -1,7 +1,7 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyConnectionPragmas } from "./apply-pragmas";
+import { applyConnectionPragmasOrClose } from "./apply-pragmas";
 import { openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
@@ -27,6 +27,14 @@ function useEmbeddedSqlite(BunDatabase: { setCustomSQLite?: (p: string) => void 
   if (process.platform !== "darwin" || !EMBEDDED_SQLITE_BASE64) return;
   try {
     const dir = mkdtempSync(join(tmpdir(), "otc-sqlite-"));
+    // Needed only for this process's lifetime (see search/vec.ts): remove it on exit, best-effort.
+    process.once("exit", () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // still mapped, or already gone
+      }
+    });
     chmodSync(dir, 0o700);
     const out = join(dir, "libsqlite3.dylib");
     writeFileSync(out, Buffer.from(EMBEDDED_SQLITE_BASE64, "base64"));
@@ -125,7 +133,7 @@ export async function openBunSqlite(
     readonlyMode = open.readonlyMode;
   } else {
     db = new BunDatabase(path, { create: true });
-    applyConnectionPragmas((p) => db.exec(`PRAGMA ${p}`), busyTimeoutMs);
+    applyConnectionPragmasOrClose(db, (p) => db.exec(`PRAGMA ${p}`), busyTimeoutMs);
   }
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);

@@ -3,17 +3,16 @@
 // cannot dereference a hard link, so enforcement must gate on the inode link count. These tests
 // place a real hard link on disk and assert the read fails closed.
 
-import { linkSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { linkSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { enforcePathAcl } from "../src/vault/acl-path";
 import { readFileChecked, readNote } from "../src/vault/notes-io";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function tempVault(): string {
-  const root = mkdtempSync(join(tmpdir(), "otc-hardlink-"));
+  const root = makeTempDir("otc-hardlink-");
   mkdirSync(join(root, "private"), { recursive: true });
   mkdirSync(join(root, "public"), { recursive: true });
   return root;

@@ -3,16 +3,13 @@
 // corpus vault (sorted by source), and the optional source narrow. Populates the notes table
 // directly (the ingestion path is a separate increment).
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 const VAULT = "vendor-docs";
@@ -57,7 +54,7 @@ function un<T>(r: unknown): T {
   return (r as { data: T }).data;
 }
 
-const root = mkdtempSync(join(tmpdir(), "obtc-kcrit-"));
+const root = makeTempDir("obtc-kcrit-");
 afterAll(() => rmTemp(root));
 
 function harness(scopes: string[], kind: "private" | "docs" | "system" = "docs") {

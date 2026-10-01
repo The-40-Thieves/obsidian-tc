@@ -5,23 +5,21 @@ import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { MorgianaEmitter, spoolFileName } from "../src/morgiana/emitter";
 import { sweepSpool } from "../src/morgiana/spool-sweep";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const tmpDirs: string[] = [];
 const tmpDir = (): string => {
-  const d = mkdtempSync(join(tmpdir(), "tc-spool-"));
+  const d = makeTempDir("tc-spool-");
   tmpDirs.push(d);
   return d;
 };

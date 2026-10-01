@@ -8,7 +8,7 @@
 // `throttled` refusals: with process-local buckets each server would grant its own three (six ok).
 // The redis backend reads its URL from OBSIDIAN_TC_REDIS_URL, so this also proves the built bundle
 // loads the optional client lazily from node_modules.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -33,6 +33,7 @@ const redisUrl = process.env.OBSIDIAN_TC_REDIS_URL;
 if (backend === "redis" && !redisUrl) fail("--backend redis needs OBSIDIAN_TC_REDIS_URL");
 
 const root = mkdtempSync(join(tmpdir(), "obtc-rl-smoke-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const vault = join(root, "vault");
 const cacheDir = join(root, "cache");
 const keyPrefix = `smoke:${Date.now()}:`;

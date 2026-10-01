@@ -1,10 +1,9 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { detectJsonIndent, readJsonFile, serializeJson } from "../src/formats/json-config";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function codeOf(fn: () => unknown): string {
   try {
@@ -23,7 +22,7 @@ describe("formats/json-config", () => {
   });
 
   it("returns exists:false with the empty default for a missing file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "obtc-json-"));
+    const dir = makeTempDir("obtc-json-");
     try {
       const f = readJsonFile(join(dir, "nope.json"), { items: [] });
       expect(f.exists).toBe(false);
@@ -35,7 +34,7 @@ describe("formats/json-config", () => {
   });
 
   it("throws invalid_input on malformed JSON and non-object roots", () => {
-    const dir = mkdtempSync(join(tmpdir(), "obtc-json-"));
+    const dir = makeTempDir("obtc-json-");
     try {
       writeFileSync(join(dir, "bad.json"), "{not json");
       writeFileSync(join(dir, "arr.json"), "[1,2,3]");
@@ -47,7 +46,7 @@ describe("formats/json-config", () => {
   });
 
   it("round-trips a config preserving unknown keys and their order", () => {
-    const dir = mkdtempSync(join(tmpdir(), "obtc-json-"));
+    const dir = makeTempDir("obtc-json-");
     try {
       const onDisk = '{\n\t"items": [],\n\t"plugins": { "x": 1 },\n\t"vendorField": "keep"\n}\n';
       writeFileSync(join(dir, "c.json"), onDisk);

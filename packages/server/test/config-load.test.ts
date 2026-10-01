@@ -1,13 +1,12 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isEmbeddingsModelExplicit, isPlaneEnabledExplicit, loadConfig } from "../src/config/load";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let dir: string;
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "otc-cfg-"));
+  dir = makeTempDir("otc-cfg-");
 });
 afterEach(() => {
   rmTemp(dir);

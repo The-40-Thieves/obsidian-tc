@@ -5,8 +5,8 @@
 // tagging is checked end to end: through the MCP server with `_meta` claims (self_reported), and
 // through the HTTP transport with a verified jwt versus `auth.mode: none` (authVerified).
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -21,10 +21,10 @@ import { resolveHostId } from "../src/provenance/recorder";
 import { extractClaimedProvenance, PROVENANCE_META_KEY } from "../src/provenance/types";
 import { startHttp } from "../src/transports/http";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
-const root = mkdtempSync(join(tmpdir(), "obtc-prov-rec-"));
-const outside = mkdtempSync(join(tmpdir(), "obtc-prov-out-"));
+const root = makeTempDir("obtc-prov-rec-");
+const outside = makeTempDir("obtc-prov-out-");
 afterAll(() => {
   rmTemp(root);
   rmTemp(outside);

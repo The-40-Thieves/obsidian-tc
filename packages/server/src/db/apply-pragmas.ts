@@ -71,3 +71,28 @@ export function applyConnectionPragmas(
     }
   }
 }
+
+/**
+ * `applyConnectionPragmas` for a handle the caller just opened: if a pragma throws (a file that is
+ * not a database fails on the FIRST statement, "file is not a database"), close the handle before
+ * the error propagates. An adapter that let it escape left the connection open until GC, and on
+ * Windows an open handle makes the file undeletable: a corrupt cache.db could not be removed by the
+ * caller that had already handled the failure. The original error is rethrown; a close that itself
+ * throws is ignored, since the open failure is the one worth reporting.
+ */
+export function applyConnectionPragmasOrClose(
+  db: { close(): void },
+  run: (pragma: string) => void,
+  busyTimeoutMs: number = DEFAULT_BUSY_TIMEOUT_MS,
+): void {
+  try {
+    applyConnectionPragmas(run, busyTimeoutMs);
+  } catch (e) {
+    try {
+      db.close();
+    } catch {
+      // keep the open failure as the reported error
+    }
+    throw e;
+  }
+}

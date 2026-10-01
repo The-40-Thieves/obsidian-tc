@@ -3,14 +3,13 @@
 // resolver `config show` and `doctor` use (not a reimplementation) — as a synthetic
 // `embeddings.effective` row, `source: "derived"` (it comes from reading cache.db, not the config
 // file), never mutating the real `embeddings.provider` entry's own file/default attribution.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run_config_explain } from "../src/cli/commands/config-explain";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SEEDED_DIMENSIONS = 768;
 
@@ -50,7 +49,7 @@ async function runConfigExplainJson(configPath: string): Promise<{
 describe("config explain — effective embeddings provider + source (GH #995 fix round 2, finding 5)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

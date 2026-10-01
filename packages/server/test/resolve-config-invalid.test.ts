@@ -1,10 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CliError } from "../src/cli/cli-error";
 import { defaultSetupConfigPath, resolveServeConfig } from "../src/cli/resolve-config";
-import { rmTemp, stubHomedir } from "./tmp";
+import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
 // A config FILE that parses as JSON but fails the schema (the reported case: a `{}` left at
 // ~/.obsidian-tc/config.json) used to surface as a raw Zod issue array — no file named, no way
@@ -13,7 +12,7 @@ const ENV_KEY = "OBSIDIAN_TC_CONFIG";
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

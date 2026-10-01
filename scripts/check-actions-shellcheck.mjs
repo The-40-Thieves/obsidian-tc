@@ -17,7 +17,7 @@
  * the identical bar workflows already are; nothing about that bar is invented here.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -95,6 +95,8 @@ function main() {
   }
 
   const tmp = mkdtempSync(join(tmpdir(), "actions-shellcheck-"));
+  // main() leaves through process.exit on every failure path, so a `finally` would not run.
+  process.once("exit", () => rmSync(tmp, { recursive: true, force: true }));
   let blockCount = 0;
   const problems = [];
 

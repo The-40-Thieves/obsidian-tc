@@ -3,8 +3,7 @@
 // has one, record unsigned when it does not, and record nothing when `provenance.enabled` is false.
 // Everything below dispatches a real write_note through the runtime's own registry and reads the
 // chain back from the cache.db the runtime wrote.
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openAuthRegistry } from "../src/auth/registry-open";
@@ -16,7 +15,7 @@ import type { CallerContext } from "../src/mcp/registry";
 import { inspectProvenance } from "../src/provenance/inspect";
 import { buildServerRuntime, type ServerRuntime } from "../src/runtime/server-runtime";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -33,7 +32,7 @@ afterEach(async () => {
 });
 
 const tmp = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   dirs.push(d);
   return d;
 };

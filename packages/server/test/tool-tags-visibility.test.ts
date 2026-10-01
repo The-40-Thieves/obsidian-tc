@@ -1,9 +1,3 @@
-// `toolVisibility.hiddenTags` / `disabledTags` against the REAL tool surface (the full M1-M8
-// registry), across the three facade modes. The tag filter used to be near-inert because few
-// definitions carried tags; these tests pin what an operator now gets from naming a tag.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
@@ -15,7 +9,7 @@ import { CATALOG_RESOURCE_URI } from "../src/mcp/resources";
 import { createMcpServer } from "../src/mcp/server";
 import { ALLOW_ALL, explainVisibility } from "../src/mcp/visibility";
 import { VaultRegistry } from "../src/vault/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 type Mode = "flat" | "domain" | "triad";
 const MODES: Mode[] = ["flat", "domain", "triad"];
@@ -26,7 +20,7 @@ const cfg = (over: Partial<ToolVisibilityConfig>): ToolVisibilityConfig => ({
   ...over,
 });
 
-const vaultDir = mkdtempSync(join(tmpdir(), "otc-tool-tags-"));
+const vaultDir = makeTempDir("otc-tool-tags-");
 afterAll(() => rmTemp(vaultDir));
 
 async function connect(toolVisibility: ToolVisibilityConfig, mode: Mode) {

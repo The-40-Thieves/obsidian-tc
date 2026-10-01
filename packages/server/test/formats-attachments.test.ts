@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,10 +9,10 @@ import {
   resolveAttachmentFolder,
   rewriteAttachmentReferences,
 } from "../src/formats/attachments";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function makeRoot(files: Record<string, string>): string {
-  const root = mkdtempSync(join(tmpdir(), "obtc-att-"));
+  const root = makeTempDir("obtc-att-");
   for (const [rel, content] of Object.entries(files)) {
     const abs = join(root, rel);
     mkdirSync(dirname(abs), { recursive: true });

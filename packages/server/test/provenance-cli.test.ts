@@ -1,8 +1,7 @@
 // `obsidian-tc provenance verify`, driven through the functions cli.ts dispatches to, against a real
 // config file, a real cache.db and a real auth registry on disk (an EdDSA key made by `auth
 // rotate-key --alg EdDSA`). Records are appended with the same store the server uses.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authDbPath } from "../src/auth/registry";
@@ -15,7 +14,7 @@ import { openConfiguredDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { registrySignerSource } from "../src/provenance/signer";
 import { appendProvenance } from "../src/provenance/store";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -24,7 +23,7 @@ afterAll(() => {
 });
 
 function deployment() {
-  const root = mkdtempSync(join(tmpdir(), "prov-cli-"));
+  const root = makeTempDir("prov-cli-");
   dirs.push(root);
   const vault = join(root, "vault");
   mkdirSync(vault);

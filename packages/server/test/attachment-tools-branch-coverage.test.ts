@@ -5,8 +5,7 @@
 // missing-file and permanent-delete branches). Complements test/attachments.test.ts,
 // which does not exercise these paths.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -17,7 +16,7 @@ import { registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeM3Vault } from "./m3-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("attachment-tools branch coverage", () => {
   it("list_attachments scoped to a folder enforces read ACL on that folder and filters entries", async () => {
@@ -346,7 +345,7 @@ describe("attachment-tools branch coverage: list_attachments's pathAcl extractor
   // `input.folder ? [{ op: "read", path: input.folder }] : []` on attachment-tools.ts:145 need a
   // registry built with rootResolver — same pattern as the periodic-tools THE-602 suite.
   function setup() {
-    const root = mkdtempSync(join(tmpdir(), "obtc-602-attach-pathacl-"));
+    const root = makeTempDir("obtc-602-attach-pathacl-");
     const db = openMemoryDb();
     provisionCacheDb(db);
     const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });

@@ -6,14 +6,13 @@
 
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
-import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { Database } from "../src/db/types";
 import type { SchedulerPersistFailure } from "../src/scheduler/scheduler";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-666: a REAL file-backed sqlite handle (not a stub) whose writes fail once the file's write
 // bit is removed — node:sqlite falls back to read-only at open() time and every write then throws
@@ -448,7 +447,7 @@ describe("Scheduler (THE-462)", () => {
   describe("durable persistence failure signal (THE-666)", () => {
     it("persistRunStart/persist failures on a real read-only db surface once each via onPersistError, and the job keeps running", async () => {
       vi.useFakeTimers();
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "the666-persist-"));
+      const dir = makeTempDir("the666-persist-");
       const dbPath = path.join(dir, "sched.db");
       let db: Database | undefined;
       try {
@@ -501,7 +500,7 @@ describe("Scheduler (THE-462)", () => {
 
     it("ensureTable failure surfaces via onPersistError with no job, and scheduling still starts", async () => {
       vi.useFakeTimers();
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "the666-ensuretable-"));
+      const dir = makeTempDir("the666-ensuretable-");
       const dbPath = path.join(dir, "sched.db");
       let db: Database | undefined;
       try {

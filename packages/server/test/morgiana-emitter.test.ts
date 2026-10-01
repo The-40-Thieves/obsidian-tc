@@ -1,13 +1,12 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MorgianaEmitter, safeVault } from "../src/morgiana/emitter";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let dirs: string[] = [];
 function tmp(): string {
-  const d = mkdtempSync(join(tmpdir(), "morg-"));
+  const d = makeTempDir("morg-");
   dirs.push(d);
   return d;
 }

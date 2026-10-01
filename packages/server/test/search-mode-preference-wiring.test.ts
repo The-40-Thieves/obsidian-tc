@@ -3,8 +3,7 @@
 // would pass whether or not tool-wiring.ts ever threads the flag, so this goes through the real
 // runtime: flag off adds nothing, flag on reports a source, and only a seeded profile for THIS
 // caller turns the source into `preference`.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
@@ -14,11 +13,11 @@ import { provisionCacheDb } from "../src/db/provision";
 import { applyPreferenceDeltas } from "../src/experiential/reflect";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 const tmp = (p: string): string => {
-  const d = mkdtempSync(join(tmpdir(), p));
+  const d = makeTempDir(p);
   dirs.push(d);
   return d;
 };

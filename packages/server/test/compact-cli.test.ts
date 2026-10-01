@@ -11,7 +11,6 @@ import {
   closeSync,
   existsSync,
   ftruncateSync,
-  mkdtempSync,
   openSync,
   readFileSync,
   rmSync,
@@ -19,7 +18,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -31,6 +29,7 @@ import { loadVec } from "../src/search/vec";
 import { createDanglingWalDb } from "./dangling-wal-fixture";
 import { type CliRun, runBunSync } from "./spawn-cli";
 import { stallTimeout } from "./stall-timeouts";
+import { makeTempDir } from "./tmp";
 
 /** Whether the `sqlite3` CLI is on PATH — used ONLY to build a fixture (never to run the code
  *  under test), for the one scenario ("logical" FTS shadow-table corruption, F1) that no JS
@@ -56,7 +55,7 @@ try {
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
 beforeAll(async () => {
-  const probeDir = mkdtempSync(join(tmpdir(), "obtc-compact-vecprobe-"));
+  const probeDir = makeTempDir("obtc-compact-vecprobe-");
   try {
     const db = await openDatabase(join(probeDir, "probe.db"));
     vecOk = loadVec(db);
@@ -112,9 +111,9 @@ async function seedInflatedCacheDb(cacheDir: string): Promise<void> {
 }
 
 function setupConfig(): { cacheDir: string; configPath: string } {
-  const vaultDir = mkdtempSync(join(tmpdir(), "obtc-compact-vault-"));
-  const cacheDir = mkdtempSync(join(tmpdir(), "obtc-compact-cache-"));
-  const confDir = mkdtempSync(join(tmpdir(), "obtc-compact-conf-"));
+  const vaultDir = makeTempDir("obtc-compact-vault-");
+  const cacheDir = makeTempDir("obtc-compact-cache-");
+  const confDir = makeTempDir("obtc-compact-conf-");
   dirs.push(vaultDir, cacheDir, confDir);
   writeFileSync(join(vaultDir, "a.md"), "hello");
   const configPath = join(confDir, "config.json");
@@ -162,7 +161,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       const { cacheDir, configPath } = setupConfig();
       await seedInflatedCacheDb(cacheDir);
       const dbPath = join(cacheDir, "cache.db");
-      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-into-"));
+      const destDir = makeTempDir("obtc-compact-into-");
       dirs.push(destDir);
       const hashBefore = sha256(dbPath);
 
@@ -223,7 +222,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
             "DELETE FROM notes_fts_docsize;",
           ]);
 
-          const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-f1-"));
+          const destDir = makeTempDir("obtc-compact-f1-");
           dirs.push(destDir);
           const r = runCli(["compact", "--config", configPath, "--into", destDir]);
 
@@ -257,7 +256,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       async () => {
         const { cacheDir, configPath } = setupConfig();
         await seedInflatedCacheDb(cacheDir);
-        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-e1-"));
+        const destDir = makeTempDir("obtc-compact-e1-");
         dirs.push(destDir);
         const jsonPath = join(cacheDir, "report.json");
         const r = runCli(
@@ -300,7 +299,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       async () => {
         const { cacheDir, configPath } = setupConfig();
         await seedInflatedCacheDb(cacheDir);
-        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-e1-busy-"));
+        const destDir = makeTempDir("obtc-compact-e1-busy-");
         dirs.push(destDir);
         const jsonPath = join(cacheDir, "report.json");
         const r = runCli(
@@ -338,7 +337,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     async () => {
       const { cacheDir, configPath } = setupConfig();
       await seedInflatedCacheDb(cacheDir);
-      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-collide-"));
+      const destDir = makeTempDir("obtc-compact-collide-");
       dirs.push(destDir);
       writeFileSync(join(destDir, "cache.db"), "not a real database");
 
@@ -359,7 +358,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       const { cacheDir } = setupConfig();
       await seedInflatedCacheDb(cacheDir);
       // A short busyTimeoutMs so the busy connection below only needs to be held briefly.
-      const confDir = mkdtempSync(join(tmpdir(), "obtc-compact-busy-conf-"));
+      const confDir = makeTempDir("obtc-compact-busy-conf-");
       dirs.push(confDir);
       const configPath = join(confDir, "config.json");
       writeFileSync(
@@ -570,7 +569,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         db.exec("INSERT INTO vec_chunks(rowid, embedding) VALUES (1, '[1,2,3,4]')");
         db.close?.();
 
-        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-vec-"));
+        const destDir = makeTempDir("obtc-compact-vec-");
         dirs.push(destDir);
         const jsonPath = join(cacheDir, "report.json");
         const r = runCli([
@@ -620,7 +619,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     async () => {
       const { cacheDir, configPath } = setupConfig();
       await seedInflatedCacheDb(cacheDir);
-      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-mismatch-"));
+      const destDir = makeTempDir("obtc-compact-mismatch-");
       dirs.push(destDir);
       const jsonPath = join(cacheDir, "report.json");
       const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
@@ -654,7 +653,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     async () => {
       const { cacheDir, configPath } = setupConfig();
       await seedInflatedCacheDb(cacheDir);
-      const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-counterr-"));
+      const destDir = makeTempDir("obtc-compact-counterr-");
       dirs.push(destDir);
       const jsonPath = join(cacheDir, "report.json");
       const r = runCli(["compact", "--config", configPath, "--into", destDir, "--json", jsonPath], {
@@ -746,7 +745,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
         const { cacheDir, configPath } = setupConfig();
         await seedInflatedCacheDb(cacheDir);
         const dbPath = join(cacheDir, "cache.db");
-        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-json-alias-"));
+        const destDir = makeTempDir("obtc-compact-json-alias-");
         dirs.push(destDir);
         const hashBefore = sha256(dbPath);
 
@@ -776,9 +775,9 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
     it.skipIf(process.platform === "win32")(
       "a symlinked cacheDir does not let --json reach the database by its real path",
       async () => {
-        const realDir = mkdtempSync(join(tmpdir(), "obtc-compact-real-"));
-        const linkParent = mkdtempSync(join(tmpdir(), "obtc-compact-link-"));
-        const confDir = mkdtempSync(join(tmpdir(), "obtc-compact-symconf-"));
+        const realDir = makeTempDir("obtc-compact-real-");
+        const linkParent = makeTempDir("obtc-compact-link-");
+        const confDir = makeTempDir("obtc-compact-symconf-");
         dirs.push(realDir, linkParent, confDir);
         const linkDir = join(linkParent, "cache-link");
         symlinkSync(realDir, linkDir, "dir");
@@ -940,7 +939,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       async () => {
         const { cacheDir, configPath } = setupConfig();
         await seedInflatedCacheDb(cacheDir);
-        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-throw-into-"));
+        const destDir = makeTempDir("obtc-compact-throw-into-");
         dirs.push(destDir);
         const jsonPath = join(cacheDir, "report.json");
         const r = runCli(
@@ -1026,7 +1025,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       async () => {
         const { cacheDir, configPath } = setupConfig();
         const dbPath = await createDanglingWalDb(cacheDir);
-        const destDir = mkdtempSync(join(tmpdir(), "obtc-compact-dangling-into-"));
+        const destDir = makeTempDir("obtc-compact-dangling-into-");
         dirs.push(destDir);
         const hashBefore = sha256(dbPath);
         const walBefore = walSize(dbPath);

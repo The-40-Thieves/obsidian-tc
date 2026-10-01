@@ -7,8 +7,7 @@
 //
 // The acceptance test the ticket asked for is the first one below: run against an empty index and
 // assert the log is NON-EMPTY afterwards. It was watched failing against the pre-fix code.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,7 +17,7 @@ import { runCitationIndexPasses } from "../src/experiential/citation-index";
 import { citationRunsCovering } from "../src/experiential/citation-runs";
 import { PASS_WINDOW_TOLERANCE_MS } from "../src/experiential/transcript-source";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -64,7 +63,7 @@ afterEach(() => {
 
 /** Write a JSONL index file and return its path. */
 function indexFile(lines: string[]): string {
-  const dir = mkdtempSync(join(tmpdir(), "otc-cidx-"));
+  const dir = makeTempDir("otc-cidx-");
   tempDirs.push(dir);
   const p = join(dir, "transcript-index.jsonl");
   writeFileSync(p, lines.length > 0 ? `${lines.join("\n")}\n` : "");

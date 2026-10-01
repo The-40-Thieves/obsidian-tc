@@ -3,8 +3,7 @@
 // so the HITL elicit cycle runs end-to-end through dispatch), and a CallerContext
 // factory granting all scopes. Mirrors makeTestVault (M1) / makeM2Vault (M2).
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -16,7 +15,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { type M3Deps, registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 export interface M3VaultOptions {
   files?: Record<string, string>;
@@ -60,7 +59,7 @@ export interface M3Vault {
 }
 
 export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m3-"));
+  const root = makeTempDir("obtc-m3-");
   const id = opts.vaultId ?? "test";
   const writeFile = (rel: string, content: string): void => {
     const abs = join(root, rel);

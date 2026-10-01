@@ -5,9 +5,7 @@
 // THE-543: adds the ACL-fingerprint and vault-generation halves of the cache key (the security
 // fix — see prewarm-acl.test.ts for the end-to-end leak/staleness pins against vault_context).
 
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, writeFileSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   callerAclFingerprint,
@@ -16,9 +14,9 @@ import {
   readPrewarm,
   writePrewarm,
 } from "../src/search/prefetch";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
-const dir = mkdtempSync(join(tmpdir(), "obtc-prewarm-"));
+const dir = makeTempDir("obtc-prewarm-");
 afterAll(() => rmTemp(dir));
 
 const FP = "fp-test";

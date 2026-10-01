@@ -6,8 +6,7 @@
 // CallerContext grants all scopes; callConfirmed mints + supplies an elicit token
 // for HITL-gated tools.
 
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -27,7 +26,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { type M4Deps, registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const BASE = "http://127.0.0.1:27124";
 
@@ -87,7 +86,7 @@ export interface M4Vault {
 }
 
 export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
-  const root = mkdtempSync(join(tmpdir(), "obtc-m4-"));
+  const root = makeTempDir("obtc-m4-");
   const id = opts.vaultId ?? "test";
   const write = (rel: string, content: string): void => {
     const abs = join(root, rel);

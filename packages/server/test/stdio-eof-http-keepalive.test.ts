@@ -20,16 +20,15 @@
 // shutdown-boot-embed.test.ts is unchanged and must stay green — this file only covers the
 // HTTP-also-enabled shape.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 
@@ -54,7 +53,7 @@ beforeAll(() => {
 
 const tmpDirs: string[] = [];
 function tmpDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 }

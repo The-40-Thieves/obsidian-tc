@@ -1,32 +1,9 @@
-// THE-587: which deferred-BEGIN write paths were actually exposed to SQLITE_BUSY_SNAPSHOT.
-//
-// The ticket listed nine candidate sites. Reading each BODY rather than grepping for `BEGIN` — the
-// ticket's own instruction — narrowed that to ONE. The condition is read-then-write INSIDE the
-// transaction, and it is directional: a transaction that WRITES first takes the write lock at that
-// point and never performs an upgrade, so it cannot hit SQLITE_BUSY_SNAPSHOT at all.
-//
-// Not exposed, and why (each verified against the code, not assumed):
-//   cluster.ts:168        the SELECT is at :158, BEFORE the BEGIN — no snapshot held by the txn
-//   forget.ts:121         UPDATE first, SELECT after
-//   forget.ts:292         pure DELETEs, no read
-//   note-quality.ts:263   all reads complete before the BEGIN
-//   activation.ts:164     all reads complete before the BEGIN
-//   log.ts:87             pure INSERT
-//   capture-tools.ts:78   enqueueCapture INSERTs then SELECTs back (queue.ts:45 then :59)
-//   session-tools.ts:78   insertSession INSERTs then SELECTs back (sessions.ts:48 then :59)
-//   migrate.ts:58         idempotence check is pre-transaction; body is exec + INSERT
-//
-// Exposed: memory-tools.ts's add_observation, because appendObservation READS the entity row
-// (entities.ts:135) and then runs an UPDATE on it (:140), both inside the transaction callback.
-
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { busyReason, inTransaction, inWriteTransaction } from "../src/db/txn";
 import type { Database } from "../src/db/types";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 const conns: Database[] = [];
@@ -39,7 +16,7 @@ afterEach(() => {
  *  updated. Timeout is generous so a plain SQLITE_BUSY would be waited out — only the unrescuable
  *  snapshot failure can surface. */
 async function pair(): Promise<[Database, Database]> {
-  const dir = mkdtempSync(join(tmpdir(), "the587-"));
+  const dir = makeTempDir("the587-");
   dirs.push(dir);
   const path = join(dir, "cache.db");
   const a = await openNodeSqlite(path);

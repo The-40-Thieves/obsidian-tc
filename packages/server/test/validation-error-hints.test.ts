@@ -1,17 +1,3 @@
-// THE-1042 (GH #935): a validation error names the broken field (THE-823) but not the fix. This
-// closes two gaps, reproduced here verbatim from the issue's two real calls through call_capability
-// on a real in-memory session (InMemoryTransport + the wire tools/call handler, same harness as
-// facade-elicit-token.test.ts):
-//
-//   read_note { vault: "Auny", path: "..." }   -> the configured id is "auny"
-//   search_text { vault, query, path: "<folder>" } -> search_text scopes with "root", not "path"
-//
-// Both hints are STRUCTURED in `details` first (a programmatic caller gets them without parsing
-// text) and rendered second into content[0].text (THE-823's channel — real clients drop
-// structuredContent on isError). Every assertion below checks BOTH.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,7 +11,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const CALLER = "test-caller";
 
@@ -69,8 +55,8 @@ interface Harness {
  *  that wiring, not a stand-in for it. `over` becomes the CallerContext for every call on this
  *  connection, so a vaultBound test gets its own `connect()`. */
 async function connect(over: Partial<CallerContext> = {}): Promise<Harness> {
-  const rootAuny = mkdtempSync(join(tmpdir(), "obtc-auny-"));
-  const rootOther = mkdtempSync(join(tmpdir(), "obtc-other-"));
+  const rootAuny = makeTempDir("obtc-auny-");
+  const rootOther = makeTempDir("obtc-other-");
   const vaultRegistry = new VaultRegistry([
     { id: "auny", path: rootAuny },
     { id: "other", path: rootOther },

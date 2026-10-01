@@ -4,8 +4,7 @@
 // `resolveAndApplyVaultIdentity`. RED on pre-fix main: a config `id` rename followed directly by
 // `obsidian-tc index` (no `serve` first) left the old id's rows unresolved and orphaned, rather
 // than re-keying them to the new id the way boot already does.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run_index } from "../src/cli/commands/index";
@@ -13,12 +12,12 @@ import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { normalizeRealpathForIdentity } from "../src/vault/identity";
 import { canonicalizeVaultRoot } from "../src/vault/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 describe("run_index — GH #1014 vault identity resolution (CLI one-shot path)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

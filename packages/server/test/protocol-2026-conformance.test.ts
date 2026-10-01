@@ -8,8 +8,7 @@
 // The removals matter as much as the additions: a method the revision deleted, still answered, is a
 // conformance failure that no feature test would ever notice.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
@@ -22,7 +21,7 @@ import { createHealthTool } from "../src/tools/admin/health";
 import { type HttpHandle, startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -37,7 +36,7 @@ let jwt: string;
 let vaultRoot: string;
 
 beforeAll(async () => {
-  vaultRoot = mkdtempSync(join(tmpdir(), "obsidian-tc-conf-"));
+  vaultRoot = makeTempDir("obsidian-tc-conf-");
   writeFileSync(join(vaultRoot, "note.md"), "---\ntitle: X\n---\n\nbody\n");
   const db = openMemoryDb();
   provisionCacheDb(db);

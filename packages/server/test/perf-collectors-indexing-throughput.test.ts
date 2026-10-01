@@ -16,7 +16,7 @@
 // Nothing was algorithmically slower; the CPU was simply gone. Same shape as THE-503, where an
 // overlapping vitest run made the perf harness read 51% low while its gate still passed. Sharing is
 // safe because no test here mutates the vault — they only read collected samples.
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { collectIndexing } from "../eval/perf/collectors/indexing";
 import { buildVault, type VaultCtx } from "../eval/perf/harness";
 import type { MetricSample } from "../eval/perf/report";
@@ -31,6 +31,10 @@ describe("indexing throughput gates (THE-458)", () => {
     vault = await buildVault(SCENARIOS.small);
     by = new Map(collectIndexing(vault, performance.now() - t0).map((m) => [m.key, m]));
   }, 120_000);
+
+  // buildVault stages a real vault directory under tmpdir(); the shared vault is only read by the
+  // tests below, so it is released once, here (the run-wide temp gate caught this one leaking).
+  afterAll(() => vault?.cleanup());
 
   it("emits notes, tokens and the vault denominator, with NON-ZERO counts", () => {
     // The floor that matters. Every baselined value was measured first — an earlier draft read 0

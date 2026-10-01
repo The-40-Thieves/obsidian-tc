@@ -1,6 +1,5 @@
 // Signing-key registry: several keys valid at once, looked up by the token's `kid`.
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { decodeProtectedHeader, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
@@ -10,7 +9,7 @@ import { createTokenVerifier } from "../src/auth/verifier";
 import { signAndRecord } from "../src/cli/commands/token-mint";
 import { provisionAuthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const dirs: string[] = [];
@@ -21,7 +20,7 @@ afterAll(() => {
 function fixture() {
   const db = openMemoryDb();
   provisionAuthDb(db);
-  const dir = mkdtempSync(join(tmpdir(), "auth-keys-"));
+  const dir = makeTempDir("auth-keys-");
   dirs.push(dir);
   const clock = { t: 1_800_000_000_000 };
   const registry = createAuthRegistry(db, {

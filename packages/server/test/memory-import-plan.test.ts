@@ -1,12 +1,11 @@
 // THE-1124 — memory-import/plan.ts: sanitized-name collision detection (review finding — must
 // show up in the DRY-RUN preview, not only surface once apply.ts hits an "already exists" from
 // create_entity) and the exact-case, root-only claude-code-memory index match.
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildParsedSource } from "../src/memory-import/plan";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function write(root: string, rel: string, content: string): void {
   const abs = join(root, rel);
@@ -23,7 +22,7 @@ function write(root: string, rel: string, content: string): void {
 // a silent pass) rather than have it fail for a reason that has nothing to do with plan.ts.
 let caseSensitiveFs = true;
 {
-  const probeDir = mkdtempSync(join(tmpdir(), "obtc-mi-case-probe-"));
+  const probeDir = makeTempDir("obtc-mi-case-probe-");
   try {
     writeFileSync(join(probeDir, "a.tmp"), "x");
     caseSensitiveFs = !existsSync(join(probeDir, "A.tmp"));
@@ -34,7 +33,7 @@ let caseSensitiveFs = true;
 
 describe("buildParsedSource — sanitized-name collisions", () => {
   it("an outright duplicate (type, name) across two files is a collision in the PLAN, not just at apply", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-plan-dup-"));
+    const root = makeTempDir("obtc-mi-plan-dup-");
     try {
       write(root, "a.md", "---\ntitle: Ideas\ntype: note\n---\n## Observations\n- [a] one\n");
       write(root, "sub/b.md", "---\ntitle: Ideas\ntype: note\n---\n## Observations\n- [b] two\n");
@@ -49,7 +48,7 @@ describe("buildParsedSource — sanitized-name collisions", () => {
   });
 
   it("two DIFFERENT (type, name) pairs that sanitize to the same note path are also a collision", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-plan-sanitize-"));
+    const root = makeTempDir("obtc-mi-plan-sanitize-");
     try {
       // entityNotePath's sanitizeSegment replaces ":" with "-", so type "A:B" and type "A-B"
       // both resolve to the segment "A-B" — a collision entityNotePath itself creates.
@@ -66,7 +65,7 @@ describe("buildParsedSource — sanitized-name collisions", () => {
   });
 
   it("no collision when (type, name) genuinely differ", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-plan-nocollide-"));
+    const root = makeTempDir("obtc-mi-plan-nocollide-");
     try {
       write(root, "a.md", "---\ntitle: One\ntype: note\n---\n");
       write(root, "b.md", "---\ntitle: Two\ntype: note\n---\n");
@@ -81,7 +80,7 @@ describe("buildParsedSource — sanitized-name collisions", () => {
 
 describe("buildParsedSource — claude-code-memory index match", () => {
   it("skips root MEMORY.md, exact case — platform-invariant (true on case-sensitive AND case-insensitive filesystems)", () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-mi-plan-index-"));
+    const root = makeTempDir("obtc-mi-plan-index-");
     try {
       write(root, "MEMORY.md", "# Memory Index\n- [a](a.md)\n");
       // Lowercase, but NOT at the root — a different path either way, on any filesystem, so this
@@ -108,7 +107,7 @@ describe("buildParsedSource — claude-code-memory index match", () => {
   it.skipIf(!caseSensitiveFs)(
     "a root memory.md in the WRONG case is a real fact file — case-sensitive filesystems only",
     () => {
-      const root = mkdtempSync(join(tmpdir(), "obtc-mi-plan-index-case-"));
+      const root = makeTempDir("obtc-mi-plan-index-case-");
       try {
         write(root, "MEMORY.md", "# Memory Index\n- [a](a.md)\n");
         write(root, "memory.md", "---\nname: not-the-index\nmetadata:\n  type: note\n---\nbody\n");

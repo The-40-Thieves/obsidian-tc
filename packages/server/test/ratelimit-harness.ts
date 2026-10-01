@@ -1,13 +1,12 @@
 // Shared fixtures for the rate-limit backend suites: a store per backend kind that can open several
 // independent handles onto ONE underlying bucket store (what "two processes/instances" means).
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { afterAll, it } from "vitest";
 import type { RateLimitBackend, RateLimitBackendKind } from "../src/ratelimit/backend";
 import { MemoryBackend } from "../src/ratelimit/memory-backend";
 import { openSqliteBackend } from "../src/ratelimit/sqlite-backend";
+import { makeTempDir } from "./tmp";
 
 export const REDIS_URL = process.env.REDIS_URL;
 /** CI sets REQUIRE_REDIS=1 so a missing service fails the suite instead of skipping it. */
@@ -79,7 +78,7 @@ export const STORE_KINDS: StoreKind[] = [
     durable: true,
     enabled: true,
     async newStore() {
-      const cacheDir = mkdtempSync(join(tmpdir(), "otc-ratelimit-"));
+      const cacheDir = makeTempDir("otc-ratelimit-");
       return {
         async open() {
           const b = await openSqliteBackend({ cacheDir, db: { busyTimeoutMs: BUSY_TIMEOUT_MS } });

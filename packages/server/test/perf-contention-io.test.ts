@@ -7,9 +7,6 @@
 // 498.0ms / cv 0.105). The detector was watched firing on that load before these were written — a
 // detector that has never been observed to fire is not known to work.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   CALIBRATION_CHANNELS,
@@ -19,13 +16,13 @@ import {
   detectContentionVector,
   formatCalibrationVector,
 } from "../eval/perf/contention";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const vec = (cpuMs: number, ioMs: number): CalibrationVector => ({ cpuMs, ioMs });
 
 describe("THE-584 calibrateIo()", () => {
   it("returns a positive, finite wall-time measurement and leaves no temp files behind", () => {
-    const before = mkdtempSync(join(tmpdir(), "obtc-iocal-probe-"));
+    const before = makeTempDir("obtc-iocal-probe-");
     rmTemp(before);
     const ms = calibrateIo(2, 4096); // tiny — this is a unit test, not a benchmark
     expect(ms).toBeGreaterThan(0);

@@ -5,8 +5,7 @@
 // about to commit unchanged, so it never bumps that note's fence. leader-epoch.ts's
 // index_leader_epoch is the whole-batch backstop: index-vault.ts re-checks it inside the SAME
 // transaction a batch commits in, using the epoch the reconcile RUN started with.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -15,10 +14,10 @@ import { indexVault } from "../src/search/indexer";
 import { bumpLeaderEpoch } from "../src/search/indexing/leader-epoch";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function makeVault(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = makeTempDir(prefix);
   writeFileSync(join(root, "note.md"), "# Note\nSome content.\n");
   return root;
 }

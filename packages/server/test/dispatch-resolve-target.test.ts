@@ -4,8 +4,7 @@
 // the idempotency claim, the folder ACL, the replay_drift fingerprint) would be blind to WHICH note
 // the call lands on, so a confirmation raised for note A could be redeemed after focus moved to
 // note B. Every case here is that hazard or a gate ordering it depends on.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -16,7 +15,7 @@ import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import type { RegistryOptions } from "../src/mcp/registry/types";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -29,7 +28,7 @@ function fixture(opts: {
   ownAcl?: FolderAcl;
   onEpisode?: RegistryOptions["onEpisode"];
 }) {
-  const root = mkdtempSync(join(tmpdir(), "obtc-resolve-target-"));
+  const root = makeTempDir("obtc-resolve-target-");
   dirs.push(root);
   mkdirSync(join(root, "private"), { recursive: true });
   for (const f of ["a.md", "b.md", "private/secret.md"]) writeFileSync(join(root, f), `# ${f}`);

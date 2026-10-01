@@ -11,8 +11,7 @@
 // fallback legs cannot fire without fabricating a non-conforming db driver — that would be
 // coverage theater, not a real test. See the final report for detail.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -26,13 +25,13 @@ import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // A second, lower-level harness (mirrors m1-helpers' makeTestVault) that accepts arbitrary M1Deps
 // overrides — configPath / indexVault are baked into the registry at construction time in the
 // real code, so they cannot be exercised through makeTestVault's fixed dep set.
 function makeCustomVault(deps: Partial<M1Deps> = {}) {
-  const root = mkdtempSync(join(tmpdir(), "obtc-regcov-"));
+  const root = makeTempDir("obtc-regcov-");
   const id = deps.vaultRegistry ? undefined : "test";
   const db = openMemoryDb();
   provisionCacheDb(db);
@@ -168,7 +167,7 @@ describe("THE-602 registry-tools branch coverage", () => {
 
   it("add_vault rejects a path that exists but is not a directory (branch 8.0)", async () => {
     const v = makeTestVault();
-    const dir = mkdtempSync(join(tmpdir(), "obtc-addvault-file-"));
+    const dir = makeTempDir("obtc-addvault-file-");
     const filePath = join(dir, "notadir.txt");
     writeFileSync(filePath, "just a file");
     try {
@@ -192,7 +191,7 @@ describe("THE-602 registry-tools branch coverage", () => {
         return { notes_seen: 3 };
       },
     });
-    const dir = mkdtempSync(join(tmpdir(), "obtc-addvault-idx-"));
+    const dir = makeTempDir("obtc-addvault-idx-");
     try {
       const r = await harness.call("add_vault", { vault_id: "extra", path: dir });
       expect(r.ok).toBe(true);
@@ -209,7 +208,7 @@ describe("THE-602 registry-tools branch coverage", () => {
   });
 
   it("reload_vault re-checks an on-disk config when configPath is set and the vault is still listed (branch 15.0 true)", async () => {
-    const cfgDir = mkdtempSync(join(tmpdir(), "obtc-cfg-ok-"));
+    const cfgDir = makeTempDir("obtc-cfg-ok-");
     const configPath = join(cfgDir, "config.json");
     const harness = makeCustomVault({ configPath });
     try {
@@ -234,9 +233,9 @@ describe("THE-602 registry-tools branch coverage", () => {
   });
 
   it("reload_vault reports vault_not_found when the vault was removed from the on-disk config (branch 16.0)", async () => {
-    const cfgDir = mkdtempSync(join(tmpdir(), "obtc-cfg-gone-"));
+    const cfgDir = makeTempDir("obtc-cfg-gone-");
     const configPath = join(cfgDir, "config.json");
-    const otherDir = mkdtempSync(join(tmpdir(), "obtc-cfg-gone-other-"));
+    const otherDir = makeTempDir("obtc-cfg-gone-other-");
     const harness = makeCustomVault({ configPath });
     try {
       // "test" (the registered vault) is no longer in the config; only "other" is.
@@ -365,7 +364,7 @@ describe("THE-602 registry-tools branch coverage", () => {
       // vault-scoped, not just committed_at-scoped.
       const other = await v.call("add_vault", {
         vault_id: "other",
-        path: mkdtempSync(join(tmpdir(), "obtc-regcov-other-")),
+        path: makeTempDir("obtc-regcov-other-"),
       });
       expect(other.ok).toBe(true);
       insert("cap-other-vault", "other", 5, "n.md");

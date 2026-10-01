@@ -67,7 +67,7 @@
     "setup:dco-hook": "node scripts/setup-dco-hook.mjs",
     "setup:git-merge-driver": "node scripts/setup-git-merge-driver.mjs",
     "test": "bun run --filter='*' test",
-    "test:scripts": "node --test scripts/*.test.mjs",
+    "test:scripts": "node scripts/with-tmp-guard.mjs node --test scripts/*.test.mjs",
     "typecheck": "bun run --filter='*' typecheck",
     "where": "node scripts/where-symbol.mjs",
     "migration-impact": "node scripts/migration-impact.mjs",

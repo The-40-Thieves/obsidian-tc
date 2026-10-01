@@ -13,8 +13,7 @@
 // the promotion to land exactly at the outside-vs-inside boundary the fix moved the read across:
 //   - fixed code reads AFTER `BEGIN IMMEDIATE` returns (inside the callback) -> sees the bump.
 //   - pre-fix code read BEFORE `inWriteTransaction` was even called -> never sees it.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
@@ -24,7 +23,7 @@ import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import { bumpLeaderEpoch } from "../src/search/indexing/leader-epoch";
 import { buildRepresentationManifest } from "../src/search/representation";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
 
@@ -78,14 +77,14 @@ afterEach(() => {
 });
 
 function makeVault(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix));
+  const root = makeTempDir(prefix);
   writeFileSync(join(root, "note.md"), "# Note\nSome content.\n");
   return root;
 }
 
 describe("indexVault epoch read happens inside the index_batch write transaction (cross-vendor review fix)", () => {
   it("catches a successor's promotion that commits exactly at the BEGIN IMMEDIATE boundary", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "obtc-epoch-race-"));
+    const dir = makeTempDir("obtc-epoch-race-");
     const dbPath = join(dir, "cache.db");
     const dbA = await openDatabase(dbPath);
     provisionCacheDb(dbA);

@@ -5,21 +5,12 @@
 // of the REAL doc tree via DOCGEN_RENDER_ROOT_OVERRIDE, so the shipped targets/markers/extractors
 // are what is exercised and the working tree is never mutated.
 import { spawnSync } from "node:child_process";
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { isCanonicalEmpty } from "../scripts/docgen/inject";
 import { applyRegions, type RegionTarget } from "../scripts/docgen/render-regions";
+import { makeTempDir } from "./tmp";
 
 const doc = (body: string): string =>
   `# T\n\nprose above\n\n<!-- BEGIN GENERATED: tools -->${body}<!-- END GENERATED: tools -->\n\nprose below\n`;
@@ -121,7 +112,7 @@ afterAll(() => {
 
 /** A copy of the doc surfaces docgen owns, taken from the real tree. */
 function copyDocTree(): string {
-  const dir = mkdtempSync(join(tmpdir(), "docgen-modes-"));
+  const dir = makeTempDir("docgen-modes-");
   scratch.push(dir);
   for (const f of ["README.md", "ARCHITECTURE.md"]) cpSync(`${REPO}/${f}`, `${dir}/${f}`);
   mkdirSync(`${dir}/docs`, { recursive: true });

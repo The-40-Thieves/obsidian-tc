@@ -1,9 +1,3 @@
-// THE-1125 — telemetry/wiring.ts: the composition root. Two acceptance-critical properties live
-// here: (1) the collector is fed from the SAME MetricsRecorder.observeToolCall hook Prometheus
-// uses (no second observation site), and (2) NOTHING leaves the process when telemetry is
-// disabled — not at boot, not across any number of tool calls, not on a forced interval tick.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +6,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { defaultConfiguredFacadeMode, wireTelemetry } from "../src/telemetry/wiring";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function minimalTelemetryConfig(overrides: Partial<ServerConfig["telemetry"]>): ServerConfig {
   return {
@@ -48,7 +42,7 @@ describe("wireTelemetry — collector is fed from MetricsRecorder's ONE observeT
   // before the retrying, Windows-safe `rmTemp` cleanup — see test/tmp.ts's own header.
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   beforeEach(() => {
-    cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-wiring-"));
+    cacheDir = makeTempDir("obtc-telemetry-wiring-");
   });
   afterEach(() => {
     db?.close?.();
@@ -89,7 +83,7 @@ describe("wireTelemetry — nothing leaves the process when disabled (THE-1117 o
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   beforeEach(() => {
     vi.useFakeTimers();
-    cacheDir = mkdtempSync(join(tmpdir(), "obtc-telemetry-disabled-"));
+    cacheDir = makeTempDir("obtc-telemetry-disabled-");
   });
   afterEach(async () => {
     vi.useRealTimers();

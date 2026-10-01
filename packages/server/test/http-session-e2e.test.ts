@@ -15,9 +15,7 @@
 // The in-memory `ActiveSessionTracker` is deliberately NOT wired into these tools. It is the
 // mechanism that made stdio work and HTTP not work, and leaving it out means a pass here can only
 // come from the durable SQLite path.
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
@@ -34,7 +32,7 @@ import { buildSessionTools } from "../src/tools/m5/session-tools";
 import { startHttp } from "../src/transports/http";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -63,8 +61,8 @@ interface Booted {
  * index here would make an unrelated embedding failure look like a session regression.
  */
 async function boot(): Promise<Booted> {
-  const root = mkdtempSync(join(tmpdir(), "obtc-http-sess-"));
-  const agentsRoot = mkdtempSync(join(tmpdir(), "obtc-http-sess-agents-"));
+  const root = makeTempDir("obtc-http-sess-");
+  const agentsRoot = makeTempDir("obtc-http-sess-agents-");
 
   const db = openMemoryDb();
   provisionCacheDb(db);

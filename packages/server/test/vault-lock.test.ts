@@ -7,8 +7,7 @@
 // runtime-agnostic (runs under vitest/Node) and exercises the SAME production module, which
 // itself routes to bun:sqlite/better-sqlite3/node:sqlite via db/open.ts's existing adapter split.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,7 +21,7 @@ import {
   type VaultLeaderElection,
 } from "../src/runtime/vault-lock";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOLDER_PROBE = join(HERE, "vault-lock-holder-probe.ts");
@@ -75,7 +74,7 @@ function deterministicKeepaliveScheduler(fn: () => void, _ms: number): { clear: 
 
 const tmpDirs: string[] = [];
 function tmpDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "otc-vault-lock-"));
+  const d = makeTempDir("otc-vault-lock-");
   tmpDirs.push(d);
   return d;
 }

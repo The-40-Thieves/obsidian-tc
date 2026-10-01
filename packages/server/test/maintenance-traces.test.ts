@@ -1,14 +1,13 @@
 // THE-610: the maintenance sweep's first FILESYSTEM arm. Every other sweep count is rows in
 // cache.db; this one deletes files inside a user's vault, so the tests are deliberately more
 // paranoid than the row-delete ones — what it REFUSES to touch matters as much as what it prunes.
-import { mkdirSync, mkdtempSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { sweepTraceFiles } from "../src/db/maintenance";
 import { appendTrace, resolveTraceDirs, traceRelPath } from "../src/workspace/sessions";
 
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
 // accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
@@ -16,7 +15,7 @@ import { rmTemp } from "./tmp";
 // teardown with every assertion passing, the exact shape PR #627 exists to remove.
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

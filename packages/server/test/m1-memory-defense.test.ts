@@ -13,8 +13,7 @@
 // Every secret value is assembled at runtime from pieces, matching test/memory-defense.test.ts's
 // house rule.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,7 +26,7 @@ import { buildServerRuntime } from "../src/runtime/server-runtime";
 import { contentHash } from "../src/vault/paths";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault, type TestVault } from "./m1-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function un<T>(r: { ok: boolean; data?: unknown }): T {
   return (r as { data: T }).data;
@@ -501,7 +500,7 @@ describe("response echoes are scanned, not raw (item 7)", () => {
 describe("M1 sibling writers — real wiring (buildServerRuntime), block mode refuses through the PRODUCTION composition root (item 1)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

@@ -8,7 +8,7 @@
 // signing key. Only the two end-to-end tests touch jose, to prove the plan is actually what gets
 // signed — a planner that agrees with itself and disagrees with the token is the failure mode that
 // would make all the rest of this vacuous.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { jwtVerify } from "jose";
@@ -20,7 +20,7 @@ import {
   type TokenMintCmd,
 } from "../src/cli/commands/token-mint";
 
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-685: every mkdtempSync here was previously never removed — measured leaking on Linux and
 // accumulating unbounded in %TEMP% on Windows, which never reaps it. Route them through one tracked
@@ -28,7 +28,7 @@ import { rmTemp } from "./tmp";
 // teardown with every assertion passing, the exact shape PR #627 exists to remove.
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

@@ -1,21 +1,3 @@
-// THE-726 slice 3: sessions the SERVER opens.
-//
-// #691 gave the HTTP transport the ability to CARRY a session; #692 proved that end to end. Neither
-// makes a session EXIST — opening one is a deliberate act and no client performs it, which is what
-// left `workspace_sessions` at 0 rows while three clients were actively calling tools.
-//
-// "Client adoption" was the recorded next step, but every client that would need changing is one we
-// do not control, and the same reasoning that turned this from an adoption gap into a transport gap
-// applies once more: a server-side answer exists. It is OFF by default, because correlation changes
-// what this server retains about who read what (the epic's constraint 4).
-//
-// The property that makes the sweep safe is that a server-opened session is STRUCTURALLY
-// distinguishable from a deliberate one: `start_session` requires `caller: z.string().min(1)`, so
-// `caller IS NULL AND principal IS NOT NULL` is a shape only `openImplicitSession` can produce.
-// That is asserted directly below rather than assumed, because the sweep's UPDATE keys on it.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
@@ -42,7 +24,7 @@ import {
   openImplicitSession,
 } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -487,7 +469,7 @@ async function boot(
   sessions?: { autoOpen: boolean; windowSeconds: number },
   facadeMode?: FacadeMode,
 ): Promise<Booted> {
-  const root = mkdtempSync(join(tmpdir(), "obtc-implicit-"));
+  const root = makeTempDir("obtc-implicit-");
   const db = freshDb();
   const vaultRegistry = new VaultRegistry([{ id: "main", path: root }]);
   const registry = new ToolRegistry();

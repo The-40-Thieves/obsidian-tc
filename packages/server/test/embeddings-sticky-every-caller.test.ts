@@ -40,8 +40,7 @@
 // interception) is a materially more expensive test for a narrower property than this file's other
 // seven rows, which none of that machinery touches. This still exercises the real, shared,
 // production resolver — never a re-implementation — with the same inputs doctor.ts itself computes.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run_citation_infer } from "../src/cli/commands/citation-infer";
@@ -58,7 +57,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { isEmbeddingsProviderExplicitOnConfig } from "../src/embeddings/provider-explicit";
 import * as indexingWiring from "../src/runtime/indexing-wiring";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SEEDED_DIMENSIONS = 768;
 
@@ -310,7 +309,7 @@ function captureOutput(): { text: () => string; restore: () => void } {
 describe("every embedding-provider construction entry point keeps a pre-1.31.4 ollama index sticky (THE-1122 round 2, finding 2)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };
@@ -380,7 +379,7 @@ describe("every embedding-provider construction entry point keeps a pre-1.31.4 o
 describe("explicit embeddings.provider survives the real loader + real runtime (GH #995 item 0)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

@@ -38,8 +38,7 @@
 //   - every other "once built" assertion runs unconditionally, against a throwaway copy staged and
 //     built under this file's own `mkdtempSync` root — proving the same route (i) "localModulePath"
 //     mechanics without ever touching the real checkout.
-import { existsSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -56,7 +55,7 @@ import {
   stageRerankerLocalSource,
   writeRerankerLocalAnchorOnly,
 } from "./reranker-local-stage";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RERANKER_LOCAL_DIR = join(HERE, "..", "..", "reranker-local");
@@ -98,7 +97,7 @@ describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
     // anchor-only tree (no dist) for the source-checkout PATH computation, and forces every import
     // attempt to fail for the LADDER's outcome, so this never races (or is raced by) the "route
     // (iii)" describe below building and leaving the real dist.
-    const anchorRoot = mkdtempSync(join(tmpdir(), "obtc-reranker-local-unbuilt-"));
+    const anchorRoot = makeTempDir("obtc-reranker-local-unbuilt-");
     try {
       const startDir = writeRerankerLocalAnchorOnly(anchorRoot);
       const sourceCheckout = resolveSourceCheckoutLocalRerankerPath(startDir);
@@ -186,7 +185,7 @@ describe("local reranker — REAL resolution ladder (THE-705 round 2)", () => {
       // Unique per file: reranker-auto-select.test.ts stages its OWN copy under its own root, so
       // the two can run in parallel without racing each other (unlike the real dist they both used
       // to share).
-      stageRoot = mkdtempSync(join(tmpdir(), "obtc-reranker-local-resolution-"));
+      stageRoot = makeTempDir("obtc-reranker-local-resolution-");
       const stagedPkg = stageRerankerLocalSource(RERANKER_LOCAL_DIR, stageRoot);
       stagedDistEntry = buildStagedRerankerLocal(stagedPkg);
       expect(existsSync(stagedDistEntry)).toBe(true);

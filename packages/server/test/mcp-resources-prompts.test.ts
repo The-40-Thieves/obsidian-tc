@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,7 +13,7 @@ import {
   readResource,
 } from "../src/mcp/resources";
 import { VaultRegistry } from "../src/vault/registry";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-685: every temp dir this suite creates is tracked and removed. These calls previously had NO
 // teardown at all — a leak on every OS, invisible on POSIX (where /tmp is reaped) and unbounded on
@@ -23,7 +22,7 @@ import { rmTemp } from "./tmp";
 // derived from suites that already had teardown, so by construction it could not reach this one.
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

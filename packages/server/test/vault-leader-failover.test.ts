@@ -9,21 +9,12 @@
 // Test 2: killing the leader -9 lets the follower promote and run its OWN reconcile (embed) within
 // the follower retry window (vault-lock.ts's default 5-15s jittered retry).
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 
@@ -74,7 +65,7 @@ beforeAll(() => {
 
 const tmpDirs: string[] = [];
 function tmpDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 }

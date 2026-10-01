@@ -4,8 +4,7 @@
 // only under erase — the audit default KEEPS it), invalidates a prewarm bundle that mentions
 // the target, and reports (never mutates) syntheses/contradictions/reflections.
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
@@ -19,7 +18,7 @@ import {
   verifyForgetLog,
 } from "../src/experiential/forget";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const sql = (p: string): string =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${p}`, import.meta.url)), "utf8");
@@ -44,7 +43,7 @@ function edb0(): Database {
   return db;
 }
 
-const dir = mkdtempSync(join(tmpdir(), "obtc-forget-"));
+const dir = makeTempDir("obtc-forget-");
 afterAll(() => rmTemp(dir));
 
 describe("forget_log hash chain (THE-239)", () => {

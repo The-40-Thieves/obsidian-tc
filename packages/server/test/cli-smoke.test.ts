@@ -12,14 +12,13 @@
 // extraction can actually introduce (a branch that stops returning, a wrong exit code, a lost guard).
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUNDLE_FORMAT_VERSION } from "../src/experiential/context-bundle-schema";
 import { type CliRun, runBunSync } from "./spawn-cli";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -32,7 +31,7 @@ let configPath: string;
 let vaultPath: string;
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "obtc-cli-"));
+  dir = makeTempDir("obtc-cli-");
   vaultPath = join(dir, "vault");
   writeFileSync(join(dir, "ignore.md"), "x"); // ensure dir exists on all platforms
   mkdirSync(vaultPath, { recursive: true });
@@ -228,7 +227,7 @@ describe.skipIf(!bunAvailable)(
           );
 
           // Import into a SEPARATE, fresh install (own cacheDir) — --dry-run first.
-          const importDir = mkdtempSync(join(tmpdir(), "obtc-cli-import-"));
+          const importDir = makeTempDir("obtc-cli-import-");
           const importVault = join(importDir, "vault");
           mkdirSync(importVault, { recursive: true });
           const importConfigPath = join(importDir, "config.json");

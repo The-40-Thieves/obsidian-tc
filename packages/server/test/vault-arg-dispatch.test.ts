@@ -11,9 +11,6 @@
 // declaration). Mirrors cross-vault-binding.test.ts / per-vault-acl.test.ts /
 // the-569-vault-kind-gate.test.ts / acl-extraction-coverage.test.ts's own per-mechanism harnesses.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -21,7 +18,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -126,7 +123,7 @@ describe("THE-513 Part 2: vaultArgOf drives all four dispatch-stage vault reads"
   });
 
   it("central pathAcl enforcement (THE-414) resolves root for the declared vaultArg's value", async () => {
-    const root = mkdtempSync(join(tmpdir(), "obtc-vaultarg-central-"));
+    const root = makeTempDir("obtc-vaultarg-central-");
     try {
       const acl = new FolderAcl({
         readOnly: false,

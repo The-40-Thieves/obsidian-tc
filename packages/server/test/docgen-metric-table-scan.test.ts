@@ -5,18 +5,17 @@
 // throwaway repo tree (see docgen-marker-scan.test.ts) rather than this repo's real docs, so the
 // case-(c) logic is proven independent of whatever the live catalog currently looks like.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findHandWrittenMetricTables } from "../scripts/docgen/metric-table-scan";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 let repoRoot: string;
 
 beforeEach(() => {
-  repoRoot = mkdtempSync(join(tmpdir(), "obtc-metric-table-scan-"));
+  repoRoot = makeTempDir("obtc-metric-table-scan-");
   mkdirSync(join(repoRoot, "docs"), { recursive: true });
 });
 

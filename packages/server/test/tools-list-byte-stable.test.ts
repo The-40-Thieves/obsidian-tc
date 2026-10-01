@@ -20,15 +20,14 @@
 // with vault contents, so it is asserted equal as a whole, not just in part.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ToolRegistry } from "../src/mcp/registry";
 import { stallTimeout } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -54,7 +53,7 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 let root: string;
 beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), "obtc-tools-list-stable-"));
+  root = makeTempDir("obtc-tools-list-stable-");
 });
 afterAll(() => rmTemp(root));
 

@@ -6,13 +6,11 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -22,7 +20,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { type M3Deps, registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const OPEN: AclConfigT = { readOnly: false, defaultScopes: [], rules: [] };
 
@@ -37,10 +35,10 @@ const PDF = Buffer.concat([
 ]);
 
 function boot(opts: { maxAttachmentBytes?: number; files?: Record<string, string | Buffer> } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "obtc-wa-"));
-  const otherRoot = mkdtempSync(join(tmpdir(), "obtc-wa-b-"));
-  const outside = mkdtempSync(join(tmpdir(), "obtc-wa-out-"));
-  const roRoot = mkdtempSync(join(tmpdir(), "obtc-wa-ro-"));
+  const root = makeTempDir("obtc-wa-");
+  const otherRoot = makeTempDir("obtc-wa-b-");
+  const outside = makeTempDir("obtc-wa-out-");
+  const roRoot = makeTempDir("obtc-wa-ro-");
   const put = (rel: string, data: string | Buffer, base = root): void => {
     mkdirSync(dirname(join(base, rel)), { recursive: true });
     writeFileSync(join(base, rel), data);

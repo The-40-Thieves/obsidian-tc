@@ -7,9 +7,6 @@
 // second, local harness that seeds that table directly — mirrors the pattern in
 // test/frontmatter-tools-branch-coverage.test.ts's makeIndexedVault.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -21,7 +18,7 @@ import { contentHash } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 function errCode(r: ToolResult): string {
   if (r.ok) throw new Error("expected an error result");
@@ -46,7 +43,7 @@ function makeIndexedTagsVault(opts: { rows: IndexedRow[]; acl?: Partial<AclConfi
   call: (name: string, input: Record<string, unknown>) => Promise<ToolResult>;
   cleanup: () => void;
 } {
-  const root = mkdtempSync(join(tmpdir(), "obtc-tags-idx-"));
+  const root = makeTempDir("obtc-tags-idx-");
   const db: Database = openMemoryDb();
   provisionCacheDb(db);
   const insert = db.prepare(

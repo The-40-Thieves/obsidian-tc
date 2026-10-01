@@ -13,12 +13,11 @@
 // `setup-write.test.ts` "--force preserves a STRICTER existing mode"). Must clear read-only and
 // retry, or fall back to copying the temp file's bytes over the target in place, rather than fail
 // the whole write after the pre-write backup has already been made.
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupDecision } from "../src/cli/setup/decide";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // Fix round 2 (finding 4): the no-`--force` exclusive-create fallback now ALSO finalizes via
 // `renameSync` (moving an already-staged, complete file onto `target` — write.ts's own header on
@@ -58,7 +57,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix));
+  const d = makeTempDir(prefix);
   tmpDirs.push(d);
   return d;
 };

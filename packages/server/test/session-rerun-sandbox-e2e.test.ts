@@ -25,13 +25,12 @@
 // to observe the actual operator-facing surface (real argv parsing, real process boundary) without
 // that risk, and it is also the most faithful "run_rerun end to end" available.
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import {
@@ -42,6 +41,7 @@ import {
 } from "../src/workspace/sessions";
 import { type CliRun, runBunSync } from "./spawn-cli";
 import { stallTimeout } from "./stall-timeouts";
+import { makeTempDir, sweepTempByPrefix } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -73,6 +73,11 @@ function runCliAsync(args: string[]): Promise<Run> {
     child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
   });
 }
+
+// The CLI child owns `obtc-rerun-*` sandbox dirs and, on Windows, deliberately leaves one when its
+// own removal hits a file lock (workspace/rerun-sandbox-cleanup.ts sweeps them on a LATER run).
+// This test is that later run's stand-in: the children are gone by now, so remove what they left.
+afterAll(() => sweepTempByPrefix("obtc-rerun-"));
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -149,9 +154,9 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
   it("re-issuing a recorded patch_note under --sandbox leaves the real note untouched", {
     timeout: stallTimeout(30_000),
   }, async () => {
-    const vaultDir = mkdtempSync(join(tmpdir(), "obtc-sbx-vault-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-cache-"));
-    const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-conf-"));
+    const vaultDir = makeTempDir("obtc-sbx-vault-");
+    const cacheDir = makeTempDir("obtc-sbx-cache-");
+    const confDir = makeTempDir("obtc-sbx-conf-");
     dirs.push(vaultDir, cacheDir, confDir);
     writeFileSync(join(vaultDir, "a.md"), "original");
     const configPath = join(confDir, "config.json");
@@ -196,10 +201,10 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
   it("a session recorded against the SECOND of two vaults still leaves that vault untouched under --sandbox with no --vault", {
     timeout: stallTimeout(30_000),
   }, async () => {
-    const vault1Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-v1-"));
-    const vault2Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-v2-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-cache2-"));
-    const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-conf2-"));
+    const vault1Dir = makeTempDir("obtc-sbx-v1-");
+    const vault2Dir = makeTempDir("obtc-sbx-v2-");
+    const cacheDir = makeTempDir("obtc-sbx-cache2-");
+    const confDir = makeTempDir("obtc-sbx-conf2-");
     dirs.push(vault1Dir, vault2Dir, cacheDir, confDir);
     writeFileSync(join(vault1Dir, "a.md"), "v1-original");
     writeFileSync(join(vault2Dir, "a.md"), "v2-original");
@@ -243,10 +248,10 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
   it("a record whose captured args name ANOTHER vault is refused, while a matching record still runs", {
     timeout: stallTimeout(30_000),
   }, async () => {
-    const vault1Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-x1-"));
-    const vault2Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-x2-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-cachex-"));
-    const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-confx-"));
+    const vault1Dir = makeTempDir("obtc-sbx-x1-");
+    const vault2Dir = makeTempDir("obtc-sbx-x2-");
+    const cacheDir = makeTempDir("obtc-sbx-cachex-");
+    const confDir = makeTempDir("obtc-sbx-confx-");
     dirs.push(vault1Dir, vault2Dir, cacheDir, confDir);
     writeFileSync(join(vault1Dir, "a.md"), "v1-original");
     writeFileSync(join(vault2Dir, "a.md"), "v2-original");
@@ -310,9 +315,9 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     await new Promise<void>((ok) => app.listen(0, "127.0.0.1", ok));
     const port = (app.address() as AddressInfo).port;
     try {
-      const vaultDir = mkdtempSync(join(tmpdir(), "obtc-sbx-bridge-vault-"));
-      const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-bridge-cache-"));
-      const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-bridge-conf-"));
+      const vaultDir = makeTempDir("obtc-sbx-bridge-vault-");
+      const cacheDir = makeTempDir("obtc-sbx-bridge-cache-");
+      const confDir = makeTempDir("obtc-sbx-bridge-conf-");
       dirs.push(vaultDir, cacheDir, confDir);
       writeFileSync(join(vaultDir, "a.md"), "original");
       const configPath = join(confDir, "config.json");
@@ -374,9 +379,9 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
   it("a session whose vault_id names no configured vault exits 2 under --sandbox", {
     timeout: stallTimeout(30_000),
   }, async () => {
-    const vaultDir = mkdtempSync(join(tmpdir(), "obtc-sbx-ghost-vault-"));
-    const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-ghost-cache-"));
-    const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-ghost-conf-"));
+    const vaultDir = makeTempDir("obtc-sbx-ghost-vault-");
+    const cacheDir = makeTempDir("obtc-sbx-ghost-cache-");
+    const confDir = makeTempDir("obtc-sbx-ghost-conf-");
     dirs.push(vaultDir, cacheDir, confDir);
     writeFileSync(join(vaultDir, "a.md"), "original");
     const configPath = join(confDir, "config.json");

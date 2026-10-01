@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,6 +8,7 @@ import { applyImport } from "../src/memory-import/apply";
 import { buildParsedSource } from "../src/memory-import/plan";
 import { makeMemoryImportHarness } from "./memory-import-helpers";
 import { stallTimeout } from "./stall-timeouts";
+import { makeTempDir } from "./tmp";
 
 const FIXTURE_ROOT = fileURLToPath(new URL("fixtures/memory-import/basic-memory", import.meta.url));
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 function scratch(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = makeTempDir(prefix);
   dirs.push(dir);
   return dir;
 }

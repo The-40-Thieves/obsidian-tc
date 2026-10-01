@@ -1,27 +1,3 @@
-// THE-853 (security, cross-vendor review follow-up) — `vault_context`'s lesson-leg BM25 backfill
-// (`createVaultContextTool`, "THE-231 lessons leg" in vault-context.ts) is the second additional
-// direct `bm25Chunks` caller the original THE-853 pass missed: `for (const h of bm25Chunks(ctx.db,
-// v.id, query, 40, (p) => readableRel(ctx.acl, p)))` never passed an `aclSetId`, so a restricted
-// caller always took the over-fetch-then-JS-filter fallback and its THE-695 residual
-// length-interference channel for this leg specifically — separate from (and in addition to) the
-// main graphSearch engine leg, which THE-853's first pass already fixed (seed_generation.ts).
-//
-// Dispatches the REAL tool through the registry (same style as
-// graph-acl-walk-filter-wiring.test.ts's THE-852 wiring suite) rather than unit-testing bm25Chunks
-// again — bm25-acl-exact.test.ts already proves the SQL join itself is correct; this proves the
-// CALL SITE threads the caller's resolved aclSetId into it.
-//
-// Fixture control: classRouter is OFF, so route.class is always "standard" and the lesson leg's
-// backfill loop is the ONLY bm25Chunks call under test (lexicalRouteResults, THE-853's other new
-// site, is exercised by router-lexical-route-acl.test.ts and the graph-search vault_graph_search
-// dispatch elsewhere). finalTopK is pinned to 1 with a filler chunk that has BOTH the strongest
-// possible dense rank (cosine 1.0, exact query match) and a source-rank tie-break advantage over
-// any lexical-only candidate, so the engine's own top-K result set is guaranteed to contain no
-// lesson-class chunk — forcing every lesson in the response to come through the backfill loop
-// under test, never through the (already-fixed) main engine arm.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -33,7 +9,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "main";
 const GRANTED = new Set(["read:notes"]);
@@ -98,7 +74,7 @@ const RESTRICTED_ACL: AclConfigT = {
   readPaths: ["public/**", "09-reference/**"], // denies secret/**
 };
 
-const root = mkdtempSync(join(tmpdir(), "obtc-vc-lessons-"));
+const root = makeTempDir("obtc-vc-lessons-");
 afterAll(() => rmTemp(root));
 
 function harness(db: Database) {

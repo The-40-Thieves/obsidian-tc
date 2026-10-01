@@ -1,18 +1,10 @@
-// GH #995: real-wiring proof that the sticky-embeddings-provider resolution (embeddings/sticky-
-// provider.ts) is not just a pure function returning the right answer — the PROVIDER buildServerRuntime
-// actually constructs, and every tool surface that reports it, must agree. Uses the SAME
-// buildServerRuntime + configFromVaultPath composition root run_serve uses (server-runtime.test.ts's
-// own pattern), with a cache.db pre-seeded as if a pre-1.31.4 install had already indexed this vault
-// under "ollama" — the exact upgrade scenario GH #995 reports.
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 // THE-1122 review round 2 (Medium 6): the fixture used to seed 4-dim vectors while production
 // resolution forced a hardcoded 768 — the mismatch never failed because the test only asserted
@@ -23,7 +15,7 @@ const SEEDED_DIMENSIONS = 1024;
 describe("buildServerRuntime — GH #995 sticky embeddings provider (real wiring)", () => {
   const tmpDirs: string[] = [];
   const tmpDir = (prefix: string): string => {
-    const d = mkdtempSync(join(tmpdir(), prefix));
+    const d = makeTempDir(prefix);
     tmpDirs.push(d);
     return d;
   };

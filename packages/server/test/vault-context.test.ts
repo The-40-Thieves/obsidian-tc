@@ -5,8 +5,7 @@
 // rare term) so no embedding backend is needed — same dispatch path as serve.
 
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
@@ -20,7 +19,7 @@ import { registerM7Tools } from "../src/tools/m7";
 import { packBudget } from "../src/tools/m7/knowledge-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const expSql = readFileSync(
   fileURLToPath(new URL("../src/migrations/20260626_001_experiential_init.sql", import.meta.url)),
@@ -125,7 +124,7 @@ function un<T>(r: unknown): T {
   return (r as { data: T }).data;
 }
 
-const root = mkdtempSync(join(tmpdir(), "obtc-vc-"));
+const root = makeTempDir("obtc-vc-");
 afterAll(() => rmTemp(root));
 
 function harness(edb?: Database, rootOverride?: string, prewarmDir?: string) {
@@ -255,7 +254,7 @@ describe("vault_context (THE-132)", () => {
   });
 
   it("bootstrap mode: no query reads the next-session signal note (THE-231)", async () => {
-    const root2 = mkdtempSync(join(tmpdir(), "obtc-vc-boot-"));
+    const root2 = makeTempDir("obtc-vc-boot-");
     mkdirSync(join(root2, "memory"), { recursive: true });
     writeFileSync(
       join(root2, "memory", "_next-session.md"),
@@ -274,8 +273,8 @@ describe("vault_context (THE-132)", () => {
   });
 
   it("bootstrap serves a fresh prewarm entry without recomposing (THE-136)", async () => {
-    const root4 = mkdtempSync(join(tmpdir(), "obtc-vc-warm-"));
-    const warmDir = mkdtempSync(join(tmpdir(), "obtc-warm-"));
+    const root4 = makeTempDir("obtc-vc-warm-");
+    const warmDir = makeTempDir("obtc-warm-");
     mkdirSync(join(root4, "memory"), { recursive: true });
     // "zylo thread" routes STANDARD (df=0 tokens) — a live compose would hit the throwing
     // embed stub, so a successful response proves the cache served it.
@@ -332,8 +331,8 @@ describe("vault_context (THE-132)", () => {
   });
 
   it("expired and empty prewarm entries fall through to a live compose + write-through", async () => {
-    const root5 = mkdtempSync(join(tmpdir(), "obtc-vc-stale-"));
-    const warm5 = mkdtempSync(join(tmpdir(), "obtc-warm5-"));
+    const root5 = makeTempDir("obtc-vc-stale-");
+    const warm5 = makeTempDir("obtc-warm5-");
     mkdirSync(join(root5, "memory"), { recursive: true });
     const signalText = "resume the zylophrastic reconciler migration thread";
     writeFileSync(join(root5, "memory", "_next-session.md"), signalText);
@@ -386,7 +385,7 @@ describe("vault_context (THE-132)", () => {
   });
 
   it("no query and no signal note is invalid_input", async () => {
-    const root3 = mkdtempSync(join(tmpdir(), "obtc-vc-empty-"));
+    const root3 = makeTempDir("obtc-vc-empty-");
     try {
       const { registry, ctx } = harness(undefined, root3);
       const r = (await registry.dispatch("vault_context", { vault: "main" }, ctx)) as {
