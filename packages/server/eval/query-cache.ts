@@ -60,7 +60,7 @@ const reps = Number(flag("--reps") ?? 5);
 const seed = Number(flag("--seed") ?? 20260930);
 if (!configPath || !goldenPath || !vecsPath || !mode || !out) {
   process.stderr.write(
-    "usage: bun eval/query-cache.ts <config.json> <golden-set> --query-vecs <vecs.json> --mode latency|isolation|bump|memory|embed --json <out.json> [--tool T] [--distinct N] [--repeat-rate R] [--reps N] [--embed stub|live] [--seed S]\n",
+    "usage: bun eval/query-cache.ts <config.json> <golden-set> --query-vecs <vecs.json> --mode latency|isolation|bump|memory|embed --json <out.json> [--tool T] [--distinct N] [--repeat-rate R] [--reps N] [--embed stub|live] [--seed S] [--cache-entries N]\n",
   );
   process.exit(2);
 }
@@ -125,7 +125,11 @@ function makeRegistry(caches?: RetrievalCaches): ToolRegistry {
   });
   return registry;
 }
-const newCaches = () => createRetrievalCaches({ maxEntries: MAX_ENTRIES, ttlMs: TTL_MS });
+const newCaches = (entries = MAX_ENTRIES) =>
+  createRetrievalCaches({ maxEntries: entries, ttlMs: TTL_MS });
+// isolation and bump replay a working set larger than 64 entries; a cache that evicts it before the
+// replay would make both arms vacuous (no hit to isolate or invalidate), so they size it explicitly.
+const workingSetEntries = Number(flag("--cache-entries") ?? MAX_ENTRIES);
 
 function inputFor(q: string, topK?: number): Record<string, unknown> {
   switch (tool) {
@@ -357,7 +361,7 @@ if (mode === "latency") {
   }
   const off: Timed[] = [];
   for (const s of seq) off.push(await call(offRegistry, ctxOf(s.who), hasQuery(s.qi).query_text));
-  const caches = newCaches();
+  const caches = newCaches(workingSetEntries);
   const onRegistry = makeRegistry(caches);
   const on: Timed[] = [];
   for (const s of seq) on.push(await call(onRegistry, ctxOf(s.who), hasQuery(s.qi).query_text));
@@ -400,7 +404,7 @@ if (mode === "latency") {
   result.perQueryLimitedTo = n;
 } else if (mode === "bump") {
   const n = Math.min(100, queries.length);
-  const caches = newCaches();
+  const caches = newCaches(workingSetEntries);
   const onRegistry = makeRegistry(caches);
   const pass = async (registry: ToolRegistry) => {
     const t: Timed[] = [];
