@@ -148,11 +148,9 @@ const ExplainAnswerAvailable = z.object({
   scope: z.enum(["session", "time_window"]),
   links: z.array(LineageLinkSchema),
   summary: LineageSummarySchema,
-  /** Present when NOTHING in the chain is judge-backed, so a caller cannot read zero citations
-   *  as evidence the sources went unused. Null once any row is stamped. */
+  /** Set when NOTHING in the chain is judge-backed: zero citations is not "sources went unused". */
   caveat: z.string().nullable(),
-  /** THE-717: what the citation run log knows about this window. `recorded_runs: 0` means NO
-   *  RECORD, which is weaker than "never ran" — the log does not extend backwards. */
+  /** THE-717: `recorded_runs: 0` means NO RECORD, weaker than "never ran". */
   citation_pass: z.object({
     recorded_runs: z.number(),
     last_ran_at: z.number().nullable(),
@@ -162,10 +160,6 @@ const ExplainAnswerAvailable = z.object({
 });
 export const ExplainAnswerOutput = z.union([ExplainAnswerUnavailable, ExplainAnswerAvailable]);
 
-/** GH #1027: the advertised explain_answer contract. `response_format=concise` drops `summary` (the
- *  counts are derivable from `links`) and, per link, the retrieval echo (`retrieved_at`,
- *  `surface_type`, `query_text`, `rank_in_results`) plus a null `episode_id`. `caveat` and
- *  `citation_pass` are what keep an unjudged chain from reading as an unused one, so they stay. */
 export const ConciseableExplainAnswerOutput = z.union([
   ExplainAnswerUnavailable,
   ExplainAnswerAvailable.extend({
@@ -265,11 +259,7 @@ export const VaultContextOutput = z.object({
   prefetch_generated_at: z.number().optional(),
 });
 
-/** GH #1027: the advertised vault_context contract. `response_format=concise` drops `route`,
- *  `query_source`, `signal`, `signal_hash`, `budget` and `stats` (echoes and counts derivable from the
- *  payload), each chunk's `source` and `hop` and each lesson's `via` (retrieval provenance). The
- *  prewarm cache keeps validating against the full VaultContextOutput above, because it stores the
- *  detailed bundle and shapes it on the way out. */
+/** GH #1027: advertised contract; the prewarm cache still validates against the full output. */
 export const ConciseableVaultContextOutput = VaultContextOutput.extend({
   route: VaultContextOutput.shape.route.optional(),
   query_source: VaultContextOutput.shape.query_source.optional(),
@@ -352,9 +342,7 @@ export const DiagnoseRetrievalOutput = z.object({
   stages: z.array(RetrievalTraceStageSchema),
 });
 
-/** GH #1027: `response_format=concise` answers with `returned`, `dropped_at` and `summary` and drops
- *  the per-stage trace and the `query` / `path` echo. The shape is identical for a readable and an
- *  unreadable path, so concise does not open the ACL oracle the handler's header closes. */
+/** GH #1027: concise is identical for a readable and an unreadable path: no ACL oracle. */
 export const ConciseableDiagnoseRetrievalOutput = DiagnoseRetrievalOutput.partial({
   query: true,
   path: true,
@@ -422,8 +410,6 @@ export const KnowledgeCriticalOutput = z.object({
   ),
 });
 
-/** GH #1027: `response_format=concise` drops `count` (the length of `items`) and each item's
- *  `severity`, which is the constant "critical" for every row this tool can return. */
 export const ConciseableKnowledgeCriticalOutput = KnowledgeCriticalOutput.extend({
   count: z.number().optional(),
   items: z.array(

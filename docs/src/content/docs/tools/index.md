@@ -248,6 +248,30 @@ what a caller acts on and drop the rest:
   `removed[]` and `prev_hash`. A dry run keeps them, because they are the preview and the inputs
   of the confirming call.
 
+The knowledge-read, link-health, bundle and canvas-reader tools also take it: `vault_context`,
+`explain_answer`, `diagnose_retrieval`, `knowledge_get_critical`, `audit_provenance`,
+`vault_health_score`, `suggest_links`, `suggest_tags`, `bundle_files`, `bundle_folder` and
+`read_canvas` (and `get_provenance`, which drops the host, the full path list, the record hash and
+the machine field).
+
+- `vault_context` keeps the packed notes with `{ chunk_id, content, score }` per chunk, the
+  syntheses, the open contradictions, the lessons as `{ chunk_id, path, excerpt }`, the episodes,
+  `diff_since` and the prefetch pair; it drops the route signals, the query source, the budget and
+  stats blocks, and each chunk's `source` and `hop`.
+- `explain_answer` keeps each link's chunk, path, whether the chunk still resolves, the citation
+  verdict and score and the correlation, plus `caveat` and `citation_pass` (they stop an unjudged
+  chain reading as an unused one); it drops `summary` and each link's retrieval echo.
+  `diagnose_retrieval` returns `{ vault, returned, dropped_at, summary }`.
+  `knowledge_get_critical` returns `{ path, title, category, source }` per document.
+- `audit_provenance` drops the `field` echo, `with_provenance` and the `by_folder` breakdown;
+  `vault_health_score` drops `total_links` and the per-penalty `breakdown`; `suggest_links`
+  returns `{ path, score }` per suggestion; `suggest_tags` returns `source` and the suggestions.
+- `bundle_files` and `bundle_folder` keep the bundle text, `file_count`, `truncated` and (per
+  tool) the resume `cursor` or `missing_paths`; they drop the per-file list (each path already
+  heads its block in the bundle), `total_bytes` and the `root` echo. `read_canvas` keeps what a
+  node says and what an edge joins, and drops the layout (geometry, background, edge sides and
+  ends) and the two counts.
+
 Concise never drops a safety signal: a non-empty `quality_warning`, a `poison_assessment`
 other than `none` (`list_capture_queue` always keeps it), `redactions`, a redacted `to_target`
 echo from `rewrite_link`, the trust and eligibility of a work episode, and a `patch_note` call's
@@ -271,13 +295,26 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `episode_stats` | Aggregate counts only. |
 | `find_orphans` | Bare paths already. |
 | `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search` | Read-only proxies of an external payload this server does not own. |
+| `reflect`, `knowledge_challenge` | The synthesized answer or verdict and its evidence are the product; the rest is a few short fields. |
+| `find_link_cycles`, `graph_centrality`, `graph_path_between` | The path lists, ranked rows or hop chain are the payload; the rest is a count or a presence flag. |
+| `get_link_strength` | One scored row: every field is a component of the score. |
+| `graph_communities` | The communities are the payload; `modularity`, `meaningful` and the chance warning are safety signals. |
+| `git_status`, `git_diff`, `git_log`, `git_stage`, `git_commit` | Opaque Obsidian Git companion passthrough or acknowledgement. `git_commit` also returns any `stamped_trailers`, which are provenance a caller must see. |
+| `ocr_attachment`, `ocr_bulk` | Opaque Text Extractor passthrough: the extracted text is the payload. |
+| `read_base`, `query_base`, `read_kanban_board`, `query_canvas` | The parsed document, resolved rows, columns and cards or matching nodes are the payload; `content_hash` is the compare-and-swap token. |
+| `create_base`, `update_base`, `create_canvas`, `update_canvas`, `add_kanban_card`, `move_kanban_card` | Write acknowledgements: counts, any deprecation notice and the compare-and-swap hashes the next write needs. |
+| `read_excalidraw`, `create_excalidraw`, `update_excalidraw` | `read_excalidraw` already selects its payload with `format`; the rest is opaque Excalidraw companion JSON or an acknowledgement. |
+| `format_table`, `insert_table_column`, `insert_table_row`, `sort_table_by_column` | Write acknowledgements: row and column counts, the compare-and-swap hashes and the `redactions` signal. |
+| `eval_dataview_field`, `validate_dql`, `search_dql`, `query_datacore` | Opaque Dataview or Datacore companion passthrough: the value, AST, rows or parse-error location is the payload (`search_dql` also returns `note_paths`, which index the matched notes). |
+| `makemd_list_spaces`, `makemd_query`, `search_omnisearch` | Opaque MakeMD or Omnisearch companion passthrough: the items or hits are the payload. |
+| `remotely_save_status`, `remotely_save_trigger` | Opaque Remotely Save companion passthrough or acknowledgement. |
 
-Every other tool is not yet covered: the git tools, the bases, canvas, Excalidraw, Kanban and
-table tools, the bundle and OCR tools, `vault_context`, `reflect`, `knowledge_challenge`,
-`explain_answer`, `diagnose_retrieval`, `knowledge_get_critical`, the memory, session and goal
-writes, and the vault, index and server administration tools. They return the full payload in
-both formats. A test fails when a newly registered tool is in none of the three groups (covered,
-listed above, or not yet covered), so the decision cannot be skipped.
+Every other tool is not yet covered: the memory, session, goal and episode writes and
+acknowledgements, the note, attachment, tag, property and snapshot operations, the bookmark,
+workspace, periodic-note, template, task and plugin actions, and the vault registry, index and
+server administration tools. They return the full payload in both formats and are being reviewed
+in a later part. A test fails when a newly registered tool is in none of the three groups
+(covered, listed above, or not yet covered), so the decision cannot be skipped.
 
 ## Degradation & errors
 

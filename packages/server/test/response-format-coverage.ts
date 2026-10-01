@@ -3,7 +3,8 @@
 //   2. EXEMPT_FROM_RESPONSE_FORMAT: reviewed, and concise would drop nothing a caller can spare,
 //   3. NOT_YET_COVERED_BY_RESPONSE_FORMAT: not reviewed yet, so still detailed-only.
 // response-format-coverage.test.ts enforces the partition, so a new tool cannot skip the decision.
-// Moving a tool from list 3 to "aware" means deleting its name here, nothing else.
+// Moving a tool from list 3 to "aware" means deleting its name here, nothing else. Part 4b of #1027
+// owns what is left on list 3.
 //
 // The exempt reasons are mirrored in the "Response format" section of the user docs.
 

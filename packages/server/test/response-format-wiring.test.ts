@@ -90,8 +90,8 @@ describe("tools.defaults.responseFormat at the composition root", () => {
   });
 });
 
-// The one `const responseFormat` in tool-wiring.ts feeds M1, M2, M3, M5, M7 and M8 alike; read_note
-// above proves M1. These prove the other four domains each received it, by the one field per tool
+// The one `const responseFormat` in tool-wiring.ts feeds M1, M2, M3, M4, M5, M7 and M8 alike; read_note
+// above proves M1. These prove the other domains each received it, by the one field per tool
 // that only a detailed response carries.
 type Step = [tool: string, args: Record<string, unknown>];
 
@@ -161,6 +161,14 @@ const DOMAIN_CASES: Array<{
     isDetailed: has("total_returned"),
   },
   {
+    // registerM4Tools takes its deps as one object, so a dropped `responseFormat,` there is
+    // invisible to the type checker (the field is optional): only this case goes red.
+    domain: "m4 bundle_files",
+    steps: [["bundle_files", { paths: ["n.md"] }]],
+    files: { "n.md": "# N\n\nbody\n" },
+    isDetailed: has("total_bytes"),
+  },
+  {
     domain: "m5 list_capture_queue",
     steps: [
       ["enqueue_capture", { content: "a plain note about foxes" }],
@@ -198,7 +206,7 @@ const DOMAIN_CASES: Array<{
   },
 ];
 
-describe("tools.defaults.responseFormat reaches the m3, m5, m7 and m8 tools", () => {
+describe("tools.defaults.responseFormat reaches the m3, m4, m5, m7 and m8 tools", () => {
   for (const c of DOMAIN_CASES) {
     it(`${c.domain}: detailed by default, concise when the config says so`, async () => {
       const run = (shape: "default" | "concise") =>
