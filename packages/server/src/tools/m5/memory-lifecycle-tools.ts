@@ -152,7 +152,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         const newPath = entityNotePath(folder, e.entity_type, nextName);
         // As in create_entity: the destination must be readable BEFORE the collision lookup, so
         // "already exists" is only said about an entity the caller could read anyway.
-        if (renaming) assertMemoryPathReadable(ctx, newPath);
+        if (renaming) assertMemoryPathReadable(ctx, v.root, newPath);
         if (renaming && findEntity(ctx.db, v.id, e.entity_type, nextName))
           throw err.invalidInput("entity already exists", { type: e.entity_type, name: nextName });
         // Pre-check the materialization ACL BEFORE mutating SQLite (mirrors create_entity /

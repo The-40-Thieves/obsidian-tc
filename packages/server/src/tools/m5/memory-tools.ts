@@ -177,7 +177,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const notePath = entityNotePath(folder, type, name);
         // READ (and, materializing, WRITE) the claimed path BEFORE the collision lookup, so "already
         // exists" is only said to a caller who could read that entity; no orphan row on a denial.
-        assertMemoryPathReadable(ctx, notePath);
+        assertMemoryPathReadable(ctx, v.root, notePath);
         if (input.materialize)
           enforcePathAcl(ctx.acl, "write", notePath, v.root, ctx.grantedScopes);
         if (findEntity(ctx.db, v.id, type, name))
