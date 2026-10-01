@@ -23,6 +23,8 @@ import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { resolveVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
+import { conciseVaultContext } from "./concise-reads";
 import { advanceContextWatermark, readContextWatermark } from "./context-watermark";
 import type { M7Deps } from "./deps";
 import {
@@ -38,14 +40,14 @@ import {
   resolveAclWalkFilter,
   retrievalHits,
 } from "./retrieval-runtime";
-import { VaultContextOutput } from "./schemas";
+import { ConciseableVaultContextOutput, VaultContextOutput } from "./schemas";
 
 export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime): ToolDefinition {
   return defineTool({
     name: "vault_context",
     domain: "knowledge",
     description:
-      "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, open contradictions on the packed notes, and applicable past lessons (decision/lesson/postmortem chunks relevant to the query) — with source metadata and packing stats. include_work adds eligible work-memory episodes (the work-memory reader contract; explicit opt-in, never default). Omit query for session bootstrap: the queued thread is read from the memory folder's _next-session.md signal note, so every session opens with its applicable lessons (push, not pull).",
+      "Composite budgeted context in ONE call (the Honcho-style context() primitive): graph-reranked chunks packed to a token budget and grouped by note, recent synthesis patterns touching the query, open contradictions on the packed notes, and applicable past lessons (decision/lesson/postmortem chunks relevant to the query) — with source metadata and packing stats. include_work adds eligible work-memory episodes (the work-memory reader contract; explicit opt-in, never default). Omit query for session bootstrap: the queued thread is read from the memory folder's _next-session.md signal note, so every session opens with its applicable lessons (push, not pull). response_format=concise drops the route, budget and stats blocks, each chunk's source and hop and each lesson's via.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -65,13 +67,20 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           .describe(
             "ISO-8601. A LOWER-BOUND HINT for differential mode: the server floors it against this caller's own stored watermark (if any), so a client clock running ahead can never cause a row to be silently skipped — it can only ever see a row again, not lose one. Filters notes/syntheses/contradictions (and episodes, with include_work) to rows newer than the effective cutoff. Omit for the full snapshot (unchanged default behavior).",
           ),
+        ...ResponseFormatInput,
       })
       .strict(),
-    outputSchema: VaultContextOutput,
+    outputSchema: ConciseableVaultContextOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
+      // GH #1027: shaping happens on the way OUT. The prewarm cache below always stores and serves
+      // the detailed bundle, so a concise call can never poison a later detailed one.
+      const shape = <T extends z.infer<typeof VaultContextOutput>>(r: T) =>
+        resolveResponseFormat(input, deps.responseFormat) === "concise"
+          ? conciseVaultContext(r)
+          : r;
       // THE-231 bootstrap mode: with no query, the queued thread comes from the previous
       // session's signal note — the session opens with its own context instead of asking.
       let query = input.query;
@@ -121,11 +130,11 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
               readableRel(ctx.acl, rel, ctx.grantedScopes),
             )
           ) {
-            return {
+            return shape({
               ...shaped.data,
               prefetched: true as const,
               prefetch_generated_at: cached.generated_at,
-            };
+            });
           }
         }
       }
@@ -491,7 +500,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           /* the cache is an optimization; the response is already composed */
         }
       }
-      return response;
+      return shape(response);
     },
   });
 }

@@ -617,6 +617,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // `uri.allowOsLaunch` gates show_file_in_obsidian's OS-handler fallback (deny-by-default).
   registerM4Tools(registry, {
     ...deps.m4Deps,
+    responseFormat,
     uri: config.uri,
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
   });

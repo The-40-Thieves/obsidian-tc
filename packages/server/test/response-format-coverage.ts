@@ -25,66 +25,65 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
   plur_recall: "read-only proxy of an external payload we do not own",
   plur_recall_hybrid: "read-only proxy of an external payload we do not own",
   plur_similarity_search: "read-only proxy of an external payload we do not own",
+  // part 4a: reviewed with the knowledge, structured-document, bundle, OCR and Git domains
+  reflect:
+    "the synthesized answer and its cited sources are the product; the rest is a few short fields",
+  knowledge_challenge:
+    "the verdict and its evidence are the product; the rest is two counts and the model name",
+  find_link_cycles: "ordered path lists are the payload; total is their count",
+  get_link_strength: "one scored row: every field is a component of the score",
+  graph_centrality: "ranked {path, score} rows are the payload; the rest is two aggregate counts",
+  graph_communities:
+    "the communities are the payload; modularity, meaningful and the chance warning are safety signals",
+  graph_path_between: "the hop chain and the presence flags are the answer",
+  git_status: "opaque Obsidian Git companion passthrough: this server does not own the payload",
+  git_diff: "opaque Obsidian Git companion passthrough: the unified diff is the payload",
+  git_log: "opaque Obsidian Git companion passthrough: hash, message, author and date per commit",
+  git_stage: "opaque Obsidian Git companion acknowledgement",
+  git_commit:
+    "opaque Obsidian Git companion acknowledgement; any stamped_trailers are provenance a caller must see",
+  ocr_attachment: "opaque Text Extractor passthrough: the extracted text is the payload",
+  ocr_bulk: "opaque Text Extractor passthrough: the per-file extracted text is the payload",
+  read_base: "the parsed base document is the payload; content_hash is the compare-and-swap token",
+  query_base: "the resolved rows are the payload; view_used and total qualify them",
+  create_base:
+    "write acknowledgement: the compare-and-swap hash and any deprecation notice a caller must see",
+  update_base:
+    "write acknowledgement: applied counts and the compare-and-swap hashes the next write needs",
+  create_canvas: "write acknowledgement: counts and the compare-and-swap hash",
+  update_canvas:
+    "write acknowledgement: applied counts and the compare-and-swap hashes the next write needs",
+  query_canvas: "the matching nodes are the payload; errors name the canvases that did not parse",
+  read_excalidraw:
+    "already selects its payload with `format` (elements, text or both); the rest is opaque companion JSON",
+  create_excalidraw: "opaque Excalidraw companion acknowledgement",
+  update_excalidraw: "opaque Excalidraw companion acknowledgement",
+  read_kanban_board:
+    "every column and card is the payload; content_hash is the compare-and-swap token",
+  add_kanban_card: "write acknowledgement: the compare-and-swap hashes the next write needs",
+  move_kanban_card: "write acknowledgement: the compare-and-swap hashes the next write needs",
+  format_table:
+    "write acknowledgement: row and column counts, the compare-and-swap hashes and the redactions signal",
+  insert_table_column:
+    "write acknowledgement: row and column counts, the compare-and-swap hashes and the redactions signal",
+  insert_table_row:
+    "write acknowledgement: row and column counts, the compare-and-swap hashes and the redactions signal",
+  sort_table_by_column:
+    "write acknowledgement: row and column counts, the compare-and-swap hashes and the redactions signal",
+  eval_dataview_field: "opaque Dataview companion passthrough: the evaluated value and its type",
+  search_dql: "the Dataview rows are the payload; note_paths indexes the matched notes",
+  validate_dql: "opaque Dataview companion passthrough: the AST or the parse-error location",
+  query_datacore: "opaque Datacore companion passthrough",
+  makemd_list_spaces: "opaque MakeMD companion passthrough",
+  makemd_query: "opaque MakeMD companion passthrough: the items are the payload",
+  search_omnisearch: "opaque Omnisearch companion passthrough: the hits are the payload",
+  remotely_save_status: "opaque Remotely Save companion passthrough",
+  remotely_save_trigger: "opaque Remotely Save companion acknowledgement",
 };
 
 /** Reviewed in no part of #1027 yet. Each part of the series shrinks this list; none grows it
  *  except a newly registered tool that has not been decided. */
 export const NOT_YET_COVERED_BY_RESPONSE_FORMAT: readonly string[] = [
-  // git bridge
-  "git_commit",
-  "git_diff",
-  "git_log",
-  "git_stage",
-  "git_status",
-  // bases, canvas, excalidraw, kanban, tables, dataview and plugin readers
-  "create_base",
-  "create_canvas",
-  "create_excalidraw",
-  "add_kanban_card",
-  "move_kanban_card",
-  "read_base",
-  "read_canvas",
-  "read_excalidraw",
-  "read_kanban_board",
-  "query_base",
-  "query_canvas",
-  "update_base",
-  "update_canvas",
-  "update_excalidraw",
-  "format_table",
-  "insert_table_column",
-  "insert_table_row",
-  "sort_table_by_column",
-  "eval_dataview_field",
-  "search_dql",
-  "validate_dql",
-  "query_datacore",
-  "makemd_list_spaces",
-  "makemd_query",
-  "search_omnisearch",
-  "remotely_save_status",
-  "remotely_save_trigger",
-  // bundles and OCR
-  "bundle_files",
-  "bundle_folder",
-  "ocr_attachment",
-  "ocr_bulk",
-  // knowledge reads and analysis
-  "audit_provenance",
-  "diagnose_retrieval",
-  "explain_answer",
-  "knowledge_challenge",
-  "knowledge_get_critical",
-  "reflect",
-  "vault_context",
-  "vault_health_score",
-  "suggest_links",
-  "suggest_tags",
-  "get_link_strength",
-  "find_link_cycles",
-  "graph_centrality",
-  "graph_communities",
-  "graph_path_between",
   // memory, goal, session and episode writes and acks
   "add_observation",
   "close_goal",

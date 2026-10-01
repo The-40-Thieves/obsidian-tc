@@ -38,8 +38,10 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import { chunkPathResolver } from "../../../search/chunk-vault";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
+import { conciseExplainAnswer } from "./concise-reads";
 import type { M7Deps } from "./deps";
-import { ExplainAnswerOutput } from "./schemas";
+import { ConciseableExplainAnswerOutput } from "./schemas";
 
 /** Widest window the caller may ask to explain, so one call cannot walk the whole retrieval log. */
 const MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -61,7 +63,7 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
     name: "explain_answer",
     domain: "knowledge",
     description:
-      "Explain what an answer actually used: walks retrieval -> chunk -> citation -> episode for one session or time window and reports each link with how well it is known. Distinguishes a retrieval the citation pass never judged from one it judged and rejected, and a chunk whose note no longer exists from one that was never used. Read-only; reports nothing about paths the caller cannot read.",
+      "Explain what an answer actually used: walks retrieval -> chunk -> citation -> episode for one session or time window and reports each link with how well it is known. Distinguishes a retrieval the citation pass never judged from one it judged and rejected, and a chunk whose note no longer exists from one that was never used. Read-only; reports nothing about paths the caller cannot read. response_format=concise drops the summary counts and each link's retrieval echo (time, surface, query text, rank); the caveat and the citation-pass record stay.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -71,9 +73,10 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
         since: z.number().int().nonnegative().optional(),
         until: z.number().int().nonnegative().optional(),
         limit: z.number().int().positive().max(200).default(50),
+        ...ResponseFormatInput,
       })
       .strict(),
-    outputSchema: ExplainAnswerOutput,
+    outputSchema: ConciseableExplainAnswerOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "provenance", "diagnostics"],
     handler: (input, ctx) => {
@@ -160,7 +163,7 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
           : [];
 
       const lineage = buildAnswerLineage(retrievals, episodes, CORRELATION_WINDOW_MS, passes);
-      return {
+      const full = {
         available: true as const,
         vault: v.id,
         scope: (input.session_id !== undefined ? "session" : "time_window") as
@@ -168,6 +171,9 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
           | "time_window",
         ...lineage,
       };
+      return resolveResponseFormat(input, deps.responseFormat) === "concise"
+        ? conciseExplainAnswer(full)
+        : full;
     },
   });
 }

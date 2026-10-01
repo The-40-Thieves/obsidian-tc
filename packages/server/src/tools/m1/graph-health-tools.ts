@@ -13,6 +13,7 @@ import { parseNote } from "../../vault/frontmatter";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -144,6 +145,13 @@ const VaultHealthScoreOutput = z.object({
   }),
 });
 
+// GH #1027: `response_format=concise` drops `total_links` and the per-penalty `breakdown` (the score
+// and the four metrics it is computed from stay).
+const ConciseableVaultHealthScoreOutput = VaultHealthScoreOutput.partial({
+  total_links: true,
+  breakdown: true,
+});
+
 const FindLinkCyclesOutput = z.object({
   vault: z.string(),
   total: z.number(),
@@ -175,6 +183,14 @@ const SuggestLinksOutput = z.object({
   suggestions: z.array(SuggestLinkRow),
 });
 
+// GH #1027: `response_format=concise` keeps `{path, score}` per suggestion and drops the two score
+// components, the `path` echo and `total` (the length of `suggestions`).
+const ConciseableSuggestLinksOutput = SuggestLinksOutput.extend({
+  path: z.string().optional(),
+  total: z.number().optional(),
+  suggestions: z.array(SuggestLinkRow.partial({ co_citation: true, two_hop: true })),
+});
+
 const AuditProvenanceOutput = z.object({
   vault: z.string(),
   field: z.string(),
@@ -188,6 +204,14 @@ const AuditProvenanceOutput = z.object({
   by_folder: z.record(z.string(), z.object({ scanned: z.number(), missing: z.number() })),
   missing: z.array(z.string()),
   truncated: z.boolean(),
+});
+
+// GH #1027: `response_format=concise` drops the `field` echo, `with_provenance` (scanned minus
+// missing) and the `by_folder` breakdown. The coverage ratios, the missing list and `truncated` stay.
+const ConciseableAuditProvenanceOutput = AuditProvenanceOutput.partial({
+  field: true,
+  with_provenance: true,
+  by_folder: true,
 });
 
 /** Undirected shortest-path hop count between two notes, or null if disconnected. */
@@ -220,14 +244,15 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       name: "vault_health_score",
       domain: "links",
       description:
-        "Composite vault link-health score (0-100) with a breakdown: orphan count, unresolved-link count, hub density, and cycle count over the readable note graph. Domain: links.",
+        "Composite vault link-health score (0-100) with a breakdown: orphan count, unresolved-link count, hub density, and cycle count over the readable note graph. response_format=concise drops total_links and the per-penalty breakdown. Domain: links.",
       inputSchema: z
         .object({
           vault: VaultId,
           hub_threshold: z.number().int().positive().max(10000).default(20),
+          ...ResponseFormatInput,
         })
         .strict(),
-      outputSchema: VaultHealthScoreOutput,
+      outputSchema: ConciseableVaultHealthScoreOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -249,6 +274,13 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           0,
           Math.round(100 - pen.orphans - pen.unresolved - pen.cycles - pen.hubs),
         );
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return {
+            vault: v.id,
+            score,
+            total_notes: total,
+            metrics: { orphans, unresolved_links: g.unresolved, hubs, cycles },
+          };
         return {
           vault: v.id,
           score,
@@ -332,15 +364,16 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Suggest notes to link a given note to, from the link graph (co-citation with the note's inbound sources + 2-hop outbound neighbors), excluding notes it already links to. Graph-based (no embeddings).",
+        "Suggest notes to link a given note to, from the link graph (co-citation with the note's inbound sources + 2-hop outbound neighbors), excluding notes it already links to. Graph-based (no embeddings). response_format=concise returns {path, score} per suggestion without the score components, the path echo and total.",
       inputSchema: z
         .object({
           vault: VaultId,
           path: VaultPath,
           limit: z.number().int().positive().max(200).default(20),
+          ...ResponseFormatInput,
         })
         .strict(),
-      outputSchema: SuggestLinksOutput,
+      outputSchema: ConciseableSuggestLinksOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -370,6 +403,11 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           }))
           .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
           .slice(0, input.limit);
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return {
+            vault: v.id,
+            suggestions: suggestions.map(({ path, score }) => ({ path, score })),
+          };
         return { vault: v.id, path: p, total: suggestions.length, suggestions };
       },
     }),
@@ -378,7 +416,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       name: "audit_provenance",
       domain: "knowledge",
       description:
-        "Provenance audit: flag claim-bearing notes that lack a 'sources' frontmatter field (the evidence a note's claims rest on), and report coverage of sources/confidence/verified across the readable note set. Read-only. Excludes daily notes, templates, and index files by default; tune scope with include/exclude globs and the field name.",
+        "Provenance audit: flag claim-bearing notes that lack a 'sources' frontmatter field (the evidence a note's claims rest on), and report coverage of sources/confidence/verified across the readable note set. Read-only. Excludes daily notes, templates, and index files by default; tune scope with include/exclude globs and the field name. response_format=concise drops the field echo, with_provenance and the by_folder breakdown.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -386,9 +424,10 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           include: z.array(z.string()).max(64).optional(),
           exclude: z.array(z.string()).max(64).optional(),
           limit: z.number().int().positive().max(2000).default(100),
+          ...ResponseFormatInput,
         })
         .strict(),
-      outputSchema: AuditProvenanceOutput,
+      outputSchema: ConciseableAuditProvenanceOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -435,6 +474,17 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         }
         const scanned = notes.length;
         const round = (n: number): number => Number(n.toFixed(3));
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return {
+            vault: v.id,
+            scanned,
+            missing_provenance: missing.length,
+            coverage: scanned ? round(withField / scanned) : 1,
+            confidence_coverage: scanned ? round(withConfidence / scanned) : 0,
+            verified_coverage: scanned ? round(withVerified / scanned) : 0,
+            missing: missing.slice(0, input.limit),
+            truncated: missing.length > input.limit,
+          };
         return {
           vault: v.id,
           field,
