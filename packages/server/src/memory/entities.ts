@@ -362,6 +362,9 @@ export interface BfsOptions {
   direction?: Direction;
   relationTypes?: readonly string[];
   entityTypes?: readonly string[];
+  /** True -> the node is neither returned nor traversed through (the read ACL; a retired node is
+   *  filtered AFTER the walk instead). */
+  skip?: (entity: EntityRow) => boolean;
 }
 
 /**
@@ -393,6 +396,7 @@ export function bfsGraph(db: Database, seedId: string, opts: BfsOptions = {}): G
         const entity = getEntityById(db, edge.nid);
         if (!entity) continue; // dangling edge — skip gracefully
         if (entTypes && !entTypes.has(entity.entity_type)) continue;
+        if (opts.skip?.(entity)) continue;
         visited.add(edge.nid);
         const path = [...fromPath, { via_entity_id: fromId, via_relation: edge.relation_type }];
         out.push({ entity, distance: dist, path });

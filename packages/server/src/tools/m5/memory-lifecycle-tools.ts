@@ -43,7 +43,7 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { currentNotePath, rematerialize } from "./memory-projection";
+import { currentNotePath, getReadableEntity, rematerialize } from "./memory-projection";
 import { type M5Deps, memoryDefenseFor, memoryFolderFor } from "./shared";
 
 const EntityStatusSchema = z.enum(["active", "retired"]);
@@ -102,9 +102,8 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         if (input.new_name === undefined && input.status === undefined)
           throw err.invalidInput("provide new_name or status");
         const v = deps.vaultRegistry.resolve(input.vault);
-        const e = getEntityById(ctx.db, input.entity_id);
-        if (!e || e.vault_id !== v.id)
-          throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+        const e = getReadableEntity(deps, ctx, v.id, input.entity_id);
+        if (!e) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
 
         // GH #994: new_name is caller-controlled free text that becomes the entity's persisted
         // identity — the SQLite `name` column, the materialized note's filename AND its H1, and
@@ -270,12 +269,10 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
       requiredScopes: ["write:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const src = getEntityById(ctx.db, input.source_id);
-        const tgt = getEntityById(ctx.db, input.target_id);
-        if (!src || src.vault_id !== v.id)
-          throw err.invalidInput("source entity not found", { entity_id: input.source_id });
-        if (!tgt || tgt.vault_id !== v.id)
-          throw err.invalidInput("target entity not found", { entity_id: input.target_id });
+        const src = getReadableEntity(deps, ctx, v.id, input.source_id);
+        const tgt = getReadableEntity(deps, ctx, v.id, input.target_id);
+        if (!src) throw err.invalidInput("source entity not found", { entity_id: input.source_id });
+        if (!tgt) throw err.invalidInput("target entity not found", { entity_id: input.target_id });
         // Mirrors link_entities: only the SOURCE's materialized note is affected (its outgoing
         // [[links]]), so only its ACL is pre-checked.
         const srcPath = currentNotePath(deps, v.id, src);
@@ -324,8 +321,8 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
       // The entity row (content, updated_at), its relations and its materialized note: an edit, a
       // new relation or a hand-edited note since the request moves it.
       confirmationTargets: (input, { ctx, vaultId, root }) => {
-        const e = getEntityById(ctx.db, input.entity_id);
-        if (!e || e.vault_id !== vaultId) return argsHash("state", "absent");
+        const e = getReadableEntity(deps, ctx, vaultId, input.entity_id);
+        if (!e) return argsHash("state", "absent");
         const note =
           root && e.materialize === 1
             ? fingerprintTargets(root, [currentNotePath(deps, vaultId, e)])
@@ -334,22 +331,26 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
       },
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const e = getEntityById(ctx.db, input.entity_id);
-        if (!e || e.vault_id !== v.id)
-          throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+        const e = getReadableEntity(deps, ctx, v.id, input.entity_id);
+        if (!e) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
 
         const relations = relationsForEntity(ctx.db, e.id);
-        if (relations.length > 0 && !input.cascade)
+        if (relations.length > 0 && !input.cascade) {
+          // The refusal names the neighbors, so it lists only those the caller could read anyway.
+          const named = relations.filter(
+            (r) => getReadableEntity(deps, ctx, v.id, r.other_id) !== undefined,
+          );
           throw err.invalidInput("entity has relations; pass cascade to delete them too", {
             entity_id: e.id,
-            relation_count: relations.length,
-            relations: relations.map((r) => ({
+            relation_count: named.length,
+            relations: named.map((r) => ({
               relation_type: r.relation_type,
               direction: r.direction,
               other_id: r.other_id,
               other_name: r.other_name,
             })),
           });
+        }
 
         const notePath = e.materialize === 1 ? currentNotePath(deps, v.id, e) : null;
         // Pre-check BEFORE the SQLite delete (mirrors create_entity/rename_entity/THE-567): a

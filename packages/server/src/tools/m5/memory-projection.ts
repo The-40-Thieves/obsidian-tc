@@ -7,12 +7,14 @@
 import type { CallerContext } from "../../mcp/registry";
 import {
   type EntityRow,
+  getEntityById,
   type ObservationView,
   observationViews,
   relationsForEntity,
   setEntityVaultPath,
 } from "../../memory/entities";
 import { entityNotePath, materializeEntity, type RelationLink } from "../../memory/materialize";
+import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import type { ResolvedVault } from "../../vault/registry";
 import { type M5Deps, memoryFolderFor } from "./shared";
 
@@ -73,4 +75,41 @@ export function rematerialize(
  *  path to trash). */
 export function currentNotePath(deps: M5Deps, vaultId: string, e: EntityRow): string {
   return entityNotePath(memoryFolderFor(deps, vaultId), e.entity_type, e.name);
+}
+
+/** What the read gate needs of a call context (also what `confirmationTargets` receives). */
+type ReadCtx = Pick<CallerContext, "acl" | "db" | "grantedScopes">;
+
+/** May this caller read this entity? An entity's projection note (<memoryFolder>/<type>/<name>.md)
+ *  renders the same observations and [[links]] get_entity returns, so the answer is exactly whether
+ *  read_note could read that note: `readableRel` on the CURRENT path (computed, so a materialize:
+ *  false entity and a renamed one with a stale `vault_path` are gated too), and also on a differing
+ *  stored `vault_path` (an old location may still hold the content). Unrestricted callers (no
+ *  readPaths, no strictReadDefault, no rule-scope they lack) short-circuit. A path that cannot be
+ *  computed FAILS CLOSED. `ctx.acl` is the requested vault's ACL: dispatch's applyVaultAcl swaps
+ *  it in for every tool whose input names a `vault`. */
+export function memoryReadable(deps: M5Deps, ctx: ReadCtx, e: EntityRow): boolean {
+  if (readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes)) return true;
+  try {
+    const paths = [currentNotePath(deps, e.vault_id, e)];
+    if (e.vault_path !== null && e.vault_path !== paths[0]) paths.push(e.vault_path);
+    return paths.every((rel) => readableRel(ctx.acl, rel, ctx.grantedScopes));
+  } catch {
+    return false;
+  }
+}
+
+/** Look an entity up by id in `vaultId`, treating one the caller cannot read exactly like one that
+ *  does not exist (denied == missing), so no tool's not-found error can serve as an existence
+ *  oracle. The ONE entity-by-id lookup the memory tools use. */
+export function getReadableEntity(
+  deps: M5Deps,
+  ctx: ReadCtx,
+  vaultId: string,
+  id: string,
+): EntityRow | undefined {
+  const found = getEntityById(ctx.db, id);
+  return found && found.vault_id === vaultId && memoryReadable(deps, ctx, found)
+    ? found
+    : undefined;
 }

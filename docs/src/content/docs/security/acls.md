@@ -23,6 +23,28 @@ rejected under a folder ACL: a hard link aliases an inode that path canonicaliza
 dereference, so it could otherwise serve a file outside the allowed folder. Reads run on the
 opened file descriptor (fstat + read on the same object).
 
+### Memory entities follow the read ACL
+
+`get_entity` and `query_entity_graph` hold `read:memory`, and the folder read ACL applies to them
+as well. An entity's own projection note is `<memory folder>/<type>/<name>.md` (default folder
+`memory`), and that note renders the same observations and `[[links]]` the tools return, so an
+entity is readable exactly when `read_note` could read that note: under `readPaths`, under
+`strictReadDefault`, and against any rule-scopes on its path. This holds for entities created with
+`materialize: false` too (no file exists, the path is computed) and uses the entity's current name,
+so a renamed entity is not judged by a stale path.
+
+Denied means missing. An entity the caller cannot read returns the same `entity not found` error a
+nonexistent id returns (the same goes for the write and lifecycle tools that look an entity up:
+`add_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity`), it does
+not count toward by-name ambiguity, and `get_entity` omits relations to it. `query_entity_graph`
+never traverses an unreadable entity, so entities reachable only through one do not appear, and the
+page, `next_cursor` and `total_returned` are computed after that filtering. Write tools still need
+their own write ACL on top.
+
+A vault with a restricted `readPaths` that does not list the memory folder therefore hides its
+memory. Add `memory/**` (or your configured `memory.folder`) to `readPaths`; `obsidian-tc doctor
+--probe` reports `memory.read-acl` when existing entities are hidden this way.
+
 ## ACL configuration
 
 The folder ACL is a config block: `acl` at the root (the default for every vault)

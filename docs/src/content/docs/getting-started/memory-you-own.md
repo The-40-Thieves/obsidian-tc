@@ -146,6 +146,21 @@ calls `registry.dispatch(...)` for every entity/observation/relation/frontmatter
 call an MCP client makes, ACL-checked and audited the same way, with **no direct file write at
 all**.
 
+## Read-side ACL
+
+Reading memory follows the same folder read ACL as reading notes. Each entity has its own note at
+`<memory folder>/<type>/<name>.md` (default `memory/...`), and `get_entity` / `query_entity_graph`
+return an entity only when `read_note` could read that note under your `readPaths`,
+`strictReadDefault` and any rule-scopes. An entity the caller cannot read is reported exactly like
+one that does not exist, is left out of by-name ambiguity and of relation lists, and is never walked
+through by `query_entity_graph`, so the entities behind it do not appear either. Entities created
+with `materialize: false` are gated by the path they would have. With no `readPaths` (the default)
+nothing changes.
+
+If you set `readPaths` for an agent and still want it to use memory, add the memory folder to it,
+for example `"readPaths": ["public/**", "memory/**"]`. `obsidian-tc doctor --probe` warns
+(`memory.read-acl`) when your ACL hides memory entities that exist.
+
 ## Git provenance
 
 obsidian-tc does not auto-commit. Materialized memory notes are ordinary files in your vault, so

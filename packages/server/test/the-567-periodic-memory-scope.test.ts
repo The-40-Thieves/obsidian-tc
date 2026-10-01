@@ -225,8 +225,12 @@ describe("THE-567 memory tools: handler-side rule-scope enforcement (config-comp
         { vault: "test", entity_id: entityId, observation: "SHOULD_NOT_LAND" },
         { grantedScopes: new Set(["write:memory"]) },
       );
+      // A rule-scope guards the folder for READ too, so a caller lacking it can no longer see the
+      // entity at all: denied == missing (invalid_input "not found"), never an acl_denied that would
+      // confirm the id exists. The pre-append write-ACL guard for a READABLE entity is covered in
+      // m5-memory-read-acl.test.ts (writePaths); what stays asserted here is that nothing landed.
       expect(denied.ok).toBe(false);
-      if (!denied.ok) expect(denied.error.code).toBe("acl_denied");
+      if (!denied.ok) expect(denied.error.code).toBe("invalid_input");
       // Source-of-truth assertion, not just the note file: the observation must be ABSENT from
       // SQLite. This is the crux of the THE-567 review fix — a note-write failure must not leave
       // an already-committed graph mutation behind.
@@ -276,8 +280,12 @@ describe("THE-567 memory tools: handler-side rule-scope enforcement (config-comp
         },
         { grantedScopes: new Set(["write:memory"]) },
       );
+      // A rule-scope guards the folder for READ too, so a caller lacking it can no longer see the
+      // entity at all: denied == missing (invalid_input "not found"), never an acl_denied that would
+      // confirm the id exists. The pre-append write-ACL guard for a READABLE entity is covered in
+      // m5-memory-read-acl.test.ts (writePaths); what stays asserted here is that nothing landed.
       expect(denied.ok).toBe(false);
-      if (!denied.ok) expect(denied.error.code).toBe("acl_denied");
+      if (!denied.ok) expect(denied.error.code).toBe("invalid_input");
       // Source-of-truth assertion: the edge must be ABSENT from memory_relations, not just
       // missing from the note's rendered [[links]].
       expect(

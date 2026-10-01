@@ -58,6 +58,7 @@ assumptions:
 
 - JWT auth (HS256 shared secret, or asymmetric RS256/ES256/EdDSA via a local JWKS) with a required minimum secret length
 - Folder-scoped read / write / delete ACLs per vault
+- Memory entities (`get_entity`, `query_entity_graph`, and the lookups inside the memory write tools) follow the folder read ACL on each entity's own note (`<memory folder>/<type>/<name>.md`); an unreadable entity reads as not found, and a graph walk never traverses one
 - Read-only kill switch
 - HITL elicit on destructive operations (configurable per op)
 - Fail-closed config: an unauthenticated HTTP transport refuses to bind a non-loopback host
