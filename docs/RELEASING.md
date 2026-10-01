@@ -61,7 +61,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    **Release notes come from `changes/` fragments.** Each PR adds its own `changes/<slug>.md`
    (front matter `type:` plus a CHANGELOG bullet; see `changes/README.md`) instead of editing the
    shared `[Unreleased]` block, so two PRs never conflict on a CHANGELOG line. `bun run
-   check:changes` validates them; a release with no fragments and an empty `[Unreleased]` refuses
+   check:changes` validates them (a fragment is written without its PR number: `release.mjs` appends `(#N)` to its first bullet from the `Merge pull request #N` commit that brought it in, leaves an explicit `(#N)` alone, and refuses, naming the file, when no PR can be determined; it needs full history, so fetch with `--unshallow` first); a release with no fragments and an empty `[Unreleased]` refuses
    to stage.
 
    **The CHANGELOG coverage gate runs first**, before anything is mutated. It asserts that every

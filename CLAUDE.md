@@ -119,7 +119,7 @@ regenerate before a commit:
 | decisions index | gitignored `docs/src/content/docs/contributing/decisions-index.md`, written by `bun run docs:decisions-index` (docs `gen` does it). `docs:decisions-index:check` fails if a committed copy exists. |
 | docgen marker regions (`<!-- BEGIN GENERATED: ... -->`) | committed **canonical-empty**. `bun run docgen:render` fills them (docs build, wiki publish), `-- --reset` empties them, `-- --check` is the gate and fails on any filled region. Never commit a filled one. |
 | tool and domain counts in prose | not stated anywhere; `docgen:facts-check` forbids the count. Tool names: `packages/server/test/registered-tools.txt`. |
-| release notes | `changes/<slug>.md` fragments, folded into `CHANGELOG.md` at release (`bun run check:changes`). Do not edit `[Unreleased]`. |
+| release notes | `changes/<slug>.md` fragments, folded into `CHANGELOG.md` at release (`bun run check:changes`). Write it WITHOUT the PR number (the release adds `(#N)` from the merge history; never commit it after opening the PR). Do not edit `[Unreleased]`. |
 
 `migrations-embedded.ts` and the config JSON Schema stay committed. `migrations-embedded.ts` is the
 one generated file two PRs can still both change; `.gitattributes` gives it the `regen` merge driver
