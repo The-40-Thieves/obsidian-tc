@@ -199,7 +199,10 @@ async function main(): Promise<void> {
   }));
   await measure("find_unresolved_links", "limit 500", () => ({ vault: v, limit: 500 }));
   await measure("search_text", "default limit", () => ({ vault: v, query: "memory" }));
-  await measure("search_regex", "default limit", () => ({ vault: v, pattern: "(memory|memories)" }));
+  await measure("search_regex", "default limit", () => ({
+    vault: v,
+    pattern: "(memory|memories)",
+  }));
   await measure("search_semantic", "k=10", () => ({ vault: v, query: "memory practice", k: 10 }));
   await measure("search_jsonlogic", "content contains", () => ({
     vault: v,
