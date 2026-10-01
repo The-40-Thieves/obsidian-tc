@@ -159,3 +159,46 @@ Two English shapes are fewer than the three the bar asks for, and the preference
 all of them. The flag stays off, per the ADR 0003 pattern for a mechanism that loses. A side observation for
 follow-up: `auto` itself scores well below dense-only `search_semantic` on the private vault (0.1009 against
 0.4005 nDCG@10) because a text-leg hit, however irrelevant, prevents the semantic fallback.
+
+## Status (2026-10-01): class (c) mechanism built, dark; it helps on every local corpus, and the evidence bar is not met
+
+**Built.** `retrieval.searchAutoRoute` (default `text-first`) changes how `search_vault`'s `auto` mode treats a
+string query's text hits. `text-first` is the shipped rule: run the literal whole-phrase text leg and fall back to
+semantic only when it matched no note, so any text hit, however irrelevant, blocks the fallback. `weak-text` also runs
+the semantic leg when the text leg matched exactly one note; `hybrid` always runs it. Both fuse the legs by reciprocal
+rank over distinct notes (rrfK 10) and report `mode_used: "hybrid"`; a failing semantic leg on a query text already
+answered leaves the text result. `text-first` is byte-identical to before (the dependency is not even passed).
+
+**Where `auto` routes today** (`eval/search-mode.ts`, text-first arm, per-query): on the evergreen corpus 24 of 78
+queries stop at the text leg (short queries, median 2 tokens, whose phrase matches 1 to over 20 notes, always including
+an expected note) and 54 fall back to semantic. On the private multi-hop vault 94 of 250 stop at the text leg and 156 fall
+back; every one of those 94 text hits is exactly one note, never an expected one, and it is the same note, a decision note
+that quotes the golden-set candidates verbatim. The private gap against dense-only search is therefore a self-reference
+artifact of the eval vault (the queries were copied into the vault they are scored on), real as a shape but inflated as a
+size: with that note absent the text leg returns nothing on those queries and `auto` equals the dense ranking.
+
+**Measured** (pre-registered before any candidate arm ran, sha256 `4c24c0dd4ba30b9a37bf62b7321384add980307a034741810a4b6db0b7f2d737`;
+same index copies and query vectors, paired by query id; artifacts, `runs.db` and the per-query breakdown under
+`/data/obsidian-tc-eval/search-auto-fallback/`):
+
+| shape | n | text-first | weak-text | hybrid (nDCG@10; one-sided 95% lower bound on the delta) | queries changed (hybrid) |
+| --- | ---: | --- | --- | --- | ---: |
+| Matuschak evergreen, strict labels (public) | 78 | 0.8491 | 0.8491 (0 changed) | 0.8865, +0.037 (lower +0.007, p 0.049) | 9 (8 up, 1 down) |
+| Matuschak evergreen, lenient labels | 78 | 0.6266 | 0.6296 (+0.003) | 0.6550, +0.028 (lower +0.010, p 0.010) | 15 (12 up, 3 down) |
+| private multi-hop vault | 250 | 0.1009 | 0.3609 (+0.260) | 0.3609, +0.260 (lower +0.222, p 0.0001) | 94 (all up) |
+
+Recall@10 and MRR@10 move the same way (private: recall 0.1083 to 0.4497, MRR 0.1123 to 0.3639; strict hybrid recall
+0.9359 to 0.9551, MRR 0.8472 to 0.8835). Zero-text-hit queries are identical in every arm. Fused `hybrid` stays below
+dense-only search on the private vault (0.3609 against 0.4005) and above it on the evergreen text-routed queries
+(0.9481 against 0.8889 strict). The stated minimum detectable effects were 0.065 (strict), 0.043 (lenient) and 0.035
+(private) nDCG@10; the strict hybrid delta (+0.037) is below its MDE, so that row is underpowered rather than a
+confirmed win. Predictions that missed: the evergreen `hybrid` deltas were predicted at +0.01 and about 0, and came
+out at +0.037 and +0.028; `weak-text` was predicted to improve no evergreen query and improved one lenient query.
+
+**Verdict: the class (c) evidence bar is not met, and no default is flipped.** Non-inferiority holds for both
+candidates on both evergreen label sets (every one-sided lower bound is above the -0.015 floor), but the bar also asks
+for a win or tie on a majority of three or more corpora of different shape, size and language, and locally there are two
+real shapes, both English, one of which is contaminated (the strict and lenient sets are one corpus under two label
+sets). The code-documentation and CJK corpora this ADR names are still unsourced. `hybrid` also embeds, and sends to the
+embeddings provider, every string `auto` query that `text-first` answers locally, which is a cost and an egress change an
+operator should choose. The flag stays off; it is the first thing to re-measure when a third shape exists.

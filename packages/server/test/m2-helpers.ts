@@ -11,6 +11,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import type { AutoRoute } from "../src/search/auto-route";
 import type { IndexStats } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM2Tools } from "../src/tools/m2";
@@ -46,6 +47,8 @@ export interface M2VaultOptions {
   /** retrieval.useSearchModePreference: the experiential store search_vault's mode reader consults.
    *  Absent (the default) is the flag OFF — the reader's code path is not entered at all. */
   searchModePreference?: { edb: Database };
+  /** retrieval.searchAutoRoute: how search_vault's `auto` treats a text hit. Absent = text-first. */
+  autoRoute?: AutoRoute;
   /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
   responseFormat?: ResponseFormat;
 }
@@ -95,6 +98,7 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     onProgress: opts.onProgress,
     onIndexVaultError: opts.onIndexVaultError,
     searchModePreference: opts.searchModePreference,
+    ...(opts.autoRoute ? { autoRoute: opts.autoRoute } : {}),
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   });
 

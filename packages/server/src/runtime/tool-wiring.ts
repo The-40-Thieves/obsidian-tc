@@ -35,6 +35,7 @@ import {
   autoSelectLocalRerankerConfigAllows,
   onnxNativePrebuildStatus,
 } from "../providers/reranker-preflight";
+import { autoRouteDep } from "../search/auto-route";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeBindingActive } from "../search/native";
@@ -564,6 +565,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     ...(config.retrieval.useSearchModePreference && deps.experientialOpen
       ? { searchModePreference: { edb: deps.experientialDb } }
       : {}),
+    // retrieval.searchAutoRoute: absent for the default route, so search_vault is byte-identical.
+    ...autoRouteDep(config.retrieval.searchAutoRoute),
     // THE-291 (3B): FTS-accelerated search_text once the boot reconcile's notes pass commits.
     metadataIndex: { hasFts: deps.hasFts, ready: () => deps.indexHealth.notesReady },
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
