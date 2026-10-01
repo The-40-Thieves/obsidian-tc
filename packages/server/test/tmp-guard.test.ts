@@ -85,6 +85,38 @@ describe("scanLeaks / formatLeakReport", () => {
     expect(scanLeaks(root)).toHaveLength(INCIDENT_ENTRIES.length);
   });
 
+  it("exempts PowerShell Add-Type scratch dirs on win32 only, and only when they hold csc files", () => {
+    const root = makeTempDir(RUN_ROOT_PREFIX);
+    const dir = join(root, "test_x");
+    // Verbatim from the 2026-10-01 windows-latest run: an 8-character name with csc's files inside
+    // it, and the same shape already emptied.
+    mkdirSync(join(dir, "xwnxn3xb"), { recursive: true });
+    for (const ext of [".0.cs", ".cmdline", ".dll", ".err"]) {
+      writeFileSync(join(dir, "xwnxn3xb", `xwnxn3xb${ext}`), "x");
+    }
+    mkdirSync(join(dir, "rldevw4j"));
+    // Look-alikes a test could really leave: wrong contents, wrong length, not a directory.
+    mkdirSync(join(dir, "abcdefgh"));
+    writeFileSync(join(dir, "abcdefgh", "vault.md"), "x");
+    mkdirSync(join(dir, "abcdefg"));
+    writeFileSync(join(dir, "abcdefgi"), "x");
+
+    expect(
+      scanLeaks(root, undefined, "win32")
+        .map((l) => l.entry)
+        .sort(),
+    ).toEqual(["abcdefg", "abcdefgh", "abcdefgi"]);
+    // The same names on Linux/macOS are a leak: nothing there makes them.
+    expect(scanLeaks(root, undefined, "linux")).toHaveLength(5);
+  });
+
+  it("reports a tool's nested debris down to its first leaf", () => {
+    const root = makeTempDir(RUN_ROOT_PREFIX);
+    mkdirSync(join(root, "test_x", "otc-home-AbC123", "AppData", "Local"), { recursive: true });
+    writeFileSync(join(root, "test_x", "otc-home-AbC123", "AppData", "Local", "p.bin"), "x");
+    expect(formatLeakReport(scanLeaks(root))).toContain("[AppData/Local/p.bin]");
+  });
+
   it("an allowlist entry exempts only what it matches", () => {
     const root = makeTempDir(RUN_ROOT_PREFIX);
     mkdirSync(join(root, "test_x", "shared-model-cache"), { recursive: true });

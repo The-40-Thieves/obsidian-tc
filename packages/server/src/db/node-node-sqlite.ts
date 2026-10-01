@@ -1,4 +1,4 @@
-import { applyConnectionPragmas } from "./apply-pragmas";
+import { applyConnectionPragmasOrClose } from "./apply-pragmas";
 import { openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
@@ -84,7 +84,7 @@ export async function openNodeSqlite(
     readonlyMode = open.readonlyMode;
   } else {
     db = new DatabaseSync(path);
-    applyConnectionPragmas((p) => db.exec(`PRAGMA ${p}`), busyTimeoutMs);
+    applyConnectionPragmasOrClose(db, (p) => db.exec(`PRAGMA ${p}`), busyTimeoutMs);
   }
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);

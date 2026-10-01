@@ -13,7 +13,7 @@
 // is), and names the leaking TEST FILE because each file gets its own subdirectory.
 
 import { readdirSync, rmSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 
 /** Set by the globalSetup to the run's private root; read by the per-file setup. */
 export const TMP_GUARD_ROOT_ENV = "OBTC_TEST_TMP_ROOT";
@@ -32,7 +32,25 @@ export const STALE_RUN_ROOT_MS = 6 * 60 * 60 * 1000;
 export interface AllowedLeftover {
   /** Matches the leftover's basename. */
   readonly entry: RegExp;
+  /** Only exempt on this platform (the cause is that platform's own tool). */
+  readonly platform?: NodeJS.Platform;
+  /** A second condition on what is INSIDE the leftover, for a basename too generic to name its
+   *  owner on its own. Receives the leftover's absolute path. */
+  readonly contents?: (path: string) => boolean;
   readonly reason: string;
+}
+
+/** The scratch directory Windows PowerShell's `Add-Type` makes: a random 8-character name
+ *  (`Path.GetRandomFileName()` without the dot) holding only files named after itself
+ *  (`<name>.0.cs`, `.cmdline`, `.dll`, `.err`, ...), or nothing once csc has cleaned up. */
+function isAddTypeScratch(path: string): boolean {
+  try {
+    if (!statSync(path).isDirectory()) return false;
+    const name = basename(path);
+    return readdirSync(path).every((child) => child.startsWith(`${name}.`));
+  } catch {
+    return false;
+  }
 }
 export const ALLOWED_LEFTOVERS: readonly AllowedLeftover[] = [
   {
@@ -41,6 +59,19 @@ export const ALLOWED_LEFTOVERS: readonly AllowedLeftover[] = [
       "Windows PowerShell writes one of these into %TEMP% every time a child powershell.exe starts " +
       "(its execution-policy probe) and never removes it. The product's setup flow shells out to " +
       "PowerShell; it is not a fixture's leak and cannot be tidied from a test.",
+  },
+  {
+    entry: /^[a-z0-9]{8}$/,
+    platform: "win32",
+    contents: isAddTypeScratch,
+    reason:
+      "systeminformation (hardware.ts's enricher, reached by every capability profile: setup, " +
+      "doctor, compact) runs `si.graphics()` through Windows PowerShell with `Add-Type " +
+      "-TypeDefinition`, which compiles C# with csc.exe in a random 8-character directory under " +
+      "%TEMP%. hardware.ts bounds the probe at 2 s and abandons it, so the powershell is killed " +
+      "mid-compile or exits without removing the directory. Third-party tool debris, not a " +
+      "fixture; no test creates an 8-character name, and the contents check (empty, or only " +
+      "files named after the directory) keeps anything else a test writes reportable.",
   },
   {
     entry: /^otc-test-home-/,
@@ -73,12 +104,35 @@ export function fileSlug(testPath: string | undefined, packageRoot: string): str
   return slug.length > 0 ? slug : "unknown-file";
 }
 
-function firstChildren(path: string): string[] {
-  try {
-    return readdirSync(path).sort().slice(0, 4);
-  } catch {
-    return [];
-  }
+/** Up to a few paths inside a leftover, relative to it, descending to the first leaf of each
+ *  branch: `[cache, config.json]` for a flat fixture, `AppData/Local/Microsoft/...` for a tool's
+ *  nested debris. Enough to tell whose it is when the only record is a CI log. */
+function samplePaths(root: string, limit = 4, maxDepth = 8): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, rel: string, depth: number): void => {
+    let names: string[];
+    try {
+      names = readdirSync(dir).sort();
+    } catch {
+      return;
+    }
+    if (names.length === 0 && rel !== "") out.push(rel);
+    for (const name of names) {
+      if (out.length >= limit) return;
+      const child = rel === "" ? name : `${rel}/${name}`;
+      const isDir = (() => {
+        try {
+          return statSync(join(dir, name)).isDirectory();
+        } catch {
+          return false;
+        }
+      })();
+      if (isDir && depth < maxDepth) walk(join(dir, name), child, depth + 1);
+      else out.push(child);
+    }
+  };
+  walk(root, "", 0);
+  return out;
 }
 
 function dirBytes(path: string): number {
@@ -110,6 +164,7 @@ function dirBytes(path: string): number {
 export function scanLeaks(
   runRoot: string,
   allow: readonly AllowedLeftover[] = ALLOWED_LEFTOVERS,
+  platform: NodeJS.Platform = process.platform,
 ): Leak[] {
   const leaks: Leak[] = [];
   for (const file of readdirSync(runRoot).sort()) {
@@ -123,12 +178,17 @@ export function scanLeaks(
       continue;
     }
     for (const entry of entries.sort()) {
-      if (allow.some((a) => a.entry.test(entry))) continue;
+      const path = join(fileDir, entry);
+      const allowed = (a: AllowedLeftover): boolean =>
+        a.entry.test(entry) &&
+        (a.platform === undefined || a.platform === platform) &&
+        (a.contents === undefined || a.contents(path));
+      if (allow.some(allowed)) continue;
       leaks.push({
         file,
         entry,
-        bytes: dirBytes(join(fileDir, entry)),
-        children: firstChildren(join(fileDir, entry)),
+        bytes: dirBytes(path),
+        children: samplePaths(path),
       });
     }
   }

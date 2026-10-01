@@ -68,7 +68,7 @@ describe("openBunSqlite threads busyTimeoutMs (THE-935, inventory)", () => {
     expect(src).toContain("busyTimeoutMs?: number,");
     // The pragma loop moved into applyConnectionPragmas (db/apply-pragmas.ts, which retries a busy
     // WAL conversion), so the adapter forwards busyTimeoutMs to THAT; it must not call the list bare.
-    expect(src).toMatch(/applyConnectionPragmas\([\s\S]*?, busyTimeoutMs\)/);
+    expect(src).toMatch(/applyConnectionPragmas(?:OrClose)?\([\s\S]*?, busyTimeoutMs\)/);
     expect(src).not.toMatch(/\bconnectionPragmas\(/);
   });
 });

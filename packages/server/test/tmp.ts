@@ -65,7 +65,12 @@ function sweepLive(): void {
   }
 }
 
-afterAll(sweepLive);
+// The pinned HOME (home-isolation-setup.ts) is where `bun install` puts its package cache for the
+// reranker stage-copy tests (~500 MB), and Windows deletes that tree slowly: reranker-local-resolution
+// timed out the default 10 s hook on windows-latest (38 s file, tests all green). Removal is
+// synchronous, so a longer budget is the whole fix.
+const SWEEP_TIMEOUT_MS = 120_000;
+afterAll(sweepLive, SWEEP_TIMEOUT_MS);
 // Fallback for a worker that is torn down before (or without) afterAll: a file whose tests are all
 // skipped never runs its hooks, and vitest ends its worker with SIGTERM, which does not emit "exit"
 // at all. A signal handler replaces the default action, so it sweeps and then re-raises the signal
