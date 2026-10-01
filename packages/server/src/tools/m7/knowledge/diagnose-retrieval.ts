@@ -56,9 +56,11 @@ import type { RetrievalTraceRecord } from "../../../search/graph_search_stages/i
 import { readableRel } from "../../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
+import { conciseDiagnoseRetrieval } from "./concise-reads";
 import type { M7Deps } from "./deps";
 import { buildGraphSearchOptions, type RetrievalRuntime } from "./retrieval-runtime";
-import { DiagnoseRetrievalOutput } from "./schemas";
+import { ConciseableDiagnoseRetrievalOutput, type DiagnoseRetrievalOutput } from "./schemas";
 
 /**
  * Turn the raw stage records into the one sentence a human actually wants.
@@ -146,7 +148,7 @@ export function createDiagnoseRetrievalTool(
     name: "diagnose_retrieval",
     domain: "knowledge",
     description:
-      "Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read.",
+      "Explain why a specific note was or was not returned for a query. Re-runs the retrieval pipeline with per-stage tracing and reports, for that one note, where it was present, its score and rank where a stage produces them, and the first stage that dropped it. Read-only and non-mutating; reports nothing about paths the caller cannot read. response_format=concise returns returned, dropped_at and summary without the per-stage trace.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -154,9 +156,10 @@ export function createDiagnoseRetrievalTool(
         /** The note you expected to see. Vault-relative, same shape as every other path arg. */
         path: VaultPath,
         final_top_k: z.number().int().positive().max(100).default(30),
+        ...ResponseFormatInput,
       })
       .strict(),
-    outputSchema: DiagnoseRetrievalOutput,
+    outputSchema: ConciseableDiagnoseRetrievalOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search", "diagnostics", "external-network"],
     handler: async (input, ctx) => {
@@ -196,7 +199,7 @@ export function createDiagnoseRetrievalTool(
       await graphSearch(ctx.db, { ...options, ...vectors });
 
       const { returned, droppedAt, summary } = summarize(rel, records);
-      return {
+      const full: z.infer<typeof DiagnoseRetrievalOutput> = {
         vault: v.id,
         query: input.query,
         path: rel,
@@ -214,6 +217,9 @@ export function createDiagnoseRetrievalTool(
           ...(r.note !== undefined ? { note: r.note } : {}),
         })),
       };
+      return resolveResponseFormat(input, deps.responseFormat) === "concise"
+        ? conciseDiagnoseRetrieval(full)
+        : full;
     },
   });
 }

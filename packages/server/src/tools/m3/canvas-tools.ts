@@ -33,6 +33,7 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M3Deps } from "./shared";
 
 function requireCanvasExt(rel: string): void {
@@ -139,6 +140,24 @@ const ReadCanvasOutput = z.object({
   content_hash: z.string(),
 });
 
+// GH #1027: `response_format=concise` keeps what a node says (id, type, color, text, file, subpath,
+// url, label) and what an edge joins (id, endpoints, color, label), and drops the layout: geometry,
+// background, edge sides and arrow ends, plus the two counts (the lengths of `nodes` and `edges`).
+const ConciseableReadCanvasOutput = ReadCanvasOutput.extend({
+  nodes: z.array(
+    CanvasNodeOutput.partial({
+      x: true,
+      y: true,
+      width: true,
+      height: true,
+      background: true,
+      backgroundStyle: true,
+    }),
+  ),
+  node_count: z.number().int().optional(),
+  edge_count: z.number().int().optional(),
+});
+
 const CreateCanvasOutput = z.object({
   vault: z.string(),
   path: z.string(),
@@ -186,9 +205,10 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       name: "read_canvas",
       domain: "structured",
       pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Parse a .canvas file into its nodes and edges (JSONCanvas spec).",
-      inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
-      outputSchema: ReadCanvasOutput,
+      description:
+        "Parse a .canvas file into its nodes and edges (JSONCanvas spec). response_format=concise drops the layout (node geometry and background, edge sides and ends) and the counts.",
+      inputSchema: z.object({ vault: VaultId, path: VaultPath, ...ResponseFormatInput }).strict(),
+      outputSchema: ConciseableReadCanvasOutput,
       requiredScopes: ["read:canvas"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -201,13 +221,23 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
           throw err.noteNotFound("canvas not found", { path: rel });
         const { raw, hash } = readNote(abs);
         const parsed = parseCanvas(raw);
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           vault: v.id,
           path: rel,
-          nodes: parsed.nodes.map(projectNode),
-          edges: parsed.edges.map(projectEdge),
-          node_count: parsed.nodes.length,
-          edge_count: parsed.edges.length,
+          nodes: parsed.nodes.map((n) => {
+            const node = projectNode(n);
+            if (!concise) return node;
+            const { x, y, width, height, background, backgroundStyle, ...content } = node;
+            return content;
+          }),
+          edges: parsed.edges.map((e) => {
+            const edge = projectEdge(e);
+            if (!concise) return edge;
+            const { fromSide, toSide, fromEnd, toEnd, ...ends } = edge;
+            return ends;
+          }),
+          ...(concise ? {} : { node_count: parsed.nodes.length, edge_count: parsed.edges.length }),
           content_hash: hash,
         };
       },

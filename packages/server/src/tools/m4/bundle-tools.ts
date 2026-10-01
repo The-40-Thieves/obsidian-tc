@@ -12,6 +12,7 @@ import { parseNote } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M4Deps } from "./shared";
 
 type Format = "markdown" | "xml";
@@ -48,6 +49,19 @@ const BundleResultSchema = z.object({
   files: z.array(z.object({ path: z.string(), bytes: z.number().int() })),
 });
 
+// GH #1027: `response_format=concise` keeps the bundle, `file_count`, `truncated` and (per tool) the
+// resume `cursor` / `missing_paths`, and drops `files` (each path is already the header of its block
+// in `bundle`), `total_bytes` and bundle_folder's `root` echo.
+const ConciseableBundleResultSchema = BundleResultSchema.extend({
+  total_bytes: z.number().int().optional(),
+  files: BundleResultSchema.shape.files.optional(),
+});
+
+/** The concise form of a built bundle: what the caller reads and the flags that qualify it. */
+function conciseBundle(r: BundleResult): Pick<BundleResult, "bundle" | "file_count" | "truncated"> {
+  return { bundle: r.bundle, file_count: r.file_count, truncated: r.truncated };
+}
+
 // Concatenate (rel, content) entries under a byte budget. `preTruncated` carries a
 // file-count cap that already dropped entries upstream.
 function buildBundle(
@@ -79,7 +93,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
       name: "bundle_folder",
       domain: "automation",
       description:
-        "Aggregate all notes under a folder into a single markdown/XML bundle (Smart Context). ACL-filtered; file-count and byte budgeted with an explicit truncated flag. When truncated, resume with the returned cursor; max_files and max_bytes apply per page, so loop until cursor is absent.",
+        "Aggregate all notes under a folder into a single markdown/XML bundle (Smart Context). ACL-filtered; file-count and byte budgeted with an explicit truncated flag. When truncated, resume with the returned cursor; max_files and max_bytes apply per page, so loop until cursor is absent. response_format=concise drops the per-file list, total_bytes and the root echo.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -110,11 +124,12 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
             .describe(
               "Resume after this vault-relative path (from a prior truncated response); emits only files that sort strictly after it in the tool's deterministic path order.",
             ),
+          ...ResponseFormatInput,
         })
         .strict(),
-      outputSchema: BundleResultSchema.extend({
+      outputSchema: ConciseableBundleResultSchema.extend({
         vault: z.string(),
-        root: z.string(),
+        root: z.string().optional(),
         cursor: z
           .string()
           .optional()
@@ -148,6 +163,8 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         });
         const lastFile = result.files.at(-1);
         const cursor = result.truncated && lastFile ? lastFile.path : undefined;
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return { vault: v.id, ...conciseBundle(result), ...(cursor ? { cursor } : {}) };
         return { vault: v.id, root: sub, ...result, ...(cursor ? { cursor } : {}) };
       },
     }),
@@ -156,7 +173,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
       name: "bundle_files",
       domain: "automation",
       description:
-        "Aggregate an explicit list of notes into a single markdown/XML bundle. ACL-filtered; byte budgeted; reports missing_paths for files that do not exist.",
+        "Aggregate an explicit list of notes into a single markdown/XML bundle. ACL-filtered; byte budgeted; reports missing_paths for files that do not exist. response_format=concise drops the per-file list and total_bytes.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -164,10 +181,11 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
           max_bytes: z.number().int().positive().default(500_000),
           include_frontmatter: z.boolean().default(true),
           format: z.enum(["markdown", "xml"]).default("markdown"),
+          ...ResponseFormatInput,
         })
         .strict(),
       // missing_paths is conditionally spread (only when non-empty) -> optional, not nullable.
-      outputSchema: BundleResultSchema.extend({
+      outputSchema: ConciseableBundleResultSchema.extend({
         vault: z.string(),
         missing_paths: z.array(z.string()).optional(),
       }),
@@ -191,7 +209,11 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
           format: input.format,
           preTruncated: false,
         });
-        return { vault: v.id, ...result, ...(missing.length ? { missing_paths: missing } : {}) };
+        const shown =
+          resolveResponseFormat(input, deps.responseFormat) === "concise"
+            ? conciseBundle(result)
+            : result;
+        return { vault: v.id, ...shown, ...(missing.length ? { missing_paths: missing } : {}) };
       },
     }),
   ];

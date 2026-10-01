@@ -608,8 +608,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
       client: openBridge(deps.m4Deps, vaultId, "templater").client,
       timeoutMs: bridgeTimeouts(deps.m4Deps, vaultId).templaterTimeoutMs,
     }),
-    // periodic-note create/append/find_or_create and the table mutate tool's
-    // memoryDefense guard — the SAME closure/metrics M5/M7/M8 get above.
+    // periodic-note and table-mutate guard: the SAME memoryDefense closure/metrics as M5/M7/M8.
     memoryDefense,
     metrics: deps.metrics,
     maxAttachmentBytes: config.writes.maxAttachmentBytes,
@@ -617,6 +616,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // `uri.allowOsLaunch` gates show_file_in_obsidian's OS-handler fallback (deny-by-default).
   registerM4Tools(registry, {
     ...deps.m4Deps,
+    responseFormat,
     uri: config.uri,
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
   });

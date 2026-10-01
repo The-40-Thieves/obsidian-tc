@@ -141,25 +141,38 @@ export const LineageSummarySchema = z.object({
 /** THE-646 item 2: `explain_answer`'s envelope. The `available: false` branch mirrors m8's
  *  `availableWith` shape — declared locally rather than imported so m7 does not take a dependency
  *  on m8's shared module (check:boundaries). */
-export const ExplainAnswerOutput = z.union([
-  z.object({ available: z.literal(false), message: z.string() }),
-  z.object({
-    available: z.literal(true),
-    vault: z.string(),
-    scope: z.enum(["session", "time_window"]),
-    links: z.array(LineageLinkSchema),
-    summary: LineageSummarySchema,
-    /** Present when NOTHING in the chain is judge-backed, so a caller cannot read zero citations
-     *  as evidence the sources went unused. Null once any row is stamped. */
-    caveat: z.string().nullable(),
-    /** THE-717: what the citation run log knows about this window. `recorded_runs: 0` means NO
-     *  RECORD, which is weaker than "never ran" — the log does not extend backwards. */
-    citation_pass: z.object({
-      recorded_runs: z.number(),
-      last_ran_at: z.number().nullable(),
-      last_aborted: z.boolean(),
-      last_unfinished: z.boolean(),
-    }),
+const ExplainAnswerUnavailable = z.object({ available: z.literal(false), message: z.string() });
+const ExplainAnswerAvailable = z.object({
+  available: z.literal(true),
+  vault: z.string(),
+  scope: z.enum(["session", "time_window"]),
+  links: z.array(LineageLinkSchema),
+  summary: LineageSummarySchema,
+  /** Set when NOTHING in the chain is judge-backed: zero citations is not "sources went unused". */
+  caveat: z.string().nullable(),
+  /** THE-717: `recorded_runs: 0` means NO RECORD, weaker than "never ran". */
+  citation_pass: z.object({
+    recorded_runs: z.number(),
+    last_ran_at: z.number().nullable(),
+    last_aborted: z.boolean(),
+    last_unfinished: z.boolean(),
+  }),
+});
+export const ExplainAnswerOutput = z.union([ExplainAnswerUnavailable, ExplainAnswerAvailable]);
+
+export const ConciseableExplainAnswerOutput = z.union([
+  ExplainAnswerUnavailable,
+  ExplainAnswerAvailable.extend({
+    links: z.array(
+      LineageLinkSchema.partial({
+        retrieved_at: true,
+        surface_type: true,
+        query_text: true,
+        rank_in_results: true,
+        episode_id: true,
+      }),
+    ),
+    summary: LineageSummarySchema.optional(),
   }),
 ]);
 
@@ -172,6 +185,20 @@ export const ContradictionRow = z.object({
   conflict_path: z.string(),
   judge_verdict: z.string(),
   judge_rationale: z.string(),
+});
+
+const VaultContextChunk = z.object({
+  chunk_id: z.string(),
+  content: z.string().optional(),
+  score: z.number(),
+  source: z.string(),
+  hop: z.number(),
+});
+const VaultContextLesson = z.object({
+  chunk_id: z.string(),
+  path: z.string(),
+  excerpt: z.string(),
+  via: z.enum(["engine", "lexical"]),
 });
 
 /** vault_context. The prefetch path returns the SAME bundle plus two markers, so they are optional
@@ -195,20 +222,7 @@ export const VaultContextOutput = z.object({
     syntheses: z.number(),
     lessons: z.number(),
   }),
-  notes: z.array(
-    z.object({
-      path: z.string(),
-      chunks: z.array(
-        z.object({
-          chunk_id: z.string(),
-          content: z.string().optional(),
-          score: z.number(),
-          source: z.string(),
-          hop: z.number(),
-        }),
-      ),
-    }),
-  ),
+  notes: z.array(z.object({ path: z.string(), chunks: z.array(VaultContextChunk) })),
   // `patterns` is JSON.parse'd with a fallback to the raw string, so its shape is genuinely not
   // known here. z.unknown() states that honestly rather than inventing a contract for it.
   syntheses: z.array(
@@ -224,14 +238,7 @@ export const VaultContextOutput = z.object({
   // read ran, so a caller that echoes this back as `since` on its NEXT call never has a
   // concurrently-written row dropped — see context-watermark.ts's module doc.
   diff_since: z.string().optional(),
-  lessons: z.array(
-    z.object({
-      chunk_id: z.string(),
-      path: z.string(),
-      excerpt: z.string(),
-      via: z.enum(["engine", "lexical"]),
-    }),
-  ),
+  lessons: z.array(VaultContextLesson),
   // Present only with include_work; degrades to a marker object rather than an empty array, so a
   // caller can tell "no work" from "work plane unavailable".
   episodes: z
@@ -250,6 +257,21 @@ export const VaultContextOutput = z.object({
     .optional(),
   prefetched: z.literal(true).optional(),
   prefetch_generated_at: z.number().optional(),
+});
+
+/** GH #1027: advertised contract; the prewarm cache still validates against the full output. */
+export const ConciseableVaultContextOutput = VaultContextOutput.extend({
+  route: VaultContextOutput.shape.route.optional(),
+  query_source: VaultContextOutput.shape.query_source.optional(),
+  budget: VaultContextOutput.shape.budget.optional(),
+  stats: VaultContextOutput.shape.stats.optional(),
+  notes: z.array(
+    z.object({
+      path: z.string(),
+      chunks: z.array(VaultContextChunk.partial({ source: true, hop: true })),
+    }),
+  ),
+  lessons: z.array(VaultContextLesson.partial({ via: true })),
 });
 
 /** reflect: three arms. `mode` in the degraded arm ECHOES the input rather than being normalised,
@@ -320,6 +342,13 @@ export const DiagnoseRetrievalOutput = z.object({
   stages: z.array(RetrievalTraceStageSchema),
 });
 
+/** GH #1027: concise is identical for a readable and an unreadable path: no ACL oracle. */
+export const ConciseableDiagnoseRetrievalOutput = DiagnoseRetrievalOutput.partial({
+  query: true,
+  path: true,
+  stages: true,
+});
+
 export const VaultGraphSearchOutput = z.object({
   vault: z.string(),
   mode_used: z.enum(["lexical-route", "graph"]),
@@ -377,6 +406,19 @@ export const KnowledgeCriticalOutput = z.object({
       category: z.string().nullable(),
       source: z.string().nullable(),
       severity: z.literal("critical"),
+    }),
+  ),
+});
+
+export const ConciseableKnowledgeCriticalOutput = KnowledgeCriticalOutput.extend({
+  count: z.number().optional(),
+  items: z.array(
+    z.object({
+      path: z.string(),
+      title: z.string(),
+      category: z.string().nullable(),
+      source: z.string().nullable(),
+      severity: z.literal("critical").optional(),
     }),
   ),
 });

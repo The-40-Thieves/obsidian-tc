@@ -25,6 +25,7 @@ import { parseNote } from "../../vault/frontmatter";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { isValidTag, normalizeTag, noteTags } from "../../vault/tags";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 import { collectTagCounts } from "./tag-counts";
@@ -63,6 +64,7 @@ const SuggestTagsInput = z
     vault: VaultId,
     path: VaultPath,
     max_suggestions: z.number().int().positive().max(10).default(5),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -80,6 +82,15 @@ const SuggestTagsOutput = z.object({
   hint: z.string().optional(),
 });
 type SuggestTagsOut = z.infer<typeof SuggestTagsOutput>;
+
+// GH #1027: `response_format=concise` keeps `source` (a model's suggestions or a heuristic match) and
+// the suggestions, and drops the `path` echo, the note's own tags (never suggested back), the
+// sampling record and the hint.
+const ConciseableSuggestTagsOutput = SuggestTagsOutput.partial({
+  path: true,
+  sampling: true,
+  note_tags: true,
+});
 
 const ReplySchema = z.object({ tags: z.array(z.string()).max(L.replyTags) }).strict();
 
@@ -173,11 +184,14 @@ export function buildSuggestTagsTool(deps: M1Deps): ToolDefinition {
     pathAcl: (input) => [{ op: "read", path: input.path }],
     tags: ["client-sampling"],
     description:
-      "Suggest tags for a note, preferring the vault's existing tag vocabulary. Asks the calling client's own model over MCP sampling when the client supports it (`source: client-sampled`; the note text is sent to that client only); otherwise falls back to a deterministic match against existing tags (`source: heuristic`). Read-only: apply a suggestion with add_tag. Domain: metadata.",
+      "Suggest tags for a note, preferring the vault's existing tag vocabulary. Asks the calling client's own model over MCP sampling when the client supports it (`source: client-sampled`; the note text is sent to that client only); otherwise falls back to a deterministic match against existing tags (`source: heuristic`). Read-only: apply a suggestion with add_tag. response_format=concise returns only source and the suggestions. Domain: metadata.",
     inputSchema: SuggestTagsInput,
-    outputSchema: SuggestTagsOutput,
+    outputSchema: ConciseableSuggestTagsOutput,
     requiredScopes: ["read:notes"],
-    handler: async (input, ctx: CallerContext): Promise<SuggestTagsOut> => {
+    handler: async (
+      input,
+      ctx: CallerContext,
+    ): Promise<z.infer<typeof ConciseableSuggestTagsOutput>> => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
@@ -206,18 +220,23 @@ export function buildSuggestTagsTool(deps: M1Deps): ToolDefinition {
         sampling: SuggestTagsOut["sampling"],
         tags: string[],
         hint?: string,
-      ): SuggestTagsOut => ({
-        vault: v.id,
-        path: rel,
-        source,
-        sampling,
-        note_tags: noteTagList,
-        suggestions: tags
+      ): z.infer<typeof ConciseableSuggestTagsOutput> => {
+        const suggestions = tags
           .filter((t) => !onNote.has(t.toLowerCase()))
           .slice(0, limit)
-          .map((tag) => ({ tag, in_vocabulary: counts.has(tag) })),
-        ...(hint === undefined ? {} : { hint }),
-      });
+          .map((tag) => ({ tag, in_vocabulary: counts.has(tag) }));
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return { vault: v.id, source, suggestions };
+        return {
+          vault: v.id,
+          path: rel,
+          source,
+          sampling,
+          note_tags: noteTagList,
+          suggestions,
+          ...(hint === undefined ? {} : { hint }),
+        };
+      };
       const fallback = (status: "unsupported" | "declined_or_failed" | "rejected_response") =>
         finish(
           "heuristic",

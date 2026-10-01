@@ -92,8 +92,19 @@ describe("response_format coverage: every tool made the decision", () => {
       "get_entity",
       "work_episodes",
       "gap_report",
+      "vault_context",
+      "explain_answer",
+      "diagnose_retrieval",
+      "knowledge_get_critical",
+      "audit_provenance",
+      "vault_health_score",
+      "suggest_links",
+      "suggest_tags",
+      "bundle_files",
+      "bundle_folder",
+      "read_canvas",
     ])
       expect(aware, n).toContain(n);
-    expect(aware.length).toBeGreaterThanOrEqual(41);
+    expect(aware.length).toBeGreaterThanOrEqual(52);
   });
 });
