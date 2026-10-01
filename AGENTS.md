@@ -27,8 +27,9 @@ version first; the pin lives in `mise.toml` and `packageManager` in `package.jso
 agree (currently `1.4.2`):
 
 ```bash
+export BUN_INSTALL="$HOME/.bun"   # some VMs can't write the installer's default location
 curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="$BUN_INSTALL/bin:$PATH"
 bun --version   # must print 1.4.2
 bun install --frozen-lockfile
 ```
