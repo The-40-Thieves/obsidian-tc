@@ -201,12 +201,18 @@ export function resolveHostId(cfg: {
     .slice(0, 32);
 }
 
+/** The caller's principal, only when a bearer token proved it (stdio and `auth.mode: none` never
+ *  do). The one definition shared by the record and the optional stamps. */
+export const verifiedPrincipalOf = (
+  ctx: Pick<CallerContext, "authVerified" | "caller">,
+): string | undefined => (ctx.authVerified === true && ctx.caller ? ctx.caller : undefined);
+
 function attributionOf(
   ctx: CallerContext,
   host: string,
   serverVersion: string,
 ): PendingProvenance["attribution"] {
-  const verifiedPrincipal = ctx.authVerified === true && ctx.caller ? ctx.caller : undefined;
+  const verifiedPrincipal = verifiedPrincipalOf(ctx);
   return {
     verified: {
       host,

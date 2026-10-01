@@ -339,7 +339,9 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
         // fields (frontmatter walked key-by-key, content as its own string) would not see as one
         // contiguous match. Every other note-content writer already scans the persisted form; this
         // was the one exception the earlier field-by-field scan here missed.
-        const rawContent = serializeNote(fm, cap.content);
+        // provenance.stamp.frontmatter (off by default): a committed capture is always a new note.
+        const serialized = serializeNote(fm, cap.content);
+        const rawContent = deps.provenanceStamp?.stampNewNote(serialized, v.id, ctx) ?? serialized;
         const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, rawContent, {
           metrics: deps.metrics,
         });

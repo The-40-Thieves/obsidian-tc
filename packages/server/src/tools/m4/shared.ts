@@ -11,6 +11,7 @@ import {
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
 import { type CapabilitySnapshot, EXPECTED_COMPANION_API } from "../../bridge/capabilities";
 import type { MetricsRecorder } from "../../metrics/registry";
+import type { ProvenanceStamper } from "../../provenance/stamp";
 import { assertLive, type VaultMode } from "../../vault/mode";
 import type { VaultRegistry } from "../../vault/registry";
 import type { OsLaunchFn } from "./os-launch";
@@ -58,6 +59,9 @@ export interface M4Deps {
   uri?: { allowOsLaunch: boolean };
   /** The OS URI-handler launch seam; absent -> the real spawn-based launcher. Tests inject a stub. */
   osLaunch?: OsLaunchFn;
+  /** Optional provenance stamps (`provenance.stamp.*`, off by default): git_commit appends
+   *  `Obsidian-TC-*` trailers, execute_template stamps a note it just created. Absent -> neither. */
+  provenanceStamp?: ProvenanceStamper;
 }
 
 /**

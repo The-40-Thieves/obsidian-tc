@@ -131,7 +131,13 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
       // memory-defense.ts's enforceMemoryDefenseOnNoteWrite for why this is vault-wide rather
       // than restricted to the configured memory folder.
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
-      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, input.content, {
+      // provenance.stamp.frontmatter (off by default): a note this call CREATES carries a compact
+      // provenance key; an overwrite never does. Stamped before the scan so the scan, the
+      // recorded `after` digest and the returned content_hash all describe the bytes on disk.
+      const body = ex.exists
+        ? input.content
+        : (deps.provenanceStamp?.stampNewNote(input.content, v.id, ctx) ?? input.content);
+      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, body, {
         metrics: deps.metrics,
       });
 

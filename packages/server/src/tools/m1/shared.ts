@@ -6,6 +6,7 @@ import type { ResponseFormat, VaultMemoryDefenseConfig } from "@the-40-thieves/o
 import type { Database } from "../../db/types";
 import type { PagingDeps } from "../../mcp/byte-page";
 import type { MetricsRecorder } from "../../metrics/registry";
+import type { ProvenanceStamper } from "../../provenance/stamp";
 import type { VaultRegistry } from "../../vault/registry";
 
 export interface M1Deps {
@@ -52,4 +53,7 @@ export interface M1Deps {
   /** Continuation-cursor signing codec + live byte budget for bulk reads (mcp/byte-page.ts). Absent
    *  (tests, bare registries) -> a per-process random key and the registry's 1 MB default budget. */
   paging?: PagingDeps;
+  /** Optional provenance stamps (`provenance.stamp.*`, off by default): a newly created note gets a
+   *  compact provenance key. Absent -> nothing is stamped, outputs byte-identical. */
+  provenanceStamp?: ProvenanceStamper;
 }

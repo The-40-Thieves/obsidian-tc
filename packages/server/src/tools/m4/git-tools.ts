@@ -8,6 +8,7 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { applyTrailers } from "../../provenance/stamp";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { gitCommitState } from "../../vault/git-state";
@@ -25,6 +26,25 @@ const GitDiffOutput = z
 const GitLogOutput = z.object({ vault: z.string() }).passthrough();
 const GitStageOutput = z.object({ vault: z.string() }).passthrough();
 const GitCommitOutput = z.object({ vault: z.string() }).passthrough();
+
+/** Paths the bridge reports as staged, for matching a commit to recorded writes. Best effort: a
+ *  status that fails or has an unexpected shape means no trailers, never a failed commit. */
+async function stagedPaths(deps: M4Deps, vaultId: string): Promise<string[]> {
+  try {
+    const { client } = openBridge(deps, vaultId, "git");
+    const status = await client.request<{ staged?: Array<{ path?: unknown }> }>({
+      method: "POST",
+      path: "/git/status",
+      plugin: "git",
+      timeoutMs: bridgeTimeouts(deps, vaultId).timeoutMs,
+    });
+    return (Array.isArray(status.staged) ? status.staged : [])
+      .map((f) => f.path)
+      .filter((p): p is string => typeof p === "string" && p.length > 0);
+  } catch {
+    return [];
+  }
+}
 
 export function buildGitTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -148,15 +168,27 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "git");
+        // provenance.stamp.gitTrailers (off by default): trailers for the recorded writes whose
+        // current bytes are staged. The caller's own message is kept, minus any Obsidian-TC-*
+        // trailer it wrote, so a trailer under that prefix is always the server's.
+        const stamp = deps.provenanceStamp;
+        const trailers = stamp?.gitTrailers
+          ? await stamp.commitTrailers(v.id, v.root, await stagedPaths(deps, v.id))
+          : [];
+        const message = stamp?.gitTrailers ? applyTrailers(input.message, trailers) : input.message;
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
           path: "/git/commit",
-          body: { message: input.message },
+          body: { message },
           plugin: "git",
           // commits can be slow on large repos — reuse the long bridge budget.
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
-        return { vault: v.id, ...result };
+        return {
+          vault: v.id,
+          ...result,
+          ...(trailers.length > 0 ? { stamped_trailers: trailers } : {}),
+        };
       },
     }),
   ];

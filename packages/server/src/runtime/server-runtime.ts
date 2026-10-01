@@ -198,6 +198,7 @@ export async function buildServerRuntime(
             host: resolveHostId(config.provenance.host),
             serverVersion: VERSION,
             hooks: sqlHooksFor("provenance"),
+            stamp: config.provenance.stamp,
           },
         }
       : {}),
@@ -366,6 +367,7 @@ export async function buildServerRuntime(
       experientialDb,
       memoryDefense: memoryDefenseForM1,
       metrics,
+      provenanceStamp: governance.provenanceStamp,
     });
 
     // M4 plugin bridges (THE-180): per-vault client + probed capability snapshot, built before M2 so search_dql can share the same Dataview bridge.
@@ -417,6 +419,7 @@ export async function buildServerRuntime(
       experientialOpen,
       experientialDb,
       sandboxRerun: runSandboxSessionRerun,
+      provenanceStamp: governance.provenanceStamp,
     });
 
     /** stdio is the trusted local transport: the operator runs the binary against their own vault,

@@ -6,11 +6,11 @@
 // executable. Uses the longer templater timeout (expansion can be slow).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { ToolDefinition } from "../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
-import { noteExists } from "../../vault/notes-io";
-import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
+import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
+import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
@@ -22,6 +22,31 @@ const ListTemplatesOutput = z.object({ vault: z.string() }).passthrough();
 const ExecuteTemplateOutput = z
   .object({ vault: z.string(), template: z.string(), target: z.string() })
   .passthrough();
+
+/** Provenance frontmatter stamp for a note Templater just CREATED (never one it replaced), added
+ *  after the plugin wrote it. Fail-open: a note that cannot be re-read or re-written keeps what
+ *  Templater produced. Returns the new content hash, or undefined when nothing changed. */
+function stampCreatedNote(
+  deps: M4Deps,
+  ctx: CallerContext,
+  vaultId: string,
+  root: string,
+  rel: string,
+): string | undefined {
+  const stamp = deps.provenanceStamp;
+  if (!stamp?.frontmatter) return undefined;
+  try {
+    const abs = resolveVaultPath(root, rel);
+    const { raw } = readNote(abs);
+    const stamped = stamp.stampNewNote(raw, vaultId, ctx);
+    if (stamped === raw) return undefined;
+    writeNoteAtomic(abs, stamped, false);
+    deps.reindex?.(vaultId, rel, stamped);
+    return contentHash(stamped);
+  } catch {
+    return undefined;
+  }
+}
 
 export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -84,7 +109,8 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         // existing file, so honor overwrite server-side (authoritative, independent of the
         // companion version): refuse when the resolved target already exists and overwrite is off.
         const targetFile = target.endsWith(".md") ? target : `${target}.md`;
-        if (!input.overwrite && noteExists(resolveVaultPath(v.root, targetFile)).exists)
+        const existed = noteExists(resolveVaultPath(v.root, targetFile)).exists;
+        if (!input.overwrite && existed)
           throw err.noteExists("target already exists; set overwrite to replace it", {
             path: targetFile,
           });
@@ -101,7 +127,20 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           plugin: "templater",
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
-        return { vault: v.id, template, target, ...result };
+        // Only a note this call created is stamped: `overwrite` over an existing target is not.
+        const stampedHash = existed
+          ? undefined
+          : stampCreatedNote(deps, ctx, v.id, v.root, targetFile);
+        return {
+          vault: v.id,
+          template,
+          target,
+          ...result,
+          // A companion that reports the hash of what it wrote must not contradict the stamp.
+          ...(stampedHash !== undefined && typeof result.content_hash === "string"
+            ? { content_hash: stampedHash }
+            : {}),
+        };
       },
     }),
   ];
