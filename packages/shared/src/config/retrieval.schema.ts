@@ -297,7 +297,20 @@ export const RetrievalConfigSchema = z.object({
    *  Ships OFF. Not because the key is doubted — it has an adversarial cross-principal test and a
    *  structural gate that fails when a new retrieval option is not covered — but because "results
    *  are unchanged" is exactly the claim a cache can be wrong about, and a wrong hit is invisible
-   *  where a wrong ranking is merely worse. Flip after a perf-gate run on a real vault. */
+   *  where a wrong ranking is merely worse.
+   *
+   *  Measured on a copy of a real 15.9k-chunk vault (eval/query-cache.ts, through real dispatch):
+   *  a hit answers in ~1-4 ms against ~850 ms for the same call without the cache (hundreds of times faster,
+   *  and the embedding call is also skipped), a first sighting pays no detectable
+   *  overhead, `results` is byte-identical to the cache-off response on every call (two callers'
+   *  ACLs, across a generation bump, no cross-caller hit), and the cache holds at most ~13 MiB at
+   *  the defaults, so maxEntries is a sound memory bound. It STAYS OFF for two measured reasons:
+   *  (1) a hit omits `coverage` from the vault_graph_search response (the pipeline that produces
+   *  it never runs), so the whole response is not byte-identical and that tool's coverage
+   *  estimate silently disappears on a hit; (2) the live store's history shows no repeat traffic
+   *  to save (1 repeated call in 251, from a replay), so there is no measured gain to ship by
+   *  default. An operator whose clients really repeat queries can turn it on today: `results` is
+   *  unaffected. */
   cache: z
     .object({
       enabled: z
