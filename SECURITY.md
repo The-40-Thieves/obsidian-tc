@@ -67,6 +67,7 @@ assumptions:
 - Path-traversal prevention (byte-level rejection of `..` segments and absolute paths, plus a real-path symlink-containment check so in-vault symlinks cannot escape the vault root)
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
+- Signed write provenance: one hash-chained, EdDSA-signed record per committed mutating tool call, tagged by what is verified versus self-reported (`obsidian-tc provenance verify`; stdio-only deployments have no registry key and are chain-only)
 - **Checksum-verified, lock-protected model downloads for the bundled local reranker and local
   embedder.** Both `@the-40-thieves/obsidian-tc-reranker-local` and
   `@the-40-thieves/obsidian-tc-embedder-local` (the latter added for the `embeddings.provider:

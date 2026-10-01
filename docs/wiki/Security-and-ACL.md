@@ -18,6 +18,10 @@ The scope check fires in the **ACL layer only** — never scattered across every
 
 Path enforcement is inode-aware: an in-vault symlink pointing outside the vault is rejected by realpath canonicalization, and a **hard-linked** file (`st_nlink > 1`) is rejected under a folder ACL (a hard link aliases an inode realpath cannot dereference). Reads run on the opened fd. The .obsidian/.git/.trash default-deny folds case, so a case-variant control-directory path cannot evade it on a case-insensitive filesystem (Windows/macOS).
 
+## Write provenance
+
+Every committed mutating tool call appends one hash-chained record to `cache.db`: the tool, the vault, the paths the call named with sha256 digests before and after (never content), the time, and attribution. Chains are per vault and signed with the auth registry's **EdDSA** key, with a signed head row so a removed last record is detectable. Attribution is tagged by trust: `verified` (host, server version, transport, and the principal/persona only when a bearer token was verified), `unauthenticated` (a stdio or `auth.mode: none` label), and `self_reported` (client name/version and the `_meta` `io.obsidian-tc/provenance` model/project/agent/machine, which a client can lie about). A stdio-only deployment has no registry key, so its chain is **chain-only** (unsigned). `obsidian-tc provenance verify` checks it (exit 1 on failure; unsigned records fail unless `--allow-unsigned`), `doctor` reports `provenance.chain`, and `provenance.retentionDays` prunes the oldest prefix while keeping the chain verifiable. Full page: `docs/src/content/docs/security/write-provenance.md`.
+
 ## Kill switch
 
 Global `acl.readOnly: true` short-circuits every write/delete to a `read_only_mode` error before dispatch. The fastest way to make a server safe.
