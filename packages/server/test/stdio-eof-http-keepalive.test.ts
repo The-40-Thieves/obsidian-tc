@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp } from "./tmp";
 
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
@@ -39,7 +40,7 @@ const SHARED_DIR = join(REPO_ROOT, "packages", "shared");
 const SHARED_DIST_INDEX = join(SHARED_DIR, "dist", "index.js");
 const DIST_CLI = join(SERVER_DIR, "dist", "cli.js");
 
-const EXIT_BOUND_MS = 5000;
+const EXIT_BOUND_MS = stallTimeout(5000);
 const KEEPALIVE_WAIT_MS = 1500;
 
 beforeAll(() => {

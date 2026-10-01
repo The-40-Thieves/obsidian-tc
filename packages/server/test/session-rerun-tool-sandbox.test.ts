@@ -57,6 +57,7 @@ import {
   genSessionId,
   insertSession,
 } from "../src/workspace/sessions";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -235,7 +236,9 @@ function errCode(r: { ok: boolean; error?: { code: string } }): string {
 }
 
 describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
-  it("success: replays a mutating call in the sandbox, leaves the real vault untouched, disposes the staging dir", async () => {
+  it("success: replays a mutating call in the sandbox, leaves the real vault untouched, disposes the staging dir", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const { vaultDir, cacheDir, db, runtime } = await boot();
     writeFileForVault(vaultDir, "a.md", "original");
     const id = seedSession(db, cacheDir, [patchRecord("a.md")]);
@@ -261,9 +264,11 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     // THE property: the mutating call landed on the SANDBOX copy, not the real vault.
     expect(readFileSync(join(vaultDir, "a.md"), "utf8")).toBe("original");
     assertNoNewRerunTmp(before, after);
-  }, 30_000);
+  });
 
-  it("disposal on error: a directory-shaped trace path (EISDIR after staging) still disposes, never leaks", async () => {
+  it("disposal on error: a directory-shaped trace path (EISDIR after staging) still disposes, never leaks", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const { cacheDir, db, runtime } = await boot();
     const id = seedSession(db, cacheDir, []);
     // Replace the trace FILE with a directory. `stageSandbox` copies whatever is there
@@ -290,9 +295,11 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     // "internal" (same code the unwired-dependency case gets in session-rerun-tool-unit.test.ts).
     expect(errCode(res as never)).toBe("internal");
     assertNoNewRerunTmp(before, after);
-  }, 30_000);
+  });
 
-  it("disposal on timeout: a 1ms budget times out, cancels the loop, and still disposes cleanly", async () => {
+  it("disposal on timeout: a 1ms budget times out, cancels the loop, and still disposes cleanly", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const { cacheDir, db, runtime } = await boot();
     // Padding rationale: `makeSandboxRerun`'s RACE (the error the CALLER sees) wraps ONLY
     // `rerunSession` itself, not staging or the second runtime build (session-rerun-sandbox.ts's
@@ -325,9 +332,11 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     // dispose) finishes — `awaitPendingSandboxCleanup()` above is what flushes that chain, so by
     // `after` disposal has already been attempted (session-rerun-sandbox.ts's own doc comment).
     assertNoNewRerunTmp(before, after);
-  }, 30_000);
+  });
 
-  it("no scope escalation end-to-end: a read-only caller's recorded mutating call is refused, never executed", async () => {
+  it("no scope escalation end-to-end: a read-only caller's recorded mutating call is refused, never executed", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const { vaultDir, cacheDir, db, runtime } = await boot();
     writeFileForVault(vaultDir, "a.md", "original");
     const id = seedSession(db, cacheDir, [patchRecord("a.md")]);
@@ -355,7 +364,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     expect(data.records[0]?.verdict).toBe("refused_by_policy");
     expect(data.records[0]?.replayed).toBeNull();
     expect(readFileSync(join(vaultDir, "a.md"), "utf8")).toBe("original");
-  }, 30_000);
+  });
 
   it("CLI parity: the MCP tool and `rerun --sandbox --json` report the same records/summary for the same session", async () => {
     const { vaultDir, cacheDir, db, runtime } = await boot();
@@ -422,7 +431,9 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     expect(cliData.summary).toEqual(toolJson.summary);
   }, 60_000);
 
-  it("closes a runtime built after the timeout fired, before disposing its staged dir", async () => {
+  it("closes a runtime built after the timeout fired, before disposing its staged dir", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     // A 1ms budget fires while `work` is still staging, so the sandbox runtime does not exist yet
     // when the timeout lands — it is built afterwards, while `makeSandboxRerun` waits for `work` to
     // settle. That late runtime must still be closed (its vault-lock keepalive, lock db, cache.db
@@ -451,9 +462,11 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     ).rejects.toThrow(/sandbox timeout/);
     await awaitPendingSandboxCleanup(); // a timed-out call returns BEFORE its cleanup finishes
     expect(events).toEqual(["built", "close:staged-dir-present"]);
-  }, 30_000);
+  });
 
-  it("no writes after close: close() joins every background writer a sandbox-shaped runtime started", async () => {
+  it("no writes after close: close() joins every background writer a sandbox-shaped runtime started", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     // A runtime built but never start()ed — exactly the shape `makeSandboxRerun` builds — still
     // starts the vault-lock leader election (a 1s keepalive) and holds cache.db/experiential.db.
     // Once close() resolves nothing it started may touch its cacheDir again, or disposing that
@@ -471,9 +484,11 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     const before = snapshot();
     await new Promise((r) => setTimeout(r, 2500)); // > 2x vault-lock.ts's 1000ms KEEPALIVE_MS
     expect(snapshot()).toEqual(before);
-  }, 30_000);
+  });
 
-  it("hung boot: the call still returns operation_timeout at its deadline, and cleanup runs once the boot settles", async () => {
+  it("hung boot: the call still returns operation_timeout at its deadline, and cleanup runs once the boot settles", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const { vaultDir, cacheDir, db } = await boot();
     const id = seedSession(db, cacheDir, [listNotesRecord(1000)]);
     const config = configFromVaultPath(vaultDir);
@@ -511,7 +526,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     expect(events).toEqual(["built", "closed"]);
     expect(stagedCacheDir).not.toBe("");
     expect(existsSync(stagedCacheDir)).toBe(false);
-  }, 30_000);
+  });
 
   it("concurrency cap: calls beyond MAX_CONCURRENT_SANDBOX_RERUNS are refused as throttled, and a slot frees once cleanup finishes", async () => {
     const { vaultDir, cacheDir, db } = await boot();

@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { WINDOWS_STALL_TIMEOUT_MS } from "./test/stall-timeouts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
@@ -42,10 +43,12 @@ export default defineConfig({
     // does. Measured 2026-08-19: SIX unrelated tests (citation, m8-experiential-tools,
     // idempotency-intra-handler, …) all failed "Test timed out in 5000ms" in one run, 0 assertion
     // failures — a runner-wide stall, not slow code. Per-test bumps (THE-856) are whack-a-mole
-    // against that; a Windows-scoped 15s floor absorbs the stall for the whole suite while keeping
+    // against that; a Windows-scoped floor absorbs the stall for the whole suite while keeping
     // the tight budget that catches real slowness on the other two OSes. Correctness tests, so a
-    // higher ceiling weakens nothing — a hung test still fails, just 10s later.
-    testTimeout: process.platform === "win32" ? 15_000 : 5_000,
+    // higher ceiling weakens nothing — a hung test still fails, just later. The floor was 15s until a
+    // spawn test (memory-import-cli) was killed at its 20s child timeout by a stall; it is now the one
+    // shared stall ceiling (test/stall-timeouts.ts), the same value the spawn helpers use.
+    testTimeout: process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : 5_000,
     coverage: {
       provider: "v8",
       reporter: ["text-summary"],

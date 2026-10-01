@@ -34,6 +34,7 @@ import { signAndRecord } from "../src/cli/commands/token-mint";
 import { openDatabase } from "../src/db/open";
 import { provisionAuthDb, provisionCacheDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -266,7 +267,9 @@ describe("no cache wipe touches auth.db", () => {
     expect(glob.sort()).toEqual(["cache.db", "cache.db-shm", "cache.db-wal"]);
   });
 
-  it("compact leaves auth.db byte-identical and cache.db carries no auth tables", async () => {
+  it("compact leaves auth.db byte-identical and cache.db carries no auth tables", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const vault = freshDir();
     const cacheDir = freshDir();
     const confDir = freshDir();
@@ -289,7 +292,7 @@ describe("no cache wipe touches auth.db", () => {
 
     const r = spawnSync("bun", [CLI, "compact", "--config", configPath], {
       encoding: "utf8",
-      timeout: 20_000,
+      timeout: stallTimeout(20_000),
       env: { ...process.env, NO_COLOR: "1" },
     });
     expect(r.status, `compact stderr: ${r.stderr}`).toBe(0);
@@ -301,7 +304,7 @@ describe("no cache wipe touches auth.db", () => {
     ).length;
     after.close?.();
     expect(names).toBe(0);
-  }, 30_000);
+  });
 
   it("reset_vault_cache, the maintenance sweep and compact never name an auth table or auth.db", () => {
     const src = (rel: string) =>

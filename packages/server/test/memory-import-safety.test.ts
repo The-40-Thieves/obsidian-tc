@@ -8,6 +8,7 @@ import { openDatabase } from "../src/db/open";
 import { applyImport } from "../src/memory-import/apply";
 import { buildParsedSource } from "../src/memory-import/plan";
 import { makeMemoryImportHarness } from "./memory-import-helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const FIXTURE_ROOT = fileURLToPath(new URL("fixtures/memory-import/basic-memory", import.meta.url));
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -95,7 +96,7 @@ describe("PR #978 adversarial importer verification", () => {
         "--vault",
         "main",
       ],
-      { encoding: "utf8", timeout: 20_000, env: { ...process.env, NO_COLOR: "1" } },
+      { encoding: "utf8", timeout: stallTimeout(20_000), env: { ...process.env, NO_COLOR: "1" } },
     );
 
     expect.soft(run.status).not.toBe(0);

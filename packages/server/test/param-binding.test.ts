@@ -40,6 +40,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { JobQueue } from "../src/scheduler/job-queue";
 import { Scheduler } from "../src/scheduler/scheduler";
+import { stallTimeout } from "./stall-timeouts";
 
 // --- adapter availability, probed once at module scope, before any test runs -----------------
 
@@ -124,7 +125,7 @@ async function runIntegrationProbe(db: Database): Promise<{
         | undefined;
       expect(row?.last_run_at).toBe(1_700_000_000_000);
     },
-    { timeout: 5000, interval: 20 },
+    { timeout: stallTimeout(5000), interval: 20 },
   );
   await sched.stop();
   const scheduleRow = db.prepare("SELECT * FROM job_schedule WHERE name = ?").get("probe-tick") as
@@ -210,7 +211,7 @@ describe.skipIf(!bunAvailable)("THE-665: parameter-binding conformance (bun:sqli
   }
 
   function runProbe(): ProbeResult {
-    const r = spawnSync("bun", [PROBE], { encoding: "utf8", timeout: 30_000 });
+    const r = spawnSync("bun", [PROBE], { encoding: "utf8", timeout: stallTimeout(30_000) });
     if (r.status !== 0) {
       throw new Error(`param-binding bun probe subprocess exited ${r.status}: ${r.stderr}`);
     }

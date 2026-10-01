@@ -12,6 +12,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { stallTimeout } from "./stall-timeouts";
 
 /**
  * Build `<dir>/cache.db` in WAL mode and leave its `-wal` dangling. Returns the database path.
@@ -40,7 +41,10 @@ export async function createDanglingWalDb(dir: string): Promise<string> {
     stdio: ["ignore", "pipe", "pipe"],
   });
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("writer did not become ready")), 10_000);
+    const timer = setTimeout(
+      () => reject(new Error("writer did not become ready")),
+      stallTimeout(10_000),
+    );
     child.stdout.on("data", (d: Buffer) => {
       if (d.toString().includes("ready")) {
         clearTimeout(timer);

@@ -21,6 +21,7 @@ import {
   startVaultLeaderElection,
   type VaultLeaderElection,
 } from "../src/runtime/vault-lock";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -144,7 +145,9 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     expect(c.isLeader()).toBe(true);
   });
 
-  it("a follower promotes once the leader closes, inside its own retry window", async () => {
+  it("a follower promotes once the leader closes, inside its own retry window", {
+    timeout: stallTimeout(10_000),
+  }, async () => {
     const cacheDir = tmpDir();
     const a = await startVaultLeaderElection({ cacheDir });
     expect(a.isLeader()).toBe(true);
@@ -158,7 +161,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     await a.close();
     await promoted;
     expect(b.isLeader()).toBe(true);
-  }, 10_000);
+  });
 
   it("onPromote never fires for an election that started as leader", async () => {
     const cacheDir = tmpDir();
@@ -216,7 +219,9 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     expect(calls).toBe(0); // the gate must consult LIVE state, not a role cached before close()
   });
 
-  it("the keepalive tick demotes when the underlying transaction is no longer open (LOCK_TXN_LOSS)", async () => {
+  it("the keepalive tick demotes when the underlying transaction is no longer open (LOCK_TXN_LOSS)", {
+    timeout: stallTimeout(10_000),
+  }, async () => {
     const cacheDir = tmpDir();
     let held: Database | undefined;
     let resolveDemoted!: () => void;
@@ -254,9 +259,11 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     );
     await waitUntilLeader(challenger); // GH #1011 -- see waitUntilLeader's own comment
     expect(challenger.isLeader()).toBe(true);
-  }, 10_000);
+  });
 
-  it("the keepalive tick demotes when the lock file at cacheDir is replaced by a fresh one (LOCK_FILE_REPLACEMENT)", async () => {
+  it("the keepalive tick demotes when the lock file at cacheDir is replaced by a fresh one (LOCK_FILE_REPLACEMENT)", {
+    timeout: stallTimeout(10_000),
+  }, async () => {
     const cacheDir = tmpDir();
     // Models an operator restore/cleanup unlinking + recreating vault-lock.db while a holder is
     // still alive -- a distinct dev/inode at the SAME path, so a fresh open reaches a different
@@ -298,7 +305,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     );
     await waitUntilLeader(challenger); // GH #1011 -- see waitUntilLeader's own comment
     expect(challenger.isLeader()).toBe(true);
-  }, 10_000);
+  });
 
   // Bun only, deliberately: the holder probe is a raw multi-file TS script with the repo's usual
   // EXTENSIONLESS relative imports (../src/db/open etc, matching every source file in this repo).
@@ -308,7 +315,9 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
   // failover behavior runs against the real BUILT dist CLI instead (both runtimes) in
   // test/vault-leader-failover.test.ts, mirroring shutdown-boot-embed.test.ts's own pattern.
   // GH #995 fix round 2 (cross-vendor review): F1/F2/F4/F5.
-  it("F2: onPromote fires on EVERY re-promotion, across TWO demote-and-reacquire cycles", async () => {
+  it("F2: onPromote fires on EVERY re-promotion, across TWO demote-and-reacquire cycles", {
+    timeout: stallTimeout(15_000),
+  }, async () => {
     // A single demote/reacquire cycle does not distinguish the fix from the bug: `splice(0)`
     // drains the callback list only on the FIRST invocation it sees, and registration here
     // happens AFTER the initial (pre-onPromote) acquisition, so that first post-registration
@@ -339,7 +348,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     expect(promotions).toBe(0); // never fires for the initial acquisition, per its own doc
 
     const waitForAcquireCount = async (n: number): Promise<void> => {
-      const deadline = Date.now() + 8_000;
+      const deadline = Date.now() + stallTimeout(8_000);
       while (acquireCount < n) {
         if (Date.now() > deadline) throw new Error(`timed out waiting for acquireCount >= ${n}`);
         await new Promise((resolve) => setTimeout(resolve, 15));
@@ -361,9 +370,11 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     await waitForAcquireCount(3);
     expect(a.isLeader()).toBe(true);
     expect(promotions).toBe(2);
-  }, 15_000);
+  });
 
-  it("F5: promote() releases and retries rather than becoming leader when the just-acquired lock file cannot be stat'd", async () => {
+  it("F5: promote() releases and retries rather than becoming leader when the just-acquired lock file cannot be stat'd", {
+    timeout: stallTimeout(10_000),
+  }, async () => {
     const cacheDir = tmpDir();
     let acquisitions = 0;
     let statCalls = 0;
@@ -397,9 +408,11 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     await promoted;
     expect(e.isLeader()).toBe(true);
     expect(acquisitions).toBeGreaterThanOrEqual(2);
-  }, 10_000);
+  });
 
-  it("F5: two CONSECUTIVE identity mismatches are required before the keepalive demotes (one glitch survives)", async () => {
+  it("F5: two CONSECUTIVE identity mismatches are required before the keepalive demotes (one glitch survives)", {
+    timeout: stallTimeout(10_000),
+  }, async () => {
     const cacheDir = tmpDir();
     // Same injected-mismatch shape as the LOCK_FILE_REPLACEMENT case above (GH #998): the first
     // stat is promote()'s own (must see the true identity), every keepalive tick after that sees
@@ -438,7 +451,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     await demoted;
     expect(a.isLeader()).toBe(false);
     expect(statCalls).toBeGreaterThanOrEqual(3);
-  }, 10_000);
+  });
 
   it("F4: a follower's retry classifies and logs a non-busy acquisition failure instead of silently swallowing it", async () => {
     const cacheDir = tmpDir();
@@ -479,7 +492,9 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     expect(err?.message.length).toBeGreaterThan(0);
   });
 
-  it("F1: demote() aborts + joins the in-flight reconcile BEFORE releasing the lock — no more writes from the old leader, no overlap with the successor", async () => {
+  it("F1: demote() aborts + joins the in-flight reconcile BEFORE releasing the lock — no more writes from the old leader, no overlap with the successor", {
+    timeout: stallTimeout(10_000),
+  }, async () => {
     const cacheDir = tmpDir();
     const writes: Array<{ owner: string; i: number }> = [];
     let activeRuns = 0;
@@ -562,12 +577,14 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     bAbort.abort();
     await bGated.currentRun()?.catch(() => {});
     expect(maxConcurrent).toBe(1); // a's and b's reconciles never ran at the same time
-  }, 10_000);
+  });
 
   describe.skipIf(!bunAvailable)(
     "re-acquire after the holder is SIGKILLed — bun holder process",
     () => {
-      it("a fresh election acquires once the holder process is killed -9", async () => {
+      it("a fresh election acquires once the holder process is killed -9", {
+        timeout: stallTimeout(20_000),
+      }, async () => {
         const cacheDir = tmpDir();
         const holder = spawn("bun", [HOLDER_PROBE, cacheDir], {
           stdio: ["ignore", "pipe", "pipe"],
@@ -576,7 +593,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(
             () => reject(new Error(`holder probe never reported LEADER: ${out}`)),
-            15_000,
+            stallTimeout(15_000),
           );
           holder.stdout?.on("data", (c: Buffer) => {
             out += c.toString("utf8");
@@ -593,7 +610,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
         await new Promise<void>((resolve) => holder.once("exit", () => resolve()));
         const c = track(await startVaultLeaderElection({ cacheDir }));
         expect(c.isLeader()).toBe(true);
-      }, 20_000);
+      });
     },
   );
 });

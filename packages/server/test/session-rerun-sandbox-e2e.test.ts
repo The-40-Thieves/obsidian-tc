@@ -24,7 +24,7 @@
 // directly risks corrupting this test run's own exit code. Spawning the real CLI is the only way
 // to observe the actual operator-facing surface (real argv parsing, real process boundary) without
 // that risk, and it is also the most faithful "run_rerun end to end" available.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -40,22 +40,15 @@ import {
   genSessionId,
   insertSession,
 } from "../src/workspace/sessions";
+import { type CliRun, runBunSync } from "./spawn-cli";
+import { stallTimeout } from "./stall-timeouts";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
+type Run = CliRun;
 
 function runCli(args: string[]): Run {
-  const r = spawnSync("bun", [CLI, ...args], {
-    encoding: "utf8",
-    timeout: 60_000,
-    env: { ...process.env, NO_COLOR: "1" },
-  });
-  return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  return runBunSync([CLI, ...args], { timeoutMs: 60_000 });
 }
 
 /**
@@ -153,7 +146,9 @@ interface RerunJson {
 }
 
 describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end to end)", () => {
-  it("re-issuing a recorded patch_note under --sandbox leaves the real note untouched", async () => {
+  it("re-issuing a recorded patch_note under --sandbox leaves the real note untouched", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const vaultDir = mkdtempSync(join(tmpdir(), "obtc-sbx-vault-"));
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-cache-"));
     const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-conf-"));
@@ -189,7 +184,7 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
 
     // THE property this file exists to prove.
     expect(readFileSync(join(vaultDir, "a.md"), "utf8")).toBe("original");
-  }, 30_000);
+  });
 
   // Fix round 1, finding 1 (CRITICAL, reproduced by review): `vaultRootFor(cfg, undefined)`
   // defaulted to `cfg.vaults[0]` and staged THAT vault, but `rerunSession` dispatches with
@@ -198,7 +193,9 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
   // SECOND vault, run with `--sandbox` and no `--vault`, staged the wrong (first) vault while the
   // real second vault stayed unstaged — and the mutating call landed on it for real. This repo's
   // own CLAUDE.md documents the production deployment as two vaults, so this was not hypothetical.
-  it("a session recorded against the SECOND of two vaults still leaves that vault untouched under --sandbox with no --vault", async () => {
+  it("a session recorded against the SECOND of two vaults still leaves that vault untouched under --sandbox with no --vault", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const vault1Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-v1-"));
     const vault2Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-v2-"));
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-cache2-"));
@@ -234,7 +231,7 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     expect(readFileSync(join(vault2Dir, "a.md"), "utf8")).toBe("v2-original");
     // vault1 was never touched either way; asserted for completeness, not the load-bearing check.
     expect(readFileSync(join(vault1Dir, "a.md"), "utf8")).toBe("v1-original");
-  }, 30_000);
+  });
 
   // Fix round 2, finding 1 (CRITICAL, MEASURED by review): staging swapped the path of exactly ONE
   // vault — `row.vault_id` — but handlers resolve their target from `input.vault` via
@@ -243,7 +240,9 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
   // against that vault's REAL, unstaged root, and the command exited 0 — "ran, nothing moved" —
   // while a real note had been rewritten. `vaultBound: true` makes the class structurally
   // impossible: the session row's vault is the only vault either mode can address.
-  it("a record whose captured args name ANOTHER vault is refused, while a matching record still runs", async () => {
+  it("a record whose captured args name ANOTHER vault is refused, while a matching record still runs", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const vault1Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-x1-"));
     const vault2Dir = mkdtempSync(join(tmpdir(), "obtc-sbx-x2-"));
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-cachex-"));
@@ -286,7 +285,7 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     // THE property this test exists to prove: the real, UNSTAGED vault was not written.
     expect(readFileSync(join(vault1Dir, "a.md"), "utf8")).toBe("v1-original");
     expect(readFileSync(join(vault2Dir, "a.md"), "utf8")).toBe("v2-original");
-  }, 30_000);
+  });
 
   // Fix round 2, finding 2 (CRITICAL): a filesystem copy cannot bound a NETWORK-mediated write.
   // Staging swapped `vaults[].path` but not `restApiUrl`/`restApiKey`, so `wireBridges` still built
@@ -299,7 +298,9 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
   // this pass whether or not the transport was stripped, which is the failure mode where a test
   // goes green for the wrong reason. `probeSkip` + `forceEnabled` remove the startup probe from
   // the picture entirely, so the ONLY request this server can ever see is the `/git/stage` POST.
-  it("a recorded plugin-bridge call under --sandbox never reaches the live app", async () => {
+  it("a recorded plugin-bridge call under --sandbox never reaches the live app", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const hits: string[] = [];
     const app = createServer((req, res) => {
       hits.push(`${req.method} ${req.url}`);
@@ -364,13 +365,15 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     } finally {
       await new Promise<void>((ok) => app.close(() => ok()));
     }
-  }, 30_000);
+  });
 
   // Fix round 1, finding 4: the unknown-vault exit(2) path, now driven by the SESSION's own
   // vault_id (finding 1's fix) rather than by `--vault`/`cfg.vaults[0]` — a session whose
   // vault_id names no configured vault must fail loud, the same way prefetch.ts does for an
   // unknown `--vault`.
-  it("a session whose vault_id names no configured vault exits 2 under --sandbox", async () => {
+  it("a session whose vault_id names no configured vault exits 2 under --sandbox", {
+    timeout: stallTimeout(30_000),
+  }, async () => {
     const vaultDir = mkdtempSync(join(tmpdir(), "obtc-sbx-ghost-vault-"));
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-sbx-ghost-cache-"));
     const confDir = mkdtempSync(join(tmpdir(), "obtc-sbx-ghost-conf-"));
@@ -391,5 +394,5 @@ describe("THE-645 item 3 — rerun --sandbox does not touch the real vault (end 
     expect(r.stderr).toContain("rerun: unknown vault ghost");
     // Never even reaches staging I/O, let alone a write — the real note is untouched.
     expect(readFileSync(join(vaultDir, "a.md"), "utf8")).toBe("original");
-  }, 30_000);
+  });
 });

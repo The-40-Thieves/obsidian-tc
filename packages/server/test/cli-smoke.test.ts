@@ -18,23 +18,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUNDLE_FORMAT_VERSION } from "../src/experiential/context-bundle-schema";
+import { type CliRun, runBunSync } from "./spawn-cli";
 import { rmTemp } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-function runCli(args: string[]): Run {
-  const r = spawnSync("bun", [CLI, ...args], {
-    encoding: "utf8",
-    timeout: 60_000,
-    env: { ...process.env, NO_COLOR: "1" },
-  });
-  return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+function runCli(args: string[]): CliRun {
+  return runBunSync([CLI, ...args], { timeoutMs: 60_000 });
 }
 
 let dir: string;
