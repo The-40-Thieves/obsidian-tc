@@ -9,6 +9,7 @@ import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { elicitVerifier } from "../src/elicit";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { insertEntity } from "../src/memory/entities";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -32,7 +33,10 @@ async function create(
   const r = await v.call(
     "create_entity",
     { vault: V, type, name, ...extra },
-    { now: () => 100, ...over },
+    // Seeding runs unrestricted: creating an entity now needs READ on its note path as well (see
+    // m5-memory-read-acl-leaks.test.ts), and these fixtures create entities the restricted caller
+    // under test is meant NOT to see.
+    { now: () => 100, ...SETUP, ...over },
   );
   if (!r.ok) throw new Error(`create_entity failed: ${JSON.stringify(r.error)}`);
   return (r.data as { entity_id: string }).entity_id;
@@ -372,7 +376,14 @@ describe("per-vault ACL binding", () => {
         return (r.data as { entity_id: string }).entity_id;
       };
       const a = await mk("va");
-      const b = await mk("vb");
+      // vb's own ACL cannot read memory/**, so create_entity would now refuse: seed the row directly.
+      const b = insertEntity(db, {
+        vaultId: "vb",
+        entityType: "person",
+        name: "Ada",
+        materialize: false,
+        now: 100,
+      }).id;
       expect((await call("get_entity", { vault: "va", entity_id: a })).ok).toBe(true);
       expect((await call("get_entity", { vault: "vb", entity_id: b })).ok).toBe(false);
     } finally {

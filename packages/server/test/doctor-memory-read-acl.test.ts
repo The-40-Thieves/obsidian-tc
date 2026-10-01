@@ -88,4 +88,30 @@ describe("memory.read-acl", () => {
     expect(r.status).toBe("ok");
     expect(r.summary).toContain("not probed");
   });
+
+  it("agrees with memoryReadable on a stale stored vault_path and on an uncomputable path", async () => {
+    const view = (
+      rows: ReturnType<NonNullable<MemoryReadAclView["probe"]>>,
+    ): MemoryReadAclView => ({
+      vaults: [
+        { id: "main", memoryFolder: "memory", acl: acl({ readPaths: ["memory/person/**"] }) },
+      ],
+      probe: () => rows,
+    });
+    // Computed path readable, stored location not: hidden (the tools gate on BOTH).
+    const stale = await run(
+      view([
+        { vaultId: "main", entityType: "person", name: "A", vaultPath: "memory/tool/old.md" },
+        { vaultId: "main", entityType: "person", name: "B", vaultPath: "memory/person/B.md" },
+      ]),
+    );
+    expect(stale.status).toBe("warning");
+    expect(stale.issues?.join(" ")).toContain("1 of 2");
+    // A `..` type cannot be placed: counted as hidden, and the probe does not throw.
+    const dots = await run(
+      view([{ vaultId: "main", entityType: "..", name: "S", vaultPath: null }]),
+    );
+    expect(dots.status).toBe("warning");
+    expect(dots.issues?.join(" ")).toContain("1 of 1");
+  });
 });

@@ -42,7 +42,12 @@ import {
 import { entityNotePath, sanitizeSegment } from "../../memory/materialize";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { defineTool } from "../m1/define";
-import { getReadableEntity, materializeProjection, rematerialize } from "./memory-projection";
+import {
+  assertMemoryPathReadable,
+  getReadableEntity,
+  materializeProjection,
+  rematerialize,
+} from "./memory-projection";
 import type { M5Deps } from "./shared";
 import { memoryDefenseFor, memoryFolderFor, parseIso } from "./shared";
 
@@ -167,19 +172,16 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const name = nameScan.value;
         const pathSegmentRedactions = typeScan.redactions + nameScan.redactions;
 
-        if (findEntity(ctx.db, v.id, type, name))
-          throw err.invalidInput("entity already exists", { type, name });
         const now = (ctx.now ?? Date.now)();
         const folder = memoryFolderFor(deps, v.id);
-        // Pre-check the materialization ACL so a denial leaves no orphan SQLite row.
+        const notePath = entityNotePath(folder, type, name);
+        // READ (and, materializing, WRITE) the claimed path BEFORE the collision lookup, so "already
+        // exists" is only said to a caller who could read that entity; no orphan row on a denial.
+        assertMemoryPathReadable(ctx, notePath);
         if (input.materialize)
-          enforcePathAcl(
-            ctx.acl,
-            "write",
-            entityNotePath(folder, type, name),
-            v.root,
-            ctx.grantedScopes,
-          );
+          enforcePathAcl(ctx.acl, "write", notePath, v.root, ctx.grantedScopes);
+        if (findEntity(ctx.db, v.id, type, name))
+          throw err.invalidInput("entity already exists", { type, name });
         let e: EntityRow;
         try {
           e = insertEntity(ctx.db, {

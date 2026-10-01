@@ -15,13 +15,22 @@ export interface MemoryReadAclView {
   vaults: readonly { id: string; memoryFolder: string; acl: FolderAcl | undefined }[];
   /** Probe-only: every memory entity, so the check reasons about the real note paths. Absent ->
    *  reported as "not probed" rather than a false "ok". */
-  probe?: () => readonly { vaultId: string; entityType: string; name: string }[];
+  probe?: () => readonly {
+    vaultId: string;
+    entityType: string;
+    name: string;
+    /** The stored `vault_path`, when probed: an old location is read-gated too (memoryReadable). */
+    vaultPath?: string | null;
+  }[];
 }
 
 /**
  * memory.read-acl — WARNING, never FAIL: nothing is broken, entities are hidden by policy. The
- * check uses the caller-independent half of the read predicate (`readableByFolder`); a rule-scope
- * a particular caller lacks is a per-caller property doctor cannot see.
+ * check mirrors `memoryReadable` (tools/m5/memory-projection.ts) for everything that does not depend
+ * on WHO is asking: the computed note path AND a differing stored `vault_path` must both pass, and a
+ * path that cannot be computed (a `..` segment) fails closed. The one difference is deliberate: it
+ * uses `readableByFolder`, so a rule-scope a particular caller lacks (a per-caller property doctor
+ * cannot see) is not counted. Output is operator-only (stdout of `doctor`), never a tool result.
  */
 export function memoryReadAclCheck(view: MemoryReadAclView): Check {
   return {
@@ -40,9 +49,15 @@ export function memoryReadAclCheck(view: MemoryReadAclView): Check {
       const folders: string[] = [];
       for (const v of view.vaults) {
         const mine = entities.filter((e) => e.vaultId === v.id);
-        const hidden = mine.filter(
-          (e) => !readableByFolder(v.acl, entityNotePath(v.memoryFolder, e.entityType, e.name)),
-        );
+        const hidden = mine.filter((e) => {
+          try {
+            const paths = [entityNotePath(v.memoryFolder, e.entityType, e.name)];
+            if (e.vaultPath != null && e.vaultPath !== paths[0]) paths.push(e.vaultPath);
+            return !paths.every((rel) => readableByFolder(v.acl, rel));
+          } catch {
+            return true;
+          }
+        });
         if (hidden.length === 0) continue;
         folders.push(`${v.memoryFolder.replace(/\/+$/, "")}/**`);
         issues.push(

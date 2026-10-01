@@ -41,6 +41,22 @@ never traverses an unreadable entity, so entities reachable only through one do 
 page, `next_cursor` and `total_returned` are computed after that filtering. Write tools still need
 their own write ACL on top.
 
+The write and lifecycle tools do not leak around this either. `create_entity` and `rename_entity`
+need read access to the note path they claim, checked before any collision lookup, so "already
+exists" is only said about an entity you could read; an unreadable target folder is `acl_denied`
+whether or not a row exists. `delete_entity` and `rename_entity` count, list and fingerprint only the
+relations `get_entity` shows: an entity whose only relations point at unreadable entities deletes and
+renames exactly like one with none (the hidden edges are removed with it, unreported, and a hidden
+neighbour's note is refreshed only when that is already permitted, never reported or counted). An
+ownership conflict (`note_exists`) never names an owner you cannot read. A type or name of `.` or
+`..` is rejected.
+
+**Accepted residual.** Relations are rendered into the readable entity's own note, which is shared
+vault content and cannot be trimmed per caller. A reader of `Ada`'s note therefore sees the names of
+the entities `Ada` links to, readable or not, like any wiki-link in any readable note; the linked
+entities' observations and data stay hidden. To keep a name private, do not link it from a readable
+entity.
+
 A vault with a restricted `readPaths` that does not list the memory folder therefore hides its
 memory. Add `memory/**` (or your configured `memory.folder`) to `readPaths`; `obsidian-tc doctor
 --probe` reports `memory.read-acl` when existing entities are hidden this way.

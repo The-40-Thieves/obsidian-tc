@@ -34,7 +34,6 @@ import {
   deleteEntity,
   deleteRelation,
   findEntity,
-  getEntityById,
   relationsForEntity,
   updateEntity,
 } from "../../memory/entities";
@@ -43,7 +42,16 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { currentNotePath, getReadableEntity, rematerialize } from "./memory-projection";
+import {
+  assertMemoryPathReadable,
+  currentNotePath,
+  getReadableEntity,
+  type Neighbor,
+  planNeighbors,
+  readableRelations,
+  rematerialize,
+  rematerializeNeighbors,
+} from "./memory-projection";
 import { type M5Deps, memoryDefenseFor, memoryFolderFor } from "./shared";
 
 const EntityStatusSchema = z.enum(["active", "retired"]);
@@ -139,12 +147,14 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
             : { value: rawNextName, redactions: 0 };
         const nextName = pathSegmentScan.value;
         const renaming = nextName !== e.name;
-        if (renaming && findEntity(ctx.db, v.id, e.entity_type, nextName))
-          throw err.invalidInput("entity already exists", { type: e.entity_type, name: nextName });
-
         const folder = memoryFolderFor(deps, v.id);
         const oldPath = currentNotePath(deps, v.id, e);
         const newPath = entityNotePath(folder, e.entity_type, nextName);
+        // As in create_entity: the destination must be readable BEFORE the collision lookup, so
+        // "already exists" is only said about an entity the caller could read anyway.
+        if (renaming) assertMemoryPathReadable(ctx, newPath);
+        if (renaming && findEntity(ctx.db, v.id, e.entity_type, nextName))
+          throw err.invalidInput("entity already exists", { type: e.entity_type, name: nextName });
         // Pre-check the materialization ACL BEFORE mutating SQLite (mirrors create_entity /
         // THE-567) so a denial leaves the entity exactly as it was — no partial rename.
         if (e.materialize === 1) {
@@ -160,7 +170,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         // only) is what the "seed the new path with the old note's bytes" write below used to
         // skip entirely — it wrote directly, bypassing materializeEntity's ownership check, and
         // could silently overwrite a foreign note sitting at the destination.
-        const neighborsToRematerialize: { id: string; path: string }[] = [];
+        const neighborsToRematerialize: Neighbor[] = [];
         if (e.materialize === 1) {
           assertNoteOwnership(v.root, oldPath, e.id);
           if (renaming) assertNoteOwnership(v.root, newPath, e.id);
@@ -171,17 +181,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
             // entity's own rename committed with no way to know a neighbor's update silently
             // never happened.
             const incoming = relationsForEntity(ctx.db, e.id).filter((r) => r.direction === "in");
-            const seen = new Set<string>();
-            for (const r of incoming) {
-              if (seen.has(r.other_id)) continue;
-              seen.add(r.other_id);
-              const src = getEntityById(ctx.db, r.other_id);
-              if (src && src.materialize === 1) {
-                const srcPath = currentNotePath(deps, v.id, src);
-                assertNoteOwnership(v.root, srcPath, src.id);
-                neighborsToRematerialize.push({ id: src.id, path: srcPath });
-              }
-            }
+            neighborsToRematerialize.push(...planNeighbors(deps, ctx, v, incoming));
           }
         }
 
@@ -226,14 +226,13 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
 
           // Keep every OTHER materialized entity's [[link]] to this one pointing at its (possibly
           // new) name — the set pre-checked above.
-          let neighborsRematerialized = 0;
-          for (const n of neighborsToRematerialize) {
-            const src = getEntityById(ctx.db, n.id);
-            if (src && src.materialize === 1) {
-              rematerialize(deps, ctx, v, src, now);
-              neighborsRematerialized++;
-            }
-          }
+          const neighborsRematerialized = rematerializeNeighbors(
+            deps,
+            ctx,
+            v,
+            neighborsToRematerialize,
+            now,
+          );
 
           return {
             entity_id: updated.id,
@@ -327,30 +326,29 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
           root && e.materialize === 1
             ? fingerprintTargets(root, [currentNotePath(deps, vaultId, e)])
             : null;
-        return argsHash("state", { e, note, relations: relationsForEntity(ctx.db, e.id) });
+        return argsHash("state", { e, note, relations: readableRelations(deps, ctx, e).visible });
       },
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const e = getReadableEntity(deps, ctx, v.id, input.entity_id);
         if (!e) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
 
-        const relations = relationsForEntity(ctx.db, e.id);
-        if (relations.length > 0 && !input.cascade) {
-          // The refusal names the neighbors, so it lists only those the caller could read anyway.
-          const named = relations.filter(
-            (r) => getReadableEntity(deps, ctx, v.id, r.other_id) !== undefined,
-          );
+        // Only edges to entities the caller can read are counted, listed or fingerprinted — the
+        // same set get_entity shows. An entity whose only edges are hidden ones deletes exactly
+        // like one with none (refusing would reveal them); deleting removes those edges too, as
+        // part of removing the entity, without a word about them.
+        const { visible, hidden } = readableRelations(deps, ctx, e);
+        if (visible.length > 0 && !input.cascade)
           throw err.invalidInput("entity has relations; pass cascade to delete them too", {
             entity_id: e.id,
-            relation_count: named.length,
-            relations: named.map((r) => ({
+            relation_count: visible.length,
+            relations: visible.map((r) => ({
               relation_type: r.relation_type,
               direction: r.direction,
               other_id: r.other_id,
               other_name: r.other_name,
             })),
           });
-        }
 
         const notePath = e.materialize === 1 ? currentNotePath(deps, v.id, e) : null;
         // Pre-check BEFORE the SQLite delete (mirrors create_entity/rename_entity/THE-567): a
@@ -359,9 +357,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
 
         // Capture which OTHER entities point AT this one before deleteEntity removes those
         // relation rows — there is nothing left to query afterward.
-        const incomingNeighborIds = [
-          ...new Set(relations.filter((r) => r.direction === "in").map((r) => r.other_id)),
-        ];
+        const incoming = [...visible, ...hidden].filter((r) => r.direction === "in");
 
         // Review finding: ownership pre-checks BEFORE any SQLite mutation — the entity's own note
         // (about to be trashed/permanently deleted below) AND every neighbor's note cascade will
@@ -369,24 +365,13 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         // hardDelete used to run unconditionally, discovering a foreign note only via rematerialize
         // AFTER the row and its relations were already gone with nothing left to restore them.
         if (notePath) assertNoteOwnership(v.root, notePath, e.id);
-        const neighborsToRematerialize: { id: string; path: string }[] = [];
-        for (const id of incomingNeighborIds) {
-          const src = getEntityById(ctx.db, id);
-          if (src && src.materialize === 1) {
-            const srcPath = currentNotePath(deps, v.id, src);
-            assertNoteOwnership(v.root, srcPath, src.id);
-            neighborsToRematerialize.push({ id: src.id, path: srcPath });
-          }
-        }
+        const neighborsToRematerialize = planNeighbors(deps, ctx, v, incoming);
 
         const now = (ctx.now ?? Date.now)();
         const { relationsDeleted } = inWriteTransaction(ctx.db, "memory_delete", () => {
           const { deleted, relationsDeleted: deletedCount } = deleteEntity(ctx.db, e.id);
           if (!deleted) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
-          for (const n of neighborsToRematerialize) {
-            const src = getEntityById(ctx.db, n.id);
-            if (src && src.materialize === 1) rematerialize(deps, ctx, v, src, now);
-          }
+          rematerializeNeighbors(deps, ctx, v, neighborsToRematerialize, now);
           return { relationsDeleted: deletedCount };
         });
 
@@ -403,7 +388,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         return {
           entity_id: e.id,
           deleted: true,
-          relations_deleted: relationsDeleted,
+          relations_deleted: relationsDeleted - hidden.length,
           vault_path: notePath,
           permanent: input.permanent,
           trashed_to: trashedTo,

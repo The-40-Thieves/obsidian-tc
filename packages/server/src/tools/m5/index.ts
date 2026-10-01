@@ -8,6 +8,7 @@ import type { ToolRegistry } from "../../mcp/registry";
 import { buildBootstrapTools } from "./bootstrap-tools";
 import { buildCaptureTools } from "./capture-tools";
 import { buildMemoryLifecycleTools } from "./memory-lifecycle-tools";
+import { scrubOwnerDisclosure } from "./memory-projection";
 import { buildMemoryReadTools } from "./memory-read-tools";
 import { buildMemoryTools } from "./memory-tools";
 import { buildPlurTools } from "./plur-tools";
@@ -24,9 +25,11 @@ export {
 
 export function registerM5Tools(registry: ToolRegistry, deps: M5Deps): void {
   for (const tool of buildCaptureTools(deps)) registry.register(tool);
-  for (const tool of buildMemoryTools(deps)) registry.register(tool);
-  for (const tool of buildMemoryReadTools(deps)) registry.register(tool);
-  for (const tool of buildMemoryLifecycleTools(deps)) registry.register(tool);
+  for (const tool of buildMemoryTools(deps)) registry.register(scrubOwnerDisclosure(deps, tool));
+  for (const tool of buildMemoryReadTools(deps))
+    registry.register(scrubOwnerDisclosure(deps, tool));
+  for (const tool of buildMemoryLifecycleTools(deps))
+    registry.register(scrubOwnerDisclosure(deps, tool));
   for (const tool of buildSessionTools(deps)) registry.register(tool);
   for (const tool of buildBootstrapTools(deps)) registry.register(tool);
   for (const tool of buildPlurTools(deps)) registry.register(tool);

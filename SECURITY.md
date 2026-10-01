@@ -59,6 +59,7 @@ assumptions:
 - JWT auth (HS256 shared secret, or asymmetric RS256/ES256/EdDSA via a local JWKS) with a required minimum secret length
 - Folder-scoped read / write / delete ACLs per vault
 - Memory entities (`get_entity`, `query_entity_graph`, and the lookups inside the memory write tools) follow the folder read ACL on each entity's own note (`<memory folder>/<type>/<name>.md`); an unreadable entity reads as not found, and a graph walk never traverses one
+- Memory relations are written into the readable entity's own note as `[[links]]`, and that note is shared vault content: a caller who can read `Ada`'s note also sees the NAMES of the entities `Ada` links to, even ones the caller cannot read, exactly as any readable note containing `[[Private Note]]` names that note. The linked entity's observations and data are not in `Ada`'s note, and `get_entity` and every count, list and confirmation fingerprint the memory tools return leave such relations out. `create_entity` and `rename_entity` need read access to the path they claim before they report a name collision, and an unreadable owner is never named in an error
 - Read-only kill switch
 - HITL elicit on destructive operations (configurable per op)
 - Fail-closed config: an unauthenticated HTTP transport refuses to bind a non-loopback host

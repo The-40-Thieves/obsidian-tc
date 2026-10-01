@@ -157,6 +157,9 @@ through by `query_entity_graph`, so the entities behind it do not appear either.
 with `materialize: false` are gated by the path they would have. With no `readPaths` (the default)
 nothing changes.
 
+A relation is written into the readable entity's note as a `[[link]]`, so a reader of that note sees the
+linked entity's name even when the entity itself is hidden from them (its observations stay hidden).
+
 If you set `readPaths` for an agent and still want it to use memory, add the memory folder to it,
 for example `"readPaths": ["public/**", "memory/**"]`. `obsidian-tc doctor --probe` warns
 (`memory.read-acl`) when your ACL hides memory entities that exist.
