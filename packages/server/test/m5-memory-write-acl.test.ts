@@ -3,10 +3,13 @@
 // only skips the .md write; the SQLite row (the source of truth, and what get_entity returns) is
 // created, extended, linked, renamed or deleted either way, so the path gate cannot depend on it.
 // Every case holds read access to memory/** and withholds write (or delete) on memory/tool/**.
+import { mkdirSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { type ToolResult, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { CallerContext } from "../src/mcp/registry";
+import { countByRuleAndFile, scanSource } from "./ast-source-scan";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 
 const V = VaultId.parse("test");
@@ -229,5 +232,77 @@ describe("every other memory write tool gates the projection path in both modes"
     } finally {
       v.cleanup();
     }
+  });
+});
+
+// The write predicate is enforcePathAcl("write"/"delete") on the bound vault root, exactly like the
+// read side's callerCanReadVaultPath: no lexical or "unrestricted caller" shortcut, so a symlinked
+// projection folder is judged by where it REALLY points (the REAL path is what the ACL sees).
+let symlinkOk = true;
+try {
+  const probe = makeM5Vault();
+  try {
+    mkdirSync(join(probe.root, "t"));
+    symlinkSync(join(probe.root, "t"), join(probe.root, "l"), "dir");
+  } finally {
+    probe.cleanup();
+  }
+} catch {
+  symlinkOk = false; // Windows without the privilege to create symlinks
+}
+
+describe.skipIf(!symlinkOk)("the write gate resolves symlinks like write_note", () => {
+  for (const materialize of [false, true]) {
+    it(`a memory folder symlinked into a non-writable folder is acl_denied (materialize=${materialize})`, async () => {
+      const v = makeM5Vault({ acl: { writePaths: ["memory/**"] } });
+      try {
+        mkdirSync(join(v.root, "memory"), { recursive: true });
+        mkdirSync(join(v.root, "locked"));
+        symlinkSync(join(v.root, "locked"), join(v.root, "memory", "tool"), "dir");
+        const r = await v.call("create_entity", { vault: V, type: "tool", name: "X", materialize });
+        expect(denied(r)).toBe(true);
+        expect(rows(v).n).toBe(0);
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+});
+
+// Structural pin (ast-grep, like m5-memory-lookup-guard): which memory tool files reach the write
+// ACL, and how. A new write tool that forgets the gate, or a file that re-implements it lexically,
+// changes these counts and has to be justified here.
+describe("memory write gates are accounted for", () => {
+  const SRC = join(import.meta.dirname, "..", "src");
+  const callRule = (id: string, name: string) => `id: ${id}
+language: ts
+rule:
+  kind: call_expression
+  has:
+    field: function
+    kind: identifier
+    regex: '^${name}$'
+`;
+  const found = countByRuleAndFile(
+    scanSource(
+      join(SRC, "tools", "m5"),
+      [callRule("writable", "assertMemoryPathWritable"), callRule("raw", "enforcePathAcl")].join(
+        "---\n",
+      ),
+    ),
+    [],
+  );
+
+  it("every memory write tool runs assertMemoryPathWritable (create 1, add_observation 1, link 2, rename 2, unlink 2, delete 1)", () => {
+    expect(found.writable).toEqual({
+      "memory-tools.ts": 4,
+      "memory-lifecycle-tools.ts": 5,
+    });
+  });
+
+  it("the only raw enforcePathAcl in the memory tools are the helper itself and planNeighbors' quiet probe", () => {
+    expect(found.raw?.["memory-projection.ts"]).toBe(2);
+    expect(found.raw?.["memory-tools.ts"]).toBeUndefined();
+    expect(found.raw?.["memory-lifecycle-tools.ts"]).toBeUndefined();
   });
 });
