@@ -28,8 +28,12 @@ opened file descriptor (fstat + read on the same object).
 `get_entity` and `query_entity_graph` hold `read:memory`, and the folder read ACL applies to them
 as well. An entity's own projection note is `<memory folder>/<type>/<name>.md` (default folder
 `memory`), and that note renders the same observations and `[[links]]` the tools return, so an
-entity is readable exactly when `read_note` could read that note: under `readPaths`, under
-`strictReadDefault`, and against any rule-scopes on its path. This holds for entities created with
+entity is readable exactly when `read_note` could read that note: the same check `read_note` runs,
+not a copy of it. That is the hard-denied roots (`.obsidian`, `.git`, `.trash`), `readPaths`,
+`strictReadDefault`, any rule-scopes on its path, symlink resolution (the real path is what the ACL
+sees, so a memory folder reached through a symlink into an unreadable directory hides its entities)
+and the hard-link refusal. A path that cannot be resolved (an invalid or `..` path) fails closed,
+and there is no shortcut for a vault with no `readPaths`. This holds for entities created with
 `materialize: false` too (no file exists, the path is computed) and uses the entity's current name,
 so a renamed entity is not judged by a stale path.
 
@@ -66,8 +70,13 @@ memory. Add `memory/**` (or your configured `memory.folder`) to `readPaths`; `ob
 `list_capture_queue` holds `read:capture`, and the folder read ACL applies to it as well. A queued
 capture's content becomes the body of the note it is committed to, and its `target_path_hint` and
 `committed_path` name that note, so a capture is visible exactly when `read_note` could read every
-note it names: under `readPaths`, under `strictReadDefault`, and against any rule-scopes on those
-paths, evaluated against the ACL of the vault you asked about. A capture whose committed note or
+note it names, by the same check `read_note` runs on the vault's bound root: the hard-denied roots
+(`.obsidian`, `.git`, `.trash`), `readPaths`, `strictReadDefault`, any rule-scopes on those paths,
+symlink resolution (a hint that names `pub/link/note.md` is judged by where `link` points) and the
+hard-link refusal, evaluated against the ACL of the vault you asked about. A path that does not
+exist yet (an unmaterialized hint) is resolved through its parent directory, and one that cannot be
+resolved (invalid, or a legacy `..` row) fails closed, with no shortcut for a vault with no
+`readPaths`. A capture whose committed note or
 target note is unreadable is left out, with its content preview, tags and paths. Denied means
 missing: `commit_capture` answers the id of an unreadable capture (pending or committed) with the
 same `capture not found` error as an id that was never queued, and the `list_capture_queue` page,
@@ -75,6 +84,16 @@ same `capture not found` error as an id that was never queued, and the `list_cap
 held that capture. A capture naming no note (an unrouted inbox item) stays visible. This is a
 behaviour change for a vault whose `readPaths` is restricted: captures aimed at folders outside
 `readPaths` no longer appear in the queue for that caller. Add the folder to `readPaths` to see them.
+
+A request examines at most 1000 queue rows. A caller who can enqueue captures aimed at notes it
+cannot read could otherwise make every `list_capture_queue` call do work proportional to that hidden
+volume. When the bound is reached the page so far (possibly empty) is returned with a `next_cursor`
+that resumes the scan; that cursor is opaque and never names a hidden capture. **Accepted residual:**
+how many calls it takes to walk a queue still grows with the number of captures the caller cannot
+see, so hidden volume is observable as latency and as empty continuation pages. No content, path or
+id is revealed. Likewise `reset_vault_cache` (`admin:vault`, destructive, confirmation-gated)
+fingerprints the committed-capture count it is about to delete, so an admin can learn that count; an
+admin can already delete those rows, so this is accepted.
 
 ## ACL configuration
 

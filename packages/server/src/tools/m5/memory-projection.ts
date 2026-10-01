@@ -22,8 +22,7 @@ import {
   materializeEntity,
   type RelationLink,
 } from "../../memory/materialize";
-import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import { callerCanReadVaultPath, enforcePathAcl } from "../../vault/acl-path";
 import type { ResolvedVault } from "../../vault/registry";
 import { type M5Deps, memoryFolderFor } from "./shared";
 
@@ -91,18 +90,19 @@ type ReadCtx = Pick<CallerContext, "acl" | "db" | "grantedScopes">;
 
 /** May this caller read this entity? An entity's projection note (<memoryFolder>/<type>/<name>.md)
  *  renders the same observations and [[links]] get_entity returns, so the answer is exactly whether
- *  read_note could read that note: `readableRel` on the CURRENT path (computed, so a materialize:
- *  false entity and a renamed one with a stale `vault_path` are gated too), and also on a differing
- *  stored `vault_path` (an old location may still hold the content). Unrestricted callers (no
- *  readPaths, no strictReadDefault, no rule-scope they lack) short-circuit. A path that cannot be
- *  computed FAILS CLOSED. `ctx.acl` is the requested vault's ACL: dispatch's applyVaultAcl swaps
- *  it in for every tool whose input names a `vault`. */
+ *  read_note could read that note (callerCanReadVaultPath on the entity's vault root: hard-denied
+ *  roots, readPaths, rule-scopes, symlink and hard-link resolution) on the CURRENT path (computed,
+ *  so a materialize:false entity and a renamed one with a stale `vault_path` are gated too), and
+ *  also on a differing stored `vault_path` (an old location may still hold the content). There is
+ *  no "unrestricted caller" shortcut. A path or vault that cannot be resolved FAILS CLOSED.
+ *  `ctx.acl` is the requested vault's ACL: dispatch's applyVaultAcl swaps it in for every tool whose
+ *  input names a `vault`. */
 export function memoryReadable(deps: M5Deps, ctx: ReadCtx, e: EntityRow): boolean {
-  if (readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes)) return true;
   try {
+    const root = deps.vaultRegistry.resolve(e.vault_id).root;
     const paths = [currentNotePath(deps, e.vault_id, e)];
     if (e.vault_path !== null && e.vault_path !== paths[0]) paths.push(e.vault_path);
-    return paths.every((rel) => readableRel(ctx.acl, rel, ctx.grantedScopes));
+    return paths.every((rel) => callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, root, rel));
   } catch {
     return false;
   }
@@ -112,9 +112,8 @@ export function memoryReadable(deps: M5Deps, ctx: ReadCtx, e: EntityRow): boolea
  *  on the path they are ABOUT to claim BEFORE any collision lookup, so "that name is taken" is
  *  only ever said to a caller who could read the entity holding it. The error is a function of the
  *  caller-supplied path alone, never of what is stored. */
-export function assertMemoryPathReadable(ctx: ReadCtx, rel: string): void {
-  if (readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes)) return;
-  if (!readableRel(ctx.acl, rel, ctx.grantedScopes))
+export function assertMemoryPathReadable(ctx: ReadCtx, root: string, rel: string): void {
+  if (!callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, root, rel))
     throw err.aclDenied("path is outside the read whitelist", {
       path: redactSecrets(rel).text,
       op: "read",

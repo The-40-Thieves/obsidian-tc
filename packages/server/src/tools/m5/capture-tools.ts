@@ -12,13 +12,7 @@ import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc
 import { z } from "zod";
 import { AMBIENT_DEDUPE_TAG_PREFIX } from "../../capture/ambient-import";
 import { IMPORT_DEDUPE_TAG_PREFIX } from "../../capture/highlight-import";
-import {
-  type CaptureRow,
-  captureCursor,
-  deleteCapture,
-  enqueueCapture,
-  markCommitted,
-} from "../../capture/queue";
+import { type CaptureRow, deleteCapture, enqueueCapture, markCommitted } from "../../capture/queue";
 import { inTransaction } from "../../db/txn";
 import {
   enforceMemoryDefense,
@@ -263,14 +257,13 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
         const limit = input.limit ?? 100;
         // A capture whose committed or target note the caller cannot read is left out BEFORE the
         // page is cut (denied == missing), so next_cursor and total_returned count only what shows.
-        const { page, more } = listReadableCaptures(
+        const { page, nextCursor } = listReadableCaptures(
           ctx,
-          v.id,
+          v,
           { committed: input.committed, source: input.source, afterCursor: input.cursor },
           limit,
         );
-        const last = page[page.length - 1];
-        const next = more && last ? captureCursor(last) : null;
+        const next = nextCursor;
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         const items = page.map((r) => {
           const tags = visibleTags(splitTags(r.tags));
@@ -330,7 +323,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         // Checked before "already committed": a capture the caller cannot read is not found.
-        const cap = getReadableCapture(ctx, v.id, input.capture_id);
+        const cap = getReadableCapture(ctx, v, input.capture_id);
         if (!cap) throw err.invalidInput("capture not found", { capture_id: input.capture_id });
         if (cap.committed_at !== null)
           throw err.invalidInput("capture already committed", { capture_id: input.capture_id });

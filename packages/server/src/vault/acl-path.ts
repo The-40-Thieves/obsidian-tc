@@ -157,3 +157,35 @@ export function enforcePathAcl(
       });
   }
 }
+
+/**
+ * THE non-throwing read predicate for a path a stored row NAMES (a capture's target/committed note,
+ * a memory entity's projection note): may this caller read `rel` in the vault bound at `root`
+ * exactly as read_note could? It IS read_note's check, not a mirror of it: enforcePathAcl("read")
+ * on the bound root, so an invalid or `..` path, the hard-denied roots, readPaths /
+ * strictReadDefault, the path's rule-scopes, symlink resolution (the REAL path is what the ACL
+ * sees) and the hard-link refusal all apply. A path that does not exist yet resolves through its
+ * deepest existing ancestor, as it does for a write target. Anything that cannot be resolved FAILS
+ * CLOSED. There is deliberately no "unrestricted caller" shortcut: only the readPaths glob is
+ * cheap to skip, and enforcePathAcl already skips it when there is none.
+ *
+ * With no ACL at all enforcePathAcl does not stat for a hard link (the fd readers refuse it at
+ * read time), so that one refusal is repeated here: read_note would refuse the file either way.
+ */
+export function callerCanReadVaultPath(
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+  root: string,
+  rel: string,
+): boolean {
+  try {
+    enforcePathAcl(acl, "read", rel, root, grantedScopes);
+    if (!acl) {
+      const st = statSync(resolveVaultPathChecked(root, rel).abs, { throwIfNoEntry: false });
+      if (st?.isFile() && st.nlink > 1) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
