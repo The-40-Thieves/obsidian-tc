@@ -158,6 +158,7 @@ const EVAL_EMBEDDING_PROVIDER_ALLOWLIST = [
   "colbert_spike.ts",
   "densify-index.ts",
   "export-rerank-pools.ts",
+  "query-cache.ts",
   "reembed-graph-context.ts",
   "run.ts",
   "search-and-read-cost.ts",

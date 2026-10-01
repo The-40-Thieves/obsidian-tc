@@ -210,6 +210,27 @@ bun run docgen:sync-facts --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml 
 
 Then `bun run docgen:render`, review `git diff docs/`, and commit — merging republishes the wiki.
 
+## `retrieval.cache` harness (`query-cache.ts`)
+
+Cache ON versus OFF through the real tool dispatch path, on a COPY of an index (it bumps the vault
+generation and writes ACL path sets, so never point it at a live `cacheDir`):
+
+```
+bun eval/query-cache.ts <config.json> <golden-set> --query-vecs <vecs.json> --mode latency|isolation|bump|memory|embed --json out.json
+     [--tool vault_graph_search|search_and_read|vault_context] [--repeat-rate 0.3] [--distinct 250] [--reps 5] [--embed stub|live]
+```
+
+`latency` replays a seeded stream (`query-cache-lib.ts` `buildStream`: exact repeat fraction, repeats
+within the LRU window) per arm with the arms alternating order, and compares every ON response to the
+OFF response byte for byte, naming the top-level keys that differ. `isolation` interleaves an
+unrestricted and a folder-restricted caller on one shared cache; `bump` bumps the generation between
+replays; `memory` reports bytes per cached entry at `final_top_k` 10/30/100 and the heap held at the
+shipped `maxEntries`. `--embed stub` answers query embeddings from `--query-vecs` (cost ~0 in both arms,
+so the win shown is the DB and fusion work alone); `live` calls the configured provider.
+`knowledge_search` cannot be driven here (it only serves a docs-kind vault). The artifact is recordable
+with `history.ts record`; it holds no query text or note paths. The measured decision for the shipped
+default is in `docs/design/search-indexing-and-cache.md`.
+
 ## Run history
 
 `run.ts --json` writes an artifact wherever you point it, which is how runs ended up as

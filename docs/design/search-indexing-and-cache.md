@@ -169,6 +169,51 @@ Two design decisions worth keeping in mind when touching this file:
   skipped, so a cache that needs them first can only save the DB work, never the model round-trip.
   Vectors are a pure function of (text, representation), so this is exact, not an approximation.
 
+## query_cache.ts — measured on a real vault; why `retrieval.cache.enabled` stays off
+
+`eval/query-cache.ts` drives `vault_graph_search` (and `search_and_read`, `vault_context`) through real
+dispatch, cache ON versus OFF, on a copy of a real 15,933-chunk bge-m3 index; the pre-registration was
+written before any run, and the full artifacts live outside the repo (they hold private query text).
+Query vectors were precomputed (embedding cost ~0 in both arms) unless stated. Medians over 5 reps with the
+arms alternating order; the box was shared (load average roughly 1 to 12), so read ratios, not absolutes.
+
+| stream | subset | OFF p50 / p95 (ms) | ON p50 / p95 (ms) | hit rate |
+| --- | --- | --- | --- | ---: |
+| 10% repeats (278 calls) | repeat calls | 842 / 1578 | 3.7 / 6.7 | 10.1% |
+| 30% repeats (358 calls) | repeat calls | 887 / 1825 | 0.7 / 1.8 | 30.2% |
+| 30% repeats, live bge-m3 (86 calls) | repeat calls | 867 / 1157 | 1.1 / 2.2 | 30.2% |
+| 0% repeats (250 calls) | first sightings | 870 / 1433 | 891 / 1484 | 0% |
+
+Every ON repeat-call p95 sits below every OFF repeat-call p95 in every rep. The first-sighting difference
+(+20 ms at p50) is inside the OFF arm's own rep-to-rep spread (389 ms) and under the registered allowance
+(5%). A hit also skips the embedding call (358 to 250 per stream); one real embedding round trip measured
+150 ms p50.
+
+**Identity.** `results` was byte-identical to the cache-off response on every call (three streams, a live
+arm, two callers' ACLs on one shared cache, and across a generation bump). Cross-caller hits: 0, with a
+non-vacuous arm (238 of 240 queries answered differently to the restricted caller, 240 hits on the replay).
+The bump made every entry a miss (100 of 100) and the post-bump responses matched the cache-off ones. The
+whole response is NOT byte-identical for `vault_graph_search`: a hit never runs the pipeline, so the
+`coverage` estimate its `onCoverage` sink would fill is absent. Every ON hit differs from OFF by exactly that
+one key and by nothing else (140/140, 540/540, 78/78, 240/240, 100/100 hits); `search_and_read` and
+`vault_context` responses carry no `coverage` and had 0 differences. `knowledge_search` has the same sink and
+the same expected gap but only serves a docs-kind vault, so it was not driven. Closing the gap needs a
+decision, not a one-liner: `COVERAGE_ONLY_FIELDS` are stripped from the key on purpose, so replaying a stored
+estimate would serve one computed under a different calibration.
+
+**Memory.** At the shipped `maxEntries` of 64 per cache, 64 results entries at `final_top_k` 100 are 11.7 MiB
+(entries 129 KiB median, 337 KiB max; p95/median 1.5 to 1.7) plus 0.8 MiB of query encodings, 12.5 MiB in all,
+and the heap held was 8.9 MiB. The chunker bounds a chunk (max 2,099 characters here), so `maxEntries` is a sound
+bound and no byte bound was added. It would matter if `final_top_k`'s ceiling or the chunk size grew.
+
+**Real traffic.** The live store's event and retrieval history holds 251 `vault_graph_search` calls, all in
+one golden-set replay with one repeated argument hash (0.4%), and about five organic calls in two months. That
+cannot establish a repeat rate; it shows none.
+
+**Decision.** Off, for two measured reasons: the whole-response identity gap above, and no observed repeat
+traffic. The latency win on a repeated query is large and the memory bound holds, so an operator whose
+clients repeat queries can enable it today (`results` is unaffected).
+
 ## query_cache.ts — FUNCTION_FIELDS: `activationFor` (THE-424 Part A / Part B)
 
 `activationFor` is a DB lookup of `cached_activation_score`. It was re-reviewed for THE-424 Part A,

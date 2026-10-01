@@ -96,7 +96,17 @@ async function harness(opts: { cached: boolean }) {
     return (res as { data: { results: Array<{ path: string }> } }).data.results;
   };
 
-  return { v, provider, search };
+  /** The whole tool response, for byte-level comparison against the cache-off arm. */
+  const searchData = async (acl: AclConfigT) => {
+    const res = await registry.dispatch(
+      "vault_graph_search",
+      { vault: v.id, query: QUERY, final_top_k: 10 },
+      ctxFor(acl),
+    );
+    return (res as { data: Record<string, unknown> }).data;
+  };
+
+  return { v, provider, search, searchData };
 }
 
 describe("THE-497 cache wiring through the MCP tool surface", () => {
@@ -131,5 +141,37 @@ describe("THE-497 cache wiring through the MCP tool surface", () => {
     expect(second.map((r) => r.path)).toEqual(first.map((r) => r.path));
     expect(provider.calls).toBe(2);
     v.cleanup();
+  });
+
+  // Measured on a real 15.9k-chunk vault (eval/query-cache.ts): across 1,790+ cached calls, `results`
+  // is byte-identical to the cache-off response on every one, and the ONLY key that ever differs is
+  // `coverage` — a hit never runs the pipeline, so the estimate its sink produces is absent. This
+  // pins that exact gap so a fix (or a second differing key) shows up here rather than in a report.
+  it("a hit's response equals the cache-off response byte for byte, except for coverage", async () => {
+    const off = await harness({ cached: false });
+    const on = await harness({ cached: true });
+    const expected = await off.searchData(OPEN_ACL);
+    const miss = await on.searchData(OPEN_ACL);
+    const hit = await on.searchData(OPEN_ACL);
+    expect(JSON.stringify(miss)).toBe(JSON.stringify(expected));
+    expect(JSON.stringify(hit.results)).toBe(JSON.stringify(expected.results));
+    const { coverage: _omitted, ...rest } = expected;
+    expect(expected.coverage).toBeDefined(); // else this test would pass for the wrong reason
+    expect(hit.coverage).toBeUndefined();
+    expect(JSON.stringify(hit)).toBe(JSON.stringify(rest));
+    off.v.cleanup();
+    on.v.cleanup();
+  });
+
+  it("serves each caller a response byte-identical to its own cache-off response", async () => {
+    const off = await harness({ cached: false });
+    const on = await harness({ cached: true });
+    for (const acl of [OPEN_ACL, RESTRICTED_ACL, OPEN_ACL, RESTRICTED_ACL]) {
+      const expected = await off.searchData(acl);
+      const got = await on.searchData(acl);
+      expect(JSON.stringify(got.results)).toBe(JSON.stringify(expected.results));
+    }
+    off.v.cleanup();
+    on.v.cleanup();
   });
 });
