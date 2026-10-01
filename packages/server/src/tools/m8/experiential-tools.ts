@@ -32,6 +32,7 @@ import { UNSTAMPED_DEBT_CLAUSES } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { activationConflict, maxActivationByPath } from "./activation-conflict";
 import {
   EpisodeProjection,
@@ -330,7 +331,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       name: "note_quality_report",
       domain: "knowledge",
       description:
-        "Read-only note-health report from the note_quality rollup: which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking.",
+        "Read-only note-health report from the note_quality rollup: which notes are duplicated, orphaned, stale by edit or by access, contradicted, or tombstoned — with the raw components behind each verdict. quality_score is NULL when there is no usage evidence yet, which means UNMEASURED, not bad. Populated by the offline `obsidian-tc note-quality` pass; computed_at tells you how fresh it is. Never used for ranking. response_format=concise returns {path, quality_score, flags} per note (plus activation_conflict when true), without the raw components.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -347,6 +348,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
             )
             .optional(),
           limit: z.number().int().positive().max(500).default(50),
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: availableWith({
@@ -358,27 +360,30 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
           z.object({
             path: z.string(),
             quality_score: z.number().nullable(),
-            score_version: z.number(),
+            // GH #1027: response_format=concise keeps path, quality_score and flags (the verdict)
+            // and drops the raw components below, which are therefore optional.
+            score_version: z.number().optional(),
             flags: z.array(z.string()),
-            chunk_count: z.number(),
-            dup_chunk_count: z.number(),
-            dup_ratio: z.number().nullable(),
-            age_days: z.number().nullable(),
-            last_retrieved_at: z.number().nullable(),
-            retrievals: z.number(),
-            citations: z.number(),
+            chunk_count: z.number().optional(),
+            dup_chunk_count: z.number().optional(),
+            dup_ratio: z.number().nullable().optional(),
+            age_days: z.number().nullable().optional(),
+            last_retrieved_at: z.number().nullable().optional(),
+            retrievals: z.number().optional(),
+            citations: z.number().optional(),
             // THE-718: replaced outcome_balance. This is the DENOMINATOR for `citations` — how many
             // of `retrievals` the citation pass actually returned a verdict for. citations/
             // retrievals was the old rate and it read an unjudged retrieval as an uncited one.
-            observed_retrievals: z.number(),
-            in_degree: z.number(),
-            out_degree: z.number(),
-            contradictions_open: z.number(),
-            tombstoned: z.boolean(),
+            observed_retrievals: z.number().optional(),
+            in_degree: z.number().optional(),
+            out_degree: z.number().optional(),
+            contradictions_open: z.number().optional(),
+            tombstoned: z.boolean().optional(),
             // THE-643 item 3: read-only — surfaces a disagreement between stale_access and the
             // note's aggregate chunk activation, never resolves it. false when there's no
-            // activation data for the note's chunks (nothing to disagree with).
-            activation_conflict: z.boolean(),
+            // activation data for the note's chunks (nothing to disagree with). Concise keeps it
+            // only when true.
+            activation_conflict: z.boolean().optional(),
           }),
         ),
       }),
@@ -400,14 +405,26 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
               deps.activationFor,
             )
           : new Map<string, number | null>();
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
-          available: true,
+          available: true as const,
           vault: input.vault,
           count: rows.length,
           // Surfaced so a caller can tell a clean vault from a rollup that was never computed.
           computed_at: rows[0]?.computed_at ?? null,
           notes: rows.map((r) => {
             const flags = JSON.parse(r.flags) as string[];
+            const conflict = activationConflict(
+              maxActivation.get(r.path) ?? null,
+              flags.includes("stale_access"),
+            );
+            if (concise)
+              return {
+                path: r.path,
+                quality_score: r.quality_score,
+                flags,
+                ...(conflict ? { activation_conflict: true } : {}),
+              };
             return {
               path: r.path,
               quality_score: r.quality_score,
@@ -425,10 +442,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
               out_degree: r.out_degree,
               contradictions_open: r.contradictions_open,
               tombstoned: r.tombstoned === 1,
-              activation_conflict: activationConflict(
-                maxActivation.get(r.path) ?? null,
-                flags.includes("stale_access"),
-              ),
+              activation_conflict: conflict,
             };
           }),
         };

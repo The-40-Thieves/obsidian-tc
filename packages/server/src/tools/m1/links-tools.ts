@@ -25,6 +25,7 @@ import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -119,8 +120,9 @@ const FindUnresolvedLinksOutput = z.object({
       source_path: z.string(),
       target: z.string(),
       line: z.number().int(),
-      col: z.number().int(),
-      kind: LinkKindSchema,
+      // GH #1027: response_format=concise keeps {source_path, target, line} and drops these two.
+      col: z.number().int().optional(),
+      kind: LinkKindSchema.optional(),
     }),
   ),
 });
@@ -158,6 +160,7 @@ const ScanInput = z
     vault: VaultId,
     folder: VaultPath.optional(),
     limit: z.number().int().positive().max(5000).default(500),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -377,7 +380,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
     defineTool({
       name: "find_unresolved_links",
       domain: "links",
-      description: "Find internal links that do not resolve to any note (dangling links).",
+      description:
+        "Find internal links that do not resolve to any note (dangling links). response_format=concise returns {source_path, target, line} per link, without col and kind.",
       inputSchema: ScanInput,
       outputSchema: FindUnresolvedLinksOutput,
       requiredScopes: ["read:notes"],
@@ -408,7 +412,15 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           }
           if (truncated) break;
         }
-        return { vault: v.id, total: unresolved.length, truncated, unresolved };
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
+        return {
+          vault: v.id,
+          total: unresolved.length,
+          truncated,
+          unresolved: concise
+            ? unresolved.map(({ source_path, target, line }) => ({ source_path, target, line }))
+            : unresolved,
+        };
       },
     }),
 

@@ -1844,6 +1844,29 @@
         }
       }
     },
+    "tools": {
+      "description": "Per-call defaults for tool behaviour, such as response_format.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "description": "Defaults applied to tool calls that do not set the parameter themselves.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "responseFormat": {
+              "default": "detailed",
+              "description": "Default response_format for a tool call that sets neither `response_format` nor the legacy `verbosity` alias. Shipped default \"detailed\" (unchanged output); set \"concise\" once to cut the output of every tool that supports response_format, without each agent passing the parameter.",
+              "type": "string",
+              "enum": [
+                "concise",
+                "detailed"
+              ]
+            }
+          }
+        }
+      }
+    },
     "personas": {
       "description": "Named persona bundles ({vaults, scopes, toolVisibility?}) a JWT's `persona` claim resolves to. Absent means no personas are configured — any token carrying a `persona` claim is refused.",
       "type": "object",

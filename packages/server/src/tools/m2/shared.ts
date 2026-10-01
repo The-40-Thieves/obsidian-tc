@@ -2,6 +2,7 @@
 // implementation files can import it without pulling in index.ts's barrel — which imports every
 // implementation file back, and previously made each of those a two-node import cycle through
 // ./index).
+import type { ResponseFormat } from "@the-40-thieves/obsidian-tc-shared";
 import type { BridgeClient } from "../../bridge";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
@@ -12,6 +13,9 @@ import type { VaultRegistry } from "../../vault/registry";
 
 export interface M2Deps {
   vaultRegistry: VaultRegistry;
+  /** GH #1027: `tools.defaults.responseFormat`, the format a search call that names neither
+   *  `response_format` nor the legacy `verbosity` alias gets. Absent -> "detailed". */
+  responseFormat?: ResponseFormat;
   embeddingProvider: EmbeddingProvider;
   /** THE-424: config.indexing.chunkTokens, forwarded to index_vault so a tool-driven reindex
    *  chunks at the same budget as the boot reconcile. Undefined -> the chunker's 512 default. */

@@ -12,7 +12,7 @@ import type {
   VaultMemoryDefenseConfig,
   VaultReflectConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { DEFAULT_MEMORY_FOLDER, err } from "@the-40-thieves/obsidian-tc-shared";
+import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -28,12 +28,11 @@ import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
-import { buildLocalReranker, resolveReranker } from "../providers/registry";
+import { buildLocalReranker } from "../providers/registry";
 import {
   autoSelectLocalRerankerApplies,
   autoSelectLocalRerankerConfigAllows,
   onnxNativePrebuildStatus,
-  rerankerBuildBlocker,
 } from "../providers/reranker-preflight";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
@@ -55,6 +54,7 @@ import { registerM8Tools } from "../tools/m8";
 import type { VaultRegistry } from "../vault/registry";
 import { type ActiveSessionTracker, staleExplicitSessionSummary } from "../workspace/sessions";
 import { buildAcls } from "./acl-build";
+import { resolveDeclaredReranker } from "./declared-reranker";
 import type { IndexHealthState } from "./indexing-wiring";
 
 export interface HealthToolsDeps {
@@ -183,45 +183,6 @@ export interface GatewaySeams {
   gateway: GatewayClient | null;
   reranker: Reranker | null;
   roles: GatewayRoles | null;
-}
-
-/**
- * A DECLARED `reranker` block must never resolve to a silent `null` — only an ABSENT block may
- * (the zero-config-migration guarantee `buildModelTierReranker(embeddings) ?? gatewayReranker`
- * relies on). `resolveReranker` itself legitimately returns `null` for entries whose prerequisite
- * is missing (`model-tier` without `embeddings.modelTier.full`; `gateway` without a base URL) —
- * that is the right contract for a resolver primitive other callers may share. This wrapper is the
- * DECLARED-block-only enforcement point: it turns that null into a boot-time failure naming the
- * provider and what it needed, matching the actionable-hint idiom used throughout
- * providers/registry.ts.
- *
- * `provider: "local"` is a DELIBERATE exception: unlike model-tier/gateway (a config-correctness
- * defect), a `null` here is an environment-availability question — the optional
- * @the-40-thieves/obsidian-tc-reranker-local package may simply not be resolvable on this exact
- * deployment. It degrades like an ABSENT block instead of crashing boot. `doctor/checks.ts`'s
- * `rerankerBuildableCheck` keeps this loud rather than silently identical to "nothing configured".
- * Full rationale (THE-705 round 2, #806): docs/design/runtime-gateway-seams.md.
- */
-async function resolveDeclaredReranker(
-  cfg: NonNullable<ServerConfig["reranker"]>,
-  ctx: Parameters<typeof resolveReranker>[1],
-): Promise<Reranker | null> {
-  const reranker = await resolveReranker(cfg, ctx);
-  if (reranker) return reranker;
-  if (cfg.provider === "local") return null;
-  // THE-679: the REASON comes from providers/reranker-preflight.ts, which doctor also reads, so a
-  // pre-boot check and this boot-time throw can never disagree about why a block cannot build.
-  const blocker = rerankerBuildBlocker(cfg.provider, ctx?.embeddings, {
-    baseUrl: cfg.baseUrl,
-    gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
-  });
-  if (blocker) {
-    throw err.invalidInput(blocker.reason, { provider: cfg.provider, hint: blocker.hint });
-  }
-  throw err.invalidInput(`reranker.provider "${cfg.provider}" resolved to no reranker`, {
-    provider: cfg.provider,
-    hint: "this provider's registry entry returned null instead of a reranker (or throwing) for a declared reranker block; that is a bug in the registry entry.",
-  });
 }
 
 /**
@@ -447,6 +408,8 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     // THE-291 (3B): metadata tools read the notes table once the boot notes pass commits.
     metadataIndex: { hasFts: deps.hasFts, ready: () => deps.indexHealth.notesReady },
     requireCas: config.writes.requireCas,
+    // GH #1027: tools.defaults.responseFormat, for every M1 tool that supports response_format.
+    responseFormat: config.tools?.defaults?.responseFormat,
     // THE-455: M1 shares the coordinator-backed hooks (was an identical inline
     // indexNote/deindexNote).
     reindex: deps.reindex,
@@ -563,6 +526,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   registerM2Tools(registry, {
     vaultRegistry: deps.vaultRegistry,
     embeddingProvider: deps.embeddingProvider,
+    // GH #1027: tools.defaults.responseFormat, for the search tools.
+    responseFormat: config.tools?.defaults?.responseFormat,
     // THE-230: serve-path retrieval logging (experiential.logRetrievals).
     ...(deps.retrievalLog ? { retrievalLog: deps.retrievalLog } : {}),
     // THE-406: index_vault must index with the same enrichment as the boot reconcile.
@@ -752,6 +717,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // M8 experiential domain (THE-229): work-memory retrieval + management verbs over
   // agent_episodes / chunk_retrievals. With the store closed the tools report unavailable.
   registerM8Tools(registry, {
+    // GH #1027: tools.defaults.responseFormat, for note_quality_report.
+    responseFormat: config.tools?.defaults?.responseFormat,
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
     // THE-643 item 3: note_quality_report's activation_conflict aggregate reuses the SAME bubble
     // lookup M7 uses for rerank (dark unless experiential.activationRerank) rather than opening a

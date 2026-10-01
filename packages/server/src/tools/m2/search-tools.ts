@@ -29,6 +29,12 @@ import { parseNote } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import {
+  type ResponseFormat,
+  type ResponseFormatFields,
+  ResponseFormatInput,
+  resolveResponseFormat,
+} from "../response-format";
 import type { M2Deps } from "./shared";
 
 interface UnifiedHit {
@@ -219,18 +225,14 @@ const Cursor = {
   cursor: z.string().optional(),
 };
 
-// THE-251: opt-in terse projection — collapse each hit to path + score + snippet
-// (whichever are present), dropping heavy per-hit fields (line/col/chunk_id/content)
-// to cut agent prompt cost. Default stays "full" for back-compat.
-const Verbosity = {
-  verbosity: z.enum(["full", "terse"]).default("full"),
-};
-
+// THE-251 / GH #1027: the concise projection (formerly verbosity=terse) — collapse each hit to
+// path + score + snippet (whichever are present), dropping heavy per-hit fields
+// (line/col/chunk_id/content) to cut agent prompt cost. The shipped default stays "detailed".
 function projectHits(
   items: ReadonlyArray<{ path: string; score?: number; snippet?: string }>,
-  verbosity: "full" | "terse",
+  format: ResponseFormat,
 ): unknown[] {
-  if (verbosity !== "terse") return items as unknown[];
+  if (format !== "concise") return items as unknown[];
   return items.map((h) => {
     const out: { path: string; score?: number; snippet?: string } = { path: h.path };
     if (h.score !== undefined) out.score = h.score;
@@ -240,6 +242,9 @@ function projectHits(
 }
 
 export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
+  const formatOf = (input: ResponseFormatFields): ResponseFormat =>
+    resolveResponseFormat(input, deps.responseFormat);
+
   // Resolve vault + (optional) read-gated root folder, plus a readable predicate
   // that also confines results to that root.
   const scope = (
@@ -321,7 +326,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       name: "search_text",
       domain: "search",
       description:
-        "Literal text search across vault notes (BM25-ranked). Supports case_sensitive and whole_word; scoped to an optional root folder.",
+        "Literal text search across vault notes (BM25-ranked). Supports case_sensitive and whole_word; scoped to an optional root folder. response_format=concise (legacy alias verbosity=terse) drops line/col, keeping path/score/snippet.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -330,7 +335,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           whole_word: z.boolean().default(false),
           root: VaultPath.optional(),
           ...Cursor,
-          ...Verbosity,
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: SearchTextOutput,
@@ -355,7 +360,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         return {
           vault: s.id,
           mode_used: "text",
-          ...paginate(projectHits(hits, input.verbosity), input.limit, input.cursor),
+          ...paginate(projectHits(hits, formatOf(input)), input.limit, input.cursor),
         };
       },
     }),
@@ -377,7 +382,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           root: VaultPath.optional(),
           max_matches_per_file: z.number().int().positive().max(1000).default(10),
           ...Cursor,
-          ...Verbosity,
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: SearchRegexOutput,
@@ -396,7 +401,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         return {
           vault: s.id,
           mode_used: "regex",
-          ...paginate(projectHits(hits, input.verbosity), input.limit, input.cursor),
+          ...paginate(projectHits(hits, formatOf(input)), input.limit, input.cursor),
         };
       },
     }),
@@ -405,7 +410,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       name: "search_semantic",
       domain: "search",
       description:
-        "Dense-vector retrieval over the chunk store (run index_vault first). Returns the top-k chunks by cosine similarity. verbosity=terse drops chunk content/metadata, returning path/score only.",
+        "Dense-vector retrieval over the chunk store (run index_vault first). Returns the top-k chunks by cosine similarity. response_format=concise (legacy alias verbosity=terse) drops chunk content/metadata, returning path/score only.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -414,7 +419,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           root: VaultPath.optional(),
           min_score: z.number().optional(),
           return_content: z.boolean().default(true),
-          ...Verbosity,
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: SearchSemanticOutput,
@@ -431,7 +436,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           input.return_content,
           "search_semantic",
         );
-        return { vault: s.id, mode_used: "semantic", items: projectHits(items, input.verbosity) };
+        return { vault: s.id, mode_used: "semantic", items: projectHits(items, formatOf(input)) };
       },
     }),
 
@@ -446,7 +451,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           logic: z.record(z.string(), z.unknown()),
           root: VaultPath.optional(),
           ...Cursor,
-          ...Verbosity,
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: SearchJsonLogicOutput,
@@ -462,7 +467,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         return {
           vault: s.id,
           mode_used: "jsonlogic",
-          ...paginate(projectHits(matched, input.verbosity), input.limit, input.cursor),
+          ...paginate(projectHits(matched, formatOf(input)), input.limit, input.cursor),
         };
       },
     }),
@@ -497,7 +502,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       name: "search_vault",
       domain: "search",
       description:
-        "Unified search dispatch. mode=auto routes a string query text->semantic (fallback on zero hits) and an object query to jsonlogic; or force text/regex/semantic/jsonlogic/dql. Set verbosity=terse to compact each hit to path/score/snippet.",
+        "Unified search dispatch. mode=auto routes a string query text->semantic (fallback on zero hits) and an object query to jsonlogic; or force text/regex/semantic/jsonlogic/dql. Set response_format=concise (legacy alias verbosity=terse) to compact each hit to path/score/snippet.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -512,7 +517,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           root: VaultPath.optional(),
           explain: z.boolean().default(false),
           ...Cursor,
-          ...Verbosity,
+          ...ResponseFormatInput,
         })
         .strict(),
       outputSchema: SearchVaultOutput,
@@ -666,7 +671,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         return {
           vault: s.id,
           mode_used: chosen,
-          ...paginate(projectHits(items, input.verbosity), input.limit, input.cursor),
+          ...paginate(projectHits(items, formatOf(input)), input.limit, input.cursor),
           ...explain,
           ...sourceField,
         };

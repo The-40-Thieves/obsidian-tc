@@ -40,6 +40,7 @@ import {
 import {
   BootstrapConfigSchema,
   ToolFacadeConfigSchema,
+  ToolsConfigSchema,
   ToolVisibilityConfigSchema,
 } from "./tools.schema";
 import { VaultConfigSchema } from "./vault.schema";
@@ -133,6 +134,9 @@ export const ServerConfigObject = z.object({
   ),
   toolFacade: ToolFacadeConfigSchema.prefault({}).describe(
     "Which tool surface tools/list advertises.",
+  ),
+  tools: ToolsConfigSchema.describe(
+    "Per-call defaults for tool behaviour, such as response_format.",
   ),
   // THE-647 item 2: named scope+vault+visibility bundles a JWT `persona` claim resolves to.
   // Absent (the default) means no persona claim can ever resolve — see auth/persona.ts, which

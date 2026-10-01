@@ -12,6 +12,7 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { ResponseFormatInput } from "../../response-format";
 
 // ── output schemas ───────────────────────────────────────────────────────────
 
@@ -50,15 +51,19 @@ export const ReadNoteSectionOut = z.object({
   heading_level: z.number().optional(),
 });
 
+// GH #1027: response_format=concise returns only {vault, path, content_hash} plus `body` (or, with an
+// `anchor`, `section` instead of the whole body). The fields it drops are therefore optional here; a
+// detailed read always carries all of them (pinned by response-format-tools.test.ts), and a schema
+// that still required them would make the SDK's ajv validator reject every concise response.
 export const ReadNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  content: z.string(),
-  frontmatter: FrontmatterOut,
-  body: z.string(),
-  has_frontmatter: z.boolean(),
+  content: z.string().optional(),
+  frontmatter: FrontmatterOut.optional(),
+  body: z.string().optional(),
+  has_frontmatter: z.boolean().optional(),
   content_hash: z.string(),
-  stat: NoteStatOut,
+  stat: NoteStatOut.optional(),
   // Omitted (not null) when the caller passed no `anchor` — see ReadNoteSectionOut.
   section: ReadNoteSectionOut.optional(),
 });
@@ -67,8 +72,9 @@ export const ReadNoteOutput = z.object({
  *  ReadNoteOutput — no has_frontmatter, no stat. */
 export const ReadNotesEntry = z.object({
   path: z.string(),
-  content: z.string(),
-  frontmatter: FrontmatterOut,
+  // GH #1027: dropped by response_format=concise (which keeps path, body, content_hash).
+  content: z.string().optional(),
+  frontmatter: FrontmatterOut.optional(),
   body: z.string(),
   content_hash: z.string(),
 });
@@ -143,16 +149,19 @@ export const PoisonAssessmentOut = z
   .object({ risk: z.enum(["none", "suspect", "high"]), signals: z.array(z.string()) })
   .nullable();
 
+// GH #1027: a concise write ack is {vault, path, content_hash} plus any non-empty warning (see
+// notes/concise.ts), so every other field is optional in the schemas below; a detailed ack always
+// carries them all.
 export const WriteNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  created: z.boolean(),
-  mode_used: z.enum(["create", "overwrite"]),
+  created: z.boolean().optional(),
+  mode_used: z.enum(["create", "overwrite"]).optional(),
   content_hash: z.string(),
-  prev_hash: z.string().nullable(),
-  bytes_written: z.number(),
-  quality_warning: QualityWarningOut,
-  poison_assessment: PoisonAssessmentOut,
+  prev_hash: z.string().nullable().optional(),
+  bytes_written: z.number().optional(),
+  quality_warning: QualityWarningOut.optional(),
+  poison_assessment: PoisonAssessmentOut.optional(),
   // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in this
   // write matched — same convention as commit_capture's own `redactions` field.
   redactions: z.number().int().nonnegative().optional(),
@@ -161,12 +170,12 @@ export const WriteNoteOutput = z.object({
 export const AppendNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  created: z.boolean(),
+  created: z.boolean().optional(),
   content_hash: z.string(),
-  prev_hash: z.string().nullable(),
-  bytes_written: z.number(),
-  quality_warning: QualityWarningOut,
-  poison_assessment: PoisonAssessmentOut,
+  prev_hash: z.string().nullable().optional(),
+  bytes_written: z.number().optional(),
+  quality_warning: QualityWarningOut.optional(),
+  poison_assessment: PoisonAssessmentOut.optional(),
   redactions: z.number().int().nonnegative().optional(),
 });
 
@@ -182,20 +191,21 @@ export const PatchNoteOutput = z.object({
   path: z.string(),
   // THE-1038 / GH #928: replace_text — an exact-string substitution scoped to the resolved
   // anchor's section.
-  operation: z.enum(["append", "prepend", "replace", "replace_text"]),
-  anchor: PatchAnchorOut,
+  operation: z.enum(["append", "prepend", "replace", "replace_text"]).optional(),
+  anchor: PatchAnchorOut.optional(),
   // Present only when anchor.type === "heading" (legacy target_heading echo) — omitted, not
   // null, for the block/frontmatter arms.
   target_heading: z.string().optional(),
   content_hash: z.string(),
   // Not nullable: reached only after readNote() on a note whose existence was already confirmed.
-  prev_hash: z.string(),
+  prev_hash: z.string().optional(),
   // THE-603: the blast radius of this write. 0 for append/prepend, which only insert; a
   // catastrophic replace and a two-line replace used to return structurally identical payloads.
-  // For replace_text: the line count and byte size of `old_string` (GH #928).
-  lines_removed: z.number(),
-  bytes_removed: z.number(),
-  quality_warning: QualityWarningOut,
+  // For replace_text: the line count and byte size of `old_string` (GH #928). Concise keeps them
+  // only when non-zero.
+  lines_removed: z.number().optional(),
+  bytes_removed: z.number().optional(),
+  quality_warning: QualityWarningOut.optional(),
   redactions: z.number().int().nonnegative().optional(),
 });
 
@@ -255,6 +265,7 @@ export const WriteInput = z
     // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
     elicit_token: ElicitToken.optional(),
     provenance: Provenance.default("authored"),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -268,6 +279,7 @@ export const AppendInput = z
     prev_hash: z.string().optional(),
     options: WriteOptions.prefault({}),
     provenance: Provenance.default("authored"),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -361,7 +373,12 @@ export function refinePatchInput(
   }
 }
 
-export const PatchInput = z.object(PatchInputShape).strict().superRefine(refinePatchInput);
+// response_format is deliberately NOT in PatchInputShape: patch_active_file derives its own input from
+// that shape and does not shape its response, so accepting the parameter there would be a silent no-op.
+export const PatchInput = z
+  .object({ ...PatchInputShape, ...ResponseFormatInput })
+  .strict()
+  .superRefine(refinePatchInput);
 
 export const MoveInput = z
   .object({

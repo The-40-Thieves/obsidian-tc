@@ -6,7 +6,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat, ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
@@ -47,6 +47,8 @@ export interface M2VaultOptions {
   /** retrieval.useSearchModePreference: the experiential store search_vault's mode reader consults.
    *  Absent (the default) is the flag OFF — the reader's code path is not entered at all. */
   searchModePreference?: { edb: Database };
+  /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
+  responseFormat?: ResponseFormat;
 }
 
 export interface M2Vault {
@@ -93,6 +95,7 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
     onProgress: opts.onProgress,
     onIndexVaultError: opts.onIndexVaultError,
     searchModePreference: opts.searchModePreference,
+    ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

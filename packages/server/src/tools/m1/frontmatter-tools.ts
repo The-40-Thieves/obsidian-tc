@@ -21,7 +21,9 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { captureSnapshot } from "../../vault/snapshots";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
+import { shapeWriteAck } from "./notes/concise";
 import type { M1Deps } from "./shared";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -115,17 +117,19 @@ const ReadPropertyOutput = z.object({
   nested: z.boolean(),
 });
 
+// GH #1027: response_format=concise acknowledges with {vault, path, content_hash}, so everything else
+// is optional here; a detailed ack always carries all of it.
 const UpdateFrontmatterOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  operation: z.enum(["set", "remove", "merge", "replace"]),
-  created: z.boolean(),
+  operation: z.enum(["set", "remove", "merge", "replace"]).optional(),
+  created: z.boolean().optional(),
   // null when the write left no keys (e.g. `remove` emptying the object, or `replace`
   // with an empty properties object) — serializeNote is handed null rather than {}.
-  frontmatter: FrontmatterValue.nullable(),
+  frontmatter: FrontmatterValue.nullable().optional(),
   content_hash: z.string(),
   // null on a create (no prior note, so there is no previous hash to report).
-  prev_hash: z.string().nullable(),
+  prev_hash: z.string().nullable().optional(),
 });
 
 const ListPropertiesOutput = z.object({
@@ -141,7 +145,8 @@ const FindNotesByPropertyOutput = z.object({
   key: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
-  // verbosity="terse" maps matches to `{ path }` only, dropping `value` entirely rather
+  // response_format="concise" (legacy verbosity="terse") maps matches to `{ path }` only, dropping
+  // `value` entirely rather
   // than nulling it — a conditional omission, so `value` is .optional(), not .nullable().
   matches: z.array(z.object({ path: z.string(), value: z.unknown().optional() })),
 });
@@ -164,6 +169,7 @@ const UpdateInput = z
     // describe_capability — stripped off rawArgs into ctx.elicitToken before this schema ever
     // validates it (mcp/server.ts), so declaring it here changes nothing about dispatch.
     elicit_token: ElicitToken.optional(),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -174,8 +180,8 @@ const FindInput = z
     value: z.unknown().optional(),
     folder: VaultPath.optional(),
     limit: z.number().int().positive().max(1000).default(200),
-    // THE-251: terse drops the matched value, returning path only.
-    verbosity: z.enum(["full", "terse"]).default("full"),
+    // THE-251 / GH #1027: concise (legacy verbosity=terse) drops the matched value, returning path only.
+    ...ResponseFormatInput,
     // THE-198: match a dotted key path instead of a top-level key.
     nested: z.boolean().default(false),
   })
@@ -267,7 +273,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
-        "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed).",
+        "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed). response_format=concise acknowledges with {vault, path, content_hash} only (no frontmatter echo).",
       inputSchema: UpdateInput,
       outputSchema: UpdateFrontmatterOutput,
       requiredScopes: ["write:notes"],
@@ -391,15 +397,18 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         // redacted) content rather than hand-redacting `next` a second way.
         const responseFrontmatter =
           scan.redactions > 0 ? parseNote(content, rel).frontmatter : hasKeys ? next : null;
-        return {
-          vault: v.id,
-          path: rel,
-          operation: input.operation,
-          created: !ex.exists,
-          frontmatter: responseFrontmatter,
-          content_hash: contentHash(content),
-          prev_hash: prevHash,
-        };
+        return shapeWriteAck(
+          {
+            vault: v.id,
+            path: rel,
+            operation: input.operation,
+            created: !ex.exists,
+            frontmatter: responseFrontmatter,
+            content_hash: contentHash(content),
+            prev_hash: prevHash,
+          },
+          resolveResponseFormat(input, deps.responseFormat),
+        );
       },
     }),
 
@@ -461,7 +470,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       name: "find_notes_by_property",
       domain: "metadata",
       description:
-        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set verbosity=terse to return path only (dropping the matched value). Set nested=true to match a dotted key path. Domain: metadata.",
+        "Find notes whose frontmatter has a key (optionally equal to a value, or containing it when the value is a list). Set response_format=concise (legacy alias verbosity=terse) to return path only (dropping the matched value). Set nested=true to match a dotted key path. Domain: metadata.",
       inputSchema: FindInput,
       outputSchema: FindNotesByPropertyOutput,
       requiredScopes: ["read:notes"],
@@ -515,7 +524,10 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           key: input.key,
           total: matches.length,
           truncated,
-          matches: input.verbosity === "terse" ? matches.map((m) => ({ path: m.path })) : matches,
+          matches:
+            resolveResponseFormat(input, deps.responseFormat) === "concise"
+              ? matches.map((m) => ({ path: m.path }))
+              : matches,
         };
       },
     }),
