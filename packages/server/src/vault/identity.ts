@@ -37,6 +37,9 @@ import { canonicalizeVaultRootWithStatus } from "./registry";
  * Deliberately EXCLUDES `vault_identity` itself (its own PK, updated directly by
  * `resolveVaultIdentity`) and `chunk_colbert` (also runtime-provisioned/`vault_id`-bearing, but
  * `loadChunkColbert` looks up rows by `chunk_id` only — a stale value there is never consulted).
+ * Also EXCLUDES `write_provenance` and `write_provenance_heads`: the vault id is inside each record's
+ * signed body and the signed head, so re-keying would break every signature. A rename starts a new
+ * chain under the new id; the old chain stays under the old id and still verifies.
  */
 export const CACHE_VAULT_ID_TABLES: readonly string[] = [
   "acl_path_sets",

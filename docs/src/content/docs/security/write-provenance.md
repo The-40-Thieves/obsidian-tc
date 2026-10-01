@@ -110,6 +110,12 @@ notes (without warning) a fresh install that has no EdDSA key yet.
 
 A hashed host id lets records correlate across restarts without naming the machine.
 
+## Renaming a vault
+
+The vault id is part of every signed record, so a vault rename does not re-key provenance: the old
+chain stays under the old id and still verifies (`provenance verify --vault <old-id>`), and new
+records start a new chain under the new id.
+
 ## Retention
 
 `provenance.retentionDays` is **unset by default**: this is an audit trail and pruning it is an
