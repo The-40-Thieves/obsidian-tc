@@ -186,7 +186,8 @@ disagrees, or no key registry to check a signed record with) is not followed: th
 `lineage_incomplete` with the `reason` (a verify problem code, `unverifiable`, or `max_hops`) and the
 `seq` of that record, and neither the earlier paths nor their records are returned. Without a key
 registry (stdio-only) unsigned records are the norm and are followed. Records from before the file arrived at a
-path (a previous occupant it overwrote) are not part of its history. Moves are **not** followed
+path (a previous occupant it overwrote) are not part of its history. The pass stops once a page is full, so `previous_paths` lists the earlier paths reached up to the
+last record returned; a later page reaches further back. Moves are **not** followed
 forwards: the old path shows its history up to the move, not what became of the file. Renames done by
 other means (a tool that only deletes and creates) are plain writes, so they are not linked.
 
