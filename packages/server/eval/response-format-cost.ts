@@ -83,8 +83,18 @@ interface Row {
   concise: number;
 }
 
+// test/tmp.ts's makeTempDir registers a vitest hook and cannot load under bun, so this script owns
+// its scratch dir: removed in a finally, so a throw mid-run does not leave it in /tmp.
 async function main(): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "obtc-rf-cost-"));
+  try {
+    await run(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function run(root: string): Promise<void> {
   const corpus = flag("--corpus");
   const vaultDir = join(root, "vault");
   if (corpus) cpSync(corpus, vaultDir, { recursive: true });
@@ -562,7 +572,6 @@ async function main(): Promise<void> {
       out,
       JSON.stringify({ corpus: corpus ?? "synthetic", notes: notes.length, rows }, null, 2),
     );
-  rmSync(root, { recursive: true, force: true });
 }
 
 await main();

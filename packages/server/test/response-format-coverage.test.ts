@@ -1,8 +1,7 @@
 // GH #1027: every registered tool is response_format-aware, on the documented exempt list, or on the
 // explicit not-yet-covered list. A tool added without that decision fails here and says which list
 // it belongs on. The registry is the real composition root's, so the check sees what ships.
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
@@ -13,7 +12,7 @@ import {
   NOT_YET_COVERED_BY_RESPONSE_FORMAT,
 } from "./response-format-coverage";
 import { topLevelShape } from "./schema-introspect";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -24,8 +23,8 @@ let closeRuntime: (() => Promise<void>) | undefined;
 
 // One runtime for the file: building the whole registry is the slow part.
 beforeAll(async () => {
-  const vaultDir = mkdtempSync(join(tmpdir(), "otc-rfcov-vault-"));
-  const cacheDir = mkdtempSync(join(tmpdir(), "otc-rfcov-cache-"));
+  const vaultDir = makeTempDir("otc-rfcov-vault-");
+  const cacheDir = makeTempDir("otc-rfcov-cache-");
   dirs.push(vaultDir, cacheDir);
   writeFileSync(join(vaultDir, "n.md"), "# N\n");
   const config = configFromVaultPath(vaultDir);

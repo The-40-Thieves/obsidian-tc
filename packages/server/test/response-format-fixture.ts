@@ -2,9 +2,7 @@
 // shape test and the ajv test so the two can never drift onto different tool sets. Each scenario
 // runs against a FRESH world, because the write scenarios mutate the vault.
 
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { BootstrapConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { runMigrations } from "../src/db/migrate";
@@ -24,7 +22,7 @@ import { makeTestVault, type TestVault } from "./m1-helpers";
 import { type M2Vault, makeM2Vault } from "./m2-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const readMigration = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -164,7 +162,7 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
         return { registry: m2.registry, dispatch: (t, a) => m2.call(t, a) };
       }
       case "m7docs": {
-        const root = mkdtempSync(join(tmpdir(), "obtc-rf-docs-"));
+        const root = makeTempDir("obtc-rf-docs-");
         cleanups.push(() => rmTemp(root));
         const db = openMemoryDb();
         provisionCacheDb(db);
