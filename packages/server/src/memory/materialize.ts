@@ -82,7 +82,9 @@ export function parseObservationBullet(line: string): ParsedObservationBullet {
 }
 
 /** Make one path segment filesystem-safe: drop separators, wikilink/heading sigils,
- *  and reserved characters. Never yields an empty segment.
+ *  and reserved characters. Never yields an empty segment; REJECTS (invalid_input) a segment that
+ *  is exactly "." or "..", which would let `<folder>/<type>/<name>.md` climb out of the memory
+ *  folder (`memory/../x.md`) while the read ACL's glob still matches it.
  *
  *  GH #994 review finding 1: exported (was module-private) so a caller can scan the SANITIZED
  *  form of a value before it becomes a path segment — sanitization can turn a raw string that
@@ -95,14 +97,20 @@ export function sanitizeSegment(s: string): string {
     .replace(/[\\/:*?"<>|#^[\]]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
+  if (cleaned === "." || cleaned === "..")
+    throw err.invalidInput('a memory entity type or name may not be "." or ".."');
   return cleaned.length > 0 ? cleaned : "untitled";
 }
 
 /** Vault-relative path for an entity's materialized note: <folder>/<type>/<name>.md.
- *  Both type and name are sanitized to single segments — no traversal can escape. */
+ *  Both type and name are sanitized to single segments — no traversal can escape; the final check
+ *  also covers a configured `folder` that itself carries a `..` segment. */
 export function entityNotePath(folder: string, entityType: string, name: string): string {
   const f = folder.replace(/\\/g, "/").replace(/\/+$/, "");
-  return `${f}/${sanitizeSegment(entityType)}/${sanitizeSegment(name)}.md`;
+  const rel = `${f}/${sanitizeSegment(entityType)}/${sanitizeSegment(name)}.md`;
+  if (rel.split("/").includes(".."))
+    throw err.invalidInput("memory note path may not contain '..'");
+  return rel;
 }
 
 export interface RelationLink {

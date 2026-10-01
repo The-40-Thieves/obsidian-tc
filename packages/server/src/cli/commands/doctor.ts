@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { makeIndexReadable } from "../../acl";
 import { discoverOidc, discoveryPolicyOf } from "../../auth/oidc-discovery";
 import { probeAuthRegistry } from "../../auth/registry-open";
@@ -40,6 +41,7 @@ import { createQueryEncoder } from "../../search/query-encoder";
 import { redactEndpoint } from "../../telemetry/redact-endpoint";
 import { canonicalizeVaultRoot } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExitWithProvenance } from "../shared";
+import { probeMemoryEntities } from "./doctor-memory-probe";
 import {
   probeDbSpace,
   probeDerivedColumns,
@@ -340,6 +342,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         windowDays: HITL_DOCTOR_WINDOW_DAYS,
         ttlSeconds: config.elicitTtlSeconds,
       })
+    : undefined;
+  const memoryEntities = cmd.probe
+    ? await probeMemoryEntities(config.cacheDir, busyTimeoutMs)
     : undefined;
   const sessionLiveness = cmd.probe
     ? await probeStaleExplicitSessions(
@@ -648,6 +653,17 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         windowDays: HITL_DOCTOR_WINDOW_DAYS,
         ...(hitlConfirmations !== undefined ? { probe: () => hitlConfirmations } : {}),
       },
+      memoryReadAcl: (() => {
+        const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
+        return {
+          vaults: config.vaults.map((v) => ({
+            id: v.id,
+            memoryFolder: v.memory?.folder ?? DEFAULT_MEMORY_FOLDER,
+            acl: aclByVault.get(v.id) ?? acl,
+          })),
+          ...(memoryEntities !== undefined ? { probe: () => memoryEntities } : {}),
+        };
+      })(),
       sessions: {
         windowSeconds: config.sessions.windowSeconds,
         ...(sessionLiveness !== undefined ? { probe: () => sessionLiveness } : {}),

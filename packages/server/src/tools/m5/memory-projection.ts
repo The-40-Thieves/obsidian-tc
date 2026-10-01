@@ -4,15 +4,26 @@
 // already close to biome's 700-line ceiling before this ticket's three new tools, which would have
 // pushed it over; a straight split needs a shared home for the helpers both files call, or one
 // file ends up importing tool-registration code from the other for no reason but a function body.
-import type { CallerContext } from "../../mcp/registry";
+import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { redactSecrets } from "../../experiential/redact";
+import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   type EntityRow,
+  getEntityById,
   type ObservationView,
   observationViews,
+  type RelationEdge,
   relationsForEntity,
   setEntityVaultPath,
 } from "../../memory/entities";
-import { entityNotePath, materializeEntity, type RelationLink } from "../../memory/materialize";
+import {
+  assertNoteOwnership,
+  entityNotePath,
+  materializeEntity,
+  type RelationLink,
+} from "../../memory/materialize";
+import { enforcePathAcl } from "../../vault/acl-path";
+import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import type { ResolvedVault } from "../../vault/registry";
 import { type M5Deps, memoryFolderFor } from "./shared";
 
@@ -73,4 +84,163 @@ export function rematerialize(
  *  path to trash). */
 export function currentNotePath(deps: M5Deps, vaultId: string, e: EntityRow): string {
   return entityNotePath(memoryFolderFor(deps, vaultId), e.entity_type, e.name);
+}
+
+/** What the read gate needs of a call context (also what `confirmationTargets` receives). */
+type ReadCtx = Pick<CallerContext, "acl" | "db" | "grantedScopes">;
+
+/** May this caller read this entity? An entity's projection note (<memoryFolder>/<type>/<name>.md)
+ *  renders the same observations and [[links]] get_entity returns, so the answer is exactly whether
+ *  read_note could read that note: `readableRel` on the CURRENT path (computed, so a materialize:
+ *  false entity and a renamed one with a stale `vault_path` are gated too), and also on a differing
+ *  stored `vault_path` (an old location may still hold the content). Unrestricted callers (no
+ *  readPaths, no strictReadDefault, no rule-scope they lack) short-circuit. A path that cannot be
+ *  computed FAILS CLOSED. `ctx.acl` is the requested vault's ACL: dispatch's applyVaultAcl swaps
+ *  it in for every tool whose input names a `vault`. */
+export function memoryReadable(deps: M5Deps, ctx: ReadCtx, e: EntityRow): boolean {
+  if (readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes)) return true;
+  try {
+    const paths = [currentNotePath(deps, e.vault_id, e)];
+    if (e.vault_path !== null && e.vault_path !== paths[0]) paths.push(e.vault_path);
+    return paths.every((rel) => readableRel(ctx.acl, rel, ctx.grantedScopes));
+  } catch {
+    return false;
+  }
+}
+
+/** Refuse (acl_denied) a note path the caller could not read. create_entity/rename_entity run it
+ *  on the path they are ABOUT to claim BEFORE any collision lookup, so "that name is taken" is
+ *  only ever said to a caller who could read the entity holding it. The error is a function of the
+ *  caller-supplied path alone, never of what is stored. */
+export function assertMemoryPathReadable(ctx: ReadCtx, rel: string): void {
+  if (readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes)) return;
+  if (!readableRel(ctx.acl, rel, ctx.grantedScopes))
+    throw err.aclDenied("path is outside the read whitelist", {
+      path: redactSecrets(rel).text,
+      op: "read",
+    });
+}
+
+/** The relations of `e` whose far end the caller can read: exactly what get_entity shows. Every
+ *  count, list and fingerprint a lifecycle tool derives from an entity's relations must come from
+ *  this, never from raw `relationsForEntity` (which also holds the edges to hidden entities). */
+export function readableRelations(
+  deps: M5Deps,
+  ctx: ReadCtx,
+  e: EntityRow,
+): { visible: RelationEdge[]; hidden: RelationEdge[] } {
+  const visible: RelationEdge[] = [];
+  const hidden: RelationEdge[] = [];
+  for (const r of relationsForEntity(ctx.db, e.id))
+    (getReadableEntity(deps, ctx, e.vault_id, r.other_id) ? visible : hidden).push(r);
+  return { visible, hidden };
+}
+
+/** An ownership refusal (`note_exists`) names the entity that owns the note in the way. When that
+ *  entity is one the caller cannot read it must not: it becomes a bare acl_denied, no path, no id.
+ *  Applied to every memory tool's handler (tools/m5/index.ts). */
+export function scrubOwnerDisclosure(deps: M5Deps, tool: ToolDefinition): ToolDefinition {
+  const inner = tool.handler;
+  return {
+    ...tool,
+    handler: (input, ctx) => {
+      try {
+        return inner(input, ctx);
+      } catch (caught) {
+        const owner =
+          caught instanceof ObsidianTcError && caught.code === "note_exists"
+            ? (caught.details as { existing_owner_id?: unknown } | undefined)?.existing_owner_id
+            : undefined;
+        const row = typeof owner === "string" ? getEntityById(ctx.db, owner) : undefined;
+        if (row && !memoryReadable(deps, ctx, row))
+          throw err.aclDenied("path is outside the read whitelist", { op: "read" });
+        throw caught;
+      }
+    },
+  } as ToolDefinition;
+}
+
+/** Look an entity up by id in `vaultId`, treating one the caller cannot read exactly like one that
+ *  does not exist (denied == missing), so no tool's not-found error can serve as an existence
+ *  oracle. The ONE entity-by-id lookup the memory tools use. */
+export function getReadableEntity(
+  deps: M5Deps,
+  ctx: ReadCtx,
+  vaultId: string,
+  id: string,
+): EntityRow | undefined {
+  const found = getEntityById(ctx.db, id);
+  return found && found.vault_id === vaultId && memoryReadable(deps, ctx, found)
+    ? found
+    : undefined;
+}
+
+/** A materialized entity whose note a rename/delete re-materializes so its [[links]] follow.
+ *  `visible` false: the caller cannot read it, so it is handled quietly (see planNeighbors). */
+export interface Neighbor {
+  id: string;
+  visible: boolean;
+}
+
+/** Plan which OTHER entities' notes a rename/cascade delete re-materializes. A neighbour the
+ *  caller can read is pre-checked loudly (an ACL or ownership refusal about an entity it may read
+ *  is fine to report, before any SQLite change). A neighbour it CANNOT read is never allowed to
+ *  speak: its note is re-materialized only when that is already permitted and clean, and is
+ *  otherwise left as it was (stale until its next write, since SQLite stays the source of truth) —
+ *  an error, a path or a count here would reveal the hidden entity and its edge. */
+export function planNeighbors(
+  deps: M5Deps,
+  ctx: CallerContext,
+  v: ResolvedVault,
+  edges: readonly RelationEdge[],
+): Neighbor[] {
+  const out: Neighbor[] = [];
+  const seen = new Set<string>();
+  for (const r of edges) {
+    if (seen.has(r.other_id)) continue;
+    seen.add(r.other_id);
+    const src = getEntityById(ctx.db, r.other_id);
+    if (src?.materialize !== 1) continue;
+    const srcPath = currentNotePath(deps, v.id, src);
+    if (memoryReadable(deps, ctx, src)) {
+      assertNoteOwnership(v.root, srcPath, src.id);
+      out.push({ id: src.id, visible: true });
+      continue;
+    }
+    try {
+      enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
+      assertNoteOwnership(v.root, srcPath, src.id);
+      out.push({ id: src.id, visible: false });
+    } catch {
+      /* skipped quietly: see above */
+    }
+  }
+  return out;
+}
+
+/** Re-materialize the planned neighbours; returns how many READABLE ones were (hidden ones are
+ *  best effort and never counted or reported). */
+export function rematerializeNeighbors(
+  deps: M5Deps,
+  ctx: CallerContext,
+  v: ResolvedVault,
+  planned: readonly Neighbor[],
+  now: number,
+): number {
+  let count = 0;
+  for (const n of planned) {
+    const src = getEntityById(ctx.db, n.id);
+    if (src?.materialize !== 1) continue;
+    if (n.visible) {
+      rematerialize(deps, ctx, v, src, now);
+      count++;
+    } else {
+      try {
+        rematerialize(deps, ctx, v, src, now);
+      } catch {
+        /* never surfaced: see planNeighbors */
+      }
+    }
+  }
+  return count;
 }

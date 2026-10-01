@@ -11,13 +11,13 @@ import {
   type EntityRow,
   findEntitiesByName,
   findEntity,
-  getEntityById,
   type ObservationView,
   observationsAsOf,
   relationsForEntity,
 } from "../../memory/entities";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { getReadableEntity, memoryReadable } from "./memory-projection";
 import type { M5Deps } from "./shared";
 
 /** THE-833: an entity is visible unless it's retired and the caller didn't opt in. Shared by
@@ -117,7 +117,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
       name: "get_entity",
       domain: "knowledge",
       description:
-        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set. Observations returned are filtered by as_of — a fact is included when valid_from <= as_of and (valid_to is unset or as_of < valid_to). Default as_of is now, so an as_of in the PAST excludes any observation added after that instant, even one that is still open today. response_format=concise returns each observation as {text, key?} (plus valid_to and superseded_by when set) and omits vault_path when null, created_at, updated_at and as_of.",
+        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set. An entity is readable only when its own note (<memory folder>/<type>/<name>.md) is readable under the caller's folder read ACL (readPaths); one that is not reads as 'entity not found', and relations to such entities are omitted. Observations returned are filtered by as_of — a fact is included when valid_from <= as_of and (valid_to is unset or as_of < valid_to). Default as_of is now, so an as_of in the PAST excludes any observation added after that instant, even one that is still open today. response_format=concise returns each observation as {text, key?} (plus valid_to and superseded_by when set) and omits vault_path when null, created_at, updated_at and as_of.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -135,16 +135,18 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         let e: EntityRow | undefined;
         if (input.entity_id) {
-          const found = getEntityById(ctx.db, input.entity_id);
-          e = found && found.vault_id === v.id ? found : undefined;
+          e = getReadableEntity(deps, ctx, v.id, input.entity_id);
         } else if (input.type && input.name) {
-          e = findEntity(ctx.db, v.id, input.type, input.name);
+          const found = findEntity(ctx.db, v.id, input.type, input.name);
+          e = found && memoryReadable(deps, ctx, found) ? found : undefined;
         } else if (input.name) {
           // THE-833: a retired entity sharing a name with an active one should not count toward
           // ambiguity when the caller hasn't opted in to see retired entities at all — filter the
           // candidate set FIRST, the same order get_entity applies the filter to a resolved `e`.
-          const hits = findEntitiesByName(ctx.db, v.id, input.name).filter((h) =>
-            isVisible(h, input.include_retired),
+          // The read ACL is filtered the same way and for the same reason: an entity the caller
+          // cannot read must not count toward ambiguity either (it would confirm it exists).
+          const hits = findEntitiesByName(ctx.db, v.id, input.name).filter(
+            (h) => isVisible(h, input.include_retired) && memoryReadable(deps, ctx, h),
           );
           if (hits.length > 1)
             throw err.invalidInput("entity name is ambiguous; provide type", {
@@ -157,13 +159,16 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
         }
         if (!e || !isVisible(e, input.include_retired))
           throw err.invalidInput("entity not found", { vault: v.id });
-        const relations = relationsForEntity(ctx.db, e.id).map((r) => ({
-          target_id: r.other_id,
-          target_name: r.other_name,
-          target_type: r.other_type,
-          relation_type: r.relation_type,
-          direction: r.direction,
-        }));
+        // A relation to an entity the caller cannot read would name it (id, type, name): drop it.
+        const relations = relationsForEntity(ctx.db, e.id)
+          .filter((r) => getReadableEntity(deps, ctx, v.id, r.other_id) !== undefined)
+          .map((r) => ({
+            target_id: r.other_id,
+            target_name: r.other_name,
+            target_type: r.other_type,
+            relation_type: r.relation_type,
+            direction: r.direction,
+          }));
         const asOf = input.as_of ?? (ctx.now ?? Date.now)();
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         const observations = observationsAsOf(ctx.db, e, asOf).map((o) =>
@@ -198,7 +203,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
       name: "query_entity_graph",
       domain: "knowledge",
       description:
-        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. Each returned node's observations are filtered by as_of (default now — see get_entity's own description for the exact rule), so a graph walk answers 'what did we believe as_of D' the same way a direct get_entity does. response_format=concise drops each node's hop-by-hop path (distance stays), shapes observations as get_entity does, and omits as_of and total_returned. Domain: knowledge.",
+        "Traverse the memory graph from a seed entity (BFS, depth-limited, type/direction filtered). Retired entities are excluded from the seed and the result set unless include_retired is set — traversal still walks THROUGH a retired node to reach its neighbors, only the returned/visible set is filtered. An entity whose own note is not readable under the caller's folder read ACL (readPaths) is NOT retired-like: it is never returned and never walked through, so nothing reachable only via it appears, and an unreadable seed reads as 'seed entity not found'. Each returned node's observations are filtered by as_of (default now — see get_entity's own description for the exact rule), so a graph walk answers 'what did we believe as_of D' the same way a direct get_entity does. response_format=concise drops each node's hop-by-hop path (distance stays), shapes observations as get_entity does, and omits as_of and total_returned. Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -217,14 +222,17 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
       requiredScopes: ["read:memory"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const seed = getEntityById(ctx.db, input.seed_entity_id);
-        if (!seed || seed.vault_id !== v.id || !isVisible(seed, input.include_retired))
+        const seed = getReadableEntity(deps, ctx, v.id, input.seed_entity_id);
+        if (!seed || !isVisible(seed, input.include_retired))
           throw err.invalidInput("seed entity not found", { seed_entity_id: input.seed_entity_id });
         const allNodes = bfsGraph(ctx.db, seed.id, {
           depth: input.depth,
           direction: input.direction,
           relationTypes: input.relation_types,
           entityTypes: input.entity_types,
+          // Unlike a retired node (filtered after the walk), an unreadable one is never traversed:
+          // walking through it would reach, and so confirm, entities only it connects to.
+          skip: (n) => !memoryReadable(deps, ctx, n),
         });
         // THE-833: filter AFTER the walk, not during it (unlike bfsGraph's own entity_types/
         // relation_types filters, which prune mid-traversal and so can make a downstream node
