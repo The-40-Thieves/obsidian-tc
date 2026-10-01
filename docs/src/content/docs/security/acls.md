@@ -61,6 +61,21 @@ A vault with a restricted `readPaths` that does not list the memory folder there
 memory. Add `memory/**` (or your configured `memory.folder`) to `readPaths`; `obsidian-tc doctor
 --probe` reports `memory.read-acl` when existing entities are hidden this way.
 
+### Capture queue follows the read ACL
+
+`list_capture_queue` holds `read:capture`, and the folder read ACL applies to it as well. A queued
+capture's content becomes the body of the note it is committed to, and its `target_path_hint` and
+`committed_path` name that note, so a capture is visible exactly when `read_note` could read every
+note it names: under `readPaths`, under `strictReadDefault`, and against any rule-scopes on those
+paths, evaluated against the ACL of the vault you asked about. A capture whose committed note or
+target note is unreadable is left out, with its content preview, tags and paths. Denied means
+missing: `commit_capture` answers the id of an unreadable capture (pending or committed) with the
+same `capture not found` error as an id that was never queued, and the `list_capture_queue` page,
+`next_cursor` and `total_returned` are computed after the filtering, identical to a queue that never
+held that capture. A capture naming no note (an unrouted inbox item) stays visible. This is a
+behaviour change for a vault whose `readPaths` is restricted: captures aimed at folders outside
+`readPaths` no longer appear in the queue for that caller. Add the folder to `readPaths` to see them.
+
 ## ACL configuration
 
 The folder ACL is a config block: `acl` at the root (the default for every vault)

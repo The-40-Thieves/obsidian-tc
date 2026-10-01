@@ -5,7 +5,9 @@
 // predates that fix): reads take read:capture, mutations take write:capture (write
 // family — ACL readOnly kill-switch applies, no always-elicit execute floor, matching
 // the spec's hitl:never). commit_capture is the only vault write; it funnels through
-// resolveVaultPath + enforcePathAcl and refuses to clobber an existing note.
+// resolveVaultPath + enforcePathAcl and refuses to clobber an existing note. A capture is only as
+// visible as the note it names: list_capture_queue and commit_capture read the queue through
+// capture-read-acl.ts, which hides a capture whose committed or target note the caller cannot read.
 import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { AMBIENT_DEDUPE_TAG_PREFIX } from "../../capture/ambient-import";
@@ -15,8 +17,6 @@ import {
   captureCursor,
   deleteCapture,
   enqueueCapture,
-  getCapture,
-  listCaptures,
   markCommitted,
 } from "../../capture/queue";
 import { inTransaction } from "../../db/txn";
@@ -34,6 +34,7 @@ import { noteExists, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { getReadableCapture, listReadableCaptures } from "./capture-read-acl";
 import { type M5Deps, memoryDefenseFor } from "./shared";
 
 function splitTags(tags: string | null): string[] {
@@ -260,15 +261,16 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const limit = input.limit ?? 100;
-        const rows = listCaptures(ctx.db, v.id, {
-          committed: input.committed,
-          source: input.source,
-          afterCursor: input.cursor,
-          limit: limit + 1,
-        });
-        const page = rows.slice(0, limit);
+        // A capture whose committed or target note the caller cannot read is left out BEFORE the
+        // page is cut (denied == missing), so next_cursor and total_returned count only what shows.
+        const { page, more } = listReadableCaptures(
+          ctx,
+          v.id,
+          { committed: input.committed, source: input.source, afterCursor: input.cursor },
+          limit,
+        );
         const last = page[page.length - 1];
-        const next = rows.length > limit && last ? captureCursor(last) : null;
+        const next = more && last ? captureCursor(last) : null;
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         const items = page.map((r) => {
           const tags = visibleTags(splitTags(r.tags));
@@ -327,9 +329,9 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       requiredScopes: ["write:capture"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const cap = getCapture(ctx.db, input.capture_id);
-        if (!cap || cap.vault_id !== v.id)
-          throw err.invalidInput("capture not found", { capture_id: input.capture_id });
+        // Checked before "already committed": a capture the caller cannot read is not found.
+        const cap = getReadableCapture(ctx, v.id, input.capture_id);
+        if (!cap) throw err.invalidInput("capture not found", { capture_id: input.capture_id });
         if (cap.committed_at !== null)
           throw err.invalidInput("capture already committed", { capture_id: input.capture_id });
 

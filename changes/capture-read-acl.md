@@ -1,0 +1,4 @@
+---
+type: Security
+---
+- **Capture reads now honor the folder read ACL.** `list_capture_queue` returned every capture to a caller holding `read:capture`, including each capture's `content_preview`, `target_path_hint` and `committed_path`, even when `readPaths` (or `strictReadDefault`) hides the note the capture is aimed at or was committed to; a capture's content is that note's body. A capture whose committed note or target note the caller cannot read is now left out of `list_capture_queue` entirely, and `commit_capture` answers its id (pending or committed) exactly like an id that was never queued. The page, `next_cursor` and `total_returned` are computed after the filtering, so they match a queue that never held the capture. A capture naming no note (an unrouted inbox item) stays visible. Behaviour change: a caller with restricted `readPaths` no longer sees captures aimed at folders outside them; add the folder to `readPaths` to see them.
