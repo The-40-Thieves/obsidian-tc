@@ -49,7 +49,7 @@ import { registerM2Tools } from "../tools/m2";
 import { registerM3Tools } from "../tools/m3";
 import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../tools/m4";
 import { DEFAULT_TRACE_FOLDER, registerM5Tools } from "../tools/m5";
-import { type M6Deps, registerM6Tools, type SandboxRerunFn } from "../tools/m6";
+import { registerM6Tools, type SandboxRerunFn } from "../tools/m6";
 import { registerM7Tools } from "../tools/m7";
 import { registerM8Tools } from "../tools/m8";
 import type { VaultRegistry } from "../vault/registry";
@@ -57,6 +57,7 @@ import { type ActiveSessionTracker, staleExplicitSessionSummary } from "../works
 import { buildAcls } from "./acl-build";
 import { resolveDeclaredReranker } from "./declared-reranker";
 import type { IndexHealthState } from "./indexing-wiring";
+import { buildM6Deps } from "./m6-wiring";
 
 export interface HealthToolsDeps {
   registry: ToolRegistry;
@@ -641,37 +642,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
   });
 
-  // M6 bulk + URI + admin: one shared RateLimiter (G2.4 tiers from config) is consumed by the
-  // bulk tools and snapshotted by get_metrics; the admin tools read non-secret config/ACL/metrics.
-  const m6Deps: M6Deps = {
-    vaultRegistry: deps.vaultRegistry,
-    rateLimiter: deps.rateLimiter,
-    version: deps.version,
-    startedAt: deps.startedAt,
-    authMode: config.auth.mode,
-    throttle: config.throttle,
-    observability: {
-      otel: !!config.observability.otel.endpoint,
-      prometheus: config.observability.prometheus.enabled,
-      morgiana: config.observability.morgiana.spool || !!config.observability.morgiana.httpEndpoint,
-    },
-    embeddingsProvider: config.embeddings.provider,
-    governorMaxResponseBytes: config.governor.maxResponseBytes,
-    retrieval: {
-      ...(config.retrieval.rrfK !== undefined ? { rrfK: config.retrieval.rrfK } : {}),
-      ...(config.retrieval.densify.knnMinSim !== undefined
-        ? { knnMinSim: config.retrieval.densify.knnMinSim }
-        : {}),
-      derivedDefaults: config.retrieval.derivedDefaults,
-    },
-    capabilities: (vaultId) => deps.capabilities.get(vaultId),
-    registeredTools: () => registry.list().length,
-    // THE-645 item 2. Lazy for the same reason registeredTools is: M6 is registered onto this
-    // registry, so the surface is incomplete at the moment this object is built.
-    toolSurface: () => ({ config: registry.visibilityConfig(), tools: registry.list() }),
-    rerun: deps.sandboxRerun,
-    cacheDir: config.cacheDir,
-  };
+  const m6Deps = buildM6Deps(config, deps, registry, responseFormat);
   registerM6Tools(registry, {
     ...m6Deps,
     reindex: deps.reindex,

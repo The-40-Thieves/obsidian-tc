@@ -25,6 +25,7 @@ import {
   noteTags,
   tagMatches,
 } from "../../vault/tags";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 import { buildSuggestTagsTool } from "./suggest-tags";
@@ -70,11 +71,13 @@ const ListTagsOutput = z.object({
   tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
 });
 
+// GH #1027: response_format=concise returns {vault, path, all}: the frontmatter/inline split only
+// re-sorts the combined set, so both are optional here.
 const GetNoteTagsOutput = z.object({
   vault: z.string(),
   path: z.string(),
-  frontmatter: z.array(z.string()),
-  inline: z.array(z.string()),
+  frontmatter: z.array(z.string()).optional(),
+  inline: z.array(z.string()).optional(),
   all: z.array(z.string()),
 });
 
@@ -98,12 +101,14 @@ const RemoveTagOutput = z.object({
   prev_hash: z.string(),
 });
 
+// GH #1027: response_format=concise returns paths only per match and omits `total` (the match
+// count); `truncated` stays, it says the list is incomplete.
 const FindNotesByTagOutput = z.object({
   vault: z.string(),
   tag: z.string(),
-  total: z.number().int(),
+  total: z.number().int().optional(),
   truncated: z.boolean(),
-  matches: z.array(z.object({ path: z.string(), tags: z.array(z.string()) })),
+  matches: z.array(z.object({ path: z.string(), tags: z.array(z.string()).optional() })),
 });
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -142,6 +147,7 @@ const FindInput = z
     tag: z.string().min(1),
     folder: VaultPath.optional(),
     limit: z.number().int().positive().max(1000).default(200),
+    ...ResponseFormatInput,
   })
   .strict();
 
@@ -178,8 +184,9 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       name: "get_note_tags",
       domain: "metadata",
       pathAcl: (input) => [{ op: "read", path: input.path }],
-      description: "Get a note's tags, split into frontmatter, inline, and the combined set.",
-      inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+      description:
+        "Get a note's tags, split into frontmatter, inline, and the combined set. response_format=concise returns only the combined set (`all`).",
+      inputSchema: z.object({ vault: VaultId, path: VaultPath, ...ResponseFormatInput }).strict(),
       outputSchema: GetNoteTagsOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
@@ -191,6 +198,8 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const t = noteTags(readNote(abs).raw, rel);
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return { vault: v.id, path: rel, all: t.all };
         return { vault: v.id, path: rel, ...t };
       },
     }),
@@ -368,7 +377,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       name: "find_notes_by_tag",
       domain: "metadata",
       description:
-        "Find notes carrying a tag, hierarchically (a query for `project` matches `project` and `project/sub`).",
+        "Find notes carrying a tag, hierarchically (a query for `project` matches `project` and `project/sub`). response_format=concise returns {path} per match, without the matched tags and `total`.",
       inputSchema: FindInput,
       outputSchema: FindNotesByTagOutput,
       requiredScopes: ["read:notes"],
@@ -409,6 +418,13 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             matches.push({ path: e.relPath, tags: hit });
           }
         }
+        if (resolveResponseFormat(input, deps.responseFormat) === "concise")
+          return {
+            vault: v.id,
+            tag: normalizeTag(input.tag),
+            truncated,
+            matches: matches.map((m) => ({ path: m.path })),
+          };
         return {
           vault: v.id,
           tag: normalizeTag(input.tag),

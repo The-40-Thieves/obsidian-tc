@@ -1,16 +1,13 @@
-// GH #1027: every registered tool is response_format-aware, on the documented exempt list, or on the
-// explicit not-yet-covered list. A tool added without that decision fails here and says which list
-// it belongs on. The registry is the real composition root's, so the check sees what ships.
+// GH #1027: every registered tool is response_format-aware or on the documented exempt list, and
+// exactly one. A tool added without that decision fails here and says what to do. The registry is the
+// real composition root's, so the check sees what ships.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
 import { REGISTERED_TOOL_NAMES } from "./registered-tool-count";
-import {
-  EXEMPT_FROM_RESPONSE_FORMAT,
-  NOT_YET_COVERED_BY_RESPONSE_FORMAT,
-} from "./response-format-coverage";
+import { EXEMPT_FROM_RESPONSE_FORMAT } from "./response-format-coverage";
 import { topLevelShape } from "./schema-introspect";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -47,28 +44,26 @@ describe("response_format coverage: every tool made the decision", () => {
     expect([...all].sort()).toEqual([...REGISTERED_TOOL_NAMES].sort());
   });
 
-  it("every registered tool is aware, exempt, or not-yet-covered, and exactly one", async () => {
+  it("every registered tool is aware or exempt, and exactly one", async () => {
     const exempt = new Set(Object.keys(EXEMPT_FROM_RESPONSE_FORMAT));
-    const todo = new Set(NOT_YET_COVERED_BY_RESPONSE_FORMAT);
     const awareSet = new Set(aware);
-    const undecided = all.filter((n) => !awareSet.has(n) && !exempt.has(n) && !todo.has(n));
+    const undecided = all.filter((n) => !awareSet.has(n) && !exempt.has(n));
     expect(
       undecided,
-      "a tool with no response_format decision: add `...ResponseFormatInput` to its input, or list it in EXEMPT_FROM_RESPONSE_FORMAT (with a reason) or NOT_YET_COVERED_BY_RESPONSE_FORMAT in test/response-format-coverage.ts",
+      "a tool with no response_format decision: add `...ResponseFormatInput` to its input, or list it in EXEMPT_FROM_RESPONSE_FORMAT (with a reason) in test/response-format-coverage.ts",
     ).toEqual([]);
-    const twice = all.filter(
-      (n) => Number(awareSet.has(n)) + Number(exempt.has(n)) + Number(todo.has(n)) > 1,
-    );
-    expect(twice, "a tool on more than one list").toEqual([]);
+    const twice = all.filter((n) => awareSet.has(n) && exempt.has(n));
+    expect(twice, "a tool that is both aware and exempt").toEqual([]);
   });
 
-  it("neither list names a tool that is not registered (a renamed or removed tool cannot linger)", async () => {
+  it("the exempt list names no tool that is not registered (a renamed or removed tool cannot linger)", async () => {
     const registered = new Set(all);
     expect(Object.keys(EXEMPT_FROM_RESPONSE_FORMAT).filter((n) => !registered.has(n))).toEqual([]);
-    expect(NOT_YET_COVERED_BY_RESPONSE_FORMAT.filter((n) => !registered.has(n))).toEqual([]);
-    expect(new Set(NOT_YET_COVERED_BY_RESPONSE_FORMAT).size).toBe(
-      NOT_YET_COVERED_BY_RESPONSE_FORMAT.length,
-    );
+  });
+
+  it("the series is closed: no third list of undecided tools exists any more", async () => {
+    const mod = await import("./response-format-coverage");
+    expect(Object.keys(mod).sort()).toEqual(["EXEMPT_FROM_RESPONSE_FORMAT"]);
   });
 
   it("an exempt tool does not advertise the parameter, and every exempt entry carries a reason", async () => {
@@ -103,8 +98,18 @@ describe("response_format coverage: every tool made the decision", () => {
       "bundle_files",
       "bundle_folder",
       "read_canvas",
+      "find_notes_by_tag",
+      "get_note_tags",
+      "read_property",
+      "get_periodic_note",
+      "find_or_create_periodic_note",
+      "index_vault",
+      "inspect_visibility",
+      "get_server_config",
+      "bulk_create_notes",
+      "bulk_set_property",
     ])
       expect(aware, n).toContain(n);
-    expect(aware.length).toBeGreaterThanOrEqual(52);
+    expect(aware.length).toBeGreaterThanOrEqual(62);
   });
 });

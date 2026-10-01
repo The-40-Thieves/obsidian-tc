@@ -90,10 +90,10 @@ describe("tools.defaults.responseFormat at the composition root", () => {
   });
 });
 
-// The one `const responseFormat` in tool-wiring.ts feeds M1, M2, M3, M4, M5, M7 and M8 alike; read_note
+// The one `const responseFormat` in tool-wiring.ts feeds M1, M2, M3, M4, M5, M6, M7 and M8 alike; read_note
 // above proves M1. These prove the other domains each received it, by the one field per tool
 // that only a detailed response carries.
-type Step = [tool: string, args: Record<string, unknown>];
+type Step = [tool: string, args: Record<string, unknown>, vaultless?: boolean];
 
 async function lastDataWith(
   shape: "default" | "concise",
@@ -124,10 +124,10 @@ async function lastDataWith(
       db,
     };
     let data: Record<string, unknown> = {};
-    for (const [tool, args] of steps) {
+    for (const [tool, args, vaultless] of steps) {
       const r = (await runtime.registry.dispatch(
         tool,
-        { vault: "main", ...args },
+        vaultless ? args : { vault: "main", ...args },
         ctx as never,
       )) as {
         ok?: boolean;
@@ -178,6 +178,14 @@ const DOMAIN_CASES: Array<{
     isDetailed: has("total_returned"),
   },
   {
+    // m6 builds its deps in runtime/m6-wiring.ts: a dropped `responseFormat,` there is invisible to
+    // the type checker (the field is optional), so only this case goes red.
+    domain: "m6 inspect_visibility",
+    steps: [["inspect_visibility", { tool: "read_note" }, true]],
+    files: { "n.md": "# N\n" },
+    isDetailed: (d) => "required_scopes" in ((d.tools as Array<Record<string, unknown>>)[0] ?? {}),
+  },
+  {
     // The lexical route answers without an embedder, so the runtime needs no model backend.
     domain: "m7 vault_graph_search",
     steps: [["vault_graph_search", { query: "quorble", final_top_k: 3 }]],
@@ -206,7 +214,7 @@ const DOMAIN_CASES: Array<{
   },
 ];
 
-describe("tools.defaults.responseFormat reaches the m3, m4, m5, m7 and m8 tools", () => {
+describe("tools.defaults.responseFormat reaches the m3, m4, m5, m6, m7 and m8 tools", () => {
   for (const c of DOMAIN_CASES) {
     it(`${c.domain}: detailed by default, concise when the config says so`, async () => {
       const run = (shape: "default" | "concise") =>

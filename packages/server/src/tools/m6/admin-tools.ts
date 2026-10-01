@@ -21,6 +21,13 @@ import { normalizeVaultPath } from "../../vault/paths";
 import { intersectReplayScopes } from "../../workspace/rerun";
 import { getSession } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
+import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import {
+  GetServerConfigOutput,
+  InspectVisibilityOutput,
+  shapeServerConfig,
+  shapeVisibility,
+} from "./admin-output";
 import type { M6Deps } from "./shared";
 
 // ── metrics aggregation ──────────────────────────────────────────────────────
@@ -131,71 +138,6 @@ function scopeFamilyGranted(scopes: string[], op: string): boolean {
   });
 }
 
-// THE-417: written from get_server_config's return statement, not from ThrottleConfig's own
-// declaration site — `throttle_tiers` mirrors ThrottleConfig["tiers"] verbatim, but `limits` picks
-// three fields back out of the SAME config object under different names (max_operations_per_second
-// is t.tiers.bulk.burst, not a distinct config value).
-const TierLimits = z.object({ perMinute: z.number(), burst: z.number() });
-
-const DefaultResolution = z.object({
-  value: z.number(),
-  source: z.enum(["call", "config", "derived", "default"]),
-});
-
-const GetServerConfigOutput = z.object({
-  version: z.string(),
-  auth_mode: z.enum(["none", "jwt"]),
-  read_only: z.boolean(),
-  embeddings_provider: z.string(),
-  vaults_summary: z.array(z.object({ id: z.string() })),
-  limits: z.object({
-    max_concurrent_writes_per_vault: z.number(),
-    max_operations_per_second: z.number(),
-    max_operations_per_minute: z.number(),
-  }),
-  throttle_tiers: z.object({
-    read: TierLimits,
-    write: TierLimits,
-    delete: TierLimits,
-    bulk: TierLimits,
-    execute: TierLimits,
-    admin: TierLimits,
-  }),
-  // Which limiter backs the buckets and what happens when a shared one is down. Deliberately just
-  // these two enums: throttle.redis (URL env name, file path, key prefix) never leaves config.
-  throttle: z.object({
-    backend: z.enum(["memory", "sqlite", "redis"]),
-    failure_policy: z.enum(["fail-open", "fail-closed"]),
-  }),
-  governor: z.object({ max_response_bytes: z.number() }),
-  observability: z.object({
-    otlp_enabled: z.boolean(),
-    prometheus_enabled: z.boolean(),
-    morgiana_enabled: z.boolean(),
-  }),
-  plugins_detected: z.record(z.string(), z.array(z.string())),
-  retrieval_defaults: z.object({
-    derived_defaults_enabled: z.boolean(),
-    knn_min_sim: DefaultResolution,
-    vaults: z.array(
-      z.object({
-        id: z.string(),
-        rrf_k: DefaultResolution,
-        derived_rrf_k: z.number().nullable(),
-        index_stats: z
-          .object({
-            chunk_count: z.number(),
-            note_count: z.number(),
-            edge_count: z.number(),
-            avg_chunks_per_note: z.number(),
-            edges_per_note: z.number(),
-          })
-          .nullable(),
-      }),
-    ),
-  }),
-});
-
 /** inspect_acl: five early returns that TypeScript widens to one shape (same pattern as m7/m8's
  *  multi-arm tools) — `denied_by` is the only field that is ever absent (the success arm). `${op}
  *  _paths` only ever fires for read/write/delete: execute is not path-scoped, so its only denial
@@ -221,31 +163,9 @@ const InspectVisibilityInput = z
     read_only: z.boolean().optional(),
     /** Narrows the returned list only. `summary` always covers the whole surface. */
     visibility: z.enum(["listed", "hidden", "disabled", "scope_denied"]).optional(),
+    ...ResponseFormatInput,
   })
   .strict();
-
-const InspectVisibilityEntry = z.object({
-  name: z.string(),
-  domain: z.string().nullable(),
-  visibility: z.enum(["listed", "hidden", "disabled", "scope_denied", "unregistered"]),
-  reason: z.string(),
-  matched_tag: z.string().nullable(),
-  missing_scopes: z.array(z.string()),
-  required_scopes: z.array(z.string()),
-  tags: z.array(z.string()),
-});
-
-const InspectVisibilityOutput = z.object({
-  /** null when no hypothetical caller was supplied — the verdicts are static-config only. */
-  evaluated_for: z.object({ scopes: z.array(z.string()), read_only: z.boolean() }).nullable(),
-  summary: z.object({
-    listed: z.number(),
-    hidden: z.number(),
-    disabled: z.number(),
-    scope_denied: z.number(),
-  }),
-  tools: z.array(InspectVisibilityEntry),
-});
 
 const MetricSchema = z.object({
   name: z.string(),
@@ -359,11 +279,11 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       name: "get_server_config",
       domain: "admin",
       description:
-        "Read the non-secret server config: auth mode, server-global read_only + embeddings provider, throttle limits, observability targets, and a per-vault summary (id) plus a detected-plugins map. Never returns secrets.",
-      inputSchema: z.object({}).strict(),
+        "Read the non-secret server config: auth mode, server-global read_only + embeddings provider, throttle limits, observability targets, and a per-vault summary (id) plus a detected-plugins map. Never returns secrets. response_format=concise drops the per-class throttle tiers, the observability toggles and the retrieval-defaults report.",
+      inputSchema: z.object({ ...ResponseFormatInput }).strict(),
       outputSchema: GetServerConfigOutput,
       requiredScopes: ["admin:config"],
-      handler: (_input, ctx) => {
+      handler: (input, ctx) => {
         const t = deps.throttle;
         // THE-924: zero-arg input means central dispatch's enforceVaultBinding has nothing to
         // police (it only inspects a tool's declared `vaultArg`) — this tool must scope itself,
@@ -384,7 +304,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
                 .sort()
             : [];
         }
-        return {
+        const report = {
           version: deps.version,
           auth_mode: deps.authMode,
           // Server-global: one FolderAcl + one embeddings provider for all vaults
@@ -411,6 +331,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
           plugins_detected: pluginsDetected,
           retrieval_defaults: retrievalDefaultsReport(deps.retrieval, ctx.db, vaultsForOutput),
         };
+        return shapeServerConfig(report, resolveResponseFormat(input, deps.responseFormat));
       },
     }),
 
@@ -488,11 +409,12 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       name: "inspect_visibility",
       domain: "admin",
       description:
-        "Explain why a tool is or is not offered to a caller: returns listed | hidden | disabled | scope_denied | unregistered per tool, plus the RULE that decided it (which name/tag list matched, which required scopes are missing). Pass `scopes`/`read_only` to evaluate a hypothetical caller the way inspect_acl does, `tool` to ask about one, or `visibility` to filter. Shares the registry's own classifier and config, so it cannot drift from what tools/list does. admin:acl-scoped BY DESIGN: distinguishing hidden from unregistered is exactly the existence oracle the unauthenticated surface refuses to be.",
+        "Explain why a tool is or is not offered to a caller: returns listed | hidden | disabled | scope_denied | unregistered per tool, plus the RULE that decided it (which name/tag list matched, which required scopes are missing). Pass `scopes`/`read_only` to evaluate a hypothetical caller the way inspect_acl does, `tool` to ask about one, or `visibility` to filter. response_format=concise returns {name, visibility, reason} per tool (plus matched_tag and missing_scopes when the verdict has them). Shares the registry's own classifier and config, so it cannot drift from what tools/list does. admin:acl-scoped BY DESIGN: distinguishing hidden from unregistered is exactly the existence oracle the unauthenticated surface refuses to be.",
       inputSchema: InspectVisibilityInput,
       outputSchema: InspectVisibilityOutput,
       requiredScopes: ["admin:acl"],
       handler: (input) => {
+        const format = resolveResponseFormat(input, deps.responseFormat);
         // Unwired deps must FAIL, not return an empty surface. A tool that answers "0 tools, none
         // hidden" when it simply was not given the registry is a false clean bill of health — the
         // `dense: ready` shape (THE-688). Every other M6 dep defaults to a benign zero; this one
@@ -517,22 +439,25 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
         // on the public surface (both return not_found at dispatch), and telling them apart is the
         // whole feature. Never widen this tool's scope without re-reading THE-645 item 2.
         if (input.tool !== undefined && !surface.tools.some((t) => t.name === input.tool)) {
-          return {
-            evaluated_for: evaluatedFor,
-            summary: { listed: 0, hidden: 0, disabled: 0, scope_denied: 0 },
-            tools: [
-              {
-                name: input.tool,
-                domain: null,
-                visibility: "unregistered" as const,
-                reason: "not_registered",
-                matched_tag: null,
-                missing_scopes: [],
-                required_scopes: [],
-                tags: [],
-              },
-            ],
-          };
+          return shapeVisibility(
+            {
+              evaluated_for: evaluatedFor,
+              summary: { listed: 0, hidden: 0, disabled: 0, scope_denied: 0 },
+              tools: [
+                {
+                  name: input.tool,
+                  domain: null,
+                  visibility: "unregistered" as const,
+                  reason: "not_registered",
+                  matched_tag: null,
+                  missing_scopes: [],
+                  required_scopes: [],
+                  tags: [],
+                },
+              ],
+            },
+            format,
+          );
         }
 
         const classified = surface.tools.map((t) => {
@@ -561,11 +486,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
             (input.visibility === undefined || c.visibility === input.visibility),
         );
 
-        return {
-          evaluated_for: evaluatedFor,
-          summary,
-          tools,
-        };
+        return shapeVisibility({ evaluated_for: evaluatedFor, summary, tools }, format);
       },
     }),
 
