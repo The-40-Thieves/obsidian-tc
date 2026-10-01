@@ -25,14 +25,13 @@
 // carries a `stall-ok:` comment on its line saying so. The per-test default for files without an
 // explicit timeout is vitest.config.ts's Windows floor, pinned to the same constant below.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { astGrep } from "../../../scripts/ast-grep-bin.mjs";
 import { stallTimeout, WINDOWS_STALL_TIMEOUT_MS } from "./stall-timeouts";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const SELF = resolve(fileURLToPath(import.meta.url));
@@ -428,7 +427,7 @@ describe("spawn tests are budgeted against a stalled Windows runner", () => {
   let treeHits: Hit[] = [];
 
   beforeAll(() => {
-    fixtureDir = mkdtempSync(join(tmpdir(), "spawn-stall-guard-"));
+    fixtureDir = makeTempDir("spawn-stall-guard-");
     mkdirSync(join(fixtureDir, "red"));
     mkdirSync(join(fixtureDir, "green"));
     for (const [name, src] of Object.entries(RED))

@@ -4,8 +4,7 @@
 // under the victim's name), and `O_NOFOLLOW` only guards the leaf, so a directory swapped for a
 // symlink between the containment check and the open made `open` follow it out of the vault.
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -17,10 +16,10 @@ import { registrySignerSource } from "../src/provenance/signer";
 import { appendProvenance } from "../src/provenance/store";
 import { PROVENANCE_FAULT_EVENT } from "../src/provenance/types";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
-import { rmTemp } from "./tmp";
+import { makeTempDir, rmTemp } from "./tmp";
 
-const root = mkdtempSync(join(tmpdir(), "obtc-prov-bind-"));
-const outside = mkdtempSync(join(tmpdir(), "obtc-prov-bind-out-"));
+const root = makeTempDir("obtc-prov-bind-");
+const outside = makeTempDir("obtc-prov-bind-out-");
 afterAll(() => {
   rmTemp(root);
   rmTemp(outside);

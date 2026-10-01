@@ -144,7 +144,7 @@ describe("paths: safety + content hash", () => {
     });
 
     it("a `..`-named symlink that leaves the vault is still refused by the real-path check", () => {
-      const base = mkdtempSync(join(tmpdir(), "obtc-dots-"));
+      const base = makeTempDir("obtc-dots-");
       const root = join(base, "vault");
       const outside = join(base, "outside");
       mkdirSync(root, { recursive: true });
