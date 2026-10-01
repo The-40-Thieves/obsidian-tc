@@ -7,7 +7,7 @@
 // runtime-agnostic (runs under vitest/Node) and exercises the SAME production module, which
 // itself routes to bun:sqlite/better-sqlite3/node:sqlite via db/open.ts's existing adapter split.
 import { spawn, spawnSync } from "node:child_process";
-import { statSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ import {
   gateReconcileByLeader,
   LOCK_FILE_NAME,
   startVaultLeaderElection,
+  statIdentity,
   type VaultLeaderElection,
 } from "../src/runtime/vault-lock";
 import { stallTimeout } from "./stall-timeouts";
@@ -37,18 +38,6 @@ const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).statu
 // through vault-lock.ts's own test-only `openLockDb`/`statIdentity` seams instead of mutating a
 // file another connection in this process still holds — deterministic on every OS, and it never
 // touches a real handle at all, closing the Windows gap rather than skipping it.
-/** Mirrors vault-lock.ts's own internal statIdentity() — used by the F5/LOCK_FILE_REPLACEMENT
- *  fault-injection tests below to fall back to the REAL identity when they are not simulating a
- *  failure on that particular call. */
-function realStatIdentity(path: string): { dev: number; ino: number } | undefined {
-  try {
-    const s = statSync(path);
-    return { dev: s.dev, ino: s.ino };
-  } catch {
-    return undefined;
-  }
-}
-
 // CI fix round (fix round, cross-vendor review — windows-latest load-sensitivity, same class GH
 // #998 fixed for file I/O): LOCK_FILE_REPLACEMENT and F5's "two consecutive mismatches" case each
 // need MULTIPLE consecutive keepalive ticks to fire before they can assert a demotion. A real,
@@ -284,12 +273,12 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
         retryMaxMs: 40,
         statIdentity: (path) => {
           statCalls += 1;
-          const real = realStatIdentity(path);
+          const real = statIdentity(path);
           // The FIRST call is promote()'s own post-acquire stat -- it must see the true identity
           // so `a` actually becomes leader. Every call after that is a keepalive tick, which sees
           // a manufactured DIFFERENT inode at the same path forever, exactly like a real replace.
           if (statCalls === 1) return real;
-          return real ? { dev: real.dev, ino: real.ino + 1 } : undefined;
+          return real ? { dev: real.dev, ino: real.ino + 1n } : undefined;
         },
       }),
     );
@@ -396,7 +385,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
         statIdentity: (path) => {
           statCalls += 1;
           if (statCalls === 1) return undefined; // fail ONLY the very first stat (promote() #1)
-          return realStatIdentity(path);
+          return statIdentity(path);
         },
       }),
     );
@@ -432,9 +421,9 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
         retryMaxMs: 40,
         statIdentity: (path) => {
           statCalls += 1;
-          const real = realStatIdentity(path);
+          const real = statIdentity(path);
           if (statCalls === 1) return real;
-          return real ? { dev: real.dev, ino: real.ino + 1 } : undefined;
+          return real ? { dev: real.dev, ino: real.ino + 1n } : undefined;
         },
       }),
     );
@@ -450,6 +439,21 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     await demoted;
     expect(a.isLeader()).toBe(false);
     expect(statCalls).toBeGreaterThanOrEqual(3);
+  });
+
+  // Windows CI: the two replacement tests above timed out at the 60s stall ceiling on windows-latest
+  // because `stat().ino` is the 64-bit NTFS file ID, which routinely exceeds 2^53 -- as a double it
+  // is rounded, so the tests' manufactured `ino + 1` (and a REAL replaced file's id) could compare
+  // equal and the mismatch never fired. The identity must be exact (bigint), on every OS.
+  it("statIdentity returns the exact bigint dev/ino, never a rounded number (file ids exceed 2^53 on Windows)", () => {
+    const path = join(tmpDir(), "identity-probe");
+    writeFileSync(path, "x");
+    const exact = statSync(path, { bigint: true });
+    const identity = statIdentity(path);
+    expect(typeof identity?.ino).toBe("bigint");
+    expect(typeof identity?.dev).toBe("bigint");
+    expect(identity).toEqual({ dev: exact.dev, ino: exact.ino });
+    expect(statIdentity(join(tmpDir(), "missing"))).toBeUndefined();
   });
 
   it("F4: a follower's retry classifies and logs a non-busy acquisition failure instead of silently swallowing it", async () => {
