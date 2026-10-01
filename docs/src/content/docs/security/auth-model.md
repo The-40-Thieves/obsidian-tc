@@ -33,7 +33,7 @@ keeps the private key. Provide a JWKS in place of (or alongside) `jwtSecret`:
 - **`auth.jwksFile`** — a path to a JWKS document, loaded **once** at transport boot.
   File or inline only — there is no URL fetch, so no new network attack surface.
 - **`auth.algorithms`** — an allowlist of JWT algorithms, applied to every verify path (HS256,
-  registry keys, the JWKS and `/metrics`). Omitted, HS256 plus `RS256`, `ES256` and `EdDSA` are
+  registry keys, the JWKS and `/metrics`, which share one verifier built at boot). Omitted, HS256 plus `RS256`, `ES256` and `EdDSA` are
   accepted; a list that leaves HS256 out (such as `["RS256", "EdDSA"]`) refuses HS256 tokens
   everywhere, including the configured `jwtSecret` and any HS256 registry key.
 
@@ -61,11 +61,13 @@ opt-in.
 The HTTP transport and the optional `/metrics` endpoint bind to loopback unless
 explicitly configured otherwise. Binding either to a non-loopback interface
 **requires** JWT auth; a non-loopback bind with `auth.mode: none` is refused at
-startup rather than silently exposing an open surface. A remote `/metrics` scrape additionally
-needs the `admin:metrics` scope and an unbound token (see [Prometheus](/observability/prometheus/)).
-The HTTP edge also validates
-the `Origin` header (rejecting DNS-rebinding / cross-origin browser requests with
-`403`).
+startup rather than silently exposing an open surface. Under `auth.mode: jwt` or `oidc`, `/metrics`
+needs a verified bearer holding the `admin:metrics` scope and bound to no vault or persona on
+**every** bind, loopback included: a tunnel or reverse proxy in front of a loopback listener makes
+remote callers look local, so the bind address is not an authentication signal (see
+[Prometheus](/observability/prometheus/)). Only `auth.mode: none` keeps the open loopback scrape.
+The HTTP edge validates the `Host` and `Origin` headers (rejecting DNS-rebinding / cross-origin
+browser requests with `403`); a loopback `/metrics` listener applies the same `Host` guard.
 
 ## Revoking tokens and rotating the signing key
 

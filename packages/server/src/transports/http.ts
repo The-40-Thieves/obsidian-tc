@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import {
   createMcpHandler,
-  localhostAllowedHostnames,
   type ServerNotifier,
-  validateHostHeader,
   validateOriginHeader,
 } from "@modelcontextprotocol/server";
 import type {
@@ -16,15 +13,15 @@ import type {
 import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
+import { buildJwtVerifier } from "../auth/jwt-boot";
 import { resolvePersona } from "../auth/persona";
 import {
   buildProtectedResourceMetadata,
-  effectiveAudience,
   isPrmConfigured,
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
 import type { AuthRegistry } from "../auth/registry";
-import { createTokenVerifier, type TokenVerifier } from "../auth/verifier";
+import type { TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import { getDefaultElicitTtlSeconds } from "../elicit";
 import { createElicitCodec } from "../elicit-request-state";
@@ -44,6 +41,7 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
+import { bothForms, hostnameOf, isHostAllowed } from "./host-guard";
 import { type ServerHandle, serveHono } from "./serve";
 
 type AuthConfig = ServerConfig["auth"];
@@ -448,43 +446,12 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const elicitCodec = opts.auth.jwtSecret
     ? createElicitCodec(opts.auth.jwtSecret, getDefaultElicitTtlSeconds())
     : undefined;
-  // Token verifier seam (W-AUTH): default to HS256 JWT (jose) built from config; a custom
-  // verifier (e.g. an OAuth 2.1 bearer/introspection verifier) may be injected via
-  // opts.verifier without touching this transport. null in "none" mode or jwt-without-secret.
-  // THE-297: jwksFile loads ONCE at transport boot (file/inline only — no URL fetch); rotation
-  // via multiple kid'd keys in the set, or a restart after replacing the file.
-  const jwks =
-    opts.auth.jwks ??
-    (opts.auth.jwksFile
-      ? (JSON.parse(readFileSync(opts.auth.jwksFile, "utf8")) as Record<string, unknown>)
-      : undefined);
-  // THE-456: bind the token audience. An explicit auth.audience wins; otherwise, when PRM is
-  // configured, default it to the canonical `resource` URI (RFC 9728 / MCP 2025-11-25 require a
-  // protected resource to accept only tokens whose aud is itself). Undefined keeps the legacy
-  // behavior for local self-issued HS256. A JWKS (shared external issuer) with no effective
-  // audience is the confused-deputy hole, so warn.
-  const audience = effectiveAudience(opts.auth);
-  if (jwks && audience === undefined) {
-    process.stderr.write(
-      "auth: JWKS configured without an audience — set auth.audience (or auth.resource) so tokens " +
-        "minted by the same issuer for a different service are rejected (THE-456)\n",
-    );
-  }
+  // Token verifier seam (W-AUTH): `opts.verifier` is the ONE verifier built at boot and shared with
+  // /metrics (wireTransports). A caller that injects none (tests, embedders) gets the same jwt
+  // construction from `buildJwtVerifier`, so there is a single recipe either way. null in "none"
+  // mode or jwt-without-key-source.
   const verifier: TokenVerifier | null =
-    opts.verifier ??
-    (opts.auth.mode === "jwt" && (opts.auth.jwtSecret || jwks || opts.authRegistry)
-      ? createTokenVerifier({
-          secret: opts.auth.jwtSecret,
-          jwks,
-          jwksUri: opts.auth.jwksUri,
-          algorithms: opts.auth.algorithms,
-          maxAgeSeconds: opts.auth.tokenTtlSeconds,
-          audience,
-          issuer: opts.auth.issuer,
-          registry: opts.authRegistry,
-          requireJti: opts.auth.requireJti,
-        })
-      : null);
+    opts.verifier ?? buildJwtVerifier(opts.auth, opts.authRegistry);
 
   // MCP 2025-11-25 / RFC 9728 Protected Resource Metadata (THE-278). Public, non-secret discovery,
   // served only when the operator configured a resource URI + authorization server(s). The document
@@ -519,20 +486,8 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     // auth so a cross-origin request never reaches the pipeline.
     if (opts.enableDnsRebindingProtection !== false) {
       const rawHost = c.req.header("host") ?? "";
-      // THE-583: validation is the SDK's (`validateHostHeader` / `validateOriginHeader`), which
-      // parses IPv6 brackets and ports properly rather than by regex. The allowlist is normalized
-      // first, and that is NOT incidental: the SDK matches on the HOSTNAME, while our config schema
-      // documents `allowedHosts` as "Host header VALUES" (which may include a port). Feeding both
-      // forms keeps the documented contract while gaining the better parser — omitting either
-      // direction turns a legitimate operator entry into a 403 outage.
-      const hostnameOf = (v: string) => v.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
-      const bothForms = (vs: readonly string[]) => vs.flatMap((v) => [v, hostnameOf(v)]);
-
-      const allowedHostnames = [
-        ...localhostAllowedHostnames(),
-        ...bothForms(opts.allowedHosts ?? []),
-      ];
-      if (!validateHostHeader(rawHost, allowedHostnames).ok)
+      // THE-583: validation is the SDK's, via the guard shared with /metrics (host-guard.ts).
+      if (!isHostAllowed(rawHost, opts.allowedHosts))
         return c.json(
           { jsonrpc: "2.0", error: { code: -32000, message: "host not allowed" }, id: null },
           403,

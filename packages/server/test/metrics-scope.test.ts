@@ -5,6 +5,7 @@
 // bound to `public-vault` got 200 including `obsidian_tc_capture_queue_depth{vault="secret-vault"} 7`.
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
+import { buildJwtVerifier } from "../src/auth/jwt-boot";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { MetricsRecorder } from "../src/metrics/registry";
 
@@ -27,11 +28,13 @@ function recorder(): MetricsRecorder {
 }
 
 function remote(bind = "0.0.0.0") {
+  const auth = { mode: "jwt", jwtSecret: SECRET, ...base } as const;
   return createMetricsApp({
     recorder: recorder(),
     bind,
     port: 0,
-    auth: { mode: "jwt", jwtSecret: SECRET, ...base },
+    auth,
+    verifier: buildJwtVerifier(auth) ?? undefined,
   });
 }
 
@@ -98,20 +101,7 @@ describe("remote /metrics refuses vault-bound and persona tokens", () => {
   });
 });
 
-describe("loopback behaviour is unchanged", () => {
-  it("serves every vault's series with no token, on every loopback spelling", async () => {
-    for (const bind of ["127.0.0.1", "::1", "localhost"]) {
-      const res = await get(remote(bind));
-      expect(res.status, bind).toBe(200);
-      expect(await res.text()).toContain('obsidian_tc_capture_queue_depth{vault="secret-vault"} 7');
-    }
-  });
-
-  it("does not demand the scope on loopback even when auth.mode is jwt", async () => {
-    // A bearer, if sent, is not inspected on loopback (documented: loopback -> open).
-    expect((await get(remote("127.0.0.1"), await sign({ scopes: [] }))).status).toBe(200);
-  });
-
+describe("operator view", () => {
   it("an unbound scoped token sees every vault on a remote bind (operator view)", async () => {
     const res = await get(remote(), await sign({ scopes: ["admin:metrics"] }));
     const body = await res.text();

@@ -52,7 +52,7 @@ export const ObservabilityConfigSchema = z.object({
         .string()
         .default("127.0.0.1")
         .describe(
-          "Bind address for the scrape endpoint. Loopback by default — /metrics is unauthenticated.",
+          "Bind address for the scrape endpoint. Loopback by default. /metrics is open only under auth.mode none on a loopback bind; under jwt or oidc it needs an admin:metrics bearer on every bind.",
         ),
     })
     .prefault({})

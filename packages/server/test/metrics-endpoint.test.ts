@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildJwtVerifier } from "../src/auth/jwt-boot";
 import { createMetricsApp, startMetricsEndpoint } from "../src/metrics/endpoint";
 import { MetricsRecorder } from "../src/metrics/registry";
 
@@ -17,17 +18,19 @@ describe("/metrics endpoint (THE-211)", () => {
   });
 
   it("requires a bearer token on a non-loopback bind (jwt mode)", async () => {
+    const auth = {
+      mode: "jwt",
+      jwtSecret: "x".repeat(32),
+      tokenTtlSeconds: 86400,
+      rotationGraceSeconds: 0,
+      requireJti: false,
+    } as const;
     const app = createMetricsApp({
       recorder: new MetricsRecorder(),
       bind: "0.0.0.0",
       port: 0,
-      auth: {
-        mode: "jwt",
-        jwtSecret: "x".repeat(32),
-        tokenTtlSeconds: 86400,
-        rotationGraceSeconds: 0,
-        requireJti: false,
-      },
+      auth,
+      verifier: buildJwtVerifier(auth) ?? undefined,
     });
     const res = await app.request("/metrics");
     expect(res.status).toBe(401);
