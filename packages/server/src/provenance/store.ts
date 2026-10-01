@@ -185,7 +185,7 @@ export const readHeadRow = readHead;
  * Drop every record of `vaultId` older than `cutoffMs`, as one contiguous prefix, and move the
  * signed prune anchor up to the last one dropped so the surviving chain still verifies. A record
  * newer than the cutoff stops the prefix even when a later one is older (clocks step backwards).
- * Returns how many rows went.
+ * Returns how many rows went. Refuses (returns 0) to re-sign a signed head without a signer.
  */
 export function pruneProvenance(
   db: Database,
@@ -202,6 +202,9 @@ export function pruneProvenance(
         .prepare("SELECT MIN(seq) AS s FROM write_provenance WHERE vault_id = ? AND ts >= ?")
         .get(vaultId, cutoffMs) as { s: number | null };
       const tip = chainTip(db, vaultId);
+      // An unsigned head over a signed one would be a silent downgrade (a missing signature then
+      // reads as "this deployment never signed"): without a signer, leave a signed chain alone.
+      if (signer === undefined && readHead(db, vaultId)?.sig != null) return 0;
       const through = firstKept.s === null ? tip.seq : firstKept.s - 1;
       if (through <= tip.prunedSeq) return 0;
       const anchor = db

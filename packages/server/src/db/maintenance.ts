@@ -9,9 +9,12 @@
 // explicit operator path that does one.
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { SignerSource } from "../provenance/signer";
+import { provenanceVaults, pruneProvenance } from "../provenance/store";
 import type { Scheduler } from "../scheduler/scheduler";
 import { closeExpiredExplicitSessions, closeStaleImplicitSessions } from "../workspace/sessions";
 import { FTS_TABLE_NAMES, tableExists } from "./introspect";
+import type { WriteTxnHooks } from "./txn";
 import type { Database } from "./types";
 
 export interface SweepCounts {
@@ -57,6 +60,10 @@ export interface SweepCounts {
    *  elapsed. Housekeeping only: the verifier refuses an elapsed window itself, so this count is
    *  0 for a deployment without a registry and never affects which tokens verify. */
   signing_keys_retired: number;
+  /** write_provenance rows pruned past `provenance.retentionDays`, across every vault's chain. A
+   *  contiguous oldest prefix only, with the signed prune anchor moved up so the rest still
+   *  verifies; 0 forever when the knob is absent (the default keeps the audit trail). */
+  provenance: number;
 }
 
 /** A vault's absolute session-trace directory. Resolved by the caller because `traceFolder` is
@@ -310,6 +317,10 @@ export function runMaintenanceSweep(
      *  and `signing_keys_retired` is 0. A throw is reported and counted as 0: the verifier never
      *  depends on this arm, so it must not take the rest of the sweep down. */
     reapAuthKeys?: () => number;
+    /** provenance.retentionDays and the signer the re-anchored head is signed with (resolved per
+     *  vault, so a rotation is picked up). Omitted -> the arm is skipped and `provenance` is 0. A
+     *  throw is reported and counted as 0: a retention failure must not take the sweep down. */
+    provenanceRetention?: { days: number; signer: SignerSource; hooks?: WriteTxnHooks };
   },
 ): SweepCounts {
   const t = opts.now();
@@ -427,6 +438,19 @@ export function runMaintenanceSweep(
       );
     }
   }
+  let provenancePruned = 0;
+  if (opts.provenanceRetention !== undefined) {
+    const { days, signer, hooks } = opts.provenanceRetention;
+    try {
+      for (const vault of provenanceVaults(db)) {
+        provenancePruned += pruneProvenance(db, vault, t - days * 86_400_000, signer(), hooks);
+      }
+    } catch (e) {
+      process.stderr.write(
+        `[maintenance] provenance retention failed (the chain is untouched): ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  }
   return {
     idempotency_keys: idem,
     elicit_tokens: elicit,
@@ -442,6 +466,7 @@ export function runMaintenanceSweep(
     fts_merged: ftsMerged,
     capture_queue: captureQueue,
     signing_keys_retired: authKeysRetired,
+    provenance: provenancePruned,
   };
 }
 
@@ -471,6 +496,8 @@ export interface MaintenanceDeps {
   onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
   /** see runMaintenanceSweep's option of the same name. */
   reapAuthKeys?: () => number;
+  /** see runMaintenanceSweep's option of the same name. */
+  provenanceRetention?: { days: number; signer: SignerSource; hooks?: WriteTxnHooks };
   now?: () => number;
   onSweep?: (counts: SweepCounts) => void;
   onError?: (e: unknown) => void;
@@ -511,6 +538,9 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
           ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
           : {}),
         ...(deps.reapAuthKeys !== undefined ? { reapAuthKeys: deps.reapAuthKeys } : {}),
+        ...(deps.provenanceRetention !== undefined
+          ? { provenanceRetention: deps.provenanceRetention }
+          : {}),
       });
       deps.onSweep?.(counts);
     },

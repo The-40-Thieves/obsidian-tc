@@ -22,6 +22,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import { registerSpoolSweep, type SpoolSweepCounts } from "../morgiana/spool-sweep";
+import type { SignerSource } from "../provenance/signer";
 import type { Scheduler } from "../scheduler/scheduler";
 import { resolveCacheTraceDir, resolveTraceDirs } from "../workspace/sessions";
 
@@ -84,6 +85,9 @@ export interface MaintenanceWiringDeps {
   /** The auth registry, when this process opened one: the sweep persists elapsed signing-key
    *  grace windows through it. Absent -> that arm is not armed (no registry, nothing to reap). */
   authRegistry?: { reapRetired(): number };
+  /** config.provenance.retentionDays plus the recorder's live signer source (a rotation is picked
+   *  up by the next prune). Absent -> the provenance arm is not armed: rows are kept forever. */
+  provenanceRetention?: { days: number; signer: SignerSource; hooks?: WriteTxnHooks };
   /** THE-610 arm 2: the experiential.db handle, when the membrane is open. Absent -> both
    *  experiential arms skip and report 0, which is correct when there is nothing to sweep. */
   edb?: Database;
@@ -172,6 +176,9 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
       : {}),
     ...(deps.authRegistry !== undefined
       ? { reapAuthKeys: () => (deps.authRegistry as { reapRetired(): number }).reapRetired() }
+      : {}),
+    ...(deps.provenanceRetention !== undefined
+      ? { provenanceRetention: deps.provenanceRetention }
       : {}),
     ...(deps.now !== undefined ? { now: deps.now } : {}),
     onSweep: (counts) => {
