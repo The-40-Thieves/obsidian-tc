@@ -8,4 +8,4 @@ type: Changed
   that killed `memory-import-cli` with exit -1) is the same value. Linux and macOS budgets are
   unchanged. `memory import`'s missing-flag cases now run in-process, with one real spawn left as
   the smoke test, and a source-scan test fails any spawn test that reintroduces a tight literal
-  budget. Test-only: no runtime behaviour changes.
+  budget. Test-only: no runtime behaviour changes (#1069).
