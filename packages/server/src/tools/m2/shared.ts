@@ -7,6 +7,7 @@ import type { BridgeClient } from "../../bridge";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import type { RetrievalLogger } from "../../experiential/log";
+import type { AutoRoute } from "../../search/auto-route";
 import type { IndexStats } from "../../search/indexer";
 import type { RepresentationManifest } from "../../search/representation";
 import type { VaultRegistry } from "../../vault/registry";
@@ -32,6 +33,9 @@ export interface M2Deps {
    *  caller's learned mode when it names none. Absent (the flag's default, or no experiential
    *  store) means the reader is never entered — search_vault behaves exactly as before. */
   searchModePreference?: { edb: Database };
+  /** retrieval.searchAutoRoute: how `auto` treats a string query's text hits. Absent or `text-first`
+   *  is today's behaviour (semantic fallback only on ZERO text hits). */
+  autoRoute?: AutoRoute;
   /** THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
    *  Absent -> the 2000ms default inside searchRegex. */
   regexTimeoutMs?: number;

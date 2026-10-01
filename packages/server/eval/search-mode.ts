@@ -9,7 +9,7 @@
 // running `extractPreferences` over recorded episodes, not here.
 //
 //   bun eval/search-mode.ts <config.json> <golden-set> --query-vecs <vecs.json> --arm default|guided
-//        [--profile-adds 5] [--caller eval] --json <out.json>
+//        [--profile-adds 5] [--caller eval] [--auto-route text-first|weak-text|hybrid] --json <out.json>
 //
 // The artifact is shaped like `eval/run.ts --json` so `eval/history.ts record` accepts it: `graph`
 // is THIS arm's search_vault result, `baseline` is dense-only `search_semantic` over the same query
@@ -49,9 +49,15 @@ const arm = flag("--arm");
 const out = flag("--json");
 const caller = flag("--caller") ?? "eval";
 const profileAdds = Number(flag("--profile-adds") ?? 5);
+// retrieval.searchAutoRoute for this arm: text-first (default) | weak-text | hybrid.
+const autoRoute = flag("--auto-route") ?? "text-first";
+if (autoRoute !== "text-first" && autoRoute !== "weak-text" && autoRoute !== "hybrid") {
+  process.stderr.write(`unknown --auto-route ${autoRoute}\n`);
+  process.exit(2);
+}
 if (!configPath || !goldenPath || !vecsPath || !out || (arm !== "default" && arm !== "guided")) {
   process.stderr.write(
-    "usage: bun eval/search-mode.ts <config.json> <golden-set> --query-vecs <vecs.json> --arm default|guided [--profile-adds 5] [--caller eval] --json <out.json>\n",
+    "usage: bun eval/search-mode.ts <config.json> <golden-set> --query-vecs <vecs.json> --arm default|guided [--profile-adds 5] [--caller eval] [--auto-route text-first|weak-text|hybrid] --json <out.json>\n",
   );
   process.exit(2);
 }
@@ -109,6 +115,7 @@ registerM2Tools(registry, {
   // index has it, the disk scan otherwise.
   metadataIndex: { hasFts: true, ready: () => true },
   ...(searchModePreference ? { searchModePreference } : {}),
+  ...(autoRoute !== "text-first" ? { autoRoute } : {}),
 });
 const ctx: CallerContext = {
   caller,
@@ -125,6 +132,7 @@ const call = async (name: string, input: Record<string, unknown>) => {
   if (!r.ok) throw new Error(`${name}: ${r.error.code}: ${r.error.message}`);
   return r.data as {
     items: Array<{ path: string }>;
+    total: number;
     mode_used: string;
     mode_source?: string;
   };
@@ -140,6 +148,14 @@ for (const q of golden.queries) {
     k: 50,
     return_content: false,
   });
+  // Route diagnostics (independent of what auto chose): the text leg alone and its own score, so a
+  // breakdown can say WHY auto routed as it did. Labels and counts only, never a path.
+  const txt = await call("search_vault", {
+    vault: vault.id,
+    query: q.query_text,
+    mode: "text",
+    limit: 1000,
+  });
   const key = `${arm_.mode_used}/${arm_.mode_source ?? "-"}`;
   modes[key] = (modes[key] ?? 0) + 1;
   perQuery.push({
@@ -151,9 +167,16 @@ for (const q of golden.queries) {
     mode_used: arm_.mode_used,
     mode_source: arm_.mode_source ?? null,
     hits: arm_.items.length,
+    text_lines: txt.total,
+    text_notes: new Set(txt.items.map((h) => h.path)).size,
+    text: computeQueryMetrics(q, asRanked(txt.items)),
+    query_tokens: q.query_text.split(/\s+/).filter(Boolean).length,
   });
 }
-const flags = [`search-mode-${arm}`];
+const flags = [
+  `search-mode-${arm}`,
+  ...(autoRoute !== "text-first" ? [`auto-route-${autoRoute}`] : []),
+];
 writeFileSync(out, JSON.stringify({ flags, arm, caller, profileAdds, modes, perQuery }));
 const agg = aggregateMetrics(perQuery.map((p) => p.graph));
 process.stderr.write(

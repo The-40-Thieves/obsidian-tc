@@ -561,12 +561,12 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     }),
     // THE-293: regex execution budget (worker time only).
     regexTimeoutMs: config.governor.regexTimeoutMs,
-    // retrieval.useSearchModePreference: search_vault's learned-mode reader, only when the flag is
-    // on AND the experiential store is open (off -> the field is absent and the reader is never
-    // entered, so search_vault is byte-identical to before).
+    // retrieval.useSearchModePreference: the learned-mode reader, only with the flag on AND the
+    // experiential store open; absent otherwise. autoRoute: text-first is the shipped route.
     ...(config.retrieval.useSearchModePreference && deps.experientialOpen
       ? { searchModePreference: { edb: deps.experientialDb } }
       : {}),
+    autoRoute: config.retrieval.searchAutoRoute,
     // THE-291 (3B): FTS-accelerated search_text once the boot reconcile's notes pass commits.
     metadataIndex: { hasFts: deps.hasFts, ready: () => deps.indexHealth.notesReady },
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
