@@ -61,7 +61,9 @@ opt-in.
 The HTTP transport and the optional `/metrics` endpoint bind to loopback unless
 explicitly configured otherwise. Binding either to a non-loopback interface
 **requires** JWT auth; a non-loopback bind with `auth.mode: none` is refused at
-startup rather than silently exposing an open surface. The HTTP edge also validates
+startup rather than silently exposing an open surface. A remote `/metrics` scrape additionally
+needs the `admin:metrics` scope and an unbound token (see [Prometheus](/observability/prometheus/)).
+The HTTP edge also validates
 the `Origin` header (rejecting DNS-rebinding / cross-origin browser requests with
 `403`).
 

@@ -18,7 +18,12 @@ afterAll(() => {
 });
 
 const now = () => Math.floor(Date.now() / 1000);
-const claims = () => ({ sub: "agent", scopes: ["read:notes"], iat: now(), exp: now() + 600 });
+const claims = () => ({
+  sub: "agent",
+  scopes: ["read:notes", "admin:metrics"],
+  iat: now(),
+  exp: now() + 600,
+});
 const hs256 = (kid?: string) =>
   new SignJWT(claims())
     .setProtectedHeader({ alg: "HS256", ...(kid ? { kid } : {}) })

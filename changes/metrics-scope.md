@@ -1,0 +1,4 @@
+---
+type: Security
+---
+- **Remote `/metrics` now requires the `admin:metrics` scope.** A scrape on a non-loopback bind verified the bearer but discarded its scopes and vault binding, so any verified token, even one with no scopes bound to a single vault, could read process-wide gauges and counters for every vault (for example another vault's capture-queue depth). The endpoint now answers `401` for a missing or unverifiable token, `403` with `WWW-Authenticate: Bearer error="insufficient_scope"` for a verified token without `admin:metrics` (the scope `get_metrics` already requires; `*` and `admin:*` satisfy it), and `403` for a token bound to a vault or persona, since the series are process-wide and cannot be filtered per vault exactly. Loopback binds are unchanged (open, no token). Breaking for existing remote scrapers: mint a scrape token with `obsidian-tc token mint --sub prometheus --scopes admin:metrics` (no `--vault`) and update the scraper.

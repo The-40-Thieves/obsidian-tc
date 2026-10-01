@@ -123,8 +123,8 @@ export function planMint(auth: AuthShape, cmd: TokenMintCmd, now: number): MintP
 
   const claims: Record<string, unknown> = {
     sub: cmd.sub,
-    // An explicit empty --scopes means "no scopes", which is a legitimate ask (a /metrics scraper
-    // needs none). Only an ABSENT flag means "everything".
+    // An explicit empty --scopes means "no scopes", never "everything": only an ABSENT flag means
+    // that. A remote /metrics scraper needs `--scopes admin:metrics` and no `--vault`.
     scopes:
       cmd.scopes === undefined
         ? ["*"]

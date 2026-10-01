@@ -30,7 +30,13 @@ function fixture() {
 
 const claims = (over: Record<string, unknown> = {}) => {
   const now = Math.floor(Date.now() / 1000);
-  return { sub: "agent-1", scopes: ["read:notes"], iat: now, exp: now + 3600, ...over };
+  return {
+    sub: "agent-1",
+    scopes: ["read:notes", "admin:metrics"],
+    iat: now,
+    exp: now + 3600,
+    ...over,
+  };
 };
 
 async function reasonOf(p: Promise<unknown>): Promise<string> {
