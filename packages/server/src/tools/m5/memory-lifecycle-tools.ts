@@ -270,10 +270,11 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         const tgt = getReadableEntity(deps, ctx, v.id, input.target_id);
         if (!src) throw err.invalidInput("source entity not found", { entity_id: input.source_id });
         if (!tgt) throw err.invalidInput("target entity not found", { entity_id: input.target_id });
-        // Mirrors link_entities: only the SOURCE's materialized note is affected (its outgoing
-        // [[links]]), so only its ACL is pre-checked.
+        // Mirrors link_entities: the edge is also the target's incoming relation, so write on
+        // BOTH projection paths is pre-checked, in both materialize modes.
         const srcPath = currentNotePath(deps, v.id, src);
         assertMemoryPathWritable(ctx, v.root, srcPath);
+        assertMemoryPathWritable(ctx, v.root, currentNotePath(deps, v.id, tgt));
         if (src.materialize === 1) {
           // Review finding: pre-check BEFORE deleteRelation, not after — the relation used to be
           // removed first and only discovered the ownership refusal when rematerialize ran,

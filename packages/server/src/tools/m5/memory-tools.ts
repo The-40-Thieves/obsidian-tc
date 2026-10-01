@@ -474,12 +474,13 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
         const tgt = getReadableEntity(deps, ctx, v.id, input.target_id);
         if (!src) throw err.invalidInput("source entity not found", { entity_id: input.source_id });
         if (!tgt) throw err.invalidInput("target entity not found", { entity_id: input.target_id });
-        // THE-567 fix: pre-check the SOURCE's materialization ACL BEFORE the SQLite relation
-        // insert (mirrors create_entity) so a caller lacking the note folder's rule-scope cannot
-        // get the edge durably committed while only the note write is blocked. link_entities only
-        // re-materializes the source's note (the target's [[links]] projection is unaffected), so
-        // only the source path needs gating here.
+        // THE-567 fix: pre-check the materialization ACL BEFORE the SQLite relation insert
+        // (mirrors create_entity) so a caller lacking the note folder's rule-scope cannot get the
+        // edge durably committed while only the note write is blocked. An edge is two-ended: it is
+        // the source's outgoing relation AND the target's incoming one in get_entity, so BOTH
+        // projection paths need write, in both materialize modes (unlink_entities does the same).
         assertMemoryPathWritable(ctx, v.root, currentNotePath(deps, v.id, src));
+        assertMemoryPathWritable(ctx, v.root, currentNotePath(deps, v.id, tgt));
         const mdConfig = memoryDefenseFor(deps, v.id);
         const scan = enforceMemoryDefense(
           mdConfig,

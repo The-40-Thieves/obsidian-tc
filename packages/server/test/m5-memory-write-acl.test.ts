@@ -153,6 +153,63 @@ describe("every other memory write tool gates the projection path in both modes"
     });
   }
 
+  // Relations are two-ended: the edge is the target's incoming relation in get_entity, so a caller
+  // who can write only the SOURCE's path must not be able to add or remove it.
+  for (const materialize of [false, true]) {
+    it(`link/unlink need write on the TARGET path too: writable source, unwritable target (materialize=${materialize})`, async () => {
+      const v = makeM5Vault({ acl: { writePaths: ["memory/tool/**"] } });
+      try {
+        const src = await seed(v, "tool", "Source", materialize);
+        const tgt = await seed(v, "person", "Target", materialize);
+        const input = { vault: V, source_id: src, target_id: tgt, relation_type: "controls" };
+        expect(denied(await v.call("link_entities", input))).toBe(true);
+        expect(edges(v).n).toBe(0);
+
+        expect((await v.call("link_entities", input, SETUP)).ok).toBe(true);
+        expect(denied(await v.call("unlink_entities", input))).toBe(true);
+        expect(edges(v).n).toBe(1);
+      } finally {
+        v.cleanup();
+      }
+    });
+
+    it(`link/unlink work when BOTH endpoints are writable (materialize=${materialize})`, async () => {
+      const v = makeM5Vault({ acl: { writePaths: ["memory/tool/**", "memory/person/**"] } });
+      try {
+        const src = await seed(v, "tool", "Source", materialize);
+        const tgt = await seed(v, "person", "Target", materialize);
+        const input = { vault: V, source_id: src, target_id: tgt, relation_type: "controls" };
+        expect((await v.call("link_entities", input)).ok).toBe(true);
+        expect(edges(v).n).toBe(1);
+        expect((await v.call("unlink_entities", input)).ok).toBe(true);
+        expect(edges(v).n).toBe(0);
+      } finally {
+        v.cleanup();
+      }
+    });
+  }
+
+  it("deleting an entity you own still removes its edges to entities you cannot write", async () => {
+    const v = makeM5Vault({
+      acl: { writePaths: ["memory/tool/**"], deletePaths: ["memory/tool/**"] },
+    });
+    try {
+      const src = await seed(v, "tool", "Source", false);
+      const tgt = await seed(v, "person", "Target", false);
+      const rel = { vault: V, source_id: src, target_id: tgt, relation_type: "controls" };
+      expect((await v.call("link_entities", rel, SETUP)).ok).toBe(true);
+      const r = await v.callConfirmed("delete_entity", {
+        vault: V,
+        entity_id: src,
+        cascade: true,
+      });
+      expect(r.ok).toBe(true);
+      expect(edges(v).n).toBe(0);
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("a fully writable caller keeps every tool working on a materialize:false entity", async () => {
     const v = makeM5Vault({ acl: { writePaths: ["memory/**"], deletePaths: ["memory/**"] } });
     try {
