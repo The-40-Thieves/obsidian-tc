@@ -169,7 +169,8 @@ function ranked(data: Record<string, unknown>): RankedChunk[] {
 const hasQuery = (qi: number) => queries[qi] as (typeof queries)[number];
 
 function perQueryFor(off: Array<Record<string, unknown>>, on: Array<Record<string, unknown>>) {
-  return queries.map((q, i) => ({
+  // Scored over the first off.length queries: the isolation and bump modes replay a prefix only.
+  return queries.slice(0, off.length).map((q, i) => ({
     id: q.id,
     baseline: computeQueryMetrics(q, ranked(off[i] as Record<string, unknown>)),
     graph: computeQueryMetrics(q, ranked(on[i] as Record<string, unknown>)),
@@ -391,10 +392,11 @@ if (mode === "latency") {
     crossCallerHits: bEqualsAWhereTheyDiffer,
     cacheStats: { results: caches.results.stats(), vectors: caches.vectors.stats() },
   };
+  const callerAIdx = Array.from({ length: n }, (_, qi) => 2 * qi);
   perQuery = perQueryFor(
-    queries.map((_, qi) => (off[2 * qi] as Timed).data),
-    queries.map((_, qi) => (on[2 * qi] as Timed).data),
-  ).slice(0, n);
+    callerAIdx.map((i) => (off[i] as Timed).data),
+    callerAIdx.map((i) => (on[i] as Timed).data),
+  );
   result.perQueryLimitedTo = n;
 } else if (mode === "bump") {
   const n = Math.min(100, queries.length);
@@ -444,7 +446,7 @@ if (mode === "latency") {
   perQuery = perQueryFor(
     offAfter.map((t) => t.data),
     on3.map((t) => t.data),
-  ).slice(0, n);
+  );
   result.perQueryLimitedTo = n;
 } else if (mode === "memory") {
   await warm();
