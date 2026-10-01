@@ -515,8 +515,14 @@ describe("CACHE_VAULT_ID_TABLES / EXPERIENTIAL_VAULT_ID_TABLES — inventory mat
     // resolveVaultIdentity (not the generic rekeyVaultIdInDb loop) — it is the table BEING
     // consulted to decide a rename, not one re-keyed generically by it — so it is deliberately
     // absent from CACHE_VAULT_ID_TABLES and excluded from this comparison too.
+    // write_provenance* carry the vault id inside signed bytes: re-keying them would invalidate
+    // every signature, so a rename deliberately leaves them under the old id (identity.ts header).
     const liveTables = tablesWithVaultIdColumn(cacheDb).filter(
-      (t) => t !== "vault_identity" && t !== "chunk_colbert",
+      (t) =>
+        t !== "vault_identity" &&
+        t !== "chunk_colbert" &&
+        t !== "write_provenance" &&
+        t !== "write_provenance_heads",
     );
     expect([...migrationDeclared].sort()).toEqual(liveTables);
   });

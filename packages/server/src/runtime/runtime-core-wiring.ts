@@ -60,6 +60,7 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
         morgiana: deps.morgiana,
         ...(deps.stores.episodeCapture ? { onEpisode: deps.stores.episodeCapture } : {}),
         getAuditWriteFailureCounter: () => requireBoot(indexHealthRef, "indexHealth"),
+        ...(deps.provenance ? { provenance: deps.provenance } : {}),
       });
     } catch (e) {
       await rateLimitBackend.close().catch(() => {});

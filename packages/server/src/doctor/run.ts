@@ -49,6 +49,7 @@ import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 // THE-1108: sessions.liveness lives in its own module, same reasoning as capture-location above —
 // its own probe shape that no other check needs.
 import { type HitlConfirmationsView, hitlConfirmationsCheck } from "./hitl-confirmations";
+import { type ProvenanceView, provenanceCheck } from "./provenance";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
 import { retrievalHeadsCheck } from "./retrieval-heads";
@@ -149,6 +150,7 @@ export interface DoctorConfigView {
    *  No `--probe` gate: it only stats the key files and opens auth.db read-only. */
   authRegistry?: AuthRegistryView;
   authOidc?: AuthOidcView;
+  provenance?: ProvenanceView;
   /** THE-1108: is any explicit (start_session) session stuck open past windowSeconds? Probe-only,
    *  same reasoning as derivedTables above. */
   sessions?: SessionLivenessView;
@@ -254,6 +256,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.telemetry) checks.push(telemetryCheck(config.telemetry));
   if (config.authRegistry) checks.push(authRegistryCheck(config.authRegistry));
   if (config.authOidc) checks.push(authOidcCheck(config.authOidc));
+  if (config.provenance) checks.push(provenanceCheck(config.provenance));
   // THE-1108: sessions.liveness — same optional-view reasoning as derivedTables above.
   if (config.sessions) checks.push(sessionLivenessCheck(config.sessions));
   if (config.hitlConfirmations) checks.push(hitlConfirmationsCheck(config.hitlConfirmations));

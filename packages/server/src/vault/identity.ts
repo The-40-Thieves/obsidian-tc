@@ -34,9 +34,9 @@ import { canonicalizeVaultRootWithStatus } from "./registry";
  * vault-identity.test.ts`'s inventory suite guards this against drift. `vec_chunks`/`notes_fts`/
  * `chunk_sparse` are runtime-provisioned (created `IF NOT EXISTS` on first use, not by a
  * migration), re-keyed conditionally on `tableExists`, appended after the migration-declared set.
- * Deliberately EXCLUDES `vault_identity` itself (its own PK, updated directly by
- * `resolveVaultIdentity`) and `chunk_colbert` (also runtime-provisioned/`vault_id`-bearing, but
- * `loadChunkColbert` looks up rows by `chunk_id` only — a stale value there is never consulted).
+ * Deliberately EXCLUDES `vault_identity` (its own PK, updated by `resolveVaultIdentity`),
+ * `chunk_colbert` (runtime-provisioned; `loadChunkColbert` looks up by `chunk_id` only) and
+ * `write_provenance*` (the vault id is inside the signed bytes: a rename starts a new chain).
  */
 export const CACHE_VAULT_ID_TABLES: readonly string[] = [
   "acl_path_sets",

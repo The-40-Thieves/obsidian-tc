@@ -7,6 +7,7 @@
 import type { Tracer } from "@opentelemetry/api";
 import type { VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "../elicit";
 import { ToolRegistry } from "../mcp/registry";
@@ -14,6 +15,7 @@ import type { RegistryOptions } from "../mcp/registry/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import type { OtelDetail } from "../otel/dispatch-spans";
+import { ProvenanceRecorder } from "../provenance/recorder";
 import type { RateLimitBackend, RateLimitFailurePolicy } from "../ratelimit/backend";
 import { outageHooks } from "../ratelimit/outage-hooks";
 import { RateLimiter, type ThrottleTiers } from "../throttle";
@@ -64,6 +66,9 @@ export interface GovernanceDeps {
    *  accessor closes over it instead of taking a direct value. Only invoked at dispatch time, well
    *  after boot has finished constructing it. */
   getAuditWriteFailureCounter: () => { auditWriteFailures: number };
+  /** Signed write provenance. Present only when `config.provenance.enabled`; absent builds no
+   *  recorder and dispatch records nothing. `host` is the already-resolved host id. */
+  provenance?: { host: string; serverVersion: string; hooks?: WriteTxnHooks };
 }
 
 export interface Governance {
@@ -75,6 +80,9 @@ export interface Governance {
   activeSessions: ActiveSessionTracker;
   rateLimiter: RateLimiter;
   registry: ToolRegistry;
+  /** The write-provenance recorder dispatch appends through, when enabled. The transport wiring
+   *  hands it the auth registry's signing key once that registry is open. */
+  provenance?: ProvenanceRecorder;
   /** Releases the rate-limit backend's connections (a no-op for the default memory backend); the
    *  ACL/registry objects are plain in-memory state. Participates in the same accumulate-and-unwind
    *  cleanup stack as stores/indexing (see server-runtime.ts). */
@@ -102,7 +110,23 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
     // Once per outage, never per request (the limiter guarantees it); redacted (see outage-hooks).
     ...outageHooks(deps.metrics),
   });
+  // Unsigned until wireTransports gives it the auth registry's EdDSA key (setSignerSource).
+  // Fail-open: a recording fault is reported on stderr and never fails the write it describes.
+  const provenance = deps.provenance
+    ? new ProvenanceRecorder({
+        db: deps.db,
+        host: deps.provenance.host,
+        serverVersion: deps.provenance.serverVersion,
+        ...(deps.provenance.hooks ? { hooks: deps.provenance.hooks } : {}),
+        metrics: deps.metrics.provenance,
+        onError: (tool, vaultId, e) => {
+          const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
+          process.stderr.write(`[provenance] ${tool} (vault ${vaultId}): ${detail}\n`);
+        },
+      })
+    : undefined;
   const registry = new ToolRegistry({
+    ...(provenance ? { provenance } : {}),
     maxResponseBytes: deps.maxResponseBytes,
     idempotencyTtlSeconds: deps.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: deps.idempotencyReclaimSeconds,
@@ -204,6 +228,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
     activeSessions,
     rateLimiter,
     registry,
+    ...(provenance ? { provenance } : {}),
     close: () => rateLimiter.close(),
   };
 }

@@ -17,6 +17,7 @@ import {
   contentHash,
   normalizeVaultPath,
   resolveVaultPath,
+  resolveVaultPathChecked,
   walkVault,
   walkVaultStream,
 } from "../src/vault/paths";
@@ -98,6 +99,87 @@ describe("paths: safety + content hash", () => {
     } finally {
       rmTemp(base);
     }
+  });
+  // resolveVaultPathChecked is the SHARED write-path guard (every tool write, the ACL stage, the
+  // provenance digests). Its containment test is segment-aware: a NAME that merely begins with two
+  // dots is a sibling, not a traversal, and real traversal still refuses in every spelling.
+  describe("resolveVaultPathChecked: traversal refused, dotted names allowed", () => {
+    const refuses = (root: string, p: string) =>
+      expect(() => resolveVaultPathChecked(root, p), p).toThrow(/traversal|escapes|absolute/i);
+
+    it("refuses `../x`, `..\\x`, `a/../../x`, `a/..` and absolute paths", () => {
+      const root = tmpVault();
+      try {
+        for (const p of [
+          "../x",
+          "..\\x",
+          "a/../../x",
+          "a\\..\\..\\x",
+          "a/..",
+          "..",
+          "/etc/passwd",
+          "\\windows\\system32",
+          "C:\\Users\\x",
+          "c:/Users/x",
+        ]) {
+          refuses(root, p);
+        }
+      } finally {
+        rmTemp(root);
+      }
+    });
+
+    it("allows `..foo`, `a/..b` and `v1.2..final.md` (segment-aware)", () => {
+      const root = tmpVault();
+      try {
+        expect(resolveVaultPathChecked(root, "..foo").abs).toBe(join(root, "..foo"));
+        expect(resolveVaultPathChecked(root, "a/..b").aclRel).toBe("a/..b");
+        expect(resolveVaultPathChecked(root, "..foo/x.md").aclRel).toBe("..foo/x.md");
+        expect(resolveVaultPathChecked(root, "notes/v1.2..final.md").aclRel).toBe(
+          "notes/v1.2..final.md",
+        );
+      } finally {
+        rmTemp(root);
+      }
+    });
+
+    it("a `..`-named symlink that leaves the vault is still refused by the real-path check", () => {
+      const base = mkdtempSync(join(tmpdir(), "obtc-dots-"));
+      const root = join(base, "vault");
+      const outside = join(base, "outside");
+      mkdirSync(root, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "s.md"), "s");
+      let linked = false;
+      try {
+        symlinkSync(outside, join(root, "..evil"), "junction");
+        linked = true;
+      } catch {
+        // symlink/junction creation may be unsupported on some hosts
+      }
+      try {
+        if (linked) refuses(root, "..evil/s.md");
+      } finally {
+        rmTemp(base);
+      }
+    });
+
+    it("a `..`-named symlink that stays inside the vault is allowed", () => {
+      const root = tmpVault();
+      try {
+        mkdirSync(join(root, "real"));
+        let linked = false;
+        try {
+          symlinkSync(join(root, "real"), join(root, "..alias"), "junction");
+          linked = true;
+        } catch {
+          // skip where symlinks are unsupported
+        }
+        if (linked) expect(resolveVaultPathChecked(root, "..alias/x.md").aclRel).toBe("real/x.md");
+      } finally {
+        rmTemp(root);
+      }
+    });
   });
   it("walks a vault, skipping dot-dirs", () => {
     const root = tmpVault();

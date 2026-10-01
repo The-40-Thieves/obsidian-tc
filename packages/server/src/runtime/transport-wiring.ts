@@ -18,6 +18,8 @@ import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
 import type { ToolRegistry } from "../mcp/registry";
 import { type MetricsHandle, startMetricsEndpoint } from "../metrics/endpoint";
 import type { MetricsRecorder } from "../metrics/registry";
+import type { ProvenanceRecorder } from "../provenance/recorder";
+import { registrySignerSource } from "../provenance/signer";
 import type { JobQueue } from "../scheduler/job-queue";
 import { type HttpHandle, startHttp } from "../transports/http";
 import type { VaultRegistry } from "../vault/registry";
@@ -33,6 +35,9 @@ export interface TransportWiringDeps {
   acl: FolderAcl;
   jobQueue: JobQueue;
   metrics: MetricsRecorder;
+  /** Signed write provenance recorder (absent when disabled). It gets its signing key here, from
+   *  the auth registry opened below; with no registry or no EdDSA key it keeps writing unsigned. */
+  provenance?: ProvenanceRecorder | undefined;
 }
 
 export interface TransportsWiring {
@@ -101,6 +106,21 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       }
     }
     deps.metrics.bindAuthKeys(() => authRegistry.keyCounts());
+  }
+
+  if (authRegistry !== undefined && deps.provenance !== undefined) {
+    // One line per process, not per write: a lost registry would otherwise repeat on every call.
+    let warned = false;
+    deps.provenance.setSignerSource(
+      registrySignerSource(authRegistry, (e) => {
+        if (warned) return;
+        warned = true;
+        const detail = e instanceof Error ? e.message : String(e);
+        process.stderr.write(
+          `[provenance] signing key unavailable, recording unsigned: ${detail}\n`,
+        );
+      }),
+    );
   }
 
   try {

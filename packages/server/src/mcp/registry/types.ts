@@ -13,6 +13,7 @@ import type { ElicitRequestState } from "../../elicit-request-state";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { OtelDetail } from "../../otel/dispatch-spans";
 import type { TraceCarrier } from "../../otel/propagation";
+import type { ClaimedProvenance } from "../../provenance/types";
 import type { RateLimiter } from "../../throttle";
 import type { AclOp } from "../../vault/acl-path";
 import type { TraceRecord } from "../../workspace/sessions";
@@ -134,6 +135,14 @@ export interface CallerContext {
    *  only — dispatch never branches on the STRING; `grantedScopes`/`vaultId`/`toolVisibility`
    *  already carry the persona's effective grant by the time a handler sees this context. */
   persona?: string;
+  /** True only when `caller` (and `persona`) came from a bearer token the server cryptographically
+   *  verified (HTTP `jwt`/`oidc`). Stdio and `auth.mode: none` leave it unset: there `caller` is a
+   *  label nobody proved, and write provenance files it as unauthenticated. */
+  authVerified?: boolean;
+  /** Write provenance: the model/project/agent/machine the client CLAIMED in the request's
+   *  `io.obsidian-tc/provenance` `_meta` block. Self-reported and never trusted; stored under
+   *  `self_reported`. Set by mcp/server.ts's `tools/call` handler; absent when none was sent. */
+  claimedProvenance?: ClaimedProvenance;
   /** THE-647 item 2: a persona's own tool-visibility mask, composed with the server's static
    *  `toolVisibility` at the same `disabled > hidden > scope_denied > listed` chokepoint
    *  (mcp/visibility.ts's `explainVisibility`) rather than replacing it — a persona mask can only
@@ -443,4 +452,23 @@ export interface RegistryOptions {
    *  Off by default (production stays warn-only for backward compatibility); enable it in dev/CI so
    *  output-schema drift fails a test rather than reaching a client that may reject it. */
   strictOutputSchema?: boolean;
+  /** Signed write provenance: when wired, dispatch appends one hash-chained, signed record per
+   *  committed mutating call (provenance/recorder.ts). Absent (unit tests, `provenance.enabled:
+   *  false`) means nothing is recorded. */
+  provenance?: ProvenanceSink;
+}
+
+/** What dispatch needs from write provenance (provenance/recorder.ts implements it): hash the
+ *  named paths before a mutating handler runs, then append the record once the call settled. The
+ *  pending value is opaque to dispatch. Neither method throws. */
+export interface ProvenanceSink {
+  begin(
+    def: ToolDefinition,
+    input: unknown,
+    ctx: CallerContext,
+    root: string | undefined,
+  ): Promise<object>;
+  /** `result` is the handler's return value (ok outcome only): a tool that reports the hash of the
+   *  content it wrote has that hash, not a later disk read, recorded as the `after` digest. */
+  commit(pending: object, outcome: "ok" | "error", result?: unknown): Promise<void>;
 }

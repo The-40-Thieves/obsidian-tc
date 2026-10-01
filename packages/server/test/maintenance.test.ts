@@ -55,6 +55,7 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       sessions_expired: 0,
       // No `reapAuthKeys` was passed (no auth registry in this process), so the arm is skipped.
       signing_keys_retired: 0,
+      provenance: 0,
       orphan_schedule_rows: 0,
       // THE-610 arm 2: no `edb` was passed, so both experiential arms skip entirely — which is the
       // correct behaviour when the membrane is not open. Their own coverage is in

@@ -2514,6 +2514,46 @@
         }
       }
     },
+    "provenance": {
+      "description": "Signed write provenance: one hash-chained, signed record per committed mutating tool call.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Record one provenance row per committed mutating tool call: tool, vault, the paths it named with sha256 digests before and after (never content), timestamp, principal, session, client and claimed model/project/agent/machine, each field tagged verified or self_reported. Rows are hash-chained per vault and signed with the auth registry's EdDSA key when one is active. Verify with `obsidian-tc provenance verify`.",
+          "type": "boolean"
+        },
+        "host": {
+          "description": "How this server identifies itself on every provenance row.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "mode": {
+              "default": "hashed",
+              "description": "\"hashed\" (default) records a stable digest of this machine's hostname, so rows correlate without naming the host. \"label\" records `label` verbatim.",
+              "type": "string",
+              "enum": [
+                "hashed",
+                "label"
+              ]
+            },
+            "label": {
+              "description": "The host id recorded when mode is \"label\". Required in that mode.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        },
+        "retentionDays": {
+          "description": "Days a provenance row is kept before the maintenance sweep prunes it. ABSENT (the default) keeps rows forever: this is an audit trail, and pruning it is an explicit decision. Pruning removes a contiguous prefix and moves a signed anchor up to the last row dropped, so the remaining chain still verifies.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
     "plane": {
       "description": "Ambient sleep-time consolidation jobs.",
       "default": {},

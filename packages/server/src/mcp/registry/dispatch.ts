@@ -12,6 +12,7 @@ import { type OtelDetail, openDispatchSpans } from "../../otel/dispatch-spans";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
 import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
+import { checkAborted } from "./abort";
 import {
   callStatusForError,
   type DispatchObservability,
@@ -41,6 +42,7 @@ import {
   resolveOperationPolicy,
   runPrecheck,
 } from "./policy-gates";
+import { provenanceScope } from "./provenance-scope";
 import { bindResolvedTarget } from "./resolve-target";
 import {
   checkOutputSchema,
@@ -82,15 +84,7 @@ export interface DispatchDeps {
   visibleVaultIds?: RegistryOptions["visibleVaultIds"];
   tracer?: Tracer;
   otelDetail?: OtelDetail;
-}
-
-/** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
- *  `ObsidianTcError` the rest of dispatch throws (never a raw DOMException `AbortError`), so an
- *  abort surfaces through the normal catch/audit/metrics path below rather than as an unhandled
- *  rejection or an opaque `internal` error. A no-op when `signal` is absent or not yet aborted —
- *  every existing caller (no signal) sees no behavior change. */
-function checkAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw err.aborted();
+  provenance?: RegistryOptions["provenance"];
 }
 
 // Full invocation pipeline: validate -> auth -> scope/ACL -> HITL -> execute -> governor -> audit.
@@ -132,6 +126,7 @@ export async function runDispatch(
   // as its own handle rather than re-deriving from ctx, so cleanup only ever clears a callback
   // THIS dispatch installed.
   let installedMarker: { markEffectCommitted?: () => void } | undefined;
+  const provenance = provenanceScope(deps.provenance, deps.rootResolver); // see provenance-scope.ts
 
   // THE-839: episode kind for the audit row. Everything here came through tools/call (resources/*
   // and prompts/* declare `protocol` via dispatchResource instead); a `verdict`-tagged tool is the
@@ -479,6 +474,7 @@ export async function runDispatch(
         // THE-514: the last chance to bail before the handler — and any side effect — runs.
         // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
         checkAborted(ctx.signal);
+        if (mutating) await provenance.begin(def, inputData, ctx);
         const handlerStart = now();
         spans?.stage("tool_impl");
         const invoke = () => def.handler(inputData, ctx);
@@ -494,6 +490,7 @@ export async function runDispatch(
         return r;
       },
     );
+    await provenance.settle("ok", out);
     spans?.stage("output_serialize");
     // WP4.3: output-schema validation (warn vs strict) — see registry/result-governance.ts's
     // checkOutputSchema for the full reasoning (unchanged, only relocated).
@@ -598,6 +595,7 @@ export async function runDispatch(
     memoizeSerialized(out, json);
     return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
   } catch (e) {
+    await provenance.settle("error");
     if (idemClaimed && idemKey) {
       // THE-572: a handler may signal mid-execution INSIDE its own transaction. If that
       // transaction rolls back, the marker rolls back with it and NOTHING committed — so the

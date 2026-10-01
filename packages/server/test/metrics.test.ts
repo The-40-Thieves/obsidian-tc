@@ -45,6 +45,8 @@ const COUNTERS = [
   // THE-417 Phase 2: the readable half of warn-mode. Any non-zero value names a tool whose
   // declared contract has drifted from what it returns; there is no benign case.
   "obsidian_tc_output_schema_drift_total",
+  // Write provenance: an omitted record (fail-open) or a head that failed validation.
+  "obsidian_tc_provenance_faults_total",
   // THE-585 (#6): the retrieval funnel. Their RATIO per stage is the signal — a stage sitting at
   // 1.0 pass-through has stopped filtering while still costing its latency.
   "obsidian_tc_retrieval_stage_candidates_in_total",
@@ -125,7 +127,7 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(55);
+    expect(new Set(declared).size).toBe(56);
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {

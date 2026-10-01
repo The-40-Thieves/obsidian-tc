@@ -14,6 +14,7 @@ import type { AdvisoryBus } from "../mcp/advisories";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import { compileEgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
+import type { ProvenanceRecorder } from "../provenance/recorder";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { makeJobRunner } from "../scheduler/job-runner";
 import { Scheduler } from "../scheduler/scheduler";
@@ -49,6 +50,9 @@ export interface SchedulerWiringDeps {
   listVaultIds?: () => readonly string[];
   /** The auth registry wireTransports opened, when it opened one (see maintenance-wiring.ts). */
   authRegistry?: AuthRegistry;
+  /** The write-provenance recorder (absent when disabled): the retention arm re-signs a pruned
+   *  chain's head with its live signer. */
+  provenance?: ProvenanceRecorder;
   experientialOpen: boolean;
   experientialDb: Database;
   observability: Observability;
@@ -114,6 +118,16 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     memoryOrphanSqlHooks: deps.observability.sqlHooksFor("scheduler"),
     metrics: deps.observability.metrics,
     ...(deps.authRegistry !== undefined ? { authRegistry: deps.authRegistry } : {}),
+    // Absent retentionDays (the default) keeps the audit trail forever: the arm is not armed.
+    ...(deps.provenance !== undefined && config.provenance.retentionDays !== undefined
+      ? {
+          provenanceRetention: {
+            days: config.provenance.retentionDays,
+            signer: () => deps.provenance?.currentSigner(),
+            hooks: deps.observability.sqlHooksFor("provenance"),
+          },
+        }
+      : {}),
     // THE-1108 fix: clear the LIVE tracker entry for a session the sweep just closed by SQL — the
     // tracker (server-runtime.ts's stdio context factory reads it) has no other way to learn that.
     onExplicitSessionClosed: (row) => deps.activeSessions.clear(row.principal, row.id),

@@ -58,6 +58,15 @@ surface latent mismatches" had no way to be read. Labels are bounded exactly lik
 `obsidian_tc_tool_calls_total`'s — vault id and tool name, never the payload or the Zod issues,
 which would put note content into a label.
 
+## provenanceFaults counter — obsidian_tc_provenance_faults_total
+
+Write provenance is fail-open: a recording fault is logged and the write it describes still
+succeeds, so before this counter an omitted record looked exactly like "no write happened".
+`kind=omitted` is a committed write with no record; `kind=head_untrusted` is a record written while
+the chain head failed validation (the head is then left as found, not re-signed). Labels are vault
+id, tool name and the two-value kind, never a path or an error message. `obsidian-tc doctor` reports
+the same events from `event_log`, so an operator without a scraper still sees them.
+
 ## activationRecomputeChunks counter — obsidian_tc_activation_recompute_chunks_total (THE-645 item 1)
 
 `registerActivationRecompute`'s `onRecompute` stats were computed every tick and discarded —

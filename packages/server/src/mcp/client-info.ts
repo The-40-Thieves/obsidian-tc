@@ -57,6 +57,10 @@ const MAX_LEN = 128;
 const clean = (v: unknown): string | undefined =>
   typeof v === "string" && v.length > 0 && v.length <= MAX_LEN ? v : undefined;
 
+/** The same bound, for any other self-reported `_meta` string (write provenance's claimed
+ *  model/project/agent/machine): one definition of "short enough to store, dropped if not". */
+export const cleanMetaString = clean;
+
 /**
  * Lift `clientInfo` out of an MCP `_meta` bag.
  *

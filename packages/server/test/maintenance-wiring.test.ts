@@ -13,6 +13,7 @@ import type { SweepCounts } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type MorgianaEmitter, spoolFileName } from "../src/morgiana/emitter";
+import { appendProvenance } from "../src/provenance/store";
 import { configureMaintenance, sweepTotal } from "../src/runtime/maintenance-wiring";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
@@ -75,6 +76,7 @@ describe("sweepTotal — every arm joins the total", () => {
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 0,
+        provenance: 0,
       }),
     ).toBe(3);
     expect(
@@ -93,6 +95,7 @@ describe("sweepTotal — every arm joins the total", () => {
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 5,
+        provenance: 0,
       }),
     ).toBe(132);
   });
@@ -118,6 +121,7 @@ describe("sweepTotal — every arm joins the total", () => {
         orphan_schedule_rows: 0,
         fts_merged: ["notes_fts", "chunk_fts"],
         capture_queue: 0,
+        provenance: 0,
       }),
     ).toBe(1);
   });
@@ -158,6 +162,7 @@ describe("sweepTotal — every arm joins the total", () => {
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 0,
+        provenance: 0,
       }),
     ).toBe(0);
   });
@@ -419,6 +424,57 @@ describe("configureMaintenance", () => {
       expect(writes.join("")).toContain("[maintenance] sweep failed: boom");
     } finally {
       spy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("configureMaintenance — provenance retention", () => {
+  const seedOld = (db: Database, n: number) => {
+    for (let i = 1; i <= n; i++) {
+      appendProvenance(
+        db,
+        {
+          vaultId: "v1",
+          ts: NOW - 40 * 86_400_000,
+          tool: "write_note",
+          outcome: "ok",
+          paths: [],
+          pathsOmitted: 0,
+          verified: { host: "h", server_version: "0" },
+          unauthenticated: {},
+          self_reported: {},
+        },
+        undefined,
+      );
+    }
+  };
+  const count = (db: Database) =>
+    (db.prepare("SELECT COUNT(*) AS n FROM write_provenance").get() as { n: number }).n;
+
+  it("prunes past retention when armed, and keeps everything when not (the default)", async () => {
+    vi.useFakeTimers();
+    try {
+      const armed = freshDb();
+      const kept = freshDb();
+      seedOld(armed, 3);
+      seedOld(kept, 3);
+      const { m } = fakeMorgiana();
+      const sched = new Scheduler();
+      configureMaintenance(sched, {
+        ...baseDeps(armed, m),
+        provenanceRetention: { days: 30, signer: () => undefined },
+      });
+      const sched2 = new Scheduler();
+      configureMaintenance(sched2, baseDeps(kept, m));
+      sched.start();
+      sched2.start();
+      await vi.advanceTimersByTimeAsync(61_000);
+      await sched.stop();
+      await sched2.stop();
+      expect(count(armed)).toBe(0);
+      expect(count(kept)).toBe(3);
+    } finally {
       vi.useRealTimers();
     }
   });

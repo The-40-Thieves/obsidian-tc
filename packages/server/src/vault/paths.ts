@@ -161,6 +161,12 @@ function assertRootNotPlantedSymlink(root: string, relPath: string): void {
     });
 }
 
+/** Does `rel` (a `path.relative` result) leave its base? `..` or `../x` do; a sibling NAME that
+ *  merely starts with two dots (`..notes/x.md`) does not, so it is neither refused nor let through
+ *  by a prefix test. */
+const escapesBase = (rel: string): boolean =>
+  rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+
 export function resolveVaultPathChecked(vaultRoot: string, relPath: string): ResolvedVaultPath {
   const clean = normalizeVaultPath(relPath);
   const root = resolve(vaultRoot);
@@ -169,7 +175,7 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   // GH #994 second security review, M1: same raw-echo risk as normalizeVaultPath above — redact
   // once, reuse for every throw in this function.
   const redactedRelPath = redactSecrets(relPath).text;
-  if (rel.startsWith("..") || isAbsolute(rel))
+  if (escapesBase(rel))
     throw err.pathInvalid("path escapes the vault root", { path: redactedRelPath });
   assertRootNotPlantedSymlink(root, relPath);
   // The real-path containment guarantee hinges on canonicalizing the root. If the
@@ -181,7 +187,7 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   if (realRoot === null)
     throw err.vaultNotFound("vault root could not be resolved", { path: redactedRelPath });
   const realRel = relative(realRoot, realpathDeepest(abs));
-  if (realRel.startsWith("..") || isAbsolute(realRel))
+  if (escapesBase(realRel))
     throw err.pathInvalid("path escapes the vault root", { path: redactedRelPath });
   return { abs, aclRel: realRel.split(sep).join("/") };
 }
