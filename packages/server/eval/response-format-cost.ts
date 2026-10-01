@@ -5,9 +5,8 @@
 //
 // With no --corpus a small synthetic vault is generated. A given --corpus is COPIED to a temp dir
 // first: the write tools run against the copy, never against the source. Chars are the length of the
-// JSON result payload (structuredContent); tokens are search/chunk.ts's estimateTokens (chars/4), an
-// estimate applied to both arms. One representative call per tool, so a row is a typical call, not a
-// distribution; the real-world mix is per-tool call count times these figures.
+// JSON result payload (structuredContent); tokens are chars/4, the same rough estimate for both arms. One
+// representative call per tool, so a row is a typical call, not a distribution; the real-world mix is per-tool call count times these figures.
 import {
   cpSync,
   mkdirSync,
@@ -28,7 +27,6 @@ import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { createPagingDeps } from "../src/mcp/byte-page";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { estimateTokens } from "../src/search/chunk";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
@@ -222,7 +220,6 @@ async function main(): Promise<void> {
     ),
   ];
   process.stdout.write(`${lines.join("\n")}\n`);
-  void estimateTokens;
   const out = flag("--json");
   if (out)
     writeFileSync(
@@ -233,3 +230,5 @@ async function main(): Promise<void> {
 }
 
 await main();
+// The registry and the in-memory databases keep handles open, so bun would not exit on its own.
+process.exit(0);

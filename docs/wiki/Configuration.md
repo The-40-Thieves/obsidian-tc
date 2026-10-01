@@ -36,6 +36,7 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 | `observability` | object | `otel` / `prometheus` / `morgiana` / `retention` (`retention` bounds `event_log` rows, trace files and the morgiana spool) |
 | `toolFacade` | `{ "mode": "triad" }` | Advertised tool surface — `triad` (default) / `domain` / `flat` |
 | `toolVisibility` | object (optional) | Hide/disable tools from the advertised surface |
+| `tools` | `{ "defaults": { "responseFormat": "detailed" } }` | Per-call output shape: `tools.defaults.responseFormat` is the `response_format` (`concise` / `detailed`) a call gets when it names neither `response_format` nor the legacy `verbosity`. See [[Tool Reference]] |
 | `plur` | object (optional) | plur read-proxy endpoint |
 | `maintenance` | `{ "enabled": true, "intervalMinutes": 60 }` | Periodic `cache.db` sweep |
 | `plane` | `{ "enabled": false, "intervalMinutes": 240 }` | Sleep-time consolidation scheduler; **opt-in** — set `plane.enabled: true` to run it; only does work with an inference gateway configured, and a gateway-configured deployment that never sets this key gets a boot-time notice |
