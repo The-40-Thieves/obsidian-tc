@@ -167,7 +167,7 @@ string query's text hits. `text-first` is the shipped rule: run the literal whol
 semantic only when it matched no note, so any text hit, however irrelevant, blocks the fallback. `weak-text` also runs
 the semantic leg when the text leg matched exactly one note; `hybrid` always runs it. Both fuse the legs by reciprocal
 rank over distinct notes (rrfK 10) and report `mode_used: "hybrid"`; a failing semantic leg on a query text already
-answered leaves the text result. `text-first` is byte-identical to before (the dependency is not even passed).
+answered leaves the text result. `text-first` is byte-identical to before (the same decision as the old zero-hit rule).
 
 **Where `auto` routes today** (`eval/search-mode.ts`, text-first arm, per-query): on the evergreen corpus 24 of 78
 queries stop at the text leg (short queries, median 2 tokens, whose phrase matches 1 to over 20 notes, always including

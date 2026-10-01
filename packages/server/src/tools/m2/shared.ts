@@ -33,9 +33,8 @@ export interface M2Deps {
    *  caller's learned mode when it names none. Absent (the flag's default, or no experiential
    *  store) means the reader is never entered — search_vault behaves exactly as before. */
   searchModePreference?: { edb: Database };
-  /** retrieval.searchAutoRoute: how `auto` treats a string query's text hits. Absent is `text-first`
-   *  (semantic fallback only on ZERO text hits, today's behaviour): the wiring sets it only for a
-   *  non-default route, so the default path never enters the new code. */
+  /** retrieval.searchAutoRoute: how `auto` treats a string query's text hits. Absent or `text-first`
+   *  is today's behaviour (semantic fallback only on ZERO text hits). */
   autoRoute?: AutoRoute;
   /** THE-293: worker-time budget (ms) for one search_regex / search_vault(mode:regex) call.
    *  Absent -> the 2000ms default inside searchRegex. */

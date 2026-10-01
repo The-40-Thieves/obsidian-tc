@@ -29,12 +29,6 @@ interface LegHit {
   chunk_id?: string;
 }
 
-/** The M2 dependency for a configured route: nothing for the default, so `text-first` never enters
- *  the fusion path and `search_vault` stays byte-identical. */
-export function autoRouteDep(route: AutoRoute): { autoRoute?: AutoRoute } {
-  return route === "text-first" ? {} : { autoRoute: route };
-}
-
 /** Whether `auto` should also run the semantic leg, given how many DISTINCT notes the text leg
  *  matched. `text-first` is today's rule (zero notes); `weak-text` treats a single-note literal hit
  *  as weak evidence; `hybrid` always runs it. */
