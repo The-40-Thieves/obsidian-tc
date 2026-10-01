@@ -143,6 +143,89 @@ ways: a `[provenance]` line on stderr, the `obsidian_tc_provenance_faults_total`
 writes left no record". The doctor warning ages out with `event_log` retention; the counter resets
 with the process. The write itself is never failed.
 
+## Optional stamps
+
+The record in `cache.db` is the source of truth. Two **optional** stamps copy a little of it to
+where a human will see it. Both are **off by default**; with them off, every note and every commit
+message is byte for byte what the caller sent. Neither stamp holds anything the record does not
+already hold, and neither ever contains the host id. Both need `provenance.enabled`.
+
+### Commit trailers
+
+`provenance.stamp.gitTrailers: true` makes the `git_commit` tool append trailers to the message it
+sends to the Git bridge:
+
+```text
+snapshot
+
+Obsidian-TC-Session: 7f3c0e
+Obsidian-TC-Principal: alice
+Obsidian-TC-Model: claude-sonnet-5-5 (self-reported)
+Obsidian-TC-Provenance-Seq: notes:41-44
+```
+
+- **Trust is in the text.** `Obsidian-TC-Principal` is the principal a bearer token proved
+  (`auth.mode: jwt` or `oidc`), or the word `unverified` (stdio, `auth.mode: none`). The model is a
+  client's own claim and is always followed by `(self-reported)`. A value is one line: control
+  characters, including a newline in a claimed model, are replaced by a space, so a client cannot
+  end its own trailer and start another.
+- **Which writes.** The server asks the bridge what is staged, then keeps each staged note whose
+  bytes *right now* equal what a record says that write left (`after`). A note a human edited since
+  is not attributed to the agent, a deletion is not attributed at all, and a path no record names is
+  ignored. A repo that sits above the vault (`Vault/a.md` in Git, `a.md` in the vault) still
+  matches. Only the newest 2000 records of the vault are searched. A commit that includes no
+  recorded write gets **no trailers**, and so does a commit whose staged list could not be read:
+  the commit itself is never failed or delayed by stamping.
+- **`Obsidian-TC-Provenance-Seq: <vault>:<from>-<to>`** bounds the matching records. Other records
+  can sit between the two numbers (a write to a note that is not in this commit); the range says
+  where to look, the digests say which.
+- **One value per writer.** If the commit holds writes from several sessions, principals or models,
+  each distinct value gets its own trailer line (at most 10 of a kind; more adds
+  `Obsidian-TC-Truncated`).
+- **Your message is kept.** Trailers go at the end, after a blank line, or into the message's
+  existing trailer block (`Signed-off-by: ...`) the way `git interpret-trailers` would. The one
+  exception: an `Obsidian-TC-*` trailer **you wrote** in the final trailer block is removed when
+  this stamp is on, so that a trailer under the prefix is always the server's. The server does not
+  run `git` on the vault to do any of this.
+- The tool result gains `stamped_trailers` (the lines that were added) when there were any.
+
+**What a trailer does not prove.** Trailers live in the commit message, which anyone who can
+rewrite history can change; the signed chain is what proves the record. The session id is the
+server's own, but the model is only what the client said.
+
+### Frontmatter stamp
+
+`provenance.stamp.frontmatter: true` writes one key into a note an agent **creates**:
+
+```yaml
+obsidian_tc_provenance:
+  session: 7f3c0e
+  principal: alice
+  model_self_reported: claude-sonnet-5-5
+  seq: 41
+```
+
+- **Creations only:** `write_note` when the note did not exist (`create`, or `upsert` of a new
+  note), `commit_capture`, and `execute_template` when the target did not exist before the call.
+  `write_note` over an existing note, `append_note` (including `create_if_missing`), `patch_note`,
+  `update_frontmatter`, `execute_template` with `overwrite` and every other tool never stamp.
+- **Human frontmatter is never modified.** The key is added with the vault's own line-preserving
+  frontmatter writer, so every other key, comment and scalar keeps its exact source bytes. A note
+  whose frontmatter is not valid YAML is written unstamped. The one thing replaced is a value the
+  *caller* put under the stamp key in a note it is creating, so a forged stamp cannot pass as the
+  server's.
+- **Fields:** `session` (when the call had one), `principal` (verified, else `unverified`),
+  `model_self_reported` (when the client claimed one) and `seq`. `seq` is where the write's own
+  record is expected to land: one past the newest record of the vault when the note was written.
+  It is exact when writes to a vault do not overlap and **never above** the real number otherwise;
+  the authoritative link is the record whose path and `after` digest match the note.
+- **Verification is unaffected.** The stamp is part of the bytes written, so the recorded `after`
+  digest is the digest of the stamped note, and `provenance verify` passes exactly as before.
+- **A stamp is a label, not proof.** Anyone who can edit the file can edit the stamp. Check a stamped
+  note against the chain, not the other way round.
+- `execute_template` stamps after Templater has written the note, so the note exists unstamped for
+  an instant and a stamp failure leaves Templater's output as it was.
+
 ## Configuration
 
 ```json
@@ -150,7 +233,8 @@ with the process. The write itself is never failed.
   "provenance": {
     "enabled": true,
     "host": { "mode": "hashed" },
-    "retentionDays": 365
+    "retentionDays": 365,
+    "stamp": { "gitTrailers": false, "frontmatter": false, "frontmatterKey": "obsidian_tc_provenance" }
   }
 }
 ```
@@ -159,6 +243,9 @@ with the process. The write itself is never failed.
 - `host.mode` is `"hashed"` (default, a stable digest of the machine's hostname) or `"label"`,
   which records `host.label` verbatim and requires it.
 - `retentionDays` is absent by default, which keeps records forever.
+- `stamp.gitTrailers` and `stamp.frontmatter` default to `false`; `stamp.frontmatterKey` names the
+  key (letters, digits, `_` and `-`, up to 64 characters). Setting either stamp while `enabled` is
+  `false` is a configuration error.
 
 A hashed host id lets records correlate across restarts without naming the machine.
 

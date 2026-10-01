@@ -16,6 +16,7 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
 import type { OtelDetail } from "../otel/dispatch-spans";
 import { ProvenanceRecorder } from "../provenance/recorder";
+import { ProvenanceStamper, type StampConfig } from "../provenance/stamp";
 import type { RateLimitBackend, RateLimitFailurePolicy } from "../ratelimit/backend";
 import { outageHooks } from "../ratelimit/outage-hooks";
 import { RateLimiter, type ThrottleTiers } from "../throttle";
@@ -68,7 +69,13 @@ export interface GovernanceDeps {
   getAuditWriteFailureCounter: () => { auditWriteFailures: number };
   /** Signed write provenance. Present only when `config.provenance.enabled`; absent builds no
    *  recorder and dispatch records nothing. `host` is the already-resolved host id. */
-  provenance?: { host: string; serverVersion: string; hooks?: WriteTxnHooks };
+  provenance?: {
+    host: string;
+    serverVersion: string;
+    hooks?: WriteTxnHooks;
+    /** `provenance.stamp`: when either stamp is on, governance also builds the stamper. */
+    stamp?: StampConfig;
+  };
 }
 
 export interface Governance {
@@ -83,6 +90,9 @@ export interface Governance {
   /** The write-provenance recorder dispatch appends through, when enabled. The transport wiring
    *  hands it the auth registry's signing key once that registry is open. */
   provenance?: ProvenanceRecorder;
+  /** The optional commit-trailer / frontmatter stamper (`provenance.stamp.*`); absent when both
+   *  are off, which is the default. Handed to the M1/M4/M5 tools that write or commit. */
+  provenanceStamp?: ProvenanceStamper;
   /** Releases the rate-limit backend's connections (a no-op for the default memory backend); the
    *  ACL/registry objects are plain in-memory state. Participates in the same accumulate-and-unwind
    *  cleanup stack as stores/indexing (see server-runtime.ts). */
@@ -125,6 +135,18 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
         },
       })
     : undefined;
+  const stamp = deps.provenance?.stamp;
+  const provenanceStamp =
+    provenance && stamp && (stamp.gitTrailers || stamp.frontmatter)
+      ? new ProvenanceStamper({
+          db: deps.db,
+          config: stamp,
+          onError: (what, e) => {
+            const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
+            process.stderr.write(`[provenance] ${what} stamp skipped: ${detail}\n`);
+          },
+        })
+      : undefined;
   const registry = new ToolRegistry({
     ...(provenance ? { provenance } : {}),
     maxResponseBytes: deps.maxResponseBytes,
@@ -229,6 +251,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
     rateLimiter,
     registry,
     ...(provenance ? { provenance } : {}),
+    ...(provenanceStamp ? { provenanceStamp } : {}),
     close: () => rateLimiter.close(),
   };
 }

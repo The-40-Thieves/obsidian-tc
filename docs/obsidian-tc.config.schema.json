@@ -2551,6 +2551,29 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "stamp": {
+          "description": "Optional, OFF by default: stamp provenance into commit trailers and newly created notes. The signed record in cache.db stays the source of truth; a stamp is a convenience copy.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "gitTrailers": {
+              "default": false,
+              "description": "Append `Obsidian-TC-*` trailers to a commit made through the git_commit tool, summarising the recorded writes whose current bytes are in that commit: session, principal (the verified principal, else `unverified`), model (always tagged `(self-reported)`) and the provenance seq range. A commit that includes no recorded write gets none. Any `Obsidian-TC-*` trailer the caller wrote itself is removed first, so a trailer in the log is always the server's. Needs `provenance.enabled`.",
+              "type": "boolean"
+            },
+            "frontmatter": {
+              "default": false,
+              "description": "Write a compact provenance object under `frontmatterKey` into notes an agent CREATES (write_note creating, commit_capture, execute_template). Never touches an existing note, and never any other frontmatter key. The object holds session, principal (verified, else `unverified`), model_self_reported and seq; never the host id. Needs `provenance.enabled`.",
+              "type": "boolean"
+            },
+            "frontmatterKey": {
+              "default": "obsidian_tc_provenance",
+              "description": "The frontmatter key the stamp is written under when `frontmatter` is on. A caller-supplied value under this key in a note being created is replaced by the real stamp.",
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
+            }
+          }
         }
       }
     },

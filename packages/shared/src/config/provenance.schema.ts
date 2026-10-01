@@ -40,5 +40,35 @@ export const ProvenanceConfigSchema = z
       .describe(
         "Days a provenance row is kept before the maintenance sweep prunes it. ABSENT (the default) keeps rows forever: this is an audit trail, and pruning it is an explicit decision. Pruning removes a contiguous prefix and moves a signed anchor up to the last row dropped, so the remaining chain still verifies.",
       ),
+    stamp: z
+      .object({
+        gitTrailers: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Append `Obsidian-TC-*` trailers to a commit made through the git_commit tool, summarising the recorded writes whose current bytes are in that commit: session, principal (the verified principal, else `unverified`), model (always tagged `(self-reported)`) and the provenance seq range. A commit that includes no recorded write gets none. Any `Obsidian-TC-*` trailer the caller wrote itself is removed first, so a trailer in the log is always the server's. Needs `provenance.enabled`.",
+          ),
+        frontmatter: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Write a compact provenance object under `frontmatterKey` into notes an agent CREATES (write_note creating, commit_capture, execute_template). Never touches an existing note, and never any other frontmatter key. The object holds session, principal (verified, else `unverified`), model_self_reported and seq; never the host id. Needs `provenance.enabled`.",
+          ),
+        frontmatterKey: z
+          .string()
+          .regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/)
+          .default("obsidian_tc_provenance")
+          .describe(
+            "The frontmatter key the stamp is written under when `frontmatter` is on. A caller-supplied value under this key in a note being created is replaced by the real stamp.",
+          ),
+      })
+      .prefault({})
+      .describe(
+        "Optional, OFF by default: stamp provenance into commit trailers and newly created notes. The signed record in cache.db stays the source of truth; a stamp is a convenience copy.",
+      ),
+  })
+  .refine((p) => p.enabled || !(p.stamp.gitTrailers || p.stamp.frontmatter), {
+    message: "provenance.stamp needs provenance.enabled",
+    path: ["stamp"],
   })
   .prefault({});

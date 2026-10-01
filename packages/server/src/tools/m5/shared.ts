@@ -13,6 +13,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { PlurClient } from "../../plur/client";
+import type { ProvenanceStamper } from "../../provenance/stamp";
 import type { VaultRegistry } from "../../vault/registry";
 import { type ActiveSessionTracker, DEFAULT_TRACE_FOLDER } from "../../workspace/sessions";
 
@@ -50,6 +51,9 @@ export interface M5Deps {
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
   metrics?: MetricsRecorder;
+  /** Optional provenance stamps (`provenance.stamp.*`, off by default): a committed capture gets a
+   *  compact provenance key. Absent -> nothing is stamped, outputs byte-identical. */
+  provenanceStamp?: ProvenanceStamper;
 }
 
 export function memoryFolderFor(deps: M5Deps, vaultId: string): string {

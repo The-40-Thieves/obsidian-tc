@@ -28,6 +28,7 @@ import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import { createPlurBackend } from "../plur/client";
+import type { ProvenanceStamper } from "../provenance/stamp";
 import { buildLocalReranker } from "../providers/registry";
 import {
   autoSelectLocalRerankerApplies,
@@ -389,6 +390,8 @@ export interface M1WiringDeps {
    *  config.vaults, ahead of wireBridges — M1 registers before bridge-wiring.ts runs). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** `provenance.stamp.*`: present only when a stamp is on (governance builds it). */
+  provenanceStamp?: ProvenanceStamper | undefined;
 }
 
 /** Registry/metadata/frontmatter/tags/links/graph-analytics/graph-health/snapshot tools (THE-XXX
@@ -420,6 +423,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     // GH #994 follow-up: write_note/append_note/patch_note's memoryDefense guard.
     ...(deps.memoryDefense ? { memoryDefense: deps.memoryDefense } : {}),
     ...(deps.metrics ? { metrics: deps.metrics } : {}),
+    ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
     // Bulk-read continuation cursors: HMAC key from auth.jwtSecret (random per process without
     // one) and the registry's live byte budget, so a lowered maxResponseBytes shrinks the pages.
     paging: createPagingDeps({
@@ -499,6 +503,9 @@ export interface DomainToolsDeps {
   /** `session_rerun`'s (m6/admin-tools.ts) per-call sandbox runtime — see server-runtime.ts's
    *  `runSandboxSessionRerun` for why this arrives as a closure rather than an import. */
   sandboxRerun: SandboxRerunFn;
+  /** `provenance.stamp.*`: present only when a stamp is on; reaches git_commit, execute_template
+   *  and commit_capture. */
+  provenanceStamp?: ProvenanceStamper | undefined;
 }
 
 /** M2 (index/search) through M8 (experiential) tool registration — everything downstream of the
@@ -602,7 +609,11 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     maxAttachmentBytes: config.writes.maxAttachmentBytes,
   });
   // `uri.allowOsLaunch` gates show_file_in_obsidian's OS-handler fallback (deny-by-default).
-  registerM4Tools(registry, { ...deps.m4Deps, uri: config.uri });
+  registerM4Tools(registry, {
+    ...deps.m4Deps,
+    uri: config.uri,
+    ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
+  });
 
   // M5 memory/capture substrate (THE-181): capture/memory/workspace are in-process SQLite (+
   // vault file writes via the M1 path primitives); plur is a global read-only proxy that degrades
@@ -620,6 +631,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     traceFolder,
     memoryDefense,
     metrics: deps.metrics,
+    ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
   });
 
   // M6 bulk + URI + admin: one shared RateLimiter (G2.4 tiers from config) is consumed by the
