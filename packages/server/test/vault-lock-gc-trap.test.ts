@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp } from "./tmp";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -70,7 +71,7 @@ function spawnHolder(
   return new Promise<ReturnType<typeof spawn>>((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`holder probe never reported LEADER: ${out}`)),
-      15_000,
+      stallTimeout(15_000),
     );
     child.stdout?.on("data", (c: Buffer) => {
       out += c.toString("utf8");
@@ -91,7 +92,10 @@ function spawnHolder(
  *  past the timeout (killed by `spawnSync`'s own `timeout`) previously still returned "BLOCKED" as
  *  if it had exited cleanly. */
 function challenge(cacheDir: string): "ACQUIRED" | "BLOCKED" {
-  const r = spawnSync("bun", [CHALLENGER_PROBE, cacheDir], { encoding: "utf8", timeout: 15_000 });
+  const r = spawnSync("bun", [CHALLENGER_PROBE, cacheDir], {
+    encoding: "utf8",
+    timeout: stallTimeout(15_000),
+  });
   if (r.error) {
     throw new Error(`challenger probe failed to run: ${r.error.message}`);
   }
@@ -115,7 +119,9 @@ function challenge(cacheDir: string): "ACQUIRED" | "BLOCKED" {
 }
 
 describe.skipIf(!bunAvailable)("GH #995: bun:sqlite GC-finalizer trap on the leader lock", () => {
-  it("RED control: an unreferenced bun:sqlite Database is GC'd and releases the lock under forced GC", async () => {
+  it("RED control: an unreferenced bun:sqlite Database is GC'd and releases the lock under forced GC", {
+    timeout: stallTimeout(20_000),
+  }, async () => {
     const cacheDir = tmpDir();
     const holder = await spawnHolder(BAD_HOLDER_PROBE, cacheDir);
     // Let the holder's forced-GC loop run a few cycles (200ms each) — matches the primitives
@@ -127,9 +133,11 @@ describe.skipIf(!bunAvailable)("GH #995: bun:sqlite GC-finalizer trap on the lea
     expect(holder.exitCode).toBeNull();
     expect(holder.signalCode).toBeNull();
     expect(challenge(cacheDir)).toBe("ACQUIRED");
-  }, 20_000);
+  });
 
-  it("the real module (src/runtime/vault-lock.ts) keeps the lock held through repeated forced GC", async () => {
+  it("the real module (src/runtime/vault-lock.ts) keeps the lock held through repeated forced GC", {
+    timeout: stallTimeout(20_000),
+  }, async () => {
     const cacheDir = tmpDir();
     const holder = await spawnHolder(GOOD_HOLDER_PROBE, cacheDir, {
       VAULT_LOCK_PROBE_FORCE_GC: "1",
@@ -140,5 +148,5 @@ describe.skipIf(!bunAvailable)("GH #995: bun:sqlite GC-finalizer trap on the lea
     expect(holder.exitCode).toBeNull();
     expect(holder.signalCode).toBeNull();
     expect(challenge(cacheDir)).toBe("BLOCKED");
-  }, 20_000);
+  });
 });

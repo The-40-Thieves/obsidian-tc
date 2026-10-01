@@ -5,7 +5,7 @@
 // error, so importing either directly risks corrupting this test run's own exit code. Spawning the
 // real CLI is also the only way to observe the actual operator-facing surface.
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -29,6 +29,8 @@ import { provisionCacheDb } from "../src/db/provision";
 import { ensureNotesFts } from "../src/search/fts";
 import { loadVec } from "../src/search/vec";
 import { createDanglingWalDb } from "./dangling-wal-fixture";
+import { type CliRun, runBunSync } from "./spawn-cli";
+import { stallTimeout } from "./stall-timeouts";
 
 /** Whether the `sqlite3` CLI is on PATH — used ONLY to build a fixture (never to run the code
  *  under test), for the one scenario ("logical" FTS shadow-table corruption, F1) that no JS
@@ -66,27 +68,15 @@ beforeAll(async () => {
   }
 });
 
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
 // I3: the SPAWN timeout must sit BELOW the per-test budget, or a slow spawn is killed by vitest
 // first and the failure arrives as a bare "test timed out" with no stdout/stderr to read — which is
 // exactly what windows-latest showed before a rerun passed. With this ordering the spawn dies first
-// and its output reaches the assertion message. The budget itself follows
-// perf-isolate-integration.test.ts's win32 pattern: that runner is slow enough to need the headroom.
-const SPAWN_TIMEOUT_MS = 20_000;
-const TEST_BUDGET_MS = process.platform === "win32" ? 60_000 : 30_000;
+// and its output reaches the assertion message. Both budgets are sized against a stalled Windows
+// runner (stall-timeouts.ts): `runBunSync` raises the spawn kill timeout there and so does this.
+const TEST_BUDGET_MS = stallTimeout(30_000);
 
-function runCli(args: string[], env: Record<string, string> = {}): Run {
-  const r = spawnSync("bun", [CLI, ...args], {
-    encoding: "utf8",
-    timeout: SPAWN_TIMEOUT_MS,
-    env: { ...process.env, NO_COLOR: "1", ...env },
-  });
-  return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+function runCli(args: string[], env: Record<string, string> = {}): CliRun {
+  return runBunSync([CLI, ...args], { timeoutMs: 20_000, env });
 }
 
 const dirs: string[] = [];

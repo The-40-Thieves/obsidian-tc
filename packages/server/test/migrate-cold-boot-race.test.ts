@@ -245,7 +245,7 @@ describe("applyConnectionPragmas: busy retry on a cold open", () => {
     applyConnectionPragmas((p) => {
       if (p === "journal_mode = WAL" && walFailures-- > 0) throw busy();
       seen.push(p);
-    }, 5000);
+    }, 5000); // stall-ok: busy_timeout argument, not a test budget
     expect(seen[0]).toBe("busy_timeout = 5000");
     expect(seen).toContain("journal_mode = WAL");
     expect(seen.indexOf("foreign_keys = ON")).toBeLessThan(seen.indexOf("journal_mode = WAL"));
@@ -337,11 +337,12 @@ describe("applyConnectionPragmas: busy retry on a cold open", () => {
 
   it("rethrows a non-busy error immediately and a busy one once the budget is spent", () => {
     let calls = 0;
-    expect(() =>
-      applyConnectionPragmas(() => {
-        calls++;
-        throw new Error("disk I/O error");
-      }, 5000),
+    expect(
+      () =>
+        applyConnectionPragmas(() => {
+          calls++;
+          throw new Error("disk I/O error");
+        }, 5000), // stall-ok: busy_timeout argument, not a test budget
     ).toThrow("disk I/O error");
     expect(calls).toBe(1);
     expect(() =>

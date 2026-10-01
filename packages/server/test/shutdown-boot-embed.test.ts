@@ -34,6 +34,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp } from "./tmp";
 
 // The CLI ships for both runtimes (`node dist/cli.js` is the .mcpb bundle's own invocation; `bun
@@ -57,7 +58,7 @@ const DIST_CLI = join(SERVER_DIR, "dist", "cli.js");
 // only waits out a single bounded window after sending its signal, never the whole pass.
 const NOTE_COUNT = 60;
 const BUSY_MS = 200;
-const EXIT_BOUND_MS = 5000;
+const EXIT_BOUND_MS = stallTimeout(5000);
 
 /**
  * `build-test` (ci-server.yml) already runs `bun run build` in packages/shared then packages/server

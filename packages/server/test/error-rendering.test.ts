@@ -43,6 +43,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { startHttp } from "../src/transports/http";
 import { requireConfirmation } from "../src/vault/hitl";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 function freshDb(): Database {
   const db = openMemoryDb();
@@ -581,7 +582,9 @@ describe("the modern SEP-2260 inputRequired path is unaffected (regression guard
       .sign(new TextEncoder().encode(SECRET));
   }
 
-  it("a modern, elicitation-capable client gets inputRequired, never the rendered text", async () => {
+  it("a modern, elicitation-capable client gets inputRequired, never the rendered text", {
+    timeout: stallTimeout(25_000),
+  }, async () => {
     const h = await boot();
     const jwt = await token();
     try {
@@ -624,5 +627,5 @@ describe("the modern SEP-2260 inputRequired path is unaffected (regression guard
     } finally {
       await h.close();
     }
-  }, 25_000);
+  });
 });

@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 import { rmTemp } from "./tmp";
 
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
@@ -294,7 +295,7 @@ describe.each(["node", "bun"] as const)(
         );
         // vault-lock.ts's default follower retry window is 5-15s (jittered, unref'd) — bounded
         // wait past the worst case.
-        const deadline = Date.now() + 20_000;
+        const deadline = Date.now() + stallTimeout(20_000);
         let promoted = false;
         while (Date.now() < deadline) {
           await sleep(500);

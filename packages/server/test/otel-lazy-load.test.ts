@@ -15,11 +15,12 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CACHE_HIT_THRESHOLD_MS, type OtelLazyProbeResult } from "../eval/perf/otel-lazy-probe";
+import { stallTimeout } from "./stall-timeouts";
 
 const PROBE = fileURLToPath(new URL("../eval/perf/otel-lazy-probe.ts", import.meta.url));
 
 function runProbe(): OtelLazyProbeResult {
-  const r = spawnSync("bun", [PROBE], { encoding: "utf8", timeout: 30_000 });
+  const r = spawnSync("bun", [PROBE], { encoding: "utf8", timeout: stallTimeout(30_000) });
   if (r.status !== 0) {
     throw new Error(`otel lazy probe subprocess exited ${r.status}: ${r.stderr}`);
   }

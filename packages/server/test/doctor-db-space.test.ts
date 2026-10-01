@@ -22,6 +22,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { type DbSpaceView, dbSpaceCheck } from "../src/doctor/db-space";
 import { ensureNotesFts } from "../src/search/fts";
 import { createDanglingWalDb } from "./dangling-wal-fixture";
+import { stallTimeout } from "./stall-timeouts";
 
 const ctx = { serverVersion: "test" };
 const run = (view: DbSpaceView) => dbSpaceCheck(view).run(ctx);
@@ -274,7 +275,9 @@ describe("probeDbSpace — a real cache.db", () => {
   // thus before it can checkpoint) — the WAL is left genuinely dangling, not merely "not yet
   // auto-checkpointed by this same process's next write" the way an in-process test could only
   // approximate.
-  it("a dangling WAL (writer killed before it could checkpoint) is left byte-for-byte unchanged by a successful readonly probe", async () => {
+  it("a dangling WAL (writer killed before it could checkpoint) is left byte-for-byte unchanged by a successful readonly probe", {
+    timeout: stallTimeout(15_000),
+  }, async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "obtc-dbspace-dangling-wal-"));
     try {
       const dbPath = await createDanglingWalDb(cacheDir);
@@ -289,7 +292,7 @@ describe("probeDbSpace — a real cache.db", () => {
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
     }
-  }, 15_000);
+  });
 
   // C2 — the FALLBACK branch (native readonly open throwing) cannot give the same bytes-unchanged
   // guarantee: forced here via `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK` (pragmas.ts's
