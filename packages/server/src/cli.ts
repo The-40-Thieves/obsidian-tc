@@ -40,6 +40,7 @@ import { run_metrics } from "./cli/commands/metrics";
 import { run_note_quality } from "./cli/commands/note-quality";
 import { run_plugin_install } from "./cli/commands/plugin-install";
 import { run_prefetch } from "./cli/commands/prefetch";
+import { run_provenance } from "./cli/commands/provenance";
 import { run_reflect } from "./cli/commands/reflect";
 import { run_rerun } from "./cli/commands/rerun";
 import { run_setup } from "./cli/commands/setup";
@@ -99,8 +100,8 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 }
 
 // THE-605 audit classification of every one-shot CLI command dispatched below (verified against
-// this exact switch, not re-derived from a grep): 7 are read-only/display (version, help, error,
-// plugin-install, config-show/-validate, config-explain, doctor) — nothing to audit. ~9 recompute
+// this exact switch, not re-derived from a grep): 8 are read-only/display (version, help, error,
+// plugin-install, config-show/-validate, config-explain, doctor, provenance verify) — nothing to audit. ~9 recompute
 // DERIVED state (cluster, activation-recompute, densify-llm, citation-infer, contribution-report,
 // note-quality, gaps, metrics, reflect) — real writes, but of RECOMPUTABLE state: a re-run
 // reproduces it, so an audit row would be noise (a rewritten cluster assignment is not a loss
@@ -142,6 +143,8 @@ async function main(): Promise<void> {
       return run_elicit_mint(cmd);
     case "auth":
       return run_auth(cmd);
+    case "provenance":
+      return run_provenance(cmd);
     case "version":
       return run_version(cmd);
     case "help":

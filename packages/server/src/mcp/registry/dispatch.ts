@@ -12,6 +12,7 @@ import { type OtelDetail, openDispatchSpans } from "../../otel/dispatch-spans";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
 import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
+import { checkAborted } from "./abort";
 import {
   callStatusForError,
   type DispatchObservability,
@@ -26,13 +27,7 @@ import {
   markEffectCommitted,
   readIdempotency,
 } from "./idempotency";
-import {
-  applyVaultAcl,
-  enforceVaultBinding,
-  parseInput,
-  vaultArgOf,
-  vaultFailureHint,
-} from "./input-binding";
+import { applyVaultAcl, enforceVaultBinding, parseInput, vaultFailureHint } from "./input-binding";
 import {
   assertScopesGranted,
   checkHitl,
@@ -47,6 +42,7 @@ import {
   resolveOperationPolicy,
   runPrecheck,
 } from "./policy-gates";
+import { provenanceScope } from "./provenance-scope";
 import { bindResolvedTarget } from "./resolve-target";
 import {
   checkOutputSchema,
@@ -55,14 +51,7 @@ import {
   overflowError,
 } from "./result-governance";
 import type { ToolStore } from "./tool-store";
-import type {
-  CallerContext,
-  EpisodeKind,
-  ProvenanceSink,
-  RegistryOptions,
-  Status,
-  VerifyElicit,
-} from "./types";
+import type { CallerContext, EpisodeKind, RegistryOptions, Status, VerifyElicit } from "./types";
 import { VERDICT_TOOL_TAG } from "./types";
 
 // The dispatch orchestrator: the full try/catch/finally pipeline body, calling each gate
@@ -95,16 +84,7 @@ export interface DispatchDeps {
   visibleVaultIds?: RegistryOptions["visibleVaultIds"];
   tracer?: Tracer;
   otelDetail?: OtelDetail;
-  provenance?: ProvenanceSink;
-}
-
-/** THE-514: a stage-boundary cooperative-cancellation check. Throws the same modelled
- *  `ObsidianTcError` the rest of dispatch throws (never a raw DOMException `AbortError`), so an
- *  abort surfaces through the normal catch/audit/metrics path below rather than as an unhandled
- *  rejection or an opaque `internal` error. A no-op when `signal` is absent or not yet aborted —
- *  every existing caller (no signal) sees no behavior change. */
-function checkAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw err.aborted();
+  provenance?: RegistryOptions["provenance"];
 }
 
 // Full invocation pipeline: validate -> auth -> scope/ACL -> HITL -> execute -> governor -> audit.
@@ -146,15 +126,7 @@ export async function runDispatch(
   // as its own handle rather than re-deriving from ctx, so cleanup only ever clears a callback
   // THIS dispatch installed.
   let installedMarker: { markEffectCommitted?: () => void } | undefined;
-  // Write provenance: the pre-handler digests of a MUTATING call, settled exactly once — `ok` the
-  // moment the handler returns (an overflowed or schema-rejected response still wrote), `error` only
-  // from the catch below, and only recorded there when a named path really changed.
-  let provPending: object | undefined;
-  const settleProvenance = async (outcome: "ok" | "error") => {
-    const pending = provPending;
-    provPending = undefined;
-    if (pending !== undefined) await deps.provenance?.commit(pending, outcome);
-  };
+  const provenance = provenanceScope(deps.provenance, deps.rootResolver); // see provenance-scope.ts
 
   // THE-839: episode kind for the audit row. Everything here came through tools/call (resources/*
   // and prompts/* declare `protocol` via dispatchResource instead); a `verdict`-tagged tool is the
@@ -502,15 +474,7 @@ export async function runDispatch(
         // THE-514: the last chance to bail before the handler — and any side effect — runs.
         // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
         checkAborted(ctx.signal);
-        if (mutating && deps.provenance) {
-          const effVault = vaultArgOf(def, inputData) ?? ctx.vaultId;
-          provPending = await deps.provenance.begin(
-            def,
-            inputData,
-            ctx,
-            deps.rootResolver?.(effVault),
-          );
-        }
+        if (mutating) await provenance.begin(def, inputData, ctx);
         const handlerStart = now();
         spans?.stage("tool_impl");
         const invoke = () => def.handler(inputData, ctx);
@@ -526,7 +490,7 @@ export async function runDispatch(
         return r;
       },
     );
-    await settleProvenance("ok");
+    await provenance.settle("ok");
     spans?.stage("output_serialize");
     // WP4.3: output-schema validation (warn vs strict) — see registry/result-governance.ts's
     // checkOutputSchema for the full reasoning (unchanged, only relocated).
@@ -631,7 +595,7 @@ export async function runDispatch(
     memoizeSerialized(out, json);
     return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
   } catch (e) {
-    await settleProvenance("error");
+    await provenance.settle("error");
     if (idemClaimed && idemKey) {
       // THE-572: a handler may signal mid-execution INSIDE its own transaction. If that
       // transaction rolls back, the marker rolls back with it and NOTHING committed — so the

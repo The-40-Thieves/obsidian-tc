@@ -25,6 +25,7 @@ import { disabledByProfileFor } from "../mcp/tool-profiles";
 import { ALLOW_ALL } from "../mcp/visibility";
 import { initOtel } from "../otel/tracing";
 import { compileEgressFilter, isExcludedPath } from "../plane/egress-filter";
+import { resolveHostId } from "../provenance/recorder";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { IndexCoordinator } from "../search/index-coordinator";
 import { wireLeaderEpoch } from "../search/indexing/leader-epoch";
@@ -191,6 +192,15 @@ export async function buildServerRuntime(
     configDir,
     securityProfile: config.securityProfile,
     excludeFilter: egressFilter,
+    ...(config.provenance.enabled
+      ? {
+          provenance: {
+            host: resolveHostId(config.provenance.host),
+            serverVersion: VERSION,
+            hooks: sqlHooksFor("provenance"),
+          },
+        }
+      : {}),
   });
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
   toolRegistryRef = registry; // THE-1125: registry exists now — see this file's lazy-ref comment above.
@@ -455,6 +465,7 @@ export async function buildServerRuntime(
       acl,
       jobQueue,
       metrics,
+      provenance: governance.provenance,
     });
     httpConstructSeconds = transports.httpConstructSeconds;
     postCoreLayers.push({ name: "transports", close: () => transports.close() });

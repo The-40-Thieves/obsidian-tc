@@ -4,9 +4,9 @@
 // separate signed HEAD row pins the last (seq, hash) and the prune anchor, which is what makes a
 // removed TAIL record visible: the chain alone cannot notice a record that simply is not there.
 import { createHash } from "node:crypto";
-import { canonicalJson } from "../hash";
 import { inWriteTransaction, type WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
+import { canonicalJson } from "../hash";
 import type { ProvenanceSigner } from "./signer";
 import { GENESIS_HASH, type ProvenanceBody, RECORD_VERSION } from "./types";
 
@@ -53,7 +53,7 @@ export const headMessage = (h: Omit<HeadRow, "kid" | "sig">): string =>
   )}`;
 
 type Attribution = Pick<ProvenanceBody, "verified" | "unauthenticated" | "self_reported">;
-export interface AppendInput extends Attribution {
+export interface ProvenanceAppendInput extends Attribution {
   vaultId: string;
   ts: number;
   tool: string;
@@ -107,7 +107,7 @@ function chainTip(
 /** Append one record to `vaultId`'s chain, signed when `signer` is given. Returns its seq + hash. */
 export function appendProvenance(
   db: Database,
-  input: AppendInput,
+  input: ProvenanceAppendInput,
   signer: ProvenanceSigner | undefined,
   hooks?: WriteTxnHooks,
 ): { seq: number; hash: string } {

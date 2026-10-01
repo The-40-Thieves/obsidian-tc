@@ -67,7 +67,7 @@ export function registryKeyResolver(keys: readonly AuthKey[]): KeyResolver {
 /** True iff `sig` is a valid EdDSA signature of `message` under `jwk`. Never throws. */
 export function verifyMessage(jwk: PublicJwk, message: string, sig: string): boolean {
   try {
-    const key = createPublicKey({ key: publicJwkOf("EdDSA", jwk), format: "jwk" });
+    const key = createPublicKey({ key: { ...publicJwkOf("EdDSA", jwk) }, format: "jwk" });
     return verify(null, Buffer.from(message, "utf8"), key, Buffer.from(sig, "base64url"));
   } catch {
     return false;

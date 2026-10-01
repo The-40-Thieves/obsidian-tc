@@ -282,6 +282,15 @@ Usage:
                                           List issued tokens (jti, kid, sub, exp, state; --all adds
                                           expired ones) or, with --keys, the signing keys. Never
                                           prints a token or key material.
+  obsidian-tc provenance verify [path] [--vault <id>] [--allow-unsigned] [--json]
+                                          Check the signed write-provenance chain in cache.db: every
+                                          record's hash, the links between records, each signature
+                                          against the auth registry's public keys (a rotated-out key
+                                          still verifies what it signed) and the signed chain head,
+                                          which catches a removed last record. Read-only. Exits 1 on
+                                          any failure. An unsigned record FAILS unless
+                                          --allow-unsigned (recording signs only with an active
+                                          EdDSA registry key: auth rotate-key --alg EdDSA).
   obsidian-tc auth revoke <jti> [path] [--reason <text>]
                                           Revoke one token before it expires; a jti never issued
                                           here (pre-registry, or an external issuer's) gets a

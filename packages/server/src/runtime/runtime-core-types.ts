@@ -19,7 +19,7 @@ import type { ThrottleBackendConfig } from "../ratelimit/create";
 import type { VecRebuildEvent } from "../search/vec";
 import type { ThrottleTiers } from "../throttle";
 import type { OwnedLayer } from "./boot-helpers";
-import type { Governance } from "./governance";
+import type { Governance, GovernanceDeps } from "./governance";
 import type { IndexResources } from "./indexing-wiring";
 import type { Stores } from "./stores";
 
@@ -84,6 +84,8 @@ export interface RuntimeCoreDeps {
    *  consumer shares (indexVault, indexNote, the query encoder, the advisory sweep, everything) is
    *  guarded before construction completes. */
   excludeFilter?: EgressFilter;
+  /** Signed write provenance (config.provenance). Absent when disabled: nothing is recorded. */
+  provenance?: GovernanceDeps["provenance"];
   /** Test-only: fires with each layer's name, in the order its cleanup ran. Only invoked when a
    *  later step throws during construction — never on the happy path, never by production callers. */
   onCleanup?: (name: OwnedLayer["name"]) => void;

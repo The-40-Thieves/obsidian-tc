@@ -25,8 +25,6 @@ import {
   type RequestLog,
   sampleViaClient,
 } from "./client-features";
-import { extractClaimedProvenance } from "../provenance/types";
-import { clientInfoFromFields, extractClientInfo } from "./client-info";
 import {
   clientSupportsFormElicitation,
   elicitConfirmationContext,
@@ -55,6 +53,7 @@ import { createFacadeModeResolver } from "./facade-mode-resolver";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
 import { takeSerialized } from "./registry";
+import { requestCallerMeta } from "./request-meta";
 import {
   CATALOG_RESOURCE_URI,
   canReadNotes,
@@ -522,24 +521,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // Absent for every caller that sends none, in which case the span is a root exactly as before.
     const traceCarrier = extractTraceCarrier(req.params._meta);
     if (traceCarrier !== undefined) ctx = { ...ctx, traceCarrier };
-    // THE-627: which client software is calling.
-    // THE-861: the SDK LIFTS `io.modelcontextprotocol/clientInfo` out of `params._meta` before any
-    // handler runs (`liftWireOnlyMaterial`, shared across both spec eras), surfacing it instead at
-    // `extra.mcpReq.envelope` — so `req.params._meta` never carries this key by the time this
-    // handler runs; read the lifted location first. `envelope` uses the same reserved keys, so
-    // `extractClientInfo` parses either bag identically. The `_meta` read stays as a fallback.
-    // THE-1123: 3rd fallback `server.getClientVersion()` (legacy `initialize`), same bound as above.
-    const clientInfo =
-      extractClientInfo(extra.mcpReq.envelope) ??
-      extractClientInfo(req.params._meta) ??
-      clientInfoFromFields(server.getClientVersion());
-    if (clientInfo !== undefined) ctx = { ...ctx, clientInfo };
-    // Write provenance: the model/project/agent/machine the client CLAIMS. Not a reserved SDK
-    // envelope key, so it stays in `params._meta`; the envelope read is the same belt-and-braces
-    // fallback as above. Self-reported, stored as such, never used to authorize anything.
-    const claimedProvenance =
-      extractClaimedProvenance(req.params._meta) ?? extractClaimedProvenance(extra.mcpReq.envelope);
-    if (claimedProvenance !== undefined) ctx = { ...ctx, claimedProvenance };
+    const { clientInfo, ...claimed } = requestCallerMeta(
+      req.params._meta,
+      extra.mcpReq.envelope,
+      server.getClientVersion(),
+    );
+    ctx = { ...ctx, ...(clientInfo !== undefined ? { clientInfo } : {}), ...claimed };
     // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
     const facadeMode = resolveFacadeMode(clientInfo?.name);
     ctx = { ...ctx, effectiveFacadeMode: facadeMode, ...ctxExplanation() };

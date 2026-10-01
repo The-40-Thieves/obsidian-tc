@@ -7,6 +7,7 @@ import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-am
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
 import { type MemoryImportCommand, parseMemoryImport } from "./parse-memory-import";
 import { type NoteQualityCommand, parseNoteQuality } from "./parse-note-quality";
+import { type ProvenanceCommand, parseProvenance } from "./parse-provenance";
 import { parseSetup, type SetupCommand } from "./parse-setup";
 import { parseTelemetry, type TelemetryCommand } from "./parse-telemetry";
 
@@ -120,6 +121,7 @@ export type CliCommand =
   | ConsolidateCommand // THE-934: one ambient consolidation pass, unscheduled. ./parse-consolidate.ts.
   | CompactCommand // THE-1039 (GH #930): compaction. Parser: ./parse-compact.ts.
   | AuthCommand // `auth rotate-key|list|revoke`. Parser: ./parse-auth.ts.
+  | ProvenanceCommand // `provenance verify`. Parser: ./parse-provenance.ts.
   | TelemetryCommand // THE-1125: `telemetry preview|status|reset-id`. Parser: ./parse-telemetry.ts.
   | SetupCommand // GH #995 PR A: `setup` — detect the environment once, write an explicit config.
   | { kind: "error"; message: string };
@@ -266,6 +268,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
       return { kind: "error", message: `unknown config subcommand: ${sub ?? "(none)"}` };
     }
     if (first === "auth") return parseAuth(rest); // parser: ./parse-auth.ts
+    if (first === "provenance") return parseProvenance(rest); // parser: ./parse-provenance.ts
     if (first === "telemetry") return parseTelemetry(rest); // parser: ./parse-telemetry.ts
     if (first === "setup") return parseSetup(rest); // GH #995 PR A: parser: ./parse-setup.ts
     if (first === "doctor") {

@@ -50,7 +50,11 @@ function buildRealRegistry(): ToolRegistry {
   const rateLimiter = new RateLimiter(NO_THROTTLE as never);
   const registry = new ToolRegistry({ rateLimiter });
   const noop = () => {};
-  const embeddingProvider: any = { provider: "ollama", model: "nomic-embed-text", embed: async () => [] };
+  const embeddingProvider: any = {
+    provider: "ollama",
+    model: "nomic-embed-text",
+    embed: async () => [],
+  };
   const metadataIndex = { hasFts: false, ready: () => true };
   const bridge: any = () => ({ client: undefined, timeoutMs: 1000 });
   registry.register(
@@ -197,7 +201,13 @@ describe("write provenance coverage", () => {
     const probe = new ToolRegistry({ provenance: fx.recorder, rootResolver: () => root });
     const readDef = real.list().find((d) => d.name === "read_note");
     expect(readDef).toBeDefined();
-    probe.register({ ...readDef, tags: undefined, inputSchema: z.any(), outputSchema: undefined, handler: async () => ({}) } as never);
+    probe.register({
+      ...readDef,
+      tags: undefined,
+      inputSchema: z.any(),
+      outputSchema: undefined,
+      handler: async () => ({}),
+    } as never);
     const res = await probe.dispatch(
       "read_note",
       { vault: "t", path: "a.md" },

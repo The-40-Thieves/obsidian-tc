@@ -27,6 +27,7 @@ import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { createTypesafeClient } from "../../gateway/typesafe";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
+import { inspectProvenance } from "../../provenance/inspect";
 import {
   buildEmbeddingsDoctorProbes,
   buildRerankerDoctorProbes,
@@ -377,6 +378,20 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const telemetryEndpointRedacted =
     config.telemetry.endpoint !== undefined ? redactEndpoint(config.telemetry.endpoint) : undefined;
   const authProbe = await probeAuthRegistry(config);
+  const provenance = await inspectProvenance(config).then(
+    (r) => ({
+      registryState: r.registry.state,
+      ...(r.registry.detail !== undefined ? { registryDetail: r.registry.detail } : {}),
+      signingKeyActive: r.signingKeyActive,
+      vaults: r.vaults,
+    }),
+    (e: unknown) => ({
+      registryState: "uninitialised" as const,
+      signingKeyActive: false,
+      vaults: [],
+      unreadable: e instanceof Error ? e.message : String(e),
+    }),
+  );
   const telemetryState = await probeTelemetryState(config.cacheDir, busyTimeoutMs, {
     enabled: config.telemetry.enabled,
     ...(telemetryEndpointRedacted !== undefined ? { endpointHost: telemetryEndpointRedacted } : {}),
@@ -584,6 +599,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ].filter((e) => e.names.length > 0),
       },
       telemetry: telemetryState,
+      provenance: { enabled: config.provenance.enabled, ...provenance },
       authRegistry: {
         authMode: config.auth.mode,
         state: authProbe.health.state,

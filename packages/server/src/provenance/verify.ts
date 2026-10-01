@@ -16,7 +16,14 @@
 import type { Database } from "../db/types";
 import type { KeyResolver } from "./signer";
 import { verifyMessage } from "./signer";
-import { headMessage, provenanceVaults, readChain, readHeadRow, recordMessage, sha256Hex } from "./store";
+import {
+  headMessage,
+  provenanceVaults,
+  readChain,
+  readHeadRow,
+  recordMessage,
+  sha256Hex,
+} from "./store";
 import { GENESIS_HASH } from "./types";
 
 export type ProblemCode =
@@ -67,7 +74,11 @@ function checkSignature(
   if (kid === null || sig === null) return undefined;
   const jwk = resolveKey(kid);
   if (jwk === undefined) {
-    return { code: codes.unknown, ...at, detail: `signed by kid ${kid}, which the registry has never held` };
+    return {
+      code: codes.unknown,
+      ...at,
+      detail: `signed by kid ${kid}, which the registry has never held`,
+    };
   }
   return verifyMessage(jwk, message, sig)
     ? undefined
@@ -92,7 +103,11 @@ export function verifyVault(db: Database, vaultId: string, opts: VerifyOptions):
       });
     }
     if (sha256Hex(r.body) !== r.hash) {
-      problems.push({ code: "hash_mismatch", seq: r.seq, detail: "record content does not match its hash" });
+      problems.push({
+        code: "hash_mismatch",
+        seq: r.seq,
+        detail: "record content does not match its hash",
+      });
     }
     let body: { vault?: unknown; seq?: unknown; ts?: unknown; prev?: unknown } | undefined;
     try {
@@ -102,7 +117,10 @@ export function verifyVault(db: Database, vaultId: string, opts: VerifyOptions):
     }
     if (
       body !== undefined &&
-      (body.vault !== r.vault_id || body.seq !== r.seq || body.ts !== r.ts || body.prev !== r.prev_hash)
+      (body.vault !== r.vault_id ||
+        body.seq !== r.seq ||
+        body.ts !== r.ts ||
+        body.prev !== r.prev_hash)
     ) {
       problems.push({
         code: "column_mismatch",

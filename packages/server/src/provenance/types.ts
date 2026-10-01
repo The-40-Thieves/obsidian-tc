@@ -68,16 +68,20 @@ const CLAIMED_KEYS = ["model", "project", "agent", "machine"] as const;
 /**
  * Lift the claimed model/project/agent/machine out of a request `_meta` bag. Untrusted input, same
  * discipline as client-info.ts: strings only, bounded, dropped rather than truncated, absent is
- * normal. Returns undefined when nothing usable is present.
+ * normal. Takes several bags (first one carrying a usable block wins). Returns undefined when
+ * nothing usable is present.
  */
-export function extractClaimedProvenance(meta: unknown): ClaimedProvenance | undefined {
-  if (meta === null || typeof meta !== "object") return undefined;
-  const raw = (meta as Record<string, unknown>)[PROVENANCE_META_KEY];
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const out: ClaimedProvenance = {};
-  for (const key of CLAIMED_KEYS) {
-    const v = cleanMetaString((raw as Record<string, unknown>)[key]);
-    if (v !== undefined) out[key] = v;
+export function extractClaimedProvenance(...bags: unknown[]): ClaimedProvenance | undefined {
+  for (const meta of bags) {
+    if (meta === null || typeof meta !== "object") continue;
+    const raw = (meta as Record<string, unknown>)[PROVENANCE_META_KEY];
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const out: ClaimedProvenance = {};
+    for (const key of CLAIMED_KEYS) {
+      const v = cleanMetaString((raw as Record<string, unknown>)[key]);
+      if (v !== undefined) out[key] = v;
+    }
+    if (Object.keys(out).length > 0) return out;
   }
-  return Object.keys(out).length === 0 ? undefined : out;
+  return undefined;
 }

@@ -207,8 +207,7 @@ function attributionOf(
       ...(ctx.authVerified === true && ctx.persona !== undefined ? { persona: ctx.persona } : {}),
       ...(ctx.sessionId !== undefined ? { session_id: ctx.sessionId } : {}),
     },
-    unauthenticated:
-      verifiedPrincipal === undefined && ctx.caller ? { principal: ctx.caller } : {},
+    unauthenticated: verifiedPrincipal === undefined && ctx.caller ? { principal: ctx.caller } : {},
     self_reported: {
       ...(ctx.claimedProvenance ?? {}),
       ...(ctx.clientInfo !== undefined ? { client: ctx.clientInfo } : {}),
