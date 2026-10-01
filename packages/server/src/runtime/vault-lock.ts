@@ -44,11 +44,8 @@ const KEEPALIVE_MS = 1000;
  *  concurrent migration, short enough that a truly stuck holder still fails boot loudly. */
 const BOOTSTRAP_BARRIER_TIMEOUT_MS = 60_000;
 
-/** dev+inode identity of a stat'd file — LOCK_FILE_REPLACEMENT's mismatch check compares this
- *  against a fresh stat of the same PATH on every keepalive tick. BIGINT, deliberately: on Windows
- *  `ino` is the NTFS file ID, a 64-bit value (sequence number in the high bits) that routinely
- *  exceeds 2^53, so the plain-number `stat` rounds it — two different files can compare equal and
- *  a replaced lock file goes undetected. */
+/** dev+inode of a stat'd file, compared on every keepalive tick. BIGINT: a Windows file id exceeds
+ *  2^53, and a double rounds two different files to the same value. */
 export interface FileIdentity {
   dev: bigint;
   ino: bigint;
