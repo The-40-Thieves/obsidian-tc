@@ -61,6 +61,16 @@ function deterministicKeepaliveScheduler(fn: () => void, _ms: number): { clear: 
   };
 }
 
+
+// TMP-DEBUG (dropped before the PR): timestamped trace for the Windows full-suite hang.
+const dbgT0 = Date.now();
+const dbg = (m: string): void => {
+  process.stderr.write(`[dbg +${Date.now() - dbgT0}ms] ${m}\n`);
+};
+function dbgHeartbeat(label: string, probe: () => string): ReturnType<typeof setInterval> {
+  return setInterval(() => dbg(`${label} heartbeat ${probe()}`), 2000);
+}
+
 const tmpDirs: string[] = [];
 function tmpDir(): string {
   const d = makeTempDir("otc-vault-lock-");
@@ -274,6 +284,7 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
         statIdentity: (path) => {
           statCalls += 1;
           const real = statIdentity(path);
+          dbg(`REPL stat #${statCalls} real=${real?.ino}`);
           // The FIRST call is promote()'s own post-acquire stat -- it must see the true identity
           // so `a` actually becomes leader. Every call after that is a keepalive tick, which sees
           // a manufactured DIFFERENT inode at the same path forever, exactly like a real replace.
@@ -283,15 +294,33 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
       }),
     );
     expect(a.isLeader()).toBe(true);
-    a.onDemote(() => resolveDemoted());
+    dbg("REPL a is leader");
+    const hb = dbgHeartbeat("REPL", () => `statCalls=${statCalls} aLeader=${a.isLeader()}`);
+    a.onDemote(() => {
+      dbg("REPL a demoted");
+      resolveDemoted();
+    });
     // Waits for the REAL demote event, driven by a DETERMINISTIC keepalive scheduler (CI fix round
     // above) rather than real `setTimeout` delivery -- see that helper's own comment for why.
     await demoted;
+    dbg("REPL demoted observed");
     expect(a.isLeader()).toBe(false);
     const challenger = track(
-      await startVaultLeaderElection({ cacheDir, retryMinMs: 20, retryMaxMs: 40 }),
+      await startVaultLeaderElection({
+        cacheDir,
+        retryMinMs: 20,
+        retryMaxMs: 40,
+        onAttempt: (ok) => dbg(`REPL challenger attempt acquired=${ok}`),
+      }),
+    );
+    dbg(`REPL challenger started leader=${challenger.isLeader()} aLeader=${a.isLeader()}`);
+    const hb2 = dbgHeartbeat(
+      "REPL2",
+      () => `challenger=${challenger.isLeader()} aLeader=${a.isLeader()} statCalls=${statCalls}`,
     );
     await waitUntilLeader(challenger); // GH #1011 -- see waitUntilLeader's own comment
+    clearInterval(hb2);
+    clearInterval(hb);
     expect(challenger.isLeader()).toBe(true);
   });
 
@@ -422,13 +451,19 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
         statIdentity: (path) => {
           statCalls += 1;
           const real = statIdentity(path);
+          dbg(`F5C stat #${statCalls} real=${real?.ino}`);
           if (statCalls === 1) return real;
           return real ? { dev: real.dev, ino: real.ino + 1n } : undefined;
         },
       }),
     );
     expect(a.isLeader()).toBe(true);
-    a.onDemote(() => resolveDemoted());
+    dbg("F5C a is leader");
+    const hb = dbgHeartbeat("F5C", () => `statCalls=${statCalls} aLeader=${a.isLeader()}`);
+    a.onDemote(() => {
+      dbg("F5C a demoted");
+      resolveDemoted();
+    });
     // Waits for the REAL demote event, driven by the DETERMINISTIC keepalive scheduler defined
     // above (CI fix round) rather than real `setTimeout` delivery. The "survives a single glitch"
     // invariant is pinned by the statCalls FLOOR below instead of a racy mid-flight isLeader()
@@ -437,6 +472,8 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     // consecutive ones, `demoted` would resolve with statCalls===2 and this assertion would
     // correctly fail), call #3 is the SECOND consecutive mismatch that actually demotes.
     await demoted;
+    clearInterval(hb);
+    dbg("F5C done");
     expect(a.isLeader()).toBe(false);
     expect(statCalls).toBeGreaterThanOrEqual(3);
   });

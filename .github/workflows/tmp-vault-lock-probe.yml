@@ -15,11 +15,6 @@ jobs:
           - { variant: new, run: 1 }
           - { variant: new, run: 2 }
           - { variant: new, run: 3 }
-          - { variant: new, run: 4 }
-          - { variant: new, run: 5 }
-          - { variant: old, run: 1 }
-          - { variant: old, run: 2 }
-          - { variant: old, run: 3 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,10 +34,12 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run build
         working-directory: packages/shared
+      - run: bun run build
+        working-directory: packages/server
       - name: ino probe
         shell: bash
         run: node scripts/tmp-ino-probe.mjs
       - name: vault-lock tests
         shell: bash
-        run: node ./node_modules/vitest/vitest.mjs run test/vault-lock.test.ts --reporter=verbose
+        run: node ./node_modules/vitest/vitest.mjs run
         working-directory: packages/server
