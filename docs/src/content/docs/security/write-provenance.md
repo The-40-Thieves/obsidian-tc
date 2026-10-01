@@ -78,7 +78,7 @@ obsidian-tc provenance verify --allow-unsigned
 The command is read-only, opens `cache.db` and the registry read-only, and exits **1** when any
 chain fails. For each vault it prints the record count, how many are signed and unsigned, and every
 problem (`hash_mismatch`, `seq_gap`, `chain_break`, `head_mismatch`, `unknown_kid`, `bad_signature`,
-and the head variants). If the auth registry was initialised but `auth.db` is lost, it refuses and
+and the head variants). If the auth registry was initialised but `<cacheDir>/auth.db` is lost, it refuses and
 says so: with no keys every signature would read as tampered when the truth is that nothing can be
 checked.
 
@@ -87,7 +87,7 @@ checked.
 rewrite the chain. Pass the flag for stdio-only or pre-EdDSA deployments where chain-only integrity
 is what you have; a record that *has* a signature is always checked, flag or not.
 
-`obsidian-tc doctor` runs the same verification as the **`provenance.chain`** check: it fails on any
+`obsidian-tc doctor` runs the same verification as the **provenance chain** check: it fails on any
 sign of tampering, warns when records exist without signatures or the chain cannot be read, and
 notes (without warning) a fresh install that has no EdDSA key yet.
 
