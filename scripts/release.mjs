@@ -8,7 +8,13 @@ import { execSync } from "node:child_process";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { updateBunLockWorkspaceVersions } from "./lib/bun-lock-workspace-versions.mjs";
-import { FRAGMENT_DIR, readFragments, rollUnreleased } from "./lib/changes.mjs";
+import {
+  FRAGMENT_DIR,
+  fillPrNumbers,
+  gitPrOf,
+  readFragments,
+  rollUnreleased,
+} from "./lib/changes.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads/writes provably contained to the repo root (defense in depth).
@@ -70,9 +76,13 @@ const setVersion = (path, mutate) => {
 // are empty (no silent version).
 const date = new Date().toISOString().slice(0, 10);
 const cl = readFileSync("CHANGELOG.md", "utf8");
-const fragments = readFragments(ROOT);
+// A fragment is written without its PR number (a PR cannot know it before it is opened); the
+// release derives it from the merge history, so the coverage gate below sees every PR. Fragments
+// that already cite `(#N)` are untouched, and an undeterminable PR refuses here, by file name.
+let fragments;
 let rolled;
 try {
+  fragments = fillPrNumbers(readFragments(ROOT), gitPrOf(ROOT));
   rolled = rollUnreleased(cl, fragments, next, date);
 } catch (err) {
   console.error(err.message);

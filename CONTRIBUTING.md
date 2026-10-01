@@ -248,12 +248,13 @@ A user-visible change adds `changes/<short-slug>.md`:
 ---
 type: Changed
 ---
-- **Lead sentence.** What changed and what a user must do about it (#123).
+- **Lead sentence.** What changed and what a user must do about it.
 ```
 
 `type` is one of `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`. The body is
-verbatim CHANGELOG markdown; cite your PR as `(#N)` once it exists, because the release coverage gate
-looks for that number. A change to the type, default or constraint of an existing config key also
+verbatim CHANGELOG markdown; do not write the PR number. The release derives it from the merge history and
+appends `(#N)` to the first bullet, because its coverage gate looks for that number; a fragment that
+already cites `(#N)` is left as written. A change to the type, default or constraint of an existing config key also
 adds `config-schema-change: path.to.key` to the front matter. `bun run check:changes` validates
 fragments; `scripts/release.mjs` folds them into the release section and deletes them. See
 `changes/README.md`.
