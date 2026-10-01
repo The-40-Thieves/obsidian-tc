@@ -138,7 +138,7 @@ export type ResponseFormat = z.infer<typeof ResponseFormatSchema>;
 export const ToolDefaultsConfigSchema = z
   .object({
     responseFormat: ResponseFormatSchema.default("detailed").describe(
-      'Default response_format for a tool call that sets neither `response_format` nor the legacy `verbosity` alias. Shipped default "detailed" (unchanged output); set "concise" once to cut the output of every tool that supports response_format, without each agent passing the parameter.',
+      'Default response_format for a tool call that sets neither `response_format` nor the legacy `verbosity` alias. Shipped default "detailed" (unchanged output); set "concise" once to cut the output of every tool that supports response_format, without each agent passing the parameter. It is also the only selector for MCP resources/read, which takes no parameters (concise returns the note body without its frontmatter).',
     ),
   })
   .prefault({});

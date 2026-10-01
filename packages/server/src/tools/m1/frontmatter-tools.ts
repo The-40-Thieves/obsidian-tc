@@ -98,11 +98,12 @@ function removeByPath(obj: Record<string, unknown>, path: string[]): Record<stri
  *  object, so its values are genuinely unknown at the schema layer. */
 const FrontmatterValue = z.record(z.string(), z.unknown());
 
+// GH #1027: response_format=concise omits has_frontmatter (it is `frontmatter !== null`).
 const ReadFrontmatterOutput = z.object({
   vault: z.string(),
   path: z.string(),
   frontmatter: FrontmatterValue.nullable(),
-  has_frontmatter: z.boolean(),
+  has_frontmatter: z.boolean().optional(),
   content_hash: z.string(),
 });
 
@@ -204,8 +205,8 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       domain: "metadata",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Read a note's parsed YAML frontmatter (null when the note has none). Domain: metadata.",
-      inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
+        "Read a note's parsed YAML frontmatter (null when the note has none). Domain: metadata. response_format=concise returns {vault, path, frontmatter, content_hash}, without has_frontmatter (it is frontmatter !== null).",
+      inputSchema: z.object({ vault: VaultId, path: VaultPath, ...ResponseFormatInput }).strict(),
       outputSchema: ReadFrontmatterOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
@@ -218,11 +219,12 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
         const parsed = parseNote(raw, rel);
+        const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           vault: v.id,
           path: rel,
           frontmatter: parsed.frontmatter,
-          has_frontmatter: parsed.hasFrontmatter,
+          ...(concise ? {} : { has_frontmatter: parsed.hasFrontmatter }),
           content_hash: hash,
         };
       },

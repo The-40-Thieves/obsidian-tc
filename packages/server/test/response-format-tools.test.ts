@@ -35,9 +35,9 @@ const scenario = (name: string): Scenario => {
   if (!s) throw new Error(`no scenario ${name}`);
   return s;
 };
-/** mtime/ctime legitimately differ between two fresh worlds. */
+/** mtime/ctime legitimately differ between two fresh worlds (stat, and list_notes' per-note mtime). */
 const strip = (d: unknown): unknown =>
-  JSON.parse(JSON.stringify(d, (k, v) => (k === "stat" ? undefined : v)));
+  JSON.parse(JSON.stringify(d, (k, v) => (k === "stat" || k === "mtime" ? undefined : v)));
 const keys = (o: unknown): string[] => Object.keys(o as object).sort();
 const items = (d: Record<string, unknown>, field: string): Array<Record<string, unknown>> =>
   d[field] as Array<Record<string, unknown>>;
@@ -139,6 +139,47 @@ describe("parity: detailed output keeps exactly the pre-#1027 field set", () => 
       "prev_hash",
       "vault",
     ]);
+  });
+
+  it("read_frontmatter / links / list_notes / read_resources", async () => {
+    expect(keys(await call(scenario("read_frontmatter"), {}))).toEqual([
+      "content_hash",
+      "frontmatter",
+      "has_frontmatter",
+      "path",
+      "vault",
+    ]);
+    const out = await call(scenario("get_outgoing_links"), {});
+    expect(keys(out)).toEqual(["counts", "links", "path", "vault"]);
+    expect(keys(items(out, "links")[0])).toEqual([
+      "candidates",
+      "col",
+      "display",
+      "heading",
+      "kind",
+      "line",
+      "raw",
+      "resolved",
+      "target",
+      "target_path",
+    ]);
+    const back = await call(scenario("get_backlinks"), {});
+    expect(keys(back)).toEqual(["backlinks", "path", "total", "truncated", "vault"]);
+    expect(keys(items(back, "backlinks")[0])).toEqual([
+      "col",
+      "display",
+      "kind",
+      "line",
+      "raw",
+      "source_path",
+    ]);
+    const list = await call(scenario("list_notes"), {});
+    expect(keys(list)).toEqual(["folder", "next_cursor", "notes", "total_returned", "vault"]);
+    expect(keys(items(list, "notes")[0])).toEqual(["mtime", "path", "size"]);
+    const res = await call(scenario("read_resources"), {});
+    const results = items(res, "results");
+    expect(keys(results[0])).toEqual(["mimeType", "ok", "text", "uri"]);
+    expect(results[0]?.text).toContain("title: Alpha");
   });
 
   it("find_notes_by_property / find_unresolved_links", async () => {
@@ -295,6 +336,72 @@ describe("concise shapes", () => {
     expect(d.count).toBe(3);
     const a = items(d, "notes").find((n) => n.path === "a.md");
     expect(a).toEqual({ path: "a.md", quality_score: 0.25, flags: ["stale_edit", "orphan"] });
+  });
+});
+
+describe("part 2 concise shapes", () => {
+  it("read_frontmatter: has_frontmatter is derivable, so only it goes; null frontmatter stays", async () => {
+    const d = await call(scenario("read_frontmatter"), { response_format: "concise" });
+    expect(keys(d)).toEqual(["content_hash", "frontmatter", "path", "vault"]);
+    expect(d.frontmatter).toEqual({ title: "Alpha", tags: ["x"] });
+    const none = await call(scenario("read_frontmatter (no frontmatter)"), {
+      response_format: "concise",
+    });
+    expect(none.frontmatter).toBeNull();
+    const full = await call(scenario("read_frontmatter (no frontmatter)"), {});
+    expect(full.has_frontmatter).toBe(false);
+    expect(none.content_hash).toBe(full.content_hash);
+  });
+
+  it("get_outgoing_links: {target, line, resolved} plus only the non-null extras; counts kept", async () => {
+    const full = await call(scenario("get_outgoing_links"), {});
+    const d = await call(scenario("get_outgoing_links"), { response_format: "concise" });
+    expect(d.counts).toEqual(full.counts);
+    const links = items(d, "links");
+    expect(links).toHaveLength(items(full, "links").length);
+    const resolved = links.find((l) => l.target === "b");
+    expect(resolved).toEqual({ target: "b", line: 3, resolved: true, target_path: "b.md" });
+    const dangling = links.find((l) => l.target === "missing-one");
+    expect(dangling).toEqual({ target: "missing-one", line: 3, resolved: false });
+  });
+
+  it("get_backlinks: {source_path, line} per backlink; total and truncated kept", async () => {
+    const full = await call(scenario("get_backlinks"), {});
+    const d = await call(scenario("get_backlinks"), { response_format: "concise" });
+    expect(d.total).toBe(full.total);
+    expect(d.truncated).toBe(full.truncated);
+    expect(d.total).toBeGreaterThan(0);
+    expect(items(d, "backlinks")).toEqual(
+      items(full, "backlinks").map((b) => ({ source_path: b.source_path, line: b.line })),
+    );
+  });
+
+  it("list_notes: only the path per note; the cursor survives and pages on", async () => {
+    const d = await call(scenario("list_notes"), { response_format: "concise", limit: 2 });
+    expect(keys(d)).toEqual(["next_cursor", "notes", "vault"]);
+    expect(items(d, "notes")).toEqual([{ path: "a.md" }, { path: "b.md" }]);
+    expect(d.next_cursor).toBe("b.md");
+    const next = await call(scenario("list_notes"), {
+      response_format: "concise",
+      limit: 2,
+      cursor: d.next_cursor,
+    });
+    expect(items(next, "notes")).toEqual([{ path: "plain.md" }]);
+    expect(next.next_cursor).toBeNull();
+  });
+
+  it("read_resources: {ok, uri, text} with the body only; error items untouched", async () => {
+    const full = await call(scenario("read_resources"), {});
+    const d = await call(scenario("read_resources"), { response_format: "concise" });
+    const results = items(d, "results");
+    expect(keys(results[0])).toEqual(["ok", "text", "uri"]);
+    expect(results[0]?.text).toContain("# Alpha");
+    expect(results[0]?.text).not.toContain("title: Alpha");
+    // A note with no frontmatter reads back unchanged.
+    expect(results[1]?.text).toBe(items(full, "results")[1]?.text);
+    expect(results[2]).toEqual(items(full, "results")[2]);
+    expect(results[2]?.ok).toBe(false);
+    expect(d.next_cursor).toBe(full.next_cursor);
   });
 });
 

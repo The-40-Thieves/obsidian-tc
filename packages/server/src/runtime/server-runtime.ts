@@ -448,6 +448,8 @@ export async function buildServerRuntime(
       visibility: { grantedScopes: new Set(["*"]), readOnly: acl?.readOnly },
       vaultRegistry,
       ...mcpServerFacadeOptions(config.toolFacade),
+      // GH #1027: resources/read takes no parameters, so the config default is its only selector.
+      responseFormat: config.tools?.defaults?.responseFormat,
       // THE-1098 (GH #964): suppresses buildInstructions' record_retrieval_feedback clause when
       // there are no retrieval rows for feedback to update.
       experientialLogRetrievals: config.experiential.logRetrievals,

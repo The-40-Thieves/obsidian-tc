@@ -193,11 +193,25 @@ the legacy `verbosity` alias (`terse` is `concise`, `full` is `detailed`), then 
 operator default `tools.defaults.responseFormat`, then `detailed`. The shipped default
 is `detailed`, so output is unchanged until a call or the config opts in.
 
-Supported today: `read_note`, `read_notes`, `write_note`, `append_note`, `patch_note`,
-`update_frontmatter`, `find_notes_by_property`, `find_unresolved_links`, the search tools
+Supported today: `read_note`, `read_notes`, `get_active_file`, `write_note`, `append_note`,
+`patch_note`, `update_frontmatter` (and the `update_active_file`, `append_active_file` and
+`patch_active_file` tools, which pass the parameter to the tool they delegate to),
+`read_frontmatter`, `find_notes_by_property`, `list_notes`, `get_outgoing_links`,
+`get_backlinks`, `find_unresolved_links`, `read_resources`, the search tools
 (`search_text`, `search_regex`, `search_semantic`, `search_jsonlogic`, `search_vault`) and
 `note_quality_report`. A concise write acknowledgement is `{ vault, path, content_hash }`;
 a concise `read_note` is the note body without frontmatter (or just the requested section).
+Other concise shapes: `read_frontmatter` omits `has_frontmatter` (it is `frontmatter !== null`);
+`list_notes` returns `{ vault, notes: [{ path }], next_cursor }`; `get_backlinks` returns
+`{ source_path, line }` per backlink; `get_outgoing_links` returns `{ target, line, resolved }`
+per link plus `heading`, `target_path` and `candidates` when they are set; `read_resources`
+returns `{ ok, uri, text }` per item with the note body only.
+
+`resources/read` takes no parameters, so only the config default applies to it: with
+`tools.defaults.responseFormat: "concise"` it returns the note body without its frontmatter
+block (the URI and MIME type are kept). The scope, vault binding, folder ACL, size ceiling
+(judged on the raw note) and cache hints are the same in both formats. `find_orphans` already
+returns bare paths, so it takes no parameter.
 
 Concise never drops a safety signal: a non-empty `quality_warning`, a `poison_assessment`
 other than `none`, `redactions`, and a `patch_note` call's removed-line and removed-byte
