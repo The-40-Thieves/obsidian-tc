@@ -79,13 +79,6 @@ export const ALLOWLIST = [
   },
   {
     file: "packages/server/src/experiential/redact.ts",
-    pattern:
-      "-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----[\\s\\S]{0,16384}?-----END [A-Z ]{0,64}PRIVATE KEY-----",
-    reason: "already documented BOUNDED-on-purpose in this file",
-    measured: "<10ms at 800KB",
-  },
-  {
-    file: "packages/server/src/experiential/redact.ts",
     pattern: "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{5,}\\b",
     reason: "recheck fuzz-checker false positive",
     measured: "<1ms at 20KB of adversarial input",
