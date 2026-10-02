@@ -64,6 +64,9 @@ export interface ResolvedVault {
   kind: VaultKind;
   restApiUrl?: string;
   restApiKey?: string;
+  /** `index.excludePaths` from this vault's config, merged with Obsidian's own Excluded files list
+   *  (search/index-exclusion.ts). Absent for a vault added at runtime. */
+  indexExcludePaths?: readonly string[];
 }
 
 export class VaultRegistry {
@@ -82,6 +85,7 @@ export class VaultRegistry {
         kind: v.kind ?? "private",
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
+        ...(v.index?.excludePaths?.length ? { indexExcludePaths: v.index.excludePaths } : {}),
       });
     }
     const first = vaults[0];

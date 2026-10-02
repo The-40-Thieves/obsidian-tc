@@ -28,6 +28,7 @@ import { compileEgressFilter, isExcludedPath } from "../plane/egress-filter";
 import { resolveHostId } from "../provenance/recorder";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { IndexCoordinator } from "../search/index-coordinator";
+import { vaultExclusionFor } from "../search/index-exclusion";
 import { wireLeaderEpoch } from "../search/indexing/leader-epoch";
 import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
@@ -36,6 +37,7 @@ import { connectStdio } from "../transports/stdio";
 import { nativeReadyToken, type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
 import { emitBootNotices } from "./boot-notices";
 import { wireBridges } from "./bridge-wiring";
+import { createExclusionReloader } from "./exclusion-reload";
 import { wireIndexCoordinator } from "./indexing-wiring";
 import { createObservability } from "./observability";
 import {
@@ -307,6 +309,8 @@ export async function buildServerRuntime(
       embed: (texts) => embeddingProvider.embed(texts, { input: "query" }),
     });
 
+    // Obsidian's Excluded files: a changed `.obsidian/app.json` (reported by the watcher) reconciles.
+    const exclusionReload = createExclusionReloader(vaultRegistry, bootReconcileAbort.signal);
     // THE-291 (part 2)/THE-455/THE-453/THE-649: the coordinator, the reindex/deindex hooks, and the
     // vault watcher.
     const { indexCoordinator, indexReadableFor, reindexHook, deindexHook, stopVaultWatch } =
@@ -331,6 +335,8 @@ export async function buildServerRuntime(
         aclByVault,
         makeOnIndexed,
         isEgressExcluded, // THE-934 fix round 1 (Blocking-1)
+        indexExclusionFor: (id) => vaultExclusionFor(vaultRegistry, id),
+        onVaultConfigChange: (id) => void exclusionReload.onVaultConfigChange(id),
         isLeader: leaderElection.isLeader, // GH #995
         onDemote: leaderElection.onDemote,
       });
@@ -503,6 +509,7 @@ export async function buildServerRuntime(
       leaderEpoch: currentLeaderEpoch, // GH #995 follow-up
     });
     const runReconcile = gateReconcileByLeader(leaderElection, runReconcileRaw, bootReconcileAbort); // GH #995
+    exclusionReload.setRunner(runReconcile);
 
     const scheduler = wireScheduler({
       config,

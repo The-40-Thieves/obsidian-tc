@@ -19,6 +19,7 @@ import { resolveSearchVaultMode } from "../../experiential/search-mode-preferenc
 import type { ToolDefinition } from "../../mcp/registry";
 import { autoNeedsSemanticLeg, fuseTextAndSemantic } from "../../search/auto-route";
 import { mtimesByPath, noteFreshness } from "../../search/freshness";
+import { vaultExclusionFor } from "../../search/index-exclusion";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { DEFAULT_RRF_K } from "../../search/retrieval-defaults";
@@ -261,11 +262,17 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     const v = deps.vaultRegistry.resolve(vault);
     const sub = root ? normalizeVaultPath(root) : undefined;
     if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
+    // Obsidian's Excluded files are left out of search whichever leg answers (the index never holds
+    // them; the filesystem-walking legs and any stale row are cut here). ACL is unchanged.
+    const excluded = vaultExclusionFor(deps.vaultRegistry, v.id);
     return {
       id: v.id,
       rootPath: v.root,
       sub,
-      readable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes) && underRoot(rel, sub),
+      readable: (rel) =>
+        readableRel(ctx.acl, rel, ctx.grantedScopes) &&
+        underRoot(rel, sub) &&
+        !excluded.isExcluded(rel),
     };
   };
 

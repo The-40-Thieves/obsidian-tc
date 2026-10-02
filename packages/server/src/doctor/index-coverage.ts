@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { openDatabase } from "../db/open";
 import { hasNotesTable, notesRowExpectedForSize } from "../search/fts";
+import type { VaultExclusion } from "../search/index-exclusion";
 import { errorMessage } from "../util/errors";
 import { walkVault } from "../vault/paths";
 import type { Check, CheckStatus } from "./types";
@@ -38,6 +39,17 @@ export interface IndexCoverageState {
    *  cache.db yet, no `notes` table). The two must render differently: an error is a real failure
    *  to answer the question, not "nothing to check yet". */
   error?: string;
+  /** The effective Excluded files list (Obsidian's `userIgnoreFilters` + `index.excludePaths`) and
+   *  how many readable notes on disk it leaves out of the index. Such notes are not "missing".
+   *  Optional: absent means the vault was probed without an exclusion source. */
+  exclusion?: {
+    effective: string[];
+    excludedOnDisk: number;
+    /** Entries that failed to compile and are ignored. */
+    invalid: string[];
+    /** app.json exists but could not be read or parsed. */
+    appConfigError?: string;
+  };
 }
 
 /** Clock slack between a file's mtime and the `indexed_at` the writer stamped just after it. */
@@ -92,7 +104,31 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
             : `${s.vaultId}=${s.notesIndexed}/${s.notesOnDisk}`,
         ),
       };
-      if (errored.length === 0 && short.length === 0 && staleStates.length === 0) {
+      // The effective Excluded files list per vault, so "why is note X not searchable" has an answer
+      // here. A list that failed to compile or read is surfaced as an issue below, not just shown.
+      const exclusions = states.flatMap((s) =>
+        s.exclusion && s.exclusion.effective.length > 0
+          ? [
+              `${s.vaultId}: ${s.exclusion.excludedOnDisk} note(s) excluded by ${s.exclusion.effective.length} entr${s.exclusion.effective.length === 1 ? "y" : "ies"}: ${s.exclusion.effective.join(" | ")}`,
+            ]
+          : [],
+      );
+      if (exclusions.length > 0) details.exclusions = exclusions;
+      const exclusionProblems = states.flatMap((s) => [
+        ...(s.exclusion?.invalid ?? []).map(
+          (p) =>
+            `vault ${s.vaultId}: excluded-files entry ${JSON.stringify(p)} is not a valid pattern and is ignored`,
+        ),
+        ...(s.exclusion?.appConfigError !== undefined
+          ? [`vault ${s.vaultId}: ${s.exclusion.appConfigError} (the last good list is kept)`]
+          : []),
+      ]);
+      if (
+        errored.length === 0 &&
+        short.length === 0 &&
+        staleStates.length === 0 &&
+        exclusionProblems.length === 0
+      ) {
         return {
           status: "ok" as CheckStatus,
           summary: `index coverage: ${states.length} vault(s) checked, every note on disk is indexed`,
@@ -111,11 +147,14 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
           `${totalStale} indexed note(s) changed on disk since they were indexed across ${staleStates.length} vault(s)`,
         );
       if (errored.length > 0) summaryParts.push(`${errored.length} vault(s) failed to probe`);
+      if (exclusionProblems.length > 0)
+        summaryParts.push(`${exclusionProblems.length} excluded-files problem(s)`);
       return {
         status: "warning" as CheckStatus,
         summary: `index coverage: ${summaryParts.join("; ")}`,
         details,
         issues: [
+          ...exclusionProblems,
           ...errored.map((s) => `vault ${s.vaultId}: coverage probe failed — ${s.error}`),
           ...short.map(
             (s) =>
@@ -156,7 +195,13 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
  */
 export async function probeIndexCoverage(
   cacheDir: string,
-  vaults: ReadonlyArray<{ id: string; root: string; isReadable: (rel: string) => boolean }>,
+  vaults: ReadonlyArray<{
+    id: string;
+    root: string;
+    isReadable: (rel: string) => boolean;
+    /** Obsidian's Excluded files + index.excludePaths; excluded notes are not expected in the index. */
+    exclusion?: VaultExclusion;
+  }>,
   // THE-935: required, not optional — this probe opens the SAME cache.db a live server (and every
   // other cfg-scoped opener) does, so it must not silently fall back to DEFAULT_BUSY_TIMEOUT_MS
   // when an operator has configured a different value.
@@ -184,14 +229,15 @@ export async function probeIndexCoverage(
   try {
     const opened = db;
     if (!hasNotesTable(opened)) return []; // pre-migration db — nothing to check yet
-    return vaults.map(({ id, root, isReadable }): IndexCoverageState => {
+    return vaults.map(({ id, root, isReadable, exclusion }): IndexCoverageState => {
       try {
         // THE-1073 fix round 2 (LOW): the SAME size-based predicate indexVault itself calls (on
         // Buffer.byteLength(raw)) — no stand-in string needed, the walked entry's own `size` IS
         // the real byte count this predicate wants.
-        const entries = walkVault(root, { extensions: [".md"] }).filter(
+        const readableOnDisk = walkVault(root, { extensions: [".md"] }).filter(
           (e) => isReadable(e.relPath) && notesRowExpectedForSize(e.size),
         );
+        const entries = readableOnDisk.filter((e) => !exclusion?.isExcluded(e.relPath));
         const onDisk = entries.map((e) => e.relPath);
         const indexedRows = opened
           .prepare("SELECT path, indexed_at FROM notes WHERE vault_id = ?")
@@ -213,6 +259,18 @@ export async function probeIndexCoverage(
           samplePaths: missingPaths.slice(0, 5),
           stale: stalePaths.length,
           staleSamplePaths: stalePaths.slice(0, 5),
+          ...(exclusion
+            ? {
+                exclusion: {
+                  effective: [...exclusion.effective],
+                  excludedOnDisk: readableOnDisk.length - entries.length,
+                  invalid: [...exclusion.invalid],
+                  ...(exclusion.appConfigError !== undefined
+                    ? { appConfigError: exclusion.appConfigError }
+                    : {}),
+                },
+              }
+            : {}),
         };
       } catch (e) {
         return {

@@ -168,6 +168,7 @@ export interface IndexVaultArgs {
    *  Absent -> nothing excluded (back-compat). See note-plan.ts's computeNotePlan, which is the
    *  only consumer. */
   isEgressExcluded?: (rel: string) => boolean;
+  isIndexExcluded?: (rel: string) => boolean;
   now?: () => number;
   onIndexed?: IndexHook;
   /** GH #171/#172: embed-batch tuning; each field falls back to its module default. Callers thread

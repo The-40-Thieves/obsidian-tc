@@ -24,6 +24,7 @@ import {
   upsertNoteRow,
 } from "../fts";
 import { bumpGeneration } from "../generation";
+import { deleteNoteSummary } from "../note-summaries";
 import { deleteChunkSparse, ensureChunkSparse } from "../sparse";
 import { EMBED_BATCH, EMBED_CONCURRENCY, embedPlans } from "./embed-batches";
 import { computeNotePlan, hasBodyShaColumn } from "./note-plan";
@@ -192,6 +193,36 @@ export async function indexNote(
 }
 
 /**
+ * Dismiss (never delete) the open contradiction rows that name `path` on either side. The row keeps
+ * its judge verdict as the audit trail and gains status 'dismissed' + a reason, the same shape the
+ * re-judge command writes, so every reader that filters `status = 'open'` stops surfacing it.
+ */
+function dismissContradictionsForPath(
+  db: Database,
+  vaultId: string,
+  path: string,
+  reason: string,
+  at: number,
+): void {
+  cachedPrepare(
+    db,
+    "UPDATE contradictions SET status = 'dismissed', resolved_at = ?, resolution_reason = ? WHERE vault_id = ? AND status = 'open' AND (source_path = ? OR conflict_path = ?)",
+  ).run(at, reason, vaultId, path, path);
+}
+
+/** Is anything indexed for this path (chunks, a notes/FTS row, or a note summary)? */
+export function hasIndexedState(db: Database, vaultId: string, path: string): boolean {
+  const probe = (sql: string): boolean => cachedPrepare(db, sql).get(vaultId, path) !== undefined;
+  if (probe("SELECT 1 FROM chunks WHERE vault_id = ? AND path = ? LIMIT 1")) return true;
+  if (hasNotesTable(db) && probe("SELECT 1 FROM notes WHERE vault_id = ? AND path = ? LIMIT 1"))
+    return true;
+  return (
+    tableExists(db, "note_summaries") &&
+    probe("SELECT 1 FROM note_summaries WHERE vault_id = ? AND path = ? LIMIT 1")
+  );
+}
+
+/**
  * THE-291: drop EVERYTHING indexed for a path — chunks, embeddings, vec rows, and the notes +
  * FTS metadata — in one transaction. The delete/move paths call this instead of the legacy
  * empty-content reindex (which cannot distinguish a deleted note from an empty one for the
@@ -210,6 +241,11 @@ export function deindexNote(
   /** GH #995 follow-up: stamps the tombstone bump below (write-fence.ts's bumpFenceUnconditional).
    *  Defaults to Date.now, matching indexNote's own `now` default shape. */
   now: () => number = Date.now,
+  /** Set when the path is being de-indexed because it became EXCLUDED (Obsidian's Excluded files /
+   *  index.excludePaths), not because it was deleted: its open contradiction rows are dismissed with
+   *  this reason (the re-judge path's own status/resolution_reason shape) instead of being deleted
+   *  with the chunks, and its note summary is dropped. */
+  excludedReason?: string,
 ): void {
   const hasNotes = hasNotesTable(db);
   const hasFts = hasNotes && ensureNotesFts(db);
@@ -233,9 +269,14 @@ export function deindexNote(
       const delChunk = cachedPrepare(db, "DELETE FROM chunks WHERE id = ?");
       const delVec = hasVec ? cachedPrepare(db, "DELETE FROM vec_chunks WHERE chunk_id = ?") : null;
       // #280-followup: drop the deleted note's chunks' contradiction flags (plane table optional).
-      const delContra = tableExists(db, "contradictions")
-        ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
-        : null;
+      const hasContra = tableExists(db, "contradictions");
+      const delContra =
+        hasContra && excludedReason === undefined
+          ? cachedPrepare(db, DELETE_CONTRADICTIONS_SQL)
+          : null;
+      if (hasContra && excludedReason !== undefined)
+        dismissContradictionsForPath(db, vaultId, path, excludedReason, now());
+      if (excludedReason !== undefined) deleteNoteSummary(db, vaultId, path);
       for (const r of rows) {
         // FTS first: it is the only delete here whose key (rowid) is owned by the chunks row, so
         // it is the only one that must not follow delChunk.

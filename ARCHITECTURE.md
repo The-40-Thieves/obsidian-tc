@@ -331,7 +331,7 @@ There are no `/active`, `/smart-connections/*`, `/context/bundle`, `/workspaces/
 @the-40-thieves/obsidian-tc-native-win32-arm64-msvc
 ```
 
-A hand-written `index.js` loader (replacing the napi-generated one) tries a locally-built `.node`, then the matching platform sub-package, and otherwise loads the numerically-identical pure-JS `fallback.ts`/`fallback.js`, exposing `module.exports.nativeLoaded` so callers can tell which backend is active. It never throws on a missing prebuild.
+A hand-written `index.js` loader (replacing the napi-generated one) tries a locally-built `.node`, then the matching platform sub-package, and otherwise loads the numerically-identical pure-JS `fallback.ts`/`fallback.js`, exposing `module.exports.nativeLoaded` so callers can tell which backend is active. It never throws on a missing prebuild. <!-- config-path:ignore -->
 
 **Calls (sync, CPU-bound):**
 

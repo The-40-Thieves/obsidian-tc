@@ -36,6 +36,7 @@ import {
   onnxNativePrebuildStatus,
 } from "../providers/reranker-preflight";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
+import { vaultExclusionFor } from "../search/index-exclusion";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { nativeBindingActive } from "../search/native";
 import type { RetrievalCaches } from "../search/query_cache";
@@ -454,6 +455,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
         root: deps.vaultRegistry.resolve(vaultId).root,
         isReadable: deps.indexReadableFor(vaultId),
         ...(deps.isEgressExcluded !== undefined ? { isEgressExcluded: deps.isEgressExcluded } : {}),
+        isIndexExcluded: vaultExclusionFor(deps.vaultRegistry, vaultId).isExcluded,
         now: Date.now,
         sql: deps.sqlHooksFor(vaultId),
         onVecRebuild: deps.onVecRebuild,

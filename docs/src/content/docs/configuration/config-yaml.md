@@ -49,6 +49,49 @@ until this generator existed, by which point five entire defaulted blocks had go
 | `commands.allowlist` | string[], `[]` | Command ids that may fire (still HITL-gated). Arbitrary command execution is never silent. |
 | `memory.folder` | string, `"memory"` | Where memory-entity projections, `_next-session.md`, and `reflections/` live. |
 | `workspace.traceFolder` | string, `".obsidian-tc/traces"` | Vault-relative JSONL session-trace folder (ACL-checked). |
+| `index.excludePaths` | string[], `[]` | Extra Excluded files entries merged with the vault's own Obsidian list. See [Excluded files](#excluded-files) below. |
+
+## Excluded files
+
+obsidian-tc honors the **Excluded files** list Obsidian keeps for each vault (Settings → Files & links →
+Excluded files, stored as `userIgnoreFilters` in `<vault>/.obsidian/app.json`), and you can add entries
+for a vault with `vaults[].index.excludePaths`. The two lists are merged. Nothing needs configuring when
+the vault already has an Excluded files list.
+
+**Pattern dialect.** The Obsidian help site does not state how an entry is matched, so this mirrors the
+Obsidian 1.13.7 app source (`updateUserIgnoreFilters` and `isUserIgnored`):
+
+| Entry | Meaning |
+| --- | --- |
+| `Archive/` | Case-insensitive **path prefix** against the vault-relative path: the folder `Archive`. Not a glob: `*` is a literal character. |
+| `Notes/todo.md` | The same prefix rule, so it matches that one file (and any longer path that starts with it). |
+| `/\.draft\.md$/` | An entry that starts and ends with `/` (and is longer than two characters) is a case-insensitive **regular expression**, tested unanchored against the path. |
+| (empty or whitespace) | Skipped. Entries are trimmed. |
+| `/(/` | An invalid regular expression is skipped, as Obsidian does; `doctor --probe` lists it. |
+
+**What an excluded note is.** Obsidian treats an excluded file as hidden from Search and the Graph view
+but still a file in the vault: links to it resolve, and it still appears in backlinks and outgoing
+links. obsidian-tc does the same.
+
+| | Excluded note |
+| --- | --- |
+| Chunks, embeddings, full-text (FTS) rows, note summaries, contradiction and cluster detection | **None.** Never sent to an embedding provider either. |
+| `search_text`, `search_regex`, `search_semantic`, `search_jsonlogic`, `search_vault` results | **Never returned**, on any search leg. |
+| Edges in the persisted link graph | **None** (hidden from the graph, like Obsidian's Graph view). |
+| Wikilink resolution, `find_unresolved_links`, `get_backlinks`, `get_outgoing_links`, `read_note` | **Unchanged.** A `[[link]]` to it resolves; the note still reads and lists. |
+| Folder ACL (`readPaths`, scopes) | **Unchanged.** Exclusion only removes notes from the index; it never grants access. |
+| Eval golden-set contamination guard | Honors the list: an excluded note cannot contaminate the text leg. |
+
+Dot-folders (`.obsidian`, `.git`, `.trash`) are a different mechanism: they are not loaded at all, so
+notes inside them are not even link targets. `egress.excludePaths` is also separate: it only withholds
+text from model providers and leaves the note searchable.
+
+**Live reload.** The server watches `.obsidian/app.json`. When the effective list changes, the vault is
+reconciled: newly excluded notes are de-indexed (their open contradiction rows are dismissed with a
+reason), and notes no longer excluded are indexed again. A malformed `app.json` keeps the last good list.
+Without the file watcher (`watch.enabled: false`), the new list applies on the next `index_vault` or
+server start. `doctor --probe` prints the effective list, how many notes it excludes, and any invalid
+entry.
 
 ## `auth`
 

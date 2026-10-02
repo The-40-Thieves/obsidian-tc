@@ -10,6 +10,7 @@
 // this runs in CI logs.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadVaultExclusion } from "../src/search/index-exclusion";
 import { walkVault } from "../src/vault/paths";
 import type { GoldenSet } from "./metrics";
 
@@ -49,9 +50,9 @@ export function resolveContaminationThreshold(
 }
 
 /**
- * Indexed notes (the same set the indexer walks: markdown, dot-folders skipped) that contain at
- * least `threshold` distinct golden queries verbatim, worst first. Matching mirrors the text leg:
- * case-insensitive, whitespace-collapsed substring.
+ * Indexed notes (the same set the indexer walks: markdown, dot-folders and Obsidian's Excluded
+ * files skipped) that contain at least `threshold` distinct golden queries verbatim, worst first.
+ * Matching mirrors the text leg: case-insensitive, whitespace-collapsed substring.
  */
 export function findGoldenContamination(
   golden: GoldenSet,
@@ -65,7 +66,11 @@ export function findGoldenContamination(
     ),
   ];
   const found: GoldenContamination[] = [];
+  // A note on the vault's Excluded files list (Obsidian's `userIgnoreFilters`) is not indexed, so it
+  // cannot be hit by the text leg and cannot contaminate it: skip it, as the indexer does.
+  const { isExcluded } = loadVaultExclusion(vaultRoot);
   for (const entry of walkVault(vaultRoot, { extensions: [".md"] })) {
+    if (isExcluded(entry.relPath)) continue;
     let body: string;
     try {
       body = norm(stripWikilinks(readFileSync(join(vaultRoot, entry.relPath), "utf8")));
@@ -97,7 +102,7 @@ export function assertGoldenNotInVault(
   throw new Error(
     `golden-set contamination: ${found.length} indexed note(s) contain >= ${threshold} golden queries verbatim, ` +
       "so the text leg matches them instead of an expected note and lexical/hybrid results are skewed. " +
-      "Move them out of the indexed tree (a dot-folder is skipped by the indexer) and rebuild the index, or set " +
+      "Move them out of the indexed tree (a dot-folder is skipped by the indexer), add them to Obsidian's Excluded files, and rebuild the index, or set " +
       `${CONTAMINATION_THRESHOLD_ENV}=off to measure the contaminated vault on purpose:\n` +
       found.map((f) => `  - ${f.path} (${f.queries} queries)`).join("\n"),
   );
