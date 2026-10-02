@@ -52,6 +52,7 @@ import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../too
 import { DEFAULT_TRACE_FOLDER, registerM5Tools } from "../tools/m5";
 import { registerM6Tools, type SandboxRerunFn } from "../tools/m6";
 import { registerM7Tools } from "../tools/m7";
+import { resolveWikiJudgeBackend } from "../tools/m7/knowledge/wiki-judge-typesafe";
 import { registerM8Tools } from "../tools/m8";
 import type { VaultRegistry } from "../vault/registry";
 import { type ActiveSessionTracker, staleExplicitSessionSummary } from "../workspace/sessions";
@@ -671,6 +672,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     excludeFilter: m7ExcludeFilter,
     // The LLM judge for ambiguous find_existing_page / lint_wiki matches.
     wikiJudge: config.wikiJudge,
+    wikiJudgeBackend: resolveWikiJudgeBackend(config.wikiJudge, deps.roles, m7ExcludeFilter),
     retrieval: config.retrieval,
     ranking: config.ranking,
     // THE-230: serve-path retrieval logging.

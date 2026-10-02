@@ -176,6 +176,65 @@ export function classifyJudgeBaseUrl(
   return isLoopbackHost(parsed.host) ? "http-loopback" : "http-remote";
 }
 
+export interface TypesafeJudgeIssue {
+  path: "baseUrl" | "model" | "threshold";
+  message: string;
+}
+
+/** The config-load rules every TypeSafe judge block shares (`experiential.citationInfer.judge`,
+ *  `wikiJudge`): the https-unless-loopback-unless-allowPlainHttp rule on `baseUrl`, and, only for
+ *  provider "typesafe", a required pinned model (dotted numeric version suffix) and a required
+ *  threshold. One function so the two blocks cannot drift. `label` is the field prefix named in the
+ *  messages ("judge" for the citation block, "wikiJudge" for the wiki one). */
+export function typesafeJudgeIssues(
+  c: {
+    provider?: string | undefined;
+    model?: string | undefined;
+    threshold?: number | undefined;
+    baseUrl: string;
+    allowPlainHttp?: boolean | undefined;
+  },
+  label: string,
+  thresholdWhat: string,
+): TypesafeJudgeIssue[] {
+  const issues: TypesafeJudgeIssue[] = [];
+  const cls = classifyJudgeBaseUrl(c.baseUrl);
+  if (cls === "invalid") {
+    issues.push({
+      path: "baseUrl",
+      message: `${label}.baseUrl must be a canonical "scheme://host" URL with scheme https or http — either it could not be parsed that way, or its scheme is neither (e.g. ftp:/file:). allowPlainHttp only ever widens http:// on a non-loopback host, never any other scheme.`,
+    });
+  } else if (cls === "http-remote" && !c.allowPlainHttp) {
+    issues.push({
+      path: "baseUrl",
+      message: `${label}.baseUrl must use https:// — this URL carries the bearer key and vault-derived text — unless the host is loopback (localhost/127.0.0.1/[::1]) for a local test or dev endpoint, or ${label}.allowPlainHttp is explicitly set to opt into a trusted plain-http path (e.g. a host-local gateway or an encrypted overlay).`,
+    });
+  }
+  // Scoped to provider "typesafe" ONLY: a gateway provider names its model on the gateway side.
+  if (c.provider === "typesafe") {
+    if (!c.model) {
+      issues.push({
+        path: "model",
+        message: `${label}.model is required when ${label}.provider is "typesafe" — pin a versioned model id (e.g. "jev-1.13.0").`,
+      });
+      // POSITIVE predicate, not a blacklist: "jev" and "totally-unversioned" are as floating as
+      // "-latest". Require a dotted numeric version suffix ("-1.13.0" or "-1.13").
+    } else if (!/-\d+\.\d+(?:\.\d+)?$/.test(c.model)) {
+      issues.push({
+        path: "model",
+        message: `${label}.model "${c.model}" is not a pinned, versioned id — it must end in a dotted numeric version such as "-1.13.0" or "-1.13" (e.g. "jev-1.13.0"); a floating alias like "-latest"/"-preview" (or no version at all) can silently move the decision boundary underneath a fixed threshold.`,
+      });
+    }
+    if (c.threshold === undefined) {
+      issues.push({
+        path: "threshold",
+        message: `${label}.threshold is required when ${label}.provider is "typesafe" (0..1) — no default exists; ${thresholdWhat} thresholds are tuned per model version and per deployment.`,
+      });
+    }
+  }
+  return issues;
+}
+
 /** The host `classifyJudgeBaseUrl` parsed `u` as, for a warning message — never the key, the
  *  path, the query, or any userinfo, only `URL.hostname`.
  *  Returns undefined for a URL classify would call "invalid" (nothing safe to name). */

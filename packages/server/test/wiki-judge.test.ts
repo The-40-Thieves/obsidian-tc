@@ -445,6 +445,7 @@ describe("createWikiJudge: status", () => {
     expect(j.status()).toEqual({
       configured: true,
       enabledByDefault: true,
+      lintByDefault: true,
       model: null,
       callsToday: 0,
       failuresToday: 0,

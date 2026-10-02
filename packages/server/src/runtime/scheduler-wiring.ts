@@ -32,7 +32,7 @@ import {
   registerNoteQualitySchedule,
   registerPlaneSchedule,
 } from "./plane-wiring";
-import { registerWikiLintSweep } from "./wiki-lint-sweep";
+import { registerWikiLintSweep, wikiLintSweepJudge } from "./wiki-lint-sweep";
 
 export interface SchedulerWiringDeps {
   config: ServerConfig;
@@ -207,16 +207,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       intervalMs: config.maintenance.wikiLint.intervalHours * 3_600_000,
       folder: config.maintenance.wikiLint.folder,
       maxNotes: config.maintenance.wikiLint.maxNotes,
-      ...(config.maintenance.wikiLint.judge
-        ? {
-            judge: {
-              roles: deps.roles,
-              settings: config.wikiJudge,
-              excludeFilter: compileEgressFilter(config.egress.excludePaths),
-              maxCalls: config.maintenance.wikiLint.judgeMaxCalls,
-            },
-          }
-        : {}),
+      judge: wikiLintSweepJudge(config, deps.roles),
     });
   }
 

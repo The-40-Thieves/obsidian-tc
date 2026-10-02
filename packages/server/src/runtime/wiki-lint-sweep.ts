@@ -5,12 +5,18 @@
 // logs one summary line per vault, and stops. It never edits a note, never persists anything, and
 // never gates a write. The proposals themselves are one `lint_wiki` call away; a log line is the
 // timer's whole output on purpose, so an unattended job cannot grow a table nobody reads.
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
-import type { EgressFilter } from "../plane/egress-filter";
+import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { VaultExclusion } from "../search/index-exclusion";
-import { createWikiJudge, type WikiJudgeSettings } from "../tools/m7/knowledge/wiki-judge";
+import {
+  createWikiJudge,
+  type WikiJudgeBackend,
+  type WikiJudgeSettings,
+} from "../tools/m7/knowledge/wiki-judge";
+import { resolveWikiJudgeBackend } from "../tools/m7/knowledge/wiki-judge-typesafe";
 import { LINT_CHECKS, type LintReport, runWikiLint } from "../tools/m7/knowledge/wiki-lint";
 import { judgeNearDuplicates, type PairJudgeReport } from "../tools/m7/knowledge/wiki-lint-judge";
 import { stderrOnError } from "../util/errors";
@@ -28,16 +34,39 @@ export interface WikiLintSweepDeps {
   maxNotes: number;
   /** Per-vault summary sink. Production logs to stderr; tests capture the report. */
   onReport?: ((report: LintReport, judge?: PairJudgeReport) => void) | undefined;
-  /** Opt-in (maintenance.wikiLint.judge): rule on near-duplicate pairs with the wiki judge, at most
-   *  `maxCalls` gateway calls per vault per run, on top of wikiJudge.maxCallsPerDay. */
+  /** (maintenance.wikiLint.judge, on by default): rule on near-duplicate pairs with the wiki judge, at
+   *  most `maxCalls` judge calls per vault per run, on top of wikiJudge.maxCallsPerDay. */
   judge?:
     | {
         roles: GatewayRoles | null;
+        /** Absent derives the gateway backend from `roles`; `null` is "no judge". */
+        backend?: WikiJudgeBackend | null | undefined;
         settings: WikiJudgeSettings;
         excludeFilter?: EgressFilter | undefined;
         maxCalls: number;
       }
     | undefined;
+}
+
+/** The sweep's `judge` dependency: present only when `maintenance.wikiLint.judge` is on AND a judge
+ *  exists (a gateway judge role, or a TypeSafe backend that built) with a daily cap above 0. Absent
+ *  leaves the sweep exactly as it was: no "judge: off" line in every summary. */
+export function wikiLintSweepJudge(
+  config: Pick<ServerConfig, "maintenance" | "wikiJudge" | "egress">,
+  roles: GatewayRoles | null,
+  warn?: (msg: string) => void,
+): WikiLintSweepDeps["judge"] {
+  if (!config.maintenance.wikiLint.judge || config.wikiJudge.maxCallsPerDay <= 0) return undefined;
+  const excludeFilter = compileEgressFilter(config.egress.excludePaths);
+  const backend = resolveWikiJudgeBackend(config.wikiJudge, roles, excludeFilter, warn);
+  if (!backend) return undefined;
+  return {
+    roles,
+    backend,
+    settings: config.wikiJudge,
+    excludeFilter,
+    maxCalls: config.maintenance.wikiLint.judgeMaxCalls,
+  };
 }
 
 export function summarizeLintReport(report: LintReport, judge?: PairJudgeReport): string {
@@ -93,6 +122,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
             report,
             createWikiJudge({
               roles: deps.judge.roles,
+              backend: deps.judge.backend,
               db: deps.cacheDb,
               settings: deps.judge.settings,
             }),

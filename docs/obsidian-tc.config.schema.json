@@ -2514,8 +2514,8 @@
               "maximum": 5000
             },
             "judge": {
-              "default": false,
-              "description": "Have the scheduled pass ask the wikiJudge LLM about each near-duplicate pair and log the verdict counts. Off by default: it spends gateway judge calls. Needs a configured gateway and wikiJudge.maxCallsPerDay above 0.",
+              "default": true,
+              "description": "Have the scheduled pass ask the wikiJudge LLM about each near-duplicate pair and log the verdict counts. On by default, but it only runs when a judge is configured (a gateway, or wikiJudge.provider typesafe) and wikiJudge.maxCallsPerDay is above 0; it spends judge calls, bounded by judgeMaxCalls and that daily cap. Set false to turn it off.",
               "type": "boolean"
             },
             "judgeMaxCalls": {
@@ -2713,13 +2713,55 @@
       }
     },
     "wikiJudge": {
-      "description": "LLM judge for ambiguous wiki page matches (find_existing_page, lint_wiki). Uses the gateway judge role; sends only readable notes outside egress.excludePaths and Obsidian's Excluded files.",
+      "description": "LLM judge for ambiguous wiki page matches (find_existing_page, lint_wiki). Uses the gateway judge role or, with provider typesafe, TypeSafe Jev; sends only readable notes outside egress.excludePaths and Obsidian's Excluded files.",
       "default": {},
       "type": "object",
       "properties": {
         "enabled": {
           "default": false,
-          "description": "Whether find_existing_page runs the judge when its `judge` argument is omitted. A call can still pass judge=true or judge=false. Needs a configured gateway; without one the judge never runs. The judge only ever resolves AMBIGUOUS candidates, never overrides exact name, alias or wikidata evidence, never blocks a write, and any failure leaves the verdict ambiguous.",
+          "description": "Whether find_existing_page runs the judge when its `judge` argument is omitted. A call can still pass judge=true or judge=false. Needs a configured judge (a gateway, or provider typesafe); without one the judge never runs. Off by default: the measured recall of topic-to-page judging is too low to turn on. The judge only ever resolves AMBIGUOUS candidates, never overrides exact name, alias or wikidata evidence, never blocks a write, and any failure leaves the verdict ambiguous.",
+          "type": "boolean"
+        },
+        "lintEnabled": {
+          "default": true,
+          "description": "Whether lint_wiki's near-duplicate pass judges candidate pairs when its `judge` argument is omitted. On by default, but it only runs when a judge is configured and maxCallsPerDay is above 0; the judge only adds a verdict to a proposal, never drops one, never writes and never blocks. A call can still pass judge=true or judge=false. The scheduled sweep has its own switch, maintenance.wikiLint.judge.",
+          "type": "boolean"
+        },
+        "provider": {
+          "default": "gateway",
+          "description": "Which service answers. \"gateway\" (default) uses the gateway `judge` role. \"typesafe\" (EXPERIMENTAL) asks TypeSafe Jev a Choice question over {same_topic, overlapping, different} instead, using the model, threshold, baseUrl and apiKeyEnv below; it never falls back to the gateway. Jev is a ranking model, not a security control.",
+          "type": "string",
+          "enum": [
+            "gateway",
+            "typesafe"
+          ]
+        },
+        "model": {
+          "description": "Required when provider is \"typesafe\": a PINNED, versioned TypeSafe model id (e.g. \"jev-1.13.0\"), rejected at config-load unless it ends in a dotted numeric version. A floating alias such as \"jev-latest\" would silently move the decision boundary under a fixed threshold.",
+          "type": "string",
+          "minLength": 1
+        },
+        "threshold": {
+          "description": "Required when provider is \"typesafe\": the probability (0..1) Jev must give same_topic for the verdict to be same_topic. It is a ranking score, not a calibrated probability, and has no default: tune it on labelled pairs from your own vault.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "apiKeyEnv": {
+          "default": "TYPESAFE_API_KEY",
+          "description": "Environment variable holding the TypeSafe API key (provider typesafe).",
+          "type": "string",
+          "minLength": 1
+        },
+        "baseUrl": {
+          "default": "https://api.typesafe.ai",
+          "description": "TypeSafe API base URL (provider typesafe). Must be https:// unless the host is loopback or allowPlainHttp is set: this URL carries the bearer key and the opening text of two notes.",
+          "type": "string",
+          "format": "uri"
+        },
+        "allowPlainHttp": {
+          "default": false,
+          "description": "Allow ANY http:// baseUrl host, not just loopback. Only for a host-local docker network or an encrypted overlay (e.g. a gateway pass-through at http://litellm:4000/typesafe); the key and note text still travel in clear over whatever link the URL names.",
           "type": "boolean"
         },
         "maxCallsPerRequest": {

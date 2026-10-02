@@ -298,7 +298,7 @@ export function createFindExistingPageTool(
           .boolean()
           .optional()
           .describe(
-            "Let an LLM judge resolve AMBIGUOUS candidates that rest on soft evidence (similarity, link text): same topic -> exists, all different -> new, anything else stays ambiguous. Never overrides a name, alias or wikidata match and never blocks. Sends the topic and the opening text of at most 3 top candidates to the gateway judge model, only for notes you may read outside egress.excludePaths and Obsidian's Excluded files. Default: the wikiJudge.enabled config; true needs a configured gateway.",
+            "Let an LLM judge resolve AMBIGUOUS candidates that rest on soft evidence (similarity, link text): same topic -> exists, all different -> new, anything else stays ambiguous. Never overrides a name, alias or wikidata match and never blocks. Sends the topic and the opening text of at most 3 top candidates to the judge model (the gateway's, or TypeSafe Jev), only for notes you may read outside egress.excludePaths and Obsidian's Excluded files. Default: the wikiJudge.enabled config (off); true needs a configured judge.",
           ),
         ...ResponseFormatInput,
       })
@@ -362,7 +362,12 @@ export function createFindExistingPageTool(
 
       // The judge: AMBIGUOUS verdicts on soft evidence only. Exact evidence is final.
       const settings = deps.wikiJudge ?? DEFAULT_WIKI_JUDGE_SETTINGS;
-      const wiki = createWikiJudge({ roles: deps.roles, db: ctx.db, settings });
+      const wiki = createWikiJudge({
+        roles: deps.roles,
+        backend: deps.wikiJudgeBackend,
+        db: ctx.db,
+        settings,
+      });
       let judgeSection: JudgeSection | undefined;
       let judgedBy: JudgeResolution["judgedBy"];
       const refuse = (reason: string): JudgeSection => ({
@@ -376,7 +381,7 @@ export function createFindExistingPageTool(
       if (input.judge ?? (settings.enabled && wiki.available)) {
         if (!wiki.available)
           judgeSection = refuse(
-            "no judge is available: it needs a configured gateway and wikiJudge.maxCallsPerDay above 0",
+            "no judge is available: it needs a configured judge (a gateway, or wikiJudge.provider typesafe) and wikiJudge.maxCallsPerDay above 0",
           );
         else if (ranked.some(hasStrong))
           judgeSection = refuse(

@@ -9,8 +9,12 @@
 //     (excluded) note, a spent budget, a timeout, a gateway error or an unusable reply is an
 //     `{ ok: false, reason }` outcome and the caller leaves the verdict ambiguous.
 //   * EGRESS. A note is sent only if the caller may read it, it is outside `egress.excludePaths`
-//     and outside Obsidian's Excluded files (loadSendable). The gateway client enforces
-//     `egress.excludePaths` again on `sourcePaths` as the backstop.
+//     and outside Obsidian's Excluded files (loadSendable). The gateway client (and the TypeSafe
+//     backend, wiki-judge-typesafe.ts) enforces `egress.excludePaths` again on `sourcePaths` as the
+//     backstop.
+//   * PROVIDER. Who answers is a WikiJudgeBackend: the gateway `judge` role by default, TypeSafe Jev
+//     when `wikiJudge.provider` is "typesafe". A typesafe config with no usable backend is "no
+//     judge", never the gateway.
 //   * RESOLVED MODEL. The result carries the model the gateway actually used (the client resolves
 //     the alias), never the alias, so a verdict from before and after a repoint reads differently.
 //   * CAPS. A per-request budget, a per-UTC-day counter in cache.db, and a per-call timeout.
@@ -39,12 +43,57 @@ export const MAX_JUDGE_NOTE_CHARS = 8000;
 const MAX_RATIONALE_CHARS = 240;
 
 export interface WikiJudgeSettings {
+  /** find_existing_page judges when its `judge` argument is omitted. */
   enabled: boolean;
+  /** lint_wiki's near-duplicate pass judges when its `judge` argument is omitted. */
+  lintEnabled: boolean;
+  provider: "gateway" | "typesafe";
   maxCallsPerRequest: number;
   maxCallsPerDay: number;
   timeoutMs: number;
   /** Characters of each side sent per call; the engine cuts to it before building the prompt. */
   maxNoteChars: number;
+}
+
+/** What answers a judge call. `run` resolves to the verdict, `null` when the answer was unusable,
+ *  and rejects for a transport failure; createWikiJudge turns both into an advisory outcome. */
+export interface WikiJudgeBackend {
+  /** A model identity known before any call (a pinned provider). Absent: learned from the newest
+   *  stored verdict, then from every call. */
+  readonly pinnedModel?: string;
+  /** May a cached verdict stored under `model` be served by this backend? Keeps one provider from
+   *  serving another's rows after `wikiJudge.provider` changes. */
+  acceptsCachedModel(model: string): boolean;
+  run(req: {
+    a: { title: string; text: string };
+    b: { title: string; text: string };
+    sourcePaths: string[];
+    signal: AbortSignal;
+  }): Promise<{ verdict: WikiJudgeVerdict; rationale: string; model: string } | null>;
+}
+
+/** The marker the TypeSafe backend appends to its model identity ("jev-1.13.0@0.62"): the verdict
+ *  depends on the threshold, so a cached verdict is only valid under the threshold that made it. */
+export const THRESHOLD_MODEL_MARK = "@";
+
+/** The gateway `judge` role as a backend. */
+export function gatewayJudgeBackend(roles: GatewayRoles): WikiJudgeBackend {
+  return {
+    acceptsCachedModel: (model) => !model.includes(THRESHOLD_MODEL_MARK),
+    run: async ({ a, b, sourcePaths, signal }) => {
+      // No temperature and no maxTokens, on purpose: the gateway's `judge` alias serves a
+      // reasoning model that answers HTTP 400 to temperature != 1 and to max_tokens (measured
+      // 2026-10-02), which would make every call an error. Other judge callers send neither.
+      const res = await roles.judge({
+        messages: buildJudgeMessages(a, b),
+        responseFormat: { type: "json_object" },
+        sourcePaths,
+        signal,
+      });
+      const parsed = parseJudgeReply(res.text);
+      return parsed ? { ...parsed, model: res.model } : null;
+    },
+  };
 }
 
 export type JudgeOutcome =
@@ -164,10 +213,12 @@ export interface JudgeBudget {
 }
 
 export interface JudgeStatus {
-  /** A gateway judge role is configured. */
+  /** A judge backend is configured (a gateway judge role, or TypeSafe with a usable key). */
   configured: boolean;
   /** find_existing_page judges when its `judge` argument is omitted. */
   enabledByDefault: boolean;
+  /** lint_wiki judges near-duplicate pairs when its `judge` argument is omitted. */
+  lintByDefault: boolean;
   /** Resolved model of the most recent verdict, if any has been recorded. */
   model: string | null;
   callsToday: number;
@@ -177,10 +228,10 @@ export interface JudgeStatus {
 }
 
 export interface WikiJudge {
-  /** A judge call is possible at all: a gateway judge role exists and the daily cap is above 0. */
+  /** A judge call is possible at all: a backend exists and the daily cap is above 0. */
   readonly available: boolean;
   readonly settings: WikiJudgeSettings;
-  /** A fresh budget of `cap` gateway calls (default: settings.maxCallsPerRequest). The per-day
+  /** A fresh budget of `cap` judge calls (default: settings.maxCallsPerRequest). The per-day
    *  counter bounds every budget regardless. */
   newBudget(cap?: number): JudgeBudget;
   /** Does `topic` (a string a writer is about to create a page for) cover the same ground as `candidate`? */
@@ -192,6 +243,8 @@ export interface WikiJudge {
 
 export const DEFAULT_WIKI_JUDGE_SETTINGS: WikiJudgeSettings = {
   enabled: false,
+  lintEnabled: true,
+  provider: "gateway",
   maxCallsPerRequest: 3,
   maxCallsPerDay: 200,
   timeoutMs: 15000,
@@ -199,7 +252,11 @@ export const DEFAULT_WIKI_JUDGE_SETTINGS: WikiJudgeSettings = {
 };
 
 export interface WikiJudgeOptions {
+  /** The gateway roles. Used only when `settings.provider` is "gateway" and no `backend` is given. */
   roles: GatewayRoles | null;
+  /** The answering backend, built once at wiring. `null` is "no judge" and is never replaced by the
+   *  gateway; omitted derives the gateway backend from `roles`. */
+  backend?: WikiJudgeBackend | null;
   db: Database;
   settings: WikiJudgeSettings;
   /** Epoch ms; injectable for the day boundary. */
@@ -207,16 +264,25 @@ export interface WikiJudgeOptions {
 }
 
 export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
-  const { roles, db, settings } = opts;
+  const { db, settings } = opts;
   const now = opts.now ?? Date.now;
-  // The model the gateway last reported. Cache lookups need it BEFORE a call, so it is learned from
-  // the newest stored verdict at first use and refreshed by every call that reaches the gateway.
-  let knownModel: string | null | undefined;
+  const backend: WikiJudgeBackend | null =
+    opts.backend !== undefined
+      ? opts.backend
+      : settings.provider === "typesafe" || !opts.roles
+        ? null
+        : gatewayJudgeBackend(opts.roles);
+  // The model the backend last reported. Cache lookups need it BEFORE a call, so it is the pinned
+  // model, else learned from the newest stored verdict at first use, and refreshed by every call.
+  let knownModel: string | null | undefined = backend?.pinnedModel;
   const currentModel = (): string | null => {
-    if (knownModel === undefined) knownModel = readJudgeUsage(db, now()).model;
+    if (knownModel === undefined) {
+      const stored = readJudgeUsage(db, now()).model;
+      knownModel = stored !== null && backend?.acceptsCachedModel(stored) ? stored : null;
+    }
     return knownModel;
   };
-  const available = roles !== null && settings.maxCallsPerDay > 0;
+  const available = backend !== null && settings.maxCallsPerDay > 0;
 
   function cacheGet(kind: "topic" | "pair", s: string, c: string): JudgeOutcome | null {
     const model = currentModel();
@@ -285,29 +351,23 @@ export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
     sourcePaths: string[],
     budget: JudgeBudget,
   ): Promise<JudgeOutcome> {
-    if (!roles || settings.maxCallsPerDay <= 0) return { ok: false, reason: "unavailable" };
+    if (!backend || settings.maxCallsPerDay <= 0) return { ok: false, reason: "unavailable" };
     const hit = cacheGet(kind, s, c);
     if (hit) return hit;
     if (budget.remaining <= 0) return { ok: false, reason: "request_cap" };
     if (!reserveDailyCall()) return { ok: false, reason: "daily_cap" };
     budget.remaining--;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // The deadline cancels the gateway request itself (the client honours `signal`), so a stalled
+    // The deadline cancels the provider request itself (the client honours `signal`), so a stalled
     // call does not keep a socket open after the verdict was already given up on. The call was
     // reserved against the daily cap above and stays counted.
     const ctrl = new AbortController();
     try {
       const cut = (s: string): string => s.slice(0, settings.maxNoteChars);
       const res = await Promise.race([
-        // No temperature and no maxTokens, on purpose: the gateway's `judge` alias serves a
-        // reasoning model that answers HTTP 400 to temperature != 1 and to max_tokens (measured
-        // 2026-10-02), which would make every call an error. Other judge callers send neither.
-        roles.judge({
-          messages: buildJudgeMessages(
-            { title: cut(a.title), text: cut(a.text) },
-            { title: cut(b.title), text: cut(b.text) },
-          ),
-          responseFormat: { type: "json_object" },
+        backend.run({
+          a: { title: cut(a.title), text: cut(a.text) },
+          b: { title: cut(b.title), text: cut(b.text) },
           sourcePaths,
           signal: ctrl.signal,
         }),
@@ -319,14 +379,14 @@ export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
           timer.unref?.();
         }),
       ]);
-      const parsed = parseJudgeReply(res.text);
-      if (!parsed) {
+      if (!res) {
         recordFailure();
         return { ok: false, reason: "unparseable" };
       }
-      knownModel = res.model;
-      cachePut(kind, s, c, res.model, parsed);
-      return { ok: true, ...parsed, model: res.model, cached: false };
+      const { model, ...parsed } = res;
+      knownModel = model;
+      cachePut(kind, s, c, model, parsed);
+      return { ok: true, ...parsed, model, cached: false };
     } catch (e) {
       recordFailure();
       return {
@@ -360,8 +420,9 @@ export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
     status: () => {
       const u = readJudgeUsage(db, now());
       return {
-        configured: roles !== null,
+        configured: backend !== null,
         enabledByDefault: available && settings.enabled,
+        lintByDefault: available && settings.lintEnabled,
         model: u.model,
         callsToday: u.calls,
         failuresToday: u.failures,

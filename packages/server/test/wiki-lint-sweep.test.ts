@@ -4,7 +4,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { wireScheduler } from "../src/runtime/scheduler-wiring";
-import { registerWikiLintSweep, summarizeLintReport } from "../src/runtime/wiki-lint-sweep";
+import {
+  registerWikiLintSweep,
+  summarizeLintReport,
+  wikiLintSweepJudge,
+} from "../src/runtime/wiki-lint-sweep";
 import { NO_EXCLUSION } from "../src/search/index-exclusion";
 import type { LintReport } from "../src/tools/m7/knowledge/wiki-lint";
 import { openMemoryDb } from "./helpers";
@@ -47,8 +51,8 @@ describe("config: maintenance.wikiLint", () => {
         enabled: false,
         intervalHours: 24,
         maxNotes: 1500,
-        // The sweep's judge is a second opt-in, with its own per-run cap.
-        judge: false,
+        // The sweep itself is opt-in; once on, it judges when a judge is configured (own per-run cap).
+        judge: true,
         judgeMaxCalls: 20,
       });
     } finally {
@@ -170,5 +174,77 @@ describe("wireScheduler gating", () => {
   it("registers `wiki-lint` only when maintenance.wikiLint.enabled is set", () => {
     expect(wire(false)).not.toContain("wiki-lint");
     expect(wire(true)).toContain("wiki-lint");
+  });
+});
+
+describe("wikiLintSweepJudge: the sweep judges by default, but only when a judge exists", () => {
+  const roles = { judge: async () => ({ text: "", model: "m" }) } as never;
+  const cfg = (mutate: (c: ReturnType<typeof configFromVaultPath>) => void = () => undefined) => {
+    const dir = makeTempDir("otc-wikilint-judge-cfg-");
+    try {
+      const c = configFromVaultPath(dir);
+      mutate(c);
+      return c;
+    } finally {
+      rmTemp(dir);
+    }
+  };
+
+  it("default config + a gateway: the sweep gets a judge, with the per-run cap", () => {
+    const j = wikiLintSweepJudge(cfg(), roles);
+    expect(j).toBeDefined();
+    expect(j?.maxCalls).toBe(20);
+    expect(j?.backend).toBeTruthy();
+  });
+
+  it("no gateway: no judge, so no 'judge: off' line in every summary", () => {
+    expect(wikiLintSweepJudge(cfg(), null)).toBeUndefined();
+  });
+
+  it("maintenance.wikiLint.judge=false turns it off", () => {
+    expect(
+      wikiLintSweepJudge(
+        cfg((c) => (c.maintenance.wikiLint.judge = false)),
+        roles,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("wikiJudge.maxCallsPerDay=0 turns it off", () => {
+    expect(
+      wikiLintSweepJudge(
+        cfg((c) => (c.wikiJudge.maxCallsPerDay = 0)),
+        roles,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("provider typesafe without a key: no judge (warned), never the gateway's", () => {
+    const warn: string[] = [];
+    const c = cfg((x) => {
+      x.wikiJudge.provider = "typesafe";
+      x.wikiJudge.model = "jev-1.13.0";
+      x.wikiJudge.threshold = 0.6;
+      x.wikiJudge.apiKeyEnv = "WIKI_SWEEP_TEST_MISSING_KEY";
+    });
+    expect(wikiLintSweepJudge(c, roles, (m) => warn.push(m))).toBeUndefined();
+    expect(warn).toHaveLength(1);
+    expect(warn[0]).toContain("WIKI_SWEEP_TEST_MISSING_KEY");
+  });
+
+  it("provider typesafe with a key: a judge backed by Jev, no gateway needed", () => {
+    process.env.WIKI_SWEEP_TEST_KEY = "k";
+    try {
+      const c = cfg((x) => {
+        x.wikiJudge.provider = "typesafe";
+        x.wikiJudge.model = "jev-1.13.0";
+        x.wikiJudge.threshold = 0.6;
+        x.wikiJudge.apiKeyEnv = "WIKI_SWEEP_TEST_KEY";
+      });
+      const j = wikiLintSweepJudge(c, null);
+      expect(j?.backend?.pinnedModel).toBe("jev-1.13.0@0.6");
+    } finally {
+      delete process.env.WIKI_SWEEP_TEST_KEY;
+    }
   });
 });

@@ -534,3 +534,116 @@ describe("typesafe client — retry", () => {
     expect(calls).toBe(3);
   });
 });
+
+// Choice: the wiki judge's question type. Captured shape (docs.typesafe.ai/api, Choice answer):
+// the highest-probability option plus a probability for EVERY option.
+describe("typesafe client — choice", () => {
+  const OPTIONS = { same_topic: "s", overlapping: "o", different: "d" };
+  const PROBS = { different: 0.01, overlapping: 0.26, same_topic: 0.73 };
+  const ANSWER = {
+    model: "jev-1.13.0",
+    answers: {
+      q: { type: "choice", choice: "same_topic", confidence: 0.59, probabilities: PROBS },
+    },
+    usage: { input_tokens: 383, output_tokens: 43 },
+  };
+  const call = (body: unknown, extra: Record<string, unknown> = {}) => {
+    const seen: { url: string; req: RequestInit }[] = [];
+    const fetchFn = (async (url: string, req: RequestInit) => {
+      seen.push({ url, req });
+      return jsonResponse(body);
+    }) as unknown as typeof fetch;
+    const client = createTypesafeClient({ baseUrl: "http://ts/typesafe", apiKey: "k", fetchFn });
+    const p = client.choice({
+      state: { page_a: { title: "A", text: "a" } },
+      model: "jev-1.13.0",
+      instructions: "same topic?",
+      criteria: OPTIONS,
+      ...extra,
+    });
+    return { p, seen };
+  };
+
+  it("sends one choice question at /v1/systemone and unwraps the answer", async () => {
+    const { p, seen } = call(ANSWER);
+    expect(await p).toEqual({
+      choice: "same_topic",
+      probabilities: { same_topic: 0.73, overlapping: 0.26, different: 0.01 },
+      model: "jev-1.13.0",
+      usage: { inputTokens: 383, outputTokens: 43 },
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.url).toBe("http://ts/typesafe/v1/systemone");
+    expect(JSON.parse(String(seen[0]?.req.body))).toEqual({
+      state: { page_a: { title: "A", text: "a" } },
+      model: "jev-1.13.0",
+      questions: { q: { type: "choice", instructions: "same topic?", criteria: OPTIONS } },
+    });
+    expect((seen[0]?.req.headers as Record<string, string>).authorization).toBe("Bearer k");
+  });
+
+  const malformed: [string, Record<string, unknown>][] = [
+    ["a choice that is not a requested option", { choice: "maybe", probabilities: PROBS }],
+    ["a missing probabilities object", { choice: "same_topic" }],
+    [
+      "a probability missing for one option",
+      { choice: "same_topic", probabilities: { same_topic: 1, different: 0 } },
+    ],
+    [
+      "an extra option in probabilities",
+      { choice: "same_topic", probabilities: { ...PROBS, extra: 0 } },
+    ],
+    ["a probability above 1", { choice: "same_topic", probabilities: { ...PROBS, same_topic: 2 } }],
+    [
+      "a non-numeric probability",
+      { choice: "same_topic", probabilities: { ...PROBS, same_topic: "x" } },
+    ],
+  ];
+  it.each(malformed)("%s is a typed shape error", async (_name, answer) => {
+    const { p } = call({ model: "m", answers: { q: { type: "choice", ...answer } } });
+    await expect(p).rejects.toBeInstanceOf(TypesafeError);
+    await expect(p).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("a noul answer to a choice question is a shape error", async () => {
+    const { p } = call({ model: "m", answers: { q: { type: "noul", noul: 0.5 } } });
+    await expect(p).rejects.toMatchObject({ kind: "shape" });
+  });
+
+  it("an already-aborted signal makes no request", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const { p, seen } = call(ANSWER, { signal: ctrl.signal });
+    await expect(p).rejects.toMatchObject({ kind: "timeout" });
+    expect(seen).toHaveLength(0);
+  });
+
+  it("aborting mid-flight cancels the request and is not retried", async () => {
+    const ctrl = new AbortController();
+    let attempts = 0;
+    const fetchFn = ((_u: string, req: RequestInit) => {
+      attempts++;
+      return new Promise((_res, rej) => {
+        req.signal?.addEventListener("abort", () =>
+          rej(Object.assign(new Error("aborted"), { name: "AbortError" })),
+        );
+      });
+    }) as unknown as typeof fetch;
+    const client = createTypesafeClient({
+      baseUrl: "http://ts",
+      apiKey: "k",
+      fetchFn,
+      sleepFn: async () => undefined,
+    });
+    const p = client.choice({
+      state: {},
+      model: "m",
+      instructions: "?",
+      criteria: OPTIONS,
+      signal: ctrl.signal,
+    });
+    setTimeout(() => ctrl.abort(), 10);
+    await expect(p).rejects.toMatchObject({ kind: "timeout" });
+    expect(attempts).toBe(1);
+  });
+});

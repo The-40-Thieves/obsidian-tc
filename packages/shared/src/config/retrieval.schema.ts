@@ -15,7 +15,7 @@
 // (doctor/citation-judge.ts) and the runtime builder (experiential/citation-judge.ts) now call the
 // SAME function, so all three can never classify one baseUrl three different ways again.
 import { z } from "zod";
-import { classifyJudgeBaseUrl } from "../net-host";
+import { typesafeJudgeIssues } from "../net-host";
 
 /** THE-397: retrieval-fusion knobs (the first config-exposed retrieval section). */
 export const RetrievalConfigSchema = z.object({
@@ -779,60 +779,14 @@ export const ExperientialConfigSchema = z.object({
             ),
         })
         .superRefine((c, ctx) => {
-          // This URL carries the bearer key (Authorization header) and vault-derived
-          // source/response text in every request body — a plain `http://` endpoint would send
-          // both in cleartext. Loopback stays allowed unencrypted for a local test/dev double,
-          // the same carve-out `isLoopbackHost` already draws for the HTTP transport bind;
-          // `allowPlainHttp` is a further, explicit opt-in for any other http:// host — and ONLY
-          // http://, never any other non-https scheme (classifyJudgeBaseUrl's own doc comment).
-          const cls = classifyJudgeBaseUrl(c.baseUrl);
-          if (cls === "invalid") {
+          // The https-unless-loopback-unless-allowPlainHttp rule and the typesafe-only pinned
+          // model / threshold rules live in net-host.ts, shared with the wikiJudge block.
+          for (const issue of typesafeJudgeIssues(c, "judge", "Noul"))
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              path: ["baseUrl"],
-              message:
-                'judge.baseUrl must be a canonical "scheme://host" URL with scheme https or http — either it could not be parsed that way, or its scheme is neither (e.g. ftp:/file:). allowPlainHttp only ever widens http:// on a non-loopback host, never any other scheme.',
+              path: [issue.path],
+              message: issue.message,
             });
-          } else if (cls === "http-remote" && !c.allowPlainHttp) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              path: ["baseUrl"],
-              message:
-                "judge.baseUrl must use https:// — this URL carries the bearer key and vault-derived source/response text — unless the host is loopback (localhost/127.0.0.1/[::1]) for a local test or dev endpoint, or judge.allowPlainHttp is explicitly set to opt into a trusted plain-http path (e.g. a host-local gateway or an encrypted overlay).",
-            });
-          }
-          // Scoped to provider "typesafe" ONLY: the gateway's own `judge` role is free to name
-          // any model string it likes (that is the gateway's contract, not this block's), so this
-          // predicate must not reject a `model` set here while `provider` stays "gateway".
-          if (c.provider === "typesafe") {
-            if (!c.model) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ["model"],
-                message:
-                  'judge.model is required when judge.provider is "typesafe" — pin a versioned model id (e.g. "jev-1.13.0").',
-              });
-              // POSITIVE predicate, not a blacklist: a bare `endsWith("-latest"/"-preview")`
-              // check let an equally floating "jev" or "totally-unversioned" straight through.
-              // Require a dotted numeric version suffix instead ("-1.13.0" or "-1.13") — that
-              // rejects "jev", "jev-latest" and "jev-preview" alike, and any other unversioned or
-              // alias-versioned spelling, without needing to name every alias TypeSafe might ship.
-            } else if (!/-\d+\.\d+(?:\.\d+)?$/.test(c.model)) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ["model"],
-                message: `judge.model "${c.model}" is not a pinned, versioned id — it must end in a dotted numeric version such as "-1.13.0" or "-1.13" (e.g. "jev-1.13.0"); a floating alias like "-latest"/"-preview" (or no version at all) can silently move the decision boundary underneath a fixed threshold.`,
-              });
-            }
-            if (c.threshold === undefined) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                path: ["threshold"],
-                message:
-                  'judge.threshold is required when judge.provider is "typesafe" (0..1) — no default exists; Noul thresholds are tuned per model version and per deployment.',
-              });
-            }
-          }
         })
         .optional()
         .describe(

@@ -73,7 +73,7 @@ const pair = (d: any, a: string): any =>
 describe("lint_wiki judge: near-duplicate proposals carry the verdict", () => {
   it("without a judge nothing is sent and the proposals are as before", async () => {
     const { roles, calls } = stubRoles(byTopic);
-    const d = await fixture({ roles, wikiJudge: { enabled: false } }).data("lint_wiki", LINT);
+    const d = await fixture({ roles, wikiJudge: { lintEnabled: false } }).data("lint_wiki", LINT);
     expect(d.judge).toBeUndefined();
     expect(calls).toHaveLength(0);
     expect(d.proposals.map((p: any) => p.kind)).toEqual([
@@ -109,13 +109,62 @@ describe("lint_wiki judge: near-duplicate proposals carry the verdict", () => {
     expect(calls).toHaveLength(3);
   });
 
-  it("default follows the wikiJudge.enabled config", async () => {
+  it("is ON by default when a judge is configured, whatever find_existing_page's switch says", async () => {
     const { roles, calls } = stubRoles(byTopic);
-    const d = await fixture({ roles, wikiJudge: { enabled: true } }).data("lint_wiki", LINT);
+    // DEFAULT_WIKI_JUDGE_SETTINGS: enabled=false (find_existing_page), lintEnabled=true.
+    const d = await fixture({ roles, wikiJudge: { enabled: false } }).data("lint_wiki", LINT);
     expect(d.judge.ran).toBe(true);
     expect(calls.length).toBeGreaterThan(0);
+    expect(pair(d, "Pair A1").evidence.judge.verdict).toBe("same_topic");
     const off = await h.data("lint_wiki", { ...LINT, judge: false });
     expect(off.judge).toBeUndefined();
+  });
+
+  it("lintEnabled=false turns the default off; judge=true still opts in", async () => {
+    const { roles, calls } = stubRoles(byTopic);
+    const hh = fixture({ roles, wikiJudge: { lintEnabled: false } });
+    expect((await hh.data("lint_wiki", LINT)).judge).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect((await hh.data("lint_wiki", { ...LINT, judge: true })).judge.ran).toBe(true);
+  });
+
+  it("with no judge configured the default-on pass is silent and the proposals are unchanged", async () => {
+    const d = await fixture({ roles: null }).data("lint_wiki", LINT);
+    expect(d.judge).toBeUndefined();
+    expect(d.proposals.map((p: any) => p.kind)).toEqual([
+      "near_duplicate",
+      "near_duplicate",
+      "near_duplicate",
+    ]);
+    // An explicit ask is still answered, with the reason.
+    const asked = await h.data("lint_wiki", { ...LINT, judge: true });
+    expect(asked.judge).toMatchObject({ ran: false });
+  });
+
+  it("a typesafe provider with no usable backend is no judge, never the gateway", async () => {
+    const { roles, calls } = stubRoles(byTopic);
+    const d = await fixture({
+      roles,
+      wikiJudgeBackend: null,
+      wikiJudge: { provider: "typesafe" },
+    }).data("lint_wiki", LINT);
+    expect(d.judge).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    expect(d.proposals).toHaveLength(3);
+  });
+
+  it("a backend other than the gateway answers the pairs", async () => {
+    const asked: string[] = [];
+    const backend = {
+      acceptsCachedModel: () => true,
+      run: async ({ a }: { a: { title: string } }) => {
+        asked.push(a.title);
+        return { verdict: "overlapping" as const, rationale: "stub", model: "jev-test@0.5" };
+      },
+    };
+    const d = await fixture({ roles: null, wikiJudgeBackend: backend }).data("lint_wiki", LINT);
+    expect(d.judge).toMatchObject({ ran: true, model: "jev-test@0.5" });
+    expect(asked.length).toBeGreaterThan(0);
   });
 
   it("concise responses still show the verdict", async () => {
@@ -270,6 +319,8 @@ describe("scheduled wiki lint: opt-in judge with a per-run cap", () => {
   };
   const settings = {
     enabled: false,
+    lintEnabled: true,
+    provider: "gateway" as const,
     maxCallsPerRequest: 3,
     maxCallsPerDay: 200,
     timeoutMs: 1000,

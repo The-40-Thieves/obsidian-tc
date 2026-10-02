@@ -1,7 +1,7 @@
-// THE-1078: fetch client for TypeSafe Jev — an opt-in judge PROVIDER for citation inference only,
-// selected via experiential.citationInfer.judge.provider = "typesafe". This module knows nothing
-// about citations; it is a minimal wire client over TypeSafe's `/v1/systemone` endpoint and its
-// "Noul" question type, mirroring gateway/client.ts's retry/timeout shape so the two clients don't
+// THE-1078: fetch client for TypeSafe Jev — an opt-in judge PROVIDER, selected via
+// experiential.citationInfer.judge.provider (Noul) or wikiJudge.provider (Choice) = "typesafe".
+// This module knows nothing about either caller; it is a minimal wire client over TypeSafe's
+// `/v1/systemone` endpoint and its "Noul" and "Choice" question types, mirroring gateway/client.ts's retry/timeout shape so the two clients don't
 // diverge for no reason. See experiential/citation-judge.ts for the adapter that calls this from
 // the citation judge seam.
 import { version as VERSION } from "../../package.json";
@@ -85,9 +85,33 @@ export class TypesafeError extends Error {
   }
 }
 
+export interface TypesafeChoiceRequest {
+  /** Arbitrary JSON state the question is asked against. Never logged. */
+  state: Record<string, unknown>;
+  /** A pinned, versioned model id (e.g. "jev-1.13.0"). */
+  model: string;
+  instructions: string;
+  /** Option -> what it means. At least one option; the answer is one of these keys. */
+  criteria: Record<string, string>;
+  /** Caller's deadline: aborting it cancels the in-flight attempt and stops further retries. */
+  signal?: AbortSignal;
+}
+
+export interface TypesafeChoiceResult {
+  /** The highest-probability option. */
+  choice: string;
+  /** Every option -> its probability. A ranking score; TypeSafe does not promise calibration. */
+  probabilities: Record<string, number>;
+  /** The model TypeSafe actually answered with — report this, not the requested id. */
+  model: string;
+  usage?: TypesafeUsage;
+}
+
 export interface TypesafeClient {
   /** POST /v1/systemone with exactly one Noul question, and unwrap its answer. */
   noul(req: TypesafeNoulRequest): Promise<TypesafeNoulResult>;
+  /** POST /v1/systemone with exactly one Choice question, and unwrap its answer. */
+  choice(req: TypesafeChoiceRequest): Promise<TypesafeChoiceResult>;
 }
 
 export interface TypesafeClientOptions {
@@ -142,6 +166,8 @@ function backoffDelayMs(
 interface TypesafeAnswer {
   type?: string;
   noul?: number;
+  choice?: unknown;
+  probabilities?: unknown;
 }
 
 /** A Noul call asks exactly ONE question, so a well-formed response carries EXACTLY one entry in
@@ -194,11 +220,18 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
   const sleepFn = opts.sleepFn ?? realSleep;
   const randomFn = opts.randomFn ?? Math.random;
 
-  async function noul(req: TypesafeNoulRequest): Promise<TypesafeNoulResult> {
+  /** One question per call; `read` returns the typed value of a well-formed answer of `type`, or
+   *  undefined when the answer is malformed (a `kind: "shape"` error). */
+  async function ask<T>(
+    req: { state: Record<string, unknown>; model: string; signal?: AbortSignal | undefined },
+    question: Record<string, unknown>,
+    shape: { type: string; expected: string; read: (a: TypesafeAnswer) => T | undefined },
+  ): Promise<{ value: T; model: string; usage?: TypesafeUsage }> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // A FRESH AbortController every attempt — see gateway/client.ts's post() for why a reused
       // controller would abort a retry instantly after the first attempt's own timeout fires.
+      if (req.signal?.aborted) throw new TypesafeError("typesafe: aborted", { kind: "timeout" });
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       let res: Awaited<ReturnType<FetchFn>> | undefined;
@@ -216,15 +249,9 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
           body: JSON.stringify({
             state: req.state,
             model: req.model,
-            questions: {
-              [QUESTION_ID]: {
-                type: "noul",
-                instructions: req.instructions,
-                criteria: { true: req.criteria.true, false: req.criteria.false },
-              },
-            },
+            questions: { [QUESTION_ID]: question },
           }),
-          signal: ctrl.signal,
+          signal: req.signal ? AbortSignal.any([ctrl.signal, req.signal]) : ctrl.signal,
         });
       } catch (e) {
         // Network-level throw or our own per-attempt timeout — both transient.
@@ -265,26 +292,21 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
           }
           const body = parsed as TypesafeResponseBody;
           const answer = soleAnswer(body.answers);
-          if (
-            answer?.type !== "noul" ||
-            typeof answer.noul !== "number" ||
-            !Number.isFinite(answer.noul) ||
-            answer.noul < 0 ||
-            answer.noul > 1
-          ) {
+          const value = answer?.type === shape.type ? shape.read(answer) : undefined;
+          if (value === undefined) {
             // THE SHAPE-CHANGE CONTRACT: a missing/malformed answers.<id>.noul, a multi-answer
             // body, or a noul outside [0, 1] is a typed (`kind: "shape"`) error, never `undefined`
             // or an out-of-range number silently threaded through as a score. A 2xx body this
             // malformed means the judge ANSWERED, just unusably — `kind: "shape"` is what lets
             // the citation-judge adapter fold it into `parseFailures`, not `judgeErrors`.
             throw new TypesafeError(
-              "typesafe: response is missing a well-formed answers.<id>.noul (Noul question) — " +
-                'expected exactly one answer, type "noul", noul in [0, 1]',
+              `typesafe: response is missing a well-formed answers.<id> (${shape.type} question) — ` +
+                `expected exactly one answer, type "${shape.type}", ${shape.expected}`,
               { requestId: body.request_id, kind: "shape" },
             );
           }
           return {
-            noul: answer.noul,
+            value,
             model: body.model ?? req.model,
             ...(body.usage
               ? {
@@ -347,5 +369,56 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
     throw lastError;
   }
 
-  return { noul };
+  const readNoul = (a: TypesafeAnswer): number | undefined =>
+    typeof a.noul === "number" && Number.isFinite(a.noul) && a.noul >= 0 && a.noul <= 1
+      ? a.noul
+      : undefined;
+
+  // A Choice answer is well-formed only if its `choice` is one of the options this request named
+  // and `probabilities` carries exactly those options, each a finite number in [0, 1].
+  const readChoice =
+    (options: string[]) =>
+    (a: TypesafeAnswer): { choice: string; probabilities: Record<string, number> } | undefined => {
+      const p = a.probabilities;
+      if (typeof a.choice !== "string" || !options.includes(a.choice)) return undefined;
+      if (p === null || typeof p !== "object" || Array.isArray(p)) return undefined;
+      const rec = p as Record<string, unknown>;
+      const out: Record<string, number> = {};
+      for (const o of options) {
+        const v = rec[o];
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) return undefined;
+        out[o] = v;
+      }
+      return Object.keys(rec).length === options.length
+        ? { choice: a.choice, probabilities: out }
+        : undefined;
+    };
+
+  return {
+    noul: async (req) => {
+      const r = await ask(
+        req,
+        {
+          type: "noul",
+          instructions: req.instructions,
+          criteria: { true: req.criteria.true, false: req.criteria.false },
+        },
+        { type: "noul", expected: "noul in [0, 1]", read: readNoul },
+      );
+      return { noul: r.value, model: r.model, ...(r.usage ? { usage: r.usage } : {}) };
+    },
+    choice: async (req) => {
+      const options = Object.keys(req.criteria);
+      const r = await ask(
+        req,
+        { type: "choice", instructions: req.instructions, criteria: req.criteria },
+        {
+          type: "choice",
+          expected: "a choice among the requested options with a probability for each",
+          read: readChoice(options),
+        },
+      );
+      return { ...r.value, model: r.model, ...(r.usage ? { usage: r.usage } : {}) };
+    },
+  };
 }
