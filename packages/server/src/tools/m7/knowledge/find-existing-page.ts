@@ -38,11 +38,11 @@ import {
   createWikiJudge,
   DEFAULT_WIKI_JUDGE_SETTINGS,
   type JudgeFailure,
-  type JudgeVerdict,
   loadSendable,
   type SendableNote,
   type SendScope,
   type WikiJudge,
+  type WikiJudgeVerdict,
 } from "./wiki-judge";
 
 export type PageVerdict = "exists" | "ambiguous" | "new";
@@ -209,7 +209,8 @@ async function resolveWithJudge(
     else section.unjudged.push({ path: c.path, reason: r.refused });
   }
   const outcomes = await Promise.all(targets.map((t) => judge.judgeTopic(topic, t.note, budget)));
-  const ruled: { c: PageCandidate; verdict: JudgeVerdict; rationale: string; model: string }[] = [];
+  const ruled: { c: PageCandidate; verdict: WikiJudgeVerdict; rationale: string; model: string }[] =
+    [];
   outcomes.forEach((o, i) => {
     const c = (targets[i] as (typeof targets)[number]).c;
     if (!o.ok) {

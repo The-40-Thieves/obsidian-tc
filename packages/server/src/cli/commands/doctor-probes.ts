@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { dbFootprintBytes, FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
 import { openDatabase } from "../../db/open";
+import { readJudgeUsage } from "../../db/wiki-judge-usage";
 import type {
   DbSpaceView,
   DerivedColumnState,
@@ -30,7 +31,6 @@ import {
 } from "../../embeddings/sticky-provider";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { readTelemetryState } from "../../telemetry/state";
-import { readJudgeUsage } from "../../tools/m7/knowledge/wiki-judge";
 import { staleExplicitSessionSummary } from "../../workspace/sessions";
 
 /**
@@ -617,8 +617,6 @@ export async function resolveEffectiveEmbeddings(
   };
 }
 
-/** wiki.judge: today's judge use and the model that last ruled, read from cache.db (read-only). A
- *  missing cache.db or an un-migrated one means no judge has ever run: zeros, not a fault. */
 export async function probeWikiJudge(
   cacheDir: string,
   busyTimeoutMs: number,

@@ -148,8 +148,6 @@ export interface DoctorConfigView {
   /** THE-1125: opt-in telemetry posture. Always present when supplied — no `--probe` gate, same
    *  reasoning as toolFacade/captureLocation above. */
   telemetry?: TelemetryView;
-  /** The wiki judge (find_existing_page / lint_wiki): gateway configured, default-on, model, today's
-   *  calls. Always present when supplied: config plus two indexed reads, no `--probe` gate. */
   wikiJudge?: WikiJudgeView;
   /** Is the signing-key / revocation registry (auth.db) usable, and are its key files trusted?
    *  No `--probe` gate: it only stats the key files and opens auth.db read-only. */

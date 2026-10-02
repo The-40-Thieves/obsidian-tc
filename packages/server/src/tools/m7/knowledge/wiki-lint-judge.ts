@@ -4,7 +4,7 @@
 // unreadable, over budget, a failed call) keeps its proposal unchanged, and nothing is written.
 import { z } from "zod";
 import type { EgressFilter } from "../../../plane/egress-filter";
-import { type JudgeVerdict, loadSendable, type SendScope, type WikiJudge } from "./wiki-judge";
+import { loadSendable, type SendScope, type WikiJudge, type WikiJudgeVerdict } from "./wiki-judge";
 import type { LintReport } from "./wiki-lint";
 
 export const PairJudgeReportSchema = z.object({
@@ -25,7 +25,7 @@ export type PairJudgeReport = z.infer<typeof PairJudgeReportSchema>;
 export const DEFAULT_LINT_JUDGE_CALLS = 10;
 const CONCURRENCY = 4;
 
-const ACTION: Record<JudgeVerdict, string> = {
+const ACTION: Record<WikiJudgeVerdict, string> = {
   same_topic:
     "The judge ruled these the same topic. Read both, keep one page, fold the other's unique content into it, and re-point links to the survivor with rewrite_link.",
   overlapping:

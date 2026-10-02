@@ -18,6 +18,7 @@
 //     invalidates itself and a repeat costs no call. No note text is stored.
 import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
+import { readJudgeUsage, utcDay } from "../../../db/wiki-judge-usage";
 import { type EgressFilter, isExcludedPath } from "../../../plane/egress-filter";
 import type { GatewayRoles } from "../../../plane/gateway";
 import type { VaultExclusion } from "../../../search/index-exclusion";
@@ -27,7 +28,7 @@ import { readNote } from "../../../vault/notes-io";
 import { contentHash, resolveVaultPath } from "../../../vault/paths";
 
 export const JUDGE_VERDICTS = ["same_topic", "overlapping", "different"] as const;
-export type JudgeVerdict = (typeof JUDGE_VERDICTS)[number];
+export type WikiJudgeVerdict = (typeof JUDGE_VERDICTS)[number];
 
 /** Default characters of each note's body sent to the judge (`wikiJudge.maxNoteChars`). The head of a
  *  page states its topic; a longer excerpt costs tokens without changing the answer this question
@@ -47,7 +48,7 @@ export interface WikiJudgeSettings {
 }
 
 export type JudgeOutcome =
-  | { ok: true; verdict: JudgeVerdict; rationale: string; model: string; cached: boolean }
+  | { ok: true; verdict: WikiJudgeVerdict; rationale: string; model: string; cached: boolean }
   | { ok: false; reason: JudgeFailure };
 
 export type JudgeFailure =
@@ -129,7 +130,9 @@ export function buildJudgeMessages(
 /** Strict parse of the judge's reply: one JSON object (a single code fence around it is tolerated),
  *  a verdict from the closed set, a string rationale. Anything else is null: never repaired by
  *  scanning prose for a verdict word, so a rambling reply cannot be read as an answer. */
-export function parseJudgeReply(text: string): { verdict: JudgeVerdict; rationale: string } | null {
+export function parseJudgeReply(
+  text: string,
+): { verdict: WikiJudgeVerdict; rationale: string } | null {
   let t = text.trim();
   const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n?```$/i.exec(t);
   if (fenced) t = (fenced[1] as string).trim();
@@ -149,7 +152,7 @@ export function parseJudgeReply(text: string): { verdict: JudgeVerdict; rational
     .replace(/\p{Cc}+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return { verdict: verdict as JudgeVerdict, rationale: clean.slice(0, MAX_RATIONALE_CHARS) };
+  return { verdict: verdict as WikiJudgeVerdict, rationale: clean.slice(0, MAX_RATIONALE_CHARS) };
 }
 
 /** Case- and spacing-insensitive identity of a topic string, for its cache key. */
@@ -203,32 +206,6 @@ export interface WikiJudgeOptions {
   now?: () => number;
 }
 
-const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
-
-export function readJudgeUsage(
-  db: Database,
-  now: number,
-): { calls: number; failures: number; model: string | null; cached: number } {
-  try {
-    const u = db
-      .prepare("SELECT calls, failures FROM wiki_judge_usage WHERE day = ?")
-      .get(utcDay(now)) as { calls: number; failures: number } | undefined;
-    const m = db
-      .prepare("SELECT model FROM wiki_judge_verdicts ORDER BY judged_at DESC LIMIT 1")
-      .get() as { model: string } | undefined;
-    const n = db.prepare("SELECT count(*) AS n FROM wiki_judge_verdicts").get() as { n: number };
-    return {
-      calls: u?.calls ?? 0,
-      failures: u?.failures ?? 0,
-      model: m?.model ?? null,
-      cached: n.n,
-    };
-  } catch {
-    // An un-migrated cache.db has neither table: no judge has ever run against it.
-    return { calls: 0, failures: 0, model: null, cached: 0 };
-  }
-}
-
 export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
   const { roles, db, settings } = opts;
   const now = opts.now ?? Date.now;
@@ -249,7 +226,7 @@ export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
         .prepare(
           "SELECT verdict, rationale FROM wiki_judge_verdicts WHERE kind = ? AND subject_hash = ? AND candidate_hash = ? AND model = ?",
         )
-        .get(kind, s, c, model) as { verdict: JudgeVerdict; rationale: string } | undefined;
+        .get(kind, s, c, model) as { verdict: WikiJudgeVerdict; rationale: string } | undefined;
       return r
         ? { ok: true, verdict: r.verdict, rationale: r.rationale, model, cached: true }
         : null;
@@ -263,7 +240,7 @@ export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
     s: string,
     c: string,
     model: string,
-    r: { verdict: JudgeVerdict; rationale: string },
+    r: { verdict: WikiJudgeVerdict; rationale: string },
   ): void {
     try {
       db.prepare(
