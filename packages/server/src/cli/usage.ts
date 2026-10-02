@@ -308,8 +308,9 @@ Usage:
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>] [--json]
                                           Mint a single-use HITL confirmation token bound to the
                                           args_hash an elicit_required error returned (THE-826) —
-                                          the route to a token for a client that does not implement
-                                          MCP elicitation (e.g. Claude Code). Authorization is
+                                          the route to a token for a client that cannot complete the
+                                          MCP elicitation prompt (unsupported, or auto-cancelled by a
+                                          headless client such as Claude Code). Authorization is
                                           filesystem access to the SAME cache.db the live server
                                           reads elicit_tokens from — the same trust boundary
                                           'token mint' rests on for auth.jwtSecret. Bound to

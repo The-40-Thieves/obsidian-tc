@@ -161,6 +161,9 @@ export function buildConfirmElicitationParams(
   };
 }
 
+/** How a non-approving confirm leg ended: `cancelled` = dismissed without choosing, `declined` = a no. */
+export type ConfirmRoundOutcome = "declined" | "cancelled";
+
 /**
  * THE-1106 fix round 1 (CRITICAL — cross-vendor review, found empirically by the shim wire test,
  * not by inspection): a verified `requestState` alone proves the token is AUTHENTIC and bound to
@@ -175,14 +178,16 @@ export function buildConfirmElicitationParams(
  * client content) to be `{action: "accept", content: {approve: true}}` before trusting the echoed
  * state — returned as `elicitState`, `undefined` otherwise.
  *
- * `roundDeclinedOrCancelled` is true when a round happened for THIS wire request AND it was NOT an
- * approval — used by `dispatchToResult` to stop offering a SECOND `inputRequired` for the SAME
- * declined confirmation, which would otherwise loop (the re-thrown `elicit_required` looks
- * identical to a first attempt). Deliberately NOT triggered by an approved-but-mismatched state
+ * `roundOutcome` is set when a round happened for THIS wire request AND it was NOT an approval —
+ * `"cancelled"` for the client's `cancel` action (dismissed without choosing: approval was NOT
+ * OBTAINED, the human never said no), `"declined"` for anything else (an explicit `decline`, or
+ * `accept` without `approve: true`). `dispatchToResult` uses it to stop offering a SECOND
+ * `inputRequired` for the SAME answered confirmation, which would otherwise loop (the re-thrown
+ * `elicit_required` looks identical to a first attempt), and to render the matching text. Deliberately NOT triggered by an approved-but-mismatched state
  * (e.g. one minted for different arguments, a different vault, or one whose GATE doesn't cover
  * what actually needed confirming — a handler-side gate the dispatch-level state doesn't reach) —
  * that case gets its OWN fresh round trip rather than a suppressed error, capped by `approvedRound`
- * below rather than by `roundDeclinedOrCancelled`.
+ * below rather than by `roundOutcome`.
  *
  * `approvedRound` surfaces the echoed state's OWN `round` counter whenever the leg was approved
  * (matched or not) — `offerInputRequired` uses it to cap re-offers after a run of
@@ -194,7 +199,7 @@ export function resolveElicitConfirmation(mcpReq: {
   inputResponses?: Record<string, unknown>;
 }): {
   elicitState: ElicitRequestState | undefined;
-  roundDeclinedOrCancelled: boolean;
+  roundOutcome: ConfirmRoundOutcome | undefined;
   approvedRound: number | undefined;
   /** What the human answered on this request's confirm leg, tied to the verified echoed state's
    *  own tool/args_hash. Telemetry only (hitl-telemetry.ts): no gate reads it. Undefined with no
@@ -209,7 +214,12 @@ export function resolveElicitConfirmation(mcpReq: {
     confirmResponse.content?.approve === true;
   return {
     elicitState: confirmApproved ? echoed : undefined,
-    roundDeclinedOrCancelled: confirmResponse.kind !== "missing" && !confirmApproved,
+    roundOutcome:
+      confirmResponse.kind === "missing" || confirmApproved
+        ? undefined
+        : confirmResponse.kind === "elicit" && confirmResponse.action === "cancel"
+          ? "cancelled"
+          : "declined",
     approvedRound: confirmApproved ? (echoed?.round ?? 0) : undefined,
     answer:
       echoed !== undefined && confirmResponse.kind === "elicit"
@@ -241,7 +251,7 @@ const MAX_MISMATCH_ROUNDS = 2;
  * malformed/unexpected error shape) OR when `previousApprovedRound` is already at
  * `MAX_MISMATCH_ROUNDS` (an approved-but-mismatched round would otherwise re-offer indefinitely) —
  * either way, the caller falls through to the plain text error. Callers gate on
- * `roundTripDeliverable`/`canElicit`/`roundDeclinedOrCancelled` themselves (mcp/server.ts's
+ * `roundTripDeliverable`/`canElicit`/`roundOutcome` themselves (mcp/server.ts's
  * `dispatchToResult`) — this function does not re-check any of that.
  */
 export async function offerInputRequired(
@@ -282,12 +292,21 @@ export async function offerInputRequired(
   }) as unknown as CallToolResult;
 }
 
-/** THE-1106 fix round 2 (LOW 6): marks an `elicit_required` error as an ACTUAL decline/cancel, not
- *  a plain unconfirmed call — error-rendering.ts's `renderElicitInstruction` renders the
- *  decline-specific text ("do not retry, do not mint a token") instead of the "ask the user now"
- *  directive, which would be stale: the user already answered. */
-export function withDeclinedFlag(error: ErrorJSON): ErrorJSON {
-  return { ...error, details: { ...error.details, declined: true } } as ErrorJSON;
+/** Stamps a non-approving confirm outcome on an `elicit_required` error: `details.reason` for
+ *  error-rendering.ts's text, and `message`/`recovery` so the structured channel agrees with it.
+ *  `declined` is a hard stop (no retry, no token); `cancelled` means approval was NOT obtained —
+ *  nobody refused, so the out-of-band `obsidian-tc elicit` route stays open (the write is still
+ *  refused until a token is redeemed). */
+export function withRoundOutcome(error: ErrorJSON, outcome: ConfirmRoundOutcome): ErrorJSON {
+  const declined = outcome === "declined";
+  return {
+    ...error,
+    message: declined ? error.message : "human approval not obtained",
+    recovery: declined
+      ? "The user declined this change. Do not retry it and do not mint a token."
+      : "Approval was not obtained: the client dismissed the confirmation prompt without answering, and nothing was changed. Ask the user; if they approve, mint a single-use token with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend with elicit_token. Never reuse an old token.",
+    details: { ...error.details, reason: declined ? "approval_declined" : "approval_not_obtained" },
+  } as ErrorJSON;
 }
 
 /** THE-1106 fix round 2 (HIGH, audit): the `CallerContext` patch for a verified, approved

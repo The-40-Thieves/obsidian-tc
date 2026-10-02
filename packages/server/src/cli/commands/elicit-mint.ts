@@ -1,5 +1,6 @@
 // THE-826: `obsidian-tc elicit` — the sanctioned route to a HITL confirmation token for a client
-// that does not implement MCP elicitation (SEP-2260/2322; Claude Code among them).
+// that cannot complete an MCP elicitation prompt: one without elicitation support, or a headless
+// one (Claude Code) that auto-cancels it (SEP-2260/2322).
 //
 // Before this, `issueElicitToken` (../../elicit.ts) was a library symbol with no CLI and no MCP
 // tool: a caller blocked on `elicit_required` had no way to satisfy the gate at all. A prior PR
@@ -92,8 +93,8 @@ export function planElicitMint(
     argsHash: cmd.hash,
     // "stdio" matches the caller identity server-runtime.ts's trusted local context stamps on
     // EVERY stdio-transport call (`obsidian-tc serve <vault>`, no auth) — the client this command
-    // exists for: a locally-spawned MCP client with no elicitation support, talking over stdio, so
-    // its blocked calls always carry caller "stdio". An HTTP/jwt deployment's caller is the
+    // exists for: a locally-spawned MCP client that cannot complete the prompt, talking over stdio,
+    // so its blocked calls always carry caller "stdio". An HTTP/jwt deployment's caller is the
     // bearer token's `sub` claim (the same value given to `token mint --sub`) — pass --caller
     // explicitly there. Guessing it wrong only makes the mint UNREDEEMABLE
     // (verifyAndConsumeElicit's caller check fails closed), never over-broad.

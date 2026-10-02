@@ -89,12 +89,25 @@ call completes once the human answers `accept` with `approve: true`. This works 
   clients and out of scope. A legacy-era HTTP session behaves exactly as it did
   before this mechanism existed: the plain `elicit_required` error below.
 
-Either way: a decline, a cancel, or an explicit `approve: false` renders the same
-`elicit_required` error as an unconfirmed call — never a second prompt, and never
-treated as an approval (a verified `requestState` alone proves the confirmation is
-*authentic*, never that it was *granted* — the server also checks the elicitation's
-own answer before trusting it). The single-use elicit-token/CLI mechanism below is
-what a client with no elicitation capability at all still falls back to.
+Either way, nothing but `accept` with `approve: true` is an approval, and the call is
+never prompted a second time (a verified `requestState` alone proves the confirmation
+is *authentic*, never that it was *granted* — the server also checks the elicitation's
+own answer before trusting it). The two non-approving answers are told apart, as the
+MCP specification defines them: `decline` is "User explicitly declined the request",
+`cancel` is "User dismissed without making an explicit choice".
+
+- **`decline`** (or `accept` with `approve: false`) is a hard stop. The error's
+  `details.reason` is `approval_declined` and its text says the user declined: do not
+  retry, do not mint a token.
+- **`cancel`** means approval was *not obtained*; nobody said no. The write is still
+  refused, but the error's `details.reason` is `approval_not_obtained` and both its text
+  and `recovery` point at the out-of-band `obsidian-tc elicit` route below. This matters
+  for headless clients: Claude Code run non-interactively advertises elicitation and
+  auto-answers `cancel` within milliseconds, with no human in the loop, so the operator
+  approves out of band instead.
+
+The single-use elicit-token/CLI mechanism below is what a client with no elicitation
+capability, or one that only ever cancels, falls back to.
 
 A client that declares a bare `elicitation: {}` capability (no `form`/`url` sub-key)
 is treated as supporting form mode — the 2025 spec's pre-mode default — not as
@@ -102,7 +115,8 @@ declining elicitation; this applies uniformly, on every transport and era.
 
 ## When your client can't render the prompt
 
-A client with NO elicitation capability at all gets nothing to act on: a call to
+A client with NO elicitation capability at all (or one that auto-cancels the prompt)
+gets no round trip to complete: a call to
 one of the 16 conditionally-gated tools (`move_note` across a folder boundary,
 `delete_note`, `restore_note`, `prune_hub_links`, and others) simply fails with
 an `elicit_required` error and no round trip to complete it. The error text itself
