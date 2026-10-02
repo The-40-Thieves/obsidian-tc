@@ -143,7 +143,7 @@ by query id; artifacts and `runs.db` under `/data/obsidian-tc-eval/search-mode-r
 | --- | ---: | --- | --- | --- | ---: | ---: |
 | Matuschak evergreen, strict labels (public) | 78 | 0.8491 / 0.2543 | 0.9359 / 0.2885 | 0.8472 / 0.2500 | 52 | -0.678 |
 | Matuschak evergreen, lenient labels | 78 | 0.6266 / 0.1800 | 0.6345 / 0.1814 | 0.8694 / 0.2547 | 53 | -0.514 |
-| private multi-hop vault (CONTAMINATED and path-bug deflated, see corrections below and the 2026-10-02 status) | 250 | 0.1009 / 0.0000 | 0.1083 / 0.0000 | 0.1123 / 0.0000 | 32 | -0.130 |
+| private multi-hop vault (CONTAMINATED and path-bug deflated, see corrections below and the 2026-10-02 status; corrected values in the 2026-10-02 re-score section) | 250 | ~~0.1009~~ 0.4508 (derived, contaminated state) / 0.0000; clean copy 0.7515 / 0.0000 | ~~0.1083~~ 0.4972 / 0.0000; clean 0.8412 / 0.0000 | ~~0.1123~~ 0.5028 / 0.0000; clean 0.8188 / 0.0000 | ~~32~~ clean copy: 246 (all worse) | ~~-0.130~~ clean copy -0.778 |
 
 The arms are identical wherever the text leg finds a hit, and `auto` only falls back to the semantic leg when it
 finds none; forcing `text` removes that fallback, so every change is a loss (0 queries improve on any corpus,
@@ -157,14 +157,16 @@ reach the threshold with no new evidence).
 **Verdict: the class (c) evidence bar is not met, and the mechanism loses on the two shapes that exist locally.**
 Two English shapes are fewer than the three the bar asks for, and the preference arm is a catastrophic loss on
 all of them. The flag stays off, per the ADR 0003 pattern for a mechanism that loses. A side observation for
-follow-up: `auto` itself scores well below dense-only `search_semantic` on the private vault (0.1009 against
-0.4005 nDCG@10) because a text-leg hit, however irrelevant, prevents the semantic fallback.
+follow-up: `auto` itself scores well below dense-only `search_semantic` on the private vault (~~0.1009~~ 0.4508
+against ~~0.4005~~ 0.7504 nDCG@10 on the corrected scorer, same 0.30 gap; contaminated state, withdrawn below)
+because a text-leg hit, however irrelevant, prevents the semantic fallback.
 
 **Correction (2026-10-01): the private multi-hop row above is contaminated.** All 94 text-routed `auto` queries hit
 one note, a decision note in the private vault that quotes the golden-set candidates verbatim, so the 0.1009 is a
 self-reference artifact, not a property of `auto`. With that note moved out of the indexed tree (and dropped from a
-copy of the same index) every one of the 250 queries falls through to the semantic leg: `auto` scores 0.4016 nDCG@10
-(recall@10 0.4523, MRR@10 0.4284), identical to dense-only search, and the forced-`text` preference arm still scores
+copy of the same index) every one of the 250 queries falls through to the semantic leg: `auto` scores ~~0.4016~~
+0.7515 nDCG@10 (recall@10 ~~0.4523~~ 0.8412, MRR@10 ~~0.4284~~ 0.8188; corrected scorer), identical to dense-only
+search, and the forced-`text` preference arm still scores
 0.0000 (no query is quoted anywhere, so the text leg returns nothing). The direction of the verdict stands; the private
 `auto` figure and the "0.1009 against 0.4005" observation do not. The two public rows are unaffected (evergreen corpus
 carries no such note). Numbers and artifacts: `/data/obsidian-tc-eval/golden-contamination-20261001/`. Eval runs now
@@ -195,11 +197,12 @@ same index copies and query vectors, paired by query id; artifacts, `runs.db` an
 | --- | ---: | --- | --- | --- | ---: |
 | Matuschak evergreen, strict labels (public) | 78 | 0.8491 | 0.8491 (0 changed) | 0.8865, +0.037 (lower +0.007, p 0.049) | 9 (8 up, 1 down) |
 | Matuschak evergreen, lenient labels | 78 | 0.6266 | 0.6296 (+0.003) | 0.6550, +0.028 (lower +0.010, p 0.010) | 15 (12 up, 3 down) |
-| private multi-hop vault (CONTAMINATED and path-bug deflated, see corrections below and the 2026-10-02 status) | 250 | 0.1009 | 0.3609 (+0.260) | 0.3609, +0.260 (lower +0.222, p 0.0001) | 94 (all up) |
+| private multi-hop vault (CONTAMINATED and path-bug deflated, see corrections below and the 2026-10-02 status; corrected values in the 2026-10-02 re-score section) | 250 | ~~0.1009~~ 0.4508 (derived) | ~~0.3609~~ 0.7108 (+0.260, unchanged) | ~~0.3609~~ 0.7108, +0.260 (lower +0.222, p 0.0001; delta unchanged, only the level moved) | 94 (all up); clean copy: 0 |
 
-Recall@10 and MRR@10 move the same way (private: recall 0.1083 to 0.4497, MRR 0.1123 to 0.3639; strict hybrid recall
-0.9359 to 0.9551, MRR 0.8472 to 0.8835). Zero-text-hit queries are identical in every arm. Fused `hybrid` stays below
-dense-only search on the private vault (0.3609 against 0.4005) and above it on the evergreen text-routed queries
+Recall@10 and MRR@10 move the same way (private: recall ~~0.1083~~ 0.4972 to ~~0.4497~~ 0.8386, MRR ~~0.1123~~ 0.5028 to ~~0.3639~~ 0.7543, corrected
+and derived; strict hybrid recall 0.9359 to 0.9551, MRR 0.8472 to 0.8835). Zero-text-hit queries are identical in
+every arm. Fused `hybrid` stays below dense-only search on the private vault (~~0.3609~~ 0.7108 against ~~0.4005~~
+0.7504, corrected, contaminated state) and above it on the evergreen text-routed queries
 (0.9481 against 0.8889 strict). The stated minimum detectable effects were 0.065 (strict), 0.043 (lenient) and 0.035
 (private) nDCG@10; the strict hybrid delta (+0.037) is below its MDE, so that row is underpowered rather than a
 confirmed win. Predictions that missed: the evergreen `hybrid` deltas were predicted at +0.01 and about 0, and came
@@ -218,9 +221,10 @@ way.** The single note behind the 94 text hits (a decision note quoting the gold
 out of the indexed tree and dropped from a copy of the same index (15 chunks, nothing else changed), then all three
 arms were re-run with the same command shape and query vectors. On the cleaned vault no query's whole phrase appears in
 any indexed note, so the text leg returns nothing for all 250 and every arm routes every query to the semantic leg:
-text-first, weak-text and hybrid all score 0.4016 nDCG@10 (recall@10 0.4523, MRR@10 0.4284), identical to dense-only
-search, with 0 queries changed. The +0.260 for `weak-text` and `hybrid` above, and the 0.3609 against 0.4005 gap to
-dense-only, were produced by the contamination and are withdrawn. The private vault is therefore a corpus on which the
+text-first, weak-text and hybrid all score ~~0.4016~~ 0.7515 nDCG@10 (recall@10 ~~0.4523~~ 0.8412, MRR@10
+~~0.4284~~ 0.8188; corrected scorer), identical to dense-only
+search, with 0 queries changed. The +0.260 for `weak-text` and `hybrid` above, and the ~~0.3609~~ 0.7108 against
+~~0.4005~~ 0.7504 gap to dense-only, were produced by the contamination and are withdrawn. The private vault is therefore a corpus on which the
 class (c) mechanism is a no-op, not one where it wins, which strengthens the verdict that the evidence bar is unmet
 (the contaminated shape no longer counts as a shape with a measured win). The public evergreen rows are unaffected.
 Artifacts, `runs.db` and the before/after comparison: `/data/obsidian-tc-eval/golden-contamination-20261001/`.
@@ -234,9 +238,10 @@ search-mode reader eval, the `rrfK` derivation eval, the retrieval-cache eval, a
 `docs/EVALUATION.md` (graph against dense, multi-query fan-out, kNN and tag edge densification). The public evergreen
 corpus carries no such note, so none of its rows are in scope. `eval/run.ts` fuses a chunk-level BM25 stream
 (`chunk_fts`); `eval/search-mode.ts` calls the real `search_vault` handler, whose literal text leg follows the files on
-disk (the old index copy, which still carries the note, scored dense-only 0.4005 once the file was moved).
+disk (the old index copy, which still carries the note, scored dense-only ~~0.4005~~ 0.7504 once the file was moved).
 The contamination therefore reached the two harnesses differently, which is why the `auto` numbers moved by
-0.30 and the `run.ts` numbers by under 0.01.
+0.30 and the `run.ts` numbers by under 0.01. (Re-scored 2026-10-02: the 0.30 is the contamination alone, 0.7504 to
+0.4508 on the corrected scorer; the path bug moved every `search-mode.ts` level by a further, separate amount.)
 
 **Index state is its own variable.** Three copies of the same bge-m3 index were scored with the same code and the
 same precomputed query vectors (`history.ts` keys a run on the golden set only, so each run carries its vault state in
@@ -274,7 +279,7 @@ decontamination effect sits between the two, so it is a detectable but small shi
 | `tagEdges` fanout 25 against its control | nDCG -0.0018 (p 0.56), bridge recall +0.000, 30 queries reorder | nDCG -0.0009 (p 0.76), bridge recall -0.004 (p 1.0), 33 reorder | unchanged: null |
 | `knnEdges` k 8 floor 0.0 against its control | nDCG -0.0017 (p 0.59), bridge recall -0.008 (p 0.73), 36 reorder | nDCG -0.0015 (p 0.63), bridge recall -0.008 (p 0.73), 37 reorder | unchanged: null |
 | retrieval cache, 10% repeat stream (`docs/design/search-indexing-and-cache.md`) | repeat calls 842 / 3.7 ms p50 OFF / ON; identity gap `coverage` only; 238 of 240 queries differ across callers | 416 / 0.8 ms; same single-key gap; 236 of 240 | unchanged: stays off |
-| `search_vault` `auto`, private row (corrected 2026-10-01) | 0.1009 recorded | 0.4016 (all three routes) | already withdrawn and annotated |
+| `search_vault` `auto`, private row (corrected 2026-10-01) | ~~0.1009~~ 0.4508 recorded (corrected, derived) | ~~0.4016~~ 0.7515 (all three routes; corrected scorer) | already withdrawn and annotated |
 | forced-`text` preference arm (search-mode reader) | 0.0000 | 0.0000 | unchanged: the text leg finds nothing |
 
 The `old` copy of the fan-out and densification contrasts reproduces the recorded figures (fan-out -0.043 to -0.047
@@ -285,13 +290,14 @@ is a replication on the current code, not a quotation. The retrieval-cache eval 
 **Verdict: no recorded conclusion changes.** The contamination was a distractor in a chunk-level BM25 stream that
 cost the fused arm about 0.004 nDCG@10 and moved no contrast across its significance line or its non-inferiority
 floor; it was decisive only where a literal whole-phrase text leg decides the route, which is the `auto` rows already
-withdrawn. The `weak-text` and `hybrid` `auto` routes are still a no-op on the settled copy too (0.2460 for all three
-routes, 0 queries changed).
+withdrawn. The `weak-text` and `hybrid` `auto` routes are still a no-op on the settled copy too (~~0.2460~~ 0.5542 for all
+three routes, 0 queries changed; corrected scorer).
 
 **Do not compare the settled copy with the others.** Reconciling the copy to today's vault added 312 notes (about a
 quarter more, mostly reference and research notes) and nothing was removed; every target path is still indexed, the
 contamination guard passes (no note quotes even one query), and the code and query vectors are unchanged. Dense
-nDCG@10 fell from 0.7476 to 0.5542 (190 of 250 queries changed, 36 up) and `auto` from 0.4016 to 0.2460. The golden
+nDCG@10 fell from 0.7476 to 0.5542 (190 of 250 queries changed, 36 up) and `auto` from ~~0.4016~~ 0.7515 to
+~~0.2460~~ 0.5542 (the corrected `auto` figures equal dense on both copies, so the two falls are the same fall). The golden
 set was labelled against the 1,182-note vault, so notes written since are distractors for it. The clean copy stays the
 like-for-like baseline for private-vault runs; a settled copy is a different corpus and any run on it must say so.
 `history.ts` keys a run on the golden set, which did not change, so it cannot flag this on its own: record the index
@@ -317,12 +323,59 @@ the contamination plus this bug mixed. The retrieval-cache eval (`query-cache.ts
 scorer, so its ON/OFF comparisons stand, but any absolute private nDCG it printed is deflated; the latency and
 identity-gap findings do not use a metric.
 
-Conclusions that need re-checking on the corrected scorer (not re-run here): (1) that the `weak-text` and `hybrid`
+Conclusions that needed re-checking on the corrected scorer (re-checked in the re-score block below this list): (1) that the `weak-text` and `hybrid`
 `auto` routes are a no-op on the decontaminated private vault ("identical to dense-only search, 0 queries changed" is a
 rank comparison and most likely stands, but the 0.4016 level it was reported at is wrong); (2) the size of the private
 `auto`-versus-dense gap, withdrawn for contamination but never re-measured at the right scale; (3) the settled-copy `auto` level 0.2460, which the section above set against a `run.ts` dense figure of
 0.5542 (the 0.5542 is unaffected; the 0.2460 is deflated, so the two are not comparable and the gap between them says nothing). The class (c) verdicts above all rest on the public rows or on arms that lose
 catastrophically, so none flips on this alone; the private-shape `search-mode.ts` rows need re-scoring before they count either way.
+
+**Re-score (2026-10-02, after the correction above): the four conclusions re-checked.** The stored per-query artifacts
+keep metrics and a path count, never ranked paths, so the deflated metrics cannot be recomputed from them; the arms
+were re-run on file copies of the same three index copies, with the same query vectors (sha256 `c30edd27e578...`,
+byte-identical to the originals) and the contamination guard on, one run at a time, writing to a new dated directory
+under `/data/obsidian-tc-eval/private-rows-rescore-20261002/`. Pre-registered before any run (sha256
+`4868c4354d4130ab78f379d29afd6ba1390f845cf937073995231786ac086a82`, 2026-10-02T20:10:27Z), with the original decision
+rules applied unchanged. Nine runs are recorded in that directory's `runs.db` (labels `rescore-*`, each note pointing
+to the original run). Corrected nDCG@10 and where it came from:
+
+| row | was (deflated) | corrected | how |
+| --- | ---: | ---: | --- |
+| dense-only, old index copy | ~~0.4005~~ | 0.7504 | re-run |
+| `auto` text-first / weak-text / hybrid, clean copy | ~~0.4016~~ | 0.7515 / 0.7515 / 0.7515 (recall@10 0.8412, MRR@10 0.8188) | re-run; all three equal dense, 0 queries changed |
+| `auto` all three routes, settled copy | ~~0.2460~~ | 0.5542 / 0.5542 / 0.5542 (recall@10 0.6959, MRR@10 0.5889) | re-run; equal dense, 0 changed |
+| forced-`text` preference arm, clean / settled copy | 0.0000 | 0.0000 / 0.0000 | re-run; 246 / 220 queries change, all worse, one-sided 95% bootstrap lower bound -0.778 / -0.590 |
+| `auto` text-first, contaminated vault | ~~0.1009~~ | 0.4508 (recall 0.4972, MRR 0.5028) | derived offline |
+| `weak-text` and `hybrid`, contaminated vault | ~~0.3609~~ | 0.7108 (recall 0.8386, MRR 0.7543), delta over text-first +0.260 unchanged | derived offline |
+
+The contaminated rows cannot be re-run (the guard refuses a vault carrying the note, and it is not put back). They are
+derived exactly: the 94 text-routed queries are unaffected by the bug (their original dense score equals the corrected
+one on all 94, so their recorded text-first and fused scores stand), and on the other 156, `auto` equals dense, so only
+the dense level on those moves. The settled copy is a different corpus (189 of 250 dense queries differ from the clean
+copy, mean -0.197); compare it only with itself.
+
+**Re-check verdict (1): HOLDS.** `weak-text` and `hybrid` are a no-op on the decontaminated private vault: all three
+routes score identically to dense-only search with 0 queries changed, now at 0.7515 instead of the reported 0.4016.
+
+**Re-check verdict (2): HOLDS.** The size of the private `auto`-versus-dense gap was never a property of `auto`. At the
+right scale it is 0.7504 against 0.4508 on the contaminated vault, -0.30, the same size as the deflated -0.30 (the bug
+lowered both arms alike on the 156 queries that fall through), and exactly 0.0000 on the decontaminated vault. The
+withdrawal for contamination stands. `hybrid` on the contaminated vault is -0.040 below dense (0.7108 against 0.7504,
+67 queries change), the same direction as before.
+
+**Re-check verdict (3): CHANGES (the reading, not the verdict on the mechanism).** The settled-copy `auto` level is
+0.5542, not 0.2460, and it is equal to the `run.ts` dense figure on that copy. The two were declared not comparable;
+they are the same number, and the apparent gap between them was entirely the path bug. `auto` equals dense on the
+clean copy (0.7515) and on the settled copy (0.5542), so the 0.1973 fall between them is one fall, the same one dense
+shows. The mechanism is still a no-op there; it is only the level and the comparison that change.
+
+**Re-check verdict (4): HOLDS.** The class (c) verdicts stand. The preference arm still scores 0.0000 and is worse on
+every query it changes, with a lower bound far below the -0.015 floor; the public evergreen rows were never affected;
+the evidence bar (a win or tie on a majority of three or more corpora of different shape) is still not met, because the
+private vault remains contaminated or a no-op and there are still two real shapes, both English. No shipped default
+(`retrieval.searchAutoRoute` text-first, `retrieval.useSearchModePreference` off) has its evidence flipped by this
+re-score. Not re-scored: absolute private nDCG printed by `eval/query-cache.ts` and `eval/search-and-read-cost.ts`; no
+conclusion in this ADR or in `docs/EVALUATION.md` cites one.
 
 **Question and pre-registration.** Does a cross-encoder reranker, applied to the same dense top-K, beat the shipped
 order on a single-hop public shape and a multi-hop private shape? Pre-registered before any reranker arm was scored on a
