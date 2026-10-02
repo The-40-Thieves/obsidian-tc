@@ -454,16 +454,16 @@ The wiki folder also holds two files the server writes, not you and not an LLM. 
   with `maintenance.wikiPages.enabled: true`, every `maintenance.wikiPages.intervalHours` (default 6). It
   is never maintained by an LLM and is left unchanged when the listing did not change.
 * **`log.md`**: an append-only projection of the write provenance chain for the wiki folder, one line per <!-- config-path:ignore -->
-  change: `time (UTC) | op | path`, for example
-  `2026-10-02T09:15:00Z | create | wiki/concepts/Spaced repetition.md`. `op` is `create`, `update` or
-  `delete`. The last projected provenance sequence number is stored in the file's `last_seq` frontmatter,
-  so a re-run never repeats a line. It lags one write: a commit's own line appears the next time the
-  pages are regenerated. **Who wrote it is not in the file by default.** `log.md` is an ordinary note, so <!-- config-path:ignore -->
-  anyone who can read it can read it without the `read:provenance` scope that `get_provenance` needs.
-  Setting `vaults[].wiki.log.attribution: true` adds `| principal | model | tool#seq` to each line
-  (`model` is what the client said about itself), and with it publishes that provenance metadata to
-  every reader of the note. Turning it off again does not remove lines already written: delete
-  `log.md` (`restore_note` keeps a copy) and the next pass starts a fresh one. <!-- config-path:ignore -->
+  change: `time (UTC) | op | path | principal | model | tool#seq`, for example
+  `2026-10-02T09:15:00Z | create | wiki/concepts/Spaced repetition.md | alice | claude-opus | commit_wiki_page#41`. <!-- config-path:ignore -->
+  `op` is `create`, `update` or `delete`. The last projected provenance sequence number is stored in
+  the file's `last_seq` frontmatter, so a re-run never repeats a line. It lags one write: a commit's own
+  line appears the next time the pages are regenerated. `model` is what the client said about itself.
+  **Reading it needs `read:provenance` as well as `read:notes`**, the scope `get_provenance` requires for the
+  same facts. The server enforces that on the path itself (an implicit per-path rule-scope, added to the
+  ACL of every vault with a `wiki.folder`), so `read_note`, the search and listing tools, links, resources
+  and `lint_wiki` all refuse or omit `log.md` for a caller without it. The same scope is needed to edit or
+  delete the file; the server's own regeneration is not a caller and is not affected. <!-- config-path:ignore -->
 
 Both list only paths a reader holding no rule-scope may read under the vault's ACL (a symlink alias of a
 read-denied folder included) and never an Excluded note, so a page in a read-denied folder is not named.

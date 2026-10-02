@@ -7,7 +7,6 @@ import { registerWikiPagesSweep } from "../src/runtime/wiki-pages-sweep";
 import type { Scheduler } from "../src/scheduler/scheduler";
 import { NO_EXCLUSION } from "../src/search/index-exclusion";
 import { inspectGenerated } from "../src/tools/m7/knowledge/wiki-generated-seal";
-import { VaultRegistry } from "../src/vault/registry";
 import { makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
 
 let h: WikiHarness;
@@ -40,18 +39,6 @@ describe("scheduled wiki page regeneration (generated index.md)", () => {
   it("is off by default in the config, with a six-hour cadence when switched on", () => {
     const cfg = ServerConfigSchema.parse({ vaults: [{ id: "v", path: "/tmp/v" }] });
     expect(cfg.maintenance.wikiPages).toEqual({ enabled: false, intervalHours: 6 });
-  });
-
-  it("wiki.log.attribution is off by default and read from the vault config into the registry", () => {
-    const parse = (wiki: object) =>
-      ServerConfigSchema.parse({ vaults: [{ id: "v", path: "/tmp/v", wiki }] }).vaults[0]?.wiki;
-    expect(parse({ folder: "wiki" })?.log?.attribution).toBeUndefined();
-    expect(parse({ folder: "wiki", log: {} })?.log?.attribution).toBe(false);
-    expect(parse({ folder: "wiki", log: { attribution: true } })?.log?.attribution).toBe(true);
-    const reg = (wiki: object) =>
-      new VaultRegistry([{ id: "v", path: "/tmp", wiki: wiki as never }]).resolve("v");
-    expect(reg({ folder: "wiki" }).wikiLogAttribution).toBeUndefined();
-    expect(reg({ folder: "wiki", log: { attribution: true } }).wikiLogAttribution).toBe(true);
   });
 
   it("writes the index for a vault, from the vault's ACL alone: a read-denied folder is not listed", async () => {

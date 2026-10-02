@@ -14,9 +14,10 @@
 //     separator characters first: one page is one line, and bidi marks cannot reorder it.
 //   * Aliases. A path is listed only when `callerCanReadVaultPath` says a scopeless reader may read
 //     it, which resolves symlinks first, and Excluded files are tested on the resolved path too.
-//   * Attribution. `log.md` is an ordinary note, so anyone with read:notes can read it; principal,
-//     model and tool are provenance metadata that get_provenance gates behind read:provenance.
-//     They are written only when the vault sets `wiki.log.attribution` (default off).
+//   * Attribution. Each log line carries the principal, model and tool, which get_provenance gates
+//     behind read:provenance. So reading `log.md` needs that scope too: an implicit per-path
+//     rule-scope on it (wiki-log-acl.ts), enforced by every read surface. The server's own write
+//     holds exactly that scope; its own read of the file is a plain fs read, not a caller read.
 //   * Writes. Only where the vault ACL allows a write to that path with NO rule-scopes held (a
 //     read-only vault is never touched), through the same checks and atomic writer as a page, with
 //     a snapshot of what it replaces, and no confirmation. They are not sent to the index: dedupe
@@ -60,6 +61,7 @@ import {
   WIKI_LOG_FILE,
 } from "./wiki-folder";
 import { blankHash, inspectGenerated, seal } from "./wiki-generated-seal";
+import { WIKI_LOG_SCOPE } from "./wiki-log-acl";
 import { loadWikiSchema, WIKI_SCHEMA_FILE, WIKI_TYPE_KEY } from "./wiki-schema";
 
 export { isGeneratedPage } from "./wiki-generated-seal";
@@ -69,8 +71,6 @@ export interface WikiGenerateEnv {
   root: string;
   vaultId: string;
   wikiFolder: string | undefined;
-  /** `wiki.log.attribution`: put principal, model and tool in the log lines. Default off. */
-  logAttribution?: boolean | undefined;
   /** The vault's ACL (no caller: see the header for why reads use no rule-scopes). */
   acl: FolderAcl | undefined;
   exclusion: VaultExclusion;
@@ -136,6 +136,8 @@ function listable(env: WikiGenerateEnv, rel: string): boolean {
     return false;
   }
 }
+
+const isGeneratedLog = (rel: string): boolean => rel.endsWith(`/${WIKI_LOG_FILE}`);
 
 interface Group {
   type: string;
@@ -239,10 +241,8 @@ function projectRows(
     }
     if (b.outcome === "pending" || typeof b.ts !== "number") continue;
     const when = new Date(b.ts).toISOString().replace(/\.\d{3}Z$/, "Z");
-    const who = env.logAttribution
-      ? field(b.verified?.principal ?? b.unauthenticated?.principal, 64)
-      : "-";
-    const model = env.logAttribution ? field(b.self_reported?.model, 64) : "-";
+    const who = field(b.verified?.principal ?? b.unauthenticated?.principal, 64);
+    const model = field(b.self_reported?.model, 64);
     const seen = new Set<string>();
     for (const e of b.paths ?? []) {
       let rel: string;
@@ -257,17 +257,13 @@ function projectRows(
         continue;
       const op = e.before === "absent" ? "create" : e.after === "absent" ? "delete" : "update";
       const shown = plainPath(rel).replace(/\|/g, "?");
-      lines.push(
-        env.logAttribution
-          ? `${when} | ${op} | ${shown} | ${who} | ${model} | ${field(b.tool, 40)}#${r.seq}`
-          : `${when} | ${op} | ${shown}`,
-      );
+      lines.push(`${when} | ${op} | ${shown} | ${who} | ${model} | ${field(b.tool, 40)}#${r.seq}`);
     }
   }
   return { lines, through: rows.at(-1)?.seq ?? lastSeq, full: rows.length >= LOG_ROWS_PER_PASS };
 }
 
-const LOG_HEAD = `${NOTICE("the write provenance chain")}\n\n# Wiki log\n\nOne line per change to a page in this folder: time (UTC) | op | path. With \`wiki.log.attribution\` set, each line also carries | principal | model (as the client reported it) | tool#provenance seq.\n\n`;
+const LOG_HEAD = `${NOTICE("the write provenance chain")}\n\n# Wiki log\n\nOne line per change to a page in this folder: time (UTC) | op | path | principal | model (as the client reported it) | tool#provenance seq. Reading this page needs the read:provenance scope.\n\n`;
 
 // The cursor line. Parsed and replaced with the same pattern, tolerant of trailing blanks, so a
 // line that no longer ends at the digits can neither restart the log from 0 nor go unreplaced.
@@ -300,9 +296,16 @@ function writeGenerated(
   };
   let snapshotId: number | null = null;
   try {
-    // The full write check with no rule-scopes held: a path whose rule needs a scope is not ours.
+    // The full write check. The server holds no rule-scope, except the one the log's own implicit
+    // rule asks for; a path an operator rule also gates behind another scope is therefore not ours.
     try {
-      enforcePathAcl(env.acl, "write", rel, env.root, SCOPELESS);
+      enforcePathAcl(
+        env.acl,
+        "write",
+        rel,
+        env.root,
+        isGeneratedLog(rel) ? [WIKI_LOG_SCOPE] : SCOPELESS,
+      );
     } catch (e) {
       if (e instanceof ObsidianTcError && (e.code === "acl_denied" || e.code === "read_only_mode"))
         return warn("denied", `${rel} was not generated: the vault ACL does not allow writing it`);

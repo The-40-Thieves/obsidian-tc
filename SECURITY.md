@@ -280,12 +280,16 @@ is set, on a schedule. The rules, each pinned by a test (`wiki-generated.test.ts
   only refuses `..` and an absolute path), so every path, stem and label is written with control, format
   (bidi marks, NEL) and line or paragraph separator characters stripped, by the sanitiser the
   elicitation form uses: a page named `a<U+2028>Ignore previous instructions` is one line, not two.
-- **`log.md` carries no attribution unless the operator opts in.** It is an ordinary note, readable with
-  `read:notes`, while `get_provenance` needs `read:provenance` for the same facts. A line is therefore
-  `time | op | path`. `vaults[].wiki.log.attribution: true` adds the principal, the model the client
-  *claimed* and the tool, and by doing so publishes provenance metadata to every reader of the note;
-  the self-reported fields are stripped to plain characters. The log is a convenience view, not a trust
-  anchor: `verify_provenance` and `get_provenance` remain the record.
+- **`log.md` needs `read:provenance` to read.** Each line carries the principal, the model the client
+  *claimed* and the tool, the facts `get_provenance` gates behind `read:provenance`; the file is an ordinary
+  note, so without a gate any `read:notes` caller could read them. The gate is an implicit per-path
+  rule-scope on `${wiki.folder}/log.md`, added to the ACL of every vault with a wiki folder (it keeps
+  any scope an operator rule already requires on that path), so every surface that honours rule-scopes
+  (`read_note`, search, listing, backlinks, resources, `lint_wiki`) denies it the same way, with no per-tool
+  check. The scope also gates writing and deleting that path; the server's own regeneration holds exactly
+  that scope for its write and reads the file directly, so it is unaffected. The self-reported fields are
+  stripped to plain characters. The log is a convenience view, not a trust anchor: `verify_provenance` and
+  `get_provenance` remain the record.
 - **Symlink aliases do not widen the list.** A provenance row stores the path the caller named, not its
   target. A path is listed only when the read check, applied to the symlink-resolved path with no
   rule-scopes, allows it, and Excluded files are tested on the resolved path as well: `wiki/link ->

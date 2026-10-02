@@ -17,12 +17,7 @@ import { stderrOnError } from "../util/errors";
 
 export interface WikiPagesSweepDeps {
   cacheDb: Database;
-  vaults: readonly {
-    id: string;
-    root: string;
-    wikiFolder?: string | undefined;
-    wikiLogAttribution?: boolean | undefined;
-  }[];
+  vaults: readonly { id: string; root: string; wikiFolder?: string | undefined }[];
   aclFor: (vaultId: string) => FolderAcl | undefined;
   exclusionFor: (vaultId: string) => VaultExclusion;
   memoryDefenseFor?: ((vaultId: string) => VaultMemoryDefenseConfig | undefined) | undefined;
@@ -50,7 +45,6 @@ export function registerWikiPagesSweep(scheduler: Scheduler, deps: WikiPagesSwee
           root: v.root,
           vaultId: v.id,
           wikiFolder: v.wikiFolder,
-          logAttribution: v.wikiLogAttribution === true,
           acl: deps.aclFor(v.id),
           exclusion: deps.exclusionFor(v.id),
           db: deps.cacheDb,

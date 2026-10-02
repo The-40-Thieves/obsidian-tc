@@ -19,6 +19,7 @@ import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/m
 import type { MetricsRecorder } from "../src/metrics/registry";
 import type { KeyResolver } from "../src/provenance/signer";
 import { registerM1Tools } from "../src/tools/m1";
+import { withWikiLogScope } from "../src/tools/m7/knowledge/wiki-log-acl";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -59,8 +60,6 @@ export interface TestVaultOptions {
   provenanceMaxScanRows?: number;
   /** `vaults[].wiki.folder` for the vault. */
   wikiFolder?: string;
-  /** `vaults[].wiki.log.attribution` for the vault. */
-  wikiLogAttribution?: boolean;
   /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
   registryOpts?: Partial<RegistryOptions>;
 }
@@ -105,27 +104,20 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
-  const acl = new FolderAcl(aclCfg);
+  // The same implicit `log.md` rule buildAcls adds in production (runtime/acl-build.ts).
+  const acl = new FolderAcl(withWikiLogScope(aclCfg, opts.wikiFolder));
   const vaultRegistry = new VaultRegistry([
-    {
-      id,
-      path: root,
-      ...(opts.wikiFolder
-        ? {
-            wiki: {
-              folder: opts.wikiFolder,
-              ...(opts.wikiLogAttribution !== undefined
-                ? { log: { attribution: opts.wikiLogAttribution } }
-                : {}),
-            },
-          }
-        : {}),
-    },
+    { id, path: root, ...(opts.wikiFolder ? { wiki: { folder: opts.wikiFolder } } : {}) },
   ]);
   const overrides = new Map(
     Object.entries(opts.aclByVault ?? {}).map(([vid, cfg]) => [
       vid,
-      new FolderAcl({ readOnly: false, defaultScopes: [], rules: [], ...cfg }),
+      new FolderAcl(
+        withWikiLogScope(
+          { readOnly: false, defaultScopes: [], rules: [], ...cfg },
+          opts.wikiFolder,
+        ),
+      ),
     ]),
   );
   const registry = new ToolRegistry({
