@@ -24,10 +24,11 @@ export interface AclConfigT {
   immutablePaths?: string[];
 }
 
-// Sentinel for the `**` token. A NUL char (illegal in any vault-relative path)
-// so it can never alias real input: vault paths routinely contain literal spaces,
-// which a space sentinel mis-compiled to `.*` and over-matched across `/`.
-const NUL = String.fromCharCode(0);
+const reEscape = (c: string): string => c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+
+/** `name` as a glob that matches only that literal text: `*`, `?` and `\` are backslash-escaped (a
+ *  folder called `a*b` must not become a wildcard). `[` is literal in this grammar already. */
+export const escapeGlob = (name: string): string => name.replace(/[*?\\[]/g, "\\$&");
 
 // On a case-insensitive filesystem (Windows NTFS, macOS APFS), a path and its case variants name
 // the SAME file, so ACL matching must be case-insensitive there or a case-variant path slips past a
@@ -57,13 +58,17 @@ export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSEN
   const byFlag = globCache.get(glob);
   const cached = byFlag?.get(caseInsensitive);
   if (cached !== undefined) return cached;
-  const withDouble = glob.replace(/\*\*/g, NUL);
   let re = "";
-  for (const c of withDouble) {
-    if (c === NUL) re += ".*";
-    else if (c === "*") re += "[^/]*";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob.charAt(i);
+    if (c === "*" && glob.charAt(i + 1) === "*") {
+      re += ".*";
+      i++;
+    } else if (c === "*") re += "[^/]*";
     else if (c === "?") re += "[^/]";
-    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    // `\` makes the next character literal (escapeGlob); a trailing `\` is itself literal.
+    else if (c === "\\" && i + 1 < glob.length) re += reEscape(glob.charAt(++i));
+    else re += reEscape(c);
   }
   const compiled = new RegExp(`^${re}$`, caseInsensitive ? "i" : "");
   let entry = byFlag;
@@ -203,6 +208,10 @@ export class FolderAcl {
     if (list === undefined) return undefined;
     const p = path.normalize("NFC");
     return list.find((c) => c.re.test(p))?.glob ?? null;
+  }
+  /** Whether any path is immutable for this ACL (a vault with a raw-sources folder). */
+  get hasImmutablePaths(): boolean {
+    return this.compiledImmutable.length > 0;
   }
   /** The immutable glob `path` falls under (no write or delete may touch it), or null. */
   immutableGlobFor(path: string): string | null {

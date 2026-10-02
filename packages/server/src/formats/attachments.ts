@@ -11,6 +11,7 @@ import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-
 import type { MetricsRecorder } from "../metrics/registry";
 import { parseNoteLenient } from "../vault/frontmatter";
 import { extractNoteLinks } from "../vault/links";
+import type { ImmutableRewriteSkips } from "../vault/acl-path";
 import { readNote, writeNotesAllOrNothingGuarded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import { rewriteLinks } from "../vault/rewrite";
@@ -158,7 +159,8 @@ export function rewriteAttachmentReferences(
   fromRel: string,
   toRel: string,
   mdConfig: VaultMemoryDefenseConfig | undefined,
-  metrics?: MetricsRecorder,
+  metrics: MetricsRecorder | undefined,
+  skips: ImmutableRewriteSkips,
 ): { notes: number; refs: number } {
   const fromPathLower = fromRel.toLowerCase();
   const toBase = baseOf(toRel);
@@ -215,7 +217,7 @@ export function rewriteAttachmentReferences(
       if (!resolvesToFrom(t, hadSlash)) return null;
       return hadSlash ? toRel : toBaseUnique ? toBase : toRel;
     });
-    if (count > 0) pending.push({ abs, rel: e.relPath, text, count });
+    if (count > 0 && !skips.blocks(e.relPath)) pending.push({ abs, rel: e.relPath, text, count });
   }
   // Scan every rewritten body BEFORE any of them is written, then persist — the shared
   // all-or-nothing helper (vault/notes-io.ts): a block-worthy match in note N refuses the whole

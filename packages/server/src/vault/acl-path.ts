@@ -213,3 +213,54 @@ export function callerCanReadVaultPath(
     return false;
   }
 }
+
+/**
+ * The guard every SECONDARY rewrite goes through: backlink and reference maintenance (move_note,
+ * bulk_move_notes, move_attachment) repoints links in every note that links the moved target, outside
+ * the caller's write whitelist, and that carve-out must never write an immutable path (a vault's raw
+ * sources). `blocks(rel)` is asked once per note about to be rewritten: true means leave it alone. It
+ * judges the name as written AND the real path, like enforcePathAcl, and fails closed when the path
+ * cannot be resolved. `out()` is the report: the paths the caller may read, a bare count for the rest
+ * (a path would disclose a note the caller cannot see), and a warning that those links now point at the
+ * old name.
+ */
+export class ImmutableRewriteSkips {
+  private readonly named = new Set<string>();
+  private hidden = 0;
+
+  constructor(
+    private readonly acl: FolderAcl | undefined,
+    private readonly root: string,
+    private readonly grantedScopes: Iterable<string>,
+  ) {}
+
+  blocks(rel: string): boolean {
+    if (!this.acl?.hasImmutablePaths) return false;
+    let immutable: boolean;
+    try {
+      immutable =
+        this.acl.immutableGlobFor(normalizeVaultPath(rel)) !== null ||
+        this.acl.immutableGlobFor(resolveVaultPathChecked(this.root, rel).aclRel) !== null;
+    } catch {
+      immutable = true;
+    }
+    if (!immutable) return false;
+    if (callerCanReadVaultPath(this.acl, this.grantedScopes, this.root, rel)) this.named.add(rel);
+    else this.hidden++;
+    return true;
+  }
+
+  out(): {
+    immutable_not_updated?: string[];
+    immutable_not_updated_hidden?: number;
+    immutable_warning?: string;
+  } {
+    const total = this.named.size + this.hidden;
+    if (total === 0) return {};
+    return {
+      ...(this.named.size > 0 ? { immutable_not_updated: [...this.named].sort() } : {}),
+      ...(this.hidden > 0 ? { immutable_not_updated_hidden: this.hidden } : {}),
+      immutable_warning: `${total} immutable (raw source) note${total === 1 ? "" : "s"} link${total === 1 ? "s" : ""} the moved target and ${total === 1 ? "was" : "were"} not rewritten: those links still point at the old name`,
+    };
+  }
+}

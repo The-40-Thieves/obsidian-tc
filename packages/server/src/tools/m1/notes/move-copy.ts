@@ -12,7 +12,7 @@ import {
 } from "../../../experiential/memory-defense";
 import type { ToolDefinition } from "../../../mcp/registry";
 import type { MetricsRecorder } from "../../../metrics/registry";
-import { enforcePathAcl } from "../../../vault/acl-path";
+import { enforcePathAcl, ImmutableRewriteSkips } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { requireConfirmation } from "../../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
@@ -57,6 +57,7 @@ function updateBacklinks(
   mdConfig: VaultMemoryDefenseConfig,
   metrics: MetricsRecorder | undefined,
   readable: (rel: string) => boolean,
+  skips: ImmutableRewriteSkips,
 ): {
   notes: number;
   links: number;
@@ -87,7 +88,7 @@ function updateBacklinks(
     });
     // a warning names its note, and the rewrite is vault-wide: only name notes the caller may read
     if (readable(p)) for (const w of ws) warnings.push({ path: p, ...w });
-    if (count > 0) pending.push({ abs, rel: p, text, count });
+    if (count > 0 && !skips.blocks(p)) pending.push({ abs, rel: p, text, count });
   }
   // Security review round (GH #994 follow-up) + residual fix: scan every rewritten body BEFORE
   // any of them is written — the shared all-or-nothing helper (vault/notes-io.ts). A note being
@@ -212,9 +213,16 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       // index the destination, and reindex every backlink-rewritten note below.
       deps.deindex?.(v.id, fromRel);
       deps.reindex?.(v.id, toRel, scannedRaw);
+      const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
       const backlinks = input.update_backlinks
-        ? updateBacklinks(v.root, fromRel, toRel, mdConfig, deps.metrics, (rel) =>
-            readableRel(ctx.acl, rel, ctx.grantedScopes),
+        ? updateBacklinks(
+            v.root,
+            fromRel,
+            toRel,
+            mdConfig,
+            deps.metrics,
+            (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+            skips,
           )
         : { notes: 0, links: 0, rewritten: [], warnings: [] };
       for (const rw of backlinks.rewritten) deps.reindex?.(v.id, rw.rel, rw.text);
@@ -228,6 +236,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         content_hash: contentHash(scannedRaw),
         backlinks_updated: { notes: backlinks.notes, links: backlinks.links },
         ...rewriteWarningsOut(backlinks.warnings),
+        ...skips.out(),
       };
     },
   });

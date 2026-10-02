@@ -37,7 +37,7 @@ import {
   rewriteAttachmentReferences,
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
-import { enforcePathAcl } from "../../vault/acl-path";
+import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import {
@@ -57,6 +57,7 @@ import {
 } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { immutableSkipShape } from "../scan-warnings";
 import type { M3Deps } from "./shared";
 
 function dirOf(rel: string): string {
@@ -191,6 +192,7 @@ const MoveAttachmentOutput = z.object({
   overwritten: z.boolean(),
   trashed_dest_to: z.string().nullable(),
   references_updated: z.object({ notes: z.number().int(), refs: z.number().int() }),
+  ...immutableSkipShape,
 });
 
 const DeleteAttachmentOutput = z.object({
@@ -492,8 +494,9 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         // the rewritten link text lands in referencing notes' bodies — same guard every
         // other note-content writer gets (see rewriteAttachmentReferences's own doc comment).
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
         const references = input.update_references
-          ? rewriteAttachmentReferences(v.root, fromRel, toRel, mdConfig, deps.metrics)
+          ? rewriteAttachmentReferences(v.root, fromRel, toRel, mdConfig, deps.metrics, skips)
           : { notes: 0, refs: 0 };
         return {
           vault: v.id,
@@ -503,6 +506,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           overwritten: toEx.exists,
           trashed_dest_to: trashedDestTo,
           references_updated: references,
+          ...skips.out(),
         };
       },
     }),

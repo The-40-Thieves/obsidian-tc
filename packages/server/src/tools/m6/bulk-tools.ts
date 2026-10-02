@@ -34,7 +34,7 @@ import {
 import type { ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
-import { enforcePathAcl } from "../../vault/acl-path";
+import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
@@ -53,6 +53,7 @@ import { rewriteLinks } from "../../vault/rewrite";
 import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { immutableSkipShape } from "../scan-warnings";
 import type { M6Deps } from "./shared";
 
 // ── move helpers ────────────────────────────────────────────────────────────────
@@ -91,6 +92,7 @@ function rewriteForMoves(
   mdConfig: VaultMemoryDefenseConfig,
   metrics: MetricsRecorder | undefined,
   visible: (relPath: string) => boolean,
+  skips: ImmutableRewriteSkips,
 ): { perMove: Map<string, number>; total: number; hidden: boolean } {
   const oldIndex = buildVaultIndex(prePaths);
   const postPaths = apply
@@ -121,7 +123,7 @@ function rewriteForMoves(
       inThisNote.set(r.target_path, (inThisNote.get(r.target_path) ?? 0) + 1);
       return newTargetFor(toRel, postIndex);
     });
-    if (count > 0) {
+    if (count > 0 && !skips.blocks(p)) {
       if (visible(p)) {
         total += count;
         for (const [moved, n] of inThisNote) perMove.set(moved, (perMove.get(moved) ?? 0) + n);
@@ -277,6 +279,7 @@ const BulkMoveOutput = z.object({
   /** Present (true) only when at least one note the caller cannot read also linked to a moved
    *  note. A flag, deliberately: no count and no path of the hidden notes is ever reported. */
   hidden_backlinks: z.boolean().optional(),
+  ...immutableSkipShape,
   results: z.array(BulkMoveResultItem),
 });
 
@@ -534,11 +537,21 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
         // The caller-visible filter for the REPORT (the rewrite is vault-wide regardless).
         const visible = (rel: string): boolean => readableRel(ctx.acl, rel, ctx.grantedScopes);
+        const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
         const noBacklinks = { perMove: new Map<string, number>(), total: 0, hidden: false };
 
         if (input.dry_run) {
           const { perMove, total, hidden } = input.update_backlinks
-            ? rewriteForMoves(v.root, moveMap, prePaths, false, mdConfig, deps.metrics, visible)
+            ? rewriteForMoves(
+                v.root,
+                moveMap,
+                prePaths,
+                false,
+                mdConfig,
+                deps.metrics,
+                visible,
+                skips,
+              )
             : noBacklinks;
           return {
             vault: v.id,
@@ -546,6 +559,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             dry_run: true,
             total_backlinks_updated: total,
             ...(hidden ? { hidden_backlinks: true } : {}),
+            ...skips.out(),
             results: rows.map((r) => ({
               ...rowIdentity(r),
               ok: r.ok,
@@ -604,7 +618,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
         // Phase 2: all-or-nothing rewrite over the whole graph for the moved set.
         const { perMove, total, hidden } = input.update_backlinks
-          ? rewriteForMoves(v.root, moveMap, prePaths, true, mdConfig, deps.metrics, visible)
+          ? rewriteForMoves(v.root, moveMap, prePaths, true, mdConfig, deps.metrics, visible, skips)
           : noBacklinks;
 
         return {
@@ -613,6 +627,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           dry_run: false,
           total_backlinks_updated: total,
           ...(hidden ? { hidden_backlinks: true } : {}),
+          ...skips.out(),
           results: rows.map((r) => ({
             ...rowIdentity(r),
             ok: r.ok,
