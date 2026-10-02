@@ -302,7 +302,7 @@ on a call, or `lintEnabled: false`, turns it off. The scheduled lint itself stil
 * **Privacy.** The topic and the opening text of the candidate pages (at most `maxNoteChars` each) go to the
   judge (the gateway model, or TypeSafe with `provider: typesafe`). A note is sent only if the caller may read it (ACL), it is outside `egress.excludePaths`
   and outside Obsidian's Excluded files; such notes are never sent and are listed as `unjudged`. `maxCallsPerDay: 0`
-  or no judge configured keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the provider, the model, today's
+  or no judge configured keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the provider, the model, today's <!-- config-path:ignore -->
   calls and failures.
 * **Model note.** The gateway's `judge` alias served `openai/gpt-6-sol` when this was measured. That model
   answers HTTP 400 to `temperature` and `max_tokens`, so the judge request sends neither.
@@ -411,7 +411,7 @@ note. If a write then fails part way, every earlier write is undone (a replaced 
 back, a new page and any folder created for it are removed). The commit is recorded in the write
 provenance chain as one entry listing every touched path; an aborted commit records nothing.
 
-Generated `index.md` and `log.md` pages are not part of these tools.
+Generated index and log pages are not part of these tools.
 
 ## Response format
 
