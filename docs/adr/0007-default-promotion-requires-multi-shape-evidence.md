@@ -143,7 +143,7 @@ by query id; artifacts and `runs.db` under `/data/obsidian-tc-eval/search-mode-r
 | --- | ---: | --- | --- | --- | ---: | ---: |
 | Matuschak evergreen, strict labels (public) | 78 | 0.8491 / 0.2543 | 0.9359 / 0.2885 | 0.8472 / 0.2500 | 52 | -0.678 |
 | Matuschak evergreen, lenient labels | 78 | 0.6266 / 0.1800 | 0.6345 / 0.1814 | 0.8694 / 0.2547 | 53 | -0.514 |
-| private multi-hop vault (CONTAMINATED, see correction below) | 250 | 0.1009 / 0.0000 | 0.1083 / 0.0000 | 0.1123 / 0.0000 | 32 | -0.130 |
+| private multi-hop vault (CONTAMINATED and path-bug deflated, see corrections below and the 2026-10-02 status) | 250 | 0.1009 / 0.0000 | 0.1083 / 0.0000 | 0.1123 / 0.0000 | 32 | -0.130 |
 
 The arms are identical wherever the text leg finds a hit, and `auto` only falls back to the semantic leg when it
 finds none; forcing `text` removes that fallback, so every change is a loss (0 queries improve on any corpus,
@@ -195,7 +195,7 @@ same index copies and query vectors, paired by query id; artifacts, `runs.db` an
 | --- | ---: | --- | --- | --- | ---: |
 | Matuschak evergreen, strict labels (public) | 78 | 0.8491 | 0.8491 (0 changed) | 0.8865, +0.037 (lower +0.007, p 0.049) | 9 (8 up, 1 down) |
 | Matuschak evergreen, lenient labels | 78 | 0.6266 | 0.6296 (+0.003) | 0.6550, +0.028 (lower +0.010, p 0.010) | 15 (12 up, 3 down) |
-| private multi-hop vault (CONTAMINATED, see correction below) | 250 | 0.1009 | 0.3609 (+0.260) | 0.3609, +0.260 (lower +0.222, p 0.0001) | 94 (all up) |
+| private multi-hop vault (CONTAMINATED and path-bug deflated, see corrections below and the 2026-10-02 status) | 250 | 0.1009 | 0.3609 (+0.260) | 0.3609, +0.260 (lower +0.222, p 0.0001) | 94 (all up) |
 
 Recall@10 and MRR@10 move the same way (private: recall 0.1083 to 0.4497, MRR 0.1123 to 0.3639; strict hybrid recall
 0.9359 to 0.9551, MRR 0.8472 to 0.8835). Zero-text-hit queries are identical in every arm. Fused `hybrid` stays below
@@ -296,3 +296,135 @@ set was labelled against the 1,182-note vault, so notes written since are distra
 like-for-like baseline for private-vault runs; a settled copy is a different corpus and any run on it must say so.
 `history.ts` keys a run on the golden set, which did not change, so it cannot flag this on its own: record the index
 state in the run's note.
+
+## Status (2026-10-02): rerankers over dense top-K lose as wired; the reranker stays off
+
+**Correction first: the private multi-hop `search-mode.ts` numbers above are deflated by a path bug, not only by
+contamination.** The private golden set labels notes with Windows-style paths (204 of its 382 labelled paths carry
+backslashes) while an index stores forward slashes. `eval/run.ts` and `eval/score-reranked.ts` normalized the
+separators; `eval/search-mode.ts`, `eval/query-cache.ts` and `eval/search-and-read-cost.ts` did not, so every
+backslash-labelled target counted as a miss. `computeQueryMetrics` (`eval/metrics.ts`) now normalizes both sides itself,
+once, and a unit test pins it (`test/eval-ndcg.test.ts`, "Windows-style golden paths"). Same index copy, same query
+vectors: private dense-only nDCG@10 is **0.7515** (dense top-50 pool; 0.7476 truncated to 30, the figure `run.ts`
+reported for the clean copy) and production `graph_rrf` is **0.7746** (+0.023, p 0.032), not 0.4016 / 0.4005.
+
+Which rows are affected. Unaffected: every `run.ts` row (dense 0.7471 / 0.7476 / 0.5542, fused+graph, the fan-out,
+`tagEdges` and `knnEdges` contrasts, the `rrfK` row), and every public evergreen row (no backslash labels). Deflated
+(scored by `search-mode.ts`, private shape only): 0.4005 (dense-only), 0.4016 (`auto` on the decontaminated copy, all
+three routes), 0.2460 (`auto` on the settled copy), and the contaminated 0.1009 / 0.0000 and 0.3609 / +0.260 rows, in
+the 2026-09-30, 2026-10-01 and 2026-10-02 sections above. The 2026-10-02 sentence "the `auto` numbers moved by 0.30" is
+the contamination plus this bug mixed. The retrieval-cache eval (`query-cache.ts`) paired its two sides through the same
+scorer, so its ON/OFF comparisons stand, but any absolute private nDCG it printed is deflated; the latency and
+identity-gap findings do not use a metric.
+
+Conclusions that need re-checking on the corrected scorer (not re-run here): (1) that the `weak-text` and `hybrid`
+`auto` routes are a no-op on the decontaminated private vault ("identical to dense-only search, 0 queries changed" is a
+rank comparison and most likely stands, but the 0.4016 level it was reported at is wrong); (2) the size of the private
+`auto`-versus-dense gap, withdrawn for contamination but never re-measured at the right scale; (3) the settled-copy `auto` level 0.2460, which the section above set against a `run.ts` dense figure of
+0.5542 (the 0.5542 is unaffected; the 0.2460 is deflated, so the two are not comparable and the gap between them says nothing). The class (c) verdicts above all rest on the public rows or on arms that lose
+catastrophically, so none flips on this alone; the private-shape `search-mode.ts` rows need re-scoring before they count either way.
+
+**Question and pre-registration.** Does a cross-encoder reranker, applied to the same dense top-K, beat the shipped
+order on a single-hop public shape and a multi-hop private shape? Pre-registered before any reranker arm was scored on a
+real pool: sha256 `3788364025edc60311952107dbbf46acefbfd4ab94dc267ad62dffee3a61a7ba` (written 2026-10-02T10:39:24Z).
+Addendum 1, a post-hoc title-prefix sensitivity variant, was written after the primary arms and after the evergreen
+title runs finished (sha256 `c1543d806d50cda6691a70b8ede50fc5defd314b27e47e7bff8fc51c1d4ffa10`, 2026-10-02T11:45:03Z),
+scored in its own Benjamini-Hochberg family and labelled exploratory throughout. Harness: `eval/rerank-arms.ts`. Pools:
+the real `search_semantic` handler, K=30 primary and K=50 secondary, one precomputed query vector set shared by every
+arm, metrics over unique result paths with both sides path-normalized. Index copies: the evergreen corpus (n=78,
+strict and lenient labels, one shape) and the private multi-hop vault (n=250; 103 queries declare bridge notes) on the
+pre-drift index copy minus the contaminating note (`golden-guard` passes). Paired by query id, permutation p,
+bootstrap CI, BH q 0.10 across the arms of one family, non-inferiority floor -0.015. Artifacts, per-arm results,
+`runs.db` (128 recorded runs, the index copy in each run's note) and the scripts are under
+`/data/obsidian-tc-eval/reranker-2026-10/`.
+
+**Privacy handling.** The NVIDIA API trial terms (3.3) allow collecting submitted content to improve NVIDIA products
+and models, and the OpenRouter `:free` nemotron model is served by that same endpoint. Those two arms therefore ran on the
+public corpus only, enforced in the harness (`PUBLIC_ONLY_ARMS`); the private vault's text was sent only to Cloudflare
+Workers AI (no training on Customer Content), DeepInfra (zero retention) and the local CPU. Candidate text also passes the
+production `egress.excludePaths` guard. Skipped with reason: Novita and Cohere (no key), Vertex AI Ranking (project not set up).
+
+**Controls** (nDCG@10): evergreen strict dense 0.8683, `graph_rrf` 0.9143 (+0.046, p 0.053); evergreen lenient dense
+0.6277, `graph_rrf` 0.690 (+0.062, p 0.0002); private dense 0.7515, `graph_rrf` 0.7746 (+0.023, p 0.032).
+
+**Primary result: raw chunk text (what the product hands a reranker today), pure rerank order, K=30.** Dense to arm
+nDCG@10, paired delta, verdict under the pre-registered rule:
+
+| arm | evergreen strict (n=78) | evergreen lenient (n=78) | private multi-hop (n=250) |
+| --- | --- | --- | --- |
+| local MiniLM-L6 int8 | 0.868 to 0.670 (-0.198) CATASTROPHIC | 0.628 to 0.571 (-0.057) CATASTROPHIC | 0.748 to 0.656 (-0.092) CATASTROPHIC |
+| Cloudflare bge-reranker-base | 0.868 to 0.654 (-0.214) CATASTROPHIC | 0.628 to 0.583 (-0.045) LOSS | 0.748 to 0.678 (-0.069) CATASTROPHIC |
+| DeepInfra Qwen3-Reranker-0.6B | 0.868 to 0.686 (-0.182) CATASTROPHIC | 0.628 to 0.578 (-0.050) LOSS | 0.748 to 0.696 (-0.052) CATASTROPHIC |
+| NVIDIA nemotron-rerank-vl-1b (public only) | 0.868 to 0.785 (-0.083) CATASTROPHIC | 0.628 to 0.643 (+0.015, p 0.45) UNDERPOWERED | not run |
+| OpenRouter nemotron-rerank-vl-1b free (public only) | identical to NVIDIA (same model) | identical | not run |
+
+Every arm loses on the strict labels of the public shape and every arm that ran on the private shape loses there. K=50
+is worse or equal everywhere (private: Cloudflare -0.096, DeepInfra -0.069; evergreen strict -0.088 to -0.245). Recall@10
+barely moves (private 0.833 to 0.824 to 0.833); the damage is ordering, MRR@10 falls from 0.82 to 0.67 to 0.72 on the
+private shape.
+
+**Secondary: reciprocal-rank fusion of the dense and rerank orders (k=10), K=30** (delta nDCG@10 against dense;
+p in parentheses):
+
+| arm | evergreen strict | evergreen lenient | private multi-hop |
+| --- | --- | --- | --- |
+| local MiniLM-L6 int8 | -0.046 (0.074) | +0.004 (0.82) | -0.023 (0.018) |
+| Cloudflare bge-reranker-base | -0.066 (0.007) | +0.013 (0.38) | -0.007 (0.40) |
+| DeepInfra Qwen3-Reranker-0.6B | -0.025 (0.26) | +0.019 (0.20) | +0.005 (0.55) |
+| NVIDIA / OpenRouter nemotron | +0.004 (0.85) | +0.038 (0.003) | not run |
+
+Fusion removes most of the loss but buys nothing the dense order did not already have: about neutral, and below the
++0.023 to +0.062 that `graph_rrf` already adds.
+
+**Secondary: class-gated reranking.** Rerank only the router classes with a positive mean delta and n >= 10 on the
+private set (the lexical route, n=13): +0.002 (MiniLM), +0.002 (Cloudflare), +0.005 (DeepInfra), none significant, and
+n=13 cannot resolve anything. The oracle ceiling, rerank only queries labelled single-hop, a label no live query carries,
+still loses on the private shape (MiniLM -0.061, Cloudflare -0.043, DeepInfra -0.026). The evergreen corpus has no hop
+labels (every query is single-hop), so its oracle rows equal the ungated arms. Gating does not rescue the reranker.
+
+**Per-class (private, K=30, pure rerank).** Multi-hop queries lose -0.062 to -0.075, single-hop -0.045 to -0.103, the
+lexical route gains +0.035 to +0.086 (n=13, not significant), the temporal route loses -0.118 to -0.213. The prior
+mechanism ("a reranker demotes bridge notes") is not supported: bridge-note nDCG@10 over the 103 bridge queries rose for
+every arm (0.209 to 0.224 / 0.246 / 0.256; DeepInfra p 0.039). The losses are in ordinary single-document ranking. On
+evergreen strict the largest are `keyword` (-0.22 to -0.52) and `author-work` (-0.21 to -0.41) queries, where the
+expected note is identified by its title, and a raw chunk carries no title.
+
+**Exploratory, not pre-registered as a primary: title-prefixed passages** (addendum 1; passage is
+`<note title>\n\n<chunk>`, K=30, same pools, its own BH family; the dense index already sees the title through graph
+context, the reranker did not). Dense to arm nDCG@10, pure rerank:
+
+| arm | evergreen strict | evergreen lenient | private multi-hop |
+| --- | --- | --- | --- |
+| local MiniLM-L6 int8 + title | 0.868 to 0.912 (+0.044) WIN | 0.628 to 0.657 (+0.030) WIN | 0.748 to 0.758 (+0.010, p 0.43) TIE |
+| Cloudflare bge-reranker-base + title | -0.040 UNDERPOWERED | +0.030 WIN | +0.014 (p 0.29) TIE |
+| DeepInfra Qwen3-Reranker-0.6B + title | -0.031 UNDERPOWERED | +0.010 UNDERPOWERED | 0.748 to 0.781 (+0.033, p 0.014) WIN |
+| NVIDIA nemotron + title (public only) | 0.868 to 0.937 (+0.069) WIN | 0.628 to 0.693 (+0.065) WIN | not run |
+
+With RRF fusion the title-prefixed arms are not worse than dense on any cell (private +0.012 to +0.023, evergreen
+strict +0.010 to +0.042, lenient +0.026 to +0.047), and the private bridge-note nDCG@10 rises (DeepInfra +0.048,
+p 0.019). The best cells (nemotron on evergreen strict, 0.937) pass the `graph_rrf` control (0.914). This is a
+post-hoc variant formed after reading the primary per-category table, tested on the same queries it was formed from for
+the public shape, so the public wins are hypothesis-generating; the private shape is the nearer thing to a held-out
+check and there the wins are small (+0.010 to +0.033, one of three clears significance). It cannot change a primary
+verdict.
+
+**Latency and cost** (provider call from the Cave host, load average 5 to 9 on 4 cores, so local figures are inflated;
+p50 / p95 ms at K=30): Cloudflare 564 to 637 / 1,321 to 1,784, DeepInfra 341 to 381 / 791 to 839, NVIDIA 412 / 509,
+OpenRouter free 444 / 489, local MiniLM 2,881 to 3,460 / 3,400 to 7,863 (6,017 at K=50). Cloudflare costs about 1.9
+estimated neurons per search at K=30 (3.2 at K=50), DeepInfra about $0.01 per million tokens, the rest are free. A local
+`bge-reranker-v2-m3` (int8 ONNX, CPU) was probed on three queries only: 91 to 130 s per search (p50 98 s, at a load
+average of about 11), roughly thirty times the MiniLM arm on the same host, so it is dropped as an arm (threshold 5 s).
+
+**Verdict (ADR 0007 class (c)): no default flips, and the reranker stays off as wired.** A catastrophic loss on every
+raw-chunk arm on at least one shape rules out a default under the rule, and two English shapes could not meet the
+three-shape bar regardless. The September 2026 conclusion ("no reranker beats the production order; keep it off")
+holds against dense-only and against `graph_rrf`: `graph_rrf` is above dense on every shape (+0.023 to +0.062) and no
+raw-chunk arm gets above dense on the strict or private shape; it holds on the corrected private baseline (0.7515, not
+0.4016). Do not enable a reranker as wired.
+
+**Follow-up, not a decision.** The loss is in the passage, not (only) the model: a reranker that sees the note title
+stops losing and, on the public shape, wins. If this is revisited, rerank title-prefixed passages and run a
+pre-registered confirmatory eval on corpora not used to form the hypothesis (a title-bearing passage is a `src/`
+change, which this study does not make). The cheapest candidates are DeepInfra Qwen3-0.6B + title (private +0.033,
+about 0.35 s) and local MiniLM + title (free, +0.010 on private, +0.044 on evergreen strict, but about 3 s per search
+on one CPU thread). Class gating does not help.
