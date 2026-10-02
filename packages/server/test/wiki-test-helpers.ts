@@ -6,8 +6,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../src/db/types";
+import type { EgressFilter } from "../src/plane/egress-filter";
+import type { GatewayRoles } from "../src/plane/gateway";
 import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
+import type { WikiJudgeSettings } from "../src/tools/m7/knowledge/wiki-judge";
 import { makeTestVault, type TestVault, type TestVaultOptions } from "./m1-helpers";
 
 export const MODEL = "stub:4";
@@ -25,9 +28,20 @@ export function makeWikiHarness(
     vectors?: Record<string, number[]>;
     edb?: Database;
     failEmbed?: boolean;
+    roles?: GatewayRoles | null;
+    wikiJudge?: Partial<WikiJudgeSettings>;
+    excludeFilter?: EgressFilter;
   } = {},
 ): WikiHarness {
-  const { vectors = {}, edb, failEmbed = false, ...vaultOpts } = opts;
+  const {
+    vectors = {},
+    edb,
+    failEmbed = false,
+    roles = null,
+    wikiJudge,
+    excludeFilter,
+    ...vaultOpts
+  } = opts;
   const v = makeTestVault(vaultOpts);
   registerM7Tools(v.registry, {
     vaultRegistry: v.vaultRegistry,
@@ -42,7 +56,19 @@ export function makeWikiHarness(
       },
     } as any,
     reranker: null,
-    roles: null,
+    roles,
+    ...(excludeFilter ? { excludeFilter } : {}),
+    ...(wikiJudge
+      ? {
+          wikiJudge: {
+            enabled: true,
+            maxCallsPerRequest: 3,
+            maxCallsPerDay: 200,
+            timeoutMs: 2000,
+            ...wikiJudge,
+          },
+        }
+      : {}),
     ...(edb ? { edb } : {}),
   });
   let n = 0;

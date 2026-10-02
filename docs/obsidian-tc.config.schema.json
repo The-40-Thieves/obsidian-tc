@@ -2512,6 +2512,18 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 5000
+            },
+            "judge": {
+              "default": false,
+              "description": "Have the scheduled pass ask the wikiJudge LLM about each near-duplicate pair and log the verdict counts. Off by default: it spends gateway judge calls. Needs a configured gateway and wikiJudge.maxCallsPerDay above 0.",
+              "type": "boolean"
+            },
+            "judgeMaxCalls": {
+              "default": 20,
+              "description": "Per-run cap on judge calls made by the scheduled pass (cached verdicts are free and do not count). Pairs beyond it stay unjudged until a later run.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 500
             }
           }
         }
@@ -2697,6 +2709,39 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "wikiJudge": {
+      "description": "LLM judge for ambiguous wiki page matches (find_existing_page, lint_wiki). Uses the gateway judge role; sends only readable notes outside egress.excludePaths and Obsidian's Excluded files.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "Whether find_existing_page runs the judge when its `judge` argument is omitted. A call can still pass judge=true or judge=false. Needs a configured gateway; without one the judge never runs. The judge only ever resolves AMBIGUOUS candidates, never overrides exact name, alias or wikidata evidence, never blocks a write, and any failure leaves the verdict ambiguous.",
+          "type": "boolean"
+        },
+        "maxCallsPerRequest": {
+          "default": 3,
+          "description": "Most candidates one find_existing_page call sends to the judge (top-ranked first). Cached verdicts do not count.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "maxCallsPerDay": {
+          "default": 200,
+          "description": "Most gateway judge calls per UTC day across every caller (a failed call counts). 0 disables the judge. Cached verdicts do not count. Over the cap, verdicts stay ambiguous.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "timeoutMs": {
+          "default": 15000,
+          "description": "Per-call wait for the judge. On timeout the candidate stays ambiguous and the tool answers without it.",
+          "type": "integer",
+          "minimum": 500,
+          "maximum": 120000
         }
       }
     },

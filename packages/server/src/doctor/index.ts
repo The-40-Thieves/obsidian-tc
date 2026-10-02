@@ -75,3 +75,4 @@ export type {
   DoctorContext,
   DoctorReport,
 } from "./types";
+export type { WikiJudgeView } from "./wiki-judge";

@@ -669,6 +669,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     reranker: deps.reranker,
     roles: deps.roles,
     excludeFilter: m7ExcludeFilter,
+    // The LLM judge for ambiguous find_existing_page / lint_wiki matches.
+    wikiJudge: config.wikiJudge,
     retrieval: config.retrieval,
     ranking: config.ranking,
     // THE-230: serve-path retrieval logging.

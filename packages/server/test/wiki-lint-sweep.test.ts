@@ -47,6 +47,9 @@ describe("config: maintenance.wikiLint", () => {
         enabled: false,
         intervalHours: 24,
         maxNotes: 1500,
+        // The sweep's judge is a second opt-in, with its own per-run cap.
+        judge: false,
+        judgeMaxCalls: 20,
       });
     } finally {
       rmTemp(dir);

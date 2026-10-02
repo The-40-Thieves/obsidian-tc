@@ -26,6 +26,7 @@ import { hiddenNamesInAllowlist } from "../../doctor/tool-facade";
 import { createEmbeddingProvider } from "../../embeddings";
 import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
+import { resolveGatewayUrl } from "../../gateway/client";
 import { createTypesafeClient } from "../../gateway/typesafe";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
 import { inspectProvenance } from "../../provenance/inspect";
@@ -54,6 +55,7 @@ import {
   probeStaleExplicitSessions,
   probeStoredEmbeddingsProvider,
   probeTelemetryState,
+  probeWikiJudge,
 } from "./doctor-probes";
 
 // THE-523: derive the Local REST API plugin's on-disk state for a vault from the THE-522 capability
@@ -607,6 +609,14 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ].filter((e) => e.names.length > 0),
       },
       telemetry: telemetryState,
+      wikiJudge: await probeWikiJudge(config.cacheDir, busyTimeoutMs, {
+        gatewayConfigured: resolveGatewayUrl(config.gateway?.baseUrl) !== undefined,
+        enabled: config.wikiJudge.enabled,
+        sweepJudges: config.maintenance.wikiLint.judge,
+        maxCallsPerDay: config.wikiJudge.maxCallsPerDay,
+        maxCallsPerRequest: config.wikiJudge.maxCallsPerRequest,
+        timeoutMs: config.wikiJudge.timeoutMs,
+      }),
       provenance: { enabled: config.provenance.enabled, ...provenance },
       authRegistry: {
         authMode: config.auth.mode,

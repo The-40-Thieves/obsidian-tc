@@ -22,6 +22,7 @@ import {
   SnapshotsConfigSchema,
   TelemetryConfigSchema,
   WatchConfigSchema,
+  WikiJudgeConfigSchema,
 } from "./observability.schema";
 import { PersonasConfigSchema } from "./personas.schema";
 import { ProvenanceConfigSchema } from "./provenance.schema";
@@ -173,6 +174,9 @@ export const ServerConfigObject = z.object({
   plane: PlaneConfigSchema.describe("Ambient sleep-time consolidation jobs."),
   egress: EgressConfigSchema.describe(
     "Paths withheld from the inference gateway and the embedding provider — a different question from auth.acl.readPaths, which governs read visibility.",
+  ),
+  wikiJudge: WikiJudgeConfigSchema.describe(
+    "LLM judge for ambiguous wiki page matches (find_existing_page, lint_wiki). Uses the gateway judge role; sends only readable notes outside egress.excludePaths and Obsidian's Excluded files.",
   ),
   sessions: SessionsConfigSchema.describe(
     "Whether the server opens workspace sessions itself, and how long one stays open.",

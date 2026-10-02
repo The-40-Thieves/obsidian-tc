@@ -18,6 +18,7 @@ import type {
   KbHealthProbe,
   SessionLivenessProbe,
   TelemetryView,
+  WikiJudgeView,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
 import { experientialTableSpec } from "../../doctor/table-spec";
@@ -29,6 +30,7 @@ import {
 } from "../../embeddings/sticky-provider";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
 import { readTelemetryState } from "../../telemetry/state";
+import { readJudgeUsage } from "../../tools/m7/knowledge/wiki-judge";
 import { staleExplicitSessionSummary } from "../../workspace/sessions";
 
 /**
@@ -613,4 +615,37 @@ export async function resolveEffectiveEmbeddings(
     ...opts.configured,
     source: opts.providerExplicit ? "configured" : "default",
   };
+}
+
+/** wiki.judge: today's judge use and the model that last ruled, read from cache.db (read-only). A
+ *  missing cache.db or an un-migrated one means no judge has ever run: zeros, not a fault. */
+export async function probeWikiJudge(
+  cacheDir: string,
+  busyTimeoutMs: number,
+  configured: Omit<
+    WikiJudgeView,
+    "model" | "callsToday" | "failuresToday" | "cachedVerdicts" | "unreadable"
+  >,
+): Promise<WikiJudgeView> {
+  const none = { model: null, callsToday: 0, failuresToday: 0, cachedVerdicts: 0 };
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return { ...configured, ...none };
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path, busyTimeoutMs, { readonly: true });
+    const u = readJudgeUsage(db, Date.now());
+    return {
+      ...configured,
+      model: u.model,
+      callsToday: u.calls,
+      failuresToday: u.failures,
+      cachedVerdicts: u.cached,
+    };
+  } catch (e) {
+    return { ...configured, ...none, unreadable: (e as Error)?.message ?? String(e) };
+  } finally {
+    try {
+      db?.close?.();
+    } catch {}
+  }
 }

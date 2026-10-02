@@ -109,6 +109,9 @@ export const CACHE_MIGRATION_FILES = [
   // can dismiss (not delete) rows a better judge clears and resume after an interruption. See the
   // migration header.
   "20261001_001_contradictions_rejudge.sql",
+  // 20261002_001: the wiki judge's verdict cache (keyed on both notes' content hashes and the
+  // resolved model) and its per-day call counter. See the migration header.
+  "20261002_001_wiki_judge.sql",
 ] as const;
 
 /**

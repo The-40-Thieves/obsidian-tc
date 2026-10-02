@@ -223,7 +223,13 @@ describe("maintenance config (THE-292)", () => {
         dryRun: false,
       },
       // The scheduled wiki lint is opt-in: absent `folder`, whole vault.
-      wikiLint: { enabled: false, intervalHours: 24, maxNotes: 1500 },
+      wikiLint: {
+        enabled: false,
+        intervalHours: 24,
+        maxNotes: 1500,
+        judge: false,
+        judgeMaxCalls: 20,
+      },
       // THE-458 item 6: reconcileIntervalMinutes is ABSENT by default, not 0 — a healthy server
       // with a working watcher does not need a periodic full vault walk, and 0 would parse as
       // "set" while meaning "off".
@@ -270,7 +276,13 @@ describe("maintenance config (THE-292)", () => {
         dryRun: false,
       },
       // The scheduled wiki lint is opt-in: absent `folder`, whole vault.
-      wikiLint: { enabled: false, intervalHours: 24, maxNotes: 1500 },
+      wikiLint: {
+        enabled: false,
+        intervalHours: 24,
+        maxNotes: 1500,
+        judge: false,
+        judgeMaxCalls: 20,
+      },
     });
   });
 
@@ -361,5 +373,35 @@ describe("plane.enabled default (THE-825)", () => {
       plane: { enabled: false },
     });
     expect(c.plane.enabled).toBe(false);
+  });
+});
+
+describe("wikiJudge config", () => {
+  const parse = (extra: object = {}) =>
+    ServerConfigSchema.parse({ vaults: [{ id: "main", path: "/v" }], ...extra });
+
+  it("defaults: capped at 3 calls per request and 200 per day, 15s per call", () => {
+    expect(parse().wikiJudge).toEqual({
+      enabled: false,
+      maxCallsPerRequest: 3,
+      maxCallsPerDay: 200,
+      timeoutMs: 15000,
+    });
+  });
+
+  it("takes overrides and fills the rest from defaults", () => {
+    expect(parse({ wikiJudge: { enabled: true, maxCallsPerDay: 0 } }).wikiJudge).toEqual({
+      enabled: true,
+      maxCallsPerRequest: 3,
+      maxCallsPerDay: 0,
+      timeoutMs: 15000,
+    });
+  });
+
+  it("refuses a per-request cap above 3 and a negative daily cap", () => {
+    expect(() => parse({ wikiJudge: { maxCallsPerRequest: 4 } })).toThrow();
+    expect(() => parse({ wikiJudge: { maxCallsPerRequest: 0 } })).toThrow();
+    expect(() => parse({ wikiJudge: { maxCallsPerDay: -1 } })).toThrow();
+    expect(() => parse({ wikiJudge: { timeoutMs: 10 } })).toThrow();
   });
 });
