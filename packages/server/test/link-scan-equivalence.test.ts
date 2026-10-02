@@ -213,13 +213,19 @@ describe("link-scan equivalence: production matches the commit-pinned regex orac
     expect(rewriteLinks("[[N| spaced ]]", map).text).toBe("[[N-x| spaced ]]");
   });
 
-  it("inCodeRange agrees with a linear ranges.some at every index (span boundaries included)", () => {
+  it("inlineCodeRanges matches the old regex, and inCodeRange agrees with a linear scan at every index", () => {
     const lines = [...Object.values(EDGE_CASES), ...Object.values(EDGE_TAG_CASES), "``` `a``b` ``"];
     let indices = 0;
     for (const line of lines.flatMap((l) => l.split(/\r?\n/))) {
       const ranges = inlineCodeRanges(line);
+      // The oracle is the regex the flat scan replaced, kept as [start, end) tuples.
+      const oracle = [...line.matchAll(/`[^`]*`/g)].map((m): [number, number] => [
+        m.index ?? 0,
+        (m.index ?? 0) + m[0].length,
+      ]);
+      expect(ranges).toEqual(oracle.flat());
       for (let idx = -1; idx <= line.length + 1; idx++) {
-        const linear = ranges.some(([a, b]) => idx >= a && idx < b);
+        const linear = oracle.some(([a, b]) => idx >= a && idx < b);
         expect(inCodeRange(ranges, idx)).toBe(linear);
         indices++;
       }

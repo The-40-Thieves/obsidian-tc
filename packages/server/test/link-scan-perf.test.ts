@@ -7,8 +7,8 @@
 // Two kinds of assertion per shape (see test/scaling.ts): an absolute bound (generous, so CI load
 // does not flake it while still sitting far below the multi-second blowup) and a SCALING check, the
 // log-log slope of CPU time over 1x/2x/4x/8x inputs.
-import { describe, it } from "vitest";
-import { scanLinks } from "../src/vault/link-scan";
+import { describe, expect, it } from "vitest";
+import { inlineCodeRanges, scanLinks } from "../src/vault/link-scan";
 import { extractLinks } from "../src/vault/links";
 import { rewriteLinks } from "../src/vault/rewrite";
 import { extractInlineTags } from "../src/vault/tags";
@@ -48,6 +48,31 @@ describe("link scanning stays linear under crafted adversarial input", {
 
   it("unclosed backtick runs stay linear (already true; guard against a future regression)", () => {
     expectLinear("`x", (s) => extractLinks(s));
+  });
+
+  it("inlineCodeRanges alone stays linear over the backtick shape (no per-span objects)", () => {
+    // "`x" repeated is one span per 4 bytes. A matchAll scan (a match array plus a tuple per span)
+    // took a GC-promotion step at 2 MB: macOS CI measured 5.5 ms, 11.1 ms, 42.9 ms, 102.7 ms
+    // (slope 1.46) in 5 of 20 runs (slopes 1.46 to 1.58), and two CI failures at 1.64 against the
+    // 1.6 cap. This runs the scan alone, at the same sizes.
+    expectLinear("`x", (s) => inlineCodeRanges(s));
+  });
+
+  it("the backtick check can fail: a scan that re-copies its span list per match is refused", () => {
+    // Control for the case above: same shape, quadratic scan (concat copies every span so far).
+    const quadratic = (line: string): void => {
+      let spans: number[] = [];
+      let open = line.indexOf("`");
+      while (open >= 0) {
+        const close = line.indexOf("`", open + 1);
+        if (close < 0) break;
+        spans = spans.concat([open, close + 1]);
+        open = line.indexOf("`", close + 1);
+      }
+    };
+    expect(() =>
+      expectLinear("`x", quadratic, { baseBytes: 8 * 1024, boundMsPer80KB: null }),
+    ).toThrow(/log-log slope/);
   });
 
   it("inline-code spans interleaved with links: extractLinks marks code in O(n log n)", () => {
