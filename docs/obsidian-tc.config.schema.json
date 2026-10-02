@@ -2484,6 +2484,36 @@
               "type": "boolean"
             }
           }
+        },
+        "wikiLint": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Run the lint_wiki checks on a schedule and log a one-line summary per vault (proposal counts by kind). Read-only: it never edits a note and never blocks a write; call lint_wiki for the proposals themselves. Off by default. Also requires maintenance.enabled.",
+              "type": "boolean"
+            },
+            "intervalHours": {
+              "default": 24,
+              "description": "Hours between scheduled lint passes.",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 8760
+            },
+            "folder": {
+              "description": "Lint only this vault-relative folder (applied to every vault). Absent lints the whole vault.",
+              "type": "string",
+              "minLength": 1
+            },
+            "maxNotes": {
+              "default": 1500,
+              "description": "Cap on notes compared pairwise by the near-duplicate check; its cost grows with the square of this.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 5000
+            }
+          }
         }
       }
     },

@@ -222,6 +222,8 @@ describe("maintenance config (THE-292)", () => {
         batchSize: 500,
         dryRun: false,
       },
+      // The scheduled wiki lint is opt-in: absent `folder`, whole vault.
+      wikiLint: { enabled: false, intervalHours: 24, maxNotes: 1500 },
       // THE-458 item 6: reconcileIntervalMinutes is ABSENT by default, not 0 — a healthy server
       // with a working watcher does not need a periodic full vault walk, and 0 would parse as
       // "set" while meaning "off".
@@ -267,6 +269,8 @@ describe("maintenance config (THE-292)", () => {
         batchSize: 500,
         dryRun: false,
       },
+      // The scheduled wiki lint is opt-in: absent `folder`, whole vault.
+      wikiLint: { enabled: false, intervalHours: 24, maxNotes: 1500 },
     });
   });
 

@@ -18,6 +18,7 @@ import type { ProvenanceRecorder } from "../provenance/recorder";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { makeJobRunner } from "../scheduler/job-runner";
 import { Scheduler } from "../scheduler/scheduler";
+import { NO_EXCLUSION, type VaultExclusion } from "../search/index-exclusion";
 import type { TelemetryWiring } from "../telemetry/wiring";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { schedulerPersistErrorSink } from "../util/errors";
@@ -31,6 +32,7 @@ import {
   registerNoteQualitySchedule,
   registerPlaneSchedule,
 } from "./plane-wiring";
+import { registerWikiLintSweep } from "./wiki-lint-sweep";
 
 export interface SchedulerWiringDeps {
   config: ServerConfig;
@@ -64,6 +66,8 @@ export interface SchedulerWiringDeps {
   /** THE-719: the gap sweep embeds each query it sweeps, so it needs the live provider. Also THE-634:
    *  the advisory sweep's goal/candidate similarity uses the same live provider. */
   embeddingProvider: EmbeddingProvider;
+  /** The vault's Excluded-files filter, for the scheduled wiki lint. Absent -> nothing is excluded. */
+  exclusionFor?: (vaultId: string) => VaultExclusion;
   /** THE-634: publish side of the advisory push extension (mcp/advisories.ts). Present only when
    *  `experiential.proactive.enabled` — see server-runtime.ts's construction site. */
   advisoryBus?: AdvisoryBus;
@@ -187,6 +191,22 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       maxQueries: config.experiential.gapSweep.maxQueries,
       ...(config.retrieval?.rrfK !== undefined ? { rrfK: config.retrieval.rrfK } : {}),
       ...(config.retrieval?.derivedDefaults ? { derivedDefaults: true } : {}),
+    });
+  }
+
+  // The scheduled wiki lint (lint_wiki's checks on a timer). Registered ONLY when explicitly
+  // enabled, and it also needs the maintenance sweep on, like every job on this cadence.
+  // Read-only: it logs a summary per vault and writes nothing.
+  if (config.maintenance.enabled && config.maintenance.wikiLint.enabled) {
+    registerWikiLintSweep(scheduler, {
+      cacheDb: deps.db,
+      ...(deps.experientialOpen ? { experientialDb: deps.experientialDb } : {}),
+      vaults: deps.vaults,
+      exclusionFor: deps.exclusionFor ?? (() => NO_EXCLUSION),
+      embeddingModel: deps.embeddingProvider.id,
+      intervalMs: config.maintenance.wikiLint.intervalHours * 3_600_000,
+      folder: config.maintenance.wikiLint.folder,
+      maxNotes: config.maintenance.wikiLint.maxNotes,
     });
   }
 
