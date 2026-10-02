@@ -13,6 +13,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { ResponseFormatInput } from "../../response-format";
+import { rewriteWarningsShape } from "../../scan-warnings";
 
 // ── output schemas ───────────────────────────────────────────────────────────
 
@@ -255,6 +256,7 @@ export const MoveNoteOutput = z.object({
   trashed_dest_to: z.string().nullable(),
   content_hash: z.string(),
   backlinks_updated: z.object({ notes: z.number(), links: z.number() }),
+  ...rewriteWarningsShape,
 });
 
 export const CopyNoteOutput = z.object({

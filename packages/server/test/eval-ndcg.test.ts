@@ -66,3 +66,28 @@ describe("THE-440 bridge-doc nDCG@10 (static-vs-trajectory proxy)", () => {
     expect(m.bridge_ndcg_at_10).toBe(0); // trajectory axis fails while static axis passes
   });
 });
+
+describe("Windows-style golden paths", () => {
+  const win: GoldenQuery = {
+    ...q,
+    seed_paths: ["02-projects\\Alpha.md"],
+    target_paths: ["05-creative\\Beta\\B.md"],
+    bridge_paths: ["03-areas\\Bridge.md"],
+  };
+
+  it("score as hits against forward-slash results: the scorer, not each caller, normalizes", () => {
+    const m = computeQueryMetrics(win, [
+      hit("02-projects/Alpha.md", 0),
+      hit("05-creative/Beta/B.md", 1),
+      hit("03-areas/Bridge.md", 2),
+    ]);
+    expect(m.recall_at_10).toBe(1);
+    expect(m.bridge_ndcg_at_10).toBeCloseTo(1 / Math.log2(4));
+  });
+
+  it("a backslash result path matches a forward-slash label, and clean input is unchanged", () => {
+    const flip: GoldenQuery = { ...q, seed_paths: ["a/b.md"], target_paths: [], bridge_paths: [] };
+    expect(computeQueryMetrics(flip, [hit("a\\b.md", 0)]).recall_at_10).toBe(1);
+    expect(computeQueryMetrics(q, [hit("A.md", 0), hit("B.md", 1)]).recall_at_10).toBe(1);
+  });
+});

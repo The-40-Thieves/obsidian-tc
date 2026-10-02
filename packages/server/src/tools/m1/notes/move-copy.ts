@@ -13,6 +13,7 @@ import {
 import type { ToolDefinition } from "../../../mcp/registry";
 import type { MetricsRecorder } from "../../../metrics/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
+import { readableRel } from "../../../vault/acl-read-filter";
 import { requireConfirmation } from "../../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
 import {
@@ -26,6 +27,7 @@ import {
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
 import { rewriteLinks } from "../../../vault/rewrite";
 import { captureSnapshot } from "../../../vault/snapshots";
+import { type RewriteWarning, rewriteWarningsOut } from "../../scan-warnings";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { CopyInput, CopyNoteOutput, MoveInput, MoveNoteOutput } from "./schemas";
@@ -54,7 +56,13 @@ function updateBacklinks(
   toRel: string,
   mdConfig: VaultMemoryDefenseConfig,
   metrics: MetricsRecorder | undefined,
-): { notes: number; links: number; rewritten: Array<{ rel: string; text: string }> } {
+  readable: (rel: string) => boolean,
+): {
+  notes: number;
+  links: number;
+  rewritten: Array<{ rel: string; text: string }>;
+  warnings: RewriteWarning[];
+} {
   const postPaths = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
   const oldPaths = postPaths.filter((p) => p !== toRel).concat(fromRel);
   const oldIndex = buildVaultIndex(oldPaths);
@@ -64,14 +72,21 @@ function updateBacklinks(
   const newTarget = unique ? newBase : toRel.replace(/\.md$/i, "");
 
   const pending: Array<{ abs: string; rel: string; text: string; count: number }> = [];
+  const warnings: RewriteWarning[] = [];
   for (const p of postPaths) {
     if (p === toRel) continue; // the moved note's own outgoing links are unaffected
     const abs = resolveVaultPath(root, p);
     const { raw } = readNote(abs);
-    const { text, count } = rewriteLinks(raw, (target) => {
+    const {
+      text,
+      count,
+      warnings: ws,
+    } = rewriteLinks(raw, (target) => {
       const r = resolveTarget(oldIndex, target);
       return r.resolved && r.target_path === fromRel ? newTarget : null;
     });
+    // a warning names its note, and the rewrite is vault-wide: only name notes the caller may read
+    if (readable(p)) for (const w of ws) warnings.push({ path: p, ...w });
     if (count > 0) pending.push({ abs, rel: p, text, count });
   }
   // Security review round (GH #994 follow-up) + residual fix: scan every rewritten body BEFORE
@@ -95,7 +110,7 @@ function updateBacklinks(
     notes++;
     links += p.count;
   }
-  return { notes, links, rewritten };
+  return { notes, links, rewritten, warnings };
 }
 
 // ── tools ────────────────────────────────────────────────────────────────────
@@ -198,8 +213,10 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       deps.deindex?.(v.id, fromRel);
       deps.reindex?.(v.id, toRel, scannedRaw);
       const backlinks = input.update_backlinks
-        ? updateBacklinks(v.root, fromRel, toRel, mdConfig, deps.metrics)
-        : { notes: 0, links: 0, rewritten: [] };
+        ? updateBacklinks(v.root, fromRel, toRel, mdConfig, deps.metrics, (rel) =>
+            readableRel(ctx.acl, rel, ctx.grantedScopes),
+          )
+        : { notes: 0, links: 0, rewritten: [], warnings: [] };
       for (const rw of backlinks.rewritten) deps.reindex?.(v.id, rw.rel, rw.text);
       return {
         vault: v.id,
@@ -210,6 +227,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         trashed_dest_to: trashedDestTo,
         content_hash: contentHash(scannedRaw),
         backlinks_updated: { notes: backlinks.notes, links: backlinks.links },
+        ...rewriteWarningsOut(backlinks.warnings),
       };
     },
   });
