@@ -55,7 +55,23 @@ export const ReadNoteSectionOut = z.object({
 // `anchor`, `section` instead of the whole body). The fields it drops are therefore optional here; a
 // detailed read always carries all of them (pinned by response-format-tools.test.ts), and a schema
 // that still required them would make the SDK's ajv validator reject every concise response.
+/** A note whose frontmatter is not valid YAML is still readable: `frontmatter` is null and these
+ *  three fields (present only then) carry what a caller needs to repair it. */
+export const UnparseableFrontmatterShape = {
+  raw_frontmatter: z.string().optional(),
+  frontmatter_error: z
+    .object({
+      message: z.string(),
+      /** 1-based position in the file (the opening --- is line 1). */
+      line: z.number().int().optional(),
+      column: z.number().int().optional(),
+    })
+    .optional(),
+  warning: z.string().optional(),
+};
+
 export const ReadNoteOutput = z.object({
+  ...UnparseableFrontmatterShape,
   vault: z.string(),
   path: z.string(),
   content: z.string().optional(),
@@ -71,6 +87,7 @@ export const ReadNoteOutput = z.object({
 /** read_notes' per-note entry is hand-assembled in the loop below and is NARROWER than
  *  ReadNoteOutput — no has_frontmatter, no stat. */
 export const ReadNotesEntry = z.object({
+  ...UnparseableFrontmatterShape,
   path: z.string(),
   // GH #1027: dropped by response_format=concise (which keeps path, body, content_hash).
   content: z.string().optional(),

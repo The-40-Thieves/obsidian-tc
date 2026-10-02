@@ -27,7 +27,6 @@ import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
 import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
-import { parseNote } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -37,6 +36,7 @@ import {
   ResponseFormatInput,
   resolveResponseFormat,
 } from "../response-format";
+import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import type { M2Deps } from "./shared";
 
 interface UnifiedHit {
@@ -123,7 +123,9 @@ const SearchSemanticOutput = z.object({
   items: z.array(SemanticSearchHit),
 });
 
-const SearchJsonLogicOutput = paginatedSearchOutput("jsonlogic", JsonLogicHit);
+const SearchJsonLogicOutput = paginatedSearchOutput("jsonlogic", JsonLogicHit).extend(
+  scanWarningsShape,
+);
 
 /** search_dql: DqlResult spread onto {vault}. `rows` cell values are whatever the Dataview bridge
  *  returns for the requested format (table/list/task/calendar) — genuinely dynamic. */
@@ -143,6 +145,7 @@ const SearchDqlOutput = z.object({
  *                                                                                 semantic/jsonlogic
  *  _explain is present only when input.explain is true (another conditional spread -> optional). */
 const SearchVaultOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   // Always one of these five in practice — z.string() rather than z.enum(...) because the
   // handler's two arms (dql vs. paginated) widen this to `string` under TS's control-flow
@@ -179,12 +182,13 @@ function jsonlogicMatches(
   sub: string | undefined,
   readable: (rel: string) => boolean,
   logic: unknown,
+  warnings: ScanWarnings,
 ): string[] {
   const out: string[] = [];
   for (const rel of walkVault(root, { sub, extensions: [".md"] })
     .map((e) => e.relPath)
     .filter(readable)) {
-    const { frontmatter, body } = parseNote(readNote(resolveVaultPath(root, rel)).raw, rel);
+    const { frontmatter, body } = warnings.parse(readNote(resolveVaultPath(root, rel)).raw, rel);
     const data = { ...(frontmatter ?? {}), path: rel, content: body };
     if (evaluatesTruthy(logic, data)) out.push(rel);
   }
@@ -460,13 +464,15 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
-        const matched = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.logic).map(
+        const warnings = new ScanWarnings();
+        const matched = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.logic, warnings).map(
           (path) => ({
             path,
             matched: true as const,
           }),
         );
         return {
+          ...warnings.out(),
           vault: s.id,
           mode_used: "jsonlogic",
           ...paginate(projectHits(matched, formatOf(input)), input.limit, input.cursor),
@@ -527,6 +533,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       tags: ["external-network"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
+        const warnings = new ScanWarnings();
         // retrieval.useSearchModePreference: the reader is only entered when it is wired (flag on);
         // otherwise the mode is the caller's or `auto`, exactly as before, and no field is added.
         const resolved = deps.searchModePreference
@@ -608,11 +615,13 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             break;
           case "jsonlogic":
             tried.push("jsonlogic");
-            items = jsonlogicMatches(s.rootPath, s.sub, s.readable, asObject()).map((path) => ({
-              path,
-              score: 1,
-              mode_used: "jsonlogic",
-            }));
+            items = jsonlogicMatches(s.rootPath, s.sub, s.readable, asObject(), warnings).map(
+              (path) => ({
+                path,
+                score: 1,
+                mode_used: "jsonlogic",
+              }),
+            );
             break;
           case "dql": {
             // The router's static scope is read:notes; the dql path additionally
@@ -638,11 +647,13 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             if (typeof input.query !== "string") {
               tried.push("jsonlogic");
               chosen = "jsonlogic";
-              items = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.query).map((path) => ({
-                path,
-                score: 1,
-                mode_used: "jsonlogic",
-              }));
+              items = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.query, warnings).map(
+                (path) => ({
+                  path,
+                  score: 1,
+                  mode_used: "jsonlogic",
+                }),
+              );
             } else {
               tried.push("text");
               chosen = "text";
@@ -684,6 +695,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             }
           : {};
         return {
+          ...warnings.out(),
           vault: s.id,
           mode_used: chosen,
           ...paginate(projectHits(items, formatOf(input)), input.limit, input.cursor),

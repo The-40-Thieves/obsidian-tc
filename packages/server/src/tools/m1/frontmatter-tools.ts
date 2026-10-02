@@ -16,12 +16,18 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import type { Frontmatter } from "../../vault/frontmatter";
-import { parseNote, serializeNote } from "../../vault/frontmatter";
+import {
+  checkFrontmatterYaml,
+  parseNote,
+  parseNoteLenient,
+  serializeNote,
+} from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { captureSnapshot } from "../../vault/snapshots";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
 import { shapeWriteAck } from "./notes/concise";
 import type { M1Deps } from "./shared";
@@ -135,6 +141,7 @@ const UpdateFrontmatterOutput = z.object({
 });
 
 const ListPropertiesOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   notes_scanned: z.number().int(),
   properties: z.array(
@@ -143,6 +150,7 @@ const ListPropertiesOutput = z.object({
 });
 
 const FindNotesByPropertyOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   key: z.string(),
   total: z.number().int(),
@@ -163,6 +171,10 @@ const UpdateInput = z
     key: z.string().min(1).optional(),
     value: z.unknown().optional(),
     properties: z.record(z.string(), z.unknown()).optional(),
+    // Raw YAML for the whole frontmatter block (no --- lines), `replace` only and instead of
+    // `properties`. Validated as YAML before anything is written; it is also how a note whose
+    // frontmatter does not parse is repaired, keeping comments and key order the caller supplies.
+    frontmatter_yaml: z.string().max(200_000).optional(),
     prev_hash: z.string().optional(),
     create_if_missing: z.boolean().default(false),
     // THE-198: treat `key` as a dotted path (e.g. meta.author.name) for set/remove.
@@ -280,7 +292,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [{ op: "write", path: input.path }],
       description:
-        "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed). response_format=concise acknowledges with {vault, path, content_hash} only (no frontmatter echo).",
+        "Mutate a note's frontmatter (set/remove/merge/replace). `replace` discards all existing metadata and requires confirmation, except on a note whose frontmatter is not valid YAML (nothing parsed to discard): that is the repair route, and it needs no approval. `replace` takes `properties` (an object) or `frontmatter_yaml` (raw YAML for the whole block, no --- lines; validated before anything is written and refused with the parse error if invalid). set/remove/merge on a note whose frontmatter is not valid YAML are refused. Optional prev_hash gives compare-and-swap. Set nested=true to address a dotted key path for set/remove (intermediate objects are created as needed). response_format=concise acknowledges with {vault, path, content_hash} only (no frontmatter echo).",
       inputSchema: UpdateInput,
       outputSchema: UpdateFrontmatterOutput,
       requiredScopes: ["write:notes"],
@@ -300,6 +312,8 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         let rawFm: string | null = null;
         let fmEol: "\n" | "\r\n" | null = null;
         let fmAtEof = false;
+        // The existing frontmatter is not valid YAML: nothing parsed to discard, so a replace repairs it.
+        let unparseable = false;
         let prevHash: string | null = null;
         let prevRaw: string | null = null;
         if (ex.exists) {
@@ -313,10 +327,14 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
               expected: input.prev_hash,
               actual: cur.hash,
             });
-          const parsed = parseNote(cur.raw, rel);
+          const { yamlError, ...parsed } = parseNoteLenient(cur.raw, rel);
+          if (yamlError) {
+            if (input.operation !== "replace") throw yamlError;
+            unparseable = true;
+          }
           fm = { ...(parsed.frontmatter ?? {}) };
           body = parsed.body;
-          rawFm = parsed.rawFrontmatter;
+          rawFm = unparseable ? null : parsed.rawFrontmatter;
           fmEol = parsed.frontmatterEol;
           fmAtEof = parsed.frontmatterAtEof;
         } else if (!input.create_if_missing) {
@@ -357,16 +375,33 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             break;
           }
           default: {
-            if (!input.properties) throw err.invalidInput("properties is required for replace");
+            if (input.frontmatter_yaml !== undefined) {
+              if (input.properties)
+                throw err.invalidInput("pass either properties or frontmatter_yaml, not both");
+              const eol = fmEol ?? "\n";
+              const text = input.frontmatter_yaml.replace(/\r?\n$/, "").replace(/\r?\n/g, eol);
+              const checked = checkFrontmatterYaml(text);
+              if (!checked.ok) throw checked.error;
+              next = checked.frontmatter;
+              rawFm = text;
+              break;
+            }
+            if (!input.properties)
+              throw err.invalidInput("properties or frontmatter_yaml is required for replace");
             next = { ...input.properties };
             break;
           }
         }
+        if (input.frontmatter_yaml !== undefined && input.operation !== "replace")
+          throw err.invalidInput("frontmatter_yaml is only valid with operation replace");
 
-        requireConfirmation(ctx, "update_frontmatter", input, input.operation === "replace", {
-          path: rel,
-          operation: input.operation,
-        });
+        requireConfirmation(
+          ctx,
+          "update_frontmatter",
+          input,
+          input.operation === "replace" && !unparseable,
+          { path: rel, operation: input.operation },
+        );
         if (prevRaw !== null)
           captureSnapshot(
             ctx.db,
@@ -431,6 +466,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const stats = new Map<string, { count: number; types: Set<string> }>();
+        const warnings = new ScanWarnings();
         let scanned = 0;
         const tally = (fm: Record<string, unknown> | null): void => {
           if (!fm) return;
@@ -462,14 +498,15 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             if (scanned >= input.max_notes) break;
             scanned++;
             tally(
-              parseNote(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath).frontmatter,
+              warnings.parse(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath)
+                .frontmatter,
             );
           }
         }
         const properties = [...stats.entries()]
           .map(([key, s]) => ({ key, count: s.count, types: [...s.types].sort() }))
           .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-        return { vault: v.id, notes_scanned: scanned, properties };
+        return { ...warnings.out(), vault: v.id, notes_scanned: scanned, properties };
       },
     }),
 
@@ -485,6 +522,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const matches: Array<{ path: string; value: unknown }> = [];
+        const warnings = new ScanWarnings();
         let truncated = false;
         const consider = (path: string, fm: Record<string, unknown> | null): boolean => {
           if (!fm) return true;
@@ -519,7 +557,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
           );
           for (const e of entries) {
-            const fm = parseNote(
+            const fm = warnings.parse(
               readNote(resolveVaultPath(v.root, e.relPath)).raw,
               e.relPath,
             ).frontmatter;
@@ -527,6 +565,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           }
         }
         return {
+          ...warnings.out(),
           vault: v.id,
           key: input.key,
           total: matches.length,

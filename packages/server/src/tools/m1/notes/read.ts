@@ -11,7 +11,7 @@ import type { FolderAcl } from "../../../acl";
 import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
-import { parseNote } from "../../../vault/frontmatter";
+import { type LenientParsedNote, parseNoteLenient } from "../../../vault/frontmatter";
 import { noteExists, readNote, statNote } from "../../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
@@ -19,6 +19,30 @@ import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { resolveSectionOrThrow } from "./anchors";
 import { PatchAnchor, ReadNoteOutput, ReadNotesOutput } from "./schemas";
+
+/** What a read returns for a note whose frontmatter is not valid YAML: the raw frontmatter text,
+ *  the parse error's location, and the repair route. Empty for a note that parsed. */
+export function unparseableFrontmatterFields(parsed: LenientParsedNote): {
+  raw_frontmatter?: string;
+  frontmatter_error?: { message: string; line?: number; column?: number };
+  warning?: string;
+} {
+  const e = parsed.yamlError;
+  if (!e) return {};
+  const { line, column } = (e.details ?? {}) as { line?: number; column?: number };
+  return {
+    raw_frontmatter: parsed.rawFrontmatter ?? "",
+    frontmatter_error: {
+      message: e.message,
+      ...(line !== undefined ? { line } : {}),
+      ...(column !== undefined ? { column } : {}),
+    },
+    warning:
+      "frontmatter is not valid YAML, so it is returned as null and raw_frontmatter holds its text. " +
+      'Repair it with update_frontmatter {operation: "replace", frontmatter_yaml: <corrected YAML>, ' +
+      "prev_hash: <content_hash>}; it needs no approval because there is no parsed metadata to discard.",
+  };
+}
 
 /** Number of raw-file lines preceding `parsed.body`'s line 0 — the frontmatter delimiter pair
  *  plus its YAML line count (0 when the note has no frontmatter). Used to translate a
@@ -39,7 +63,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
     domain: "notes",
     pathAcl: (input) => [{ op: "read", path: input.path }],
     description:
-      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged. response_format=concise returns {vault, path, body, content_hash}: the note body without its frontmatter block (and, with an anchor, the section instead of the whole body).",
+      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged. A note whose frontmatter is not valid YAML is still returned (frontmatter null) with raw_frontmatter, frontmatter_error {message, line, column} and a warning naming the repair (update_frontmatter replace with frontmatter_yaml). response_format=concise returns {vault, path, body, content_hash}: the note body without its frontmatter block (and, with an anchor, the section instead of the whole body).",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -59,7 +83,8 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { vault: v.id, path: rel });
       const { raw, hash } = readNote(abs);
-      const parsed = parseNote(raw, rel);
+      const parsed = parseNoteLenient(raw, rel);
+      const unparseable = unparseableFrontmatterFields(parsed);
       let section: z.infer<typeof ReadNoteOutput>["section"];
       if (input.anchor) {
         const eol = raw.includes("\r\n") ? "\r\n" : "\n";
@@ -96,6 +121,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
           path: rel,
           ...(section ? { section } : { body: parsed.body }),
           content_hash: hash,
+          ...unparseable,
         };
       return {
         vault: v.id,
@@ -107,6 +133,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
         content_hash: hash,
         stat: statNote(abs),
         ...(section ? { section } : {}),
+        ...unparseable,
       };
     },
   });
@@ -126,7 +153,7 @@ export function readVaultNote(
   const ex = noteExists(abs);
   if (!ex.exists || ex.type === "folder") throw err.noteNotFound("note not found", { path: rel });
   const { raw, hash } = readNote(abs);
-  return { raw, hash, parsed: parseNote(raw, rel) };
+  return { raw, hash, parsed: parseNoteLenient(raw, rel) };
 }
 
 /** One read_notes item: a note entry, or a per-path error entry (partial semantics). */
@@ -172,13 +199,19 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
             return {
               kind: "note",
               note: concise
-                ? { path: rel, body: parsed.body, content_hash: hash }
+                ? {
+                    path: rel,
+                    body: parsed.body,
+                    content_hash: hash,
+                    ...unparseableFrontmatterFields(parsed),
+                  }
                 : {
                     path: rel,
                     content: raw,
                     frontmatter: parsed.frontmatter,
                     body: parsed.body,
                     content_hash: hash,
+                    ...unparseableFrontmatterFields(parsed),
                   },
             };
           } catch (e) {

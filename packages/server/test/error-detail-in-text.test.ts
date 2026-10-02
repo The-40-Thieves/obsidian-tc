@@ -109,8 +109,9 @@ describe("THE-823: error detail reaches content[0].text", () => {
   });
 
   it("a malformed-frontmatter note surfaces the YAML parser's line/column AND the note path in the text", async () => {
-    // THE-823 (deferred half, now closed): parseNote(raw) has ~19 non-test call sites; read_note's
+    // THE-823 (deferred half, now closed): parseNote(raw) has ~19 non-test call sites; read_frontmatter's
     // is one of them, and it has `rel` in scope at the call, so the path is no longer dropped.
+    // (read_note no longer refuses such a note: it returns the raw text with the parse error.)
     const vault = makeTestVault({
       files: { "bad.md": "---\na: [1, 2\nb: bad\n---\nbody\n" },
     });
@@ -127,13 +128,15 @@ describe("THE-823: error detail reaches content[0].text", () => {
     const client = new Client({ name: "t", version: "0" });
     await client.connect(ct);
     const res = await client.callTool({
-      name: "read_note",
+      name: "read_frontmatter",
       arguments: { vault: vault.id, path: "bad.md" },
     });
     expect(res.isError).toBe(true);
     const text = textOf(res);
     expect(text).toMatch(/line 2, column 1/);
     expect(text).toContain("bad.md");
+    // and the way out is named in the same text block, since a client renders nothing else
+    expect(text).toContain("update_frontmatter");
     await client.close();
     await server.close();
     vault.cleanup();

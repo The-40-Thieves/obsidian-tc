@@ -4,7 +4,7 @@
 // `#define` in a code sample is never counted, and pure-number tokens (`#123`)
 // are skipped per Obsidian's rules. Tags are hierarchical: `#project/sub` is a
 // child of `#project`, and a query for `project` matches both.
-import type { Frontmatter } from "./frontmatter";
+import type { Frontmatter, ParsedNote } from "./frontmatter";
 import { parseNote } from "./frontmatter";
 import { inCodeRange, inlineCodeRanges } from "./link-scan";
 
@@ -82,9 +82,14 @@ export function frontmatterTags(fm: Frontmatter | null): string[] {
 }
 
 /** Combined frontmatter + inline tags for a raw note. `path` is optional and diagnostic-only
- *  (THE-823) — threaded through to parseNote so a malformed-YAML note names itself. */
-export function noteTags(raw: string, path?: string): NoteTags {
-  const parsed = parseNote(raw, path);
+ *  (THE-823) — threaded through to parseNote so a malformed-YAML note names itself. `parse` lets a
+ *  whole-vault scan swap in a lenient parser (ScanWarnings.parse) that does not throw on bad YAML. */
+export function noteTags(
+  raw: string,
+  path?: string,
+  parse: (raw: string, path?: string) => ParsedNote = parseNote,
+): NoteTags {
+  const parsed = parse(raw, path);
   const frontmatter = frontmatterTags(parsed.frontmatter);
   const inline = extractInlineTags(parsed.body);
   const all = [...new Set([...frontmatter, ...inline])].sort();
