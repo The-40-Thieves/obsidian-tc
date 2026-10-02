@@ -19,7 +19,8 @@ export type EvidenceKind =
   | "wikidata"
   | "title"
   | "link_text"
-  | "semantic";
+  | "semantic"
+  | "judged_by";
 
 export interface Evidence {
   kind: EvidenceKind;
@@ -29,6 +30,9 @@ export interface Evidence {
   property?: string;
   /** Cosine, for `semantic`. */
   score?: number;
+  /** For `judged_by`: the resolved model that ruled and its verdict (the rationale is `detail`). */
+  model?: string;
+  verdict?: string;
 }
 
 export interface PageCandidate {

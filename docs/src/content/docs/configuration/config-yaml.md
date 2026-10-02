@@ -236,6 +236,7 @@ returns `rate_limit` with `retry_after_ms`.
 | --- | --- | --- |
 | `maintenance` | enabled, every 60 min | `cache.db` sweep: expired idempotency/elicit rows, event_log retention, `PRAGMA optimize`. |
 | `maintenance.wikiLint` | **disabled** (opt-in), every 24 h | Scheduled [wiki lint](/tools/#wiki-checks-page-exists-and-lint): runs the `lint_wiki` checks and logs one summary line per vault. Read-only. Keys: `enabled`, `intervalHours`, `folder`, `maxNotes`. |
+| `wikiJudge` | **disabled** (opt-in) | The LLM judge that resolves ambiguous [wiki page matches](/tools/#the-llm-judge-opt-in) (`find_existing_page`, `lint_wiki`). Needs a configured gateway. Keys: `enabled`, `maxCallsPerRequest` (1 to 3, default 3), `maxCallsPerDay` (default 200, `0` disables), `timeoutMs` (default 15000, cancels the request), `maxNoteChars` (default 2400 per side). `maintenance.wikiLint.judge` / `judgeMaxCalls` let the scheduled lint judge too. Candidate page text goes to the gateway judge model, never for egress-excluded or Excluded-files notes. |
 | `plane` | **disabled** (opt-in), every 240 min | Ambient sleep-time consolidation (synthesis + audit jobs). Only does work when the [inference gateway](/configuration/inference-gateway/) is configured — set `plane.enabled: true` to run it. A gateway-configured deployment that never sets this key gets a boot-time notice explaining how to turn it on. |
 
 ## `plur` *(optional)*

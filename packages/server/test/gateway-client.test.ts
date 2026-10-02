@@ -140,6 +140,34 @@ describe("gateway client", () => {
     expect(sentModel).toBe("judge-strong");
   });
 
+  it("a caller signal cancels the in-flight request and is never retried", async () => {
+    let attempts = 0;
+    let sent: AbortSignal | undefined;
+    const fetchFn = ((_url: any, init: any) => {
+      attempts++;
+      sent = init.signal as AbortSignal;
+      return new Promise((_res, rej) => {
+        sent?.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError")));
+      });
+    }) as unknown as typeof fetch;
+    const client = createGatewayClient({
+      baseUrl: "http://gw",
+      fetchFn,
+      maxAttempts: 3,
+      retryBaseDelayMs: 1,
+    });
+    const ctrl = new AbortController();
+    const p = client.judge({
+      messages: [{ role: "user", content: "?" }],
+      sourcePaths: [],
+      signal: ctrl.signal,
+    });
+    setTimeout(() => ctrl.abort(), 20);
+    await expect(p).rejects.toThrow();
+    expect(sent?.aborted).toBe(true);
+    expect(attempts).toBe(1);
+  });
+
   it("rerank POSTs the Cohere-compatible /rerank passthrough and maps relevance_score", async () => {
     const fetchFn = (async (url: any, init: any) => {
       const sent = JSON.parse(init.body as string);

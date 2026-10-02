@@ -23,6 +23,9 @@ export interface GatewayCompletionRequest {
    *  content MUST populate this; prompt() below does not (it has no path to attribute), so a call
    *  site adds it after calling prompt(). */
   sourcePaths?: string[];
+  /** Cancels the in-flight HTTP request (and stops its retries) when aborted. Never sent on the
+   *  wire. Optional: a caller with no deadline of its own leaves it off. */
+  signal?: AbortSignal;
 }
 
 export interface GatewayCompletionResult {

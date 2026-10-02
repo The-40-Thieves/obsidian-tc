@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { dbFootprintBytes, FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
 import { openDatabase } from "../../db/open";
+import { readJudgeUsage } from "../../db/wiki-judge-usage";
 import type {
   DbSpaceView,
   DerivedColumnState,
@@ -18,6 +19,7 @@ import type {
   KbHealthProbe,
   SessionLivenessProbe,
   TelemetryView,
+  WikiJudgeView,
 } from "../../doctor";
 import { experientialColumnSpec } from "../../doctor/column-spec";
 import { experientialTableSpec } from "../../doctor/table-spec";
@@ -613,4 +615,35 @@ export async function resolveEffectiveEmbeddings(
     ...opts.configured,
     source: opts.providerExplicit ? "configured" : "default",
   };
+}
+
+export async function probeWikiJudge(
+  cacheDir: string,
+  busyTimeoutMs: number,
+  configured: Omit<
+    WikiJudgeView,
+    "model" | "callsToday" | "failuresToday" | "cachedVerdicts" | "unreadable"
+  >,
+): Promise<WikiJudgeView> {
+  const none = { model: null, callsToday: 0, failuresToday: 0, cachedVerdicts: 0 };
+  const path = join(cacheDir, "cache.db");
+  if (!existsSync(path)) return { ...configured, ...none };
+  let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
+  try {
+    db = await openDatabase(path, busyTimeoutMs, { readonly: true });
+    const u = readJudgeUsage(db, Date.now());
+    return {
+      ...configured,
+      model: u.model,
+      callsToday: u.calls,
+      failuresToday: u.failures,
+      cachedVerdicts: u.cached,
+    };
+  } catch (e) {
+    return { ...configured, ...none, unreadable: (e as Error)?.message ?? String(e) };
+  } finally {
+    try {
+      db?.close?.();
+    } catch {}
+  }
 }

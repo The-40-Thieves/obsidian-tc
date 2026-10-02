@@ -60,6 +60,7 @@ import { type SessionLivenessView, sessionLivenessCheck } from "./session-livene
 import { type TelemetryView, telemetryCheck } from "./telemetry";
 import { type ToolFacadeView, toolFacadeCheck } from "./tool-facade";
 import type { Check, DoctorReport } from "./types";
+import { type WikiJudgeView, wikiJudgeCheck } from "./wiki-judge";
 
 /**
  * Decode a JWT's iat/exp claims WITHOUT verifying its signature. Doctor only needs the age math to run
@@ -147,6 +148,7 @@ export interface DoctorConfigView {
   /** THE-1125: opt-in telemetry posture. Always present when supplied — no `--probe` gate, same
    *  reasoning as toolFacade/captureLocation above. */
   telemetry?: TelemetryView;
+  wikiJudge?: WikiJudgeView;
   /** Is the signing-key / revocation registry (auth.db) usable, and are its key files trusted?
    *  No `--probe` gate: it only stats the key files and opens auth.db read-only. */
   authRegistry?: AuthRegistryView;
@@ -256,6 +258,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.toolFacade) checks.push(toolFacadeCheck(config.toolFacade));
   // THE-1125: opt-in telemetry posture. Same optional-view reasoning as toolFacade above.
   if (config.telemetry) checks.push(telemetryCheck(config.telemetry));
+  if (config.wikiJudge) checks.push(wikiJudgeCheck(config.wikiJudge));
   if (config.authRegistry) checks.push(authRegistryCheck(config.authRegistry));
   if (config.authOidc) checks.push(authOidcCheck(config.authOidc));
   if (config.provenance) checks.push(provenanceCheck(config.provenance));
