@@ -27,6 +27,35 @@ export const scanWarningsShape = {
   warnings_omitted: z.number().int().optional(),
 };
 
+/** A property link a rewrite left alone because the new target could not be written back as valid
+ *  YAML (vault/rewrite-properties.ts). The note's body links were still rewritten. */
+export const RewriteWarningSchema = z.object({
+  path: z.string(),
+  property: z.string().optional(),
+  message: z.string(),
+});
+
+export type RewriteWarning = z.infer<typeof RewriteWarningSchema>;
+
+/** Spread into an output schema of a tool that rewrites links across notes. */
+export const rewriteWarningsShape = {
+  warnings: z.array(RewriteWarningSchema).optional(),
+  warnings_omitted: z.number().int().optional(),
+};
+
+/** The `warnings` / `warnings_omitted` keys for a rewrite result (absent when there are none). */
+export function rewriteWarningsOut(items: RewriteWarning[]): {
+  warnings?: RewriteWarning[];
+  warnings_omitted?: number;
+} {
+  return {
+    ...(items.length > 0 ? { warnings: items.slice(0, MAX_SCAN_WARNINGS) } : {}),
+    ...(items.length > MAX_SCAN_WARNINGS
+      ? { warnings_omitted: items.length - MAX_SCAN_WARNINGS }
+      : {}),
+  };
+}
+
 export class ScanWarnings {
   private readonly items: ScanWarning[] = [];
   private omitted = 0;
