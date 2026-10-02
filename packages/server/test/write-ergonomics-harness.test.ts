@@ -257,10 +257,13 @@ describe("facade-mode study set", () => {
   it("a discovery checker rejects a plausible wrong answer", () => {
     const v = freshVault();
     const byId = (id: string) => DISCOVERY_TASKS.find((t) => t.id === id) as Task;
-    const wrong = (id: string, finalText: string) => byId(id).check(ctx(v, { finalText })).pass;
-    expect(wrong("dx-memory-recall", "Lisbon; she leads the product team")).toBe(false);
-    expect(wrong("dx-by-property", "Launch Todo")).toBe(false);
-    expect(wrong("dx-open-tasks", "press announcement")).toBe(false);
+    const passes = (id: string, finalText: string) => byId(id).check(ctx(v, { finalText })).pass;
+    expect(passes("dx-memory-recall", "Lisbon; she leads the product team")).toBe(false);
+    expect(passes("dx-by-property", "Launch Todo")).toBe(false);
+    expect(passes("dx-open-tasks", "press announcement")).toBe(false);
+    // a long-form date is the right answer too (Codex wrote "November 12, 2026")
+    expect(passes("dx-search-fact", "Venue Notes: Harbour Hall, November 12, 2026")).toBe(true);
+    expect(passes("dx-search-fact", "Venue Notes: Harbour Hall, November 13, 2026")).toBe(false);
   });
 
   it("writes toolFacade.mode only when asked, so earlier runs keep the shipped default", () => {
@@ -375,17 +378,30 @@ describe("facade-mode decision rule", () => {
     const base = [
       cell("triad", { notFoundTrials: 2 }),
       cell("flat", { medianCallsToSuccess: 2, notFoundTrials: 2 }),
+      cell("domain", { passes: 10 }),
     ];
     expect(verdict(base)?.recommended).toBe("triad");
     const both = [
       cell("triad", { notFoundTrials: 2 }),
       cell("flat", { medianCallsToSuccess: 2, notFoundTrials: 0 }),
+      cell("domain", { passes: 10 }),
     ];
     expect(verdict(both)?.recommended).toBe("flat");
   });
 
+  it("does not decide a client that is missing a mode or holds a partial cell", () => {
+    expect(decide([cell("triad", {}), cell("domain", {})])).toEqual([]);
+    expect(
+      decide([cell("triad", {}), cell("domain", {}), cell("flat", { trials: 3, passes: 3 })]),
+    ).toEqual([]);
+  });
+
   it("flags a close cell: tied on success, calls within 0.5, same not-found", () => {
-    const v = verdict([cell("triad", {}), cell("domain", { medianCallsToSuccess: 3.5 })]);
+    const v = verdict([
+      cell("triad", {}),
+      cell("domain", { medianCallsToSuccess: 3.5 }),
+      cell("flat", { passes: 10 }),
+    ]);
     expect(v?.close).toBe(true);
   });
 });

@@ -979,7 +979,8 @@ export const DISCOVERY_TASKS: Task[] = [
     arm: "main",
     prompt: "Which note mentions Harbour Hall, and on what date is it booked?",
     refCalls: 1,
-    check: (c) => answers(c, [/Venue Notes/i, /2026-11-12/]),
+    // the date may come back as 2026-11-12 or as "November 12, 2026" (a Codex trial did)
+    check: (c) => answers(c, [/Venue Notes/i, /2026-11-12|November 12(th)?,? 2026/i]),
     solve: noop,
     solveCtx: { finalText: "Discovery/Venue Notes.md says Harbour Hall is booked for 2026-11-12." },
   },

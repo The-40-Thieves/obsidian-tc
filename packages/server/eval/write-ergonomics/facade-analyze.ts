@@ -19,6 +19,9 @@ type Mode = (typeof MODES)[number];
 /** Modes within this many trials of the best success count are "tied" (pre-registered). */
 export const TIE_TRIALS = 2;
 
+/** A cell smaller than one full rep (16 tasks) is not decided. */
+export const MIN_CELL_TRIALS = 16;
+
 const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
 const median = (xs: number[]): number => {
   if (xs.length === 0) return 0;
@@ -105,6 +108,9 @@ export function decide(cells: ModeCell[]): Verdict[] {
   const out: Verdict[] = [];
   for (const client of [...new Set(cells.map((c) => c.client))]) {
     const cs = cells.filter((c) => c.client === client);
+    // A client missing a mode (quota ran out) or holding only a partial cell is not decided: a rule
+    // applied to 3 trials against 32 would read noise as a result.
+    if (MODES.some((m) => (cs.find((c) => c.mode === m)?.trials ?? 0) < MIN_CELL_TRIALS)) continue;
     const best = Math.max(...cs.map((c) => c.passes));
     const tied = cs.filter((c) => best - c.passes <= TIE_TRIALS);
     const key = (c: ModeCell): number[] => [
@@ -279,11 +285,14 @@ function main(): void {
   const prefix = flag(argv, "--artifact-prefix");
   if (prefix)
     for (const client of [...new Set(cells.map((c) => c.client))])
-      for (const vs of ["domain", "flat"] as const)
+      for (const vs of ["domain", "flat"] as const) {
+        // A mode the client was not run on (Codex quota) has no side to compare: write nothing.
+        if (!cells.some((c) => c.client === client && c.mode === vs)) continue;
         writeFileSync(
           `${prefix}-${client}-triad-vs-${vs}.json`,
           JSON.stringify(artifact(trials, client, vs), null, 2),
         );
+      }
   const ts = flag(argv, "--task-set");
   if (ts) writeFileSync(ts, taskSet());
 }
