@@ -158,7 +158,12 @@ function reconcileDeps(opts: {
     sqlHooksFor: () => ({}) as never,
     onVecRebuild: () => {},
     makeOnIndexed: () => undefined,
-    indexHealth: { reconcile: "pending", reconcileAt: null, reconcileErrors: [] } as never,
+    indexHealth: {
+      reconcile: "pending",
+      reconcileAt: null,
+      reconcileErrors: [],
+      frontmatterFailures: new Map(),
+    } as never,
     streamingWalk: false,
     backgroundEmbed: opts.backgroundEmbed,
     // Stub indexVaultRecorded: runs a real embedPlans() sub-batch pass, using the REAL embedPace
