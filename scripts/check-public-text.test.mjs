@@ -114,11 +114,11 @@ test("docs/src/content/docs pages are NOT allowlisted — this is the shipped do
   assert.equal(violations.length, 1);
 });
 
-test("docs/src/content/docs/roadmap.md is TEMPORARILY allowlisted (see the comment in the source)", () => {
+test("docs/src/content/docs/roadmap.md is scanned like every other docs-site page", () => {
   const violations = findPublicTextViolations([
     { path: "docs/src/content/docs/roadmap.md", content: "THE-135\n" },
   ]);
-  assert.deepEqual(violations, []);
+  assert.equal(violations.length, 1);
 });
 
 test("multiple files are all scanned, each violation carries its own path", () => {
