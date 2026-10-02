@@ -29,12 +29,12 @@ describe("explainAutoFacadeMode — the explanation follows each signal", () => 
     expect(e.matchedKey).toBeUndefined();
   });
 
-  it("a built-in client (claude-code, which ships its own tool search): built-in-table -> domain", () => {
+  it("a built-in client (claude-code, which ships its own tool search): built-in-table -> triad", () => {
     const e = explainAutoFacadeMode("Claude-Code");
     expect(e).toMatchObject({
       rule: "built-in-table",
       matchedKey: "claude-code",
-      mode: "domain",
+      mode: "triad",
       clientName: "Claude-Code",
     });
     expect(e.builtInKeys).toEqual(BUILTIN_AUTO_FACADE_CLIENTS.map(([k]) => k));
@@ -255,7 +255,7 @@ describe("server_health surfaces the calling client's explanation", () => {
       explainAutoMode: true,
       autoClients: { "claude-code": "flat" },
     });
-    expect(cc.explanation).toMatchObject({ rule: "built-in-table", mode: "domain" });
+    expect(cc.explanation).toMatchObject({ rule: "built-in-table", mode: "triad" });
     expect(other.explanation).toMatchObject({ rule: "no-match", mode: "triad" });
     expect(overridden.explanation).toMatchObject({ rule: "configured-override", mode: "flat" });
     expect(overridden.effective).toBe("flat");
@@ -270,9 +270,10 @@ describe("toolFacade.doctor reports the flag", () => {
   const run = (v: Parameters<typeof toolFacadeCheck>[0]) =>
     toolFacadeCheck(v).run({ serverVersion: "test" });
 
-  it("auto mode + flag on: ok, flag visible in details", async () => {
+  it("auto mode + flag on: (deprecation warning) flag visible in details", async () => {
     const r = await run({ configured: "auto", profile: "full", explainAutoMode: true });
-    expect(r.status).toBe("ok");
+    expect(r.status).toBe("warning");
+    expect(r.summary).toContain("deprecated");
     expect(r.details?.explainAutoMode).toBe("on");
   });
 

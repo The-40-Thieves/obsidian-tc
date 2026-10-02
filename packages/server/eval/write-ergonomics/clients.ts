@@ -24,8 +24,16 @@ export interface ClientOut {
   /** Tool uses the client attempted outside the obsidian-tc server (shell, patch, ...). */
   otherTools: string[];
   model?: string;
+  /** Client-side tool-discovery calls (Claude Code `ToolSearch`, Codex `tool_search`). */
+  toolSearchCalls: number;
+  /** Tool errors the CLIENT produced before any request reached the server (unknown / unloaded tool). */
+  clientNotFound: number;
+  clientNotFoundExcerpts: string[];
   raw: string;
 }
+
+/** What a client says when the model names a tool it never loaded: a not-found, not a server error. */
+export const CLIENT_NOT_FOUND = /no such tool|unknown tool|tool .{0,60}not (found|available)/i;
 
 export interface ClientCtx {
   runDir: string;
@@ -41,6 +49,9 @@ export interface ClientCtx {
   config: string;
   timeoutMs: number;
   model?: string;
+  /** Claude Code only: keep its built-in `ToolSearch` so MCP tools are deferred as in a default install.
+   *  Off (the earlier runs) loads every MCP tool definition upfront, which is NOT what users get. */
+  claudeToolSearch?: boolean;
 }
 
 const zero = (): Usage => ({ billable: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 });
@@ -58,6 +69,41 @@ export function writeMcpConfig(c: ClientCtx): void {
   writeFileSync(c.mcpConfig, JSON.stringify(conf, null, 2));
 }
 
+/** `--output-format stream-json --verbose` is one JSON event per line; the `result` event carries the
+ *  same fields `--output-format json` returns. Along the way, count the client's own tool search and
+ *  any tool error it produced itself (a deferred tool the model named before loading it). */
+export function parseClaudeStream(stdout: string, out: ClientOut): Record<string, unknown> {
+  let result: Record<string, unknown> | undefined;
+  const toolNames = new Map<string, string>();
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let e: Record<string, unknown>;
+    try {
+      e = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (e.type === "result") result = e;
+    const msg = e.message as { content?: unknown } | undefined;
+    if (!Array.isArray(msg?.content)) continue;
+    for (const b of msg.content as Record<string, unknown>[]) {
+      if (e.type === "assistant" && b.type === "tool_use") {
+        toolNames.set(String(b.id), String(b.name));
+        if (b.name === "ToolSearch") out.toolSearchCalls++;
+      }
+      if (e.type === "user" && b.type === "tool_result" && b.is_error === true) {
+        const text = typeof b.content === "string" ? b.content : JSON.stringify(b.content);
+        if (CLIENT_NOT_FOUND.test(text)) {
+          out.clientNotFound++;
+          out.clientNotFoundExcerpts.push(text.slice(0, 200));
+        }
+      }
+    }
+  }
+  if (!result) throw new Error("no result event");
+  return result;
+}
+
 export function runClaude(c: ClientCtx): ClientOut {
   writeMcpConfig(c);
   const allowed = ["mcp__obsidian-tc__*", ...(c.elicit ? ["Bash(obsidian-tc elicit:*)"] : [])];
@@ -68,11 +114,12 @@ export function runClaude(c: ClientCtx): ClientOut {
     c.mcpConfig,
     "--strict-mcp-config",
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
     "--model",
     c.model ?? "sonnet",
     "--tools",
-    c.elicit ? "Bash" : "",
+    [c.elicit ? "Bash" : "", c.claudeToolSearch ? "ToolSearch" : ""].filter(Boolean).join(","),
     "--allowedTools",
     ...allowed,
     "--setting-sources",
@@ -99,10 +146,13 @@ export function runClaude(c: ClientCtx): ClientOut {
     exit: r.status,
     timedOut,
     otherTools: [],
+    toolSearchCalls: 0,
+    clientNotFound: 0,
+    clientNotFoundExcerpts: [],
     raw: r.stdout ?? "",
   };
   try {
-    const j = JSON.parse(r.stdout) as Record<string, unknown>;
+    const j = parseClaudeStream(r.stdout ?? "", out);
     const u = (j.usage ?? {}) as Record<string, number>;
     out.usage = {
       input: u.input_tokens ?? 0,
@@ -202,6 +252,9 @@ function runCodexIn(c: ClientCtx, addDir: string, home: string): ClientOut {
     exit: r.status,
     timedOut,
     otherTools: [],
+    toolSearchCalls: 0,
+    clientNotFound: 0,
+    clientNotFoundExcerpts: [],
     raw: r.stdout ?? "",
   };
   const u = zero();

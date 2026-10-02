@@ -248,7 +248,9 @@ By default `tools/list` advertises the **triad** facade: three meta-tools
 (`find_capability`, `describe_capability`, `call_capability`) for progressive
 discovery, with every underlying tool still callable by name. Set
 `toolFacade.mode: "flat"` to advertise the full surface, or `"domain"` for
-~a dozen domain meta-tools. To serve over HTTP for remote agents, enable the HTTP
+~a dozen domain meta-tools; the measured per-client advice is in
+[Choosing a facade mode per client](/getting-started/mcp-clients/#choosing-a-facade-mode-per-client).
+To serve over HTTP for remote agents, enable the HTTP
 transport and JWT auth — see [Authentication](/security/auth-model/) and
 [Configuration](/configuration/config-yaml/).
 

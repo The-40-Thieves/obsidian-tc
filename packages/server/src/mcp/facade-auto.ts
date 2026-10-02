@@ -7,21 +7,14 @@
 // request" there, which this module does not need to know about). This file is only the pure
 // name -> mode decision, independent of how or when clientInfo was observed.
 //
-// BUILT-IN TABLE IS PROVISIONAL. It encodes a judgment call, not a measurement: this ticket (part
-// a) wires the MECHANISM only. Part (b) — measuring actual tool-SELECTION accuracy per connecting
-// client — has not run yet (see the memory note this ticket cites: nothing in this repo has ever
-// measured selection accuracy by client, only by raw tool count). Replace these entries once that
-// data exists; until then:
-//   - "claude-code" -> "domain": Claude Code ships its own client-side tool SEARCH
-//     (`ENABLE_TOOL_SEARCH`, on by default), so the triad's find_capability/describe_capability
-//     layer duplicates a search the client already runs; domain's ~13 grouped meta-tools give it
-//     real verbs to search over instead of a second search layer on top of its own.
-//   - "cursor" -> "triad": a 40-tool cap has been REPORTED for Cursor in community discussion but
-//     is UNVERIFIED against Cursor's own docs — kept at the existing default rather than acted on.
-//   - everything else, and any client with no observable `clientInfo.name`, -> "triad"
-//     (FALLBACK_FACADE_MODE), the existing ADR-anchored default
-//     (docs/adr/0006-the-default-surface-is-the-triad.md) — auto mode never changes that default
-//     for an unrecognized or silent client.
+// `toolFacade.mode: "auto"` IS DEPRECATED (removal planned for the next major). A per-client
+// measurement (Claude Code, tool search on, 32 trials per cell) found the triad at least as
+// reliable as domain or flat at the lowest token cost, so "auto" now resolves to the triad for every
+// client and the built-in table below carries no per-client modes. The config value is still
+// accepted, and an operator's own `toolFacade.autoClients` entry still wins, so no existing config
+// breaks. server_health and doctor report the deprecation and recommend an explicit mode.
+// FALLBACK_FACADE_MODE is the existing ADR-anchored default
+// (docs/adr/0006-the-default-surface-is-the-triad.md).
 import type { Database } from "../db/types";
 import type { TelemetryStatusInfo } from "../telemetry/wiring";
 import type { FacadeMode } from "./facade";
@@ -38,6 +31,10 @@ export { BUILTIN_AUTO_FACADE_CLIENTS };
 
 /** What an unmatched client — or one with no observable `clientInfo.name` at all — gets. */
 export const FALLBACK_FACADE_MODE: FacadeMode = "triad";
+
+/** The one deprecation notice server_health and doctor both report for `toolFacade.mode: "auto"`. */
+export const AUTO_FACADE_DEPRECATION =
+  'toolFacade.mode "auto" is deprecated and resolves to "triad" for every client; set an explicit toolFacade.mode (recommended: "triad"). It will be removed in the next major version.';
 
 /**
  * Resolve `toolFacade.mode: "auto"` for one connecting client.

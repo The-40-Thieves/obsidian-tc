@@ -5,16 +5,28 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { type ClientOut, parseClaudeStream } from "../eval/write-ergonomics/clients";
+import { writeConfig } from "../eval/write-ergonomics/config";
+import { decide, type ModeCell, trialNotFound } from "../eval/write-ergonomics/facade-analyze";
 import { MEMORY_ENTITY, SEED, writeSeeds } from "../eval/write-ergonomics/fixtures";
 import { friction, hookFiredOnError } from "../eval/write-ergonomics/friction";
-import { applyHook, effectiveCall, hookMatches } from "../eval/write-ergonomics/tap-proxy";
 import {
+  applyHook,
+  DOMAIN_TOOLS,
+  effectiveCall,
+  hookMatches,
+} from "../eval/write-ergonomics/tap-proxy";
+import {
+  ALL_TASKS,
   type CheckCtx,
+  DISCOVERY_TASKS,
+  FACADE_TASK_IDS,
   HARDENED_ACL,
   parseNote,
   TASKS,
   type Task,
 } from "../eval/write-ergonomics/tasks";
+import { TOOL_DOMAINS } from "../src/mcp/registry/types";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
@@ -115,11 +127,34 @@ describe("tap proxy helpers", () => {
         name: "call_capability",
         arguments: { name: "read_note", args: { path: "a.md" } },
       }),
-    ).toEqual({ tool: "read_note", args: { path: "a.md" } });
+    ).toEqual({ tool: "read_note", args: { path: "a.md" }, via: "call_capability" });
     expect(effectiveCall({ name: "read_note", arguments: { path: "b.md" } })).toEqual({
       tool: "read_note",
       args: { path: "b.md" },
+      via: "read_note",
     });
+  });
+
+  it("unwraps a domain meta-tool call to the capability named in `action` (toolFacade domain mode)", () => {
+    expect(
+      effectiveCall({
+        name: "links",
+        arguments: { action: "get_backlinks", args: { path: "a.md" } },
+      }),
+    ).toEqual({ tool: "get_backlinks", args: { path: "a.md" }, via: "links" });
+    // a domain call without args still unwraps; a flat tool that merely has an `action` arg does not
+    expect(effectiveCall({ name: "admin", arguments: { action: "get_server_config" } })).toEqual({
+      tool: "get_server_config",
+      args: {},
+      via: "admin",
+    });
+    expect(effectiveCall({ name: "execute_command", arguments: { action: "x" } }).tool).toBe(
+      "execute_command",
+    );
+  });
+
+  it("DOMAIN_TOOLS is exactly the registry's domain ids plus the `other` sink", () => {
+    expect([...DOMAIN_TOOLS].sort()).toEqual([...TOOL_DOMAINS, "other"].sort());
   });
 
   it("matches the pre-registered hooks by regex on the tool name and by exact path (regression: === never fired)", () => {
@@ -193,5 +228,195 @@ describe("friction metrics", () => {
       elicitRequired: 1,
       hookFired: true,
     });
+  });
+});
+
+describe("facade-mode study set", () => {
+  it("is 16 tasks, all main-arm, no HITL, every id resolvable, ids unique", () => {
+    expect(FACADE_TASK_IDS).toHaveLength(16);
+    expect(new Set(ALL_TASKS.map((t) => t.id)).size).toBe(ALL_TASKS.length);
+    for (const id of FACADE_TASK_IDS) {
+      const t = ALL_TASKS.find((x) => x.id === id);
+      expect(t, id).toBeDefined();
+      expect(t?.arm, id).toBe("main");
+      expect(t?.hitl, id).toBeUndefined();
+    }
+    expect(DISCOVERY_TASKS).toHaveLength(10);
+  });
+
+  it.each(DISCOVERY_TASKS.map((t) => [t.id, t] as [string, Task]))(
+    "%s: fails on an empty answer, passes on the reference answer",
+    (_id, task) => {
+      const v = freshVault();
+      expect(task.check(ctx(v)).pass).toBe(false);
+      const r = task.check(ctx(v, task.solveCtx));
+      expect(r.pass, r.detail).toBe(true);
+    },
+  );
+
+  it("a discovery checker rejects a plausible wrong answer", () => {
+    const v = freshVault();
+    const byId = (id: string) => DISCOVERY_TASKS.find((t) => t.id === id) as Task;
+    const passes = (id: string, finalText: string) => byId(id).check(ctx(v, { finalText })).pass;
+    expect(passes("dx-memory-recall", "Lisbon; she leads the product team")).toBe(false);
+    expect(passes("dx-by-property", "Launch Todo")).toBe(false);
+    expect(passes("dx-open-tasks", "press announcement")).toBe(false);
+    // a long-form date is the right answer too (Codex wrote "November 12, 2026")
+    expect(passes("dx-search-fact", "Venue Notes: Harbour Hall, November 12, 2026")).toBe(true);
+    expect(passes("dx-search-fact", "Venue Notes: Harbour Hall, November 13, 2026")).toBe(false);
+  });
+
+  it("writes toolFacade.mode only when asked, so earlier runs keep the shipped default", () => {
+    const d = makeTempDir("obtc-we-cfg-");
+    dirs.push(d);
+    const p = join(d, "c.json");
+    writeConfig(p, "main", "/v", "/c");
+    expect(JSON.parse(readFileSync(p, "utf8")).toolFacade).toBeUndefined();
+    writeConfig(p, "main", "/v", "/c", "domain");
+    expect(JSON.parse(readFileSync(p, "utf8")).toolFacade).toEqual({ mode: "domain" });
+  });
+
+  it("counts a server-side unknown-tool answer as a not-found, not a missing note", () => {
+    const e = (text: string, code: string) => ({
+      t: 0,
+      dir: "s2c",
+      tool: "x",
+      args: {},
+      isError: true,
+      code,
+      text,
+    });
+    const f = friction([
+      e('[{"text":"unknown tool: get_backlink"}]', "not_found"),
+      e('[{"text":"note not found: a.md"}]', "not_found"),
+    ]);
+    expect(f.errors).toBe(2);
+    expect(f.toolNotFound).toBe(1);
+  });
+
+  it("reads Claude's stream-json: result event, ToolSearch calls and client-side not-found errors", () => {
+    const out: ClientOut = {
+      finalText: "",
+      usage: { billable: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
+      turns: 0,
+      exit: 0,
+      timedOut: false,
+      otherTools: [],
+      toolSearchCalls: 0,
+      clientNotFound: 0,
+      clientNotFoundExcerpts: [],
+      raw: "",
+    };
+    const lines = [
+      {
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id: "a", name: "ToolSearch" }] },
+      },
+      {
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "b",
+              is_error: true,
+              content: "Error: No such tool available: mcp__obsidian-tc__get_backlinks",
+            },
+          ],
+        },
+      },
+      { type: "result", result: "done", num_turns: 3 },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join("\n");
+    expect(parseClaudeStream(lines, out)).toMatchObject({ result: "done", num_turns: 3 });
+    expect(out.toolSearchCalls).toBe(1);
+    expect(out.clientNotFound).toBe(1);
+    expect(() => parseClaudeStream('{"type":"assistant"}', out)).toThrow(/no result event/);
+  });
+});
+
+describe("facade-mode decision rule", () => {
+  const cell = (mode: ModeCell["mode"], over: Partial<ModeCell>): ModeCell => ({
+    client: "claude",
+    mode,
+    trials: 32,
+    passes: 28,
+    medianCallsToSuccess: 3,
+    notFoundTrials: 0,
+    notFoundEvents: 0,
+    medianBillable: 6000,
+    meanCacheWrite: 5000,
+    meanToolSearch: 1,
+    meanDiscovery: 0.5,
+    errors: 0,
+    timeouts: 0,
+    ...over,
+  });
+  const verdict = (cells: ModeCell[]) => decide(cells)[0];
+
+  it("keeps the shipped default when nothing beats it by the pre-registered margin", () => {
+    const v = verdict([
+      cell("triad", {}),
+      cell("domain", { passes: 29, medianCallsToSuccess: 2 }),
+      cell("flat", { passes: 28 }),
+    ]);
+    expect(v?.recommended).toBe("triad");
+  });
+
+  it("switches when a mode beats triad on success by more than the tie band", () => {
+    const v = verdict([
+      cell("triad", { passes: 22 }),
+      cell("domain", { passes: 29 }),
+      cell("flat", { passes: 24 }),
+    ]);
+    expect(v?.recommended).toBe("domain");
+    expect(v?.tied).toEqual(["domain"]);
+  });
+
+  it("switches on a success tie only when calls AND not-found are both better", () => {
+    const base = [
+      cell("triad", { notFoundTrials: 2 }),
+      cell("flat", { medianCallsToSuccess: 2, notFoundTrials: 2 }),
+      cell("domain", { passes: 10 }),
+    ];
+    expect(verdict(base)?.recommended).toBe("triad");
+    const both = [
+      cell("triad", { notFoundTrials: 2 }),
+      cell("flat", { medianCallsToSuccess: 2, notFoundTrials: 0 }),
+      cell("domain", { passes: 10 }),
+    ];
+    expect(verdict(both)?.recommended).toBe("flat");
+  });
+
+  it("does not decide a client that is missing a mode or holds a partial cell", () => {
+    expect(decide([cell("triad", {}), cell("domain", {})])).toEqual([]);
+    expect(
+      decide([cell("triad", {}), cell("domain", {}), cell("flat", { trials: 3, passes: 3 })]),
+    ).toEqual([]);
+  });
+
+  it("flags a close cell: tied on success, calls within 0.5, same not-found", () => {
+    const v = verdict([
+      cell("triad", {}),
+      cell("domain", { medianCallsToSuccess: 3.5 }),
+      cell("flat", { passes: 10 }),
+    ]);
+    expect(v?.close).toBe(true);
+  });
+});
+
+describe("facade-mode not-found metric", () => {
+  it("does not count a miss on a built-in tool (Bash is disabled) as a discovery failure", () => {
+    const trial = (excerpts: string[], server = 0) =>
+      ({
+        friction: { toolNotFound: server },
+        clientNotFoundExcerpts: excerpts,
+      }) as unknown as Parameters<typeof trialNotFound>[0];
+    const bash =
+      "<tool_use_error>Error: No such tool available: Bash. Bash is disabled</tool_use_error>";
+    const mcp = "Error: No such tool available: mcp__obsidian-tc__get_backlinks";
+    expect(trialNotFound(trial([bash]))).toBe(0);
+    expect(trialNotFound(trial([bash, mcp], 1))).toBe(2);
   });
 });

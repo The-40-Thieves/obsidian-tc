@@ -65,7 +65,7 @@ Runs the target with its arguments, through the same authorization / ACL / HITL 
 
 Results come back as MCP tool content — a human-readable `text` block plus `structuredContent` (the typed result). A failed call returns `isError: true` with the structured error attached, so a model can self-correct instead of seeing a protocol error.
 
-The other `toolFacade.mode` values: `domain` (about a dozen `{ action, args }` domain tools), `flat` (the full surface advertised directly), and `auto` (picks one of the three per connecting client — provisional, and only precise on stdio or on HTTP for 2026-07-28 clients). See the [Tool Reference](/tools/) for the domain map and the full `auto` breakdown.
+The other `toolFacade.mode` values: `domain` (about a dozen `{ action, args }` domain tools), `flat` (the full surface advertised directly), and `auto` (picks one of the three per connecting client — provisional and superseded by setting the mode explicitly per client). See the [Tool Reference](/tools/) for the domain map, and [Choosing a facade mode per client](/getting-started/mcp-clients/#choosing-a-facade-mode-per-client) for which mode each client should use.
 
 A separate, deployment-level setting, `toolFacade.profile`, can additionally narrow which tools are visible/callable at all — see [Tool profile](/tools/#tool-profile). Under the opt-in `profile: "core"`, a `find_capability` query that also matches a hidden tool says so (name + count, in a `hiddenByProfile` field); `describe_capability`/`call_capability` on a hidden tool by name answer `capability_hidden` with a reason, never a bare "not found".
 

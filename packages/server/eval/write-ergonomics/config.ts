@@ -4,8 +4,15 @@ import { writeFileSync } from "node:fs";
 import { HARDENED_ACL } from "./tasks";
 
 export type Arm = "main" | "hardened";
+export type FacadeMode = "triad" | "domain" | "flat";
 
-export function writeConfig(path: string, arm: Arm, vault: string, cacheDir: string): void {
+export function writeConfig(
+  path: string,
+  arm: Arm,
+  vault: string,
+  cacheDir: string,
+  facade?: FacadeMode,
+): void {
   const cfg: Record<string, unknown> = {
     cacheDir,
     vaults: [{ id: "main", path: vault }],
@@ -14,6 +21,8 @@ export function writeConfig(path: string, arm: Arm, vault: string, cacheDir: str
     embeddings: { provider: "local", model: "bge-small-en-v1.5", dimensions: 384 },
     transports: { stdio: true, http: { enabled: false } },
   };
+  // Absent = the shipped default (triad), so the existing write-ergonomics runs are unchanged.
+  if (facade) cfg.toolFacade = { mode: facade };
   if (arm === "hardened") {
     cfg.acl = HARDENED_ACL;
     cfg.writes = { requireCas: true };

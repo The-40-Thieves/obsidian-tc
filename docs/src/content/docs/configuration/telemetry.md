@@ -40,7 +40,7 @@ every `intervalMinutes` (never at boot, never before the first interval elapses)
   (e.g. `acl_denied`, `throttled`); anything that is not one of those codes is counted
   under `"unknown"` too, the same way.
 - **`clientNames`** — up to 32 **distinct**, **canonicalized** client labels (the same
-  small built-in table `toolFacade.mode: "auto"` matches client names against — today
+  small built-in table the deprecated `toolFacade.mode: "auto"` matches client names against — today
   `"claude-code"` / `"cursor"`); a client whose name doesn't match anything in that
   table is counted under `"other"`, never under its own raw, caller-supplied string.
 - **`facadeMode`** — which tool surface (`triad` / `domain` / `flat`) this server is

@@ -38,12 +38,23 @@ export interface Friction {
   /** Calls to the same tool straight after that tool errored. */
   retries: number;
   elicitRequired: number;
+  /** Server answered a call naming a tool/capability it does not have (client-side not-founds are
+   *  counted from the client transcript instead, see clients.ts). */
+  toolNotFound: number;
   responseBytes: number;
   conciseCalls: number;
   hookFired: boolean;
   errorRows: ErrorRow[];
   sequence: string[];
 }
+
+/** A call that named a capability the server does not have. Note-level `not_found` (a missing note) is
+ *  NOT this: that is the task working as designed. */
+export const isNotFound = (r: ErrorRow): boolean =>
+  /unknown_(tool|capability)|capability_not_found|tool_not_found|method_not_found/i.test(r.code) ||
+  /unknown (tool|capability)|no such (tool|capability)|capability .{0,40}not found/i.test(
+    r.excerpt,
+  );
 
 export const readTap = (path: string): TapEntry[] => {
   try {
@@ -102,6 +113,7 @@ export function friction(tap: TapEntry[]): Friction {
     errorsRecovered: rows.filter((r) => r.recovered).length,
     retries,
     elicitRequired: rows.filter((r) => r.code === "elicit_required").length,
+    toolNotFound: rows.filter((r) => isNotFound(r)).length,
     responseBytes: calls.reduce((n, e) => n + (e.bytes ?? 0), 0),
     conciseCalls: calls.filter((e) => e.args?.response_format === "concise").length,
     hookFired: tap.some((e) => e.dir === "hook"),

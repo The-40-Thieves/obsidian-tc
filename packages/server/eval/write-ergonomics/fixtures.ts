@@ -180,6 +180,64 @@ This note is no longer needed.
     ideaNote(4, "---\ntags: idea\n---\n", "Slack digest of failed imports."),
     ideaNote(5, "", "Inline tag style #idea with no frontmatter."),
   ]),
+  "Discovery/Launch Todo.md": `---
+title: Launch Todo
+tags: [launch, todo]
+status: active
+---
+# Launch Todo
+
+- [ ] Draft the press announcement
+- [x] Book the venue
+- [ ] Confirm the speaker list
+- [x] Order swag
+
+See [[Launch Checklist]] and [[Vendor Shortlist]] for context.
+`,
+  "Discovery/Launch Checklist.md": `---
+title: Launch Checklist
+tags: [launch, checklist]
+status: draft
+---
+# Launch Checklist
+
+Everything here is tracked in [[Launch Todo]].
+`,
+  "Discovery/Venue Notes.md": `---
+title: Venue Notes
+tags: [launch, venue]
+---
+# Venue Notes
+
+The offsite venue is Harbour Hall, booked for 2026-11-12. The run of show lives in [[Launch Checklist]].
+`,
+  "Discovery/Launch Plan.canvas": `${JSON.stringify(
+    {
+      nodes: [
+        { id: "n1", type: "text", text: "Kickoff", x: 0, y: 0, width: 200, height: 80 },
+        { id: "n2", type: "text", text: "Design review", x: 300, y: 0, width: 200, height: 80 },
+        { id: "n3", type: "text", text: "Ship", x: 600, y: 0, width: 200, height: 80 },
+        { id: "n4", type: "text", text: "Retrospective", x: 900, y: 0, width: 200, height: 80 },
+      ],
+      edges: [
+        { id: "e1", fromNode: "n1", toNode: "n2" },
+        { id: "e2", fromNode: "n2", toNode: "n3" },
+        { id: "e3", fromNode: "n3", toNode: "n4" },
+      ],
+    },
+    null,
+    2,
+  )}\n`,
+  "Discovery/Launch notes.base": `filters:
+  and:
+    - file.hasTag("launch")
+views:
+  - type: table
+    name: Launch notes
+    order:
+      - file.name
+      - status
+`,
   "Reference/Big Reference.md": bigReference(),
   "Locked/Policy.md": `---
 title: Policy
@@ -206,8 +264,11 @@ export const MEMORY_ENTITY = {
   path: "memory/person/Maya Chen.md",
 };
 
-export function writeSeeds(vault: string): void {
+/** `omit` drops seeded paths. The facade-mode study omits the broken-YAML note: it makes every
+ *  vault-wide read (backlinks, tag and base queries) fail, which would swamp what that study measures. */
+export function writeSeeds(vault: string, omit: readonly string[] = []): void {
   for (const [rel, text] of Object.entries(SEED)) {
+    if (omit.includes(rel)) continue;
     const p = join(vault, rel);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, text);
@@ -215,9 +276,9 @@ export function writeSeeds(vault: string): void {
 }
 
 /** Corpus copy + seeds. The corpus is the public evergreen notes crawl; its own root holds notes/. */
-export function buildVault(dest: string, corpusDir: string): void {
+export function buildVault(dest: string, corpusDir: string, omit: readonly string[] = []): void {
   if (!existsSync(corpusDir)) throw new Error(`corpus not found: ${corpusDir}`);
   mkdirSync(dest, { recursive: true });
   cpSync(corpusDir, dest, { recursive: true });
-  writeSeeds(dest);
+  writeSeeds(dest, omit);
 }

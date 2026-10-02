@@ -28,27 +28,24 @@ its original 1.19.0 capture rather than restamped — it was a real observation 
 re-labelling it with a version it was not taken under would be the kind of quiet drift this page
 exists to avoid.
 
-| Client | stdio | Streamable HTTP | Surface | `outputSchema` | Auth | auto picks (provisional)[^auto] |
+| Client | stdio | Streamable HTTP | Surface | `outputSchema` | Auth | Recommended `toolFacade.mode`[^mode] |
 |---|---|---|---|---|---|---|
-| **Claude Code** | ✅ connects | ✅ connects | 3-tool facade | ✅ honoured | bearer on HTTP; none on stdio | `domain` |
-| Claude Desktop | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` |
-| Cursor | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` |
-| VS Code | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` |
+| **Claude Code** | ✅ connects | ✅ connects | 3-tool facade | ✅ honoured | bearer on HTTP; none on stdio | `triad` — measured |
+| **Codex CLI** | ✅ connects (0.159.2, headless) | `UNTESTED` | 3-tool facade | `UNTESTED` | none on stdio | `triad` — measured for `triad` only |
+| Claude Desktop | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured |
+| Cursor | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured, from docs |
+| Gemini CLI | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured, from docs |
+| VS Code | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured |
 
-The three unfilled rows need a desktop session driving GUI clients. Nothing about them is known to
-be broken; they simply have not been exercised.
+The unfilled rows need a desktop session driving GUI clients (or, for Gemini CLI, a run nobody has
+done yet). Nothing about them is known to be broken; they simply have not been exercised.
 
-[^auto]: What `toolFacade.mode: "auto"` would pick for this client's NAME today, from the
-    built-in `clientInfo.name` table — NOT a claim that `auto` actually reaches every client in
-    every row above. **Provisional, not measured** — like the rest of this page's unfilled cells,
-    these are a starting point pending real per-client tool-selection data, not a result. `auto`
-    itself only resolves on stdio (either protocol era — the SDK's `Server` instance lives for the
-    whole connection there) and on Streamable HTTP for a 2026-07-28 client (which resends
-    `clientInfo` in `_meta` on every request); a 2025-11-25 client over HTTP gets the untargeted
-    fallback (`triad`) every time, because each HTTP request is served by a brand-new, stateless
-    `Server` instance with no memory of that client's `initialize` — see the
-    [tool-surface facade docs](/tools/#tool-surface-facade) for the full breakdown and the
-    override table.
+[^mode]: The facade mode to set for that client, and how firmly the evidence supports it — the
+    measurement, its limits and the per-client reasoning are in
+    [Choosing a facade mode per client](#choosing-a-facade-mode-per-client). **Measured** means
+    real headless runs of that client; **unmeasured** means no run exists and the cell is a
+    recommendation from the client's own documentation (or, for Claude Desktop and VS Code, only
+    the shipped default).
 
 **Why daily production use does not fill them.** It is reasonable to assume a server in constant use
 must know which clients connect to it — obsidian-tc even captures `client_name` / `client_version`
@@ -57,6 +54,148 @@ every request arrives through a gateway that presents its own principal; the end
 behind that hop and is structurally invisible to the server. So this matrix cannot be back-filled
 from traffic, however much traffic there is. It needs **direct** client-to-server connections, which
 is exactly what the reproduction steps below describe.
+
+## Choosing a facade mode per client
+
+`toolFacade.mode` picks what `tools/list` advertises (see the
+[tool-surface facade](/tools/#tool-surface-facade)): `triad` (three meta-tools, the default),
+`domain` (about a dozen `{ action, args }` domain tools) or `flat` (every tool, around 300 KB of
+`tools/list` against about 2 KB for `triad`). Set it explicitly per client (`auto`, which guessed from the
+client's name, is deprecated, now resolves to `triad` for every client, and will be removed in the next major version). Several clients now do their own progressive disclosure of MCP tools,
+which could make the triad's find/describe layer redundant, so the three modes were run against
+real headless clients on a fixed task set before any recommendation was written.
+
+**Short answer: leave `triad` (the default) for every client in the matrix** (for Claude Code, with
+its tool search on, which is its default). No mode beat it by the
+margin fixed in advance, and where a mode differed, the difference was cost, not whether the model
+found the right tool.
+
+### How it was measured
+
+- **Pre-registered.** The task set, metrics and decision rule were frozen before the first measured
+  run (`PREREGISTRATION.md`, sha256
+  `aecd3a921eb4c5c272ef777a49ff9659104752b0623aa39a6cfbc9abbb339588`, recorded 2026-10-02T04:28:53Z).
+  The harness is [`eval/write-ergonomics`](https://github.com/The-40-Thieves/obsidian-tc/tree/main/packages/server/eval/write-ergonomics)
+  (`--facade triad|domain|flat --task-set facade`).
+- **Tasks.** 16, all arm `main`: six write tasks that begin with a find step (tag a note found by title,
+  bulk-tag five notes, update a memory observation, rename with backlinks, set a frontmatter field,
+  append to a daily note) and ten read-and-answer discovery tasks (backlinks, outgoing links, dangling
+  links, tags in a folder, notes by property value, open checkbox tasks, a canvas graph, a base view,
+  memory recall, a full-text fact). Every verdict is a deterministic checker over the vault or the final
+  answer.
+- **Metrics.** Task success; calls-to-success (server `tools/call` plus the client's own tool-search
+  calls, passing trials only); tool-not-found errors (the server's unknown-tool answers plus the
+  client's own "no such tool" for an obsidian-tc tool).
+- **Rule.** Modes within 2 trials of the best success are tied; among tied modes, fewer calls, then fewer
+  not-found, then fewer tokens. The default is kept unless another mode beats it on success by more than
+  the tie band, or ties it on success and is better on both calls and not-found. Detectable difference
+  at 32 trials per cell is roughly 20–35 points of success rate; smaller gaps are "not distinguished".
+- **Scope.** Claude Code 2.1.285 (`claude-sonnet-5-5`), Codex CLI 0.159.2, obsidian-tc 1.31.8, stdio,
+  local embedder (semantic search degraded, identical on every trial), a 1,357-note vault plus seeded
+  notes. The note with unparseable frontmatter used by the write-ergonomics tasks was left out because it
+  makes backlink, tag and base queries fail vault-wide, which would swamp this comparison.
+
+### Claude Code
+
+Claude Code's client-side tool search is on by default: unless `ENABLE_TOOL_SEARCH` is set, MCP tools
+are deferred and loaded on demand
+([MCP docs](https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search)). The runs kept it on
+(`ToolSearch` available) and, as a secondary arm, removed it (every MCP definition loads upfront, the
+same effect as `ENABLE_TOOL_SEARCH=false`). 32 trials per mode and arm.
+
+| Claude Code | success | median calls-to-success | trials with an error (errors) | tool-not-found | median billable tokens |
+|---|---|---|---|---|---|
+| `triad`, tool search on | 32/32 | 5 | 14 (17) | 0 | 6.5k |
+| `domain`, tool search on | 32/32 | 4 | 32 (46) | 0 | 6.5k |
+| `flat`, tool search on | 32/32 | 4.5 | 4 (4) | 0 | 9.0k |
+| `triad`, tool search removed | 32/32 | 4 | 22 (23) | 0 | 5.4k |
+| `domain`, tool search removed | 32/32 | 2 | 32 (42) | 0 | 4.1k |
+| `flat`, tool search removed | 32/32 | 2 | 2 (4) | 0 | 3.9k |
+
+Billable tokens are uncached input plus cache writes plus output, with the prompt cache warm from the
+previous trial; read them as a ratio between rows, not as a price.
+
+- **Success is at the ceiling (96 of 96 with tool search on), so it cannot separate the modes.** The
+  deferred-tool path works: the model reads the advertised names, loads the one it wants with
+  `ToolSearch`, and calls it, in every mode. No trial hit a "no such tool" for an obsidian-tc tool.
+- **`domain` makes the model guess arguments.** Every one of its 32 trials had at least one validation
+  error, usually the missing `vault`: a domain tool's schema is `{ action, args }`, so the per-action
+  schema is not visible until the call fails. `triad` shows it through `describe_capability`, `flat`
+  through the tool's own schema (4 trials with an error).
+- **`flat` costs about 38% more billable tokens** with tool search on (a full list is loaded into the
+  deferred set) and needs two `ToolSearch` calls per trial against one for the others, for no gain in
+  success. Its calls-to-success (4.5 vs 5) is inside the tie band, so the default stands.
+- **`triad` is one call longer** at the median than `domain`: the `describe_capability` step the
+  client-side search makes partly redundant. That is a cost of one call, not a failure.
+- **If you have turned tool search off** (secondary arm, descriptive, not part of the decision rule),
+  `flat` and `domain` took half the calls of `triad` (2 vs 4) with the same success; `flat` also held
+  errors to 4 against 23 and 42. That is the one setting where this data would favour changing the mode.
+
+### Codex CLI
+
+Codex defers every MCP tool behind its own `tool_search`; the feature flags that used to control it are
+no-ops ([`codex-rs/features`](https://github.com/openai/codex/blob/main/codex-rs/features/src/lib.rs),
+[PR #29486](https://github.com/openai/codex/pull/29486)). It has a known weakness that matters for any
+find-then-call facade: `tool_search` can miss a deferred tool even when the query names it exactly
+([#21503](https://github.com/openai/codex/issues/21503)).
+
+**Only `triad` is measured for Codex, and only for one rep.** The Codex usage limit ran out partway
+through the matrix (it resets 2026-10-07), so `domain` and `flat` have no usable cells and no decision
+was made for them.
+
+| Codex CLI | trials | success | median calls-to-success | tool-not-found | median billable tokens |
+|---|---|---|---|---|---|
+| `triad` | 16 | 15/16 | 5 | 1 trial (2 events) | 20.7k |
+| `domain` | not run | | | | |
+| `flat` | not run | | | | |
+
+The one failure is a checker false negative (the answer said "November 12, 2026" where the checker
+wanted `2026-11-12`; the checker now accepts both). The one tool-not-found was the model guessing
+capability names (`search_entities`, `recall_memory`) in `describe_capability` before finding the real
+one; it recovered. Recommendation: keep `triad`; re-run `domain` and `flat` after the limit resets before
+changing it.
+
+### Clients that could not be run headless
+
+These rows are **unmeasured — recommendation from docs**, not a result.
+
+- **Cursor** — recommend `triad`. Cursor now keeps only tool names in static context and syncs tool
+  descriptions to a folder the agent reads on demand
+  ([Dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery): "a small bit of static
+  context, including names of the tools"; 46.9% fewer agent tokens in runs that called an MCP tool). A
+  40-active-tool cap was reported on the
+  [Cursor forum](https://forum.cursor.com/t/tool-specialized-agent-switching-in-cursor-dynamic-mcp-tools-management/74196);
+  whether it still applies was not verified, but it is one more reason not to advertise `flat`.
+- **Gemini CLI** — recommend `triad`. Each MCP tool is exposed as `mcp_<server>_<tool>`, characters other
+  than letters, digits, `_`, `-`, `.` and `:` become `_`, and names over 63 characters are truncated
+  ([MCP server docs](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md)).
+  obsidian-tc's longest tool name is 28 characters, so `mcp_obsidian-tc_<tool>` stays under that limit in
+  every mode; the choice is therefore about context cost, and the three-tool surface is the smallest.
+  The page documents no deferral of MCP tools.
+- **Claude Desktop, VS Code** — no client-specific evidence was gathered; keep the default.
+
+### Caveats
+
+One model per client, one 16-task set, one vault, a degraded embedder, stdio only. Success sat at the
+ceiling for Claude Code, so the data separates the modes on cost and friction, not on whether a model can
+find a tool. A task set where the right tool is harder to find (several near-duplicate tools, a much larger
+vault) could separate them; the harness takes more tasks.
+
+## Approval prompts when the client runs headless
+
+Some tools ask for a human confirmation (see [Human-in-the-loop](/security/hitl-elicit/)). A headless
+client has no human to ask, and the two measured clients answer the server's `elicitation/create`
+within milliseconds:
+
+| Client | What it does headless | What the server returns | What to do |
+|---|---|---|---|
+| Claude Code (`claude -p`) | Advertises elicitation, then auto-**cancels** | `approval_not_obtained`, with a `recovery` that names the `obsidian-tc elicit` route | Offer the out-of-band route: mint a token with `obsidian-tc elicit` and let the agent retry, or run the operation yourself |
+| Codex (`codex exec`) | Advertises elicitation, then auto-**declines** | `approval_declined`: a hard stop, the agent is told not to retry or mint a token | The agent cannot recover. Approve it yourself: mint the token with `obsidian-tc elicit` in your own shell and retry, or run the tool interactively |
+| Cursor, Gemini CLI, Claude Desktop, VS Code | Not measured | | Follow the [HITL page](/security/hitl-elicit/); do not assume a prompt is rendered |
+
+Measured in the write-ergonomics study with Claude Code 2.1.285 and Codex 0.159.2: both advertised
+elicitation and answered within milliseconds without a human. The facade mode does not change this; it
+applies in `triad`, `domain` and `flat` alike.
 
 ## What was observed
 
@@ -166,7 +305,7 @@ Omit the `Authorization` header to observe the refusal path.
 - **stdio / Streamable HTTP** — whether the transport connects and completes a handshake at all.
 - **Surface** — whether the client is shown the 3-tool facade (`find_capability` /
   `describe_capability` / `call_capability`) or the full per-tool catalogue. The facade exists
-  because tool-selection quality collapses well before a catalogue this size.
+  because tool-selection quality collapses well before a catalogue this size (the measured per-client advice is [above](#choosing-a-facade-mode-per-client)).
 - **`outputSchema`** — whether the client requests and honours structured output. The server emits
   `structuredContent` whenever a tool declares an output schema, including on the **error** path so
   a model can self-correct from the validation issues.

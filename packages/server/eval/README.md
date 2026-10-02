@@ -287,6 +287,34 @@ bun eval/history.ts record art.json --label write-ergonomics
   recall@10 is task success, mrr@10 call efficiency against `refCalls`, ndcg@10 first-try-clean. Read
   those columns as that mapping, not as retrieval quality.
 
+### Facade-mode study (`--facade`, `--task-set facade`, `facade-analyze.ts`)
+
+The same harness, pointed at the question "which `toolFacade.mode` should each client use". The three
+modes (`triad`, `domain`, `flat`) are a run-time flag (`run.ts --facade`), the tap proxy unwraps a
+domain meta-tool call (`links` + `action: get_backlinks`) to the capability it names, and the task set
+is 16 tasks: six write tasks that begin with a find step plus ten read-and-answer discovery tasks
+(`DISCOVERY_TASKS` in `tasks.ts`, seeded under `Discovery/` in `fixtures.ts`).
+
+```bash
+bun eval/write-ergonomics/template.ts <root> --omit "Inbox/Messy frontmatter.md"
+bun eval/write-ergonomics/run.ts --root <root> --client claude --facade flat --claude-tool-search \
+    --task-set facade --rep 1 --runs runs/flat
+bun eval/write-ergonomics/facade-analyze.ts --root <root> --tables tables.md --out results.json \
+    --artifact-prefix hist --task-set task-set.yaml     # then history.ts record each hist-*.json
+```
+
+- `--claude-tool-search` keeps Claude Code's built-in `ToolSearch`, so MCP tools are deferred as in a
+  default install. Without it the harness removes every built-in tool, which makes Claude Code load all
+  MCP definitions upfront: that is NOT what users get, and the earlier write-ergonomics runs used it.
+- The broken-YAML seed is left out of the template (`--omit`): it makes vault-wide reads fail, which
+  swamps a comparison between facade modes.
+- `facade-analyze.ts` implements the decision rule written down before the runs (tie band of 2 trials,
+  default kept unless beaten by more than the band, partial cells undecided) and the artifacts it writes
+  are `history.ts`-recordable, one per client with `baseline = triad`, `graph = domain|flat`.
+- Metrics beyond the write-ergonomics ones: calls-to-success (server calls plus client tool-search
+  calls), tool-not-found (server `unknown tool` plus the client's own "no such tool" for an obsidian-tc
+  tool; a disabled built-in does not count).
+
 ## Run history
 
 `run.ts --json` writes an artifact wherever you point it, which is how runs ended up as

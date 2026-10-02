@@ -14,11 +14,13 @@ import type { FacadeMode } from "./facade-mode";
  * Checked AFTER `toolFacade.autoClients` (the operator's own config) and only when nothing there
  * matched. Order is significant: read top to bottom, first substring match wins.
  *
- * BUILT-IN TABLE IS PROVISIONAL. It encodes a judgment call, not a measurement — see
- * facade-auto.ts's own header comment for the full rationale (kept there, not duplicated here,
- * since this file's only job is to hold the data both consumers need).
+ * `toolFacade.mode: "auto"` is DEPRECATED: it resolves to "triad" for every client, because a
+ * per-client measurement (Claude Code, tool search on: triad 32/32 trials at the lowest token cost;
+ * domain produced a validation error in every trial) found no mode that beats the triad. The keys
+ * stay because telemetry/wiring.ts reuses them as its canonical client labels; every value is the
+ * triad. See facade-auto.ts's header comment.
  */
 export const BUILTIN_AUTO_FACADE_CLIENTS: ReadonlyArray<readonly [string, FacadeMode]> = [
-  ["claude-code", "domain"],
+  ["claude-code", "triad"],
   ["cursor", "triad"],
 ];
