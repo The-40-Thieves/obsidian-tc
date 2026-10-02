@@ -125,7 +125,7 @@ export async function openBunSqlite(
           d.prepare("PRAGMA schema_version").get();
         },
         close: (d) => {
-          d.close();
+          d.close(true); // finalize the probe statement too; see the writable adapter's close()
         },
       },
     );
@@ -133,6 +133,7 @@ export async function openBunSqlite(
     readonlyMode = open.readonlyMode;
   } else {
     db = new BunDatabase(path, { create: true });
+    // Plain close() is enough on this open-failure path: only `exec` ran, so no statement is outstanding.
     applyConnectionPragmasOrClose(db, (p) => db.exec(`PRAGMA ${p}`), busyTimeoutMs);
   }
   const make = (sql: string): Statement => {
@@ -167,8 +168,13 @@ export async function openBunSqlite(
     loadExtension: (extPath: string): void => {
       db.loadExtension(extPath);
     },
+    // `close(true)`, not `close()`: the plain form is `sqlite3_close_v2`, which with a statement
+    // still outstanding (`prepareCached` keeps them for the life of the connection) only marks the
+    // connection a zombie that keeps its locks until the statements are collected or the process
+    // ends. On Windows a terminating process's locks are released lazily, so siblings sharing the
+    // file saw SQLITE_BUSY for seconds after one shut down. `true` finalizes them first.
     close: (): void => {
-      db.close();
+      db.close(true);
     },
     // GH #995 fix round (LOCK_TXN_LOSS) — see db/types.ts's Database.inTransaction doc comment.
     inTransaction: (): boolean => db.inTransaction,
