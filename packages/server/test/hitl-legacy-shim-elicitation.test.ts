@@ -258,10 +258,12 @@ describe(`THE-1106 fix round 1: SDK legacy shim (proven against @modelcontextpro
     expect(res.isError).toBe(true);
     expect(effect.applied).toBe(0);
     expect(outbound.methods.filter((m) => m === "elicitation/create")).toHaveLength(1);
+    // A cancel is "dismissed without choosing" (MCP spec), not a refusal: the call is refused but
+    // the text names the out-of-band mint route instead of forbidding it.
     const text = (res.content as Array<{ type: string; text: string }>)[0]?.text ?? "";
-    expect(text).toContain(
-      "The user declined this change. Do not retry it and do not mint a token.",
-    );
+    expect(text).toContain("Approval was not obtained");
+    expect(text).toContain("confirm with: obsidian-tc elicit");
+    expect(text).not.toMatch(/declined|do not mint a token/i);
     await client.close();
     await server.close();
   });

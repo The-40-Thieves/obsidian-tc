@@ -27,13 +27,14 @@ import {
   sampleViaClient,
 } from "./client-features";
 import {
+  type ConfirmRoundOutcome,
   clientSupportsFormElicitation,
   elicitConfirmationContext,
   hitlFormSource,
   offerInputRequired,
   resolveElicitConfirmation,
   roundTripDeliverable,
-  withDeclinedFlag,
+  withRoundOutcome,
 } from "./elicit-form";
 import { splitElicitToken } from "./elicit-token";
 import { formatErrorDetail } from "./error-rendering";
@@ -480,9 +481,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
     canElicit = false,
     /** This request's log sink (`extra.mcpReq.log`); absent for stdio/direct construction. */
     log?: RequestLog,
-    /** THE-1106: true when a round for THIS request came back declined/cancelled — see
-     *  `resolveElicitConfirmation` (./elicit-form.ts). Stops a second offer for the same decline. */
-    roundDeclinedOrCancelled = false,
+    /** How a round for THIS request ended when it was not an approval — see
+     *  `resolveElicitConfirmation` (./elicit-form.ts). Stops a second offer for the same answer. */
+    roundOutcome: ConfirmRoundOutcome | undefined = undefined,
     /** THE-1106 fix round 2: the echoed state's own round counter when APPROVED but mismatched —
      *  `offerInputRequired` caps re-offers on this so a persistent mismatch cannot loop the SDK
      *  shim's full `maxRounds` (8). See `resolveElicitConfirmation`'s doc comment. */
@@ -496,7 +497,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         result.error.code === "elicit_required" &&
         opts.elicitCodec &&
         canElicit &&
-        !roundDeclinedOrCancelled &&
+        roundOutcome === undefined &&
         roundTripDeliverable(server, isModern, opts.legacyElicitationShim)
       ) {
         const offer = await offerInputRequired(
@@ -509,9 +510,10 @@ export function createMcpServer(opts: McpServerOptions): Server {
         );
         if (offer !== undefined) return offer;
       }
-      // THE-1106 fix round 2 (LOW 6): render the decline-specific text — see withDeclinedFlag.
-      if (result.error.code === "elicit_required" && roundDeclinedOrCancelled) {
-        return errorToResult(withDeclinedFlag(result.error));
+      // The one shared mapping for every gated tool: cancel is "approval not obtained", decline is
+      // a hard stop — see withRoundOutcome.
+      if (result.error.code === "elicit_required" && roundOutcome !== undefined) {
+        return errorToResult(withRoundOutcome(result.error, roundOutcome));
       }
       return errorToResult(result.error);
     }
@@ -568,7 +570,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         inputResponses?: Record<string, unknown>;
       },
     );
-    const { roundDeclinedOrCancelled, approvedRound } = confirmation;
+    const { roundOutcome, approvedRound } = confirmation;
     // THE-1106 fix round 2: elicitStateContextPatch's doc comment (./elicit-form.ts) covers why.
     ctx = elicitConfirmationContext(ctx, opts.registry, confirmation, server, isModern);
     ({ args, ctx } = splitElicitToken(rawArgs, ctx));
@@ -612,7 +614,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         actionCtx,
         canElicit,
         log,
-        roundDeclinedOrCancelled,
+        roundOutcome,
         approvedRound,
       );
     }
@@ -685,7 +687,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
             targetCtx,
             canElicit,
             log,
-            roundDeclinedOrCancelled,
+            roundOutcome,
             approvedRound,
           );
         },
@@ -700,7 +702,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       ctx,
       canElicit,
       log,
-      roundDeclinedOrCancelled,
+      roundOutcome,
       approvedRound,
     );
   });

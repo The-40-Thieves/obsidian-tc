@@ -130,9 +130,9 @@ const RECOVERY: Record<ErrorCode, string | null> = {
   // THE-826: names the CLI escape hatch for a client that cannot render the elicitation prompt
   // itself. THE-1106: a modern client gets the inputRequired round trip; a legacy-era one that
   // still advertises elicitation (stdio included) gets a server-initiated one instead — only a
-  // client with NO elicitation capability at all falls through to the CLI mint path below.
+  // client with NO elicitation capability, or one that cancels the prompt, takes the CLI mint path.
   elicit_required:
-    "A human must approve this call. A client with MCP elicitation gets a prompt; otherwise mint one with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token.",
+    "A human must approve this call. A client with MCP elicitation gets a prompt; if it cannot answer it (unsupported, or auto-cancelled) mint one with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend. Never reuse an old token.",
   elicit_invalid:
     "The token was rejected or expired. Re-issue the original call with no token to trigger a fresh confirmation prompt.",
   replay_drift:

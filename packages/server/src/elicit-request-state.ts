@@ -38,7 +38,7 @@ export interface ElicitRequestState {
    *  dispatch-level state doesn't cover). `mcp/elicit-form.ts`'s `offerInputRequired` refuses to
    *  mint past a small cap, so a persistent mismatch fails closed with a FEW prompts, not the
    *  SDK shim's full `maxRounds` (8) — an actual decline/cancel is a separate, unrelated stop
-   *  condition (`roundDeclinedOrCancelled`) and never reaches this counter. Absent/`undefined`
+   *  condition (`roundOutcome`) and never reaches this counter. Absent/`undefined`
    *  reads as round 0 (pre-THE-1106-fix-round-2 states, and the very first offer). */
   round?: number;
 }

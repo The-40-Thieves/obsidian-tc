@@ -85,9 +85,9 @@ export function requireConfirmation(
     return;
   }
   // THE-1082 (GH #945; fix round 2, cross-vendor review): `tool`/`vault` ride along so
-  // error-rendering.ts's text channel can render the exact `obsidian-tc elicit` command a
-  // client with no elicitation support (e.g. Claude Code over stdio) needs to clear this gate —
-  // both are already known here (`toolName` param, `ctx.vaultId`) and add nothing an attacker
+  // error-rendering.ts's text channel can render the exact `obsidian-tc elicit` command a client
+  // that cannot complete the elicitation prompt (unsupported, or auto-cancelled by a headless
+  // client such as Claude Code) needs to clear this gate — both are already known here (`toolName` param, `ctx.vaultId`) and add nothing an attacker
   // couldn't already see: the caller supplied both to make this very call. `args_hash`'s inputs
   // (toolName, input) are unchanged. `args_hash`/`tool`/`vault` are spread AFTER `proposed` —
   // deliberately last — so a per-call `proposed` object (every caller of this function passes a

@@ -166,15 +166,21 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
   const hash = details?.args_hash;
   if (typeof hash !== "string") return undefined;
   const tool = details?.tool;
-  // THE-1106 fix round 2 (LOW 6, cross-vendor review): after an ACTUAL decline/cancel
-  // (`dispatchToResult`'s `roundDeclinedOrCancelled`, mcp/server.ts), the directive above — "Ask
-  // the user now... If they approve, run the command below" — is stale: the user already
-  // answered, and re-asking the agent to solicit another yes (or mint a token off the stale
-  // command) is exactly the bypass this whole mechanism exists to prevent. No `confirm with:`
-  // line either — there is nothing to confirm; the answer was no.
-  if (details?.declined === true) {
+  // After an explicit decline (`dispatchToResult`'s `roundOutcome`, mcp/server.ts) the user already
+  // said no: re-asking, or minting off the stale command, is the bypass this mechanism exists to
+  // prevent, so there is no `confirm with:` line. A CANCEL is different: nobody answered, so
+  // approval was not obtained and the out-of-band route below stays the way to get it.
+  if (details?.reason === "approval_declined") {
     return "The user declined this change. Do not retry it and do not mint a token.";
   }
+  const cancelled = details?.reason === "approval_not_obtained";
+  const mintCondition = cancelled
+    ? "Mint the token only after the user explicitly says yes."
+    : "Do not mint the token without their explicit yes.";
+  const notObtained = cancelled
+    ? "Approval was not obtained: the client dismissed the confirmation prompt without an " +
+      "answer, so nothing was changed. This is not a refusal.\n"
+    : "";
   if (typeof tool !== "string") {
     return (
       "cannot render a confirm command: this error did not carry a tool name, and " +
@@ -194,9 +200,10 @@ function renderElicitInstruction(details: Record<string, unknown> | undefined): 
   const vault = details?.vault;
   const vaultFlag = typeof vault === "string" ? ` ${renderFlag("--vault", vault)}` : "";
   return (
+    notObtained +
     `This call needs the user's approval. Ask the user now whether to allow ${safeTool}${target}. ` +
     "If they approve, run the command below and retry the same call with elicit_token: <token>. " +
-    "Do not mint the token without their explicit yes.\n" +
+    `${mintCondition}\n` +
     `confirm with: obsidian-tc elicit ${renderFlag("--hash", hash)} ${renderFlag("--tool", tool)}${vaultFlag}\n` +
     "(reads OBSIDIAN_TC_CONFIG if set; otherwise add --config <path> or a vault/config path " +
     "positional argument)"
