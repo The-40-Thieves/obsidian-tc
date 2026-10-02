@@ -176,6 +176,14 @@ function main(): void {
       flag(argv, "--runs") ?? "runs",
       argv.includes("--raw"),
     );
+    if (r.finalText.startsWith("<codex usage limit>")) {
+      // Not a trial: the client never ran. Move it aside (kept, never deleted) and stop the batch.
+      const aside = join(root, "diag-runs", "usage-limit");
+      mkdirSync(aside, { recursive: true });
+      renameSync(r.runDir, join(aside, `${task.arm}-${client}-${task.id}__r${rep}-${Date.now()}`));
+      process.stderr.write(`STOP: ${client} usage limit; trial moved to ${aside}\n`);
+      process.exit(4);
+    }
     spent += r.usage.billable;
     appendFileSync(
       ledger,

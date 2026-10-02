@@ -142,6 +142,9 @@ export function codexHome(dir: string, c: ClientCtx): string {
     `command = ${JSON.stringify(process.execPath)}`,
     `args = [${JSON.stringify(join(import.meta.dirname, "tap-proxy.ts"))}]`,
     "tool_timeout_sec = 120",
+    // headless exec runs with approval_policy never, which rejects every MCP tool call that asks for a
+    // client-side prompt; this is wiring, the server's own confirmation gate (HITL) is untouched.
+    'default_tools_approval_mode = "approve"',
     "[mcp_servers.obsidian-tc.env]",
     ...Object.entries(c.tapEnv).map(([k, v]) => `${k} = ${JSON.stringify(v)}`),
     "",

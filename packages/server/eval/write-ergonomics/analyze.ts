@@ -130,7 +130,7 @@ export function tables(trials: TrialResult[], cells: Cell[]): string {
     });
     lines.push(`| ${t.id} | ${t.arm} | ${cols.join(" | ")} |`);
   }
-  lines.push("\n### Per client totals (first run of each task)\n");
+  lines.push("\n### Per client totals (all included trials, repeats counted)\n");
   lines.push(
     "| client | trials | pass | tool calls | discovery | errors | with recovery hint | recovered | elicit_required | billable tokens | cacheRead tokens |",
   );
