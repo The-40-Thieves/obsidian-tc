@@ -27,16 +27,22 @@ afterEach(() => {
   for (const d of tmpDirs.splice(0)) rmTemp(d);
 });
 
-describe.skipIf(!bunAvailable)("bun:sqlite adapter close()", () => {
-  it("really closes the connection even with a prepared statement outstanding", () => {
-    const dir = makeTempDir("otc-bun-close-");
-    tmpDirs.push(dir);
-    const r = spawnSync("bun", [CHILD, join(dir, "close.db")], { encoding: "utf8" });
-    expect(r.status, r.stderr).toBe(0);
-    const line = r.stdout.split("\n").find((l) => l.startsWith("{"));
-    expect(JSON.parse(line ?? "{}")).toEqual({ wal: false, shm: false });
-  });
-});
+// Skipped on macOS: bun:sqlite uses Apple's system SQLite there, which leaves `-wal`/`-shm` behind
+// even after a real close (CI measured it with the fix applied), so this oracle cannot tell a
+// closed connection from a zombie. Linux and Windows run it.
+describe.skipIf(!bunAvailable || process.platform === "darwin")(
+  "bun:sqlite adapter close()",
+  () => {
+    it("really closes the connection even with a prepared statement outstanding", () => {
+      const dir = makeTempDir("otc-bun-close-");
+      tmpDirs.push(dir);
+      const r = spawnSync("bun", [CHILD, join(dir, "close.db")], { encoding: "utf8" });
+      expect(r.status, r.stderr).toBe(0);
+      const line = r.stdout.split("\n").find((l) => l.startsWith("{"));
+      expect(JSON.parse(line ?? "{}")).toEqual({ wal: false, shm: false });
+    });
+  },
+);
 
 // The same observable for the adapter this (Node) process picks, so the two Node adapters stay held
 // to the contract the Bun one was fixed for: close() finalizes outstanding statements, then closes.
