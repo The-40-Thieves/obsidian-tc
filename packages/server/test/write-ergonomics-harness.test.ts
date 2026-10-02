@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { MEMORY_ENTITY, SEED, writeSeeds } from "../eval/write-ergonomics/fixtures";
 import { friction } from "../eval/write-ergonomics/friction";
-import { applyHook, effectiveCall } from "../eval/write-ergonomics/tap-proxy";
+import { applyHook, effectiveCall, hookMatches } from "../eval/write-ergonomics/tap-proxy";
 import {
   type CheckCtx,
   HARDENED_ACL,
@@ -120,6 +120,17 @@ describe("tap proxy helpers", () => {
       tool: "read_note",
       args: { path: "b.md" },
     });
+  });
+
+  it("matches the pre-registered hooks by regex on the tool name and by exact path (regression: === never fired)", () => {
+    for (const task of TASKS.filter((x) => x.hook)) {
+      const h = task.hook;
+      if (!h) continue;
+      expect(hookMatches(h, "read_note", { path: h.path }), task.id).toBe(true);
+      expect(hookMatches(h, "get_note_headings", { path: h.path }), task.id).toBe(true);
+      expect(hookMatches(h, "patch_note", { path: h.path }), task.id).toBe(false);
+      expect(hookMatches(h, "read_note", { path: "other.md" }), task.id).toBe(false);
+    }
   });
 
   it("applies an append hook and a replace hook, and refuses a replace whose text is absent", () => {

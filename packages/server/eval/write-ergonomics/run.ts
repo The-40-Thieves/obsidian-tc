@@ -2,7 +2,7 @@
 //
 // Usage:
 //   bun eval/write-ergonomics/run.ts --root <dir> --client claude|codex [--tasks id,id] [--arm main|hardened]
-//        [--rep N] [--timeout-s 240] [--budget-tokens 3000000] [--runs runs]
+//        [--rep N] [--timeout-s 240] [--budget-tokens 3000000] [--runs runs] [--raw]
 // Needs the template built first (bun eval/write-ergonomics/template.ts <root>) and dist/cli.js built.
 //
 // Each trial: fresh copy of the template vault + warm cache, a config in the run dir, the client
@@ -59,6 +59,7 @@ export function runTrial(
   rep: number,
   timeoutMs: number,
   runsDir = "runs",
+  raw = false,
 ): TrialResult {
   const runDir = join(root, runsDir, task.arm, client, `${task.id}__r${rep}`);
   if (existsSync(runDir))
@@ -81,6 +82,7 @@ export function runTrial(
     TAP_VAULT: vault,
     TAP_SERVER: JSON.stringify(["node", CLI, "serve", config]),
     ...(task.hook ? { TAP_HOOK: JSON.stringify(task.hook) } : {}),
+    ...(raw ? { TAP_RAW: "1" } : {}),
   };
   const ctx: ClientCtx = {
     runDir,
@@ -165,7 +167,15 @@ function main(): void {
       process.stderr.write(`STOP: billable client tokens ${spent} exceed budget ${budget}\n`);
       process.exit(3);
     }
-    const r = runTrial(root, client, task, rep, timeoutMs, flag(argv, "--runs") ?? "runs");
+    const r = runTrial(
+      root,
+      client,
+      task,
+      rep,
+      timeoutMs,
+      flag(argv, "--runs") ?? "runs",
+      argv.includes("--raw"),
+    );
     spent += r.usage.billable;
     appendFileSync(
       ledger,

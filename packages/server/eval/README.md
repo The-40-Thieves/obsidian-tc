@@ -231,6 +231,40 @@ so the win shown is the DB and fusion work alone); `live` calls the configured p
 with `history.ts record`; it holds no query text or note paths. The measured decision for the shipped
 default is in `docs/design/search-indexing-and-cache.md`.
 
+## Write-ergonomics harness (`write-ergonomics/`)
+
+How well REAL LLM clients (Claude Code, Codex) write, fix and edit notes through the server, over stdio
+with the client spawning it. It is not a retrieval eval: the unit is a task ("fix the typo in Plan.md",
+"move this note", "edit a note that changed underneath you"), the verdict is a deterministic checker over
+the resulting vault files, and the output is friction (extra calls, errors, whether each error told the
+model what to do, tokens, wall time). 28 tasks in two arms: `main` (trusted-local defaults) and
+`hardened` (`acl.readPaths`/`writePaths` whitelist plus `writes.requireCas`).
+
+```bash
+bun eval/write-ergonomics/template.ts <root>          # corpus copy + seeded notes + warm cache, once
+bun eval/write-ergonomics/run.ts --root <root> --client claude [--tasks a,b] [--arm hardened] [--rep 2]
+bun eval/write-ergonomics/run.ts --root <root> --client codex
+bun eval/write-ergonomics/analyze.ts --root <root> --out results.json --tables tables.md --artifact art.json
+bun eval/history.ts record art.json --label write-ergonomics
+```
+
+- A logging proxy (`tap-proxy.ts`) sits between the client and the server, so both clients are measured
+  from the same wire record (effective tool name unwrapped from `call_capability`, error code, recovery
+  text, latency). It can also mutate a vault file after the Nth matching response, which is how a note
+  is made to change underneath the model (the compare-and-swap path) without racing it.
+- Each trial copies the template vault and cache to one fixed path (the index records the vault path)
+  and archives the post-run state under `<root>/runs/<arm>/<client>/<task>__r<N>/`; runs are never
+  overwritten and nothing is deleted. Tasks marked `approved` state the user's approval and let the
+  client run `obsidian-tc elicit`, the stand-in for a human confirming a HITL prompt.
+- The Codex login is copied into a private temp dir for the run and removed afterwards; only the
+  secret-free `codex-config.toml` is archived.
+- `test/write-ergonomics-harness.test.ts` needs no client: every checker must fail on the wrong state
+  and pass on a reference outcome. It is the check to run after editing `tasks.ts`.
+- `analyze.ts --artifact` emits a file `history.ts record` accepts by the same structural re-use
+  `search-and-read-cost.ts` documents: `baseline` is the first client and `graph` the second;
+  recall@10 is task success, mrr@10 call efficiency against `refCalls`, ndcg@10 first-try-clean. Read
+  those columns as that mapping, not as retrieval quality.
+
 ## Run history
 
 `run.ts --json` writes an artifact wherever you point it, which is how runs ended up as
