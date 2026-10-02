@@ -66,7 +66,7 @@ bun eval/rerank-arms.ts score  <golden> <pools.json> --results a.json,b.json --o
 `pools` runs the real `search_semantic` handler (the dense control) and the production graph order (a second
 control) and records each query's router class. `rerank` sends one arm's calls with per-provider adapters
 (`rerank-adapters.ts`: Cloudflare, DeepInfra, NVIDIA, OpenRouter through the unchanged `cohere-compatible`
-provider, local MiniLM through `reranker-local`, and a local bge-reranker-v2-m3 latency probe); a query already
+provider, local MiniLM through `reranker-local`, and a local bge-reranker-v2-m3 latency probe, measured at about 98 s per search and dropped); a query already
 answered is never re-sent, `--neuron-cap` bounds Cloudflare spend, and an arm whose provider's terms allow
 training on submitted text refuses a private pool (`PUBLIC_ONLY_ARMS`). `score` writes one `history.ts`-shaped
 artifact per arm and a `summary.json` with the paired statistics, the pre-registered per-corpus verdict, the
