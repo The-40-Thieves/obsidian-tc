@@ -15,8 +15,11 @@ import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
+import { parseCliArgs } from "../src/cli/args";
+import { mintElicitAudited, planElicitMint } from "../src/cli/commands/elicit-mint";
 import { provisionCacheDb } from "../src/db/provision";
 import { elicitVerifier, getDefaultElicitTtlSeconds, issueElicitToken } from "../src/elicit";
 import { createElicitCodec } from "../src/elicit-request-state";
@@ -25,6 +28,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "test";
@@ -39,6 +43,9 @@ interface Case {
   files: Record<string, string>;
   performed: (read: (rel: string) => string | undefined) => boolean;
 }
+
+/** The source file is exactly as it started: a refused write must leave no trace. */
+const intact = (read: (rel: string) => string | undefined): boolean => read("a.md") === "original";
 
 const CASES: Case[] = [
   {
@@ -61,7 +68,12 @@ const CASES: Case[] = [
   },
 ];
 
-async function boot(files: Record<string, string>, capabilities: Record<string, unknown>) {
+async function boot(
+  files: Record<string, string>,
+  capabilities: Record<string, unknown>,
+  opts: { caller?: string; ttlSeconds?: number } = {},
+) {
+  const caller = opts.caller ?? CALLER;
   const root = makeTempDir("obtc-cancel-");
   for (const [rel, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, rel)), { recursive: true });
@@ -81,7 +93,7 @@ async function boot(files: Record<string, string>, capabilities: Record<string, 
   });
   const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
   const context = (): CallerContext => ({
-    caller: CALLER,
+    caller,
     authenticated: true,
     grantedScopes: new Set(["*"]),
     vaultId: VAULT,
@@ -94,7 +106,10 @@ async function boot(files: Record<string, string>, capabilities: Record<string, 
     registry,
     context,
     visibility: { grantedScopes: new Set(["*"]) },
-    elicitCodec: createElicitCodec(randomBytes(32).toString("hex"), getDefaultElicitTtlSeconds()),
+    elicitCodec: createElicitCodec(
+      randomBytes(32).toString("hex"),
+      opts.ttlSeconds ?? getDefaultElicitTtlSeconds(),
+    ),
     legacyElicitationShim: true,
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -106,13 +121,17 @@ async function boot(files: Record<string, string>, capabilities: Record<string, 
     db,
     client,
     legs,
-    connect: async (answer?: Answer) => {
+    connect: async (
+      answer?: Answer | (() => Promise<never>),
+      content?: Record<string, unknown>,
+    ) => {
       if (answer !== undefined) {
         client.setRequestHandler(ElicitRequestSchema, async () => {
           legs.count += 1;
+          if (typeof answer === "function") return await answer();
           return answer === "accept"
-            ? { action: "accept", content: { approve: true } }
-            : { action: answer };
+            ? { action: "accept", content: content ?? { approve: true } }
+            : { action: answer, ...(content ? { content } : {}) };
         });
       }
       await client.connect(clientTransport);
@@ -202,6 +221,7 @@ describe.each(CASES)("elicitation answers on $tool", (c) => {
       expect(text).not.toContain("do not mint a token");
       expect(text).toContain("confirm with: obsidian-tc elicit --hash ");
       expect(String(structured(res).recovery)).toContain("obsidian-tc elicit");
+      expect((structured(res).details as { reason?: string }).reason).toBe("approval_not_obtained");
     } finally {
       await b.close();
     }
@@ -247,6 +267,133 @@ describe("cancel then the out-of-band token route (token path not weakened)", ()
       });
       expect(again.isError).toBe(true);
       expect(b.read("a.md")).toBe("recreated");
+    } finally {
+      await b.close();
+    }
+  });
+});
+
+describe.each(CASES)("non-approving answers never approve $tool", (c) => {
+  it("accept with approve:false is a refusal (nothing written, source intact)", async () => {
+    const b = await boot(c.files, { elicitation: {} });
+    try {
+      await b.connect("accept", { approve: false });
+      const res = await b.client.callTool({ name: c.tool, arguments: c.input });
+      expect(res.isError).toBe(true);
+      expect(b.legs.count).toBe(1);
+      expect(c.performed(b.read)).toBe(false);
+      expect(intact(b.read)).toBe(true);
+    } finally {
+      await b.close();
+    }
+  });
+
+  it("cancel carrying approve:true is not an approval (nothing written, source intact)", async () => {
+    const b = await boot(c.files, { elicitation: {} });
+    try {
+      await b.connect("cancel", { approve: true });
+      const res = await b.client.callTool({ name: c.tool, arguments: c.input });
+      expect(res.isError).toBe(true);
+      expect(b.legs.count).toBe(1);
+      expect(c.performed(b.read)).toBe(false);
+      expect(intact(b.read)).toBe(true);
+      expect((structured(res).details as { reason?: string }).reason).toBe("approval_not_obtained");
+    } finally {
+      await b.close();
+    }
+  });
+});
+
+// The SDK's default-on legacy shim owns the confirm leg. When that leg fails (client error, or no
+// answer inside the round timeout) the SDK answers with its own "Fulfilling input required ..."
+// result without calling our handler again. That must land in the same place as a cancel: refused,
+// reason approval_not_obtained, the out-of-band mint route named, and never an approval.
+describe.each(CASES)("a failed confirm leg inside the SDK shim on $tool", (c) => {
+  const shimFailures: Array<[string, () => Promise<never>, number | undefined]> = [
+    [
+      "client error on the leg",
+      async () => {
+        throw new Error("transport boom");
+      },
+      undefined,
+    ],
+    ["timeout with no answer", () => new Promise<never>(() => {}), 1],
+  ];
+  it.each(shimFailures)(
+    "%s: refusal with the mint route, write not performed",
+    async (_name, leg, ttl) => {
+      const b = await boot(c.files, { elicitation: { form: {}, url: {} } }, { ttlSeconds: ttl });
+      try {
+        await b.connect(leg);
+        const res = await b.client.callTool({ name: c.tool, arguments: c.input });
+        expect(res.isError).toBe(true);
+        expect(b.legs.count).toBe(1);
+        expect(c.performed(b.read)).toBe(false);
+        expect(intact(b.read)).toBe(true);
+        const text = textOf(res);
+        expect(text).not.toContain("Fulfilling input required");
+        expect(text).not.toMatch(/declined|do not mint/i);
+        expect(text).toContain("confirm with: obsidian-tc elicit --hash ");
+        expect(text).toContain(`--tool ${c.tool}`);
+        const sc = structured(res);
+        expect(sc.code).toBe("elicit_required");
+        expect((sc.details as { reason?: string }).reason).toBe("approval_not_obtained");
+        expect(String(sc.recovery)).toContain("obsidian-tc elicit");
+      } finally {
+        await b.close();
+      }
+    },
+    stallTimeout(15_000),
+  );
+});
+
+// `recovery` is what a model reads off the structured channel. Run exactly what it says through
+// the real CLI mint path: the token must redeem for THIS call (same vault, caller, args) and only
+// this call. A non-default caller makes a recovery that drops --caller fail redemption.
+describe.each(CASES)("following `recovery` verbatim on $tool", (c) => {
+  const mintFromRecovery = (b: Awaited<ReturnType<typeof boot>>, recovery: string): string => {
+    const m = /`obsidian-tc (elicit [^`]*)`/.exec(recovery);
+    if (!m) throw new Error(`no elicit command in recovery: ${recovery}`);
+    const cmd = parseCliArgs((m[1] as string).split(/\s+/));
+    if (cmd.kind !== "elicit-mint") throw new Error(`parsed as ${cmd.kind}`);
+    const cfg = ServerConfigSchema.parse({ vaults: [{ id: VAULT, path: b.root }] });
+    return mintElicitAudited(b.db, planElicitMint(cfg, cmd));
+  };
+
+  it("mints a token that redeems for that call, once, and not for another call", async () => {
+    const b = await boot(c.files, { elicitation: {} }, { caller: "alice" });
+    try {
+      await b.connect("cancel");
+      const first = await b.client.callTool({ name: c.tool, arguments: c.input });
+      const token = mintFromRecovery(b, String(structured(first).recovery));
+
+      writeFileSync(join(b.root, "other.md"), "other");
+      const other = await b.client.callTool({
+        name: c.tool,
+        arguments: { vault: VAULT, path: "other.md", elicit_token: token },
+      });
+      expect(other.isError).toBe(true);
+      expect(b.read("other.md")).toBe("other");
+
+      const ok = await b.client.callTool({
+        name: c.tool,
+        arguments: { ...c.input, elicit_token: token },
+      });
+      expect(ok.isError).toBeFalsy();
+      expect(c.performed(b.read)).toBe(true);
+    } finally {
+      await b.close();
+    }
+  });
+
+  it("the text channel and `recovery` carry the same command", async () => {
+    const b = await boot(c.files, { elicitation: {} }, { caller: "alice" });
+    try {
+      await b.connect("cancel");
+      const res = await b.client.callTool({ name: c.tool, arguments: c.input });
+      const line = /confirm with: (obsidian-tc elicit [^\n]*)/.exec(textOf(res))?.[1];
+      expect(line).toContain("--caller alice");
+      expect(String(structured(res).recovery)).toContain(`\`${line}\``);
     } finally {
       await b.close();
     }
