@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ClientOut, parseClaudeStream } from "../eval/write-ergonomics/clients";
 import { writeConfig } from "../eval/write-ergonomics/config";
-import { decide, type ModeCell } from "../eval/write-ergonomics/facade-analyze";
+import { decide, type ModeCell, trialNotFound } from "../eval/write-ergonomics/facade-analyze";
 import { MEMORY_ENTITY, SEED, writeSeeds } from "../eval/write-ergonomics/fixtures";
 import { friction, hookFiredOnError } from "../eval/write-ergonomics/friction";
 import {
@@ -387,5 +387,20 @@ describe("facade-mode decision rule", () => {
   it("flags a close cell: tied on success, calls within 0.5, same not-found", () => {
     const v = verdict([cell("triad", {}), cell("domain", { medianCallsToSuccess: 3.5 })]);
     expect(v?.close).toBe(true);
+  });
+});
+
+describe("facade-mode not-found metric", () => {
+  it("does not count a miss on a built-in tool (Bash is disabled) as a discovery failure", () => {
+    const trial = (excerpts: string[], server = 0) =>
+      ({
+        friction: { toolNotFound: server },
+        clientNotFoundExcerpts: excerpts,
+      }) as unknown as Parameters<typeof trialNotFound>[0];
+    const bash =
+      "<tool_use_error>Error: No such tool available: Bash. Bash is disabled</tool_use_error>";
+    const mcp = "Error: No such tool available: mcp__obsidian-tc__get_backlinks";
+    expect(trialNotFound(trial([bash]))).toBe(0);
+    expect(trialNotFound(trial([bash, mcp], 1))).toBe(2);
   });
 });

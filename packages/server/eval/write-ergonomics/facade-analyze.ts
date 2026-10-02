@@ -48,7 +48,12 @@ export interface ModeCell {
 }
 
 export const trialCalls = (t: TrialResult): number => t.friction.toolsCalls + t.toolSearchCalls;
-export const trialNotFound = (t: TrialResult): number => t.friction.toolNotFound + t.clientNotFound;
+/** A built-in tool the model reached for (Bash is disabled in every trial) is not a discovery failure:
+ *  only a not-found for an obsidian-tc tool, or the server's own unknown-tool answer, counts. */
+const isBuiltInMiss = (excerpt: string): boolean =>
+  /No such tool available: (?!mcp__)/i.test(excerpt);
+export const trialNotFound = (t: TrialResult): number =>
+  t.friction.toolNotFound + t.clientNotFoundExcerpts.filter((e) => !isBuiltInMiss(e)).length;
 
 export function modeCells(all: TrialResult[]): ModeCell[] {
   const cells: ModeCell[] = [];
