@@ -9,6 +9,7 @@
 // and write_note mode=overwrite: handler-side gate in vault/hitl.ts) through the stdio legacy shim
 // over an in-memory transport, so every route to the shared answer mapping
 // (mcp/elicit-form.ts resolveElicitConfirmation -> mcp/server.ts dispatchToResult) is exercised.
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -210,7 +211,7 @@ describe.each(CASES)("elicitation answers on $tool", (c) => {
   });
 
   it("client without elicitation: same as cancel (refused, mint route, no decline text)", async () => {
-    const b = await boot(c.files, {});
+    const b = await boot(c.files, {}, { caller: "alice" });
     try {
       await b.connect();
       const res = await b.client.callTool({ name: c.tool, arguments: c.input });
@@ -220,7 +221,17 @@ describe.each(CASES)("elicitation answers on $tool", (c) => {
       expect(text).not.toMatch(/declined/i);
       expect(text).not.toContain("do not mint a token");
       expect(text).toContain("confirm with: obsidian-tc elicit --hash ");
-      expect(String(structured(res).recovery)).toContain("obsidian-tc elicit");
+      // `recovery` carries the very command the text channel renders (vault and caller included),
+      // not the stock `--hash <args_hash>` placeholder: a client that follows it must mint for the
+      // caller that made this call, or redemption fails closed.
+      const line = /confirm with: (obsidian-tc elicit [^\n]*)/.exec(text)?.[1];
+      expect(line).toContain(`--vault ${VAULT}`);
+      expect(line).toContain("--caller alice");
+      const recovery = String(structured(res).recovery);
+      expect(recovery).toContain("--vault");
+      expect(recovery).toContain("--caller");
+      expect(recovery).not.toContain("<args_hash>");
+      expect(recovery).toContain(`\`${line}\``);
       expect((structured(res).details as { reason?: string }).reason).toBe("approval_not_obtained");
     } finally {
       await b.close();
@@ -283,6 +294,8 @@ describe.each(CASES)("non-approving answers never approve $tool", (c) => {
       expect(b.legs.count).toBe(1);
       expect(c.performed(b.read)).toBe(false);
       expect(intact(b.read)).toBe(true);
+      expect((structured(res).details as { reason?: string }).reason).toBe("approval_declined");
+      expect(textOf(res)).not.toContain("confirm with:");
     } finally {
       await b.close();
     }
@@ -399,3 +412,53 @@ describe.each(CASES)("following `recovery` verbatim on $tool", (c) => {
     }
   });
 });
+
+// The whitespace split above is not a shell. Paste `recovery` into a REAL `/bin/sh` (the way a
+// model's shell tool would) with a caller id that needs quoting: a space, a quote and a newline.
+// Skipped on win32 for the same reason as error-rendering.test.ts's paste-ability block: CI's
+// Windows runner has no `/bin/sh`, and the rendered line is POSIX-quoted by design.
+describe.skipIf(process.platform === "win32")(
+  "pasting `recovery` into a real shell with a shell-hostile caller",
+  () => {
+    const HOSTILE_CALLER = "al ice's\nsub";
+
+    describe.each(CASES)("on $tool", (c) => {
+      it("mints a token that redeems for that call only", async () => {
+        const b = await boot(c.files, {}, { caller: HOSTILE_CALLER });
+        try {
+          await b.connect();
+          const first = await b.client.callTool({ name: c.tool, arguments: c.input });
+          const recovery = String(structured(first).recovery);
+          const m = /`obsidian-tc (elicit [^`]*)`/.exec(recovery);
+          if (!m) throw new Error(`no elicit command in recovery: ${recovery}`);
+          // `set --` does the word-splitting and quote removal a pasted line gets; the loop reads
+          // the argv back NUL-delimited (a shell argument cannot contain a NUL).
+          const script = `set -- ${m[1]}\nfor a; do printf '%s\\0' "$a"; done`;
+          const out = execFileSync("/bin/sh", ["-c", script], { encoding: "utf8" });
+          const cmd = parseCliArgs(out.slice(0, -1).split("\0"));
+          if (cmd.kind !== "elicit-mint") throw new Error(`parsed as ${cmd.kind}`);
+          expect(cmd.caller).toBe(HOSTILE_CALLER);
+          const cfg = ServerConfigSchema.parse({ vaults: [{ id: VAULT, path: b.root }] });
+          const token = mintElicitAudited(b.db, planElicitMint(cfg, cmd));
+
+          writeFileSync(join(b.root, "other.md"), "other");
+          const other = await b.client.callTool({
+            name: c.tool,
+            arguments: { vault: VAULT, path: "other.md", elicit_token: token },
+          });
+          expect(other.isError).toBe(true);
+          expect(b.read("other.md")).toBe("other");
+
+          const ok = await b.client.callTool({
+            name: c.tool,
+            arguments: { ...c.input, elicit_token: token },
+          });
+          expect(ok.isError).toBeFalsy();
+          expect(c.performed(b.read)).toBe(true);
+        } finally {
+          await b.close();
+        }
+      });
+    });
+  },
+);
