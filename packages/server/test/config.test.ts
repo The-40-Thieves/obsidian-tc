@@ -222,12 +222,13 @@ describe("maintenance config (THE-292)", () => {
         batchSize: 500,
         dryRun: false,
       },
-      // The scheduled wiki lint is opt-in: absent `folder`, whole vault.
+      // The scheduled wiki lint sweep is opt-in: absent `folder`, whole vault.
       wikiLint: {
         enabled: false,
         intervalHours: 24,
         maxNotes: 1500,
-        judge: false,
+        // On by default, but only runs when a judge is configured.
+        judge: true,
         judgeMaxCalls: 20,
       },
       // THE-458 item 6: reconcileIntervalMinutes is ABSENT by default, not 0 — a healthy server
@@ -275,12 +276,13 @@ describe("maintenance config (THE-292)", () => {
         batchSize: 500,
         dryRun: false,
       },
-      // The scheduled wiki lint is opt-in: absent `folder`, whole vault.
+      // The scheduled wiki lint sweep is opt-in: absent `folder`, whole vault.
       wikiLint: {
         enabled: false,
         intervalHours: 24,
         maxNotes: 1500,
-        judge: false,
+        // On by default, but only runs when a judge is configured.
+        judge: true,
         judgeMaxCalls: 20,
       },
     });
@@ -383,6 +385,11 @@ describe("wikiJudge config", () => {
   it("defaults: capped at 3 calls per request and 200 per day, 15s per call", () => {
     expect(parse().wikiJudge).toEqual({
       enabled: false,
+      lintEnabled: true,
+      provider: "gateway",
+      apiKeyEnv: "TYPESAFE_API_KEY",
+      baseUrl: "https://api.typesafe.ai",
+      allowPlainHttp: false,
       maxCallsPerRequest: 3,
       maxCallsPerDay: 200,
       timeoutMs: 15000,
@@ -393,6 +400,11 @@ describe("wikiJudge config", () => {
   it("takes overrides and fills the rest from defaults", () => {
     expect(parse({ wikiJudge: { enabled: true, maxCallsPerDay: 0 } }).wikiJudge).toEqual({
       enabled: true,
+      lintEnabled: true,
+      provider: "gateway",
+      apiKeyEnv: "TYPESAFE_API_KEY",
+      baseUrl: "https://api.typesafe.ai",
+      allowPlainHttp: false,
       maxCallsPerRequest: 3,
       maxCallsPerDay: 0,
       timeoutMs: 15000,
