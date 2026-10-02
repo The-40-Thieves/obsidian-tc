@@ -196,6 +196,13 @@ power.
 
 Two corpora, two label schemes, same direction.
 
+**Re-measured 2026-10-02 on the decontaminated vault.** The private vault carried a note that quoted the golden
+queries verbatim until 2026-10-01 (see the contamination guard in `packages/server/eval/README.md`), and this
+comparison's fused arm runs a BM25 stream over it. With that note dropped from the index copy the same comparison
+reads **+0.026 nDCG@10** (95% CI [0.006, 0.048], p=0.014) and **+0.028 recall@10** (p=0.024); the fused arm moved
+0.7696 to 0.7740 (32 of 250 queries, 28 up) and the dense baseline 0.7471 to 0.7476. The conclusion stands. Table and
+artifacts: `docs/adr/0007-default-promotion-requires-multi-shape-evidence.md`, 2026-10-02 section.
+
 ## Permission-aware retrieval on the same public corpus (2026-08-08)
 
 The third criterion above — a corpus that is *permission-aware* — had nothing behind it, and no
@@ -454,6 +461,10 @@ on compound queries. The concentration was real; the gain was not.
 It remains opt-in and off by default, and a test asserts the built-in research prompt does not tell
 an agent to use it.
 
+*Re-measured 2026-10-02 on the decontaminated vault (graph arm, both arms path-deduped):* nDCG@10 -0.0373
+(p 0.0025) with the contaminating note indexed and -0.0396 (p 0.0011) without it; MRR@10 -0.060 in both;
+recall@10 +0.011 and +0.012, not significant. The verdict is unchanged.
+
 ### Cluster-diversity cap (`maxPerCluster`)
 
 Measured negative at every *k* tested. Clustering still runs; the live store is deliberately left
@@ -493,6 +504,11 @@ exploited before the graph walk starts, and shared tags connect notes a human al
 together. Neither expresses a relation that is absent from both the embedding and the tag
 vocabulary, which is what the unreachable-target queries actually need. So "connectivity is the
 ceiling" is true of the *kind* of edge, not the *count*.
+
+*Re-measured 2026-10-02 on the decontaminated vault, each arm against its own control on one index copy:*
+`knnEdges` floor 0.0 (6,771 edges) ΔnDCG@10 -0.0015 (p 0.63), bridge recall -0.008 (p 0.73), `tagEdges` fanout 25 (9,258 edges) ΔnDCG@10 -0.0009 (p 0.76),
+bridge recall -0.004 (p 1.0); with the note indexed the replication reads -0.0017 and -0.0018 and reproduces the table
+above. Still null on every metric.
 
 Two knobs are worth recording from the sweep even though the headline is flat:
 

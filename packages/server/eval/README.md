@@ -34,6 +34,16 @@ carries the note. `EVAL_GOLDEN_CONTAMINATION_THRESHOLD=<n>|off` changes the limi
 under 3 tokens are not counted. A new scoring script must call `assertGoldenNotInVault` or join the
 exempt list in `test/eval-golden-contamination.test.ts`.
 
+**Index drift is a separate trap from contamination (re-measured 2026-10-02).** A golden set keys queries
+to the notes that existed when it was labelled, so settling an old eval index copy against a vault that has
+since grown (`eval/densify-index.ts --settle`) changes the corpus, not the engine: on the private set a copy
+carrying roughly a quarter more notes scored 0.5542 dense nDCG@10 against 0.7476 on the same copy before the
+settle (same code, same query vectors, every target path still indexed; the guard passed, no new note quotes
+a query). The new notes are distractors. Keep the pre-drift copy (minus any contaminating note) as the
+like-for-like baseline, score a settled copy as a different corpus, and record which state a run used in
+`history.ts record --note`: the run's `corpus_sha256` covers the golden set only, so it does not move when the
+vault does. See `docs/adr/0007-default-promotion-requires-multi-shape-evidence.md` (2026-10-02 section).
+
 Compare two configs (paired by query id):
 
 ```
