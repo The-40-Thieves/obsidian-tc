@@ -19,7 +19,8 @@ export function vaultArgOf(def: ToolDefinition, data: unknown): string | undefin
   return typeof v === "string" ? v : undefined;
 }
 
-/** Input-schema validation stage: the first thing runDispatch does, before auth/scope/ACL. */
+/** Input-schema validation stage: the first thing runDispatch does, before auth/scope/ACL. Its
+ *  input is already the EFFECTIVE input (an omitted `vault` filled in by vault-default.ts). */
 export function parseInput<I>(def: ToolDefinition<I, unknown>, rawInput: unknown): I {
   const parsed = def.inputSchema.safeParse(rawInput);
   if (!parsed.success) {

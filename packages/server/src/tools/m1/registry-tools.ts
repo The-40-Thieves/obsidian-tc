@@ -12,6 +12,7 @@ import { argsHash } from "../../hash";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import type { VaultAclResolver } from "../../mcp/resources";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import { makeVisibleVaultIds } from "../../vault/visible-vaults";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -200,6 +201,9 @@ function cacheResetState(
 }
 
 export function buildRegistryTools(deps: M1Deps, aclFor: VaultAclResolver): ToolDefinition[] {
+  const visibleIds = makeVisibleVaultIds(deps.vaultRegistry, aclFor);
+  const visibleVaults = (ctx: Parameters<typeof visibleIds>[0]) =>
+    visibleIds(ctx).map((id) => deps.vaultRegistry.resolve(id));
   return [
     defineTool({
       name: "add_vault",
@@ -252,11 +256,10 @@ export function buildRegistryTools(deps: M1Deps, aclFor: VaultAclResolver): Tool
       // (it only inspects a tool's declared `vaultArg`) — this tool must scope itself, the same
       // idiom vault_graph_search uses for its own vaultBound guard. A bound (HTTP-token) caller
       // gets only its own vault; the trusted, unbound caller keeps the full registry.
+      // The vault set is the SAME helper the omitted-`vault` default and the bad-vault hint use
+      // (vault/visible-vaults.ts), so a vault one of them hides can never show up in another.
       handler: (_input, ctx) => ({
-        vaults: (ctx.vaultBound === true
-          ? [deps.vaultRegistry.resolve(ctx.vaultId)]
-          : deps.vaultRegistry.list()
-        ).map((v) => ({
+        vaults: visibleVaults(ctx).map((v) => ({
           id: v.id,
           name: v.name,
           kind: v.kind,
