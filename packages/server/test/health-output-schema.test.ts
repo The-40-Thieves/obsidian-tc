@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { toJson } from "../src/mcp/facade";
-import { explainAutoFacadeMode } from "../src/mcp/facade-auto";
+import { AUTO_FACADE_DEPRECATION, explainAutoFacadeMode } from "../src/mcp/facade-auto";
 import type { CallerContext } from "../src/mcp/registry";
 import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
@@ -165,6 +165,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       clientName: "claude-code-cli",
       profile: "core",
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+      deprecation: AUTO_FACADE_DEPRECATION,
     });
 
     expect(tool.outputSchema).toBeDefined();
@@ -226,6 +227,24 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       effectiveFacadeMode: "flat", // but THIS connection already resolved to "flat"
     } as CallerContext) as HealthInfo;
     expect(out.toolFacade?.effective).toBe("flat");
+  });
+
+  it("an explicit mode reports no deprecation; only auto does", () => {
+    for (const configured of ["triad", "domain", "flat"] as const) {
+      const tool = createHealthTool({
+        version: "test",
+        vaults: ["v1"],
+        startedAt: 0,
+        nativeLoaded: false,
+        vecEnabled: false,
+        toolFacade: { configured, profile: "core" },
+      });
+      const out = tool.handler({}, {
+        ...ctxBase,
+        authenticated: false,
+      } as CallerContext) as HealthInfo;
+      expect(out.toolFacade).not.toHaveProperty("deprecation");
+    }
   });
 
   it("a caller with no observable clientInfo omits clientName (never a placeholder)", () => {

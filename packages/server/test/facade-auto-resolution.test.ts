@@ -38,7 +38,7 @@ function reg(): ToolRegistry {
   return r;
 }
 
-async function connectAs(clientName: string) {
+async function connectAs(clientName: string, autoClients?: Record<string, "domain" | "flat">) {
   const context = (): CallerContext => ({
     caller: "stdio",
     authenticated: true,
@@ -53,6 +53,7 @@ async function connectAs(clientName: string) {
     context,
     visibility: { grantedScopes: new Set(["*"]) },
     facadeMode: "auto",
+    ...(autoClients ? { autoClients } : {}),
   });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st);
@@ -62,8 +63,22 @@ async function connectAs(clientName: string) {
 }
 
 describe("toolFacade.mode: auto (THE-1123)", () => {
-  it("a claude-code client gets the domain facade (built-in table)", async () => {
-    const { client, server } = await connectAs("claude-code-cli");
+  const TRIAD = ["call_capability", "describe_capability", "find_capability"];
+
+  // "auto" is deprecated and resolves to the triad for every client.
+  it.each(["claude-code-cli", "codex-mcp-client", "some-unknown-client"])(
+    "auto serves the triad to %s",
+    async (name) => {
+      const { client, server } = await connectAs(name);
+      const names = (await client.listTools()).tools.map((t) => t.name).sort();
+      expect(names).toEqual(TRIAD);
+      await client.close();
+      await server.close();
+    },
+  );
+
+  it("an operator's own autoClients entry still wins over the built-in table", async () => {
+    const { client, server } = await connectAs("claude-code-cli", { "claude-code": "domain" });
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual(["links", "notes", "search"]);
     await client.close();
@@ -79,7 +94,7 @@ describe("toolFacade.mode: auto (THE-1123)", () => {
   });
 
   it("the SAME server config gives different clients different tool COUNTS (3 vs domain count)", async () => {
-    const claude = await connectAs("claude-code-desktop");
+    const claude = await connectAs("claude-code-desktop", { "claude-code": "domain" });
     const other = await connectAs("cursor"); // built-in: triad (== fallback), still exercises the match path
     const claudeTools = (await claude.client.listTools()).tools;
     const otherTools = (await other.client.listTools()).tools;
@@ -93,7 +108,7 @@ describe("toolFacade.mode: auto (THE-1123)", () => {
   });
 
   it("resolution is consistent within one connection: tools/list and tools/call agree", async () => {
-    const { client, server } = await connectAs("claude-code");
+    const { client, server } = await connectAs("claude-code", { "claude-code": "domain" });
     // domain mode: a directly-named tool still dispatches (mirrors facade-domain.test.ts).
     const res = await client.callTool({ name: "read_note", arguments: { x: "hi" } });
     expect(res.isError).not.toBe(true);

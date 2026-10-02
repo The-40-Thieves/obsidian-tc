@@ -61,7 +61,7 @@ is exactly what the reproduction steps below describe.
 [tool-surface facade](/tools/#tool-surface-facade)): `triad` (three meta-tools, the default),
 `domain` (about a dozen `{ action, args }` domain tools) or `flat` (every tool, around 300 KB of
 `tools/list` against about 2 KB for `triad`). Set it explicitly per client (`auto`, which guessed from the
-client's name, is superseded by this advice). Several clients now do their own progressive disclosure of MCP tools,
+client's name, is deprecated, now resolves to `triad` for every client, and will be removed in the next major version). Several clients now do their own progressive disclosure of MCP tools,
 which could make the triad's find/describe layer redundant, so the three modes were run against
 real headless clients on a fixed task set before any recommendation was written.
 

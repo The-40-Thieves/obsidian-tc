@@ -22,21 +22,37 @@ describe("toolFacade.doctor", () => {
     expect(r.details?.configured).toBe("triad");
   });
 
-  it("is ok for auto mode and lists the EFFECTIVE (config-merged-over-built-in) table", async () => {
+  it("auto mode is a deprecation WARNING that recommends an explicit mode", async () => {
+    const r = await run({ configured: "auto", profile: "core" });
+    expect(r.status).toBe("warning");
+    expect(r.summary).toContain("deprecated");
+    expect(r.remediation).toContain("deprecated");
+    expect(r.remediation).toContain('"triad"');
+    expect(r.details?.deprecation).toBe(r.remediation);
+  });
+
+  it("explicit modes carry no deprecation notice", async () => {
+    for (const configured of ["triad", "domain", "flat"] as const) {
+      const r = await run({ configured, profile: "core" });
+      expect(r.status).toBe("ok");
+      expect(r.details).not.toHaveProperty("deprecation");
+    }
+  });
+
+  it("lists the EFFECTIVE (config-merged-over-built-in) table for auto mode", async () => {
     const r = await run({ configured: "auto", profile: "core", autoClients: { cursor: "flat" } });
-    expect(r.status).toBe("ok");
     expect(r.summary).toContain("auto");
     // A configured entry overrides the built-in table for the same key.
     expect(r.details?.autoClients).toContain("cursor -> flat (configured)");
     // The built-in entries not overridden are still listed, tagged as built-in.
-    expect(r.details?.autoClients).toContain("claude-code -> domain (built-in)");
+    expect(r.details?.autoClients).toContain("claude-code -> triad (built-in)");
     expect(r.details?.autoClients).not.toContain("cursor -> triad (built-in)");
   });
 
   it("auto mode with no config override lists the built-in table unmodified", async () => {
     const r = await run({ configured: "auto", profile: "core" });
     expect(r.details?.autoClients).toEqual([
-      "claude-code -> domain (built-in)",
+      "claude-code -> triad (built-in)",
       "cursor -> triad (built-in)",
     ]);
   });

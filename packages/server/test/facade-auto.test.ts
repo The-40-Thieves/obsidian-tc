@@ -11,11 +11,20 @@ import {
 
 describe("resolveAutoFacadeMode (THE-1123)", () => {
   it("matches a built-in entry by case-insensitive substring", () => {
-    expect(resolveAutoFacadeMode("Claude-Code-CLI/1.2")).toBe("domain");
+    expect(resolveAutoFacadeMode("Claude-Code-CLI/1.2")).toBe("triad");
   });
 
   it("is case-insensitive on both the observed name and the table key", () => {
-    expect(resolveAutoFacadeMode("CLAUDE-CODE-DESKTOP")).toBe("domain");
+    expect(resolveAutoFacadeMode("CLAUDE-CODE-DESKTOP")).toBe("triad");
+  });
+
+  // "auto" is deprecated: it resolves to the triad for EVERY client (a measurement found no mode
+  // that beats it), so no built-in entry carries another mode.
+  it("auto resolves to triad for claude-code, codex, and an unknown client", () => {
+    for (const name of ["claude-code", "codex-mcp-client", "some-unknown-client", undefined]) {
+      expect(resolveAutoFacadeMode(name)).toBe("triad");
+    }
+    expect(BUILTIN_AUTO_FACADE_CLIENTS.every(([, mode]) => mode === "triad")).toBe(true);
   });
 
   it("falls back to the default for an unmatched client name", () => {
@@ -29,8 +38,8 @@ describe("resolveAutoFacadeMode (THE-1123)", () => {
 
   it("a configured entry overrides the built-in table for the same substring", () => {
     expect(resolveAutoFacadeMode("claude-code-cli", { "claude-code": "flat" })).toBe("flat");
-    // Sanity: the built-in table alone (no config) still says "domain" for the same name.
-    expect(resolveAutoFacadeMode("claude-code-cli")).toBe("domain");
+    // Sanity: the built-in table alone (no config) says "triad" for the same name.
+    expect(resolveAutoFacadeMode("claude-code-cli")).toBe("triad");
   });
 
   it("configured entries are tried in the CONFIG's key order — first match wins", () => {
@@ -46,7 +55,7 @@ describe("resolveAutoFacadeMode (THE-1123)", () => {
     expect(resolveAutoFacadeMode("cursor-nightly", { windsurf: "domain" })).toBe("triad");
   });
 
-  it("the built-in table is checked in its own declared order and its first entry is claude-code -> domain", () => {
-    expect(BUILTIN_AUTO_FACADE_CLIENTS[0]).toEqual(["claude-code", "domain"]);
+  it("the built-in table is checked in its own declared order and its first entry is claude-code -> triad", () => {
+    expect(BUILTIN_AUTO_FACADE_CLIENTS[0]).toEqual(["claude-code", "triad"]);
   });
 });

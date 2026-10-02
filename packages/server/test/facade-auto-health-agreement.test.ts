@@ -12,6 +12,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
+import { AUTO_FACADE_DEPRECATION } from "../src/mcp/facade-auto";
 import type { CallerContext } from "../src/mcp/registry";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
@@ -33,7 +34,7 @@ function reg(): ToolRegistry {
   return r;
 }
 
-async function connectAs(clientName: string) {
+async function connectAs(clientName: string, autoClients?: Record<string, "domain">) {
   const context = (): CallerContext => ({
     caller: "stdio",
     authenticated: true,
@@ -51,6 +52,7 @@ async function connectAs(clientName: string) {
     context,
     visibility: { grantedScopes: new Set(["*"]) },
     facadeMode: "auto",
+    ...(autoClients ? { autoClients } : {}),
   });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st);
@@ -74,7 +76,7 @@ function healthPayload(res: unknown): {
 
 describe("tools/list and server_health agree on the auto-resolved facade mode (THE-1123 review fix)", () => {
   it("a legacy 'claude-code' connection: tools/list serves domain tools AND server_health reports domain/claude-code", async () => {
-    const { client, server } = await connectAs("claude-code");
+    const { client, server } = await connectAs("claude-code", { "claude-code": "domain" });
     // tools/list, first — this is what seeds/uses the resolver's cache in the real bug report.
     // Domain mode over a registry with only `server_health` (domain: "admin") advertises exactly
     // one meta-tool, "admin" — never the triad's three, and never the bare tool name itself.
@@ -90,6 +92,7 @@ describe("tools/list and server_health agree on the auto-resolved facade mode (T
       clientName: "claude-code",
       profile: "core",
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+      deprecation: AUTO_FACADE_DEPRECATION,
     });
 
     await client.close();

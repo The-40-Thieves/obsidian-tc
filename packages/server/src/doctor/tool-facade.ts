@@ -10,7 +10,7 @@
 // here is the exact table (config merged over the built-in one, same precedence
 // resolveAutoFacadeMode uses) an operator can read to answer "what would client X get" by eye.
 import type { FacadeMode } from "../mcp/facade";
-import { BUILTIN_AUTO_FACADE_CLIENTS } from "../mcp/facade-auto";
+import { AUTO_FACADE_DEPRECATION, BUILTIN_AUTO_FACADE_CLIENTS } from "../mcp/facade-auto";
 import { NON_CORE_TOOL_NAMES } from "../mcp/tool-profiles";
 import type { Check, CheckStatus } from "./types";
 
@@ -91,6 +91,7 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
       };
       if (view.configured === "auto") {
         details.autoClients = renderAutoClientsTable(view.autoClients);
+        details.deprecation = AUTO_FACADE_DEPRECATION;
       }
       const hiddenEntries = (view.hiddenAllowlistEntries ?? []).filter((e) => e.names.length > 0);
       if (hiddenEntries.length > 0) {
@@ -140,6 +141,14 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
           details,
           remediation:
             'Remove the hidden name(s) from the allowlist, or set toolFacade.profile: "full" — an allowlist entry naming a profile-hidden tool can never restore it.',
+        };
+      }
+      if (view.configured === "auto") {
+        return {
+          status: "warning" as CheckStatus,
+          summary: `${modeSummary}; ${profileSummary}; toolFacade.mode "auto" is deprecated`,
+          details,
+          remediation: AUTO_FACADE_DEPRECATION,
         };
       }
       return {
