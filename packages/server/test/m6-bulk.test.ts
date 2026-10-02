@@ -73,6 +73,20 @@ describe("bulk_create_notes", () => {
     expect(out.results[1]?.error?.code).toBe("note_exists");
   });
 
+  it("a create-conflict names the mode values, not a nonexistent overwrite flag", async () => {
+    v = makeM6Vault({ files: { "b.md": "existing" }, register });
+    const out = data<{ results: { ok: boolean; error?: { message?: string } }[] }>(
+      await v.callConfirmed("bulk_create_notes", {
+        vault: "test",
+        items: [{ path: "b.md", content: "B" }],
+      }),
+    );
+    const m = out.results[0]?.error?.message ?? "";
+    expect(m).not.toContain("use overwrite or upsert");
+    expect(m).toContain('mode: "overwrite"');
+    expect(m).toContain('mode: "upsert"');
+  });
+
   it("stops at the first error when stop_on_first_error is set (sequential)", async () => {
     v = makeM6Vault({ files: { "b.md": "x" }, register });
     const out = data<{ processed: number; succeeded: number; failed: number }>(

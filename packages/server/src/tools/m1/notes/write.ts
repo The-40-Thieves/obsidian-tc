@@ -26,6 +26,10 @@ import { noteExists, readNote, writeNoteAtomic } from "../../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
 import { persistGovernedNote } from "../../../vault/persist-note";
 import { captureSnapshot } from "../../../vault/snapshots";
+import {
+  createModeConflictError,
+  overwriteModeMissingError,
+} from "../../../vault/write-mode-errors";
 import { resolveResponseFormat } from "../../response-format";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
@@ -91,10 +95,8 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
           { path: rel, signals: poisonAssessment.signals },
         );
 
-      if (input.mode === "create" && ex.exists)
-        throw err.noteExists("note already exists; use overwrite or upsert", { path: rel });
-      if (input.mode === "overwrite" && !ex.exists)
-        throw err.noteNotFound("note does not exist; use create or upsert", { path: rel });
+      if (input.mode === "create" && ex.exists) throw createModeConflictError(rel);
+      if (input.mode === "overwrite" && !ex.exists) throw overwriteModeMissingError(rel);
       // Gate CAS on whether the op actually overwrites existing content — not the literal
       // mode string. `upsert` on an existing note takes the same clobber path as `overwrite`
       // (reports mode_used:"overwrite" below), so it must satisfy requireCas too.
@@ -191,7 +193,7 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
     acceptsIdempotencyKey: true,
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      'Append content to a note (optionally creating it), preserving existing bytes. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, poison_assessment or redactions when they carry something).',
+      'Append content to the END of a note (optionally creating it with create_if_missing: true), preserving existing bytes. It takes no anchor: to add under a specific heading, or anywhere other than the end, use patch_note instead. Set provenance: "agent_synthesis" when the appended content is a derived/inferred conclusion an agent produced rather than authored/copied text — this routes the appended content through a poison scan before the write lands (rejected outright on high risk) and surfaces the assessment in the result; also add source: agent-synthesis to the note\'s own frontmatter by convention. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, poison_assessment or redactions when they carry something).',
     inputSchema: AppendInput,
     outputSchema: AppendNoteOutput,
     requiredScopes: ["write:notes"],
@@ -289,7 +291,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     vaultArg: "vault",
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      "Insert or replace content (append/prepend/replace/replace_text) relative to an anchor: a heading section, a block reference (anchor:{type:\"block\",block_id}), or the note preamble above the first heading (anchor:{type:\"frontmatter\"}). Frontmatter is preserved. A heading anchor matching more than one line (or a block id on more than one line) is refused rather than silently bound to the first match. On a heading anchor, replace preserves the anchor heading line itself; if content's first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor's section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note's body (e.g. the note's only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note's undo) are captured only when the server's snapshots.enabled config is on; the default \"trusted-local\" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, redactions, and lines_removed/bytes_removed when non-zero).",
+      'Edit part of an existing note in place. Name an anchor: a heading section (anchor:{type:"heading",heading:"Notes"}), a block reference (anchor:{type:"block",block_id}), or the preamble above the first heading (anchor:{type:"frontmatter"}); then an operation: append/prepend/replace content, or replace_text (old_string/new_string). Frontmatter is preserved. Examples: add a line to the end of a section = operation append + heading anchor + content. Move, reorder or duplicate sections = ONE replace_text anchored on an enclosing heading (the note\'s top-level H1 spans every section below it): old_string is those sections as they are now, new_string the same text rearranged; the anchor heading line itself is never touched. To add at the very end of a note use append_note, which needs no anchor. A heading that appears more than once needs anchor.occurrence (1-based, document order) or a path (heading:"Parent > Child"); without either the call is refused with every matching line number, never silently bound to the first match (same for a block id on more than one line). On a heading anchor, replace preserves the anchor heading line itself; if content\'s first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor\'s section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, redactions, and lines_removed/bytes_removed when non-zero).',
     inputSchema: PatchInput,
     outputSchema: PatchNoteOutput,
     requiredScopes: ["write:notes"],
@@ -396,11 +398,22 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         if (anchor.type === "heading" && input.operation === "replace") {
           const check = resolveSection(parsed.body, anchor);
           if (check.found && check.headingLevel !== undefined)
-            content = dropDuplicateLeadingHeading(content, check.headingLevel, anchor.heading);
+            content = dropDuplicateLeadingHeading(
+              content,
+              check.headingLevel,
+              check.headingTitle ?? anchor.heading,
+            );
         }
         let result: PatchResult | null;
         if (anchor.type === "heading")
-          result = patchByHeading(parsed.body, input.operation, anchor.heading, content, eol);
+          result = patchByHeading(
+            parsed.body,
+            input.operation,
+            anchor.heading,
+            content,
+            eol,
+            anchor.occurrence,
+          );
         else if (anchor.type === "block")
           result = patchByBlock(parsed.body, input.operation, anchor.block_id, content, eol);
         else result = patchByPreamble(parsed.body, input.operation, content, eol);
