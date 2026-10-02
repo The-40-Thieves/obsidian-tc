@@ -1,0 +1,4 @@
+---
+type: Changed
+---
+- **`vault` may be omitted when only one vault is available to the caller.** Every vault tool resolves an omitted `vault` to the single vault visible to the caller (after the token's vault binding and the vault's own folder ACL), in flat, triad and domain mode alike, so a first call without `vault` no longer fails validation. A token bound to a vault defaults to that vault; naming a different one is still refused. With more than one visible vault the omitted argument is still a `validation_error`, and for a caller holding `read:vault` it lists the visible vault ids (never one the caller cannot see). An explicit `vault` behaves exactly as before. `vault` is no longer in the advertised `required` list of any tool input schema, and its description says when it may be omitted.

@@ -209,7 +209,7 @@ export async function runDispatch(
     // WP4.3: input-schema parse, THE-267 vault-binding guard, THE-295 per-vault ACL swap — see
     // registry/input-binding.ts for the full reasoning behind each (unchanged, only relocated).
     spans?.stage("input_parse");
-    let inputData = parseInput(def, rawInput);
+    let inputData = parseInput(def, rawInput, ctx, deps.visibleVaultIds);
 
     // THE-727: authorization is a property of the CALL, not only of the tool. Without
     // `def.resolvePolicy` this is the static declaration verbatim, so existing tools are untouched.

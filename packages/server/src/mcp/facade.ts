@@ -12,6 +12,7 @@ import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
 import { profileHiddenTools } from "./capability-hidden";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
+import { relaxVaultInJson } from "./registry/vault-default";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 import type { VisibilityCaller } from "./visibility";
 
@@ -45,10 +46,14 @@ const inputJsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
 export function toInputJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = inputJsonSchemaMemo.get(schema);
   if (cached === undefined) {
-    cached = z.toJSONSchema(schema, {
-      ...JSON_SCHEMA_OPTS,
-      io: "input",
-    }) as unknown as Tool["inputSchema"];
+    // `vault` is optional on the wire wherever dispatch can default it (registry/vault-default.ts).
+    cached = relaxVaultInJson(
+      z.toJSONSchema(schema, {
+        ...JSON_SCHEMA_OPTS,
+        io: "input",
+      }) as unknown as Tool["inputSchema"],
+      schema,
+    );
     inputJsonSchemaMemo.set(schema, cached);
   }
   return cached;

@@ -86,6 +86,10 @@ Every call — direct or via `call_capability` — passes the same gates:
 - **ACL** — per-path read / write / delete whitelists (`.obsidian/`, `.git/`, `.trash/` are always denied, case-folded); `readOnly` is a hard kill switch.
 - **HITL** — destructive and `execute:*` operations require a human-in-the-loop confirmation token, so `git_commit` and `execute_command` can never fire silently.
 
+## Choosing a vault
+
+Tools that act on a vault take a `vault` id. It may be omitted when exactly one vault is available to the caller: the vaults a caller can see are those left after its token's vault binding and each vault's own folder ACL, so a token bound to a vault defaults to that vault. With more than one available vault an omitted `vault` is a `validation_error`; a caller holding `read:vault` gets the available ids in the error. An explicit `vault` is always used as given, and a bound token naming another vault is still refused.
+
 ## Errors
 
 Failures return a typed error from the `ObsidianTcError` taxonomy (e.g. `plugin_missing`, `embedding_provider_error`, `requires_live_obsidian`, `read_only_mode`) with a `retryable` flag — never an opaque throw. At the MCP boundary a dispatch failure surfaces as a **Tool Execution Error** (`isError: true`, human-readable text plus the structured error as `structuredContent`).

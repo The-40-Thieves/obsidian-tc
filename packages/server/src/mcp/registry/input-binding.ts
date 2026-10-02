@@ -1,6 +1,7 @@
 import { grantsAll, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import type { z } from "zod";
 import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
+import { withDefaultVault } from "./vault-default";
 
 // WP4.3: input binding, pulled out of registry.ts's runDispatch UNCHANGED. Covers the three gates
 // that decide WHICH vault and WHOSE ACL the rest of dispatch runs under, before any authorization
@@ -19,9 +20,18 @@ export function vaultArgOf(def: ToolDefinition, data: unknown): string | undefin
   return typeof v === "string" ? v : undefined;
 }
 
-/** Input-schema validation stage: the first thing runDispatch does, before auth/scope/ACL. */
-export function parseInput<I>(def: ToolDefinition<I, unknown>, rawInput: unknown): I {
-  const parsed = def.inputSchema.safeParse(rawInput);
+/** Input-schema validation stage: the first thing runDispatch does, before auth/scope/ACL. An
+ *  omitted `vault` is filled in first when exactly one vault is visible to the caller
+ *  (vault-default.ts); dispatch still hashes and audits the arguments as the caller sent them. */
+export function parseInput<I>(
+  def: ToolDefinition<I, unknown>,
+  rawInput: unknown,
+  ctx: CallerContext,
+  visibleVaultIds: RegistryOptions["visibleVaultIds"],
+): I {
+  const parsed = def.inputSchema.safeParse(
+    withDefaultVault(def as unknown as ToolDefinition, rawInput, ctx, visibleVaultIds),
+  );
   if (!parsed.success) {
     // THE-1042 (GH #935): a caller sees WHICH key was rejected (THE-823) but not what to send
     // instead. STRUCTURED first (this hint), rendered second (mcp/error-rendering.ts reads these
