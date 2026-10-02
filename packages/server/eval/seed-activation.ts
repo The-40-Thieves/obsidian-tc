@@ -51,7 +51,6 @@ async function main(): Promise<void> {
   }
   const config = loadConfig(configPath);
   const vaultId = config.vaults[0]?.id ?? "main";
-  const norm = (p: string): string => p.replace(/\\/g, "/");
 
   // Map every expected golden path -> its chunk ids (from the champion index).
   const cache = await openConfiguredDatabase(config, "cache.db");
@@ -60,7 +59,7 @@ async function main(): Promise<void> {
   const expected = new Set<string>();
   for (const q of golden.queries) {
     for (const p of [...q.seed_paths, ...q.target_paths, ...q.bridge_paths]) {
-      for (const r of chunkIdsForPath.all(vaultId, norm(p)) as Array<{ id: string }>) {
+      for (const r of chunkIdsForPath.all(vaultId, p) as Array<{ id: string }>) {
         expected.add(r.id);
       }
     }
