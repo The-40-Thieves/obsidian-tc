@@ -28,6 +28,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "test";
@@ -342,7 +343,7 @@ describe.each(CASES)("a failed confirm leg inside the SDK shim on $tool", (c) =>
         await b.close();
       }
     },
-    15_000,
+    stallTimeout(15_000),
   );
 });
 
