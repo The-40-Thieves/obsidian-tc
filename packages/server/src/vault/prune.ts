@@ -3,7 +3,10 @@
 // duplicate links to a target already linked earlier in the note. Fenced code is
 // skipped. When removing a link leaves its line as only a list bullet / blank, the
 // whole line is dropped (the common MOC bullet-list case); otherwise the link
-// token is replaced by its display text (or removed). External URLs are kept.
+// token is replaced by its display text (or removed). External URLs are kept. Only BODY links are
+// pruned: the frontmatter block (property links included) is carried through byte-for-byte and its
+// links neither count as an earlier occurrence nor get removed, so a prune never edits a property.
+import { splitFrontmatterBody } from "./frontmatter";
 import { applyScanReplacements, scanLinks } from "./link-scan";
 import { resolveTarget, type VaultIndex } from "./links";
 
@@ -22,8 +25,13 @@ export interface PrunePolicy {
 }
 
 export function pruneHubLinks(raw: string, index: VaultIndex, policy: PrunePolicy): PruneResult {
-  const crlf = raw.includes("\r\n");
-  const lines = raw.split(/\r?\n/);
+  // The same body/frontmatter split parseNote makes, so what is pruned is exactly the set of links
+  // the shared scanner (extractNoteLinks) tags `source: "body"`.
+  const body = splitFrontmatterBody(raw);
+  const head = raw.slice(0, raw.length - body.length);
+  const headLines = head.split(/\r?\n/).length - 1; // `removed[].line` stays a line of the whole file
+  const crlf = body.includes("\r\n");
+  const lines = body.split(/\r?\n/);
   const seen = new Set<string>();
   const removed: PruneResult["removed"] = [];
   let fenced = false;
@@ -69,7 +77,7 @@ export function pruneHubLinks(raw: string, index: VaultIndex, policy: PrunePolic
       const res = resolveTarget(index, target);
       if (!res.resolved) {
         if (policy.removeUnresolved) {
-          removed.push({ target, line: i + 1, reason: "unresolved" });
+          removed.push({ target, line: headLines + i + 1, reason: "unresolved" });
           removals++;
           return display ?? "";
         }
@@ -78,7 +86,7 @@ export function pruneHubLinks(raw: string, index: VaultIndex, policy: PrunePolic
       const path = res.target_path ?? target;
       if (seen.has(path)) {
         if (policy.removeDuplicates) {
-          removed.push({ target, line: i + 1, reason: "duplicate" });
+          removed.push({ target, line: headLines + i + 1, reason: "duplicate" });
           removals++;
           return display ?? "";
         }
@@ -93,5 +101,5 @@ export function pruneHubLinks(raw: string, index: VaultIndex, policy: PrunePolic
     // else: the line collapsed to a bare bullet/blank — drop it
   }
 
-  return { text: out.join(crlf ? "\r\n" : "\n"), removed };
+  return { text: head + out.join(crlf ? "\r\n" : "\n"), removed };
 }
