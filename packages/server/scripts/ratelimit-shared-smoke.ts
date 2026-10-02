@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { createIsolatedHome } from "./lib/isolated-home.mjs";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -34,6 +35,8 @@ if (backend === "redis" && !redisUrl) fail("--backend redis needs OBSIDIAN_TC_RE
 
 const root = mkdtempSync(join(tmpdir(), "obtc-rl-smoke-"));
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
+// Both servers run under one isolated HOME/XDG: the smoke never touches the operator's real home.
+const isolated = createIsolatedHome("obtc-rl-smoke-home-");
 const vault = join(root, "vault");
 const cacheDir = join(root, "cache");
 const keyPrefix = `smoke:${Date.now()}:`;
@@ -76,7 +79,7 @@ async function connect(name: string): Promise<Client> {
         ]
       : [cli, configPath],
     stderr: "inherit",
-    env: { ...(process.env as Record<string, string>) },
+    env: { ...(process.env as Record<string, string>), ...isolated.env },
   });
   const client = new Client({ name, version: "0.0.0" });
   await client.connect(transport);

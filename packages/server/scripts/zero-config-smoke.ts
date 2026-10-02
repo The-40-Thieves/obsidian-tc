@@ -35,14 +35,22 @@
 //
 //   bun scripts/zero-config-smoke.ts --cli <path/to/dist/cli.js>
 //     [--seed-phrase <word>] [--omit-seed-phrase] [--require-ollama-config]
-//     [--expect-local-embeddings] [--reconcile-timeout-ms <ms>]
+//     [--expect-local-embeddings] [--reconcile-timeout-ms <ms>] [--runtime <node|bun>]
+//     [--model-cache <dir>]
+//
+// The child runs under an isolated HOME/XDG/APPDATA (scripts/lib/isolated-home.mjs), never the
+// operator's real home: a smoke must not read or write `~/.obsidian-tc`, and re-runs must be
+// independent. The default-state modes assert the child's state dir landed under that temp root.
+// --model-cache <dir> copies model weights into the isolated home before the run and back after,
+// so CI can cache the download without pointing the child at a real `~/.obsidian-tc`.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { assertStateUnderHome, createIsolatedHome } from "./lib/isolated-home.mjs";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -58,6 +66,8 @@ const seedPhrase = arg("--seed-phrase") ?? "quartzlighthouseprotocol";
 const omitSeedPhrase = process.argv.includes("--omit-seed-phrase");
 const requireOllamaConfig = process.argv.includes("--require-ollama-config");
 const expectLocalEmbeddings = process.argv.includes("--expect-local-embeddings");
+const runtime = arg("--runtime") ?? "node";
+const modelCache = arg("--model-cache");
 const reconcileTimeoutMs = Number(arg("--reconcile-timeout-ms") ?? "120000");
 if (requireOllamaConfig && expectLocalEmbeddings) {
   process.stderr.write(
@@ -130,11 +140,15 @@ async function main(): Promise<void> {
 
   const vaultDir = makeFixtureVault();
   const target = requireOllamaConfig ? makeRequiresOllamaConfig(vaultDir) : vaultDir;
+  const isolated = createIsolatedHome("obtc-zero-config-smoke-home-");
+  const isolatedModels = join(isolated.home, ".obsidian-tc", "models");
+  if (modelCache && existsSync(modelCache)) cpSync(modelCache, isolatedModels, { recursive: true });
 
   const transport = new StdioClientTransport({
-    command: "node",
+    command: runtime,
     args: [cliPath, target],
     stderr: "inherit",
+    env: isolated.env,
   });
   const client = new Client({ name: "zero-config-smoke", version: "0.0.0" });
 
@@ -238,6 +252,20 @@ async function main(): Promise<void> {
   ]);
   if (!closed) fail("process did not exit within 10s of SIGTERM");
   process.stderr.write("ok: process exited cleanly on SIGTERM\n");
+
+  // The explicit-config mode pins cacheDir itself, so only the no-config modes resolve the
+  // default `~/.obsidian-tc` and can prove it landed under the isolated home.
+  if (!requireOllamaConfig) {
+    try {
+      assertStateUnderHome(isolated.home);
+    } catch (err) {
+      fail((err as Error).message);
+    }
+    process.stderr.write("ok: state dir resolved under the isolated home, not the real one\n");
+  }
+  if (modelCache && existsSync(isolatedModels)) {
+    cpSync(isolatedModels, modelCache, { recursive: true });
+  }
 
   await client.close();
   process.stderr.write("PASS: zero-config smoke\n");
