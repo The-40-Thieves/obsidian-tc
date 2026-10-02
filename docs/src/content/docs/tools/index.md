@@ -184,6 +184,46 @@ a hosted embedding provider refuse those tools outright.
 See the [Tool Catalog](/tools/tool-catalog/) for the per-tool Profile column (generated from
 `tool-profiles.ts`, the single source of truth this table's `full`-only markers also read from).
 
+## Property links (Obsidian parity)
+
+The link tools (`get_outgoing_links`, `get_backlinks`, `find_unresolved_links`, `find_orphans`,
+`vault_health_score`, `rewrite_link` and the backlink update in `move_note`) see the wikilinks a note
+keeps in its **properties**, the way Obsidian does (`CachedMetadata.frontmatterLinks`, Obsidian 1.4.0
+and later), not only the ones in its body. The graph index records them too.
+
+```yaml
+---
+author: "[[Douglas Adams]]"
+related:
+  - "[[The Hitchhiker's Guide]]"
+  - "[[Dirk Gently|Dirk]]"
+---
+```
+
+- **Quote the link.** Obsidian's own rule ("internal links must be surrounded by quotes"): a quoted
+  `"[[X]]"` is a YAML string and counts; an unquoted `author: [[X]]` is a nested YAML list, not a
+  link, in Obsidian and here.
+- **Which values count.** A wikilink inside any string value: a text property, any item of a list
+  property, or a string nested in a mapping. The syntax is the body's: `[[X|alias]]`, `[[X#Heading]]`
+  and `[[X#^block]]` resolve the same way. Numbers, booleans and dates hold no links.
+- **How they appear.** A property link carries `source: "property"` and `property`, the top-level
+  property it sits under (a nested value reports its top-level key). A body link has neither field, so
+  a vault with no property links returns exactly what it always did, in both response formats. A
+  property link's `line`/`col` are positions in the note file; a body link's `line` counts from the
+  first body line.
+- **Same rules as body links.** An unresolved property link is an unresolved link; a link to a note the
+  caller cannot read is unresolved exactly like a missing one; a note linked only from a property is not
+  an orphan; `move_note` and `rewrite_link` repoint property links and keep their quotes, alias and
+  heading.
+- **Malformed YAML.** A note whose frontmatter does not parse has no property links (nothing can be
+  read from it), is named in the result's `warnings`, and its body links still count.
+- **Graph search.** Property links are indexed as `property_link` edges, separate from body
+  `links_to` edges. `vault_graph_search` follows them only when `retrieval.densify.includeInWalk` is on
+  (the existing gate for edges beyond body wikilinks), so default ranking does not change when a vault
+  starts using property links. The graph analysis tools see them regardless. Notes in Obsidian's
+  Excluded files stay link targets (a property link to one resolves) and, as for body links, get no graph
+  edge.
+
 ## Response format
 
 Tools that return more than an acknowledgement take an optional `response_format`:

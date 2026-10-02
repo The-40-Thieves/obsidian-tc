@@ -8,7 +8,7 @@ import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { errorMessage } from "../../util/errors";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
-import { type ExtractedLink, extractLinks } from "../../vault/links";
+import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath, walkVault, walkVaultStream } from "../../vault/paths";
 import { noteTags } from "../../vault/tags";
@@ -453,7 +453,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
     // THE-823: `rel` must be threaded into link extraction here, not left for the caller to infer.
     // See docs/design/search-indexing-and-cache.md.
-    noteLinks.set(rel, extractLinks(parsed.body));
+    noteLinks.set(rel, extractNoteLinks(parsed));
     // THE-934 fix round 4 (2): every walked note that is currently excluded, whether or not this
     // pass produces a write plan for it. computeNotePlan returns `plan: null` when nothing about a
     // note's chunks changed, which is the STEADY state for an already-excluded note -- so a

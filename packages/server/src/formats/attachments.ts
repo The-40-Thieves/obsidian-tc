@@ -9,8 +9,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
-import { splitFrontmatterBody } from "../vault/frontmatter";
-import { extractLinks } from "../vault/links";
+import { parseNoteLenient } from "../vault/frontmatter";
+import { extractNoteLinks } from "../vault/links";
 import { readNote, writeNotesAllOrNothingGuarded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
 import { rewriteLinks } from "../vault/rewrite";
@@ -113,8 +113,10 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
   const targetBase = baseOf(attachmentRel).toLowerCase();
   const out: string[] = [];
   for (const e of walkVault(root, { extensions: [".md"] })) {
-    const body = splitFrontmatterBody(readNote(resolveVaultPath(root, e.relPath)).raw);
-    const hit = extractLinks(body).some((l) => {
+    // A property link counts (`cover: "[[img.png]]"`): an image used only there is still referenced.
+    // Lenient: a note whose YAML does not parse still has its body links counted.
+    const note = parseNoteLenient(readNote(resolveVaultPath(root, e.relPath)).raw, e.relPath);
+    const hit = extractNoteLinks(note).some((l) => {
       if (l.inCodeblock) return false;
       const t = normalizeTarget(l.target);
       if (t === "") return false;

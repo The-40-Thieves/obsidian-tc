@@ -19,7 +19,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
-import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
+import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { pruneHubLinks } from "../../vault/prune";
@@ -43,10 +43,22 @@ function readableNotes(
     .filter((rel) => readableRel(acl, rel, grantedScopes));
 }
 
-/** A note's body for a link scan. Bad frontmatter YAML does not fail the scan: the note is named in
- *  `warnings` and its body is still read. */
-function bodyOf(root: string, rel: string, warnings: ScanWarnings): string {
-  return warnings.parse(readNote(resolveVaultPath(root, rel)).raw, rel).body;
+/** A note's links for a scan: property links, then body links. Bad frontmatter YAML does not fail
+ *  the scan: the note is named in `warnings`, it has no property links, and its body still counts. */
+function linksOf(root: string, rel: string, warnings: ScanWarnings): ExtractedLink[] {
+  return warnings.links(readNote(resolveVaultPath(root, rel)).raw, rel);
+}
+
+/** The fields that say a link was written in a property: `source: "property"` plus its `property`
+ *  key. A body link carries neither, so a vault without property links gets the output it always
+ *  had, in either response_format. */
+function originOf(l: Pick<ExtractedLink, "source" | "property">): {
+  source?: "property";
+  property?: string;
+} {
+  return l.source === "property" && l.property !== undefined
+    ? { source: "property", property: l.property }
+    : {};
 }
 
 function normTarget(t: string): string {
@@ -64,6 +76,14 @@ function isExternal(kind: string, target: string): boolean {
 
 /** Mirrors vault/links.ts's LinkKind. */
 const LinkKindSchema = z.enum(["wikilink", "markdown", "embed"]);
+
+/** Mirrors vault/links.ts's LinkSource. Present only on a link written in a note's properties
+ *  (Obsidian's frontmatterLinks): `source: "property"` and `property`, the top-level frontmatter
+ *  key it sits under. A body link has neither. */
+const originShape = {
+  source: z.literal("property").optional(),
+  property: z.string().optional(),
+};
 
 // GH #1027: response_format=concise drops raw/kind/display/col and omits null heading/target_path/
 // candidates, so those are optional here; a detailed response always carries all of them.
@@ -85,6 +105,7 @@ const GetOutgoingLinksOutput = z.object({
       heading: z.string().nullable().optional(),
       line: z.number().int(),
       col: z.number().int().optional(),
+      ...originShape,
       resolved: z.boolean(),
       target_path: z.string().nullable().optional(),
       candidates: z.array(z.string()).nullable().optional(),
@@ -107,6 +128,7 @@ const GetBacklinksOutput = z.object({
       raw: z.string().optional(),
       kind: LinkKindSchema.optional(),
       display: z.string().nullable().optional(),
+      ...originShape,
     }),
   ),
 });
@@ -132,6 +154,7 @@ const FindUnresolvedLinksOutput = z.object({
       // GH #1027: response_format=concise keeps {source_path, target, line} and drops these two.
       col: z.number().int().optional(),
       kind: LinkKindSchema.optional(),
+      ...originShape,
     }),
   ),
 });
@@ -252,7 +275,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "List a note's outgoing links (code-block links excluded), each resolved to a target path. response_format=concise returns {target, line, resolved} per link, plus heading, target_path and candidates when present, without raw, kind, display and col.",
+        "List a note's outgoing links (code-block links excluded), each resolved to a target path. Quoted wikilinks in its properties count too, tagged source=property with the property name. response_format=concise returns {target, line, resolved} per link, plus heading, target_path and candidates when present, without raw, kind, display and col.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -274,7 +297,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
         const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
         const warnings = new ScanWarnings();
-        const links = extractLinks(warnings.parse(readNote(abs).raw, rel).body)
+        const links = warnings
+          .links(readNote(abs).raw, rel)
           .filter((l) => !l.inCodeblock)
           .filter((l) => input.include_embeds || l.kind !== "embed")
           .map((l) => {
@@ -287,6 +311,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
               heading: l.heading,
               line: l.line,
               col: l.col,
+              ...originOf(l),
               resolved: r.resolved,
               target_path: r.target_path ?? null,
               candidates: r.candidates ?? null,
@@ -306,6 +331,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             ? links.map((l) => ({
                 target: l.target,
                 line: l.line,
+                ...originOf(l),
                 resolved: l.resolved,
                 ...(l.heading !== null ? { heading: l.heading } : {}),
                 ...(l.target_path !== null ? { target_path: l.target_path } : {}),
@@ -321,7 +347,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Find every note that links to the given note, with source line/column. A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`. response_format=concise returns {source_path, line} per backlink, without col, raw, kind and display.",
+        "Find every note that links to the given note, with source line/column. A quoted wikilink in a property counts, tagged source=property with the property name. A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`. response_format=concise returns {source_path, line} per backlink, without col, raw, kind and display.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -347,7 +373,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const warnings = new ScanWarnings();
         let truncated = false;
         for (const p of paths) {
-          for (const l of extractLinks(bodyOf(v.root, p, warnings))) {
+          for (const l of linksOf(v.root, p, warnings)) {
             if (l.inCodeblock) continue;
             const r = resolveTarget(index, l.target);
             if (!r.resolved || r.target_path !== rel) continue;
@@ -362,6 +388,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
               raw: l.raw,
               kind: l.kind,
               display: l.display,
+              ...originOf(l),
             });
           }
           if (truncated) break;
@@ -374,7 +401,11 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           total: backlinks.length,
           truncated,
           backlinks: concise
-            ? backlinks.map((b) => ({ source_path: b.source_path, line: b.line }))
+            ? backlinks.map((b) => ({
+                source_path: b.source_path,
+                line: b.line,
+                ...(b.source === "property" ? { source: b.source, property: b.property } : {}),
+              }))
             : backlinks,
         };
       },
@@ -384,7 +415,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       name: "find_orphans",
       domain: "links",
       description:
-        "Find notes that nothing else links to (optionally also requiring no outgoing links). A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`.",
+        "Find notes that nothing else links to (optionally also requiring no outgoing links); a link in a property counts. A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -405,7 +436,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const hasOutgoing = new Set<string>();
         const warnings = new ScanWarnings();
         for (const p of all) {
-          for (const l of extractLinks(bodyOf(v.root, p, warnings))) {
+          for (const l of linksOf(v.root, p, warnings)) {
             if (l.inCodeblock) continue;
             const r = resolveTarget(index, l.target);
             if (r.resolved && r.target_path && r.target_path !== p) {
@@ -431,7 +462,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       name: "find_unresolved_links",
       domain: "links",
       description:
-        "Find internal links that do not resolve to any note (dangling links). response_format=concise returns {source_path, target, line} per link, without col and kind.",
+        "Find internal links that do not resolve to any note (dangling links), including quoted wikilinks in properties (tagged source=property). response_format=concise returns {source_path, target, line} per link, without col and kind.",
       inputSchema: ScanInput,
       outputSchema: FindUnresolvedLinksOutput,
       requiredScopes: ["read:notes"],
@@ -444,7 +475,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const warnings = new ScanWarnings();
         let truncated = false;
         for (const p of scan) {
-          for (const l of extractLinks(bodyOf(v.root, p, warnings))) {
+          for (const l of linksOf(v.root, p, warnings)) {
             if (l.inCodeblock) continue;
             if (isExternal(l.kind, l.target)) continue;
             if (l.target === "" || l.target.startsWith("#")) continue;
@@ -459,6 +490,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
               line: l.line,
               col: l.col,
               kind: l.kind,
+              ...originOf(l),
             });
           }
           if (truncated) break;
@@ -470,7 +502,12 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           total: unresolved.length,
           truncated,
           unresolved: concise
-            ? unresolved.map(({ source_path, target, line }) => ({ source_path, target, line }))
+            ? unresolved.map(({ source_path, target, line, source, property }) => ({
+                source_path,
+                target,
+                line,
+                ...(source === "property" ? { source, property } : {}),
+              }))
             : unresolved,
         };
       },

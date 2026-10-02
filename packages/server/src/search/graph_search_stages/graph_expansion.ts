@@ -242,10 +242,11 @@ function nodeDegrees(db: Database, vaultId: string, paths: string[]): Map<string
             // 0.831 -> 0.824 with derived edges counted). The DELTA is what justifies this exclusion and
             // it still holds; the 0.831 absolute was withdrawn as unreproducible in THE-748, so do not
             // reuse it as a bar. Excluding the derived types leaves the literal graph's degrees
-            // byte-identical, so defaults are unaffected either way.
+            // byte-identical, so defaults are unaffected either way. `property_link` is excluded for the
+            // same default-neutral reason: it is walked only under includeInWalk.
             `SELECT ${col} AS p, COUNT(*) AS n FROM vault_edges
              WHERE vault_id = ?
-               AND edge_type NOT IN ('shared_tag', 'similar_to', 'semantically_similar_to')
+               AND edge_type NOT IN ('shared_tag', 'similar_to', 'semantically_similar_to', 'property_link')
                AND ${col} IN (${placeholders})
              GROUP BY ${col}`,
           )

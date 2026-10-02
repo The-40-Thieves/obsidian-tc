@@ -9,7 +9,7 @@ import { type FolderAcl, globToRegExp } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
-import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
+import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
@@ -26,9 +26,10 @@ function readableNotes(
     .map((e) => e.relPath)
     .filter((rel) => readableRel(acl, rel, grantedScopes));
 }
-/** A note's body for the link scan; bad frontmatter YAML is named in `warnings`, not thrown. */
-function bodyOf(root: string, rel: string, warnings: ScanWarnings): string {
-  return warnings.parse(readNote(resolveVaultPath(root, rel)).raw, rel).body;
+/** A note's links (property links, then body) for the link scan; bad frontmatter YAML is named in
+ *  `warnings`, not thrown. */
+function linksOf(root: string, rel: string, warnings: ScanWarnings): ExtractedLink[] {
+  return warnings.links(readNote(resolveVaultPath(root, rel)).raw, rel);
 }
 function isExternal(kind: string, target: string): boolean {
   return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
@@ -71,7 +72,7 @@ function buildLinkGraph(
   let links = 0;
   const warnings = new ScanWarnings();
   for (const p of notes) {
-    for (const l of extractLinks(bodyOf(root, p, warnings))) {
+    for (const l of linksOf(root, p, warnings)) {
       if (l.inCodeblock) continue;
       if (isExternal(l.kind, l.target)) continue;
       if (l.target === "" || l.target.startsWith("#")) continue;

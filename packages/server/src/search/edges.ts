@@ -5,7 +5,8 @@
 // The graph the walk reads: undirected `links_to`. So a resolved [[wikilink]] / ![[embed]]
 // produces a forward row (links_to / wikilink_forward) AND a reverse row (links_to /
 // wikilink_reverse); an unresolved link produces a forward-only `unresolved` row (stored but
-// never walked). Markdown links and links inside code are excluded — KMS parsed [[ ]] only,
+// never walked). A [[wikilink]] in a note's PROPERTIES makes the same pair on edge_type
+// `property_link`. Markdown links and links inside code are excluded — KMS parsed [[ ]] only,
 // so this is behavior-preserving. edge_kind is always 'literal' on stored rows (virtual hops
 // are query-time only); provenance carries the real parse signal (direction + resolution).
 //
@@ -16,8 +17,16 @@
 import type { Database } from "../db/types";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 
-export type EdgeType = "links_to" | "unresolved";
-export type EdgeProvenance = "wikilink_forward" | "wikilink_reverse" | "unresolved";
+/** `property_link`: a link written in a note's properties (frontmatter). Authored (edge_kind
+ *  literal) but on its OWN edge_type: the retrieval walk follows only `links_to` by default, so
+ *  ranking is unchanged until `retrieval.densify.includeInWalk` is on. */
+export type EdgeType = "links_to" | "unresolved" | "property_link";
+export type EdgeProvenance =
+  | "wikilink_forward"
+  | "wikilink_reverse"
+  | "property_forward"
+  | "property_reverse"
+  | "unresolved";
 
 export interface DesiredEdge {
   source_path: string;
@@ -50,10 +59,10 @@ export function desiredEdges(
   const put = (e: DesiredEdge): void => {
     const k = key(e.source_path, e.target_path, e.edge_type);
     const existing = byKey.get(k);
-    // Prefer wikilink_forward over wikilink_reverse when a mutual link yields both.
+    // Prefer a forward row over a reverse one when a mutual link yields both.
     if (
       !existing ||
-      (existing.provenance === "wikilink_reverse" && e.provenance === "wikilink_forward")
+      (existing.provenance.endsWith("_reverse") && e.provenance.endsWith("_forward"))
     ) {
       byKey.set(k, e);
     }
@@ -68,17 +77,19 @@ export function desiredEdges(
         const target = res.target_path;
         if (target === source) continue; // self-loop guard
         if (graphExcluded.has(target) || graphExcluded.has(source)) continue;
+        const prop = link.source === "property";
+        const edge_type = prop ? "property_link" : "links_to";
         put({
           source_path: source,
           target_path: target,
-          edge_type: "links_to",
-          provenance: "wikilink_forward",
+          edge_type,
+          provenance: prop ? "property_forward" : "wikilink_forward",
         });
         put({
           source_path: target,
           target_path: source,
-          edge_type: "links_to",
-          provenance: "wikilink_reverse",
+          edge_type,
+          provenance: prop ? "property_reverse" : "wikilink_reverse",
         });
       } else {
         const target = link.target.trim();
@@ -117,7 +128,7 @@ export function reconcileVaultEdges(
   const desiredKeys = new Set(desired.map((e) => key(e.source_path, e.target_path, e.edge_type)));
   const current = db
     .prepare(
-      "SELECT source_path, target_path, edge_type FROM vault_edges WHERE vault_id = ? AND edge_type IN ('links_to', 'unresolved')",
+      "SELECT source_path, target_path, edge_type FROM vault_edges WHERE vault_id = ? AND edge_type IN ('links_to', 'unresolved', 'property_link')",
     )
     .all(vaultId) as EdgeRow[];
   const currentKeys = new Set(current.map((r) => key(r.source_path, r.target_path, r.edge_type)));
