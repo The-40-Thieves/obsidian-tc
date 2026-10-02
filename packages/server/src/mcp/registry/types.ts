@@ -39,6 +39,10 @@ export interface CallerContext {
    *  argument names a different vault is rejected (THE-267), mirroring the resources/read guard.
    *  The trusted stdio context leaves this unset so the local operator addresses every vault. */
   vaultBound?: boolean;
+  /** The vault this context was minted for, kept when dispatch rebinds `vaultId` to the vault a call
+   *  ACTS ON (withEffectiveVault). Set only on that per-call copy and only when the two differ, so
+   *  the session trace can still find the caller's own session. Absent everywhere else. */
+  callerVaultId?: string;
   /** Which edge minted this context. Set by the stdio and HTTP context factories; absent for every
    *  other caller (scheduler, CLI, session re-runs). A host-side effect that is only safe for the
    *  operator's own local process (show_file_in_obsidian's OS launch) keys on `=== "stdio"`, so an
@@ -66,6 +70,9 @@ export interface CallerContext {
     action: "accept" | "decline" | "cancel";
     tool: string;
     argsHash: string;
+    /** The vault the answered state was sealed for: the one the call acts on, which can differ
+     *  from `ctx.vaultId` (the session's own) when this is read. */
+    vaultId: string;
     source: "form" | "request_state";
   };
   acl?: FolderAcl;

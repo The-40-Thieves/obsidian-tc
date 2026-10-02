@@ -205,7 +205,9 @@ export function resolveElicitConfirmation(mcpReq: {
   /** What the human answered on this request's confirm leg, tied to the verified echoed state's
    *  own tool/args_hash. Telemetry only (hitl-telemetry.ts): no gate reads it. Undefined with no
    *  verified state or no answer, so an unverifiable claim is never recorded. */
-  answer: { action: "accept" | "decline" | "cancel"; tool: string; argsHash: string } | undefined;
+  answer:
+    | { action: "accept" | "decline" | "cancel"; tool: string; argsHash: string; vaultId: string }
+    | undefined;
 } {
   const echoed = mcpReq.requestState?.<ElicitRequestState>();
   const confirmResponse = inputResponse(mcpReq.inputResponses, "confirm");
@@ -232,6 +234,7 @@ export function resolveElicitConfirmation(mcpReq: {
                 : "decline",
             tool: echoed.tool,
             argsHash: echoed.argsHash,
+            vaultId: echoed.vaultId,
           }
         : undefined,
   };
@@ -268,18 +271,25 @@ export async function offerInputRequired(
 ): Promise<CallToolResult | undefined> {
   if ((previousApprovedRound ?? 0) >= MAX_MISMATCH_ROUNDS) return undefined;
   const details = error as {
-    details?: { args_hash?: string; path?: unknown; state_fp?: unknown };
+    details?: { args_hash?: string; path?: unknown; state_fp?: unknown; vault?: unknown };
   };
   const argsHash = details.details?.args_hash;
   if (typeof argsHash !== "string") return undefined;
   const path = details.details?.path;
   const stateFp = details.details?.state_fp;
-  if (offerSource && ctx.db) recordHitlOffer({ ...ctx, db: ctx.db }, name, error, offerSource);
+  // Sealed with the vault the gate raised the error for (`details.vault`: dispatch's effect vault),
+  // not the request context's own: the two differ whenever a call acts on a vault other than the
+  // session's. Redemption still compares this to the vault the redeeming call acts on
+  // (`stateAuthorizes`), so a state sealed for one vault authorizes no other.
+  const vault = details.details?.vault;
+  const vaultId = typeof vault === "string" ? vault : ctx.vaultId;
+  if (offerSource && ctx.db)
+    recordHitlOffer({ ...ctx, vaultId, db: ctx.db }, name, error, offerSource);
   const offer = inputRequired({
     requestState: await codec.mint({
       tool: name,
       argsHash,
-      vaultId: ctx.vaultId,
+      vaultId,
       caller: ctx.caller,
       ...(typeof stateFp === "string" ? { stateFp } : {}),
       round: (previousApprovedRound ?? 0) + 1,

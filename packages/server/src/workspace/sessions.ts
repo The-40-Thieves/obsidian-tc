@@ -615,6 +615,8 @@ export interface TraceRecord {
   duration_ms?: number;
   args_hash?: string;
   result_size?: number;
+  /** The vault the call acted on; present ONLY when it is not the session's own vault. */
+  effect_vault?: string;
   /**
    * THE-736: the dispatch's raw parsed arguments, secret-scanned and size-capped. Present ONLY
    * when `sessions.traceContent` is on — absent is the normal value, not a gap.
