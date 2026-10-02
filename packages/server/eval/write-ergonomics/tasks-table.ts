@@ -4,9 +4,14 @@ import { TASKS } from "./tasks";
 
 export function tasksTable(): string {
   const rows = TASKS.map(
-    (t) => `| ${t.id} | ${t.arm} | ${t.hitl ? "approved" : "-"} | ${t.hook ? "yes" : "-"} | ${t.refCalls} | ${t.title} |`,
+    (t) =>
+      `| ${t.id} | ${t.arm} | ${t.hitl ? "approved" : "-"} | ${t.hook ? "yes" : "-"} | ${t.refCalls} | ${t.title} |`,
   );
-  return ["| id | arm | HITL | mid-task hook | refCalls | what it tests |", "| --- | --- | --- | --- | --- | --- |", ...rows].join("\n");
+  return [
+    "| id | arm | HITL | mid-task hook | refCalls | what it tests |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...rows,
+  ].join("\n");
 }
 
 export function promptsList(): string {

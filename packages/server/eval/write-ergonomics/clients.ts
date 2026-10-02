@@ -1,8 +1,8 @@
 // Headless drivers for the two real clients. Each returns the final message plus whatever usage the
 // client reports; the tool-call record comes from the tap proxy, identically for both.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { chmodSync, copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 export interface Usage {
@@ -125,10 +125,12 @@ export function runClaude(c: ClientCtx): ClientOut {
   return out;
 }
 
-/** An isolated CODEX_HOME holding only the copied login and this run's config. */
+/** Populate an isolated CODEX_HOME (login + this run's config). The login is a credential: `dir` must
+ *  be a private temp dir OUTSIDE the artifact tree, removed after the run (see runCodex). */
 export function codexHome(dir: string, c: ClientCtx): string {
-  mkdirSync(dir, { recursive: true });
-  copyFileSync(join(homedir(), ".codex", "auth.json"), join(dir, "auth.json"));
+  const auth = join(dir, "auth.json");
+  copyFileSync(join(homedir(), ".codex", "auth.json"), auth);
+  chmodSync(auth, 0o600);
   const toml = [
     'approval_policy = "never"',
     'sandbox_mode = "workspace-write"',
@@ -149,7 +151,19 @@ export function codexHome(dir: string, c: ClientCtx): string {
 }
 
 export function runCodex(c: ClientCtx, addDir: string): ClientOut {
-  const home = codexHome(join(c.runDir, "codex-home"), c);
+  const home = mkdtempSync(join(tmpdir(), "obtc-we-codex-"));
+  chmodSync(home, 0o700);
+  try {
+    codexHome(home, c);
+    // config.toml holds no secrets (server paths and proxy env only), so it is archived with the run.
+    copyFileSync(join(home, "config.toml"), join(c.runDir, "codex-config.toml"));
+    return runCodexIn(c, addDir, home);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function runCodexIn(c: ClientCtx, addDir: string, home: string): ClientOut {
   const last = join(c.runDir, "codex-last.txt");
   const args = [
     "exec",
