@@ -70,6 +70,8 @@ export interface ResolvedVault {
   indexExcludePaths?: readonly string[];
   /** `wiki.folder` from this vault's config, normalized (no trailing slash). Absent: no wiki folder. */
   wikiFolder?: string;
+  /** `wiki.log.attribution`: the generated log.md carries principal, model and tool. Absent: no. */
+  wikiLogAttribution?: boolean;
 }
 
 /** The configured wiki folder, exactly as written. The config schema rejects `""`, `.`, `/`, an
@@ -110,6 +112,7 @@ export class VaultRegistry {
         restApiKey: v.restApiKey,
         ...(v.index?.excludePaths?.length ? { indexExcludePaths: v.index.excludePaths } : {}),
         ...(wikiFolder ? { wikiFolder } : {}),
+        ...(wikiFolder && v.wiki?.log?.attribution ? { wikiLogAttribution: true } : {}),
       });
     }
     const first = vaults[0];

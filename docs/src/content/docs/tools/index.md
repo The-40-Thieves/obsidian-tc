@@ -453,15 +453,22 @@ The wiki folder also holds two files the server writes, not you and not an LLM. 
   first, then other types, then `(no type)`), one link each. Rebuilt after every `commit_wiki_page` and,
   with `maintenance.wikiPages.enabled: true`, every `maintenance.wikiPages.intervalHours` (default 6). It
   is never maintained by an LLM and is left unchanged when the listing did not change.
-* **`log.md`**: an append-only projection of the write provenance chain for the wiki folder, one line per
-  change: `time (UTC) | op | path | principal | model | tool#seq`, for example
-  `2026-10-02T09:15:00Z | create | wiki/concepts/Spaced repetition.md | alice | claude-opus | commit_wiki_page#41`.
-  `op` is `create`, `update` or `delete`. The last projected provenance sequence number is stored in
-  the file's `last_seq` frontmatter, so a re-run never repeats a line. It lags one write: a commit's own
-  line appears the next time the pages are regenerated. `model` is what the client said about itself.
+* **`log.md`**: an append-only projection of the write provenance chain for the wiki folder, one line per <!-- config-path:ignore -->
+  change: `time (UTC) | op | path`, for example
+  `2026-10-02T09:15:00Z | create | wiki/concepts/Spaced repetition.md`. `op` is `create`, `update` or
+  `delete`. The last projected provenance sequence number is stored in the file's `last_seq` frontmatter,
+  so a re-run never repeats a line. It lags one write: a commit's own line appears the next time the
+  pages are regenerated. **Who wrote it is not in the file by default.** `log.md` is an ordinary note, so <!-- config-path:ignore -->
+  anyone who can read it can read it without the `read:provenance` scope that `get_provenance` needs.
+  Setting `vaults[].wiki.log.attribution: true` adds `| principal | model | tool#seq` to each line
+  (`model` is what the client said about itself), and with it publishes that provenance metadata to
+  every reader of the note. Turning it off again does not remove lines already written: delete
+  `log.md` (`restore_note` keeps a copy) and the next pass starts a fresh one. <!-- config-path:ignore -->
 
-Both list only paths a reader holding no rule-scope may read under the vault's ACL and never an Excluded
-note, so a page in a read-denied folder is not named. They are written with no confirmation, inside the
+Both list only paths a reader holding no rule-scope may read under the vault's ACL (a symlink alias of a
+read-denied folder included) and never an Excluded note, so a page in a read-denied folder is not named.
+A page name is written with control, format and line-separator characters stripped, so one page is one
+line. They are written with no confirmation, inside the
 wiki folder only, with a snapshot of what they replace, and a failure is reported as a
 `generated_page` problem on the commit, never an error.
 
@@ -469,7 +476,9 @@ wiki folder only, with a snapshot of what they replace, and a failure is reporte
 edited, or is someone's own `index.md` with no marker, the server leaves it as it is, `commit_wiki_page` <!-- config-path:ignore -->
 returns a `generated_page` problem, and `lint_wiki` (check `generated_pages`) proposes the fix: move
 your text to a page of its own and delete the file (`restore_note` keeps a copy); the next pass writes a
-fresh one. Duplicate-topic detection, `lint_wiki` and the orphan, dangling-link and provenance scans skip
+fresh one. An edit made while a page is being rebuilt is caught too (the file is hashed again right
+before it is replaced); like `commit_wiki_page`, this cannot close the gap between that hash and the
+rename, because POSIX has no conditional rename. Duplicate-topic detection, `lint_wiki` and the orphan, dangling-link and provenance scans skip
 both files, and their links are not counted as inbound links.
 
 ## Response format

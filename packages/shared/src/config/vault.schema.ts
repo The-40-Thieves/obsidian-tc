@@ -186,6 +186,19 @@ export const VaultWikiConfigSchema = z.object({
     .describe(
       "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path and `..` are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
     ),
+  log: z
+    .object({
+      attribution: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Add the principal, the model the client reported and the tool to each line of the generated log.md (default false: a line is time | op | path). log.md is an ordinary note, so turning this on publishes write-provenance metadata (who wrote, with which model and tool) to anyone who can read the note, WITHOUT the read:provenance scope that get_provenance requires. Lines already written stay in the file when this is turned off: delete log.md (restore_note keeps a copy) to drop them.",
+        ),
+    })
+    .optional()
+    .describe(
+      "Settings for the generated log.md in the wiki folder. Absent means the defaults (no attribution).",
+    ),
 });
 
 export const VaultConfigSchema = z.object({

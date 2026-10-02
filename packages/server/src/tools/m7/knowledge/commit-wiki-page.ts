@@ -532,6 +532,7 @@ export function createCommitWikiPageTool(
         root: v.root,
         vaultId: v.id,
         wikiFolder,
+        logAttribution: v.wikiLogAttribution === true,
         acl: ctx.acl,
         exclusion,
         db: ctx.db,

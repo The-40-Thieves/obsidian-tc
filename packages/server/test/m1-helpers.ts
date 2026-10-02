@@ -59,6 +59,8 @@ export interface TestVaultOptions {
   provenanceMaxScanRows?: number;
   /** `vaults[].wiki.folder` for the vault. */
   wikiFolder?: string;
+  /** `vaults[].wiki.log.attribution` for the vault. */
+  wikiLogAttribution?: boolean;
   /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
   registryOpts?: Partial<RegistryOptions>;
 }
@@ -105,7 +107,20 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([
-    { id, path: root, ...(opts.wikiFolder ? { wiki: { folder: opts.wikiFolder } } : {}) },
+    {
+      id,
+      path: root,
+      ...(opts.wikiFolder
+        ? {
+            wiki: {
+              folder: opts.wikiFolder,
+              ...(opts.wikiLogAttribution !== undefined
+                ? { log: { attribution: opts.wikiLogAttribution } }
+                : {}),
+            },
+          }
+        : {}),
+    },
   ]);
   const overrides = new Map(
     Object.entries(opts.aclByVault ?? {}).map(([vid, cfg]) => [
