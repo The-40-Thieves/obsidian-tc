@@ -88,9 +88,7 @@ export interface IndexHealthState {
   reconcileErrors: Array<{ vault: string; error: string }>;
   writeFailures: number;
   lastWriteError?: string;
-  /** Notes whose latest index-on-write failed on bad frontmatter YAML (keyed vault+path; cleared when
-   *  a later write for the path lands or a reconcile sees it parse). NOT writeFailures: a typo in one
-   *  note is not a broken index, so it must not trip the index-stalled alert. */
+  /** Notes whose latest index-on-write hit bad frontmatter YAML; not writeFailures (no stall alert). */
   frontmatterFailures: Map<string, FrontmatterFailure>;
   lastFrontmatterFailure?: FrontmatterFailure;
   /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
@@ -245,7 +243,6 @@ export interface IndexCoordinatorDeps {
     | "frontmatterFailures"
     | "lastFrontmatterFailure"
   >;
-  /** Feeds the frontmatter-skip counter (index_frontmatter_failed) for an index-on-write skip. */
   metrics: MetricsRecorder;
   /** Root ACL + per-vault overrides, owned by governance. */
   acl: FolderAcl;

@@ -15,8 +15,6 @@ export interface IndexHealthSnapshot {
   reconcile_at: number | null;
   /** Count of index-on-write failures swallowed since boot (best-effort reindex/deindex). */
   write_failures: number;
-  /** Notes whose latest index-on-write failed because their frontmatter is not valid YAML. Kept
-   *  apart from write_failures: a typo in one note is not a stalled index. 0 once they are repaired. */
   frontmatter_failures?: number;
   /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
   notes_ready?: boolean;
@@ -25,7 +23,6 @@ export interface IndexHealthSnapshot {
   detail?: {
     reconcile_errors: Array<{ vault: string; error: string }>;
     last_write_error?: string;
-    /** The most recent note still failing index-on-write on bad frontmatter YAML (names a path). */
     last_frontmatter_failure?: { vault: string; path: string; error: string };
     /** THE-457: fail-open audit writes that threw (locked DB / disk full). */
     audit_write_failures?: number;
