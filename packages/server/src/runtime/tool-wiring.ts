@@ -673,6 +673,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // The LLM judge for ambiguous find_existing_page / lint_wiki matches.
     wikiJudge: config.wikiJudge,
     wikiJudgeBackend: resolveWikiJudgeBackend(config.wikiJudge, deps.roles, m7ExcludeFilter),
+    // commit_wiki_page stamps the pages it creates the way write_note does.
+    ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
     retrieval: config.retrieval,
     ranking: config.ranking,
     // THE-230: serve-path retrieval logging.

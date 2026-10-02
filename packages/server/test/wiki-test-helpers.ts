@@ -76,6 +76,9 @@ export function makeWikiHarness(
         }
       : {}),
     ...(edb ? { edb } : {}),
+    ...(vaultOpts.snapshots ? { snapshots: vaultOpts.snapshots } : {}),
+    ...(vaultOpts.reindex ? { reindex: vaultOpts.reindex } : {}),
+    ...(vaultOpts.memoryDefense ? { memoryDefense: () => vaultOpts.memoryDefense as never } : {}),
   });
   let n = 0;
   const seed: WikiHarness["seed"] = (path, vec, extra) => {

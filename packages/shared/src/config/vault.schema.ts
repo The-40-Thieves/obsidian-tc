@@ -171,6 +171,16 @@ export const VaultIndexConfigSchema = z.object({
     ),
 });
 
+/** The folder a vault's LLM wiki lives in; draft_wiki_page / commit_wiki_page read its SCHEMA.md. */
+export const VaultWikiConfigSchema = z.object({
+  folder: z
+    .string()
+    .min(1)
+    .describe(
+      "Vault-relative folder that holds this vault's LLM wiki. A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page creates them there without a confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder and the two tools apply no schema.",
+    ),
+});
+
 export const VaultConfigSchema = z.object({
   id: z
     .string()
@@ -247,6 +257,9 @@ export const VaultConfigSchema = z.object({
   ),
   reflect: VaultReflectConfigSchema.optional().describe(
     "Per-vault defaults for the reflect tool's citation_style and detail arguments. A call argument beats this; absent means the shipped defaults (numeric, concise).",
+  ),
+  wiki: VaultWikiConfigSchema.optional().describe(
+    "Per-vault LLM wiki settings (the wiki folder and its SCHEMA.md). Absent means no wiki folder.",
   ),
   index: VaultIndexConfigSchema.optional().describe(
     "Per-vault index controls. Absent means only the Excluded files list in the vault's own `.obsidian/app.json` applies.",

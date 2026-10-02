@@ -57,6 +57,8 @@ export interface TestVaultOptions {
   provenanceKeys?: () => KeyResolver | undefined;
   /** get_provenance's per-query row budget (`provenance.query.maxScanRows`). Default: the tool's. */
   provenanceMaxScanRows?: number;
+  /** `vaults[].wiki.folder` for the vault. */
+  wikiFolder?: string;
   /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
   registryOpts?: Partial<RegistryOptions>;
 }
@@ -102,7 +104,9 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
-  const vaultRegistry = new VaultRegistry([{ id, path: root }]);
+  const vaultRegistry = new VaultRegistry([
+    { id, path: root, ...(opts.wikiFolder ? { wiki: { folder: opts.wikiFolder } } : {}) },
+  ]);
   const overrides = new Map(
     Object.entries(opts.aclByVault ?? {}).map(([vid, cfg]) => [
       vid,

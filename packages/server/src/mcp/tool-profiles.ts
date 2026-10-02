@@ -150,10 +150,16 @@ const M1_SAMPLING_CONSUMERS = ["suggest_tags"] as const;
 // structural criterion; it stays registered and discoverable under `"core"`.
 const M1_PROVENANCE = ["get_provenance"] as const;
 
-// `find_existing_page` / `lint_wiki` (wiki upkeep): advisory read-only checks for agents that
-// maintain a wiki, and `core` is capped at 100 tools (docgen-stats.test.ts). Curated out on the same
-// structural criterion; both stay registered and discoverable, and the scheduled lint is separate.
-const M7_WIKI_UPKEEP = ["find_existing_page", "lint_wiki"] as const;
+// The wiki family (`find_existing_page`, `lint_wiki`, `draft_wiki_page`, `commit_wiki_page`): checks
+// and a drafting/commit path for agents that maintain a wiki, and `core` is capped at 100 tools
+// (docgen-stats.test.ts). Curated out on the same structural criterion; all stay registered and
+// discoverable, and the scheduled lint is separate.
+const M7_WIKI_UPKEEP = [
+  "find_existing_page",
+  "lint_wiki",
+  "draft_wiki_page",
+  "commit_wiki_page",
+] as const;
 
 /** Every tool name `toolFacade.profile: "core"` hides and dispatch-rejects. Absent from this list
  *  (and therefore always visible/callable) under `"full"` (the default) too — `"full"` disables

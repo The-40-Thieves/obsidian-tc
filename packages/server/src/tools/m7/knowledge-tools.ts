@@ -33,9 +33,11 @@ import type { ToolDefinition } from "../../mcp/registry";
 import type { VaultAclResolver } from "../../mcp/resources";
 import type { QueryVectors } from "../../search/query_cache";
 import { createQueryEncoder } from "../../search/query-encoder";
+import { createCommitWikiPageTool } from "./knowledge/commit-wiki-page";
 import { createContradictionsTool } from "./knowledge/contradictions";
 import type { M7Deps } from "./knowledge/deps";
 import { createDiagnoseRetrievalTool } from "./knowledge/diagnose-retrieval";
+import { createDraftWikiPageTool } from "./knowledge/draft-wiki-page";
 import { createExplainAnswerTool } from "./knowledge/explain-answer";
 import { createFindExistingPageTool } from "./knowledge/find-existing-page";
 import { createGraphSearchTool } from "./knowledge/graph-search";
@@ -113,5 +115,8 @@ export function buildKnowledgeTools(deps: M7Deps, aclFor: VaultAclResolver): Too
     // one-call lint that folds the scattered link/quality/provenance checks into proposals.
     createFindExistingPageTool(deps, retrieval),
     createLintWikiTool(deps),
+    // The wiki write path: draft (READ-ONLY plan + changeset skeleton), then one atomic commit.
+    createDraftWikiPageTool(deps, retrieval),
+    createCommitWikiPageTool(deps, retrieval),
   ];
 }

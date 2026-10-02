@@ -68,6 +68,13 @@ export function cleanTopic(topic: string): string {
   return inner.split("#")[0]?.trim().replace(/\.md$/i, "") || t;
 }
 
+/** A shorter topic is too common a string to call a mention. */
+const MIN_MENTION_CHARS = 3;
+
+/** The file name a link target points at: no folder, no `.md`. */
+const baseOf = (target: string): string =>
+  (target.split("/").pop() ?? target).replace(/\.md$/i, "");
+
 const QID = /(?:^|[^A-Za-z0-9])(Q\d+)(?![A-Za-z0-9])/gi;
 
 /** Every QID in a string (`Q42`, or a wikidata URL), uppercased. */
@@ -100,6 +107,12 @@ export interface IdentityScan {
   /** Notes read for aliases/ids/titles/links (the cost of the call). */
   scanned: number;
   warnings: ScanWarnings;
+  /** Every readable note, for resolving link targets without a second walk. */
+  notes: string[];
+  /** Notes whose text mentions the topic (loose match), linked or not. */
+  mentions: string[];
+  /** Notes that already link something named like the topic, resolved or not. */
+  linkers: string[];
 }
 
 /**
@@ -142,6 +155,8 @@ export function collectIdentityEvidence(
 
   const warnings = new ScanWarnings();
   const linkTexts = new Map<string, { n: number; property?: string; sample: string }>();
+  const mentions: string[] = [];
+  const linkers: string[] = [];
   for (const rel of all) {
     const parsed = warnings.parse(readNote(resolveVaultPath(scope.root, rel)).raw, rel);
     const fm = parsed.frontmatter;
@@ -164,7 +179,12 @@ export function collectIdentityEvidence(
     for (const t of titlesOf(fm, parsed.body)) {
       if (looseKey(t) === topicKey && topicKey !== "") add(rel, { kind: "title", detail: t });
     }
-    for (const l of extractNoteLinks(parsed)) {
+    if (topicKey.length >= MIN_MENTION_CHARS && looseKey(parsed.body).includes(topicKey))
+      mentions.push(rel);
+    const links = extractNoteLinks(parsed);
+    if (links.some((l) => !l.inCodeblock && looseKey(baseOf(l.target)) === topicKey))
+      linkers.push(rel);
+    for (const l of links) {
       if (l.inCodeblock || !l.display || looseKey(l.display) !== topicKey) continue;
       const r = resolveTarget(index, l.target);
       if (!r.resolved || !r.target_path || r.target_path === rel) continue;
@@ -181,5 +201,5 @@ export function collectIdentityEvidence(
       ...(s.property !== undefined ? { property: s.property } : {}),
     });
   }
-  return { candidates, scanned: all.length, warnings };
+  return { candidates, scanned: all.length, warnings, notes: all, mentions, linkers };
 }

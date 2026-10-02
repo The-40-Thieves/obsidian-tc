@@ -67,6 +67,16 @@ export interface ResolvedVault {
   /** `index.excludePaths` from this vault's config, merged with Obsidian's own Excluded files list
    *  (search/index-exclusion.ts). Absent for a vault added at runtime. */
   indexExcludePaths?: readonly string[];
+  /** `wiki.folder` from this vault's config, normalized (no trailing slash). Absent: no wiki folder. */
+  wikiFolder?: string;
+}
+
+/** The configured wiki folder as a vault-relative path with no slashes at the ends; undefined for
+ *  an absent value, the vault root, or anything that climbs out of the vault (a config mistake must
+ *  not turn the whole vault into "the wiki"). */
+function wikiFolderOf(folder: string | undefined): string | undefined {
+  const parts = (folder ?? "").split(/[\\/]+/).filter((p) => p !== "" && p !== ".");
+  return parts.length === 0 || parts.includes("..") ? undefined : parts.join("/");
 }
 
 export class VaultRegistry {
@@ -77,6 +87,7 @@ export class VaultRegistry {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
     for (const v of vaults) {
       const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
+      const wikiFolder = wikiFolderOf(v.wiki?.folder);
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,
@@ -86,6 +97,7 @@ export class VaultRegistry {
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
         ...(v.index?.excludePaths?.length ? { indexExcludePaths: v.index.excludePaths } : {}),
+        ...(wikiFolder ? { wikiFolder } : {}),
       });
     }
     const first = vaults[0];

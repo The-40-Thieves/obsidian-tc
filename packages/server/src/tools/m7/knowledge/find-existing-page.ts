@@ -17,12 +17,13 @@
 // cannot read is indistinguishable from a missing one.
 import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { ToolDefinition } from "../../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../../mcp/registry";
 import { TOPIC_MATCH_MIN } from "../../../search/dedupe-band";
 import { vaultExclusionFor } from "../../../search/index-exclusion";
 import { semanticSearch } from "../../../search/semantic";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../../vault/paths";
+import type { ResolvedVault } from "../../../vault/registry";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { scanWarningsShape } from "../../scan-warnings";
@@ -31,6 +32,7 @@ import type { RetrievalRuntime } from "./retrieval-runtime";
 import {
   collectIdentityEvidence,
   type Evidence,
+  type IdentityScan,
   type PageCandidate,
   STRONG_KINDS,
 } from "./wiki-evidence";
@@ -263,6 +265,147 @@ async function resolveWithJudge(
   return { section, verdict: "ambiguous", ranked };
 }
 
+export interface FindExistingPageArgs {
+  topic: string;
+  folder?: string | undefined;
+  limit: number;
+  minSimilarity?: number | undefined;
+  judge?: boolean | undefined;
+  concise: boolean;
+}
+
+export type FindExistingPageResult = z.infer<typeof FindExistingPageOutput>;
+
+/** The whole check, shared by find_existing_page and the wiki drafting tools: `output` is the
+ *  tool's answer, `ranked` every candidate (not just the `limit` shown) and `scan` the identity
+ *  scan's by-products (the notes read, the notes that mention or already link the topic). */
+export async function findExistingPage(
+  deps: M7Deps,
+  retrieval: RetrievalRuntime,
+  ctx: CallerContext,
+  v: ResolvedVault,
+  args: FindExistingPageArgs,
+): Promise<{ output: FindExistingPageResult; ranked: PageCandidate[]; scan: IdentityScan }> {
+  const folder = args.folder ? normalizeVaultPath(args.folder) : undefined;
+  const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
+  const identity = collectIdentityEvidence(
+    { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+    args.topic,
+    { folder, isExcluded: exclusion.isExcluded },
+  );
+  const candidates = identity.candidates;
+  const min = args.minSimilarity ?? TOPIC_MATCH_MIN;
+  const semantic: { checked: boolean; min: number; reason?: string } = { checked: false, min };
+  const prefix = folder ? `${folder.replace(/\/+$/, "")}/` : "";
+  try {
+    const queryVec = await retrieval.embedQuery(args.topic);
+    const hits = semanticSearch(ctx.db, v.id, queryVec, {
+      k: 40,
+      minScore: min,
+      // Similarity evidence is search-derived: only notes that are readable, inside the folder
+      // and actually in the index (not hidden by Excluded files) may be candidates.
+      isReadable: (rel) =>
+        readableRel(ctx.acl, rel, ctx.grantedScopes) &&
+        (prefix === "" || rel.startsWith(prefix)) &&
+        !exclusion.isExcluded(rel),
+      model: deps.embeddingProvider.id,
+    });
+    semantic.checked = true;
+    if (hits.length === 0) semantic.reason = "no indexed note scored above min_similarity";
+    const best = new Map<string, number>();
+    for (const h of hits) best.set(h.path, Math.max(best.get(h.path) ?? 0, h.score));
+    for (const [path, score] of best) {
+      const c = candidates.get(path) ?? { path, evidence: [], excluded: false };
+      c.evidence.push({ kind: "semantic", score: Number(score.toFixed(3)) });
+      candidates.set(path, c);
+    }
+  } catch (e) {
+    // Advisory tool: an embedding outage must not turn "does a page exist?" into an error.
+    semantic.reason = `similarity not checked: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  let ranked = [...candidates.values()].sort((a, b) => {
+    const sa = a.evidence.some((e) => STRONG_KINDS.has(e.kind)) ? 1 : 0;
+    const sb = b.evidence.some((e) => STRONG_KINDS.has(e.kind)) ? 1 : 0;
+    const top = (c: PageCandidate): number =>
+      Math.max(0, ...c.evidence.map((e) => (e.kind === "semantic" ? (e.score ?? 0) : 0)));
+    return (
+      sb - sa ||
+      b.evidence.length - a.evidence.length ||
+      top(b) - top(a) ||
+      a.path.localeCompare(b.path)
+    );
+  });
+  let verdict = verdictOf(ranked);
+
+  // The judge: AMBIGUOUS verdicts on soft evidence only. Exact evidence is final.
+  const settings = deps.wikiJudge ?? DEFAULT_WIKI_JUDGE_SETTINGS;
+  const wiki = createWikiJudge({
+    roles: deps.roles,
+    backend: deps.wikiJudgeBackend,
+    db: ctx.db,
+    settings,
+  });
+  let judgeSection: JudgeSection | undefined;
+  let judgedBy: JudgeResolution["judgedBy"];
+  const refuse = (reason: string): JudgeSection => ({
+    ran: false,
+    reason,
+    calls: 0,
+    cached: 0,
+    results: [],
+    unjudged: [],
+  });
+  if (args.judge ?? (settings.enabled && wiki.available)) {
+    if (!wiki.available)
+      judgeSection = refuse(
+        "no judge is available: it needs a configured judge (a gateway, or wikiJudge.provider typesafe) and wikiJudge.maxCallsPerDay above 0",
+      );
+    else if (ranked.some(hasStrong))
+      judgeSection = refuse(
+        "identity evidence (name, alias, wikidata) is never overridden by the judge",
+      );
+    else if (verdict !== "ambiguous") judgeSection = refuse("nothing ambiguous to resolve");
+    else {
+      const res = await resolveWithJudge(
+        wiki,
+        { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes, exclusion },
+        deps.excludeFilter,
+        args.topic,
+        ranked,
+      );
+      judgeSection = res.section;
+      judgedBy = res.judgedBy;
+      verdict = res.verdict;
+      ranked = res.ranked;
+    }
+    // A default-on judge with nothing to do stays out of the answer; an explicit ask is answered.
+    if (args.judge !== true && !judgeSection.ran) judgeSection = undefined;
+  }
+  const concise = args.concise;
+  const shown = ranked.slice(0, args.limit);
+  const output = {
+    ...identity.warnings.out(),
+    vault: v.id,
+    topic: args.topic,
+    verdict,
+    total: ranked.length,
+    candidates: shown.map((c) => ({
+      path: c.path,
+      strength: c.evidence.some((e) => STRONG_KINDS.has(e.kind))
+        ? ("strong" as const)
+        : ("soft" as const),
+      evidence: concise ? [...new Set(c.evidence.map((e) => e.kind))] : (c.evidence as Evidence[]),
+      ...(c.excluded ? { excluded: true } : {}),
+    })),
+    next: nextStep(verdict, ranked, judgedBy?.model),
+    semantic,
+    ...(judgeSection ? { judge: judgeSection } : {}),
+    ...(judgedBy ? { judged_by: judgedBy } : {}),
+  };
+  return { output, ranked, scan: identity };
+}
+
 export function createFindExistingPageTool(
   deps: M7Deps,
   retrieval: RetrievalRuntime,
@@ -298,7 +441,7 @@ export function createFindExistingPageTool(
           .boolean()
           .optional()
           .describe(
-            "Let an LLM judge resolve AMBIGUOUS candidates that rest on soft evidence (similarity, link text): same topic -> exists, all different -> new, anything else stays ambiguous. Never overrides a name, alias or wikidata match and never blocks. Sends the topic and the opening text of at most 3 top candidates to the judge model (the gateway's, or TypeSafe Jev), only for notes you may read outside egress.excludePaths and Obsidian's Excluded files. Default: the wikiJudge.enabled config (off); true needs a configured judge.",
+            "Let an LLM judge resolve AMBIGUOUS candidates that rest on soft evidence (similarity, link text): same topic -> exists, all different -> new, anything else stays ambiguous. Never overrides a name, alias or wikidata match and never blocks. Sends the topic and the opening text of at most 3 top candidates to the gateway judge model, only for notes you may read outside egress.excludePaths and Obsidian's Excluded files. Default: the wikiJudge.enabled config; true needs a configured gateway.",
           ),
         ...ResponseFormatInput,
       })
@@ -306,127 +449,16 @@ export function createFindExistingPageTool(
     outputSchema: FindExistingPageOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search", "external-network"],
-    handler: async (input, ctx) => {
-      const v = deps.vaultRegistry.resolve(input.vault);
-      const folder = input.folder ? normalizeVaultPath(input.folder) : undefined;
-      const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
-      const identity = collectIdentityEvidence(
-        { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
-        input.topic,
-        { folder, isExcluded: exclusion.isExcluded },
-      );
-      const candidates = identity.candidates;
-      const min = input.min_similarity ?? TOPIC_MATCH_MIN;
-      const semantic: { checked: boolean; min: number; reason?: string } = { checked: false, min };
-      const prefix = folder ? `${folder.replace(/\/+$/, "")}/` : "";
-      try {
-        const queryVec = await retrieval.embedQuery(input.topic);
-        const hits = semanticSearch(ctx.db, v.id, queryVec, {
-          k: 40,
-          minScore: min,
-          // Similarity evidence is search-derived: only notes that are readable, inside the folder
-          // and actually in the index (not hidden by Excluded files) may be candidates.
-          isReadable: (rel) =>
-            readableRel(ctx.acl, rel, ctx.grantedScopes) &&
-            (prefix === "" || rel.startsWith(prefix)) &&
-            !exclusion.isExcluded(rel),
-          model: deps.embeddingProvider.id,
-        });
-        semantic.checked = true;
-        if (hits.length === 0) semantic.reason = "no indexed note scored above min_similarity";
-        const best = new Map<string, number>();
-        for (const h of hits) best.set(h.path, Math.max(best.get(h.path) ?? 0, h.score));
-        for (const [path, score] of best) {
-          const c = candidates.get(path) ?? { path, evidence: [], excluded: false };
-          c.evidence.push({ kind: "semantic", score: Number(score.toFixed(3)) });
-          candidates.set(path, c);
-        }
-      } catch (e) {
-        // Advisory tool: an embedding outage must not turn "does a page exist?" into an error.
-        semantic.reason = `similarity not checked: ${e instanceof Error ? e.message : String(e)}`;
-      }
-
-      let ranked = [...candidates.values()].sort((a, b) => {
-        const sa = a.evidence.some((e) => STRONG_KINDS.has(e.kind)) ? 1 : 0;
-        const sb = b.evidence.some((e) => STRONG_KINDS.has(e.kind)) ? 1 : 0;
-        const top = (c: PageCandidate): number =>
-          Math.max(0, ...c.evidence.map((e) => (e.kind === "semantic" ? (e.score ?? 0) : 0)));
-        return (
-          sb - sa ||
-          b.evidence.length - a.evidence.length ||
-          top(b) - top(a) ||
-          a.path.localeCompare(b.path)
-        );
-      });
-      let verdict = verdictOf(ranked);
-
-      // The judge: AMBIGUOUS verdicts on soft evidence only. Exact evidence is final.
-      const settings = deps.wikiJudge ?? DEFAULT_WIKI_JUDGE_SETTINGS;
-      const wiki = createWikiJudge({
-        roles: deps.roles,
-        backend: deps.wikiJudgeBackend,
-        db: ctx.db,
-        settings,
-      });
-      let judgeSection: JudgeSection | undefined;
-      let judgedBy: JudgeResolution["judgedBy"];
-      const refuse = (reason: string): JudgeSection => ({
-        ran: false,
-        reason,
-        calls: 0,
-        cached: 0,
-        results: [],
-        unjudged: [],
-      });
-      if (input.judge ?? (settings.enabled && wiki.available)) {
-        if (!wiki.available)
-          judgeSection = refuse(
-            "no judge is available: it needs a configured judge (a gateway, or wikiJudge.provider typesafe) and wikiJudge.maxCallsPerDay above 0",
-          );
-        else if (ranked.some(hasStrong))
-          judgeSection = refuse(
-            "identity evidence (name, alias, wikidata) is never overridden by the judge",
-          );
-        else if (verdict !== "ambiguous") judgeSection = refuse("nothing ambiguous to resolve");
-        else {
-          const res = await resolveWithJudge(
-            wiki,
-            { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes, exclusion },
-            deps.excludeFilter,
-            input.topic,
-            ranked,
-          );
-          judgeSection = res.section;
-          judgedBy = res.judgedBy;
-          verdict = res.verdict;
-          ranked = res.ranked;
-        }
-        // A default-on judge with nothing to do stays out of the answer; an explicit ask is answered.
-        if (input.judge !== true && !judgeSection.ran) judgeSection = undefined;
-      }
-      const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
-      const shown = ranked.slice(0, input.limit);
-      return {
-        ...identity.warnings.out(),
-        vault: v.id,
-        topic: input.topic,
-        verdict,
-        total: ranked.length,
-        candidates: shown.map((c) => ({
-          path: c.path,
-          strength: c.evidence.some((e) => STRONG_KINDS.has(e.kind))
-            ? ("strong" as const)
-            : ("soft" as const),
-          evidence: concise
-            ? [...new Set(c.evidence.map((e) => e.kind))]
-            : (c.evidence as Evidence[]),
-          ...(c.excluded ? { excluded: true } : {}),
-        })),
-        next: nextStep(verdict, ranked, judgedBy?.model),
-        semantic,
-        ...(judgeSection ? { judge: judgeSection } : {}),
-        ...(judgedBy ? { judged_by: judgedBy } : {}),
-      };
-    },
+    handler: async (input, ctx) =>
+      (
+        await findExistingPage(deps, retrieval, ctx, deps.vaultRegistry.resolve(input.vault), {
+          topic: input.topic,
+          folder: input.folder,
+          limit: input.limit,
+          minSimilarity: input.min_similarity,
+          judge: input.judge,
+          concise: resolveResponseFormat(input, deps.responseFormat) === "concise",
+        })
+      ).output,
   });
 }

@@ -14,6 +14,7 @@ bundle_files
 bundle_folder
 close_goal
 commit_capture
+commit_wiki_page
 copy_note
 create_base
 create_canvas
@@ -25,6 +26,7 @@ delete_attachment
 delete_entity
 delete_note
 diagnose_retrieval
+draft_wiki_page
 end_session
 enqueue_capture
 episode_stats
