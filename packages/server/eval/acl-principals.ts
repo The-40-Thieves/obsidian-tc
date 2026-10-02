@@ -47,8 +47,6 @@ interface Principal {
   readPaths: string[];
 }
 
-const norm = (p: string): string => p.replace(/\\/g, "/");
-
 function main(): void {
   const argv = process.argv.slice(2);
   const positional = argv.filter((a) => !a.startsWith("--"));
@@ -70,7 +68,7 @@ function main(): void {
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
 
   const universe = new Set<string>();
-  for (const q of golden.queries) for (const p of q.target_paths) universe.add(norm(p));
+  for (const q of golden.queries) for (const p of q.target_paths) universe.add(p);
 
   process.stdout.write(
     `overlay ${overlay.principals.length} principal(s) | golden n=${golden.queries.length} | ` +
@@ -99,7 +97,7 @@ function main(): void {
     let scoreable = 0;
     let expectedTotal = 0;
     for (const q of golden.queries) {
-      const visible = q.target_paths.map(norm).filter(readable);
+      const visible = q.target_paths.filter(readable);
       expectedTotal += visible.length;
       if (visible.length > 0) scoreable++;
     }
@@ -139,7 +137,7 @@ function main(): void {
   let multi = 0;
   let orphaned = 0;
   for (const q of golden.queries) {
-    const paths = q.target_paths.map(norm);
+    const paths = q.target_paths;
     const n = acls.filter((r) => paths.some(r)).length;
     if (n > 1) multi++;
     if (n === 0) orphaned++;

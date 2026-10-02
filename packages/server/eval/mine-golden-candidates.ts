@@ -81,8 +81,7 @@ async function main(): Promise<void> {
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath as string, "utf8")));
   const used = new Set<string>();
   for (const q of golden.queries)
-    for (const p of [...q.seed_paths, ...q.target_paths, ...q.bridge_paths])
-      used.add(p.replace(/\\/g, "/"));
+    for (const p of [...q.seed_paths, ...q.target_paths, ...q.bridge_paths]) used.add(p);
 
   // Directed link set + out-degree.
   const edges = db
@@ -259,9 +258,9 @@ async function main(): Promise<void> {
       `    query_text: ${esc(tmpl(A, C))}`,
       `    seed_domain: ${folderOf(c.A)}`,
       `    target_domain: ${folderOf(c.C)}`,
-      `    seed_paths: [${esc(c.A.replace(/\//g, "\\"))}]`,
-      `    target_paths: [${esc(c.C.replace(/\//g, "\\"))}]`,
-      `    bridge_paths: [${esc(c.B.replace(/\//g, "\\"))}]`,
+      `    seed_paths: [${esc(c.A)}]`,
+      `    target_paths: [${esc(c.C)}]`,
+      `    bridge_paths: [${esc(c.B)}]`,
       `    description: ${esc(`DRAFT bridge multi-hop. A→B→C, no direct A↔C edge. bridge=${titleOf(c.B)} (degree ${deg.get(c.B)}), A–C cosine ${c.ac.toFixed(3)}. Verify the query captures a real A↔C connection.`)}`,
     );
   });
@@ -271,8 +270,8 @@ async function main(): Promise<void> {
       `    query_text: ${esc(`What does the vault say about "${c.term}"?`)}`,
       `    seed_domain: lexical-exact`,
       `    target_domain: lexical-exact`,
-      `    seed_paths: [${esc(c.note.replace(/\//g, "\\"))}]`,
-      `    target_paths: [${esc(c.note.replace(/\//g, "\\"))}]`,
+      `    seed_paths: [${esc(c.note)}]`,
+      `    target_paths: [${esc(c.note)}]`,
       `    bridge_paths: []`,
       `    description: ${esc(`DRAFT lexical/exact-term. "${c.term}" appears in ${c.df} note(s) vault-wide. Verify the term is distinctive + the query is natural.`)}`,
     );

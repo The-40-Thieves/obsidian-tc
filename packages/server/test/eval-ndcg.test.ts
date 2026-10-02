@@ -1,7 +1,12 @@
 // THE-391 — binary-relevance nDCG@10 in the eval metrics (the THE-171 roadmap gate metric).
 // Position-sensitive where recall@10 is not: the same hit set scores higher ranked earlier.
 import { describe, expect, it } from "vitest";
-import { computeQueryMetrics, type GoldenQuery, type RankedChunk } from "../eval/metrics";
+import {
+  computeQueryMetrics,
+  type GoldenQuery,
+  GoldenQuerySchema,
+  type RankedChunk,
+} from "../eval/metrics";
 
 const q: GoldenQuery = {
   id: "ndcg-fixture",
@@ -68,14 +73,15 @@ describe("THE-440 bridge-doc nDCG@10 (static-vs-trajectory proxy)", () => {
 });
 
 describe("Windows-style golden paths", () => {
-  const win: GoldenQuery = {
+  // Labels are normalized by the schema that loads a golden set; the scorer normalizes results.
+  const win: GoldenQuery = GoldenQuerySchema.parse({
     ...q,
     seed_paths: ["02-projects\\Alpha.md"],
     target_paths: ["05-creative\\Beta\\B.md"],
     bridge_paths: ["03-areas\\Bridge.md"],
-  };
+  });
 
-  it("score as hits against forward-slash results: the scorer, not each caller, normalizes", () => {
+  it("score as hits against forward-slash results: the loader, not each caller, normalizes", () => {
     const m = computeQueryMetrics(win, [
       hit("02-projects/Alpha.md", 0),
       hit("05-creative/Beta/B.md", 1),

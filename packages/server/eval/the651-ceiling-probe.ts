@@ -35,7 +35,7 @@ import { createGatewayClient } from "../src/gateway/client";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { graphSearch } from "../src/search/graph_search";
 import { assertGoldenNotInVault } from "./golden-guard";
-import { GoldenSetSchema } from "./metrics";
+import { GoldenSetSchema, normalizeSeparators } from "./metrics";
 
 /** MUST mirror `multiHopSignals()` in src/search/router.ts. That lives on the parked branch, so it
  *  is duplicated here deliberately and verified by the slice count the probe prints: the
@@ -62,8 +62,6 @@ const DEEP_PATHS = 60;
 const MAX_SUBS = 3;
 /** THE-397's champion RRF constant. NOT the parked fuseRanked's k=60. */
 const RRF_K = 10;
-
-const norm = (p: string): string => p.replace(/\\/g, "/");
 
 const SYSTEM =
   "You split a multi-hop research question into independent sub-questions that can each be " +
@@ -132,7 +130,7 @@ async function main(): Promise<void> {
     });
     const seen = new Set<string>();
     for (const h of hits) {
-      seen.add(norm(h.path));
+      seen.add(normalizeSeparators(h.path));
       if (seen.size === paths) break;
     }
     return seen;
@@ -142,7 +140,7 @@ async function main(): Promise<void> {
   const misses: typeof slice = [];
   for (const q of slice) {
     const paths = await search(q.query_text, CONTROL_FETCH, CONTROL_PATHS);
-    if (!q.bridge_paths.some((p) => paths.has(norm(p)))) misses.push(q);
+    if (!q.bridge_paths.some((p) => paths.has(p))) misses.push(q);
   }
   const satisfied = slice.length - misses.length;
   process.stdout.write(
@@ -202,7 +200,7 @@ async function main(): Promise<void> {
   let neither = 0;
 
   for (const q of misses) {
-    const gold = q.bridge_paths.map(norm);
+    const gold = q.bridge_paths;
     const deep = await search(q.query_text, DEEP_FETCH, DEEP_PATHS);
     const deepHit = gold.some((p) => deep.has(p));
 
@@ -245,7 +243,7 @@ async function main(): Promise<void> {
     let heldMiss = 0;
     let heldHit = 0;
     for (const q of slice) {
-      const gold = q.bridge_paths.map(norm);
+      const gold = q.bridge_paths;
       const controlPaths = await search(q.query_text, CONTROL_FETCH, CONTROL_PATHS);
       const controlHit = gold.some((p) => controlPaths.has(p));
 

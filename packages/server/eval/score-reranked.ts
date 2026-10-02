@@ -39,7 +39,6 @@ const champion = JSON.parse(readFileSync(championPath, "utf8")) as { perQuery: E
 
 const goldenById = new Map(golden.queries.map((q) => [q.id, q]));
 const champById = new Map(champion.perQuery.map((p) => [p.id, p]));
-const norm = (p: string): string => p.replace(/\\/g, "/");
 
 // Pair reranked queries with the champion's graph-side metrics on the same ids.
 // Annotated: both are `push`ed after their declaration, so inference gave them `any[]` and every
@@ -51,14 +50,8 @@ for (const r of reranked.reranked) {
   const q = goldenById.get(r.id);
   const c = champById.get(r.id);
   if (!q || !c) continue;
-  const hits: RankedChunk[] = r.order.map((o) => ({ chunk_id: o.chunk_id, path: norm(o.path) }));
-  const normQ = {
-    ...q,
-    seed_paths: q.seed_paths.map(norm),
-    target_paths: q.target_paths.map(norm),
-    bridge_paths: q.bridge_paths.map(norm),
-  };
-  rerankMetrics.push(computeQueryMetrics(normQ, hits));
+  const hits: RankedChunk[] = r.order.map((o) => ({ chunk_id: o.chunk_id, path: o.path }));
+  rerankMetrics.push(computeQueryMetrics(q, hits));
   champMetrics.push(c.graph);
 }
 

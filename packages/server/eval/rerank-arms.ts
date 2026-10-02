@@ -325,7 +325,7 @@ function stageScore(): void {
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
   const pf = JSON.parse(readFileSync(poolsPath, "utf8")) as PoolFile;
   const poolById = new Map(pf.pools.map((p) => [p.id, p]));
-  // computeQueryMetrics normalizes the golden set's Windows-style paths on both sides.
+  // Labels were normalized by GoldenSetSchema on load; computeQueryMetrics normalizes the results.
   const queries = golden.queries.filter((q) => poolById.has(q.id));
   const metricsOf = (q: GoldenQuery, order: RankedChunk[]): QueryMetrics =>
     computeQueryMetrics(q, order);

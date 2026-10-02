@@ -26,22 +26,12 @@ import { assertGoldenNotInVault } from "./golden-guard";
 import {
   aggregateMetrics,
   computeQueryMetrics,
-  type GoldenQuery,
   GoldenSetSchema,
+  normalizeSeparators,
   type QueryMetrics,
 } from "./metrics";
 
 const POOL = 50;
-
-const norm = (p: string): string => p.replace(/\\/g, "/");
-function normQuery(q: GoldenQuery): GoldenQuery {
-  return {
-    ...q,
-    seed_paths: q.seed_paths.map(norm),
-    target_paths: q.target_paths.map(norm),
-    bridge_paths: q.bridge_paths.map(norm),
-  };
-}
 
 async function tokenEmbed(base: string, model: string, texts: string[]): Promise<ColbertMatrix[]> {
   const res = await fetch(`${base.replace(/\/$/, "")}/pooling`, {
@@ -98,13 +88,12 @@ async function main(): Promise<void> {
   const rescored: QueryMetrics[] = [];
   const encodeMs: number[] = [];
   const maxsimMs: number[] = [];
-  for (const raw of golden.queries) {
-    const q = normQuery(raw);
+  for (const q of golden.queries) {
     const [qv] = await provider.embed([q.query_text]);
     const pool = semanticSearch(db, firstVault.id, qv ?? [], { k: POOL, returnContent: true });
     const hits = pool.map((h) => ({
       chunk_id: h.chunk_id,
-      path: norm(h.path),
+      path: normalizeSeparators(h.path),
       content: h.content ?? "",
     }));
     dense.push(computeQueryMetrics(q, hits));

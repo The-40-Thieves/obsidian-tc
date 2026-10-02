@@ -45,6 +45,7 @@ import {
   type GoldenQuery,
   type GoldenSet,
   GoldenSetSchema,
+  normalizeSeparators,
   type QueryMetrics,
   type RankedChunk,
 } from "./metrics";
@@ -59,10 +60,6 @@ const DIAGNOSE_MAX_HOPS = 4;
 // and importing it would not help — the control needs the depth, not the same expression.
 const FANOUT_OVERFETCH_K = Math.max(TOP_K * 2, TOP_K + 10);
 
-// Golden-set paths are Windows-style (KMS-era); normalize both sides to forward slashes so the
-// comparison is separator-agnostic against whatever the local index stored.
-const norm = (p: string): string => p.replace(/\\/g, "/");
-
 /** The floor both ground-truth guards share: a run whose expected paths are mostly absent scores
  *  near 0 everywhere and says nothing about the thing under test. Declared ONCE at module scope
  *  because it is now enforced in two places — the corpus-coverage check and the `--acl-allow`
@@ -70,14 +67,6 @@ const norm = (p: string): string => p.replace(/\\/g, "/");
  *  about what counts as measurable. A third is already generous; below it the surviving sample is
  *  too small and too biased for a metric delta to mean anything. */
 const MIN_SURVIVING_FRACTION = 1 / 3;
-function normQuery(q: GoldenQuery): GoldenQuery {
-  return {
-    ...q,
-    seed_paths: q.seed_paths.map(norm),
-    target_paths: q.target_paths.map(norm),
-    bridge_paths: q.bridge_paths.map(norm),
-  };
-}
 
 /**
  * THE-699: restrict the GROUND TRUTH by the same predicate that restricts the corpus.
@@ -97,24 +86,12 @@ export function restrictQuery(
   q: GoldenQuery,
   isReadable: (rel: string) => boolean,
 ): { query: GoldenQuery; droppedTargets: number; droppedBridges: number } {
-  // NORMALIZE BEFORE TESTING READABILITY. Golden-set paths are Windows-style (`norm` above exists
-  // for exactly that reason) while the index — and therefore every glob an operator writes —
-  // uses forward slashes. Filtering the RAW path made `--acl-allow '09-reference/**'` fail to
-  // match `09-reference\decisions\x.md`, silently dropping it as "unreadable".
-  //
-  // Measured on the live golden set: 204 of 382 paths carry backslashes, so this dropped ~53% of
-  // ground truth for reasons that had nothing to do with the ACL. `09-reference/**` kept 31 of 250
-  // queries and was REFUSED by the 1/3 power floor below; normalized it keeps 94 and passes. The
-  // flag was unusable, and the failure looked like "the whitelist is too narrow".
-  //
-  // Worse than unusable: had a glob squeaked past the floor, the surviving sample would have been
-  // biased toward whichever golden entries happened to be authored with forward slashes — an
-  // artifact of when they were written. That is "a number that reads as a measurement and is not
-  // one", which is the exact thing the floor below was added to prevent.
-  //
-  // The ORIGINAL strings are kept in the returned query; only the readability TEST is normalized,
-  // so nothing downstream sees a different path than it did before.
-  const readable = (p: string): boolean => isReadable(norm(p));
+  // Labels are forward-slash by construction (`GoldenSetSchema` normalizes on load), which is what
+  // lets an operator's forward-slash glob (`09-reference/**`) match a set labelled Windows-style.
+  // Testing the raw path dropped ~53% of the private set's ground truth as "unreadable" and tripped
+  // the power floor below, so the flag looked like "the whitelist is too narrow". Callers that build
+  // a GoldenQuery by hand must pass labels through `GoldenQuerySchema` first.
+  const readable = isReadable;
   const targets = q.target_paths.filter(readable);
   const bridges = q.bridge_paths.filter(readable);
   return {
@@ -124,7 +101,7 @@ export function restrictQuery(
   };
 }
 function normHits(hits: RankedChunk[]): RankedChunk[] {
-  return hits.map((h) => ({ ...h, path: norm(h.path) }));
+  return hits.map((h) => ({ ...h, path: normalizeSeparators(h.path) }));
 }
 
 /**
@@ -350,8 +327,7 @@ function rrfMergeLists(lists: RankedChunk[][], topK: number): RankedChunk[] {
 /** Run the golden set: per query, compare the semantic baseline vs graph (GraphRAG) top-K. */
 export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
   const perQuery: EvalQueryResult[] = [];
-  for (const raw of opts.golden.queries) {
-    const q = normQuery(raw);
+  for (const q of opts.golden.queries) {
     let queryVec: number[] = [];
     let querySparse: SparseVec | undefined;
     if (opts.sparse && opts.provider.embedFull) {
@@ -466,9 +442,9 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
       const hits = normHits(
         res.map((r) => ({ chunk_id: r.chunk_id, path: r.path, source: r.source, hop: r.hop })),
       );
-      // Normalize FIRST, then dedupe: the golden set's paths are Windows-style, so two chunks of
-      // one note can differ as raw strings and match only after norm(). Deduping before that would
-      // leave duplicates behind on exactly the paths the metrics care about.
+      // Normalize FIRST, then dedupe: two chunks of one note can differ as raw strings and match only
+      // after normalization. Deduping before that would leave duplicates behind on exactly the paths
+      // the metrics care about.
       return opts.pathDedup ? dedupeByPath(hits, TOP_K) : hits;
     };
     // THE-258: the class router, same rules as serve. Lexical short-circuits to enriched
@@ -992,22 +968,18 @@ async function main(): Promise<void> {
         db
           .prepare("SELECT DISTINCT path FROM chunks WHERE vault_id = ?")
           .all(firstVault.id) as Array<{ path: string }>
-      ).map((r) => norm(r.path)),
+      ).map((r) => normalizeSeparators(r.path)),
     );
-    // Normalised on both sides. The golden sets are KMS-era and carry Windows separators; comparing
+    // Both sides forward-slash: labels were normalized at load, indexed paths just above. Comparing
     // raw would report 0% on a perfectly good pairing, which is the same false refusal in reverse.
-    const covered = golden.queries.filter((q) =>
-      q.target_paths.some((p) => indexed.has(norm(p))),
-    ).length;
+    const covered = golden.queries.filter((q) => q.target_paths.some((p) => indexed.has(p))).length;
     const total = golden.queries.length;
     process.stderr.write(
       `golden-set coverage: ${covered}/${total} queries have at least one target path in the index ` +
         `(${indexed.size} indexed paths, vault '${firstVault.id}')\n`,
     );
     if (covered < total * MIN_SURVIVING_FRACTION) {
-      const missing = golden.queries
-        .flatMap((q) => q.target_paths)
-        .find((p) => !indexed.has(norm(p)));
+      const missing = golden.queries.flatMap((q) => q.target_paths).find((p) => !indexed.has(p));
       console.error(
         `only ${covered}/${total} golden queries have a target path in this index ` +
           `(need at least ${Math.ceil(total * MIN_SURVIVING_FRACTION)}). This golden set does not ` +
@@ -1312,7 +1284,7 @@ async function main(): Promise<void> {
   // reachability probe over vault_edges) and aggregate the "what to build next" remediation lever.
   if (diagnose) {
     const graph = loadUndirectedGraph(db, firstVault.id);
-    const byId = new Map(golden.queries.map((q) => [q.id, normQuery(q)]));
+    const byId = new Map(golden.queries.map((q) => [q.id, q]));
     const analyses: QueryFailureAnalysis[] = [];
     for (const r of report.perQuery) {
       const q = byId.get(r.id);

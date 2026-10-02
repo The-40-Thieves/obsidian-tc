@@ -10,14 +10,24 @@
 // now using these same metrics over an in-memory corpus.
 import { z } from "zod";
 
+/** Paths are compared as forward-slash strings. The private golden set labels 204 of 382 paths
+ *  Windows-style (`09-reference\decisions\x.md`) while an index stores `09-reference/decisions/x.md`;
+ *  three scorers compared them raw, read every backslash label as a miss, and scored the private dense
+ *  baseline 0.40 nDCG@10 instead of 0.75. Labels are normalized ONCE, when the set is loaded
+ *  (`GoldenQuerySchema` below), so no scorer or caller needs its own copy; result paths are normalized
+ *  in `computeQueryMetrics`. Idempotent. */
+export const normalizeSeparators = (p: string): string => p.replace(/\\/g, "/");
+
 export const GoldenQuerySchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   query_text: z.string().min(1),
   seed_domain: z.string(),
   target_domain: z.string(),
-  seed_paths: z.array(z.string()),
-  target_paths: z.array(z.string()),
-  bridge_paths: z.array(z.string()),
+  // Normalized on parse: every loader goes through this schema, so a label is forward-slash by the
+  // time any scorer sees it. Do not re-normalize at a call site.
+  seed_paths: z.array(z.string().transform(normalizeSeparators)),
+  target_paths: z.array(z.string().transform(normalizeSeparators)),
+  bridge_paths: z.array(z.string().transform(normalizeSeparators)),
   description: z.string(),
   // THE-449: optional author-supplied labels (temporal, lexical, multi-hop, …) for per-category
   // slicing. Optional by design — a derived domain category (see eval/categories.ts) means an
@@ -100,26 +110,14 @@ function uniquePathsInOrder(chunks: RankedChunk[]): string[] {
   return ordered;
 }
 
-/** Golden-set paths are Windows-style (the private set: 204 of 382 labelled paths carry backslashes)
- *  while an index stores forward slashes. Normalized HERE, once, so no scorer can forget it: three
- *  scripts (search-mode, query-cache, search-and-read-cost) did, and read every backslash-labelled
- *  target as a miss, which scored the private dense baseline 0.40 instead of 0.75. Idempotent, so the
- *  scorers that already normalize (run.ts, score-reranked.ts) are unaffected. */
-export const normalizeSeparators = (p: string): string => p.replace(/\\/g, "/");
-
 export function computeQueryMetrics(
-  rawQuery: GoldenQuery,
+  query: GoldenQuery,
   rawResults: RankedChunk[],
   /** THE-751: the SAME predicate the search ran under. Passing the search's own isReadable (rather
    *  than rebuilding one) is what makes a zero here evidence about the shipped boundary. */
   isReadable?: (rel: string) => boolean,
 ): QueryMetrics {
-  const query: GoldenQuery = {
-    ...rawQuery,
-    seed_paths: rawQuery.seed_paths.map(normalizeSeparators),
-    target_paths: rawQuery.target_paths.map(normalizeSeparators),
-    bridge_paths: rawQuery.bridge_paths.map(normalizeSeparators),
-  };
+  // `query` came from GoldenSetSchema, so its labels are already normalized; results are not.
   const results = rawResults.map((c) => ({ ...c, path: normalizeSeparators(c.path) }));
   const allPaths = uniquePathsInOrder(results);
   const top10 = allPaths.slice(0, 10);
