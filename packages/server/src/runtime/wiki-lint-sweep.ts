@@ -48,15 +48,18 @@ export interface WikiLintSweepDeps {
     | undefined;
 }
 
-/** The sweep's `judge` dependency: present only when `maintenance.wikiLint.judge` is on AND a judge
- *  exists (a gateway judge role, or a TypeSafe backend that built) with a daily cap above 0. Absent
+/** The sweep's `judge` dependency: present only when `maintenance.wikiLint.judge` is on, tool
+ *  visibility does not disable `external-network`, AND a judge exists (a gateway judge role, or a TypeSafe backend that built) with a daily cap above 0. Absent
  *  leaves the sweep exactly as it was: no "judge: off" line in every summary. */
 export function wikiLintSweepJudge(
-  config: Pick<ServerConfig, "maintenance" | "wikiJudge" | "egress">,
+  config: Pick<ServerConfig, "maintenance" | "wikiJudge" | "egress" | "toolVisibility">,
   roles: GatewayRoles | null,
   warn?: (msg: string) => void,
 ): WikiLintSweepDeps["judge"] {
   if (!config.maintenance.wikiLint.judge || config.wikiJudge.maxCallsPerDay <= 0) return undefined;
+  // The sweep is not a tool, so tool visibility does not reach it; honour the one tag that says
+  // "no note text leaves this process" the way lint_wiki itself is removed by it.
+  if (config.toolVisibility?.disabledTags.includes("external-network")) return undefined;
   const excludeFilter = compileEgressFilter(config.egress.excludePaths);
   const backend = resolveWikiJudgeBackend(config.wikiJudge, roles, excludeFilter, warn);
   if (!backend) return undefined;

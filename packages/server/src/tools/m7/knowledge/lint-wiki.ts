@@ -127,7 +127,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
       .strict(),
     outputSchema: LintWikiOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge", "diagnostics"],
+    tags: ["knowledge", "diagnostics", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);

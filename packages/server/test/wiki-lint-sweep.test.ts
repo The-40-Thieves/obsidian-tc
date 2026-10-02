@@ -210,6 +210,25 @@ describe("wikiLintSweepJudge: the sweep judges by default, but only when a judge
     ).toBeUndefined();
   });
 
+  it("toolVisibility.disabledTags external-network turns it off: no note text leaves", () => {
+    const c = cfg((x) => {
+      x.toolVisibility = {
+        ...(x.toolVisibility as object),
+        disabledTags: ["external-network"],
+      } as never;
+    });
+    expect(wikiLintSweepJudge(c, roles)).toBeUndefined();
+    // hiddenTags only hides tools from discovery; it is not a block, so the sweep still judges.
+    const hidden = cfg((x) => {
+      x.toolVisibility = {
+        ...(x.toolVisibility as object),
+        hiddenTags: ["external-network"],
+        disabledTags: [],
+      } as never;
+    });
+    expect(wikiLintSweepJudge(hidden, roles)).toBeDefined();
+  });
+
   it("wikiJudge.maxCallsPerDay=0 turns it off", () => {
     expect(
       wikiLintSweepJudge(

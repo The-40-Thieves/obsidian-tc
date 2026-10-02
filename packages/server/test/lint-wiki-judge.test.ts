@@ -71,6 +71,17 @@ const pair = (d: any, a: string): any =>
   );
 
 describe("lint_wiki judge: near-duplicate proposals carry the verdict", () => {
+  it("lint_wiki carries the external-network tag: its judge sends note text outside the process", async () => {
+    const hh = fixture({ roles: null });
+    expect(hh.v.registry.list().find((t) => t.name === "lint_wiki")?.tags).toContain(
+      "external-network",
+    );
+    // The same tag find_existing_page carries, so one disabledTags entry covers both judges.
+    expect(hh.v.registry.list().find((t) => t.name === "find_existing_page")?.tags).toContain(
+      "external-network",
+    );
+  });
+
   it("without a judge nothing is sent and the proposals are as before", async () => {
     const { roles, calls } = stubRoles(byTopic);
     const d = await fixture({ roles, wikiJudge: { lintEnabled: false } }).data("lint_wiki", LINT);

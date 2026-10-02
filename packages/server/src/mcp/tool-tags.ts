@@ -70,7 +70,7 @@ export const TOOL_TAG_VOCABULARY: Readonly<Record<string, ToolTagSpec>> = {
   "external-network": {
     source: "declared",
     description:
-      "May send query or note text to a service outside the server process: a hosted embedding provider, or a cloud sync plugin.",
+      "May send query or note text to a service outside the server process: a hosted embedding provider, an LLM judge (the gateway or TypeSafe), or a cloud sync plugin.",
   },
   "client-sampling": {
     source: "declared",

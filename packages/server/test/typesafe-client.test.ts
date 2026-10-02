@@ -579,7 +579,8 @@ describe("typesafe client — choice", () => {
       model: "jev-1.13.0",
       questions: { q: { type: "choice", instructions: "same topic?", criteria: OPTIONS } },
     });
-    expect((seen[0]?.req.headers as Record<string, string>).authorization).toBe("Bearer k");
+    const headers = (seen[0]?.req.headers ?? {}) as Record<string, string>;
+    expect(headers.authorization).toBe("Bearer k");
   });
 
   const malformed: [string, Record<string, unknown>][] = [
