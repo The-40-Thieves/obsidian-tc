@@ -26,7 +26,9 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
 
 const PROCESSES = 4;
 const ITERATIONS = Number(process.env.MIGRATE_RACE_ITERATIONS ?? 50);
-const BUSY_TIMEOUT_MS = 10_000;
+// Overridable only to DIAGNOSE: a short budget makes a failure's `elapsedMs` say whether the busy
+// handler spent the whole budget (contention) or was never invoked (a classification gap).
+const BUSY_TIMEOUT_MS = Number(process.env.MIGRATE_RACE_BUSY_MS ?? 10_000);
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -42,13 +44,15 @@ interface ChildResult {
   ok: boolean;
   applied?: string[];
   error?: string;
+  /** Child wall time from barrier release to done (diagnostic only). */
+  ms?: number;
 }
 
 /** Spawn `PROCESSES` children, wait until all are READY, release them together, collect results.
  *  Every child is killed in `finally` — a hung child must never outlive the test. */
 async function raceOnce(chain: string, cacheDir: string): Promise<ChildResult[]> {
-  const children = Array.from({ length: PROCESSES }, () =>
-    spawn("bun", [CHILD, chain, cacheDir, String(BUSY_TIMEOUT_MS)], {
+  const children = Array.from({ length: PROCESSES }, (_, i) =>
+    spawn("bun", [CHILD, chain, cacheDir, String(BUSY_TIMEOUT_MS), String(i)], {
       stdio: ["pipe", "pipe", "pipe"],
     }),
   );
@@ -112,12 +116,19 @@ describe.skipIf(!bunAvailable)("migration runner: concurrent cold boot across pr
   for (const { chain, file, versions } of CHAINS) {
     it(`${chain}: ${PROCESSES} processes x ${ITERATIONS} fresh cacheDirs, zero failures, each migration applied exactly once`, async () => {
       const failures: string[] = [];
+      let slowestMs = 0;
       for (let i = 0; i < ITERATIONS; i++) {
         const cacheDir = tmpDir();
         const results = await raceOnce(chain, cacheDir);
+        for (const r of results) slowestMs = Math.max(slowestMs, r.ms ?? 0);
         const bad = results.filter((r) => !r.ok);
         if (bad.length > 0) {
-          failures.push(`iteration ${i}: ${bad.map((b) => b.error).join(" | ")}`);
+          // One entry per failed child: each carries its process index, phase, SQLite codes, time
+          // since the barrier and stack, and `ok` siblings' times show who else was busy.
+          for (const b of bad) failures.push(`iteration ${i} cacheDir=${cacheDir}: ${b.error}`);
+          failures.push(
+            `iteration ${i} ms since barrier per child: ${results.map((r) => r.ms ?? "?").join(" ")}`,
+          );
           continue;
         }
         const applied = results.flatMap((r) => r.applied ?? []).sort();
@@ -137,8 +148,16 @@ describe.skipIf(!bunAvailable)("migration runner: concurrent cold boot across pr
         const missing = versions.filter((v) => !rows.includes(v));
         if (missing.length > 0) failures.push(`iteration ${i}: rows missing ${missing.join(",")}`);
       }
-      // Count in the message: a flake rate is the evidence, not just pass/fail.
-      expect(failures, `${failures.length}/${ITERATIONS} iterations failed`).toEqual([]);
+      // The FULL list goes in the message (vitest truncates a long array diff, which hid the cause
+      // of a Windows merge-queue failure) and to stderr, which CI logs keep verbatim. The count is
+      // in the message too: a flake rate is the evidence, not just pass/fail.
+      process.stderr.write(`\n[${chain}] slowest child: ${slowestMs} ms\n`);
+      const report = failures.join("\n---\n");
+      if (failures.length > 0) process.stderr.write(`\n[${chain}] failures:\n${report}\n`);
+      expect(
+        failures.length,
+        `${failures.length} failure entries over ${ITERATIONS} iterations:\n${report}`,
+      ).toBe(0);
     }, 600_000);
   }
 });
