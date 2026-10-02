@@ -45,7 +45,6 @@ export const WikiPageSpec = z
       .describe("`overwrite` only: the page's current content_hash."),
   })
   .strict();
-export type WikiPage = z.infer<typeof WikiPageSpec>;
 
 export const WikiPatchSpec = z
   .object({
