@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { ServerConfigSchema } from "../src/index";
 
 const base = { vaults: [{ id: "main", path: "/v" }] };
-const parse = (wikiJudge: Record<string, unknown>) => ServerConfigSchema.parse({ ...base, wikiJudge });
+const parse = (wikiJudge: Record<string, unknown>) =>
+  ServerConfigSchema.parse({ ...base, wikiJudge });
 const typesafe = (extra: Record<string, unknown> = {}) =>
   parse({ provider: "typesafe", model: "jev-1.13.0", threshold: 0.6, ...extra });
 
@@ -42,7 +43,9 @@ describe("wikiJudge.provider typesafe", () => {
   );
 
   it("requires a model", () => {
-    expect(() => parse({ provider: "typesafe", threshold: 0.6 })).toThrow(/wikiJudge\.model is required/);
+    expect(() => parse({ provider: "typesafe", threshold: 0.6 })).toThrow(
+      /wikiJudge\.model is required/,
+    );
   });
 
   it("requires a threshold (no default)", () => {

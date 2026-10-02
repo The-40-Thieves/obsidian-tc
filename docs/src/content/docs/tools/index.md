@@ -216,7 +216,7 @@ returns a `verdict` and the candidate notes with the evidence for each:
 | `ambiguous` | Several pages match on identity, or only soft evidence exists: other notes already link the text, or a note is semantically near. | Read the candidates, then decide. |
 | `new` | Nothing matched. | Create the page. |
 
-Semantic similarity alone never produces `exists`; the calibration below is why. The opt-in [LLM judge](#the-llm-judge-opt-in) can resolve an `ambiguous` verdict.
+Semantic similarity alone never produces `exists`; the calibration below is why. The [LLM judge](#the-llm-judge) can resolve an `ambiguous` verdict.
 
 **`lint_wiki`: periodic upkeep.** One call runs the existing health checks and a note-level
 near-duplicate pass, and returns **proposals**: each is `{ kind, subject, related?, detail,
@@ -257,12 +257,16 @@ holds the source note for 33 of 60 topics, so lower `min_similarity` per call (f
 candidates. The floors are specific to `BAAI/bge-m3`; on another embedding model treat them as a starting
 point.
 
-### The LLM judge (opt-in)
+### The LLM judge
 
 Because similarity cannot decide "same topic", a model can read the candidates. The judge runs through
-the gateway `judge` role only (no gateway, no judge) and is **off by default**:
-`wikiJudge.enabled: false` (see [`wikiJudge`](/configuration/config-yaml/)); `judge: true` on a call turns it on for
-that call.
+the gateway `judge` role by default, or through TypeSafe Jev with `wikiJudge.provider: typesafe`
+(see [`wikiJudge`](/configuration/config-yaml/)); with neither configured, there is no judge and nothing
+changes. For `find_existing_page` it is **off by default** (`wikiJudge.enabled: false`; `judge: true` on a
+call turns it on for that call). For `lint_wiki` and the scheduled lint it is **on by default whenever a
+judge is configured** (`wikiJudge.lintEnabled: true`, `maintenance.wikiLint.judge: true`); `judge: false`
+on a call, or `lintEnabled: false`, turns it off. The scheduled lint itself still needs
+`maintenance.wikiLint.enabled: true`.
 
 * **`find_existing_page` `judge`.** Only a verdict of `ambiguous` that rests on soft evidence (similarity,
   link text) is judged; an exact name, alias, `wikidata:` or title match is final and never sent. Up to
@@ -273,8 +277,20 @@ that call.
   judge to prefer `overlapping` when unsure.
 * **`lint_wiki` `judge`.** Each `near_duplicate` proposal can carry a `judge_verdict` (up to
   `max_judge_calls` per call). `maintenance.wikiLint.judge: true` makes the scheduled pass judge too, capped
-  at `maintenance.wikiLint.judgeMaxCalls` per run, and logs the verdict counts. Both are opt-in because they
-  spend gateway calls.
+  at `maintenance.wikiLint.judgeMaxCalls` per run, and logs the verdict counts. Both default on once a
+  judge is configured, because the judge only adds a verdict to a proposal and the daily cap bounds the
+  spend. `lint_wiki` now carries the `external-network` tag, so `toolVisibility.disabledTags:
+  ["external-network"]` removes it (set `wikiJudge.lintEnabled: false` to keep the tool without the judge),
+  and the scheduled pass skips its judge under that tag instead of calling out.
+* **TypeSafe Jev (`wikiJudge.provider: typesafe`, experimental).** Jev is asked a Choice question over
+  `same_topic`, `overlapping` and `different` and returns probabilities; a pair is `same_topic` when its
+  probability reaches `wikiJudge.threshold`, otherwise the likelier of the other two. `model` must be a
+  pinned, dotted version (`jev-1.13.0`, never a floating alias) and `threshold` has no default: it is a
+  ranking score, not a calibrated probability and not a security control, so tune it on labelled pairs from
+  your own vault. It never falls back to the gateway, and a missing key or bad block disables the judge
+  with a warning rather than changing provider. The base URL must be `https://` unless it is loopback or
+  `allowPlainHttp` is set (a gateway pass-through on a private network). The same egress rules apply
+  as for the gateway judge.
 * **Caps.** `wikiJudge.maxCallsPerDay` (default 200, `0` disables) bounds gateway calls per UTC day across
   every caller; a failed call counts, and the call is reserved before it is sent. `wikiJudge.timeoutMs`
   (default 15000) is a per-call deadline that also cancels the gateway request. `wikiJudge.maxNoteChars`
@@ -284,9 +300,9 @@ that call.
   editing a note or a gateway repoint of the `judge` alias (the resolved `provider/model` is recorded, never
   the alias) re-asks; a repeat costs nothing. No page text is stored.
 * **Privacy.** The topic and the opening text of the candidate pages (at most `maxNoteChars` each) go to the
-  gateway judge model. A note is sent only if the caller may read it (ACL), it is outside `egress.excludePaths`
+  judge (the gateway model, or TypeSafe with `provider: typesafe`). A note is sent only if the caller may read it (ACL), it is outside `egress.excludePaths`
   and outside Obsidian's Excluded files; such notes are never sent and are listed as `unjudged`. `maxCallsPerDay: 0`
-  or no gateway keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the model, today's
+  or no judge configured keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the provider, the model, today's
   calls and failures.
 * **Model note.** The gateway's `judge` alias served `openai/gpt-6-sol` when this was measured. That model
   answers HTTP 400 to `temperature` and `max_tokens`, so the judge request sends neither.
@@ -312,8 +328,22 @@ the judge on by default needed a recall lift of 0.25 over embedding-only on the 
 candidates. A follow-up could judge the top-3 whatever the floor says, but the study does not support
 it yet. For note pairs (`lint_wiki`), the judge over the 840 labelled pairs had precision 0.92 and recall
 0.95 (held-out 0.90 / 0.95); 8 of its 10 disagreements with the title-only labels were real duplicates on a
-full read by a second model, so the lint judge stays opt-in but is promising. With 31 held-out positives the
+full read by a second model, so the lint judge is on by default once a judge is configured (it only adds a verdict to a proposal), while the `find_existing_page` judge stays off. With 31 held-out positives the
 intervals are wide; this is one corpus, one embedding model and one judge model.
+
+**TypeSafe Jev against the gateway judge (note pairs, same corpus and split).** A second pre-registered study
+(written and hashed before the first Jev call; one earlier connectivity call and the known `openai/gpt-6-sol`
+held-out result are disclosed in it) asked whether Jev (`jev-1.13.0`) is non-inferior to the gateway judge's
+recorded verdicts on the 840 labelled `lint_wiki` pairs. Jev's `same_topic` probability threshold was tuned on the
+30-note calibration split only, and the 30-note held-out split was scored once. Non-inferiority needed, for
+precision and for recall each, a point difference no worse than 0.05 absolute and a one-sided 95% paired-bootstrap
+lower bound no worse than -0.10 (10,000 resamples, seed 1328). **Result: Jev was non-inferior at that margin on
+both metrics, so Jev is the recommended lint-judge provider on Cave** (`wikiJudge.provider: typesafe`); the gateway
+judge remains the default provider. With about 63 held-out positives the power is low, and it is one corpus, one
+embedding model and one threshold. TypeSafe's customer agreement bars publishing benchmark figures, so no Jev
+precision, recall, latency or threshold is published here: the figures and the tuned threshold stay with the operator
+(tune the threshold on labelled pairs from your own vault). The `find_existing_page` judge is unchanged: the
+topic-to-page recall that kept it off was measured with the gateway judge and has not been re-measured for Jev.
 
 ## Response format
 
