@@ -142,10 +142,7 @@ export function readNote(abs: string): { raw: string; hash: string } {
   }
 }
 
-/** readNote with a size ceiling: `raw` is null when the file holds more than `maxBytes`. The JS path
- *  never takes more than `maxBytes + 1` bytes off the open descriptor, so a file that grows after a
- *  size check cannot make this read it whole; the native reader returns the whole file, and the
- *  length is checked after. */
+/** readNote with a byte ceiling: `raw` is null over `maxBytes`; the JS path reads at most one byte past it. */
 export function readNoteBounded(abs: string, maxBytes: number): { raw: string | null } {
   if (nativeIo) {
     try {
@@ -266,7 +263,6 @@ function commitNoReplace(tmp: string, abs: string): void {
     try {
       renameSync(tmp, abs);
     } catch (e3) {
-      // The placeholder is ours (O_EXCL made it): a failed rename must not leave it as an empty note.
       removeTemp(abs);
       removeTemp(tmp);
       throw e3;
@@ -366,7 +362,6 @@ function removeTemp(tmp: string): void {
   } catch {}
 }
 
-/** A staged write (temp file on disk): `commit` makes it the note, `discard` drops it. */
 export interface StagedWrite {
   commit(): void;
   discard(): void;
