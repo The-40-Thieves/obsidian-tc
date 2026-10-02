@@ -104,7 +104,9 @@ MCP specification defines them: `decline` is "User explicitly declined the reque
   and `recovery` point at the out-of-band `obsidian-tc elicit` route below. This matters
   for headless clients: Claude Code run non-interactively advertises elicitation and
   auto-answers `cancel` within milliseconds, with no human in the loop, so the operator
-  approves out of band instead.
+  approves out of band instead. Codex run non-interactively (`codex exec`) answers `decline`
+  instead, which is the hard stop above: the agent cannot recover, so the user approves by minting
+  the token themselves (see [MCP clients](/getting-started/mcp-clients/#approval-prompts-when-the-client-runs-headless)).
 
 The single-use elicit-token/CLI mechanism below is what a client with no elicitation
 capability, or one that only ever cancels, falls back to.

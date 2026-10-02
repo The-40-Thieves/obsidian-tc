@@ -56,11 +56,17 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
   | `cursor` | `triad` | A 40-tool cap has been reported but is unverified — kept at the existing default. |
   | *(anything else)* | `triad` | The existing, ADR-anchored default. |
 
-  **This table is a starting point, not a measurement.** Nothing here has yet
-  measured tool-*selection* accuracy per client — only per raw tool count (see
-  `docs/adr/0006-the-default-surface-is-the-triad.md`). A follow-up ticket will
-  replace it with per-client data; until then, override any entry with
-  `toolFacade.autoClients` in your config.
+  **`auto` is superseded; set the mode explicitly per client.** The table above
+  is a judgement call, not a measurement, and the measurement that followed does
+  not support its `claude-code` → `domain` pick: with Claude Code's own tool
+  search on, `domain` matched `triad` on success and added validation errors
+  (the model cannot see a domain action's schema before calling it). The
+  project decided against client-sniffing — MCP 2026-07-28 says list endpoints
+  no longer vary per connection — and recommends one explicit `toolFacade.mode`
+  per client instead: see
+  [Choosing a facade mode per client](/getting-started/mcp-clients/#choosing-a-facade-mode-per-client)
+  for the measured recommendations and the evidence behind each. `auto` stays
+  available for existing configs; no default depends on it.
 
   **Explaining an `auto` decision.** Set `toolFacade.explainAutoMode: true`
   (default `false`) to see why a client got the mode it did, without changing
