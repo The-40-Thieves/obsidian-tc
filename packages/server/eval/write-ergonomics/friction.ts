@@ -56,6 +56,14 @@ export const readTap = (path: string): TapEntry[] => {
   }
 };
 
+/** The mid-task hook fired straight after an ERRORED call (the first run of the harness did this when a
+ *  read failed on the missing `vault`): the external edit landed before the model held any content, so the
+ *  trial never exercised the stale-hash path. */
+export function hookFiredOnError(tap: TapEntry[]): boolean {
+  const i = tap.findIndex((e) => e.dir === "hook");
+  return i > 0 && tap[i - 1]?.isError === true;
+}
+
 const DISCOVERY = new Set(["find_capability", "describe_capability"]);
 
 export function toCalls(tap: TapEntry[]): TapCall[] {

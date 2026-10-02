@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { MEMORY_ENTITY, SEED, writeSeeds } from "../eval/write-ergonomics/fixtures";
-import { friction } from "../eval/write-ergonomics/friction";
+import { friction, hookFiredOnError } from "../eval/write-ergonomics/friction";
 import { applyHook, effectiveCall, hookMatches } from "../eval/write-ergonomics/tap-proxy";
 import {
   type CheckCtx,
@@ -134,6 +134,17 @@ describe("tap proxy helpers", () => {
       // first successful read, so the hash it sent was fresh and the CAS path was never exercised.
       expect(hookMatches(h, "read_note", { path: h.path }, true), task.id).toBe(false);
     }
+  });
+
+  it("flags a hook that fired right after an errored call", () => {
+    const hook = { t: 1, dir: "hook" };
+    expect(hookFiredOnError([{ t: 0, dir: "s2c", tool: "read_note", isError: true }, hook])).toBe(
+      true,
+    );
+    expect(hookFiredOnError([{ t: 0, dir: "s2c", tool: "read_note", isError: false }, hook])).toBe(
+      false,
+    );
+    expect(hookFiredOnError([{ t: 0, dir: "s2c", tool: "read_note" }])).toBe(false);
   });
 
   it("applies an append hook and a replace hook, and refuses a replace whose text is absent", () => {

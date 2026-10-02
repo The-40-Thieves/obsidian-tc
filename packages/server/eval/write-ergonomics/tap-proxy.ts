@@ -133,7 +133,12 @@ function main(): void {
           bytes: Buffer.byteLength(line),
           text: text.slice(0, 1500),
         });
-        if (hook && !fired && hookMatches(hook, p.tool, p.args, failed) && ++matched >= (hook.nth ?? 1)) {
+        if (
+          hook &&
+          !fired &&
+          hookMatches(hook, p.tool, p.args, failed) &&
+          ++matched >= (hook.nth ?? 1)
+        ) {
           fired = true;
           applyHook(vault, hook);
           emit({ dir: "hook", file: hook.file, afterTool: hook.afterTool });

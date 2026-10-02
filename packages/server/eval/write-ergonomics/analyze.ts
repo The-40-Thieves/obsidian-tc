@@ -10,6 +10,7 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import type { QueryMetrics } from "../metrics";
+import { hookFiredOnError, readTap } from "./friction";
 import type { TrialResult } from "./run";
 import { TASKS } from "./tasks";
 
@@ -33,6 +34,25 @@ export function loadTrials(root: string, runs = "runs"): TrialResult[] {
   };
   walk(join(root, runs));
   return out;
+}
+
+export interface Excluded {
+  trial: TrialResult;
+  reason: string;
+}
+
+/** Trials whose mid-task hook never ran, or ran before the model's first successful read, say nothing
+ *  about the CAS path: they are listed under Deviations and kept out of every table. */
+export function partition(all: TrialResult[]): { trials: TrialResult[]; excluded: Excluded[] } {
+  const trials: TrialResult[] = [];
+  const excluded: Excluded[] = [];
+  for (const t of all) {
+    if (t.notExercised) excluded.push({ trial: t, reason: "hook never fired" });
+    else if (hookFiredOnError(readTap(join(t.runDir, "tap.jsonl"))))
+      excluded.push({ trial: t, reason: "hook fired after an errored call" });
+    else trials.push(t);
+  }
+  return { trials, excluded };
 }
 
 const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
@@ -231,7 +251,7 @@ export function check(trials: TrialResult[]): string[] {
 function main(): void {
   const argv = process.argv.slice(2);
   const root = resolve(flag(argv, "--root") ?? "");
-  const trials = loadTrials(root, flag(argv, "--runs") ?? "runs");
+  const { trials, excluded } = partition(loadTrials(root, flag(argv, "--runs") ?? "runs"));
   if (argv.includes("--check")) {
     const problems = check(trials);
     for (const p of problems) process.stderr.write(`${p}\n`);
@@ -243,7 +263,21 @@ function main(): void {
   if (out)
     writeFileSync(
       out,
-      `${JSON.stringify({ generatedAt: new Date().toISOString(), trials, cells }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          generatedAt: new Date().toISOString(),
+          trials,
+          cells,
+          excluded: excluded.map((e) => ({
+            client: e.trial.client,
+            task: e.trial.task,
+            rep: e.trial.rep,
+            reason: e.reason,
+          })),
+        },
+        null,
+        2,
+      )}\n`,
     );
   const tb = flag(argv, "--tables");
   if (tb) writeFileSync(tb, tables(trials, cells));
@@ -251,7 +285,9 @@ function main(): void {
   if (ts) writeFileSync(ts, taskSet());
   const art = flag(argv, "--artifact");
   if (art) writeFileSync(art, `${JSON.stringify(artifact(trials, cells), null, 2)}\n`);
-  process.stdout.write(`${trials.length} trials, ${cells.length} client x task cells\n`);
+  process.stdout.write(
+    `${trials.length} trials (${excluded.length} excluded), ${cells.length} client x task cells\n`,
+  );
 }
 
 if ((import.meta as unknown as { main?: boolean }).main) main();
