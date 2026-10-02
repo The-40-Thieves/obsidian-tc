@@ -2,6 +2,7 @@
 // tested in isolation first; `deriveClosedWindows` is the cross-store (cache.db + experiential.db)
 // wiring on top of it, tested against real migration chains via `provisionCacheDb`/`runMigrations`
 // (the reflect-citation-preferences.test.ts pattern for a cross-store fixture).
+
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,7 @@ import {
 } from "../src/experiential/reflect";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const read = (name: string) =>
   readFileSync(fileURLToPath(new URL(`../src/migrations/${name}`, import.meta.url)), "utf8");
@@ -821,20 +823,24 @@ describe("deriveClosedWindows", () => {
   // THE-726 review round 1 BLOCKING #4 (second half): candidateIds is bounded IN THE SQL (a LIMIT
   // in the query, not a slice of an unbounded result), so the next step's `IN (...)` expansion can
   // never ask for more bind parameters than the cap regardless of backlog size.
-  it("the candidate session scan is bounded — a backlog far larger than the cap does not make every session a candidate in one pass", async () => {
-    const { cacheDb, edb } = stores();
-    const backlogSize = MAX_CANDIDATE_SESSIONS + 5;
-    for (let i = 0; i < backlogSize; i++) {
-      const id = `bulk-${i}`;
-      seedSession(cacheDb, id, { endedAt: NOW - 1000 - i }); // each with a distinct, older ended_at
-      seedEpisode(edb, { session: id, tool: "read_note", ts: NOW - 5000 - i });
-    }
-    // A `limit` far larger than the cap: if candidateIds were unbounded, sessionsSeen would equal
-    // the whole backlog. It cannot, because the candidate SELECT itself caps at MAX_CANDIDATE_SESSIONS.
-    const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, limit: backlogSize });
-    expect(out.sessionsSeen).toBeLessThan(backlogSize);
-    expect(out.sessionsSeen).toBeLessThanOrEqual(MAX_CANDIDATE_SESSIONS);
-  }, 20_000);
+  it(
+    "the candidate session scan is bounded — a backlog far larger than the cap does not make every session a candidate in one pass",
+    async () => {
+      const { cacheDb, edb } = stores();
+      const backlogSize = MAX_CANDIDATE_SESSIONS + 5;
+      for (let i = 0; i < backlogSize; i++) {
+        const id = `bulk-${i}`;
+        seedSession(cacheDb, id, { endedAt: NOW - 1000 - i }); // each with a distinct, older ended_at
+        seedEpisode(edb, { session: id, tool: "read_note", ts: NOW - 5000 - i });
+      }
+      // A `limit` far larger than the cap: if candidateIds were unbounded, sessionsSeen would equal
+      // the whole backlog. It cannot, because the candidate SELECT itself caps at MAX_CANDIDATE_SESSIONS.
+      const out = await deriveClosedWindows(edb, cacheDb, { nowMs: NOW, limit: backlogSize });
+      expect(out.sessionsSeen).toBeLessThan(backlogSize);
+      expect(out.sessionsSeen).toBeLessThanOrEqual(MAX_CANDIDATE_SESSIONS);
+    },
+    stallTimeout(20_000),
+  );
 
   // THE-726 fix round 3 (G2): open sessions (cache.db `ended_at IS NULL`) used to occupy candidate
   // slots the same as ended ones - enough of them (>= the cap) meant an ended session with real

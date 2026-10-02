@@ -157,7 +157,7 @@ describe("gooseConfigPath / gooseServerEntry", () => {
       description: "obsidian-tc MCP server",
       enabled: true,
       name: "obsidian-tc",
-      timeout: 300,
+      timeout: 300, // stall-ok: a config field of the fixture entry, not a test budget
       type: "stdio",
       cmd: "obsidian-tc",
       args: ["--config", "/cfg.json"],

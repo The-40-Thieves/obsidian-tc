@@ -34,11 +34,13 @@
 // the key + cert) | OBSIDIAN_TC_LIVE_URL (default https://127.0.0.1:27124) | OBSIDIAN_TC_LIVE_KEY
 // | OBSIDIAN_TC_LIVE_CACERT (PEM path; default: the vault cert) | OBSIDIAN_TC_LIVE_PREFIX
 // (default /obsidian-tc/v1) | OBSIDIAN_TC_LIVE_EXPECT (CSV of capability keys expected installed).
+
 import { readFileSync } from "node:fs";
 import * as http from "node:http";
 import * as https from "node:https";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 
 const LIVE = !!process.env.OBSIDIAN_TC_LIVE;
 const VAULT = process.env.OBSIDIAN_TC_LIVE_VAULT ?? "";
@@ -141,7 +143,7 @@ describe.skipIf(!LIVE)("live companion <-> LRA bridge (opt-in)", () => {
         `companion bridge not reachable at ${BASE}${PREFIX}/probe (got ${status}). Install + enable ` +
           'the "TC Bridge" companion in this vault and reload Obsidian first (see the file header).',
       );
-  }, 15_000);
+  }, stallTimeout(15_000));
 
   it("GET {prefix}/probe returns 200 with a sane capability snapshot (#153/#154)", async () => {
     const { status, json } = await api(`${PREFIX}/probe`);

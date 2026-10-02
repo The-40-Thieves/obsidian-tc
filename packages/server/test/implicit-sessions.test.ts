@@ -24,6 +24,7 @@ import {
   openImplicitSession,
 } from "../src/workspace/sessions";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -565,117 +566,137 @@ async function call(
 }
 
 describe("THE-726 slice 3 end-to-end: the server opens the session", () => {
-  it("leaves session_id NULL when autoOpen is off — the default must change nothing", async () => {
-    const h = await boot();
-    try {
-      const alice = await tokenFor("alice");
-      expect((await call(h.port, alice, "probe")).session_id).toBeNull();
-      expect(
-        (h.db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n,
-      ).toBe(0);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+  it(
+    "leaves session_id NULL when autoOpen is off — the default must change nothing",
+    async () => {
+      const h = await boot();
+      try {
+        const alice = await tokenFor("alice");
+        expect((await call(h.port, alice, "probe")).session_id).toBeNull();
+        expect(
+          (h.db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n,
+        ).toBe(0);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("opens one on the FIRST dispatch and reuses it on the next, without any client call", async () => {
-    const h = await boot({ autoOpen: true, windowSeconds: 1800 });
-    try {
-      const alice = await tokenFor("alice");
-      // The acceptance criterion this epic has been stuck on, reached with no client change at all.
-      const first = (await call(h.port, alice, "probe")).session_id as string;
-      expect(first).toMatch(/^sess_[0-9a-f]{24}$/);
+  it(
+    "opens one on the FIRST dispatch and reuses it on the next, without any client call",
+    async () => {
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 });
+      try {
+        const alice = await tokenFor("alice");
+        // The acceptance criterion this epic has been stuck on, reached with no client change at all.
+        const first = (await call(h.port, alice, "probe")).session_id as string;
+        expect(first).toMatch(/^sess_[0-9a-f]{24}$/);
 
-      // Reused, not re-opened. A second row per request would make session_id useless as a
-      // correlation key and would grow workspace_sessions without bound.
-      const second = (await call(h.port, alice, "probe")).session_id;
-      expect(second).toBe(first);
-      expect(
-        (h.db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n,
-      ).toBe(1);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        // Reused, not re-opened. A second row per request would make session_id useless as a
+        // correlation key and would grow workspace_sessions without bound.
+        const second = (await call(h.port, alice, "probe")).session_id;
+        expect(second).toBe(first);
+        expect(
+          (h.db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n,
+        ).toBe(1);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("keeps principals apart, so auto-opening cannot merge two callers", async () => {
-    const h = await boot({ autoOpen: true, windowSeconds: 1800 });
-    try {
-      const a = (await call(h.port, await tokenFor("alice"), "probe")).session_id;
-      const b = (await call(h.port, await tokenFor("bob"), "probe")).session_id;
-      expect(a).not.toBe(b);
-      expect(
-        (h.db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n,
-      ).toBe(2);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+  it(
+    "keeps principals apart, so auto-opening cannot merge two callers",
+    async () => {
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 });
+      try {
+        const a = (await call(h.port, await tokenFor("alice"), "probe")).session_id;
+        const b = (await call(h.port, await tokenFor("bob"), "probe")).session_id;
+        expect(a).not.toBe(b);
+        expect(
+          (h.db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n,
+        ).toBe(2);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("yields to a session the client opens deliberately", async () => {
-    const h = await boot({ autoOpen: true, windowSeconds: 1800 });
-    try {
-      const alice = await tokenFor("alice");
-      const auto = (await call(h.port, alice, "probe")).session_id as string;
+  it(
+    "yields to a session the client opens deliberately",
+    async () => {
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 });
+      try {
+        const alice = await tokenFor("alice");
+        const auto = (await call(h.port, alice, "probe")).session_id as string;
 
-      // An explicit start_session is the more recent open session, so activeSessionFor prefers it.
-      // No flag and no precedence rule is needed for that — "most recent open" already says it.
-      const declared = (
-        await call(h.port, alice, "start_session", { vault: "main", caller: "agent-alpha" })
-      ).session_id as string;
-      expect(declared).not.toBe(auto);
-      expect((await call(h.port, alice, "probe")).session_id).toBe(declared);
+        // An explicit start_session is the more recent open session, so activeSessionFor prefers it.
+        // No flag and no precedence rule is needed for that — "most recent open" already says it.
+        const declared = (
+          await call(h.port, alice, "start_session", { vault: "main", caller: "agent-alpha" })
+        ).session_id as string;
+        expect(declared).not.toBe(auto);
+        expect((await call(h.port, alice, "probe")).session_id).toBe(declared);
 
-      // And the sweep then closes only the abandoned auto session, never the declared one. `now` is
-      // taken forward from the REAL clock, not a synthetic epoch: these rows were stamped by the
-      // transport with Date.now(), so a small absolute `now` puts the cutoff decades before them and
-      // the sweep correctly finds nothing — which would read here as the arm being broken.
-      const past = Date.now() + 3_600_000;
-      expect(closeStaleImplicitSessions(h.db, { now: past, windowSeconds: 1800 })).toBe(1);
-      expect(
-        (
-          h.db.prepare("SELECT ended_at FROM workspace_sessions WHERE id = ?").get(declared) as {
-            ended_at: number | null;
-          }
-        ).ended_at,
-      ).toBeNull();
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        // And the sweep then closes only the abandoned auto session, never the declared one. `now` is
+        // taken forward from the REAL clock, not a synthetic epoch: these rows were stamped by the
+        // transport with Date.now(), so a small absolute `now` puts the cutoff decades before them and
+        // the sweep correctly finds nothing — which would read here as the arm being broken.
+        const past = Date.now() + 3_600_000;
+        expect(closeStaleImplicitSessions(h.db, { now: past, windowSeconds: 1800 })).toBe(1);
+        expect(
+          (
+            h.db.prepare("SELECT ended_at FROM workspace_sessions WHERE id = ?").get(declared) as {
+              ended_at: number | null;
+            }
+          ).ended_at,
+        ).toBeNull();
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("THE-1108: a stale explicit session stops receiving new dispatches — the next call opens a fresh implicit session, and the stale row is untouched", async () => {
-    const h = await boot({ autoOpen: true, windowSeconds: 1800 });
-    try {
-      const alice = await tokenFor("alice");
-      const declared = (
-        await call(h.port, alice, "start_session", { vault: "main", caller: "agent-alpha" })
-      ).session_id as string;
-      expect((await call(h.port, alice, "probe")).session_id).toBe(declared);
+  it(
+    "THE-1108: a stale explicit session stops receiving new dispatches — the next call opens a fresh implicit session, and the stale row is untouched",
+    async () => {
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 });
+      try {
+        const alice = await tokenFor("alice");
+        const declared = (
+          await call(h.port, alice, "start_session", { vault: "main", caller: "agent-alpha" })
+        ).session_id as string;
+        expect((await call(h.port, alice, "probe")).session_id).toBe(declared);
 
-      // Simulate the forgotten-session scenario directly: back-date started_at past the window
-      // rather than waiting 30 minutes of real time.
-      h.db
-        .prepare("UPDATE workspace_sessions SET started_at = ? WHERE id = ?")
-        .run(Date.now() - 3_600_000, declared);
+        // Simulate the forgotten-session scenario directly: back-date started_at past the window
+        // rather than waiting 30 minutes of real time.
+        h.db
+          .prepare("UPDATE workspace_sessions SET started_at = ? WHERE id = ?")
+          .run(Date.now() - 3_600_000, declared);
 
-      // The next dispatch must NOT attach to the stale explicit session. `sessions.autoOpen` is on,
-      // so it gets a fresh IMPLICIT one instead — a different session_id.
-      const next = (await call(h.port, alice, "probe")).session_id as string;
-      expect(next).not.toBe(declared);
-      expect(next).toMatch(/^sess_[0-9a-f]{24}$/);
+        // The next dispatch must NOT attach to the stale explicit session. `sessions.autoOpen` is on,
+        // so it gets a fresh IMPLICIT one instead — a different session_id.
+        const next = (await call(h.port, alice, "probe")).session_id as string;
+        expect(next).not.toBe(declared);
+        expect(next).toMatch(/^sess_[0-9a-f]{24}$/);
 
-      // The explicit row itself is unchanged: still open, ended_at NULL. The resolver only stopped
-      // ATTACHING to it — closing it is end_session's job, or the absolute-lifetime sweep's.
-      const row = h.db
-        .prepare("SELECT ended_at, caller FROM workspace_sessions WHERE id = ?")
-        .get(declared) as { ended_at: number | null; caller: string | null };
-      expect(row.ended_at).toBeNull();
-      expect(row.caller).toBe("agent-alpha");
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+        // The explicit row itself is unchanged: still open, ended_at NULL. The resolver only stopped
+        // ATTACHING to it — closing it is end_session's job, or the absolute-lifetime sweep's.
+        const row = h.db
+          .prepare("SELECT ended_at, caller FROM workspace_sessions WHERE id = ?")
+          .get(declared) as { ended_at: number | null; caller: string | null };
+        expect(row.ended_at).toBeNull();
+        expect(row.caller).toBe("agent-alpha");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 });
 
 describe("THE-937 round 3: instructions must not touch the session store", () => {
@@ -721,60 +742,68 @@ describe("THE-937 round 3: instructions must not touch the session store", () =>
     return (db.prepare("SELECT COUNT(*) AS n FROM workspace_sessions").get() as { n: number }).n;
   }
 
-  it("a bare legacy initialize opens NO session row, even with autoOpen on", async () => {
-    const h = await boot({ autoOpen: true, windowSeconds: 1800 });
-    try {
-      const alice = await tokenFor("alice");
-      const res = await post(
-        h.port,
-        alice,
-        {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: {
-            protocolVersion: LEGACY,
-            capabilities: {},
-            clientInfo: { name: "round3-test", version: "0" },
+  it(
+    "a bare legacy initialize opens NO session row, even with autoOpen on",
+    async () => {
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 });
+      try {
+        const alice = await tokenFor("alice");
+        const res = await post(
+          h.port,
+          alice,
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: LEGACY,
+              capabilities: {},
+              clientInfo: { name: "round3-test", version: "0" },
+            },
           },
-        },
-        { "mcp-protocol-version": LEGACY },
-      );
-      expect(res.status).toBe(200);
-      expect(res.json.result?.instructions).toBeDefined();
-      expect(sessionCount(h.db)).toBe(0);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+          { "mcp-protocol-version": LEGACY },
+        );
+        expect(res.status).toBe(200);
+        expect(res.json.result?.instructions).toBeDefined();
+        expect(sessionCount(h.db)).toBe(0);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("a bare triad-mode tools/list opens NO session row, even with autoOpen on", async () => {
-    // Triad mode specifically: its tools/list branch returns the static meta-tools without ever
-    // calling opts.context() itself (server.ts) — the ONLY facade mode where that is true, and
-    // therefore the mode a construction-time session touch is invisible to every OTHER existing
-    // test (they either dispatch a real tool, exercising the invariant this suite already pins,
-    // or use flat/domain mode, whose tools/list branches already called context() before THE-937).
-    const h = await boot({ autoOpen: true, windowSeconds: 1800 }, "triad");
-    try {
-      const alice = await tokenFor("alice");
-      const res = await post(
-        h.port,
-        alice,
-        { jsonrpc: "2.0", id: 1, method: "tools/list" },
-        {
-          "mcp-protocol-version": LEGACY,
-        },
-      );
-      expect(res.status).toBe(200);
-      const tools = (res.json.result?.tools as { name: string }[] | undefined) ?? [];
-      expect(tools.map((t) => t.name).sort()).toEqual([
-        "call_capability",
-        "describe_capability",
-        "find_capability",
-      ]);
-      expect(sessionCount(h.db)).toBe(0);
-    } finally {
-      await h.close();
-    }
-  }, 30_000);
+  it(
+    "a bare triad-mode tools/list opens NO session row, even with autoOpen on",
+    async () => {
+      // Triad mode specifically: its tools/list branch returns the static meta-tools without ever
+      // calling opts.context() itself (server.ts) — the ONLY facade mode where that is true, and
+      // therefore the mode a construction-time session touch is invisible to every OTHER existing
+      // test (they either dispatch a real tool, exercising the invariant this suite already pins,
+      // or use flat/domain mode, whose tools/list branches already called context() before THE-937).
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 }, "triad");
+      try {
+        const alice = await tokenFor("alice");
+        const res = await post(
+          h.port,
+          alice,
+          { jsonrpc: "2.0", id: 1, method: "tools/list" },
+          {
+            "mcp-protocol-version": LEGACY,
+          },
+        );
+        expect(res.status).toBe(200);
+        const tools = (res.json.result?.tools as { name: string }[] | undefined) ?? [];
+        expect(tools.map((t) => t.name).sort()).toEqual([
+          "call_capability",
+          "describe_capability",
+          "find_capability",
+        ]);
+        expect(sessionCount(h.db)).toBe(0);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 });

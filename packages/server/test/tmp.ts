@@ -20,9 +20,29 @@ import { afterAll } from "vitest";
 // Directories made by `makeTempDir` that nobody has removed yet.
 const live = new Set<string>();
 
-/** Recursively remove a test temp dir, retrying the Windows file-lock errors. */
+// What Windows answers when a handle (a SQLite connection, an antivirus scan) outlives every retry.
+const WINDOWS_LOCK_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
+
+/** Recursively remove a test temp dir, retrying the Windows file-lock errors.
+ *
+ *  On win32 a lock error that survives the retries is logged, not thrown: the directory is the
+ *  CLEANUP of a test whose assertions already ran, and a throw here fails a passing file in
+ *  teardown or, when it comes from the `finally` of a test that failed first, replaces the real
+ *  failure with `EPERM` (response-format-coverage: the `beforeAll` timed out, then `rmTemp` threw
+ *  EPERM on the Windows temp dir, job 110622432589). The leftover stays in `live`, so the
+ *  end-of-file sweep tries again, and the run-wide leak gate (tmp-guard.ts) still names it if it
+ *  is never removed. Every other platform, and every other error, still throws. */
 export function rmTemp(dir: string): void {
-  rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (process.platform !== "win32" || code === undefined || !WINDOWS_LOCK_CODES.has(code)) {
+      throw e;
+    }
+    console.warn(`[tmp] left ${dir} behind: ${code} after retries (open handle on Windows)`);
+    return;
+  }
   live.delete(dir);
 }
 

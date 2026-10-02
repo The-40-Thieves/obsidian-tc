@@ -1,6 +1,7 @@
 // THE-647 item 2: a JWT `persona` claim resolves end to end over the real HTTP transport — the
 // same "one shared handler, two callers" harness http-caller-isolation.test.ts uses, extended
 // with a `personas` config and tokens carrying a `persona` claim instead of raw scopes/vault.
+
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
@@ -10,6 +11,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
@@ -105,101 +107,125 @@ const PERSONAS = {
 };
 
 describe("persona claim over HTTP (THE-647 item 2)", () => {
-  it("a token's own vault claim outside the persona's vaults is refused — never widened to it anyway", async () => {
-    const handle = await boot(PERSONAS);
-    try {
-      // researcher is bound to ["main"] only; this token asks for "scratch" and carries wider
-      // raw scopes too — both must be irrelevant to the verdict, which is refusal, not a
-      // silent substitution of the persona's default vault while keeping the raw scopes.
-      const token = await tokenFor({
-        sub: "agent-1",
-        persona: "researcher",
-        scopes: ["read:notes", "write:notes", "admin:everything"],
-        vault: "scratch",
-      });
-      const { status } = await whoami(handle.port, token);
-      expect(status).toBe(401);
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "a token's own vault claim outside the persona's vaults is refused — never widened to it anyway",
+    async () => {
+      const handle = await boot(PERSONAS);
+      try {
+        // researcher is bound to ["main"] only; this token asks for "scratch" and carries wider
+        // raw scopes too — both must be irrelevant to the verdict, which is refusal, not a
+        // silent substitution of the persona's default vault while keeping the raw scopes.
+        const token = await tokenFor({
+          sub: "agent-1",
+          persona: "researcher",
+          scopes: ["read:notes", "write:notes", "admin:everything"],
+          vault: "scratch",
+        });
+        const { status } = await whoami(handle.port, token);
+        expect(status).toBe(401);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("a persona token with no vault claim resolves to the persona's default (first) vault", async () => {
-    const handle = await boot(PERSONAS);
-    try {
-      const token = await tokenFor({
-        sub: "agent-1b",
-        persona: "researcher",
-        scopes: ["admin:everything"], // discarded — the persona's scopes win
-      });
-      const { status, body } = await whoami(handle.port, token);
-      expect(status).toBe(200);
-      expect(body.caller).toBe("agent-1b");
-      expect(body.vaultId).toBe("main");
-      expect(body.scopes).toEqual(["read:notes"]);
-      expect(body.persona).toBe("researcher");
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "a persona token with no vault claim resolves to the persona's default (first) vault",
+    async () => {
+      const handle = await boot(PERSONAS);
+      try {
+        const token = await tokenFor({
+          sub: "agent-1b",
+          persona: "researcher",
+          scopes: ["admin:everything"], // discarded — the persona's scopes win
+        });
+        const { status, body } = await whoami(handle.port, token);
+        expect(status).toBe(200);
+        expect(body.caller).toBe("agent-1b");
+        expect(body.vaultId).toBe("main");
+        expect(body.scopes).toEqual(["read:notes"]);
+        expect(body.persona).toBe("researcher");
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("resolves scopes/vault/persona correctly when the token's vault matches the persona", async () => {
-    const handle = await boot(PERSONAS);
-    try {
-      const token = await tokenFor({
-        sub: "agent-2",
-        persona: "author",
-        scopes: ["admin:everything"], // must be discarded entirely
-        vault: "scratch",
-      });
-      const { status, body } = await whoami(handle.port, token);
-      expect(status).toBe(200);
-      expect(body.persona).toBe("author");
-      expect(body.vaultId).toBe("scratch");
-      expect(body.scopes.sort()).toEqual(["read:notes", "write:notes"]);
-      expect(body.toolVisibilityHidden).toEqual(["knowledge_challenge"]);
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "resolves scopes/vault/persona correctly when the token's vault matches the persona",
+    async () => {
+      const handle = await boot(PERSONAS);
+      try {
+        const token = await tokenFor({
+          sub: "agent-2",
+          persona: "author",
+          scopes: ["admin:everything"], // must be discarded entirely
+          vault: "scratch",
+        });
+        const { status, body } = await whoami(handle.port, token);
+        expect(status).toBe(200);
+        expect(body.persona).toBe("author");
+        expect(body.vaultId).toBe("scratch");
+        expect(body.scopes.sort()).toEqual(["read:notes", "write:notes"]);
+        expect(body.toolVisibilityHidden).toEqual(["knowledge_challenge"]);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("an unrecognised persona name is refused (fails closed, not a fallback to raw scopes)", async () => {
-    const handle = await boot(PERSONAS);
-    try {
-      const token = await tokenFor({
-        sub: "agent-3",
-        persona: "ghost",
-        scopes: ["read:notes"],
-      });
-      const { status } = await whoami(handle.port, token);
-      expect(status).toBe(401);
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "an unrecognised persona name is refused (fails closed, not a fallback to raw scopes)",
+    async () => {
+      const handle = await boot(PERSONAS);
+      try {
+        const token = await tokenFor({
+          sub: "agent-3",
+          persona: "ghost",
+          scopes: ["read:notes"],
+        });
+        const { status } = await whoami(handle.port, token);
+        expect(status).toBe(401);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("a persona claim with personas unconfigured is refused, not silently ignored", async () => {
-    const handle = await boot(undefined);
-    try {
-      const token = await tokenFor({ sub: "agent-4", persona: "researcher", scopes: ["*"] });
-      const { status } = await whoami(handle.port, token);
-      expect(status).toBe(401);
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "a persona claim with personas unconfigured is refused, not silently ignored",
+    async () => {
+      const handle = await boot(undefined);
+      try {
+        const token = await tokenFor({ sub: "agent-4", persona: "researcher", scopes: ["*"] });
+        const { status } = await whoami(handle.port, token);
+        expect(status).toBe(401);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 
-  it("a token with no persona claim is unaffected by a configured personas block", async () => {
-    const handle = await boot(PERSONAS);
-    try {
-      const token = await tokenFor({ sub: "agent-5", scopes: ["read:notes"], vault: "main" });
-      const { status, body } = await whoami(handle.port, token);
-      expect(status).toBe(200);
-      expect(body.caller).toBe("agent-5");
-      expect(body.scopes).toEqual(["read:notes"]);
-      expect(body.persona).toBeNull();
-    } finally {
-      await handle.close();
-    }
-  }, 30_000);
+  it(
+    "a token with no persona claim is unaffected by a configured personas block",
+    async () => {
+      const handle = await boot(PERSONAS);
+      try {
+        const token = await tokenFor({ sub: "agent-5", scopes: ["read:notes"], vault: "main" });
+        const { status, body } = await whoami(handle.port, token);
+        expect(status).toBe(200);
+        expect(body.caller).toBe("agent-5");
+        expect(body.scopes).toEqual(["read:notes"]);
+        expect(body.persona).toBeNull();
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
 });

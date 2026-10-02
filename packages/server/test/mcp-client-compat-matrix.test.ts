@@ -21,6 +21,7 @@
 //   * the three deprecated-but-served server->client features — Logging (`logging/setLevel`),
 //     Roots, Sampling (SEP-2577, `client-features.ts`) — plus `server/discover` itself, the
 //     2026-07-28 handshake replacement.
+
 import { Server } from "@modelcontextprotocol/server";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -34,6 +35,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { createHealthTool } from "../src/tools/admin/health";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const LEGACY = "2025-11-25";
 const MODERN = "2026-07-28";
@@ -454,20 +456,24 @@ const cellKey = (c: Pick<MatrixCell, "revision" | "feature">) => `${c.revision}:
 
 describe("THE-725 — MCP-client compatibility matrix (spec revision x feature)", () => {
   for (const cell of MATRIX) {
-    it(`${cell.revision} / ${cell.feature} — ${cell.expectation.slice(0, 88)}...`, async () => {
-      if (cell.provenance === "needs-live-client-verify") {
-        // Documented expectation only — this repo has no live third-party MCP client to connect,
-        // so this cell is NOT faked with a stand-in assertion. The test still exists (so the
-        // matrix's own coverage check below sees it), and it asserts the one honest thing
-        // available: that the cell is tagged correctly and carries no `assert`, i.e. nobody
-        // smuggled a fabricated pass in under this tag.
-        expect(cell.assert).toBeUndefined();
-        return;
-      }
-      expect(cell.assert).toBeTypeOf("function");
-      await cell.assert?.();
-      executed.add(cellKey(cell));
-    }, 20_000);
+    it(
+      `${cell.revision} / ${cell.feature} — ${cell.expectation.slice(0, 88)}...`,
+      async () => {
+        if (cell.provenance === "needs-live-client-verify") {
+          // Documented expectation only — this repo has no live third-party MCP client to connect,
+          // so this cell is NOT faked with a stand-in assertion. The test still exists (so the
+          // matrix's own coverage check below sees it), and it asserts the one honest thing
+          // available: that the cell is tagged correctly and carries no `assert`, i.e. nobody
+          // smuggled a fabricated pass in under this tag.
+          expect(cell.assert).toBeUndefined();
+          return;
+        }
+        expect(cell.assert).toBeTypeOf("function");
+        await cell.assert?.();
+        executed.add(cellKey(cell));
+      },
+      stallTimeout(20_000),
+    );
   }
 
   it("every asserted-from-code cell actually ran its assertion — the matrix cannot silently drift", () => {

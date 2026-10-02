@@ -27,6 +27,7 @@
 // shape" question is separately pinned in plane-wiring-reconcile-mapping.test.ts; what is unique to
 // THIS file is that pacing an embed pass through the REAL runner keeps a concurrent tool call
 // responsive, not merely that the wiring compiles.
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
@@ -37,6 +38,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { createReconcileRunner, type ReconcileRunnerDeps } from "../src/runtime/plane-wiring";
 import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
 import { embedPlans } from "../src/search/indexer";
+import { stallTimeout } from "./stall-timeouts";
 
 /** A stub EmbeddingProvider whose embed() is SYNCHRONOUS busy-work — matching the in-process
  *  ONNX/native shape (a call that occupies the JS thread for its whole duration, resolving with no
@@ -192,86 +194,98 @@ const IDLE_MS = 100;
 const SINGLE_BATCH_MARGIN_MS = BUSY_MS * 2 + IDLE_MS + 200;
 
 describe("GH #995 follow-up — boot embed pacing keeps a concurrent tool call responsive (fix round: production wiring)", () => {
-  it("idle-mode pacing (1 vault, concurrency 1): a tool call issued during the embed pass completes within ~1 sub-batch", async () => {
-    const registry = new ToolRegistry();
-    registry.register(slowTool(12));
-    const client = await connectClient(registry);
+  it(
+    "idle-mode pacing (1 vault, concurrency 1): a tool call issued during the embed pass completes within ~1 sub-batch",
+    async () => {
+      const registry = new ToolRegistry();
+      registry.register(slowTool(12));
+      const client = await connectClient(registry);
 
-    const deps = reconcileDeps({
-      vaultIds: ["v1"],
-      backgroundEmbed: { mode: "idle", idleMs: IDLE_MS, maxDeferMs: 30_000 },
-      provider: busySpinProvider(BUSY_MS),
-      concurrency: 1,
-      chunksPerVault: 12,
-    });
-    const runner = createReconcileRunner(deps);
-    const reconcile = runner(new AbortController().signal); // fire-and-forget, like server-runtime.ts's start()
+      const deps = reconcileDeps({
+        vaultIds: ["v1"],
+        backgroundEmbed: { mode: "idle", idleMs: IDLE_MS, maxDeferMs: 30_000 },
+        provider: busySpinProvider(BUSY_MS),
+        concurrency: 1,
+        chunksPerVault: 12,
+      });
+      const runner = createReconcileRunner(deps);
+      const reconcile = runner(new AbortController().signal); // fire-and-forget, like server-runtime.ts's start()
 
-    const start = Date.now();
-    const res = await client.callTool({ name: "slow_tool", arguments: {} });
-    const elapsed = Date.now() - start;
+      const start = Date.now();
+      const res = await client.callTool({ name: "slow_tool", arguments: {} });
+      const elapsed = Date.now() - start;
 
-    expect(res.isError).toBeFalsy();
-    expect(elapsed).toBeLessThan(SINGLE_BATCH_MARGIN_MS);
-    await reconcile;
-  }, 20_000);
+      expect(res.isError).toBeFalsy();
+      expect(elapsed).toBeLessThan(SINGLE_BATCH_MARGIN_MS);
+      await reconcile;
+    },
+    stallTimeout(20_000),
+  );
 
-  it("WITHOUT pacing (mode immediate, matching every call site before GH #995 follow-up): the same call misses the bound", async () => {
-    const registry = new ToolRegistry();
-    registry.register(slowTool(12));
-    const client = await connectClient(registry);
+  it(
+    "WITHOUT pacing (mode immediate, matching every call site before GH #995 follow-up): the same call misses the bound",
+    async () => {
+      const registry = new ToolRegistry();
+      registry.register(slowTool(12));
+      const client = await connectClient(registry);
 
-    const deps = reconcileDeps({
-      vaultIds: ["v1"],
-      backgroundEmbed: { mode: "immediate", idleMs: IDLE_MS, maxDeferMs: 30_000 },
-      provider: busySpinProvider(BUSY_MS),
-      concurrency: 1,
-      chunksPerVault: 12,
-    });
-    const runner = createReconcileRunner(deps);
-    const reconcile = runner(new AbortController().signal);
+      const deps = reconcileDeps({
+        vaultIds: ["v1"],
+        backgroundEmbed: { mode: "immediate", idleMs: IDLE_MS, maxDeferMs: 30_000 },
+        provider: busySpinProvider(BUSY_MS),
+        concurrency: 1,
+        chunksPerVault: 12,
+      });
+      const runner = createReconcileRunner(deps);
+      const reconcile = runner(new AbortController().signal);
 
-    const start = Date.now();
-    const res = await client.callTool({ name: "slow_tool", arguments: {} });
-    const elapsed = Date.now() - start;
+      const start = Date.now();
+      const res = await client.callTool({ name: "slow_tool", arguments: {} });
+      const elapsed = Date.now() - start;
 
-    expect(res.isError).toBeFalsy();
-    // Relative to the pass's own total unpaced cost (12 sub-batches * BUSY_MS), not a bare literal
-    // — it should take at least half of that to hand back a dispatch turn with no pacing at all.
-    expect(elapsed).toBeGreaterThanOrEqual((12 * BUSY_MS) / 2);
-    await reconcile;
-  }, 20_000);
+      expect(res.isError).toBeFalsy();
+      // Relative to the pass's own total unpaced cost (12 sub-batches * BUSY_MS), not a bare literal
+      // — it should take at least half of that to hand back a dispatch turn with no pacing at all.
+      expect(elapsed).toBeGreaterThanOrEqual((12 * BUSY_MS) / 2);
+      await reconcile;
+    },
+    stallTimeout(20_000),
+  );
 
   // Fix round (Codex review on #1003, HIGH finding 2): production default concurrency (4) and 2
   // vaults, both racing the SAME idle check via the real, shared, process-wide embedPace closure.
   // Before serializeAdmission, up to concurrency(4) x vaults(2) = 8 sub-batches could pass the gate
   // in one microtask burst, so a concurrent dispatch could wait up to ~8x a single sub-batch's
   // duration instead of ~1x.
-  it("idle-mode pacing at PRODUCTION default concurrency (4) with 2 vaults: a concurrent tool call still gets a dispatch turn within ~1 sub-batch duration", async () => {
-    const registry = new ToolRegistry();
-    registry.register(slowTool(12));
-    const client = await connectClient(registry);
+  it(
+    "idle-mode pacing at PRODUCTION default concurrency (4) with 2 vaults: a concurrent tool call still gets a dispatch turn within ~1 sub-batch duration",
+    async () => {
+      const registry = new ToolRegistry();
+      registry.register(slowTool(12));
+      const client = await connectClient(registry);
 
-    const deps = reconcileDeps({
-      vaultIds: ["v1", "v2"],
-      backgroundEmbed: { mode: "idle", idleMs: IDLE_MS, maxDeferMs: 30_000 },
-      provider: busySpinProvider(BUSY_MS),
-      concurrency: 4, // packages/shared's EMBED_CONCURRENCY production default
-      chunksPerVault: 8,
-    });
-    const runner = createReconcileRunner(deps);
-    const reconcile = runner(new AbortController().signal);
+      const deps = reconcileDeps({
+        vaultIds: ["v1", "v2"],
+        backgroundEmbed: { mode: "idle", idleMs: IDLE_MS, maxDeferMs: 30_000 },
+        provider: busySpinProvider(BUSY_MS),
+        concurrency: 4, // packages/shared's EMBED_CONCURRENCY production default
+        chunksPerVault: 8,
+      });
+      const runner = createReconcileRunner(deps);
+      const reconcile = runner(new AbortController().signal);
 
-    const start = Date.now();
-    const res = await client.callTool({ name: "slow_tool", arguments: {} });
-    const elapsed = Date.now() - start;
+      const start = Date.now();
+      const res = await client.callTool({ name: "slow_tool", arguments: {} });
+      const elapsed = Date.now() - start;
 
-    expect(res.isError).toBeFalsy();
-    // The bound is the SAME order of magnitude as the single-vault/concurrency-1 case above
-    // (SINGLE_BATCH_MARGIN_MS) — it must not scale with concurrency x vaultCount. Without
-    // serializeAdmission this assertion is the one that fails (elapsed approaches
-    // concurrency*vaultCount*BUSY_MS instead).
-    expect(elapsed).toBeLessThan(SINGLE_BATCH_MARGIN_MS);
-    await reconcile;
-  }, 20_000);
+      expect(res.isError).toBeFalsy();
+      // The bound is the SAME order of magnitude as the single-vault/concurrency-1 case above
+      // (SINGLE_BATCH_MARGIN_MS) — it must not scale with concurrency x vaultCount. Without
+      // serializeAdmission this assertion is the one that fails (elapsed approaches
+      // concurrency*vaultCount*BUSY_MS instead).
+      expect(elapsed).toBeLessThan(SINGLE_BATCH_MARGIN_MS);
+      await reconcile;
+    },
+    stallTimeout(20_000),
+  );
 });

@@ -8,10 +8,12 @@
 // and failed the whole isolate integration test. A temp-directory cleanup took down the
 // measurement it existed to clean up after — and it did so ONLY on Windows, so Linux and macOS
 // both reported green.
+
 import { readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -36,18 +38,22 @@ describe("collectLock — cleanup cannot fail the measurement (THE-458)", () => 
     }
   });
 
-  it("still returns its metrics when temp-dir removal throws EBUSY", async () => {
-    const { collectLock } = await import("../eval/perf/collectors/lock");
-    const samples = await collectLock();
+  it(
+    "still returns its metrics when temp-dir removal throws EBUSY",
+    async () => {
+      const { collectLock } = await import("../eval/perf/collectors/lock");
+      const samples = await collectLock();
 
-    // The measurement is unaffected: cleanup runs after every value is already computed.
-    const by = new Map(samples.map((m) => [m.key, m]));
-    expect(by.get("storage.lock_wait_observed")?.value).toBe(1);
-    expect(by.get("storage.lock_busy_observed")?.value).toBe(1);
+      // The measurement is unaffected: cleanup runs after every value is already computed.
+      const by = new Map(samples.map((m) => [m.key, m]));
+      expect(by.get("storage.lock_wait_observed")?.value).toBe(1);
+      expect(by.get("storage.lock_busy_observed")?.value).toBe(1);
 
-    // And the failure really was exercised — otherwise this passes because the mock never fired,
-    // which is the same vacuous shape the gate itself exists to prevent.
-    const { rmSync } = await import("node:fs");
-    expect(vi.mocked(rmSync)).toHaveBeenCalled();
-  }, 20_000);
+      // And the failure really was exercised — otherwise this passes because the mock never fired,
+      // which is the same vacuous shape the gate itself exists to prevent.
+      const { rmSync } = await import("node:fs");
+      expect(vi.mocked(rmSync)).toHaveBeenCalled();
+    },
+    stallTimeout(20_000),
+  );
 });

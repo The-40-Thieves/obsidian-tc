@@ -9,6 +9,7 @@
 //
 // This file pins the CONTRACT (which Hosts and Origins are accepted), not the implementation, so it
 // stays honest across whatever validates them next.
+
 import { request } from "node:http";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -18,6 +19,7 @@ import { ToolRegistry } from "../src/mcp/registry";
 import { createHealthTool } from "../src/tools/admin/health";
 import { startHttp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const AUTH: ServerConfig["auth"] = ServerConfigSchema.parse({
   vaults: [{ id: "v1", path: "/tmp/v1" }],
@@ -88,97 +90,129 @@ function post(port: number, headers: Record<string, string>): Promise<number> {
 }
 
 describe("DNS-rebinding guard — Host (THE-271, SDK-validated since THE-583)", () => {
-  it("allows loopback without any configuration", async () => {
-    const h = await boot();
-    try {
-      expect(await post(h.port, { host: `127.0.0.1:${h.port}` })).toBe(200);
-      expect(await post(h.port, { host: `localhost:${h.port}` })).toBe(200);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "allows loopback without any configuration",
+    async () => {
+      const h = await boot();
+      try {
+        expect(await post(h.port, { host: `127.0.0.1:${h.port}` })).toBe(200);
+        expect(await post(h.port, { host: `localhost:${h.port}` })).toBe(200);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 
-  it("rejects a non-loopback Host that was never allowed", async () => {
-    // The floor. Without this, every "allowed" case below could be passing because the guard
-    // accepts everything.
-    const h = await boot();
-    try {
-      expect(await post(h.port, { host: "attacker.example" })).toBe(403);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "rejects a non-loopback Host that was never allowed",
+    async () => {
+      // The floor. Without this, every "allowed" case below could be passing because the guard
+      // accepts everything.
+      const h = await boot();
+      try {
+        expect(await post(h.port, { host: "attacker.example" })).toBe(403);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 
-  it("honours an allowedHosts entry WITH a port — the documented 'Host header value' form", async () => {
-    // The regression the SDK's hostname-only matching would have introduced. The config schema
-    // says these are Host header values, and a Host header carries the port.
-    const h = await boot({ allowedHosts: ["mcp.internal:8765"] });
-    try {
-      expect(await post(h.port, { host: "mcp.internal:8765" })).toBe(200);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "honours an allowedHosts entry WITH a port — the documented 'Host header value' form",
+    async () => {
+      // The regression the SDK's hostname-only matching would have introduced. The config schema
+      // says these are Host header values, and a Host header carries the port.
+      const h = await boot({ allowedHosts: ["mcp.internal:8765"] });
+      try {
+        expect(await post(h.port, { host: "mcp.internal:8765" })).toBe(200);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 
-  it("honours an allowedHosts entry WITHOUT a port, whatever port the request carries", async () => {
-    const h = await boot({ allowedHosts: ["mcp.internal"] });
-    try {
-      expect(await post(h.port, { host: "mcp.internal:9999" })).toBe(200);
-      expect(await post(h.port, { host: "mcp.internal" })).toBe(200);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "honours an allowedHosts entry WITHOUT a port, whatever port the request carries",
+    async () => {
+      const h = await boot({ allowedHosts: ["mcp.internal"] });
+      try {
+        expect(await post(h.port, { host: "mcp.internal:9999" })).toBe(200);
+        expect(await post(h.port, { host: "mcp.internal" })).toBe(200);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 
-  it("does not let an allowed host smuggle in a different one", async () => {
-    // A prefix/suffix match would accept these; an exact hostname match must not.
-    const h = await boot({ allowedHosts: ["mcp.internal"] });
-    try {
-      expect(await post(h.port, { host: "evil-mcp.internal" })).toBe(403);
-      expect(await post(h.port, { host: "mcp.internal.evil.test" })).toBe(403);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "does not let an allowed host smuggle in a different one",
+    async () => {
+      // A prefix/suffix match would accept these; an exact hostname match must not.
+      const h = await boot({ allowedHosts: ["mcp.internal"] });
+      try {
+        expect(await post(h.port, { host: "evil-mcp.internal" })).toBe(403);
+        expect(await post(h.port, { host: "mcp.internal.evil.test" })).toBe(403);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 });
 
 describe("DNS-rebinding guard — Origin (THE-271)", () => {
-  it("rejects a cross-origin browser request", async () => {
-    const h = await boot();
-    try {
-      expect(
-        await post(h.port, { host: `127.0.0.1:${h.port}`, origin: "http://evil.example" }),
-      ).toBe(403);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "rejects a cross-origin browser request",
+    async () => {
+      const h = await boot();
+      try {
+        expect(
+          await post(h.port, { host: `127.0.0.1:${h.port}`, origin: "http://evil.example" }),
+        ).toBe(403);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 
-  it("allows same-origin, and allows a configured origin", async () => {
-    const h = await boot({ allowedOrigins: ["https://app.internal"] });
-    try {
-      expect(
-        await post(h.port, {
-          host: `127.0.0.1:${h.port}`,
-          origin: `http://127.0.0.1:${h.port}`,
-        }),
-      ).toBe(200);
-      expect(
-        await post(h.port, { host: `127.0.0.1:${h.port}`, origin: "https://app.internal" }),
-      ).toBe(200);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "allows same-origin, and allows a configured origin",
+    async () => {
+      const h = await boot({ allowedOrigins: ["https://app.internal"] });
+      try {
+        expect(
+          await post(h.port, {
+            host: `127.0.0.1:${h.port}`,
+            origin: `http://127.0.0.1:${h.port}`,
+          }),
+        ).toBe(200);
+        expect(
+          await post(h.port, { host: `127.0.0.1:${h.port}`, origin: "https://app.internal" }),
+        ).toBe(200);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 
-  it("allows a request with NO Origin — server-to-server clients send none", async () => {
-    // Browsers always send Origin; httpx/curl do not. Requiring it would break every real caller,
-    // LiteLLM included.
-    const h = await boot();
-    try {
-      expect(await post(h.port, { host: `127.0.0.1:${h.port}` })).toBe(200);
-    } finally {
-      await h.close();
-    }
-  }, 20_000);
+  it(
+    "allows a request with NO Origin — server-to-server clients send none",
+    async () => {
+      // Browsers always send Origin; httpx/curl do not. Requiring it would break every real caller,
+      // LiteLLM included.
+      const h = await boot();
+      try {
+        expect(await post(h.port, { host: `127.0.0.1:${h.port}` })).toBe(200);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(20_000),
+  );
 });

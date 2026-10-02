@@ -10,6 +10,7 @@
 // about whether the transport verifies the state before handlers run, whether dispatch consults it,
 // or whether the binding actually gates a second call. Those are the parts that can silently not
 // work.
+
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -19,6 +20,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { startHttp } from "../src/transports/http";
 import { requireConfirmation } from "../src/vault/hitl";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const MODERN = "2026-07-28";
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -144,73 +146,90 @@ async function call(
 }
 
 describe("HITL multi-round-trip (THE-583, SEP-2260/2322)", () => {
-  it("answers a destructive call with inputRequired + a requestState, not a bare error", async () => {
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const first = await call(h.port, jwt, { vault: "v1", path: "a.md" });
-      const result = first.result;
-      expect(result).toBeDefined();
-      // The protocol's own shape — this is what a generic client keys off.
-      expect(result.resultType).toBe("input_required");
-      expect(typeof result.requestState).toBe("string");
-      expect(result.inputRequests?.confirm?.method).toBe("elicitation/create");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+  it(
+    "answers a destructive call with inputRequired + a requestState, not a bare error",
+    async () => {
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const first = await call(h.port, jwt, { vault: "v1", path: "a.md" });
+        const result = first.result;
+        expect(result).toBeDefined();
+        // The protocol's own shape — this is what a generic client keys off.
+        expect(result.resultType).toBe("input_required");
+        expect(typeof result.requestState).toBe("string");
+        expect(result.inputRequests?.confirm?.method).toBe("elicitation/create");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("completes the call when the SAME state is echoed back", async () => {
-    // The round trip actually closing is the point. If the transport did not verify the state, or
-    // dispatch did not consult it, this would loop on input_required forever.
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const args = { vault: "v1", path: "a.md" };
-      const first = await call(h.port, jwt, args);
-      const state = first.result.requestState as string;
+  it(
+    "completes the call when the SAME state is echoed back",
+    async () => {
+      // The round trip actually closing is the point. If the transport did not verify the state, or
+      // dispatch did not consult it, this would loop on input_required forever.
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const args = { vault: "v1", path: "a.md" };
+        const first = await call(h.port, jwt, args);
+        const state = first.result.requestState as string;
 
-      const second = await call(h.port, jwt, args, state);
-      expect(second.error).toBeUndefined();
-      expect(second.result?.resultType).not.toBe("input_required");
-      expect(second.result?.isError).not.toBe(true);
-      expect(JSON.stringify(second.result)).toContain("wrote");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+        const second = await call(h.port, jwt, args, state);
+        expect(second.error).toBeUndefined();
+        expect(second.result?.resultType).not.toBe("input_required");
+        expect(second.result?.isError).not.toBe(true);
+        expect(JSON.stringify(second.result)).toContain("wrote");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("refuses to let a confirmation authorize DIFFERENT arguments", async () => {
-    // The binding that makes a confirmation a confirmation. Approving a write of a.md must not
-    // authorize a write of b.md — otherwise one approval is a general-purpose write capability.
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const first = await call(h.port, jwt, { vault: "v1", path: "a.md" });
-      const state = first.result.requestState as string;
+  it(
+    "refuses to let a confirmation authorize DIFFERENT arguments",
+    async () => {
+      // The binding that makes a confirmation a confirmation. Approving a write of a.md must not
+      // authorize a write of b.md — otherwise one approval is a general-purpose write capability.
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const first = await call(h.port, jwt, { vault: "v1", path: "a.md" });
+        const state = first.result.requestState as string;
 
-      const elsewhere = await call(h.port, jwt, { vault: "v1", path: "b.md" }, state);
-      // Still asking for confirmation — the state did not authorize this call.
-      expect(elsewhere.result?.resultType).toBe("input_required");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+        const elsewhere = await call(h.port, jwt, { vault: "v1", path: "b.md" }, state);
+        // Still asking for confirmation — the state did not authorize this call.
+        expect(elsewhere.result?.resultType).toBe("input_required");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("rejects a forged state rather than treating it as absent", async () => {
-    // A tampered state must fail closed. Silently ignoring it would degrade to "no confirmation
-    // supplied", which is safe here only by accident — and would hide an attack.
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const forged = await call(h.port, jwt, { vault: "v1", path: "a.md" }, "not-a-real-state");
-      const answered = forged.error !== undefined || forged.result?.resultType === "input_required";
-      expect(answered).toBe(true);
-      expect(JSON.stringify(forged)).not.toContain("wrote");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+  it(
+    "rejects a forged state rather than treating it as absent",
+    async () => {
+      // A tampered state must fail closed. Silently ignoring it would degrade to "no confirmation
+      // supplied", which is safe here only by accident — and would hide an attack.
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const forged = await call(h.port, jwt, { vault: "v1", path: "a.md" }, "not-a-real-state");
+        const answered =
+          forged.error !== undefined || forged.result?.resultType === "input_required";
+        expect(answered).toBe(true);
+        expect(JSON.stringify(forged)).not.toContain("wrote");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
   // THE-1106 fix round 1 (CRITICAL, cross-vendor review): a verified `requestState` alone proves
   // the token is authentic and bound to this call — it says nothing about whether the human
@@ -219,114 +238,134 @@ describe("HITL multi-round-trip (THE-583, SEP-2260/2322)", () => {
   // after a DECLINE still completed the write. Reproduced directly by the stdio shim's wire tests
   // (test/hitl-legacy-shim-elicitation.test.ts); this is the same property proven on the modern,
   // client-driven wire this file otherwise covers.
-  it("a declined confirmation echoing the SAME state must NOT complete the call", async () => {
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const args = { vault: "v1", path: "a.md" };
-      const first = await call(h.port, jwt, args);
-      const state = first.result.requestState as string;
+  it(
+    "a declined confirmation echoing the SAME state must NOT complete the call",
+    async () => {
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const args = { vault: "v1", path: "a.md" };
+        const first = await call(h.port, jwt, args);
+        const state = first.result.requestState as string;
 
-      const declined = await call(h.port, jwt, args, state, {
-        confirm: { action: "decline" },
-      });
-      expect(JSON.stringify(declined)).not.toContain("wrote");
-      expect(declined.result?.isError).toBe(true);
-      // And no infinite/looping re-offer: the decline renders the plain elicit_required error,
-      // never a second input_required round.
-      expect(declined.result?.resultType).not.toBe("input_required");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+        const declined = await call(h.port, jwt, args, state, {
+          confirm: { action: "decline" },
+        });
+        expect(JSON.stringify(declined)).not.toContain("wrote");
+        expect(declined.result?.isError).toBe(true);
+        // And no infinite/looping re-offer: the decline renders the plain elicit_required error,
+        // never a second input_required round.
+        expect(declined.result?.resultType).not.toBe("input_required");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("approve: false on the embedded response must NOT complete the call either", async () => {
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const args = { vault: "v1", path: "a.md" };
-      const first = await call(h.port, jwt, args);
-      const state = first.result.requestState as string;
+  it(
+    "approve: false on the embedded response must NOT complete the call either",
+    async () => {
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const args = { vault: "v1", path: "a.md" };
+        const first = await call(h.port, jwt, args);
+        const state = first.result.requestState as string;
 
-      const notApproved = await call(h.port, jwt, args, state, {
-        confirm: { action: "accept", content: { approve: false } },
-      });
-      expect(JSON.stringify(notApproved)).not.toContain("wrote");
-      expect(notApproved.result?.isError).toBe(true);
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+        const notApproved = await call(h.port, jwt, args, state, {
+          confirm: { action: "accept", content: { approve: false } },
+        });
+        expect(JSON.stringify(notApproved)).not.toContain("wrote");
+        expect(notApproved.result?.isError).toBe(true);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
   // THE-1106 fix round 2 (MEDIUM, grok): the actual pre-fix ATTACK, not just a decline — a client
   // (malicious or merely non-compliant) that echoes a VALID requestState but OMITS inputResponses
   // entirely. Before THE-1106 fix round 1's CRITICAL fix, `echoed !== undefined` alone was enough
   // to satisfy the gate; this proves the omission case specifically, since `call()`'s own default
   // (accept+approve:true whenever a state is echoed) would otherwise mask it silently.
-  it("a valid requestState echoed with inputResponses OMITTED must NOT complete the call", async () => {
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const args = { vault: "v1", path: "a.md" };
-      const first = await call(h.port, jwt, args);
-      const state = first.result.requestState as string;
+  it(
+    "a valid requestState echoed with inputResponses OMITTED must NOT complete the call",
+    async () => {
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const args = { vault: "v1", path: "a.md" };
+        const first = await call(h.port, jwt, args);
+        const state = first.result.requestState as string;
 
-      const omitted = await call(h.port, jwt, args, state, null);
-      expect(JSON.stringify(omitted)).not.toContain("wrote");
-      // No responses at all reads as "not yet answered" — a fresh offer, not a hard error, and
-      // absolutely not a completion.
-      expect(omitted.result?.resultType).toBe("input_required");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+        const omitted = await call(h.port, jwt, args, state, null);
+        expect(JSON.stringify(omitted)).not.toContain("wrote");
+        // No responses at all reads as "not yet answered" — a fresh offer, not a hard error, and
+        // absolutely not a completion.
+        expect(omitted.result?.resultType).toBe("input_required");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
   // THE-1106 fix round 2 (HIGH): the regression this whole fix round exists for, on the MODERN
   // client-driven wire — `vault/hitl.ts`'s OWN gate (write_note overwrite), not dispatch's.
-  it("(HIGH fix, handler-side gate) write_note overwrite -> an approved state clears vault/hitl.ts's OWN gate, exactly one write", async () => {
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const args = { vault: "v1", path: "notes/a.md", overwriteNonEmpty: true };
-      const first = await call(h.port, jwt, args, undefined, undefined, "write_note");
-      expect(first.result?.resultType).toBe("input_required");
-      const state = first.result.requestState as string;
+  it(
+    "(HIGH fix, handler-side gate) write_note overwrite -> an approved state clears vault/hitl.ts's OWN gate, exactly one write",
+    async () => {
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const args = { vault: "v1", path: "notes/a.md", overwriteNonEmpty: true };
+        const first = await call(h.port, jwt, args, undefined, undefined, "write_note");
+        expect(first.result?.resultType).toBe("input_required");
+        const state = first.result.requestState as string;
 
-      const second = await call(h.port, jwt, args, state, undefined, "write_note");
-      expect(second.error).toBeUndefined();
-      expect(second.result?.resultType).not.toBe("input_required");
-      expect(JSON.stringify(second.result)).toContain("wrote");
-      expect(h.effect.applied).toBe(1);
-      expect(h.effect.seen).toEqual(["notes/a.md"]);
-      // THE-1106 fix round 2 (HIGH, audit): the ONLY signal for this — dispatch's own
-      // tc.elicit.consumed relay never runs for a non-dispatch-gated tool.
-      expect(h.events).toContain("tc.elicit.consumed");
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+        const second = await call(h.port, jwt, args, state, undefined, "write_note");
+        expect(second.error).toBeUndefined();
+        expect(second.result?.resultType).not.toBe("input_required");
+        expect(JSON.stringify(second.result)).toContain("wrote");
+        expect(h.effect.applied).toBe(1);
+        expect(h.effect.seen).toEqual(["notes/a.md"]);
+        // THE-1106 fix round 2 (HIGH, audit): the ONLY signal for this — dispatch's own
+        // tc.elicit.consumed relay never runs for a non-dispatch-gated tool.
+        expect(h.events).toContain("tc.elicit.consumed");
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 
-  it("(HIGH fix) write_note overwrite: a declined state never writes and never satisfies vault/hitl.ts's gate", async () => {
-    const h = await boot();
-    const jwt = await token();
-    try {
-      const args = { vault: "v1", path: "notes/a.md", overwriteNonEmpty: true };
-      const first = await call(h.port, jwt, args, undefined, undefined, "write_note");
-      const state = first.result.requestState as string;
+  it(
+    "(HIGH fix) write_note overwrite: a declined state never writes and never satisfies vault/hitl.ts's gate",
+    async () => {
+      const h = await boot();
+      const jwt = await token();
+      try {
+        const args = { vault: "v1", path: "notes/a.md", overwriteNonEmpty: true };
+        const first = await call(h.port, jwt, args, undefined, undefined, "write_note");
+        const state = first.result.requestState as string;
 
-      const declined = await call(
-        h.port,
-        jwt,
-        args,
-        state,
-        { confirm: { action: "decline" } },
-        "write_note",
-      );
-      expect(JSON.stringify(declined)).not.toContain("wrote");
-      expect(declined.result?.isError).toBe(true);
-      expect(h.effect.applied).toBe(0);
-    } finally {
-      await h.close();
-    }
-  }, 25_000);
+        const declined = await call(
+          h.port,
+          jwt,
+          args,
+          state,
+          { confirm: { action: "decline" } },
+          "write_note",
+        );
+        expect(JSON.stringify(declined)).not.toContain("wrote");
+        expect(declined.result?.isError).toBe(true);
+        expect(h.effect.applied).toBe(0);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(25_000),
+  );
 });

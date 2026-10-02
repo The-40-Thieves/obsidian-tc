@@ -1,7 +1,7 @@
-// Source-scan gate: a test that spawns a child process must size its budgets against a stalled
-// Windows runner (stall-timeouts.ts), not against the work. windows-latest stalls the whole
-// runner for 10-60s at a time; a child in flight is stretched by the stall, so a tight `spawnSync`
-// kill timeout, readiness timer or per-test timeout turns a stall into a failure.
+// Source-scan gate: a test must size its budgets against a stalled Windows runner
+// (stall-timeouts.ts), not against the work. windows-latest stalls the whole runner for 10-60s at
+// a time; whatever is in flight is stretched by the stall, so a tight `spawnSync` kill timeout,
+// readiness timer or per-test timeout turns a stall into a failure.
 //
 // Incidents. `memory-import-cli` "exits 2 when --from/--dir/--vault are missing" ran 20031ms and
 // got exit -1 (killed by its own `timeout: SPAWN_TIMEOUT_MS`, 20_000) instead of 2 on
@@ -13,26 +13,36 @@
 // formats, so the scan is now structural: ast-grep (the repo's pinned parser, scripts/ast-grep-bin.mjs)
 // finds the budget by its role in the syntax tree, whatever the line breaks, separators or wrapping.
 //
-// In a file that spawns (imports `node:child_process`, calls Bun.spawn, or imports a test helper
-// that does), no literal budget below the Windows ceiling in any of these roles:
+// The gate first covered only files that spawn, and the class kept flaking in files that do not:
+// `plane-disabled-reflect-stays-wired` "reflect runs a real synthesis pass ... plane.enabled: false"
+// failed `Test timed out in 15000ms` twice on windows-latest (merge-queue jobs 110354449845 and
+// 110622432589) because its explicit `}, 15000)` overrides the Windows floor in vitest.config.ts. An
+// explicit per-test timeout REPLACES the floor, so it is a budget wherever it appears.
+//
+// In EVERY test file, no literal budget below the Windows ceiling in a vitest role:
 //   - a number (or constant expression, or a const that resolves to one) passed to
 //     it/test/describe/beforeAll/afterAll/beforeEach/afterEach, in any argument position;
-//   - a `timeout` / `testTimeout` / `hookTimeout` property, covering spawn/spawnSync/execFile kill
-//     timeouts, options-first `it(name, { timeout }, fn)` and `vi.setConfig({ testTimeout })`;
-//   - a `setTimeout` kill/reject timer, `AbortSignal.timeout`, or a `Date.now() + N` deadline;
+//   - a `timeout` / `testTimeout` / `hookTimeout` property, covering options-first
+//     `it(name, { timeout }, fn)`, `vi.waitFor({ timeout })` and `vi.setConfig({ testTimeout })`.
+// In a file that spawns (imports `node:child_process`, calls Bun.spawn, or imports a test helper
+// that does), also in the child-process roles:
+//   - a `timeout` property on spawn/spawnSync/execFile (above), a `setTimeout` kill/reject timer,
+//     `AbortSignal.timeout`, or a `Date.now() + N` deadline;
 //   - a `*TIMEOUT*`/`*BOUND*`/`*BUDGET*`/`*DEADLINE*` numeric constant.
-// Wrap it: `stallTimeout(N)`. A value that is not a stall budget (a SQLite busy_timeout argument)
-// carries a `stall-ok:` comment on its line saying so. The per-test default for files without an
-// explicit timeout is vitest.config.ts's Windows floor, pinned to the same constant below.
+// Wrap it: `stallTimeout(N)`. A value that is not a stall budget (a SQLite busy_timeout argument, a
+// `timeout: 2` outcome count in a fixture row) carries a `stall-ok:` comment on its line saying so.
+// The default for a test or hook with no explicit timeout is vitest.config.ts's Windows floor
+// (`testTimeout` AND `hookTimeout`), pinned to the same constant below.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { astGrep } from "../../../scripts/ast-grep-bin.mjs";
 import { stallTimeout, WINDOWS_STALL_TIMEOUT_MS } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
+type UserConfigTest = { testTimeout: number; hookTimeout: number };
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const SELF = resolve(fileURLToPath(import.meta.url));
 const SCAN_BUDGET = { timeout: stallTimeout(30_000) };
@@ -277,13 +287,29 @@ const BUDGET_NAME = /(TIMEOUT|BOUND|BUDGET|DEADLINE)/;
 const lowBudget = (n: number | undefined): n is number =>
   n !== undefined && n < WINDOWS_STALL_TIMEOUT_MS;
 
-// `file:line: label `source` (= N)` for every literal budget under the Windows ceiling in a file
-// that spawns. `(= N)` appears when the source text is not itself the number.
+// The roles that size a vitest budget (a test/hook argument, a `timeout` property, a
+// `vi.setConfig`). They are checked in EVERY test file: the Windows floor in vitest.config.ts is
+// only a default, so an explicit per-test or per-describe literal below the ceiling silently
+// overrides it. The remaining roles (kill timers, deadlines, budget constants) size a child
+// process, so they stay scoped to the files that spawn one.
+const VITEST_ROLES: ReadonlySet<string> = new Set([
+  "test-call-arg",
+  "timeout-pair",
+  "timeout-shorthand",
+]);
+
+// `file:line: label `source` (= N)` for every literal budget under the Windows ceiling: a vitest
+// budget in any file, a child-process budget in a file that spawns. `(= N)` appears when the
+// source text is not itself the number.
 function stallBudgetViolations(hits: Hit[]): string[] {
   const out: string[] = [];
-  for (const file of spawningFiles(hits)) {
+  const spawners = spawningFiles(hits);
+  const byFile = new Map<string, Hit[]>();
+  for (const h of hits) byFile.set(h.file, [...(byFile.get(h.file) ?? []), h]);
+  for (const [file, fileHits] of byFile) {
     if (file === SELF) continue;
-    const mine = hits.filter((h) => h.file === file).sort((a, b) => a.line - b.line);
+    const spawns = spawners.has(file);
+    const mine = fileHits.sort((a, b) => a.line - b.line);
     const lines = readFileSync(file, "utf8").split("\n");
     const consts = new Map<string, string>();
     for (const h of mine) {
@@ -294,6 +320,7 @@ function stallBudgetViolations(hits: Hit[]): string[] {
     for (const h of mine) {
       const label = LABELS[h.rule];
       if (label === undefined || lines[h.line - 1]?.includes("stall-ok:")) continue;
+      if (!spawns && !VITEST_ROLES.has(h.rule)) continue;
       let source = h.text;
       let value: number | undefined;
       if (h.rule === "const-value") {
@@ -385,6 +412,28 @@ const sig = AbortSignal.timeout(30_000);
 const lo = Date.now() + (5 * 1000);
 const OVERALL_BUDGET: number = 50_000;
 const BUSY_TIMEOUT = 5000;`,
+  // plane-disabled-reflect-stays-wired.test.ts as it was when merge-queue jobs 110354449845 and
+  // 110622432589 hit `Test timed out in 15000ms`. NO child process: the guard must still flag it.
+  "plane-disabled-reflect-stays-wired.ts": `import { describe, expect, it } from "vitest";
+describe("plane disabled + gateway configured -> reflect stays available", () => {
+  it("reflect runs a real synthesis pass (available: true, live gateway) with plane.enabled: false", async () => {
+    globalThis.fetch = stubChatFetch();
+    try {
+      expect(out.available).toBe(true);
+    } finally {
+      await runtime.close("test cleanup");
+    }
+    // this asserts a wiring invariant (reflect stays available when plane.enabled=false),
+    // not a latency budget — the default 5s flakes only on windows-latest
+  }, 15000);
+});`,
+  // non-spawning files: every vitest role is in scope, the child-process roles are not
+  "vitest-roles-no-spawn.ts": `it("a", () => {}, 12_000);
+it("b", { timeout: 9_000 }, () => {});
+describe("c", { timeout: 30_000 }, () => {});
+beforeAll(async () => {}, 20_000);
+vi.setConfig({ hookTimeout: 10_000 });
+await vi.waitFor(() => {}, { timeout: 5000, interval: 20 });`,
   // Bun.spawn / require(...) / helper-import spawners are in scope too
   "bun-spawn.ts": `const p = Bun.spawn(["bun", "x"]);\nit("a", async () => {\n}, 2_000);`,
   "require-spawn.ts": `const { spawn } = require("child_process");\nit("a", () => {}, 2_000);`,
@@ -415,13 +464,23 @@ const BUSY_TIMEOUT_MS = 5000;
 it("e", () => {}, 5000); // stall-ok: busy_timeout argument, not a test budget
 const SMALL = 5;
 expect(x).toBe(5000);`,
-  "type-only.ts": 'import type { spawn } from "node:child_process";\nit("a", () => {}, 5000);',
-  "non-spawn.ts": 'const x = 1;\nit("a", () => {}, 5000);',
-  "helper-not-spawner.test.ts": `import { notASpawner } from "./not-a-spawner";\nit("a", () => {}, 5000);`,
+  "type-only.ts":
+    'import type { spawn } from "node:child_process";\nit("a", () => {}, stallTimeout(5000));',
+  "non-spawn.ts": `import { stallTimeout } from "./stall-timeouts";
+it("a", () => {}, stallTimeout(5000));
+it("b", { timeout: stallTimeout(9_000) }, () => {});
+beforeAll(async () => {}, 60_000);
+await vi.waitFor(() => {}, { timeout: stallTimeout(5000), interval: 20 });
+// the child-process roles are only in scope where a child is spawned
+const t = setTimeout(reject, 5000);
+const sig = AbortSignal.timeout(5000);
+const deadline = Date.now() + 5000;
+const OVERALL_BUDGET = 5000;`,
+  "helper-not-spawner.test.ts": `import { notASpawner } from "./not-a-spawner";\nit("a", () => {}, stallTimeout(5000));`,
   "not-a-spawner.ts": "export const notASpawner = 1;",
 };
 
-describe("spawn tests are budgeted against a stalled Windows runner", () => {
+describe("tests are budgeted against a stalled Windows runner", () => {
   let fixtureDir = "";
   let fixtureViolations: string[] = [];
   let treeHits: Hit[] = [];
@@ -464,6 +523,20 @@ describe("spawn tests are budgeted against a stalled Windows runner", () => {
     expect(forFile("ready-and-deadline.ts")).toEqual([
       expect.stringContaining("kill/reject timer `15_000`"),
       expect.stringContaining("`Date.now() +` deadline `20_000`"),
+    ]);
+  });
+
+  it("flags the incident shape in a file that spawns nothing (plane-disabled-reflect, 15000)", () => {
+    expect(forFile("plane-disabled-reflect-stays-wired.ts")).toEqual([
+      expect.stringContaining("test/hook timeout argument `15000`"),
+    ]);
+    expect(forFile("vitest-roles-no-spawn.ts")).toEqual([
+      expect.stringContaining("test/hook timeout argument `12_000`"),
+      expect.stringContaining("`timeout` property `9_000`"),
+      expect.stringContaining("`timeout` property `30_000`"),
+      expect.stringContaining("test/hook timeout argument `20_000`"),
+      expect.stringContaining("`timeout` property `10_000`"),
+      expect.stringContaining("`timeout` property `5000`"),
     ]);
   });
 
@@ -512,22 +585,52 @@ describe("spawn tests are budgeted against a stalled Windows runner", () => {
     expect(green).toEqual([]);
   });
 
-  it("holds for every test file that spawns (existence floor: the scan finds them)", () => {
-    const spawners = [...spawningFiles(treeHits)].filter(
-      (f) => f !== SELF && !f.includes(`${sep}fixtures${sep}`),
+  it("holds for every test file, spawning or not (existence floor: the scan finds them)", () => {
+    const files = new Set(
+      treeHits
+        .filter((h) => h.file !== SELF && !h.file.includes(`${sep}fixtures${sep}`))
+        .map((h) => h.file),
     );
-    expect(spawners.length).toBeGreaterThanOrEqual(30);
-    const spawnerSet = new Set(spawners);
-    const inScope = treeHits.filter((h) => spawnerSet.has(h.file));
-    // the scan sees the budget roles at all: a parser that matched no timeout would pass vacuously
+    expect(files.size).toBeGreaterThanOrEqual(500);
+    const inScope = treeHits.filter((h) => files.has(h.file));
+    const spawners = spawningFiles(treeHits);
+    // the scan sees the vitest roles at all, in spawning and in non-spawning files: a parser that
+    // matched no timeout would pass vacuously
     expect(inScope.filter((h) => h.rule === "timeout-pair").length).toBeGreaterThanOrEqual(3);
-    expect(inScope.filter((h) => h.rule === "test-call-arg").length).toBeGreaterThanOrEqual(20);
+    expect(inScope.filter((h) => h.rule === "test-call-arg").length).toBeGreaterThanOrEqual(100);
+    const nonSpawn = inScope.filter((h) => !spawners.has(h.file));
+    expect(nonSpawn.filter((h) => h.rule === "test-call-arg").length).toBeGreaterThanOrEqual(50);
+    // spawn files keep the child-process roles on top
+    const spawnFiles = [...spawners].filter((f) => files.has(f));
+    expect(spawnFiles.length).toBeGreaterThanOrEqual(30);
     expect(stallBudgetViolations(inScope)).toEqual([]);
   });
 
-  it("vitest.config.ts floors the Windows per-test timeout at the same shared ceiling", () => {
+  it("vitest.config.ts floors the Windows per-test AND hook timeouts at the same shared ceiling", async () => {
     const cfg = readFileSync(join(TEST_DIR, "..", "vitest.config.ts"), "utf8");
-    expect(cfg).toMatch(/testTimeout:\s*process\.platform === "win32" \? WINDOWS_STALL_TIMEOUT_MS/);
     expect(cfg).toContain('from "./test/stall-timeouts"');
+    const platform = Object.getOwnPropertyDescriptor(process, "platform") as PropertyDescriptor;
+    // `vitest/config` pulls in vite -> rollup's native binding, which resolves per platform: load it
+    // once under the real one so the stubbed loads below only evaluate vitest.config.ts itself.
+    await import("vitest/config");
+    const load = async (os: string) => {
+      Object.defineProperty(process, "platform", { ...platform, value: os });
+      try {
+        vi.resetModules();
+        return ((await import("../vitest.config")) as { default: { test: UserConfigTest } }).default
+          .test;
+      } finally {
+        Object.defineProperty(process, "platform", platform);
+      }
+    };
+    // `hookTimeout` is vitest's own 10s on the other two OSes, which was never floored on Windows
+    // (response-format-coverage `beforeAll`: "Hook timed out in 10000ms", job 110622432589)
+    expect(await load("win32")).toMatchObject({
+      testTimeout: WINDOWS_STALL_TIMEOUT_MS,
+      hookTimeout: WINDOWS_STALL_TIMEOUT_MS,
+    });
+    for (const os of ["linux", "darwin"]) {
+      expect(await load(os), os).toMatchObject({ testTimeout: 5_000, hookTimeout: 10_000 });
+    }
   });
 });
