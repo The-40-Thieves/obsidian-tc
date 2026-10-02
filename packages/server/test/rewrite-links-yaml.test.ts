@@ -243,34 +243,38 @@ describe("end to end: rewrite_link and move_note keep frontmatter valid", () => 
   });
 
   for (const name of ['a"b', "it's", "a #b", "-lead", "café ☕"]) {
-    it(`move_note onto ${JSON.stringify(name)}.md repoints property links as valid YAML`, async () => {
-      const v = makeTestVault({
-        files: { "Old.md": "# Old\n", "Keep.md": "# Keep\n", "Guide.md": GUIDE },
-      });
-      try {
-        const input = { vault: "test", from: "Old.md", to: `people/${name}.md` };
-        let res = await v.call("move_note", input);
-        if (!res.ok)
-          res = await v.call("move_note", input, {
-            elicitToken: issueElicitToken(v.db, {
-              vaultId: v.id,
-              toolName: "move_note",
-              argsHash: hashOf(res),
-              caller: "test",
-            }),
-          });
-        expect(dataOf(res).warnings).toBeUndefined();
-        const p = parseNote(v.read("Guide.md"));
-        expect(p.frontmatter).toEqual({
-          author: `[[${name}]]`,
-          series: [`[[${name}|alias]]`, "[[Keep]]"],
-          see: `see [[${name}]]`,
-          title: "T",
+    // Windows forbids a double quote in a filename, so that name cannot exist on disk there.
+    it.skipIf(process.platform === "win32" && name.includes('"'))(
+      `move_note onto ${JSON.stringify(name)}.md repoints property links as valid YAML`,
+      async () => {
+        const v = makeTestVault({
+          files: { "Old.md": "# Old\n", "Keep.md": "# Keep\n", "Guide.md": GUIDE },
         });
-        expect(p.body).toBe(`Body [[${name}]].\n`);
-      } finally {
-        v.cleanup();
-      }
-    });
+        try {
+          const input = { vault: "test", from: "Old.md", to: `people/${name}.md` };
+          let res = await v.call("move_note", input);
+          if (!res.ok)
+            res = await v.call("move_note", input, {
+              elicitToken: issueElicitToken(v.db, {
+                vaultId: v.id,
+                toolName: "move_note",
+                argsHash: hashOf(res),
+                caller: "test",
+              }),
+            });
+          expect(dataOf(res).warnings).toBeUndefined();
+          const p = parseNote(v.read("Guide.md"));
+          expect(p.frontmatter).toEqual({
+            author: `[[${name}]]`,
+            series: [`[[${name}|alias]]`, "[[Keep]]"],
+            see: `see [[${name}]]`,
+            title: "T",
+          });
+          expect(p.body).toBe(`Body [[${name}]].\n`);
+        } finally {
+          v.cleanup();
+        }
+      },
+    );
   }
 });
