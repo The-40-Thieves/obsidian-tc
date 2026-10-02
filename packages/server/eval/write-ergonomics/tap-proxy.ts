@@ -33,13 +33,39 @@ export interface HookSpec {
 
 type Json = Record<string, unknown>;
 
-/** `call_capability` carries the real tool in params.arguments.name; flat mode names it directly. */
-export function effectiveCall(params: Json | undefined): { tool: string; args: Json } {
+/** The domain meta-tools `toolFacade.mode: "domain"` advertises (the registry's TOOL_DOMAINS plus the
+ *  `other` sink). The harness test pins this set to the registry's, so a new domain cannot slip past. */
+export const DOMAIN_TOOLS: ReadonlySet<string> = new Set([
+  "notes",
+  "metadata",
+  "links",
+  "search",
+  "vault",
+  "attachments",
+  "structured",
+  "workspace",
+  "automation",
+  "git",
+  "knowledge",
+  "docs",
+  "admin",
+  "other",
+]);
+
+/** `call_capability` carries the real tool in params.arguments.name, a domain meta-tool in
+ *  params.arguments.action; flat mode names it directly. `via` is what the client actually called. */
+export function effectiveCall(params: Json | undefined): {
+  tool: string;
+  args: Json;
+  via: string;
+} {
   const name = String(params?.name ?? "");
   const a = (params?.arguments ?? {}) as Json;
   if (name === "call_capability")
-    return { tool: String(a.name ?? ""), args: (a.args ?? {}) as Json };
-  return { tool: name, args: a };
+    return { tool: String(a.name ?? ""), args: (a.args ?? {}) as Json, via: name };
+  if (DOMAIN_TOOLS.has(name) && typeof a.action === "string")
+    return { tool: a.action, args: (a.args ?? {}) as Json, via: name };
+  return { tool: name, args: a, via: name };
 }
 
 /** `afterTool` is a REGEX over the effective tool name (the pre-registered hooks use `^(read_|get_)`);
@@ -83,7 +109,10 @@ function main(): void {
     appendFileSync(`${log}.stderr`, d);
   });
 
-  const pending = new Map<string | number, { tool: string; args: Json; sent: number }>();
+  const pending = new Map<
+    string | number,
+    { tool: string; args: Json; sent: number; via?: string }
+  >();
   let matched = 0;
   let fired = false;
 
@@ -99,8 +128,8 @@ function main(): void {
           clientInfo: (m.params as Json | undefined)?.clientInfo,
         });
       } else if (m.method === "tools/call" && m.id !== undefined) {
-        const { tool, args: a } = effectiveCall(m.params as Json);
-        pending.set(m.id as string | number, { tool, args: a, sent: Date.now() });
+        const { tool, args: a, via } = effectiveCall(m.params as Json);
+        pending.set(m.id as string | number, { tool, args: a, sent: Date.now(), via });
       } else if (m.method === "tools/list" && m.id !== undefined) {
         pending.set(m.id as string | number, { tool: "<tools/list>", args: {}, sent: Date.now() });
       }
@@ -125,6 +154,8 @@ function main(): void {
         emit({
           dir: "s2c",
           tool: p.tool,
+          via: p.via,
+          toolCount: Array.isArray(result.tools) ? result.tools.length : undefined,
           args: p.args,
           ms: Date.now() - p.sent,
           isError: failed,

@@ -1,7 +1,7 @@
 // Build the template vault + warm cache once; every run copies both, so each trial starts from the
 // same bytes and a pre-built index (no embedding work competes with the client's calls).
 //
-// Usage: bun eval/write-ergonomics/template.ts <root> [--corpus <dir>]
+// Usage: bun eval/write-ergonomics/template.ts <root> [--corpus <dir>] [--omit rel/path.md,other.md]
 import { cpSync, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -45,12 +45,16 @@ export const livePaths = (root: string) => ({
   config: join(root, "live", "config.json"),
 });
 
-export async function buildTemplate(root: string, corpus = DEFAULT_CORPUS): Promise<void> {
+export async function buildTemplate(
+  root: string,
+  corpus = DEFAULT_CORPUS,
+  omit: readonly string[] = [],
+): Promise<void> {
   const tpl = join(root, "template");
   const live = livePaths(root);
   if (existsSync(tpl) || existsSync(live.dir))
     throw new Error(`${tpl} or ${live.dir} exists; the template is immutable once built`);
-  buildVault(live.vault, corpus);
+  buildVault(live.vault, corpus, omit);
   mkdirSync(live.cache, { recursive: true });
   writeConfig(live.config, "main", live.vault, live.cache);
   await withServer(live.config, async (call) => {
@@ -97,7 +101,12 @@ if ((import.meta as unknown as { main?: boolean }).main) {
   if (!root)
     throw new Error("usage: bun eval/write-ergonomics/template.ts <root> [--corpus <dir>]");
   const ci = argv.indexOf("--corpus");
-  buildTemplate(resolve(root), ci >= 0 ? argv[ci + 1] : DEFAULT_CORPUS).then(
+  const oi = argv.indexOf("--omit");
+  buildTemplate(
+    resolve(root),
+    ci >= 0 ? argv[ci + 1] : DEFAULT_CORPUS,
+    oi >= 0 ? (argv[oi + 1] ?? "").split(",") : [],
+  ).then(
     () => process.stdout.write(`template built under ${root}/template\n`),
     (e) => {
       process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);

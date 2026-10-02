@@ -843,6 +843,162 @@ export const TASKS: Task[] = [
   },
 ];
 
+// ---- Facade-mode discovery tasks ------------------------------------------------------------------
+// Read-and-answer tasks whose difficulty is FINDING the right tool among ~150 (links, frontmatter,
+// tags, tasks, canvas, bases, memory, search), not performing a hard write. The verdict is the final
+// message against facts seeded in fixtures.ts; nothing is written, so the vault is the control.
+
+/** Every `want` pattern must appear in the final message and no `ban` pattern may. */
+const answers = (c: CheckCtx, want: RegExp[], ban: RegExp[] = []): CheckResult => {
+  const missing = want.filter((r) => !r.test(c.finalText));
+  const wrong = ban.filter((r) => r.test(c.finalText));
+  return need(
+    missing.length === 0 && wrong.length === 0,
+    `missing=${JSON.stringify(missing.map(String))} unexpected=${JSON.stringify(wrong.map(String))}`,
+  );
+};
+
+const noop = (): void => {};
+
+export const DISCOVERY_TASKS: Task[] = [
+  {
+    id: "dx-backlinks",
+    title: "find the notes that link to a note (backlinks)",
+    arm: "main",
+    prompt:
+      "Which notes link to Discovery/Launch Checklist.md? Answer with the note paths and nothing else.",
+    refCalls: 1,
+    check: (c) =>
+      answers(c, [/Launch Todo/i, /Venue Notes/i], [/Roadmap/i, /Plan\.md/i, /Big Reference/i]),
+    solve: noop,
+    solveCtx: { finalText: "Discovery/Launch Todo.md and Discovery/Venue Notes.md" },
+  },
+  {
+    id: "dx-outgoing",
+    title: "list the outgoing links of a note",
+    arm: "main",
+    prompt:
+      "List the notes that Projects/Alpha/Roadmap.md links to. Answer with the note names only.",
+    refCalls: 1,
+    check: (c) => answers(c, [/Plan/, /Glossary/], [/Spec/, /Budget/]),
+    solve: noop,
+    solveCtx: { finalText: "Plan and Glossary" },
+  },
+  {
+    id: "dx-broken-links",
+    title: "find wikilinks that point to no note",
+    arm: "main",
+    prompt:
+      "Is there any wikilink in the Discovery folder that does not point to an existing note? Name the missing target.",
+    refCalls: 1,
+    check: (c) => answers(c, [/Vendor Shortlist/i]),
+    solve: noop,
+    solveCtx: {
+      finalText: "Yes: [[Vendor Shortlist]] in Launch Todo points to a note that does not exist.",
+    },
+  },
+  {
+    id: "dx-tags-folder",
+    title: "list the distinct tags used in a folder",
+    arm: "main",
+    prompt:
+      "List every distinct tag used by the notes in Projects/Alpha. Answer with the tags only.",
+    refCalls: 1,
+    check: (c) => answers(c, [/project/i, /alpha/i, /spec/i], [/launch/i, /idea/i, /daily/i]),
+    solve: noop,
+    solveCtx: { finalText: "project, alpha, spec" },
+  },
+  {
+    id: "dx-by-property",
+    title: "find notes by a frontmatter property value",
+    arm: "main",
+    prompt:
+      "Which notes have the frontmatter property status set to draft? Answer with the note paths only.",
+    refCalls: 1,
+    check: (c) =>
+      answers(c, [/Plan/, /Spec/, /Launch Checklist/], [/Launch Todo/, /Venue/, /Budget/]),
+    solve: noop,
+    solveCtx: {
+      finalText: "Projects/Alpha/Plan.md, Projects/Alpha/Spec.md, Discovery/Launch Checklist.md",
+    },
+  },
+  {
+    id: "dx-open-tasks",
+    title: "list the unfinished checkbox tasks in a folder",
+    arm: "main",
+    prompt: "How many unfinished (unchecked) tasks are in the Discovery folder, and what are they?",
+    refCalls: 1,
+    check: (c) =>
+      answers(
+        c,
+        [/press announcement/i, /speaker list/i, /\b(2|two)\b/i],
+        [/\b(3|three|4|four)\s+(unfinished|unchecked|open)/i],
+      ),
+    solve: noop,
+    solveCtx: {
+      finalText: "2 unfinished tasks: Draft the press announcement, Confirm the speaker list",
+    },
+  },
+  {
+    id: "dx-canvas",
+    title: "read a canvas graph (which node follows another)",
+    arm: "main",
+    prompt:
+      "In the canvas Discovery/Launch Plan.canvas, which node comes directly after the 'Design review' node, and how many nodes does the canvas have in total?",
+    refCalls: 1,
+    check: (c) => answers(c, [/Ship/, /\b(4|four)\b/i]),
+    solve: noop,
+    solveCtx: { finalText: "Ship follows Design review; the canvas has 4 nodes." },
+  },
+  {
+    id: "dx-base",
+    title: "run a base view and list the matching notes",
+    arm: "main",
+    prompt:
+      "Run the base Discovery/Launch notes.base and tell me which notes its table view lists.",
+    refCalls: 1,
+    check: (c) =>
+      answers(c, [/Launch Todo/i, /Launch Checklist/i, /Venue Notes/i], [/Roadmap/i, /Plan\b/i]),
+    solve: noop,
+    solveCtx: { finalText: "Launch Todo, Launch Checklist and Venue Notes" },
+  },
+  {
+    id: "dx-memory-recall",
+    title: "recall what the memory graph knows about a person",
+    arm: "main",
+    prompt:
+      "What does the memory graph say about Maya Chen: where is she based and which team does she lead?",
+    refCalls: 1,
+    check: (c) => answers(c, [/Lisbon/i, /design/i], [/product team/i]),
+    solve: noop,
+    solveCtx: { finalText: "She is based in Lisbon and leads the design team." },
+  },
+  {
+    id: "dx-search-fact",
+    title: "find which note states a fact (full-text search)",
+    arm: "main",
+    prompt: "Which note mentions Harbour Hall, and on what date is it booked?",
+    refCalls: 1,
+    check: (c) => answers(c, [/Venue Notes/i, /2026-11-12/]),
+    solve: noop,
+    solveCtx: { finalText: "Discovery/Venue Notes.md says Harbour Hall is booked for 2026-11-12." },
+  },
+];
+
+/** The fixed set measured per facade mode: six write/edit tasks that need a find step plus the ten
+ *  discovery tasks above. Frozen in the facade-modes PREREGISTRATION.md. */
+export const FACADE_TASK_IDS: string[] = [
+  "find-and-tag",
+  "bulk-tag",
+  "memory-observation",
+  "rename-fix-backlinks",
+  "fm-update",
+  "daily-append",
+  ...DISCOVERY_TASKS.map((t) => t.id),
+];
+
+export const ALL_TASKS: Task[] = [...TASKS, ...DISCOVERY_TASKS];
+
 /** Copy of the hardened ACL used by the restricted arm: Locked/ and Private/ are the refusal targets. */
 export const HARDENED_ACL = {
   readOnly: false,
