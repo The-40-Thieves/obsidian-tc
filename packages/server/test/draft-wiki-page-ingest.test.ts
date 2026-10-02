@@ -351,31 +351,34 @@ describe("ingest: a read-denied raw file never leaks", () => {
   });
 });
 
-describe("ingest: symlinks are judged like the wiki folder's identity check", () => {
-  const link = (target: string, at: string): void => {
-    const abs = join(h.v.root, at);
-    mkdirSync(dirname(abs), { recursive: true });
-    symlinkSync(join(h.v.root, target), abs);
-  };
+describe.skipIf(process.platform === "win32")(
+  "ingest: symlinks are judged like the wiki folder's identity check",
+  () => {
+    const link = (target: string, at: string): void => {
+      const abs = join(h.v.root, at);
+      mkdirSync(dirname(abs), { recursive: true });
+      symlinkSync(join(h.v.root, target), abs);
+    };
 
-  it("a symlink in raw that leads to a wiki page is not a raw source", async () => {
-    harness();
-    link("wiki/Related.md", "raw/leads-out.md");
-    const e = await errOf({ topic: "T", source: "raw/leads-out.md" });
-    expect(e.details).toMatchObject({ reason: "outside_raw_folder" });
-  });
+    it("a symlink in raw that leads to a wiki page is not a raw source", async () => {
+      harness();
+      link("wiki/Related.md", "raw/leads-out.md");
+      const e = await errOf({ topic: "T", source: "raw/leads-out.md" });
+      expect(e.details).toMatchObject({ reason: "outside_raw_folder" });
+    });
 
-  it("a symlinked directory in raw that leads out is not raw either", async () => {
-    harness();
-    link("notes", "raw/deep");
-    const e = await errOf({ topic: "T", source: "raw/deep/free.md" });
-    expect(e.details).toMatchObject({ reason: "outside_raw_folder" });
-  });
+    it("a symlinked directory in raw that leads out is not raw either", async () => {
+      harness();
+      link("notes", "raw/deep");
+      const e = await errOf({ topic: "T", source: "raw/deep/free.md" });
+      expect(e.details).toMatchObject({ reason: "outside_raw_folder" });
+    });
 
-  it("a symlink outside raw that leads in is read at the path it was named by: outside", async () => {
-    harness();
-    link("raw/Tip.md", "notes/tip-alias.md");
-    const e = await errOf({ topic: "T", source: "notes/tip-alias.md" });
-    expect(e.details).toMatchObject({ reason: "outside_raw_folder" });
-  });
-});
+    it("a symlink outside raw that leads in is read at the path it was named by: outside", async () => {
+      harness();
+      link("raw/Tip.md", "notes/tip-alias.md");
+      const e = await errOf({ topic: "T", source: "notes/tip-alias.md" });
+      expect(e.details).toMatchObject({ reason: "outside_raw_folder" });
+    });
+  },
+);

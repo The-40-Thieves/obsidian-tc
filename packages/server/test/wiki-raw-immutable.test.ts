@@ -118,41 +118,44 @@ describe("no write tool touches the raw folder", () => {
   });
 });
 
-describe("aliases of the raw folder are still the raw folder", () => {
-  const link = (target: string, at: string): void => {
-    const abs = join(h.v.root, at);
-    mkdirSync(dirname(abs), { recursive: true });
-    symlinkSync(join(h.v.root, target), abs);
-  };
+describe.skipIf(process.platform === "win32")(
+  "aliases of the raw folder are still the raw folder",
+  () => {
+    const link = (target: string, at: string): void => {
+      const abs = join(h.v.root, at);
+      mkdirSync(dirname(abs), { recursive: true });
+      symlinkSync(join(h.v.root, target), abs);
+    };
 
-  it("a symlink in the wiki that points at a raw note cannot write it", async () => {
-    harness();
-    link("raw/clip.md", "wiki/alias.md");
-    const r = await h.call("write_note", {
-      path: "wiki/alias.md",
-      content: "x",
-      mode: "overwrite",
+    it("a symlink in the wiki that points at a raw note cannot write it", async () => {
+      harness();
+      link("raw/clip.md", "wiki/alias.md");
+      const r = await h.call("write_note", {
+        path: "wiki/alias.md",
+        content: "x",
+        mode: "overwrite",
+      });
+      expect(code(r)).toBe("acl_denied");
+      expect(h.v.read("raw/clip.md")).toBe(CLIP);
     });
-    expect(code(r)).toBe("acl_denied");
-    expect(h.v.read("raw/clip.md")).toBe(CLIP);
-  });
 
-  it("a symlinked directory in the wiki that points at the raw folder cannot write into it", async () => {
-    harness();
-    link("raw", "wiki/rawlink");
-    const r = await h.call("write_note", { path: "wiki/rawlink/new.md", content: "x" });
-    expect(code(r)).toBe("acl_denied");
-    expect(h.v.exists("raw/new.md")).toBe(false);
-  });
+    it("a symlinked directory in the wiki that points at the raw folder cannot write into it", async () => {
+      harness();
+      link("raw", "wiki/rawlink");
+      const r = await h.call("write_note", { path: "wiki/rawlink/new.md", content: "x" });
+      expect(code(r)).toBe("acl_denied");
+      expect(h.v.exists("raw/new.md")).toBe(false);
+    });
 
-  it("a symlink INSIDE raw that leads out does not make the path writable: it is still raw by name", async () => {
-    harness();
-    link("notes", "raw/out");
-    const r = await h.call("write_note", { path: "raw/out/escape.md", content: "x" });
-    expect(code(r)).toBe("acl_denied");
-    expect(h.v.exists("notes/escape.md")).toBe(false);
-  });
-});
+    it("a symlink INSIDE raw that leads out does not make the path writable: it is still raw by name", async () => {
+      harness();
+      link("notes", "raw/out");
+      const r = await h.call("write_note", { path: "raw/out/escape.md", content: "x" });
+      expect(code(r)).toBe("acl_denied");
+      expect(h.v.exists("notes/escape.md")).toBe(false);
+    });
+  },
+);
 
 describe("commit_wiki_page refuses anything that targets raw/", () => {
   const changeset = (over: Record<string, unknown>): Record<string, unknown> => ({
