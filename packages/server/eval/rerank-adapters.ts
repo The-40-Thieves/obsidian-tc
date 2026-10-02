@@ -6,6 +6,8 @@
 // Every adapter is a plain `Reranker` (query, documents, topN) => hits, the exact port the product
 // uses, so what is measured here is what a configured provider would return. Keys are read from the
 // environment by NAME and never logged; an error carries the HTTP status, never the URL or a header.
+import { availableParallelism } from "node:os";
+import { join } from "node:path";
 import { cohereCompatibleReranker } from "../src/providers/http-rerank";
 import type { Reranker } from "../src/search/rerank";
 
@@ -183,6 +185,7 @@ export const ARMS = [
   "nvidia-nemotron-rerank-vl-1b",
   "openrouter-nemotron-rerank-vl-1b-free",
   "local-minilm",
+  "local-bge-reranker-v2-m3",
 ] as const;
 export type ArmName = (typeof ARMS)[number];
 
@@ -211,17 +214,62 @@ export async function buildArm(name: ArmName, env: AdapterEnv): Promise<TimedRer
       });
     case "local-minilm": {
       const { createReranker } = await import("../../reranker-local/src/index");
-      const r = createReranker({});
-      const fn: TimedReranker = Object.assign(
-        async (q: string, docs: string[], topN: number) => {
-          const t0 = performance.now();
-          const hits = await r(q, docs, topN);
-          fn.lastMs = performance.now() - t0;
-          return hits;
-        },
-        { lastMs: 0 },
-      );
-      return fn;
+      return timedLocal(createReranker({}));
     }
+    case "local-bge-reranker-v2-m3":
+      return timedLocal(await bgeV2M3Local());
   }
+}
+
+function timedLocal(r: Reranker): TimedReranker {
+  const fn: TimedReranker = Object.assign(
+    async (q: string, docs: string[], topN: number, paths: string[]) => {
+      const t0 = performance.now();
+      const hits = await r(q, docs, topN, paths);
+      fn.lastMs = performance.now() - t0;
+      return hits;
+    },
+    { lastMs: 0 },
+  );
+  return fn;
+}
+
+interface TransformersJs {
+  AutoTokenizer: { from_pretrained(id: string): Promise<(q: string[], o: object) => object> };
+  AutoModelForSequenceClassification: {
+    from_pretrained(
+      id: string,
+      o: object,
+    ): Promise<(inputs: object) => Promise<{ logits: { data: ArrayLike<number> } }>>;
+  };
+}
+
+/** `BAAI/bge-reranker-v2-m3` as an int8 ONNX export (`onnx-community`), on CPU, through the same
+ *  Transformers.js runtime `reranker-local` uses, loaded from that package's own install (it is
+ *  deliberately not a root dependency). 8 passages per forward pass bounds memory at 512 tokens each.
+ *  The intra-op thread count is ALL cores: a best case, so a verdict that it is too slow is robust. */
+async function bgeV2M3Local(batch = 8): Promise<Reranker> {
+  const tf = (await import(
+    join(import.meta.dirname, "../../reranker-local/node_modules/@huggingface/transformers")
+  )) as TransformersJs;
+  const id = "onnx-community/bge-reranker-v2-m3-ONNX";
+  const tokenizer = await tf.AutoTokenizer.from_pretrained(id);
+  const model = await tf.AutoModelForSequenceClassification.from_pretrained(id, {
+    dtype: "int8",
+    session_options: { intraOpNumThreads: availableParallelism(), interOpNumThreads: 1 },
+  });
+  return async (query, documents, topN) => {
+    const scores: number[] = [];
+    for (let i = 0; i < documents.length; i += batch) {
+      const docs = documents.slice(i, i + batch);
+      const inputs = tokenizer(
+        docs.map(() => query),
+        { text_pair: docs, padding: true, truncation: true, max_length: 512 },
+      );
+      scores.push(...Array.from((await model(inputs)).logits.data));
+    }
+    const hits = scores.map((relevanceScore, index) => ({ index, relevanceScore }));
+    hits.sort((a, b) => b.relevanceScore - a.relevanceScore);
+    return topN > 0 ? hits.slice(0, topN) : hits;
+  };
 }

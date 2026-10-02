@@ -100,13 +100,27 @@ function uniquePathsInOrder(chunks: RankedChunk[]): string[] {
   return ordered;
 }
 
+/** Golden-set paths are Windows-style (the private set: 204 of 382 labelled paths carry backslashes)
+ *  while an index stores forward slashes. Normalized HERE, once, so no scorer can forget it: three
+ *  scripts (search-mode, query-cache, search-and-read-cost) did, and read every backslash-labelled
+ *  target as a miss, which scored the private dense baseline 0.40 instead of 0.75. Idempotent, so the
+ *  scorers that already normalize (run.ts, score-reranked.ts) are unaffected. */
+export const normalizeSeparators = (p: string): string => p.replace(/\\/g, "/");
+
 export function computeQueryMetrics(
-  query: GoldenQuery,
-  results: RankedChunk[],
+  rawQuery: GoldenQuery,
+  rawResults: RankedChunk[],
   /** THE-751: the SAME predicate the search ran under. Passing the search's own isReadable (rather
    *  than rebuilding one) is what makes a zero here evidence about the shipped boundary. */
   isReadable?: (rel: string) => boolean,
 ): QueryMetrics {
+  const query: GoldenQuery = {
+    ...rawQuery,
+    seed_paths: rawQuery.seed_paths.map(normalizeSeparators),
+    target_paths: rawQuery.target_paths.map(normalizeSeparators),
+    bridge_paths: rawQuery.bridge_paths.map(normalizeSeparators),
+  };
+  const results = rawResults.map((c) => ({ ...c, path: normalizeSeparators(c.path) }));
   const allPaths = uniquePathsInOrder(results);
   const top10 = allPaths.slice(0, 10);
   const top10Set = new Set(top10);

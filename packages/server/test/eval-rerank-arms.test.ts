@@ -19,8 +19,6 @@ import {
   estimateNeurons,
   gatedOrder,
   hopClass,
-  normQuery,
-  normRanked,
   type Pool,
   percentile,
   rerankOrder,
@@ -111,14 +109,6 @@ describe("classes and statistics", () => {
   it("multi-hop means the query declares bridge notes", () => {
     expect(hopClass(q(["m.md"]))).toBe("multi-hop");
     expect(hopClass(q([]))).toBe("single-hop");
-  });
-
-  it("golden backslash paths score as hits once normalized (the 0.40-vs-0.75 trap)", () => {
-    const g = q([]);
-    const gq = { ...g, target_paths: ["05-creative\\Aedras\\Note.md"], seed_paths: ["a\\b.md"] };
-    expect(normQuery(gq).target_paths).toEqual(["05-creative/Aedras/Note.md"]);
-    expect(normQuery(gq).seed_paths).toEqual(["a/b.md"]);
-    expect(normRanked([{ chunk_id: "c", path: "x\\y.md" }])[0]?.path).toBe("x/y.md");
   });
 
   it("paired summary reports the delta, wins and losses", () => {

@@ -1,0 +1,4 @@
+---
+type: Fixed
+---
+- **The eval scorer no longer reads Windows-style golden paths as misses.** `computeQueryMetrics` now normalizes backslashes in the golden set's paths and in the result paths itself, so no caller can forget it. Three scripts (`eval/search-mode.ts`, `eval/query-cache.ts`, `eval/search-and-read-cost.ts`) did, and on the private multi-hop golden set (204 of 382 labelled paths carry backslashes) they scored dense-only retrieval 0.40 nDCG@10 where `eval/run.ts` scored the same index 0.75. Numbers recorded from those three scripts on a golden set with backslash paths are deflated and not comparable with `run.ts`. New `eval/rerank-arms.ts` (with `rerank-arms-lib.ts` and `rerank-adapters.ts`) reranks the same dense top-K with five providers and scores each against the dense and production orders. Eval harness only: no server behaviour or default changes.

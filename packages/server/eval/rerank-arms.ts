@@ -47,8 +47,6 @@ import {
   estimateNeurons,
   gatedOrder,
   hopClass,
-  normQuery,
-  normRanked,
   type Pool,
   percentile,
   rerankOrder,
@@ -196,15 +194,21 @@ interface QueryResult {
 }
 interface ResultFile {
   arm: ArmName;
+  /** Sensitivity run: each passage was prefixed with its note title (the file name) before scoring. */
+  title_prefix?: boolean;
   k: number;
   kind: "public" | "private";
   perQuery: Record<string, QueryResult>;
 }
 
+/** An Obsidian note's title is its file name without the extension. */
+const titleOf = (path: string): string => (path.split("/").pop() ?? path).replace(/\.md$/i, "");
+
 async function stageRerank(): Promise<void> {
   const [poolsPath] = pos;
   const arm = flag("--arm") as ArmName | undefined;
   const k = Number(flag("--k") ?? 30);
+  const titlePrefix = argv.includes("--title-prefix");
   const out = flag("--out");
   const limit = flag("--limit") ? Number(flag("--limit")) : undefined;
   const neuronCap = flag("--neuron-cap") ? Number(flag("--neuron-cap")) : undefined;
@@ -223,14 +227,18 @@ async function stageRerank(): Promise<void> {
   if (arm.startsWith("local-")) await reranker("warm up", ["a", "b", "c"], 3, ["a", "b", "c"]);
   const res: ResultFile = existsSync(out)
     ? (JSON.parse(readFileSync(out, "utf8")) as ResultFile)
-    : { arm, k, kind: pf.kind, perQuery: {} };
+    : { arm, k, kind: pf.kind, ...(titlePrefix ? { title_prefix: true } : {}), perQuery: {} };
   let spent = Object.values(res.perQuery).reduce((a, r) => a + estimateNeurons(r.chars_sent), 0);
   let done = 0;
   for (const full of pf.pools) {
     if (limit !== undefined && done >= limit) break;
     if (res.perQuery[full.id]?.outcome === "executed") continue;
     const pool = truncatePool(full, k);
-    const docs = pool.candidates.map((c, index) => ({ content: c.text, path: c.path, index }));
+    const docs = pool.candidates.map((c, index) => ({
+      content: titlePrefix ? `${titleOf(c.path)}\n\n${c.text}` : c.text,
+      path: c.path,
+      index,
+    }));
     const chars =
       docs.reduce((a, d) => a + d.content.length, 0) + full.query_text.length * docs.length;
     if (
@@ -288,6 +296,19 @@ async function stageRerank(): Promise<void> {
   );
 }
 
+/** Paired bridge-nDCG@10 delta over the queries that declare bridge notes (empty when none do). */
+function bridgePaired(base: QueryMetrics[], arm: QueryMetrics[]): Record<string, number> {
+  const idx = base.flatMap((m, i) =>
+    m.bridge_ndcg_at_10 === null || arm[i]?.bridge_ndcg_at_10 === null ? [] : [i],
+  );
+  if (idx.length === 0) return {};
+  const s = summarizePaired(
+    idx.map((i) => base[i]?.bridge_ndcg_at_10 ?? 0),
+    idx.map((i) => arm[i]?.bridge_ndcg_at_10 ?? 0),
+  );
+  return { delta: +s.delta.toFixed(4), p: +s.p.toFixed(4), wins: s.wins, losses: s.losses };
+}
+
 const mean = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
 function stageScore(): void {
@@ -304,10 +325,10 @@ function stageScore(): void {
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
   const pf = JSON.parse(readFileSync(poolsPath, "utf8")) as PoolFile;
   const poolById = new Map(pf.pools.map((p) => [p.id, p]));
-  // Golden paths are Windows-style; normalize both sides (see normQuery) before any metric.
-  const queries = golden.queries.filter((q) => poolById.has(q.id)).map(normQuery);
+  // computeQueryMetrics normalizes the golden set's Windows-style paths on both sides.
+  const queries = golden.queries.filter((q) => poolById.has(q.id));
   const metricsOf = (q: GoldenQuery, order: RankedChunk[]): QueryMetrics =>
-    computeQueryMetrics(q, normRanked(order));
+    computeQueryMetrics(q, order);
 
   interface Row {
     key: string;
@@ -343,12 +364,13 @@ function stageScore(): void {
     });
   }
   for (const rf of resultFiles) {
+    const label = rf.title_prefix ? `${rf.arm}+title` : rf.arm;
     const done = queries.filter((q) => rf.perQuery[q.id]?.outcome === "executed");
     const qs = done;
     const hitsOf = (q: GoldenQuery): ScoreHit[] => (rf.perQuery[q.id] as QueryResult).hits;
     const poolOf = (q: GoldenQuery): Pool => truncatePool(poolById.get(q.id) as Pool, rf.k);
     const common = {
-      arm: rf.arm,
+      arm: label,
       k: rf.k,
       ids: qs.map((q) => q.id),
       base_m: qs.map((q) => denseFor(q, rf.k)),
@@ -357,20 +379,20 @@ function stageScore(): void {
     };
     rows.push({
       ...common,
-      key: `${rf.arm} k=${rf.k}`,
+      key: `${label} k=${rf.k}`,
       mode: "rerank",
       arm_m: qs.map((q) => metricsOf(q, rerankOrder(poolOf(q), hitsOf(q)))),
     });
     rows.push({
       ...common,
-      key: `${rf.arm} k=${rf.k} +rrf`,
+      key: `${label} k=${rf.k} +rrf`,
       mode: "rrf",
       arm_m: qs.map((q) => metricsOf(q, rrfFuseOrder(poolOf(q), hitsOf(q), 10))),
     });
     if (gateClasses.size > 0)
       rows.push({
         ...common,
-        key: `${rf.arm} k=${rf.k} gated[${[...gateClasses].join("+")}]`,
+        key: `${label} k=${rf.k} gated[${[...gateClasses].join("+")}]`,
         mode: "gated",
         arm_m: qs.map((q) => metricsOf(q, gatedOrder(poolOf(q), hitsOf(q), gateClasses))),
       });
@@ -378,7 +400,7 @@ function stageScore(): void {
     if (gateHop)
       rows.push({
         ...common,
-        key: `${rf.arm} k=${rf.k} oracle-hop[rerank ${gateHop} only]`,
+        key: `${label} k=${rf.k} oracle-hop[rerank ${gateHop} only]`,
         mode: "gated",
         arm_m: qs.map((q) =>
           metricsOf(
@@ -451,6 +473,7 @@ function stageScore(): void {
         dense: +bagg.mean_bridge_ndcg_at_10.toFixed(4),
         arm: +agg.mean_bridge_ndcg_at_10.toFixed(4),
         n: agg.bridge_query_count,
+        ...bridgePaired(r.base_m, r.arm_m),
       },
       paired_ndcg: {
         delta: +s.delta.toFixed(4),
@@ -469,8 +492,9 @@ function stageScore(): void {
       latency_ms: r.latency.length
         ? { p50: percentile(r.latency, 0.5), p95: percentile(r.latency, 0.95) }
         : null,
-      neurons_per_search:
-        r.arm === "cf-bge-reranker-base" ? +mean(r.chars.map(estimateNeurons)).toFixed(2) : null,
+      neurons_per_search: r.arm.startsWith("cf-bge-reranker-base")
+        ? +mean(r.chars.map(estimateNeurons)).toFixed(2)
+        : null,
     });
     // One history.ts artifact per row (graph = this arm, baseline = dense control).
     const slug = r.key.replace(/[^a-z0-9.+-]+/gi, "_");

@@ -52,6 +52,26 @@ bun eval/run.ts <config> --graph-stream --json b.json
 bun eval/compare.ts a.json b.json
 ```
 
+## Reranker arms over the same dense top-K (`rerank-arms.ts`)
+
+Three resumable stages, each writing plain JSON; the pool file carries vault text and stays under the
+experiment directory:
+
+```
+bun eval/rerank-arms.ts pools  <config> <golden> --out pools.json --kind public|private [--query-vecs v.json] [--k 50]
+bun --env-file=<keys> eval/rerank-arms.ts rerank <pools.json> --arm <name> --k 30 --out r.json [--neuron-cap N] [--title-prefix]
+bun eval/rerank-arms.ts score  <golden> <pools.json> --results a.json,b.json --out-dir <dir> [--gate-classes lexical] [--gate-hop single-hop]
+```
+
+`pools` runs the real `search_semantic` handler (the dense control) and the production graph order (a second
+control) and records each query's router class. `rerank` sends one arm's calls with per-provider adapters
+(`rerank-adapters.ts`: Cloudflare, DeepInfra, NVIDIA, OpenRouter through the unchanged `cohere-compatible`
+provider, local MiniLM through `reranker-local`, and a local bge-reranker-v2-m3 latency probe); a query already
+answered is never re-sent, `--neuron-cap` bounds Cloudflare spend, and an arm whose provider's terms allow
+training on submitted text refuses a private pool (`PUBLIC_ONLY_ARMS`). `score` writes one `history.ts`-shaped
+artifact per arm and a `summary.json` with the paired statistics, the pre-registered per-corpus verdict, the
+per-class breakdown (hop class, router class, category) and the class-gated arms. Pre-register first.
+
 ## The ship rule (THE-399)
 
 **Status 2026-08-02 (THE-674): the MDE is MEASURED on the engine that actually runs, and it is

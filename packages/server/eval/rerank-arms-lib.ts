@@ -33,25 +33,6 @@ export interface ScoreHit {
   score: number;
 }
 
-const norm = (p: string): string => p.replace(/\\/g, "/");
-
-/** Golden-set paths are Windows-style (204 of 382 in the private set carry backslashes) while the
- *  index stores forward slashes, so every comparison normalizes both sides, as `run.ts` does. A
- *  scorer that skips this reads every backslash-labelled target as a miss: the private dense
- *  nDCG@10 comes out 0.40 instead of 0.75 and an arm cannot be told from noise. */
-export function normQuery(q: GoldenQuery): GoldenQuery {
-  return {
-    ...q,
-    seed_paths: q.seed_paths.map(norm),
-    target_paths: q.target_paths.map(norm),
-    bridge_paths: q.bridge_paths.map(norm),
-  };
-}
-
-export function normRanked(order: RankedChunk[]): RankedChunk[] {
-  return order.map((c) => ({ ...c, path: norm(c.path) }));
-}
-
 /** The first `k` candidates of a pool, in dense order. */
 export function truncatePool(pool: Pool, k: number): Pool {
   return { ...pool, candidates: pool.candidates.slice(0, k) };
