@@ -7,7 +7,7 @@ import {
   type ListToolsResult,
   type ReadResourceResult,
   ResourceNotFoundError,
-  Server,
+  type Server,
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/server";
@@ -36,6 +36,7 @@ import {
   roundTripDeliverable,
   withRoundOutcome,
 } from "./elicit-form";
+import { ShimGuardedServer } from "./elicit-shim-guard";
 import { splitElicitToken } from "./elicit-token";
 import { formatErrorDetail } from "./error-rendering";
 import {
@@ -269,7 +270,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     Boolean(opts.vaultRegistry),
     opts.experientialLogRetrievals,
   );
-  const server = new Server(
+  const server = new ShimGuardedServer(
     { name: opts.name, version: opts.version },
     // Advertise resources only when a vaultRegistry is present: without it the resource
     // handlers serve an empty list / throw, so declaring the capability would mislead a client
@@ -452,6 +453,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       isError: true,
     };
   };
+  server.onConfirmLegFailure = (error) => errorToResult(withRoundOutcome(error, "cancelled"));
   // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
   // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
   // shortened result believing it complete — the failure mode the governor exists to bound, moved
@@ -510,9 +512,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
         );
         if (offer !== undefined) return offer;
       }
-      // The one shared mapping for every gated tool: cancel is "approval not obtained", decline is
-      // a hard stop — see withRoundOutcome.
-      if (result.error.code === "elicit_required" && roundOutcome !== undefined) {
+      // The one mapping for every gated tool (withRoundOutcome); no round at all counts as a cancel.
+      if (result.error.code === "elicit_required") {
         return errorToResult(withRoundOutcome(result.error, roundOutcome));
       }
       return errorToResult(result.error);

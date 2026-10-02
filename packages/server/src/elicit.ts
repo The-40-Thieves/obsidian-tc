@@ -131,6 +131,9 @@ export function elicitRequiredError(
   return err.elicitRequired("human confirmation required", {
     ...details,
     ...(stateFp !== null ? { state_fp: stateFp } : {}),
+    // The caller the request was raised for: redemption refuses a token minted for any other, and
+    // the CLI mint defaults to "stdio", so the rendered mint command has to name it.
+    ...(typeof ctx.caller === "string" ? { caller: ctx.caller } : {}),
   });
 }
 

@@ -1,0 +1,4 @@
+---
+type: Fixed
+---
+- **Confirmation refusals now always carry the same mint route.** A confirm leg that fails or times out inside the SDK's built-in legacy input-required shim (stdio clients) used to come back as the SDK's own "Fulfilling input required ... failed" text; it is now the same "approval not obtained" refusal as a cancel, with the out-of-band `obsidian-tc elicit` command, and still never an approval. The structured `recovery` on that refusal now carries the full command the text channel shows, including `--vault` and `--caller` (one shared renderer), so following it mints a token that redeems for that call; `elicit_required` details gained a `caller` field for this. A client with no elicitation support is now stamped `details.reason: "approval_not_obtained"` too. `decline` is unchanged: a hard stop with no mint route.

@@ -25,6 +25,7 @@ import type { ErrorJSON, MorgianaEventData } from "@the-40-thieves/obsidian-tc-s
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { type HitlSource, recordHitlOffer } from "../hitl-telemetry";
 import { callerHash } from "../throttle";
+import { mintCommandFromDetails } from "./elicit-command";
 // THE-1106 fix round 1 (check:duplicate-exports): reuse tasks.ts's copy rather than declaring a
 // second one — this module and tasks.ts independently needed the SAME SEP-2575 fact.
 import type { CallerContext } from "./registry";
@@ -274,7 +275,7 @@ export async function offerInputRequired(
   const path = details.details?.path;
   const stateFp = details.details?.state_fp;
   if (offerSource && ctx.db) recordHitlOffer({ ...ctx, db: ctx.db }, name, error, offerSource);
-  return inputRequired({
+  const offer = inputRequired({
     requestState: await codec.mint({
       tool: name,
       argsHash,
@@ -290,21 +291,48 @@ export async function offerInputRequired(
       },
     },
   }) as unknown as CallToolResult;
+  offeredErrors.set(offer, error);
+  return offer;
+}
+
+/** The `elicit_required` error each offer was minted for, so a failed confirm leg can be turned
+ *  back into that refusal (elicit-shim-guard.ts). Keyed by the offer object itself. */
+const offeredErrors = new WeakMap<object, ErrorJSON>();
+
+/** The error behind `result` when `result` is an offer minted by `offerInputRequired`. */
+export function offeredElicitError(result: unknown): ErrorJSON | undefined {
+  return typeof result === "object" && result !== null ? offeredErrors.get(result) : undefined;
 }
 
 /** Stamps a non-approving confirm outcome on an `elicit_required` error: `details.reason` for
  *  error-rendering.ts's text, and `message`/`recovery` so the structured channel agrees with it.
  *  `declined` is a hard stop (no retry, no token); `cancelled` means approval was NOT obtained —
  *  nobody refused, so the out-of-band `obsidian-tc elicit` route stays open (the write is still
- *  refused until a token is redeemed). */
-export function withRoundOutcome(error: ErrorJSON, outcome: ConfirmRoundOutcome): ErrorJSON {
+ *  refused until a token is redeemed). `undefined` (no round happened) stamps the cancel reason. */
+export function withRoundOutcome(
+  error: ErrorJSON,
+  outcome: ConfirmRoundOutcome | undefined,
+): ErrorJSON {
+  // No round at all (a client that cannot elicit): approval was not obtained either, and the error
+  // already carries its own message and recovery, so only the reason is stamped.
+  if (outcome === undefined) {
+    return {
+      ...error,
+      details: { ...error.details, reason: "approval_not_obtained" },
+    } as ErrorJSON;
+  }
   const declined = outcome === "declined";
+  // The same concrete command the text channel renders (vault and caller included), so a model
+  // that follows `recovery` mints a token this very call can redeem.
+  const command = mintCommandFromDetails(error.details);
   return {
     ...error,
     message: declined ? error.message : "human approval not obtained",
     recovery: declined
       ? "The user declined this change. Do not retry it and do not mint a token."
-      : "Approval was not obtained: the client dismissed the confirmation prompt without answering, and nothing was changed. Ask the user; if they approve, mint a single-use token with `obsidian-tc elicit --hash <args_hash> --tool <name>` and resend with elicit_token. Never reuse an old token.",
+      : "Approval was not obtained: no answer to the confirmation prompt came back (it was dismissed, could not be shown, or did not complete), and nothing was changed. Ask the user; if they approve, mint a single-use token with " +
+        (command ? `\`${command}\`` : "`obsidian-tc elicit --hash <args_hash> --tool <name>`") +
+        " and resend with elicit_token. Never reuse an old token.",
     details: { ...error.details, reason: declined ? "approval_declined" : "approval_not_obtained" },
   } as ErrorJSON;
 }
