@@ -145,25 +145,58 @@ describe("THE-736 — the redaction scanner is not a DoS surface", { timeout: 60
   // just takes polynomial time doing it. So the assertion is a TIME BUDGET on the pathological
   // shape CodeQL named: many repetitions of the BEGIN marker with no END to terminate the scan.
   it("scales LINEARLY on repeated BEGIN markers, not quadratically", () => {
-    // An absolute time budget cannot express this. Measured on this box, the unbounded pattern
-    // ran 257ms at 108KB and 2460ms at 324KB -- 3x the input for 9.6x the time. The bounded one
-    // ran 245ms and 742ms: 3x for 3x. At 108KB the two are INDISTINGUISHABLE, so a budget picked
-    // there passes against the vulnerable pattern, which is exactly what happened on the first
-    // attempt at this test.
+    // An absolute budget alone cannot express the polynomial shape. Measured on this box, the
+    // unbounded pattern ran 257ms at 108KB and 2460ms at 324KB -- 3x the input for 9.6x the time.
+    // A bounded regex ran 245ms and 742ms: 3x for 3x. At 108KB the two are INDISTINGUISHABLE, so
+    // a budget picked there passes against the vulnerable pattern.
     //
     // So the assertion is the SCALING EXPONENT (expectLinear: log-log slope of CPU time over four
     // sizes), not a single ratio: a two-point ratio measured 5.74 against a cap of 5 on a windows
-    // runner for a LINEAR pattern. The base input must sit well past the pattern's 16384-byte
-    // body bound: below it the bounded scan is still truncated by the input's end, so the cost
-    // has not reached its linear regime. No absolute bound (null): the bounded pattern costs ~2ms
-    // per KB, which a fixed per-80KB ceiling would only make a second flake source.
+    // runner for a LINEAR pattern.
+    //
+    // That bounded regex was linear in the limit but cost ~600 steps per input byte (every BEGIN
+    // re-walked its 16 KB window, ~2 ms per KB), and a windows runner measured 3.1-3.5x per
+    // doubling at 54-216 KB (slope 1.73 against the 1.6 cap). The scan is now one pass, so the
+    // base input is 1 MiB: the 1x pass costs ~10 ms, above timer noise, where 54 KB (~0.7 ms)
+    // would not. The absolute bound (40 ms per 80 KB, ~30x the measured cost and 4x under the old
+    // regex's ~160 ms) is what fails a return of that constant, which a slope cannot see.
     const marker = "-----BEGIN PRIVATE KEY-----";
     expectLinear(marker, (s) => redactSecrets(s), {
-      baseBytes: 2000 * marker.length,
-      boundMsPer80KB: null,
+      baseBytes: 1024 * 1024,
+      boundMsPer80KB: 40,
     });
     // And nothing matches -- there is no END marker, so zero redactions is the correct answer.
     expect(redactSecrets(marker.repeat(12000)).redactions).toBe(0);
+  });
+
+  it("the scaling assertion FAILS on the quadratic (unbounded) pattern", () => {
+    // RED proof, kept: the CodeQL-flagged form of the PEM pattern, run through the same helper
+    // with the same slope cap, must be refused. Without it a loosened helper or a vacuous input
+    // shape would pass the real test above while proving nothing.
+    const unbounded = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
+    const marker = "-----BEGIN PRIVATE KEY-----";
+    expect(() =>
+      expectLinear(marker, (s) => s.replace(unbounded, "[REDACTED]"), {
+        baseBytes: 1000 * marker.length,
+        boundMsPer80KB: null,
+      }),
+    ).toThrow(/log-log slope/);
+  });
+
+  it("many BEGIN markers and an unterminated block neither hide nor merge a real key block", () => {
+    const marker = "-----BEGIN PRIVATE KEY-----";
+    const pem = `-----BEGIN RSA PRIVATE KEY-----\n${"QUJD".repeat(200)}\n-----END RSA PRIVATE KEY-----`;
+    // 3000 unterminated BEGINs, a filler longer than the 16384-byte body bound, then a real block:
+    // the BEGINs are out of reach of the END, so exactly the real block is redacted.
+    const filler = "x".repeat(20000);
+    const one = redactSecrets(`${marker.repeat(3000)}${filler}${pem} tail`);
+    expect(one.redactions).toBe(1);
+    expect(one.matches).toEqual({ private_key: 1 });
+    expect(one.text).toBe(`${marker.repeat(3000)}${filler}[REDACTED] tail`);
+    // Two real blocks with an unterminated BEGIN between them: both redacted, the stray one kept.
+    const two = redactSecrets(`${pem}\n${marker}\n${filler}\n${pem}`);
+    expect(two.redactions).toBe(2);
+    expect(two.text).toBe(`[REDACTED]\n${marker}\n${filler}\n[REDACTED]`);
   });
 
   it("still redacts a real PEM block", () => {

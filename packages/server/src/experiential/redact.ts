@@ -13,28 +13,66 @@
 // second, hand-kept list of pattern names — the exhaustiveness that keeps this "the ONE scanner"
 // would be lost the moment a second enum of pattern identifiers existed beside this one.
 
-interface SecretPattern {
-  id: string;
-  pattern: RegExp;
+type SecretPattern =
+  | { id: string; pattern: RegExp }
+  // A pattern one regex cannot scan in linear time (see `redactPrivateKeys`): it owns its
+  // replacement loop and calls `hit()` once per redaction for the replacement text.
+  | { id: string; redact: (text: string, hit: () => string) => string };
+
+// Longest body between a PEM BEGIN and END marker. 16384 covers a 4096-bit key's base64 body with
+// room to spare; a body longer than that is not a key this scanner was written to catch.
+const PEM_BODY_MAX = 16384;
+const PEM_BEGIN = /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----/g;
+const PEM_END = /-----END [A-Z ]{0,64}PRIVATE KEY-----/g;
+
+/** Redact `BEGIN ... PRIVATE KEY` through the nearest `END ... PRIVATE KEY` at most
+ *  `PEM_BODY_MAX` bytes after it, in ONE forward pass.
+ *
+ *  The regex form, `BEGIN[\s\S]{0,16384}?END`, is bounded but not cheap: on input that repeats
+ *  the BEGIN marker with no END, every BEGIN re-walks its whole 16 KB window before failing, so
+ *  the cost is BEGIN count x 16384 (~600 steps per input byte, ~2 ms per KB) and it measured
+ *  3.1-3.5x per doubling on a windows runner. Here the next END is searched for ONCE and kept:
+ *  every later BEGIN before that END reuses it, and once no END remains every later BEGIN fails
+ *  without scanning. Matches are the regex's: the nearest END starting within the bound of the
+ *  BEGIN's end, scanning resumes after a match, and a failed BEGIN resumes one character on. */
+function redactPrivateKeys(text: string, hit: () => string): string {
+  let out = "";
+  let copied = 0; // text[0..copied) is already accounted for in `out`
+  let endStart = -1; // start of the first END at or after the last search origin; Infinity = none
+  let endLen = 0;
+  PEM_BEGIN.lastIndex = 0;
+  for (let begin = PEM_BEGIN.exec(text); begin !== null; begin = PEM_BEGIN.exec(text)) {
+    const bodyStart = begin.index + begin[0].length;
+    if (endStart < bodyStart) {
+      PEM_END.lastIndex = bodyStart;
+      const end = PEM_END.exec(text);
+      endStart = end === null ? Number.POSITIVE_INFINITY : end.index;
+      endLen = end === null ? 0 : end[0].length;
+    }
+    if (endStart - bodyStart > PEM_BODY_MAX) {
+      PEM_BEGIN.lastIndex = begin.index + 1; // no END in reach: this BEGIN opens no block
+      continue;
+    }
+    out += text.slice(copied, begin.index) + hit();
+    copied = endStart + endLen;
+    PEM_BEGIN.lastIndex = copied;
+  }
+  return copied === 0 ? text : out + text.slice(copied);
 }
 
 const SECRET_PATTERNS: SecretPattern[] = [
   // BOUNDED on purpose (CodeQL js/polynomial-redos, high). The unbounded form
   //   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
   // backtracks polynomially on input that repeats the BEGIN marker without ever supplying an
-  // END: the lazy body rescans forward from every start position. That input is reachable —
+  // END: the lazy body rescans forward from every start position. That input is reachable --
   // `captureArgs` runs this scanner over the caller's raw arguments BEFORE the size cap, so the
   // text is attacker-controlled and unbounded at this point. The cap cannot move earlier without
   // reintroducing the split-secret problem it exists to prevent, so the BOUND belongs here.
   //
-  // Both quantifiers are bounded. 64 covers every real PEM label ("ENCRYPTED ", "RSA ", "EC ");
-  // 16384 covers a 4096-bit key's base64 body with room to spare, and a body longer than that is
-  // not a key this scanner was written to catch.
-  {
-    id: "private_key",
-    pattern:
-      /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----[\s\S]{0,16384}?-----END [A-Z ]{0,64}PRIVATE KEY-----/g,
-  },
+  // Both quantifiers are bounded: 64 covers every real PEM label ("ENCRYPTED ", "RSA ", "EC "),
+  // 16384 the body. The bounded regex was still ~600 steps per input byte on that input, so the
+  // scan is `redactPrivateKeys`, a single pass with the same two bounds.
+  { id: "private_key", redact: redactPrivateKeys },
   { id: "aws_access_key_id", pattern: /\bAKIA[0-9A-Z]{16}\b/g },
   { id: "github_token", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g }, // fine/classic tokens
   { id: "github_pat", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
@@ -116,13 +154,14 @@ export function redactSecrets(
   let redactions = 0;
   const matches: Record<string, number> = {};
   const excluded = new Set(opts.excludeIds ?? []);
-  for (const { id, pattern } of SECRET_PATTERNS) {
-    if (excluded.has(id)) continue;
-    out = out.replace(pattern, () => {
+  for (const sp of SECRET_PATTERNS) {
+    if (excluded.has(sp.id)) continue;
+    const hit = (): string => {
       redactions += 1;
-      matches[id] = (matches[id] ?? 0) + 1;
+      matches[sp.id] = (matches[sp.id] ?? 0) + 1;
       return REDACTED;
-    });
+    };
+    out = "redact" in sp ? sp.redact(out, hit) : out.replace(sp.pattern, hit);
   }
   return { text: out, redactions, matches };
 }
