@@ -152,6 +152,12 @@ for one call is refused for a different one), single-use, and expires after the 
 `elicitTtlSeconds` — there is no `--ttl` flag, so a mint can never outlive what the live
 server itself would have issued.
 
+**The caller id is visible.** The refusal's text and its structured `recovery` spell out the
+concrete command, including `--caller <id>`: the calling principal's id (the JWT subject on
+HTTP, `stdio` on stdio) therefore appears in the model-visible error and, once the command is
+pasted, in shell history. It is the same principal that made the call and already sits in the
+audit log; it is not another caller's identity.
+
 **Authorization.** Minting requires opening the same `cache.db` the live server reads
 `elicit_tokens` from — filesystem access to the vault's cache directory. That directory
 already holds `auth.jwtSecret` and every configured provider API key; `token mint` already

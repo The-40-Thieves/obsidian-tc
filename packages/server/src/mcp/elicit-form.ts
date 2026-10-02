@@ -313,18 +313,25 @@ export function withRoundOutcome(
   error: ErrorJSON,
   outcome: ConfirmRoundOutcome | undefined,
 ): ErrorJSON {
-  // No round at all (a client that cannot elicit): approval was not obtained either, and the error
-  // already carries its own message and recovery, so only the reason is stamped.
+  // The same concrete command the text channel renders (vault and caller included), so a model
+  // that follows `recovery` mints a token this very call can redeem.
+  const command = mintCommandFromDetails(error.details);
+  // No round at all (a client that cannot elicit): approval was not obtained either. The message
+  // stays (error-rendering.ts keys its text on it); `recovery` swaps the stock `--hash <args_hash>`
+  // placeholder for the concrete command, since a mint without `--caller` defaults to `stdio` and
+  // redemption refuses a token minted for a different caller.
   if (outcome === undefined) {
     return {
       ...error,
+      ...(command
+        ? {
+            recovery: `A human must approve this call and this client cannot show a confirmation prompt, so nothing was changed. Ask the user; if they approve, mint a single-use token with \`${command}\` and resend with elicit_token. Never reuse an old token.`,
+          }
+        : {}),
       details: { ...error.details, reason: "approval_not_obtained" },
     } as ErrorJSON;
   }
   const declined = outcome === "declined";
-  // The same concrete command the text channel renders (vault and caller included), so a model
-  // that follows `recovery` mints a token this very call can redeem.
-  const command = mintCommandFromDetails(error.details);
   return {
     ...error,
     message: declined ? error.message : "human approval not obtained",
