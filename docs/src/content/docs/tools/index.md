@@ -216,7 +216,7 @@ returns a `verdict` and the candidate notes with the evidence for each:
 | `ambiguous` | Several pages match on identity, or only soft evidence exists: other notes already link the text, or a note is semantically near. | Read the candidates, then decide. |
 | `new` | Nothing matched. | Create the page. |
 
-Semantic similarity alone never produces `exists`. The calibration below is why.
+Semantic similarity alone never produces `exists`; the calibration below is why. The opt-in [LLM judge](#the-llm-judge-opt-in) can resolve an `ambiguous` verdict.
 
 **`lint_wiki`: periodic upkeep.** One call runs the existing health checks and a note-level
 near-duplicate pass, and returns **proposals**: each is `{ kind, subject, related?, detail,
@@ -256,6 +256,64 @@ subject, near-neighbours and true duplicates overlap. So similarity is **candida
 holds the source note for 33 of 60 topics, so lower `min_similarity` per call (for example 0.6) to see weaker
 candidates. The floors are specific to `BAAI/bge-m3`; on another embedding model treat them as a starting
 point.
+
+### The LLM judge (opt-in)
+
+Because similarity cannot decide "same topic", a model can read the candidates. The judge runs through
+the gateway `judge` role only (no gateway, no judge) and is **off by default**:
+`wikiJudge.enabled: false` (see [`wikiJudge`](/configuration/config-yaml/)); `judge: true` on a call turns it on for
+that call.
+
+* **`find_existing_page` `judge`.** Only a verdict of `ambiguous` that rests on soft evidence (similarity,
+  link text) is judged; an exact name, alias, `wikidata:` or title match is final and never sent. Up to
+  `wikiJudge.maxCallsPerRequest` (1 to 3, default 3) top candidates are judged, each answered
+  `same_topic`, `overlapping` or `different` with a one-sentence reason. Exactly one `same_topic` makes the
+  verdict `exists` (with `judged_by: { model, verdict, rationale, paths }`); every candidate judged
+  `different` makes it `new`; anything else, and any failure, stays `ambiguous`. The prompt tells the
+  judge to prefer `overlapping` when unsure.
+* **`lint_wiki` `judge`.** Each `near_duplicate` proposal can carry a `judge_verdict` (up to
+  `max_judge_calls` per call). `maintenance.wikiLint.judge: true` makes the scheduled pass judge too, capped
+  at `maintenance.wikiLint.judgeMaxCalls` per run, and logs the verdict counts. Both are opt-in because they
+  spend gateway calls.
+* **Caps.** `wikiJudge.maxCallsPerDay` (default 200, `0` disables) bounds gateway calls per UTC day across
+  every caller; a failed call counts, and the call is reserved before it is sent. `wikiJudge.timeoutMs`
+  (default 15000) is a per-call deadline that also cancels the gateway request. `wikiJudge.maxNoteChars`
+  (default 2400) cuts each side of a comparison, so one call has a bounded size. Over a cap, or on any
+  error, the verdict stays `ambiguous` and the tool still answers.
+* **Cache.** One verdict per (subject, candidate, resolved model) in `cache.db`, keyed on content hashes:
+  editing a note or a gateway repoint of the `judge` alias (the resolved `provider/model` is recorded, never
+  the alias) re-asks; a repeat costs nothing. No page text is stored.
+* **Privacy.** The topic and the opening text of the candidate pages (at most `maxNoteChars` each) go to the
+  gateway judge model. A note is sent only if the caller may read it (ACL), it is outside `egress.excludePaths`
+  and outside Obsidian's Excluded files; such notes are never sent and are listed as `unjudged`. `maxCallsPerDay: 0`
+  or no gateway keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the model, today's
+  calls and failures.
+* **Model note.** The gateway's `judge` alias served `openai/gpt-6-sol` when this was measured. That model
+  answers HTTP 400 to `temperature` and `max_tokens`, so the judge request sends neither.
+
+**Judge study (public evergreen corpus, same 60 notes and 30/30 split as the calibration).** Pre-registered
+before any judge call (hash `97eae3b09719f489ac4e7fe8733580cfa279eb10e07515f2dc2d0ccefa704e45`, judge prompt
+and code frozen). Gold labels are not from the judge's family (OpenAI): positives are Gemini-written
+rewrites, summaries and topics; negatives were labelled by a Claude model. 1200 judged items, `openai/gpt-6-sol`,
+about 2 s per call. Arms: **A** embedding-only at the shipped floor; **B** judge over candidates at the
+floor; **C** judge over the top-3 nearest whatever their cosine.
+
+| S1 topic to page (held-out, 31 positives) | precision | recall | F1 |
+| --- | --- | --- | --- |
+| A, floor 0.708 | no pair flagged | 0.00 | 0.00 |
+| B, judge at the floor | no candidate to judge | 0.00 | 0.00 |
+| C, judge over top-3 | 1.00 (6/6) | 0.19 (6/31) | 0.32 |
+
+C was perfectly precise (no false `same_topic` in 331 gold-negative items, including topics whose page was
+removed), but it found only 12 of 63 pages: the top-3 holds a gold page for 28 of 63 topics, and of the 29
+gold candidates the judge saw it answered `overlapping` for 17 on a three-to-eight-word topic. The pre-registered rule for turning
+the judge on by default needed a recall lift of 0.25 over embedding-only on the held-out split, and C's was
+0.19, so **`wikiJudge.enabled` ships `false`**. B has almost nothing to judge, because the floor passes 5 of 360
+candidates. A follow-up could judge the top-3 whatever the floor says, but the study does not support
+it yet. For note pairs (`lint_wiki`), the judge over the 840 labelled pairs had precision 0.92 and recall
+0.95 (held-out 0.90 / 0.95); 8 of its 10 disagreements with the title-only labels were real duplicates on a
+full read by a second model, so the lint judge stays opt-in but is promising. With 31 held-out positives the
+intervals are wide; this is one corpus, one embedding model and one judge model.
 
 ## Response format
 
