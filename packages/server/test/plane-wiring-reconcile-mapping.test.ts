@@ -225,7 +225,12 @@ function minimalReconcileDeps(
     sqlHooksFor: () => ({}) as never,
     onVecRebuild: () => {},
     makeOnIndexed: () => undefined,
-    indexHealth: { reconcile: "pending", reconcileAt: null, reconcileErrors: [] } as never,
+    indexHealth: {
+      reconcile: "pending",
+      reconcileAt: null,
+      reconcileErrors: [],
+      frontmatterFailures: new Map(),
+    } as never,
     streamingWalk: false,
     backgroundEmbed,
     indexVaultRecorded: async (opts: IndexVaultArgs) => {

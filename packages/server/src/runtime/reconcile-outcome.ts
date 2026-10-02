@@ -13,6 +13,11 @@
 // Now that the reconcile also runs on a SCHEDULE (not only at boot), this runs repeatedly — so
 // "degraded" has to be able to go back to "ok" on a later pass, which is a property worth asserting
 // rather than assuming.
+/** What to do about a note skipped for bad frontmatter YAML — shared by the reconcile's stderr
+ *  line below and the index-on-write one (index-write-outcome.ts). */
+export const FRONTMATTER_SKIP_HINT =
+  "fix the note's YAML frontmatter — it is skipped, not lost, and will be indexed on the next reconcile once it parses.";
+
 export interface ReconcileResult {
   vault: string;
   error: string | null;
@@ -67,7 +72,7 @@ export function applyReconcileOutcome(
     // (a producer that predates this field) falls back to the pre-existing generic hint below.
     const hint =
       kind === "frontmatter"
-        ? "fix the note's YAML frontmatter — it is skipped, not lost, and will be indexed on the next reconcile once it parses."
+        ? FRONTMATTER_SKIP_HINT
         : "check the embeddings backend (raise embeddings.timeoutMs / lower embeddings.batchSize or " +
           "embeddings.maxBatchTokens for a slow or small-context local runner).";
     deps.write(

@@ -32,6 +32,8 @@ export interface IndexCoordinatorHandlers {
   delete(vaultId: string, path: string): Promise<unknown> | unknown;
   /** Reported for a handler that threw; the coordinator never rejects to the caller. */
   onError?(err: unknown, vaultId: string, path: string): void;
+  /** A write or delete for the path completed without throwing. */
+  onApplied?(vaultId: string, path: string): void;
 }
 
 /** THE-458 (audit #5): concurrency + backpressure knobs. Per-key ordering/coalescing is unchanged;
@@ -203,6 +205,7 @@ export class IndexCoordinator {
     try {
       if (op.kind === "write") await this.handlers.write(vaultId, path, op.content);
       else await this.handlers.delete(vaultId, path);
+      this.handlers.onApplied?.(vaultId, path);
     } catch (err) {
       this.handlers.onError?.(err, vaultId, path);
     } finally {

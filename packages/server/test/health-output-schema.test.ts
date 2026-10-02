@@ -100,6 +100,44 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(result.valid).toBe(true);
   });
 
+  it("the index-on-write frontmatter fields (count + last failure) validate under ajv, and write_failures stays 0", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getIndexHealth: (authenticated) => ({
+        reconcile: "ok",
+        reconcile_at: 1,
+        write_failures: 0,
+        frontmatter_failures: 1,
+        notes_ready: true,
+        ...(authenticated
+          ? {
+              detail: {
+                reconcile_errors: [],
+                last_frontmatter_failure: {
+                  vault: "v1",
+                  path: "a.md",
+                  error: 'frontmatter is not valid YAML in "a.md": bad indentation',
+                },
+              },
+            }
+          : {}),
+      }),
+    });
+    const out = tool.handler({}, { ...ctxBase, authenticated: true } as CallerContext);
+    // biome-ignore lint/style/noNonNullAssertion: asserted defined by createHealthTool.
+    const schema = toJson(tool.outputSchema!);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+    const index = (out as { index: { write_failures: number; frontmatter_failures: number } })
+      .index;
+    expect(index.write_failures).toBe(0);
+    expect(index.frontmatter_failures).toBe(1);
+  });
+
   // THE-1123: the `toolFacade` block is assembled from internal state (ctx.clientInfo +
   // ctx.effectiveFacadeMode), exactly the shape the zod-safeParse-strips-but-ajv-rejects trap bites
   // — see reference_obsidian_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys. Pinned here so a

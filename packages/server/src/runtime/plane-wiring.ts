@@ -40,6 +40,7 @@ import { errorMessage, stderrOnError } from "../util/errors";
 import { contentHash } from "../vault/paths";
 import type { VaultRegistry } from "../vault/registry";
 import { dispatchInFlightCount, msSinceLastDispatchActivity } from "../workspace/sessions";
+import { syncFrontmatterFailures } from "./index-write-outcome";
 import type { IndexHealthState } from "./indexing-wiring";
 import { type Observability, wireActivationRecompute } from "./observability";
 import { applyReconcileOutcome, type ReconcileResult } from "./reconcile-outcome";
@@ -524,7 +525,11 @@ export function createReconcileRunner(
             // names its own path (reconcileResultsForVault below), so a vault with several bad
             // notes surfaces every one of them in health.index.detail.reconcile_errors instead of
             // the first alone.
-            (s) => reconcileResultsForVault(v.id, s),
+            (s) => {
+              // An index-on-write frontmatter failure the pass no longer sees was repaired out of band.
+              syncFrontmatterFailures(deps.indexHealth, v.id, s.frontmatter_failures);
+              return reconcileResultsForVault(v.id, s);
+            },
             (e) => [{ vault: v.id, error: errorMessage(e) }],
           ),
       ),
