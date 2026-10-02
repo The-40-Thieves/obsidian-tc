@@ -1,5 +1,5 @@
 // WP2 slice 1 (THE-233 follow-up): the invariant the schema/deps/retrieval-runtime extraction
-// must hold provably still. `buildKnowledgeTools(deps)` returns the 10 M7 tools in a fixed array
+// must hold provably still. `buildKnowledgeTools(deps)` returns the 12 M7 tools in a fixed array
 // order; a caller-visible tool has exactly the shape it declares — name, description, domain,
 // requiredScopes, tags, whether it declares a `pathAcl` extractor, and the top-level keys of its
 // input/output schema. None of that is allowed to move while the file underneath it is split into
@@ -251,6 +251,67 @@ const EXPECTED: ToolSnapshot[] = [
     inputKeys: ["paths", "vault"],
     outputKeys: ["available", "contradictions", "message", "total", "vault"],
   },
+  {
+    name: "find_existing_page",
+    description:
+      "Check whether a page on a topic ALREADY EXISTS before creating one (dedupe / page-exists check): run this before write_note when you are about to add a new wiki page, concept note or entity page, so you link to the existing page instead of writing a duplicate. Give a topic string (and optionally a folder to look in); get a verdict exists | ambiguous | new plus the candidate notes with the evidence for each: exact path or file name, an `aliases` frontmatter entry, a `wikidata:` property holding the same QID (pass 'Q42' or a wikidata URL), a title or H1, the text other notes (including property links) already link it under, and semantically near notes. Read-only and advisory: it never writes and never blocks. Respects the read ACL, and Obsidian's Excluded files: an excluded note still counts when its name or alias matches (it is a link target) but is never a similarity match. response_format=concise returns {path, strength, evidence kinds} per candidate, without evidence details or scores.",
+    domain: "knowledge",
+    requiredScopes: ["read:notes"],
+    tags: ["external-network", "knowledge", "search"],
+    hasPathAcl: false,
+    inputKeys: [
+      "folder",
+      "limit",
+      "min_similarity",
+      "response_format",
+      "topic",
+      "vault",
+      "verbosity",
+    ],
+    outputKeys: [
+      "candidates",
+      "next",
+      "semantic",
+      "topic",
+      "total",
+      "vault",
+      "verdict",
+      "warnings",
+      "warnings_omitted",
+    ],
+  },
+  {
+    name: "lint_wiki",
+    description:
+      "Wiki health check in ONE call: lint a folder (or the whole vault) and get a list of PROPOSED fixes, each with a suggested action and the tool that applies it. Combines find_orphans, find_unresolved_links (property links included), list_contradictions (open rows only), note_quality_report (stale / duplicated notes), audit_provenance (notes missing `sources`), gap_report (topics with no good page) and a NEW near-duplicate pass over note-level embeddings that finds pages restating the same topic (so you merge or link instead of keeping two). Use it for periodic wiki upkeep, after a batch of writes, or when asked to clean up, audit or dedupe a wiki. Read-only: it never writes and never blocks anything; apply the proposals with the named tool yourself. A check that cannot run (no rollup, no embeddings) is listed under `skipped` rather than failing the call. Respects the read ACL and Obsidian's Excluded files (an excluded note is never the subject of a proposal, but still counts as a link source and target). Pick checks with `checks`; response_format=concise returns {kind, subject, related, suggested_action, tool} per proposal without detail, tool_args and evidence.",
+    domain: "knowledge",
+    requiredScopes: ["read:notes"],
+    tags: ["diagnostics", "knowledge"],
+    hasPathAcl: false,
+    inputKeys: [
+      "checks",
+      "folder",
+      "limit_per_check",
+      "max_notes",
+      "min_similarity",
+      "response_format",
+      "vault",
+      "verbosity",
+    ],
+    outputKeys: [
+      "checks_run",
+      "folder",
+      "notes",
+      "proposals",
+      "read_only",
+      "skipped",
+      "summary",
+      "truncated",
+      "vault",
+      "warnings",
+      "warnings_omitted",
+    ],
+  },
 ];
 
 function stubDeps(): M7Deps {
@@ -271,7 +332,7 @@ function stubDeps(): M7Deps {
 }
 
 describe("m7 tool metadata parity (WP2 invariant)", () => {
-  it("keeps the ordered public metadata of the 10 M7 tools byte-identical", () => {
+  it("keeps the ordered public metadata of the 12 M7 tools byte-identical", () => {
     const tools = buildKnowledgeTools(stubDeps(), () => undefined);
     const actual = tools.map(toSnapshot);
     expect(stableStringify(actual)).toBe(stableStringify(EXPECTED));

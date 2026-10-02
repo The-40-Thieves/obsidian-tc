@@ -185,6 +185,41 @@ export const MemoryOrphansConfigSchema = z
   })
   .prefault({});
 
+// Scheduled wiki lint: the lint_wiki checks on a timer. Read-only and OFF by default: a pass walks
+// every note and compares note vectors pairwise, which no deployment should pay without asking.
+const WikiLintConfigSchema = z
+  .object({
+    enabled: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Run the lint_wiki checks on a schedule and log a one-line summary per vault (proposal counts by kind). Read-only: it never edits a note and never blocks a write; call lint_wiki for the proposals themselves. Off by default. Also requires maintenance.enabled.",
+      ),
+    intervalHours: z
+      .number()
+      .positive()
+      .max(8760)
+      .default(24)
+      .describe("Hours between scheduled lint passes."),
+    folder: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Lint only this vault-relative folder (applied to every vault). Absent lints the whole vault.",
+      ),
+    maxNotes: z
+      .number()
+      .int()
+      .positive()
+      .max(5000)
+      .default(1500)
+      .describe(
+        "Cap on notes compared pairwise by the near-duplicate check; its cost grows with the square of this.",
+      ),
+  })
+  .prefault({});
+
 // THE-292 — periodic cache.db maintenance sweep (expired idempotency/elicit rows + event_log
 // retention + PRAGMA optimize). Fully defaulted: a config predating it validates unchanged.
 export const MaintenanceConfigSchema = z
@@ -271,6 +306,7 @@ export const MaintenanceConfigSchema = z
         "Days a COMMITTED capture_queue row (committed_at IS NOT NULL) is retained before the maintenance sweep prunes it, measured from committed_at. A row still awaiting review (committed_at IS NULL) is never pruned by this sweep, at any age. An operator can also purge every committed row for one vault immediately (independent of age, matching that tool's other include flags) via reset_vault_cache's include.capture_committed. commit_capture's default (delete_from_queue: true) removes the row at commit time, before this window is ever reached; a caller that opts to KEEP a committed row (delete_from_queue: false) — the only shape this sweep can still find and prune — should keep this value above the longest highlight-import/ambient-import re-sync window (listCaptureTags reads a committed row's import-dedupe:/ambient-dedupe: tag as its dedup identity), or a purged row can be re-imported as a duplicate (see the highlight-import/ambient-import dedup tags noted on commit_capture).",
       ),
     memoryOrphans: MemoryOrphansConfigSchema,
+    wikiLint: WikiLintConfigSchema,
   })
   .prefault({});
 

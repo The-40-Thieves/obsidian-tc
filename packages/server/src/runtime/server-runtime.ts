@@ -536,6 +536,8 @@ export async function buildServerRuntime(
       jobRunner,
       runReconcile,
       embeddingProvider,
+      // The scheduled wiki lint leaves Excluded-files notes out of every proposal, as lint_wiki does.
+      exclusionFor: (id) => vaultExclusionFor(vaultRegistry, id),
       ...(transports.advisoryBus ? { advisoryBus: transports.advisoryBus } : {}), // THE-634
       telemetry, // THE-1125
       activeSessions, // THE-1108 fix

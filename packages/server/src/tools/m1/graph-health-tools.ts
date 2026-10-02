@@ -5,45 +5,16 @@
 // the readable note set (wikilinks/markdown links resolved via the shared vault index).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { type FolderAcl, globToRegExp } from "../../acl";
+import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
-import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../../vault/links";
-import { readNote } from "../../vault/notes-io";
-import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { buildVaultIndex, resolveTarget } from "../../vault/links";
+import { normalizeVaultPath } from "../../vault/paths";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
+import { isExternal, linksOf, readableNotes, scanProvenance } from "../wiki-scan";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
-
-function readableNotes(
-  root: string,
-  acl: FolderAcl | undefined,
-  grantedScopes: Iterable<string>,
-): string[] {
-  return walkVault(root, { extensions: [".md"] })
-    .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel, grantedScopes));
-}
-/** A note's links (property links, then body) for the link scan; bad frontmatter YAML is named in
- *  `warnings`, not thrown. */
-function linksOf(root: string, rel: string, warnings: ScanWarnings): ExtractedLink[] {
-  return warnings.links(readNote(resolveVaultPath(root, rel)).raw, rel);
-}
-function isExternal(kind: string, target: string): boolean {
-  return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
-}
-
-// Frontmatter has the key with a non-empty value (non-empty string/array, or any present scalar).
-function fmHas(fm: Record<string, unknown> | null, key: string): boolean {
-  if (!fm || !(key in fm)) return false;
-  const val = fm[key];
-  if (val == null) return false;
-  if (typeof val === "string") return val.trim().length > 0;
-  if (Array.isArray(val)) return val.length > 0;
-  return true;
-}
 
 interface Graph {
   notes: string[];
@@ -451,49 +422,14 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const DEFAULT_EXCLUDE = [
-          "01-daily/**",
-          "_templates/**",
-          "**/00-INDEX.md",
-          "**/_*-Index.md",
-          "**/*.excalidraw.md",
-        ];
-        const exclude = [...DEFAULT_EXCLUDE, ...(input.exclude ?? [])];
-        // THE-618: compile the include/exclude globs ONCE for the whole scan instead of per note.
-        // These are the only CALLER-supplied globs that reach globToRegExp (up to 64 each per call),
-        // so compiling here also surfaces an over-long glob as a single up-front `glob too long`
-        // rather than on whichever note happened to be scanned first — and not at all when the
-        // readable set is empty, which previously let an invalid argument pass silently.
-        const includeRes = (input.include ?? []).map((g) => globToRegExp(g.normalize("NFC")));
-        const excludeRes = exclude.map((g) => globToRegExp(g.normalize("NFC")));
-        const inScope = (rel: string): boolean => {
-          const p = rel.normalize("NFC");
-          if (includeRes.length && !includeRes.some((re) => re.test(p))) return false;
-          return !excludeRes.some((re) => re.test(p));
-        };
-        const notes = readableNotes(v.root, ctx.acl, ctx.grantedScopes).filter(inScope);
-        const field = input.field;
-        const byFolder = new Map<string, { scanned: number; missing: number }>();
-        const missing: string[] = [];
-        let withField = 0;
-        let withConfidence = 0;
-        let withVerified = 0;
         const warnings = new ScanWarnings();
-        for (const rel of notes) {
-          const fm = warnings.parse(readNote(resolveVaultPath(v.root, rel)).raw, rel).frontmatter;
-          const top = rel.split("/")[0] ?? "";
-          const folder = byFolder.get(top) ?? { scanned: 0, missing: 0 };
-          folder.scanned++;
-          if (fmHas(fm, field)) withField++;
-          else {
-            folder.missing++;
-            missing.push(rel);
-          }
-          if (fmHas(fm, "confidence")) withConfidence++;
-          if (fm != null && "verified" in fm) withVerified++;
-          byFolder.set(top, folder);
-        }
-        const scanned = notes.length;
+        const scan = scanProvenance(
+          { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+          warnings,
+          { field: input.field, include: input.include, exclude: input.exclude },
+        );
+        const { scanned, withField, withConfidence, withVerified, missing, byFolder } = scan;
+        const field = input.field;
         const round = (n: number): number => Number(n.toFixed(3));
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
