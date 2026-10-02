@@ -164,6 +164,8 @@ describe("eval scripts are guarded", () => {
       "path arithmetic over target_paths and an ACL overlay; no vault, no retrieval",
     "history.ts": "records an existing artifact; reads the golden set only to fingerprint it",
     "score-reranked.ts": "scores pre-exported candidate pools; opens no vault",
+    "embedder-arms.ts":
+      "embeds golden query texts and scores pools `rerank-arms.ts pools` already guarded; opens no vault for scoring",
     "gen-fanout-variants.ts": "generates query variants; scores nothing",
     "mine-golden-candidates.ts": "mines NEW candidates from the vault; scores nothing",
     "seed-activation.ts": "activation probe over the experiential store, not a retrieval score",

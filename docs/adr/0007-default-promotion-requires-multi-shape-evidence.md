@@ -428,3 +428,91 @@ pre-registered confirmatory eval on corpora not used to form the hypothesis (a t
 change, which this study does not make). The cheapest candidates are DeepInfra Qwen3-0.6B + title (private +0.033,
 about 0.35 s) and local MiniLM + title (free, +0.010 on private, +0.044 on evergreen strict, but about 3 s per search
 on one CPU thread). Class gating does not help.
+
+## Status (2026-10-02): Gemini embeddings beat bge-m3 on the public shape; the private phase is worth running, no default changes
+
+**Question and pre-registration.** Does a Gemini embedding model beat bge-m3 (1024d, the shipped embedder) for
+retrieval? Phase 1 is the public evergreen corpus only: the gateway's Gemini key is a free-tier key, so Google may
+use what it is sent, and no private-vault text was sent. Pre-registered before any scored call: sha256
+`73cdf43a20eb31cdcc7111863c421cf26910ea63235199aaf009eca8fb52038f` (written 2026-10-02T20:54:02Z). The only
+earlier Gemini traffic was API-shape probes on throwaway strings and a 5-chunk, 3-query smoke run into a scratch
+directory, none scored. Harness: `eval/embedder-arms.ts` (+ `rerank-arms.ts pools`). Artifacts, per-arm index
+copies, `runs.db` (6 recorded runs, the index state in each run's note) and the scripts are under
+`/data/obsidian-tc-eval/embedder-gemini-2026-10/`.
+
+**Setup.** Every arm embeds the same 2,986 chunks of the evergreen corpus (the index copy the reranker study
+scored) and is scored through the brute-force cosine path, so arms differ only in their vectors; pool = top 50
+chunks of `search_semantic`; n = 78 queries, strict and lenient labels; paired by query id, permutation p,
+bootstrap CI, one-sided lower bound against the -0.015 non-inferiority floor, Benjamini-Hochberg q 0.10 across the
+two 1024-wide Gemini arms. The control reproduces the reranker study's dense figures exactly (0.8683 strict,
+0.6277 lenient), and a 24-chunk sample re-embedded through the harness's own path has cosine >= 0.999996 with the
+stored bge-m3 vectors, so the chunk text and the transport match production. Arms: `gemini-embedding-2` at 1024
+(no task-type parameter in its API: it takes the documented `title: ... | text: ...` document prefix and
+`task: search result | query: ...` query prefix), `gemini-embedding-001` at 1024 (`taskType` `RETRIEVAL_DOCUMENT`
+for chunks, `RETRIEVAL_QUERY` for queries; truncated vectors are not unit length and are L2-normalized), and an
+exploratory `gemini-embedding-2` at its native 3072. The gateway has no Gemini embedding alias and passes no task
+type through, so Gemini was called directly with the key read by variable name.
+
+**Result** (dense order, nDCG@10 first; delta against bge-m3 with permutation p in parentheses):
+
+| arm | strict nDCG@10 | strict MRR@10 / R@10 / R@50 | lenient nDCG@10 | lenient MRR@10 / R@10 / R@50 |
+| --- | --- | --- | --- | --- |
+| bge-m3 (control) | 0.8683 | 0.864 / 0.942 / 0.964 | 0.6277 | 0.883 / 0.631 / 0.763 |
+| gemini-embedding-2 @1024 | 0.9232 (+0.055, p 0.0055) WIN | 0.919 / 0.968 / 0.972 | 0.7171 (+0.089, p 0.0001) WIN | 0.947 / 0.735 / 0.855 |
+| gemini-embedding-001 @1024 | 0.9051 (+0.037, p 0.094) WIN | 0.903 / 0.962 / 0.979 | 0.6893 (+0.062, p 0.0004) WIN | 0.923 / 0.698 / 0.823 |
+| gemini-embedding-2 @3072 (exploratory) | 0.9302 (+0.062, p 0.0009) | 0.925 / 0.972 / 0.972 | 0.7364 (+0.109, p 0.0001) | 0.950 / 0.760 / 0.860 |
+
+Lower 95% bounds on the nDCG@10 delta are all above zero (strict +0.022, +0.002, +0.029; lenient +0.059, +0.033,
++0.078). The realised MDE at n = 78 is 0.050 to 0.062 (sigma_d 0.16 to 0.20; the pre-registered planning figures
+were 0.066 and 0.043): the strict `gemini-embedding-2` delta (0.055) sits at it, the strict `gemini-embedding-001`
+delta (0.037) is below it, and every lenient delta is above it. `gemini-embedding-001` on strict is a WIN only because Benjamini-Hochberg at q 0.10 over m = 2 admits a raw
+p of 0.094; read it as a weak lean, not a result. On strict labels recall@50 is saturated for every arm (0.96 to
+0.98, no significant change), so the strict gain is ordering. On lenient labels coverage also improves: recall@10
++0.104 (p 0.0006) and recall@50 +0.091 (p 0.0015) for `gemini-embedding-2` @1024. The native 3072 width adds
++0.007 (strict) and +0.019 (lenient) nDCG@10 over the 1024 arm of the same model (not tested against it), which
+does not buy back three times the vector storage. The production `graph_rrf` order, rescored under each embedder
+with its derived edges still built on bge-m3 vectors (descriptive only), also rises: strict 0.9143 to 0.9409
+(+0.027, p 0.032) and lenient 0.6892 to 0.7241 (+0.035, p 0.016) for `gemini-embedding-2` @1024.
+
+**Embed latency** (Cave host, load average 1.0 to 3.3 on 4 cores; network paths differ: Gemini direct over the
+internet, bge-m3 through the gateway on the tailnet to Cloudflare, so these are indicative):
+
+| arm | query p50 / p95 (78 single calls) | document batch (calls, wall) |
+| --- | --- | --- |
+| bge-m3 | 139 / 386 ms | 24-chunk sample, batches of 16: 247 to 998 ms |
+| gemini-embedding-2 @1024 | 201 / 299 ms | 2,986 chunks, batches of 100: p50 769 ms, p95 916 ms, 23.9 s in calls |
+| gemini-embedding-001 @1024 | 164 / 188 ms | p50 576 ms, p95 667 ms, 17.7 s in calls |
+| gemini-embedding-2 @3072 | 192 / 274 ms | p50 1,041 ms, p95 1,423 ms, 32.7 s in calls |
+
+No 429 or 5xx occurred at one call at a time with a 1.5 s gap. The corpus is about 865,000 tokens (4 characters per
+token, an estimate).
+
+**Cost** (input tokens only, USD; Gemini API pricing page, last updated 2026-10-01: `gemini-embedding-2` text
+$0.20 per 1M standard and $0.10 batch, free tier exists with content that may be used; Cloudflare Workers AI
+pricing page, 2026-10-01: `@cf/baai/bge-m3` 1,075 neurons per 1M tokens at $0.011 per 1,000 neurons, about $0.0118
+per 1M; `gemini-embedding-001` is not on the current Gemini pricing page, so no price is quoted for it):
+
+| | per 1M tokens | full re-embed, 2.9M tokens | per day, 10k tokens | per day, 250k tokens |
+| --- | --- | --- | --- | --- |
+| bge-m3 (Workers AI) | $0.0118 | $0.034 | $0.0001 | $0.003 |
+| gemini-embedding-2, standard | $0.20 | $0.58 | $0.002 | $0.05 |
+| gemini-embedding-2, batch | $0.10 | $0.29 | $0.001 | $0.025 |
+
+Gemini costs 8.5 to 17 times as much per token and the absolute figures are cents either way: price is not the
+decider. The free tier is $0 but is public-corpus only.
+
+**Caveats.** One English shape, n = 78, with labels that the reranker study already used. The public Matuschak notes
+are likely in the training data of every model compared, so this is the shape least able to separate them; the
+private vault, which no model has seen, is the held-out check. The arms do not receive the same text by design
+(each model gets the format its documentation prescribes; bge-m3 has no asymmetric prefix). Adopting Gemini would
+also need a provider in `src/` (there is none; the gateway has no alias), a key, a full re-embed of every vault,
+and vault text leaving the box to Google under a paid project's terms. None of that is in this verdict.
+
+**Verdict (ADR 0007 class (c)): no default changes, and a public-only result could never change one.** Under the
+pre-registered rule, `gemini-embedding-2` @1024 and `gemini-embedding-001` @1024 each win on a label set with no
+loss on the other.
+
+**Run private phase: yes.** Run it on a paid, billed project's key (`GEMINI_API_KEY_PAID`, which the harness
+requires for `--corpus private`), `gemini-embedding-2` @1024 first; `gemini-embedding-001` is the secondary arm. The
+private phase needs the pre-drift index copy and the 250-query multi-hop set, with the corrected dense baseline
+0.7515, and its own pre-registration.

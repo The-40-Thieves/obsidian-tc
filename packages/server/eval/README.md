@@ -72,6 +72,40 @@ training on submitted text refuses a private pool (`PUBLIC_ONLY_ARMS`). `score` 
 artifact per arm and a `summary.json` with the paired statistics, the pre-registered per-corpus verdict, the
 per-class breakdown (hop class, router class, category) and the class-gated arms. Pre-register first.
 
+## Embedder arms over one index (`embedder-arms.ts`)
+
+Does another embedding model beat the shipped one? Every arm embeds the SAME chunks (the source index
+copy's chunking and ids) and is scored through the brute-force cosine path, so arms differ only in their
+vectors. Pre-register first, then one arm at a time:
+
+```
+bun eval/embedder-arms.ts index   <source-config.json> --arm <name> --exp-dir D [--corpus public|private]
+bun eval/embedder-arms.ts queries <golden> [<golden> ...] --arm <name> --exp-dir D [--corpus public|private]
+bun eval/rerank-arms.ts   pools   D/arms/<arm>/config.json <golden> --out D/pools-<arm>.json \
+     --query-vecs D/qvecs-<arm>.json --kind public|private --k 50
+bun eval/embedder-arms.ts score   --exp-dir D --golden strict=<path>,lenient=<path> --out-dir D/score
+bun eval/history.ts record D/score/artifact-<arm>-<labels>.json --db D/runs.db --corpus <golden> --label <l> --note <index state>
+```
+
+`index` copies the source `cache.db` into `D/arms/<arm>/`, writes that arm's `config.json`, re-embeds every
+chunk (resumable: a rerun skips chunks already embedded; exit code 3 means incomplete) and logs per-batch
+latency. The control arm (`bge-m3`) keeps its production vectors and re-embeds a 24-chunk sample through the
+harness's own path, recording the cosine with the stored vectors. `queries` embeds each query with the arm's
+query side, one sequential call each after a warm-up, and writes the vectors for `rerank-arms.ts pools`.
+`score` reports nDCG@10, MRR@10, recall@10 and recall@50 per arm, paired statistics against the control, the
+Benjamini-Hochberg verdict over the decision-bearing arms (`EMBEDDER_ARMS` in `embedder-arms-lib.ts`), the
+production `graph_rrf` order under each embedder, latency, a cost table, and the "run the private phase"
+decision as `privatePhaseDecision` defines it, plus one `history.ts` artifact per arm and label set.
+
+Gemini is called directly (the gateway has no Gemini embedding alias and passes no task type). The text each
+model gets follows its documentation: `gemini-embedding-001` takes `taskType` (`RETRIEVAL_DOCUMENT` for chunks,
+`RETRIEVAL_QUERY` for queries); `gemini-embedding-2` has no task type and takes a `title: ... | text: ...`
+document prefix and a `task: search result | query: ...` query prefix. Truncated vectors are L2-normalized.
+The key is read by environment-variable name: `GEMINI_API_KEY` is the free-tier key and is **public-corpus
+only**; `--corpus private` needs a paid project's key in `GEMINI_API_KEY_PAID` (a distinct value) and the
+harness refuses otherwise. An empty `GEMINI_API_KEY` exported in the shell shadows `bun --env-file`; start bun
+under `env -u GEMINI_API_KEY`. Chunks of paths matched by `egress.excludePaths` are never embedded.
+
 ## The ship rule (THE-399)
 
 **Status 2026-08-02 (THE-674): the MDE is MEASURED on the engine that actually runs, and it is
