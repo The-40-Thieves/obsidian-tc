@@ -44,9 +44,13 @@ export function effectiveCall(params: Json | undefined): { tool: string; args: J
 
 /** `afterTool` is a REGEX over the effective tool name (the pre-registered hooks use `^(read_|get_)`);
  *  an earlier cut compared it with `===`, so the hook never fired and the concurrent-edit trials were
- *  not exercised (the runner flags those `notExercised`). */
-export function hookMatches(h: HookSpec, tool: string, args: Json): boolean {
-  return new RegExp(h.afterTool).test(tool) && (h.path === undefined || args.path === h.path);
+ *  not exercised (the runner flags those `notExercised`). An ERRORED call never counts: it returned
+ *  no note content, so firing on it (a first read that failed validation on the missing `vault`) wrote
+ *  the external edit BEFORE the model's first successful read and the hash it then sent was fresh. */
+export function hookMatches(h: HookSpec, tool: string, args: Json, isError = false): boolean {
+  return (
+    !isError && new RegExp(h.afterTool).test(tool) && (h.path === undefined || args.path === h.path)
+  );
 }
 
 export function applyHook(vault: string, h: HookSpec): void {
@@ -115,6 +119,7 @@ function main(): void {
       if (p) {
         pending.delete(m.id as string | number);
         const result = (m.result ?? {}) as Json;
+        const failed = result.isError === true || m.error !== undefined;
         const sc = result.structuredContent as Json | undefined;
         const text = JSON.stringify(result.content ?? "");
         emit({
@@ -122,13 +127,13 @@ function main(): void {
           tool: p.tool,
           args: p.args,
           ms: Date.now() - p.sent,
-          isError: result.isError === true || m.error !== undefined,
+          isError: failed,
           code: typeof sc?.code === "string" ? sc.code : undefined,
           recovery: typeof sc?.recovery === "string" ? sc.recovery : undefined,
           bytes: Buffer.byteLength(line),
           text: text.slice(0, 1500),
         });
-        if (hook && !fired && hookMatches(hook, p.tool, p.args) && ++matched >= (hook.nth ?? 1)) {
+        if (hook && !fired && hookMatches(hook, p.tool, p.args, failed) && ++matched >= (hook.nth ?? 1)) {
           fired = true;
           applyHook(vault, hook);
           emit({ dir: "hook", file: hook.file, afterTool: hook.afterTool });

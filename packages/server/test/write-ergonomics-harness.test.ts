@@ -130,6 +130,9 @@ describe("tap proxy helpers", () => {
       expect(hookMatches(h, "get_note_headings", { path: h.path }), task.id).toBe(true);
       expect(hookMatches(h, "patch_note", { path: h.path }), task.id).toBe(false);
       expect(hookMatches(h, "read_note", { path: "other.md" }), task.id).toBe(false);
+      // regression: a first read that failed validation (no `vault`) fired the hook before the model's
+      // first successful read, so the hash it sent was fresh and the CAS path was never exercised.
+      expect(hookMatches(h, "read_note", { path: h.path }, true), task.id).toBe(false);
     }
   });
 
