@@ -359,7 +359,17 @@ const EXPECTED: ToolSnapshot[] = [
     requiredScopes: ["write:notes"],
     tags: ["external-network", "knowledge"],
     hasPathAcl: true,
-    inputKeys: ["allow_duplicate", "judge", "page", "patches", "sources", "topic", "type", "vault"],
+    inputKeys: [
+      "allow_duplicate",
+      "elicit_token",
+      "judge",
+      "page",
+      "patches",
+      "sources",
+      "topic",
+      "type",
+      "vault",
+    ],
     outputKeys: [
       "committed",
       "contradictions",

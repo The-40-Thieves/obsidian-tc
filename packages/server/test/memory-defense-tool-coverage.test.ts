@@ -74,6 +74,8 @@ const MEMORY_DEFENSE_COVERED = new Set<string>([
   // text), not just the binary attachment file, so it needs the same guard every other backlink
   // rewrite gets (move_note/bulk_move_notes' own rewriteForMoves).
   "move_attachment",
+  // Every page and patch the commit writes goes through enforceMemoryDefenseOnNoteWrite.
+  "commit_wiki_page",
   // The *_active_file writers delegate to write_note/append_note/patch_note's own handlers (see
   // tools/m4/active-file-tools.ts), so the guard above runs on their content unchanged.
   // test/active-file-tools.test.ts pins it for update_active_file.

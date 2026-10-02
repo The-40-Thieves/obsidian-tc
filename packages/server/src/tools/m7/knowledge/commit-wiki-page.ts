@@ -12,7 +12,7 @@
 // Confirmation: creating a page needs none, in the wiki folder or out of it (restore_note undoes
 // it, and each overwritten or patched note is snapshotted first). Overwriting an existing non-empty
 // page asks exactly as write_note does, wherever it lives.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import {
   enforceMemoryDefenseOnNoteWrite,
@@ -155,6 +155,9 @@ export function createCommitWikiPageTool(
           .describe("Notes or URLs the page draws on; notes among them are expected to be linked."),
         page: WikiPageSpec,
         patches: z.array(WikiPatchSpec).max(MAX_PATCHES).default([]),
+        // Advertised so a caller can discover the confirmation parameter; stripped off rawArgs into
+        // ctx.elicitToken before this schema validates (mcp/server.ts).
+        elicit_token: ElicitToken.optional(),
         allow_duplicate: z
           .boolean()
           .default(false)
