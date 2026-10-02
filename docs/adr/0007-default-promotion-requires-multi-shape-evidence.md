@@ -107,7 +107,7 @@ precomputed query vectors, paired by query id; artifacts and `runs.db` under
 | --- | ---: | ---: | ---: | --- | --- | --- | ---: |
 | Matuschak evergreen, strict labels (public) | 2,986 | 78 | 10 | 0.9143 / 0.9143 | 0.9786 / 0.9786 | 0.9053 / 0.9053 | 0 |
 | Matuschak evergreen, lenient labels | 2,986 | 78 | 10 | 0.6895 / 0.6895 | 0.6958 / 0.6958 | 0.9402 / 0.9402 | 0 |
-| private multi-hop vault | 13,746 | 250 | 10 | 0.7696 / 0.7696 | 0.8602 / 0.8602 | 0.8364 / 0.8364 | 0 |
+| private multi-hop vault (index copy carried the contaminating note; clean copy 0.7740 / 0.7740, see 2026-10-02) | 13,746 | 250 | 10 | 0.7696 / 0.7696 | 0.8602 / 0.8602 | 0.8364 / 0.8364 | 0 |
 | constructed 6-note vaults (8 subsamples of the evergreen corpus) | 13-20 | 73 | 4-7 | 0.9949 / 0.9949 | 1.0000 / 1.0000 | 0.9932 / 0.9932 | 0 (metrics) |
 | constructed 10-note vaults (8 subsamples) | 18-34 | 115 | 6-10 | 0.9968 / 0.9968 | 1.0000 / 1.0000 | 0.9957 / 0.9957 | 0 (metrics) |
 
@@ -224,3 +224,75 @@ dense-only, were produced by the contamination and are withdrawn. The private va
 class (c) mechanism is a no-op, not one where it wins, which strengthens the verdict that the evidence bar is unmet
 (the contaminated shape no longer counts as a shape with a measured win). The public evergreen rows are unaffected.
 Artifacts, `runs.db` and the before/after comparison: `/data/obsidian-tc-eval/golden-contamination-20261001/`.
+
+## Status (2026-10-02): the other private-vault evals re-measured on the decontaminated vault; no conclusion changes
+
+The contaminating note quoted the golden queries verbatim, so every eval that ran a lexical stream on that vault was
+in doubt, not only the `auto` rows corrected on 2026-10-01. The inventory is every eval that scores the private
+multi-hop set (n=250) through a path with a text or BM25 leg: the `search_vault` `auto` routing evals (above), the
+search-mode reader eval, the `rrfK` derivation eval, the retrieval-cache eval, and the paired contrasts recorded in
+`docs/EVALUATION.md` (graph against dense, multi-query fan-out, kNN and tag edge densification). The public evergreen
+corpus carries no such note, so none of its rows are in scope. `eval/run.ts` fuses a chunk-level BM25 stream
+(`chunk_fts`); `eval/search-mode.ts` calls the real `search_vault` handler, whose literal text leg follows the files on
+disk (the old index copy, which still carries the note, scored dense-only 0.4005 once the file was moved).
+The contamination therefore reached the two harnesses differently, which is why the `auto` numbers moved by
+0.30 and the `run.ts` numbers by under 0.01.
+
+**Index state is its own variable.** Three copies of the same bge-m3 index were scored with the same code and the
+same precomputed query vectors (`history.ts` keys a run on the golden set only, so each run carries its vault state in
+its note):
+
+| index copy | notes / chunks | note quoting the queries |
+| --- | ---: | --- |
+| old (the copy every earlier run used) | 1,182 / 13,746 | indexed |
+| clean (the same copy, that note dropped with `deindexNote`) | 1,181 / 13,731 | absent |
+| settled (clean, reconciled to today's vault) | 1,493 / 16,790 | absent |
+
+**Measured** (`eval/run.ts`, paired by query id; artifacts, `runs.db` and the scripts under
+`/data/obsidian-tc-eval/private-vault-remeasure-20261002/`; the `old` row reproduces the recorded 0.7471 / 0.7696):
+
+| index copy | dense nDCG@10 | fused+graph nDCG@10 | graph minus dense (95% CI, p) | graph recall@10 | graph MRR@10 |
+| --- | ---: | ---: | --- | ---: | ---: |
+| old | 0.7471 | 0.7696 | +0.023 ([0.002, 0.044], 0.033) | 0.8602 | 0.8364 |
+| clean | 0.7476 | 0.7740 | +0.026 ([0.006, 0.048], 0.014) | 0.8615 | 0.8387 |
+| settled (a different corpus, see below) | 0.5542 | 0.5974 | +0.043 ([0.019, 0.067], 0.0005) | 0.7414 | 0.6280 |
+
+Dropping the note changes 6 of 250 dense queries (all up, +0.0005) and 32 of 250 fused+graph queries (28 up, 4 down,
++0.0044, p 0.006): the BM25 stream had been returning that one note as a distractor. With the lexical stream off
+the fused arm is 0.7099 (old) and 0.7112 (clean), so the stream is worth +0.063 on the clean copy and the
+contamination had cost it about 0.004 of that. The detectable effect for these paired contrasts was stated before
+running as 0.035 nDCG@10 (sigma_d 0.198 from the harness's own table, alpha 0.05, power 0.8) for a contrast
+that moves most queries, and 0.0097 where few queries move (sigma_d 0.055, as in the kNN sweep); the
+decontamination effect sits between the two, so it is a detectable but small shift.
+
+| eval and recorded row | before | after (clean copy) | conclusion |
+| --- | --- | --- | --- |
+| `rrfK` derivation, private row (above) | constant and derived both 0.7696; 0 queries differ | both 0.7740; 0 queries differ | unchanged: parity |
+| graph against dense, private corroboration (`docs/EVALUATION.md`) | +0.023 nDCG@10, p 0.033 | +0.026, p 0.014 | unchanged, slightly firmer |
+| class router (lexical short-circuit) | 0.7712 | 0.7770 | unchanged: within 0.004 of the default path |
+| multi-query fan-out against single query (graph nDCG@10) | -0.0373 (p 0.0025), recall +0.011 (p 0.16) | -0.0396 (p 0.0011), recall +0.012 (p 0.11) | unchanged: significant regression, same documents in a worse order |
+| `tagEdges` fanout 25 against its control | nDCG -0.0018 (p 0.56), bridge recall +0.000, 30 queries reorder | nDCG -0.0009 (p 0.76), bridge recall -0.004 (p 1.0), 33 reorder | unchanged: null |
+| `knnEdges` k 8 floor 0.0 against its control | nDCG -0.0017 (p 0.59), bridge recall -0.008 (p 0.73), 36 reorder | nDCG -0.0015 (p 0.63), bridge recall -0.008 (p 0.73), 37 reorder | unchanged: null |
+| retrieval cache, 10% repeat stream (`docs/design/search-indexing-and-cache.md`) | repeat calls 842 / 3.7 ms p50 OFF / ON; identity gap `coverage` only; 238 of 240 queries differ across callers | 416 / 0.8 ms; same single-key gap; 236 of 240 | unchanged: stays off |
+| `search_vault` `auto`, private row (corrected 2026-10-01) | 0.1009 recorded | 0.4016 (all three routes) | already withdrawn and annotated |
+| forced-`text` preference arm (search-mode reader) | 0.0000 | 0.0000 | unchanged: the text leg finds nothing |
+
+The `old` copy of the fan-out and densification contrasts reproduces the recorded figures (fan-out -0.043 to -0.047
+on the earlier code; `tagEdges` 9,260 edges and 30 reordered queries; `knnEdges` 6,777 edges), so the "before" column
+is a replication on the current code, not a quotation. The retrieval-cache eval is covered in
+`docs/design/search-indexing-and-cache.md`.
+
+**Verdict: no recorded conclusion changes.** The contamination was a distractor in a chunk-level BM25 stream that
+cost the fused arm about 0.004 nDCG@10 and moved no contrast across its significance line or its non-inferiority
+floor; it was decisive only where a literal whole-phrase text leg decides the route, which is the `auto` rows already
+withdrawn. The `weak-text` and `hybrid` `auto` routes are still a no-op on the settled copy too (0.2460 for all three
+routes, 0 queries changed).
+
+**Do not compare the settled copy with the others.** Reconciling the copy to today's vault added 312 notes (about a
+quarter more, mostly reference and research notes) and nothing was removed; every target path is still indexed, the
+contamination guard passes (no note quotes even one query), and the code and query vectors are unchanged. Dense
+nDCG@10 fell from 0.7476 to 0.5542 (190 of 250 queries changed, 36 up) and `auto` from 0.4016 to 0.2460. The golden
+set was labelled against the 1,182-note vault, so notes written since are distractors for it. The clean copy stays the
+like-for-like baseline for private-vault runs; a settled copy is a different corpus and any run on it must say so.
+`history.ts` keys a run on the golden set, which did not change, so it cannot flag this on its own: record the index
+state in the run's note.

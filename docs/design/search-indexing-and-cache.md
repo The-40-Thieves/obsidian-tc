@@ -249,6 +249,19 @@ cannot establish a repeat rate; it shows none.
 traffic. The latency win on a repeated query is large and the memory bound holds, so an operator whose
 clients repeat queries can enable it today (`results` is unaffected).
 
+**Re-measured 2026-10-02 without the contaminating note.** The index copy above carried a note that quoted the
+golden queries verbatim, so every call's lexical stream returned that one note as a distractor. The same harness, seed
+and stream shapes were re-run on a copy with that note dropped (15,918 chunks against 15,933), one arm at a time:
+repeat calls 416 / 999 ms p50 / p95 OFF against 0.8 / 1.0 ON at a 10% repeat rate (28 repeat calls, 3 reps rather than
+5), first sightings 460 OFF against 438 ON (inside the OFF arm's own rep-to-rep range of 55 ms), hit rate 10.1%, memory
+11.7 MiB of results plus 0.8 MiB of encodings for 64 entries at `final_top_k` 100 (median entry 127 KiB, max 337 KiB; heap held 8.8 MiB). Identity is
+unchanged: `results` identical on every call, every cache-ON hit differs from OFF by the one `coverage` key (84 of
+84 here), the two-caller arm has 0 cross-caller hits with 236 of 240 queries answered differently to the restricted
+caller (238 before), and the generation bump makes 100 of 100 entries misses. Absolute latencies are about half
+the earlier ones; the box was less loaded and the load average is not controlled, so read the ratios, which are
+what the decision uses. The decision is unchanged, and so is each of its bars. The r=30% stream, the live-embedding
+arm and the other two tools were not re-run.
+
 ## query_cache.ts — FUNCTION_FIELDS: `activationFor` (THE-424 Part A / Part B)
 
 `activationFor` is a DB lookup of `cached_activation_score`. It was re-reviewed for THE-424 Part A,
