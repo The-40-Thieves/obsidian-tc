@@ -15,6 +15,7 @@ import {
   observationsAsOf,
   relationsForEntity,
 } from "../../memory/entities";
+import { formatObservationId } from "../../memory/observation-edit";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { getReadableEntity, memoryReadable } from "./memory-projection";
@@ -34,7 +35,10 @@ function isVisible(e: Pick<EntityRow, "status">, includeRetired: boolean): boole
 // GH #1027: response_format=concise keeps the fact (`text`) and its `key` when it has one, plus
 // valid_to / superseded_by when set (the fact is no longer current), and drops valid_from, so those
 // are optional here; a detailed observation always carries all five.
+// `observation_id` is the address update_observation takes (present in BOTH formats: a concise
+// read is exactly when a caller is about to edit).
 const ObservationSchema = z.object({
+  observation_id: z.string(),
   text: z.string(),
   key: z.string().nullable().optional(),
   valid_from: z.number().optional(),
@@ -48,12 +52,14 @@ function toObservationOutput(
 ): z.infer<typeof ObservationSchema> {
   if (concise)
     return {
+      observation_id: formatObservationId(o.id),
       text: o.text,
       ...(o.key !== null ? { key: o.key } : {}),
       ...(o.validTo !== null ? { valid_to: o.validTo } : {}),
       ...(o.supersededBy !== null ? { superseded_by: o.supersededBy } : {}),
     };
   return {
+    observation_id: formatObservationId(o.id),
     text: o.text,
     key: o.key,
     valid_from: o.validFrom,
@@ -117,7 +123,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
       name: "get_entity",
       domain: "knowledge",
       description:
-        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set. An entity is readable only when its own note (<memory folder>/<type>/<name>.md) is readable under the caller's folder read ACL (readPaths); one that is not reads as 'entity not found', and relations to such entities are omitted. Observations returned are filtered by as_of — a fact is included when valid_from <= as_of and (valid_to is unset or as_of < valid_to). Default as_of is now, so an as_of in the PAST excludes any observation added after that instant, even one that is still open today. response_format=concise returns each observation as {text, key?} (plus valid_to and superseded_by when set) and omits vault_path when null, created_at, updated_at and as_of.",
+        "Read a memory entity by id, by type+name, or by unique name, with its observations and relations. Retired entities are hidden unless include_retired is set. An entity is readable only when its own note (<memory folder>/<type>/<name>.md) is readable under the caller's folder read ACL (readPaths); one that is not reads as 'entity not found', and relations to such entities are omitted. Observations returned are filtered by as_of — a fact is included when valid_from <= as_of and (valid_to is unset or as_of < valid_to). Default as_of is now, so an as_of in the PAST excludes any observation added after that instant, even one that is still open today. Each observation carries an `observation_id`: to correct or retire a fact (keyed or not), pass it to update_observation. response_format=concise returns each observation as {observation_id, text, key?} (plus valid_to and superseded_by when set) and omits vault_path when null, created_at, updated_at and as_of.",
       inputSchema: z
         .object({
           vault: VaultId,

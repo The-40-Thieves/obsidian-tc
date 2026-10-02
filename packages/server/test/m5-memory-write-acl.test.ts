@@ -293,10 +293,11 @@ rule:
     [],
   );
 
-  it("every memory write tool runs assertMemoryPathWritable (create 1, add_observation 1, link 2, rename 2, unlink 2, delete 1)", () => {
+  it("every memory write tool runs assertMemoryPathWritable (create 1, add_observation 1, update_observation 1, link 2, rename 2, unlink 2, delete 1)", () => {
     expect(found.writable).toEqual({
       "memory-tools.ts": 4,
       "memory-lifecycle-tools.ts": 5,
+      "memory-observation-tools.ts": 1,
     });
   });
 

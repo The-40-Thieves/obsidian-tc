@@ -82,6 +82,8 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
   // part 4b: reviewed with the memory, goal and session writes, the note, attachment and tag
   // operations, the workspace and plugin actions, and vault/index/server administration
   add_observation: "write acknowledgement: entity id, observation count, timestamps and redactions",
+  update_observation:
+    "write acknowledgement: the closed and replacement observation ids, observation count and redactions",
   close_goal: "write acknowledgement: the goal id, its closed state and the closing time",
   commit_capture:
     "write acknowledgement: the committed path, its compare-and-swap hash and the redactions signal",

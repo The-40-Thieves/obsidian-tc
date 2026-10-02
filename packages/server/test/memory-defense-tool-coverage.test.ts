@@ -51,6 +51,7 @@ const MEMORY_DEFENSE_COVERED = new Set<string>([
   "end_session",
   "create_entity",
   "add_observation",
+  "update_observation",
   "enqueue_capture",
   "commit_capture",
   "set_goal",

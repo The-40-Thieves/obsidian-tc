@@ -68,7 +68,7 @@ describe("THE-1131 tool-profiles.ts — the single source of truth", () => {
   // fail THIS assertion too, not just check-version-coherence.mjs's headline gate.
   it(`core is exactly ${REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length} tools`, () => {
     expect(CORE_TOOL_COUNT).toBe(REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length);
-    expect(CORE_TOOL_COUNT).toBe(100);
+    expect(CORE_TOOL_COUNT).toBe(101);
   });
 
   it("every non-core name is actually registered (no stale/typo'd entry)", () => {

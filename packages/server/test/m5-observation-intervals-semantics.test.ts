@@ -37,7 +37,10 @@ async function observations(
 ): Promise<Obs[]> {
   const result = await v.call("get_entity", { vault: "test", entity_id: id, as_of: asOf });
   if (!result.ok) throw new Error(`get failed: ${JSON.stringify(result.error)}`);
-  return (result.data as { observations: Obs[] }).observations;
+  // observation_id is covered by m5-observation-edit.test.ts; these cases pin interval semantics.
+  return (
+    result.data as { observations: Array<Obs & { observation_id: string }> }
+  ).observations.map(({ observation_id: _id, ...rest }) => rest);
 }
 
 describe("THE-1130 keyed interval semantics", () => {
@@ -163,10 +166,15 @@ describe("THE-1130 as_of agreement and boundaries", () => {
         });
         if (!graph.ok) throw new Error(`graph failed: ${JSON.stringify(graph.error)}`);
         const graphObs = (
-          graph.data as { items: Array<{ entity_id: string; observations: Obs[] }> }
+          graph.data as {
+            items: Array<{
+              entity_id: string;
+              observations: Array<Obs & { observation_id: string }>;
+            }>;
+          }
         ).items.find((item) => item.entity_id === target)?.observations;
         expect(direct.map((o) => o.text)).toEqual(expected);
-        expect(graphObs).toEqual(direct);
+        expect(graphObs?.map(({ observation_id: _id, ...rest }) => rest as Obs)).toEqual(direct);
       }
     } finally {
       v.cleanup();
