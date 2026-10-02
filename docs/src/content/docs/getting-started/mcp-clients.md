@@ -31,7 +31,7 @@ exists to avoid.
 | Client | stdio | Streamable HTTP | Surface | `outputSchema` | Auth | Recommended `toolFacade.mode`[^mode] |
 |---|---|---|---|---|---|---|
 | **Claude Code** | ✅ connects | ✅ connects | 3-tool facade | ✅ honoured | bearer on HTTP; none on stdio | `triad` — measured |
-| **Codex CLI** | ✅ connects (0.159.2, headless) | `UNTESTED` | 3-tool facade | `UNTESTED` | none on stdio | `triad` — measured for `triad` only |
+| **Codex CLI** | ✅ connects (0.159.2, headless) | `UNTESTED` | 3-tool facade | `UNTESTED` | none on stdio | `domain` — measured |
 | Claude Desktop | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured |
 | Cursor | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured, from docs |
 | Gemini CLI | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured, from docs |
@@ -65,10 +65,12 @@ client's name, is deprecated, now resolves to `triad` for every client, and will
 which could make the triad's find/describe layer redundant, so the three modes were run against
 real headless clients on a fixed task set before any recommendation was written.
 
-**Short answer: leave `triad` (the default) for every client in the matrix** (for Claude Code, with
-its tool search on, which is its default). No mode beat it by the
-margin fixed in advance, and where a mode differed, the difference was cost, not whether the model
-found the right tool.
+**Short answer: leave `triad` (the default) for Claude Code** (with its tool search on, which is its
+default): no mode beat it by the margin fixed in advance, and where a mode differed, the difference was
+cost, not whether the model found the right tool. **For Codex, set `toolFacade.mode: domain`**: all three
+modes found the right tool every time (192 of 192 trials), and `domain` needed half the calls of `triad`
+with no tool-not-found. `flat` is a near tie with it (see [Codex CLI](#codex-cli)). The shipped default
+stays `triad`.
 
 ### How it was measured
 
@@ -90,7 +92,8 @@ found the right tool.
   not-found, then fewer tokens. The default is kept unless another mode beats it on success by more than
   the tie band, or ties it on success and is better on both calls and not-found. Detectable difference
   at 32 trials per cell is roughly 20–35 points of success rate; smaller gaps are "not distinguished".
-- **Scope.** Claude Code 2.1.285 (`claude-sonnet-5-5`), Codex CLI 0.159.2, obsidian-tc 1.31.8, stdio,
+- **Scope.** Claude Code 2.1.285 (`claude-sonnet-5-5`), Codex CLI 0.159.2 (default model `gpt-6.1-sol`,
+  Pro plan; see [Codex CLI](#codex-cli) for its own pre-registration), obsidian-tc 1.31.8, stdio,
   local embedder (semantic search degraded, identical on every trial), a 1,357-note vault plus seeded
   notes. The note with unparseable frontmatter used by the write-ergonomics tasks was left out because it
   makes backlink, tag and base queries fail vault-wide, which would swamp this comparison.
@@ -139,21 +142,45 @@ no-ops ([`codex-rs/features`](https://github.com/openai/codex/blob/main/codex-rs
 find-then-call facade: `tool_search` can miss a deferred tool even when the query names it exactly
 ([#21503](https://github.com/openai/codex/issues/21503)).
 
-**Only `triad` is measured for Codex, and only for one rep.** The Codex usage limit ran out partway
-through the matrix (it resets 2026-10-07), so `domain` and `flat` have no usable cells and no decision
-was made for them.
+The Codex cells were measured in a follow-up once the usage limit that cut the first matrix short had
+lifted: a separate pre-registration (sha256
+`e7402a1cff9681203275ee97af08c9b73b002474d744c937896bf57131675289`, recorded 2026-10-02T21:33:31Z, four
+addenda) with the same 16 tasks, corpus, checkers, server build (obsidian-tc 1.31.8 at `eb637ce3`) and rule.
+All three modes were re-run together, sequentially, one headless Codex process at a time, under Codex CLI
+0.159.2 and one default model (`gpt-6.1-sol`, probed before and after every cell), because the earlier
+`triad` cell did not record its model and its one miss was the since-fixed checker. 64 trials per mode
+(4 reps, because the rule's "close cell" test asked for reps 3 and 4), every trial confirmed complete (a
+`turn.completed` event, exit 0, a final message). The record is in
+[the Codex cells measurement note](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/plans/2026-10-02-facade-codex-cells-measurement.md).
 
-| Codex CLI | trials | success | median calls-to-success | tool-not-found | median billable tokens |
+| Codex CLI | success | median calls-to-success | trials with an error (errors) | tool-not-found | median billable tokens |
 |---|---|---|---|---|---|
-| `triad` | 16 | 15/16 | 5 | 1 trial (2 events) | 20.7k |
-| `domain` | not run | | | | |
-| `flat` | not run | | | | |
+| `triad` | 64/64 | 5 | 7 (12) | 5 trials (10 events) | 20.4k |
+| `domain` | 64/64 | 2.5 | 55 (65) | 0 | 20.5k |
+| `flat` | 64/64 | 3 | 8 (8) | 0 | 20.8k |
 
-The one failure is a checker false negative (the answer said "November 12, 2026" where the checker
-wanted `2026-11-12`; the checker now accepts both). The one tool-not-found was the model guessing
-capability names (`search_entities`, `recall_memory`) in `describe_capability` before finding the real
-one; it recovered. Recommendation: keep `triad`; re-run `domain` and `flat` after the limit resets before
-changing it.
+- **Success is at the ceiling in every mode, so it separates nothing**; the rule falls through to
+  calls, then tool-not-found. `domain` beats `triad` on both (2.5 against 5 calls; 0 against 5 trials
+  with a tool-not-found), so the pre-registered rule picks `domain`.
+- **`flat` is not distinguished from `domain`.** Its median is 3 calls against 2.5 (means 3.25 against 3.19),
+  also with no tool-not-found, so the rule's own "close" test still flags the pair after four reps. The
+  difference that does show is friction: `domain` had at least one validation error in 55 of 64 trials
+  (49 of its 65 errors were the missing `vault`, the rest wrong argument shapes, because a domain action's
+  schema cannot be seen before the call fails; every one was followed by a retry that worked), `flat` in 8. If you prefer fewer failed calls to fewer calls, `flat` is the equally
+  supported choice for Codex.
+- **Billable tokens do not differ** (20.4k, 20.5k, 20.8k), as expected: Codex defers every MCP tool behind
+  `tool_search`, so the 318 KB `tools/list` of `flat` is not paid for upfront the way it is by a client
+  that loads definitions.
+- **`triad` costs about two more calls.** Its tool-not-found events are all the model guessing capability
+  names (`search_entities`, `list_entities`, `delete_observation`) in `describe_capability` before finding
+  the real one; every such trial still passed. The `tool_search` exact-name miss feared above did not show up in `flat` or
+  `domain` (0 trials).
+- **Against the first `triad` cell** (16 trials, 15 of 16, median 5 calls, 20.7k): the same behaviour, now
+  64 of 64 with the fixed checker.
+
+Caveats specific to Codex: one model (the CLI's default, `gpt-6.1-sol`, not pinned by the harness, and the
+first `triad` cell's model was not recorded), one plan, headless runs with the shell tool off; the account
+had Codex connectors available and no trial called one. A different default model could move the result.
 
 ### Clients that could not be run headless
 
