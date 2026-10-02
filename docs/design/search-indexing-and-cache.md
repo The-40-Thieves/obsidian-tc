@@ -101,6 +101,20 @@ rewritten). That invariant is pinned by `test/index-selfheal.test.ts` — do not
 this is the whole reason the boot reconcile's "frontmatter is not valid YAML" degrade message used
 to name no file, even though this call site knew one. THE-823 fixed the degrade message to use it.
 
+## Excluded files (Obsidian's `userIgnoreFilters` + `index.excludePaths`)
+
+`index-exclusion.ts` loads the vault's exclusion list (a stat-keyed cache of `.obsidian/app.json`, last
+good list kept on a parse error, merged with `vaults[].index.excludePaths`). `indexVault` takes it as
+`isIndexExcluded`, evaluated per pass from a fresh snapshot, so both transitions fall out of one
+mechanism: an excluded walked note stays in `walkedSet` and the link universe but never enters `notes`,
+and `sweep-notes.ts` de-indexes whatever an earlier pass left (dismissing open contradiction rows with a
+reason instead of deleting them). `desiredEdges` drops every edge touching an excluded note, so the
+persisted graph omits them while a wikilink to one still resolves. The m2 search tools add `!excluded`
+to the same readable predicate the ACL uses, so a stale row never surfaces. Index-on-write
+(`indexing-wiring.ts`) honors the list too, and a debounced watcher event on `.obsidian/app.json`
+triggers a reconcile through `exclusion-reload.ts` when the effective list changed. Every production
+`indexVault` call site must pass `isIndexExcluded` (`test/index-exclusion-wiring.test.ts` scans for it).
+
 ## doctor index.coverage — missing and stale notes
 
 `doctor --probe` compares the notes on disk with the `notes` table. A readable note with no row is

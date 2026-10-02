@@ -161,6 +161,16 @@ export const VaultReflectConfigSchema = z.object({
     ),
 });
 
+/** Per-vault index controls. Merged with Obsidian's own Excluded files list (`userIgnoreFilters`). */
+export const VaultIndexConfigSchema = z.object({
+  excludePaths: z
+    .array(z.string())
+    .default([])
+    .describe(
+      "Extra entries merged with the Excluded files list Obsidian keeps in `.obsidian/app.json` (Settings -> Files & links -> Excluded files). Same dialect as Obsidian: an entry is a case-insensitive path prefix (`Archive/` is a folder, `Notes/todo.md` a file), and an entry written `/regex/` is a case-insensitive regular expression tested against the vault-relative path. A matching note is left out of the search index (no chunks, no embeddings, no search results, no graph edges) but stays a normal vault file: links to it resolve and read_note still works. This is NOT `egress.excludePaths`, which only withholds text from model providers.",
+    ),
+});
+
 export const VaultConfigSchema = z.object({
   id: z
     .string()
@@ -237,6 +247,9 @@ export const VaultConfigSchema = z.object({
   ),
   reflect: VaultReflectConfigSchema.optional().describe(
     "Per-vault defaults for the reflect tool's citation_style and detail arguments. A call argument beats this; absent means the shipped defaults (numeric, concise).",
+  ),
+  index: VaultIndexConfigSchema.optional().describe(
+    "Per-vault index controls. Absent means only the Excluded files list in the vault's own `.obsidian/app.json` applies.",
   ),
 });
 export type VaultConfig = z.infer<typeof VaultConfigSchema>;

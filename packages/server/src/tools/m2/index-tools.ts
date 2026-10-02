@@ -4,6 +4,7 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { vaultExclusionFor } from "../../search/index-exclusion";
 import { indexVault } from "../../search/indexer";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableByFolder, readableRel } from "../../vault/acl-read-filter";
@@ -87,6 +88,8 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
             sub,
             // Folder-only: the index is shared across callers (see readableByFolder).
             isReadable: (rel) => readableByFolder(ctx.acl, rel),
+            // Obsidian's Excluded files + index.excludePaths: never indexed, still link targets.
+            isIndexExcluded: vaultExclusionFor(deps.vaultRegistry, v.id).isExcluded,
             now: ctx.now,
             // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
             walk: { streaming: deps.streamingWalk },

@@ -32,6 +32,7 @@ import { JobQueue } from "../scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "../scheduler/job-runner";
 import type { Scheduler } from "../scheduler/scheduler";
 import { makeTaskCallHandler } from "../scheduler/task-call-runner";
+import { vaultExclusionFor } from "../search/index-exclusion";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { type IdleGate, serializeAdmission, waitForIdle } from "../search/indexing/embed-pace";
 import type { RepresentationManifest } from "../search/representation";
@@ -500,6 +501,8 @@ export function createReconcileRunner(
             ...(deps.isEgressExcluded !== undefined
               ? { isEgressExcluded: deps.isEgressExcluded }
               : {}),
+            // Obsidian's Excluded files + index.excludePaths: one snapshot per vault per pass.
+            isIndexExcluded: vaultExclusionFor(deps.vaultRegistry, v.id).isExcluded,
             now: Date.now,
             // GH #995 follow-up: captured ONCE per vault, at the moment THIS reconcile run starts —
             // not re-read per flush, so the whole run is fenced against promotions that happen

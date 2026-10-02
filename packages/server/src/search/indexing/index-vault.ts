@@ -2,8 +2,7 @@
 // apply a batch inside one), stale-note cleanup, edge reconciliation, and aggregated IndexStats.
 // Owns the WRITE TRANSACTION boundary for its batches: bumpGeneration runs as its OWN transaction
 // after every flush commits, mirroring indexNote's placement (index-note.ts) as the last write
-// after applyNoteWrites. index-note.ts's deindexNote is imported here for the stale-path sweep —
-// a sibling import, not a cycle (importing indexer.ts, the facade, would be).
+// after applyNoteWrites. The stale-path and excluded-note sweeps live in sweep-notes.ts.
 // See docs/design/search-indexing-and-cache.md.
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
@@ -48,7 +47,6 @@ import {
   EMBED_MAX_BATCH_TOKENS,
   embedPlans,
 } from "./embed-batches";
-import { deindexNote } from "./index-note";
 import { readLeaderEpoch } from "./leader-epoch";
 import {
   computeNotePlan,
@@ -60,6 +58,7 @@ import {
   readNoteTags,
 } from "./note-plan";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
+import { sweepUnindexedNotes } from "./sweep-notes";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
 import { commitFence, preloadFenceGenerations } from "./write-fence";
 
@@ -139,11 +138,18 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const walkedSet = new Set<string>();
   let statByPath = new Map<string, { mtime: number; size: number }>();
   let notes: string[] = [];
+  // Obsidian's Excluded files (search/index-exclusion.ts): walked, present, link targets — but
+  // never indexed. They stay in walkedSet (the file exists) and out of `notes`.
+  const isIndexExcluded = args.isIndexExcluded ?? (() => false);
+  const excludedWalked: string[] = [];
   if (!streamWalk) {
     const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
     for (const e of walked) walkedSet.add(e.relPath);
     statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
-    notes = walked.map((e) => e.relPath).filter(args.isReadable);
+    const indexable: string[] = [];
+    for (const e of walked)
+      (isIndexExcluded(e.relPath) ? excludedWalked : indexable).push(e.relPath);
+    notes = indexable.filter(args.isReadable);
   }
   // THE-501: one bulk load of the vault's chunk state (ids/hashes/active-model), so computeNotePlan
   // plans every note from memory instead of a per-note query. Safe because each note owns its path's
@@ -505,6 +511,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // its directory has been read, instead of waiting for the entire tree to be walked first.
     for await (const e of walkVaultStream(args.root, { sub: args.sub, extensions: [".md"] })) {
       walkedSet.add(e.relPath);
+      if (isIndexExcluded(e.relPath)) {
+        excludedWalked.push(e.relPath);
+        continue;
+      }
       if (!args.isReadable(e.relPath)) continue;
       notes.push(e.relPath);
       await processNote(e.relPath, { mtime: e.mtime, size: e.size });
@@ -556,33 +566,17 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.sql,
     );
   }
-  // THE-291: stale-path sweep — ONLY on unscoped runs (a folder-scoped index_vault call must
-  // never deindex the rest of the vault), and diffed against the UNFILTERED walk so files an
-  // ACL-restricted caller cannot see are not destroyed.
-  if (hasNotes && args.sub === undefined) {
-    const known = args.db
-      .prepare("SELECT path FROM notes WHERE vault_id = ?")
-      .all(args.vaultId) as Array<{ path: string }>;
-    for (const row of known) {
-      if (!walkedSet.has(row.path)) {
-        deindexNote(
-          args.db,
-          args.vaultId,
-          row.path,
-          hasVec,
-          args.chunkContext === true,
-          args.sql,
-          now,
-        );
-        stats.notes_deleted += 1;
-        // THE-486: a deleted note's chunk embeddings AND its tags are both gone — both delta
-        // computations need to know, so its derived edges in both directions get pruned rather than
-        // orphaned (a scope that omits it would never delete a stale edge pointing at it).
-        deletedPaths.add(row.path);
-        changedChunkPaths.add(row.path);
-      }
-    }
-  }
+  // Remove the index state of excluded notes and (unscoped runs only) of notes no longer on disk.
+  stats.notes_deleted += sweepUnindexedNotes({
+    args,
+    hasVec,
+    now,
+    walkedSet,
+    excludedWalked,
+    sweepGone: hasNotes && args.sub === undefined,
+    deletedPaths,
+    changedChunkPaths,
+  });
   args.onNotesPass?.();
   await flush();
   // Edge maintenance is full-state (resolving targets needs the whole note universe), so it
@@ -592,7 +586,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     const edgeStats = reconcileVaultEdges(
       args.db,
       args.vaultId,
-      desiredEdges(noteLinks, notes),
+      // The link universe includes the excluded notes (a wikilink to one RESOLVES), but the graph
+      // layer omits them, like Obsidian's Graph view: desiredEdges drops every edge touching one.
+      desiredEdges(
+        noteLinks,
+        [...notes, ...excludedWalked.filter(args.isReadable)],
+        new Set(excludedWalked),
+      ),
       now,
     );
     stats.edges_inserted = edgeStats.inserted;

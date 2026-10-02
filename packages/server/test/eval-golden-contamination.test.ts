@@ -120,6 +120,21 @@ describe("golden-set contamination guard", () => {
     expect(findGoldenContamination(golden, root, 3)).toEqual([]);
   });
 
+  it("a note on the vault's Excluded files list is not indexed, so it cannot contaminate; the same note without the exclusion does", () => {
+    put("Scratch/candidates.md", QUERIES.slice(0, 3).join("\n"));
+    expect(findGoldenContamination(golden, root, 3)).toEqual([
+      { path: "Scratch/candidates.md", queries: 3 },
+    ]);
+    put(".obsidian/app.json", JSON.stringify({ userIgnoreFilters: ["Scratch/"] }));
+    expect(findGoldenContamination(golden, root, 3)).toEqual([]);
+    expect(() => assertGoldenNotInVault(golden, root, { env: {} })).not.toThrow();
+    // A regex entry reaches it as well, and an unrelated entry does not.
+    put(".obsidian/app.json", JSON.stringify({ userIgnoreFilters: ["/candidates\\.md$/"] }));
+    expect(findGoldenContamination(golden, root, 3)).toEqual([]);
+    put(".obsidian/app.json", JSON.stringify({ userIgnoreFilters: ["Other/"] }));
+    expect(findGoldenContamination(golden, root, 3)).toHaveLength(1);
+  });
+
   it("only the indexed tree counts: dot-folders and non-markdown files are skipped", () => {
     put(".eval-excluded/candidates.md", QUERIES.slice(0, 4).join("\n"));
     put("notes.txt", QUERIES.slice(0, 4).join("\n"));

@@ -22,8 +22,10 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { EgressFilter } from "../plane/egress-filter";
 import { ensureNotesFts } from "../search/fts";
 import { IndexCoordinator } from "../search/index-coordinator";
+import { EXCLUDED_DISMISS_REASON, type VaultExclusion } from "../search/index-exclusion";
 import {
   deindexNote,
+  hasIndexedState,
   type IndexHook,
   type IndexStats,
   type IndexVaultArgs,
@@ -254,6 +256,8 @@ export interface IndexCoordinatorDeps {
   /** egress.excludePaths, as a per-path predicate. Threaded into indexNote for EVERY write through
    *  this coordinator. Absent -> nothing excluded. */
   isEgressExcluded?: (rel: string) => boolean;
+  indexExclusionFor?: (vaultId: string) => VaultExclusion;
+  onVaultConfigChange?: (vaultId: string) => void;
   /** GH #995: gates ONLY the vault WATCHER's onUpsert/onDelete callbacks below — never
    *  `reindexHook`/`deindexHook` themselves, which stay reachable for explicit tool writes and
    *  this process's OWN writes on every role. Absent behaves as "always leader" — a single-process
@@ -282,10 +286,27 @@ export interface IndexCoordinatorWiring {
  * identically to a write_note.
  */
 export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinatorWiring {
+  const deindexPath = (vaultId: string, path: string, excluded: boolean): void =>
+    deindexNote(
+      deps.db,
+      vaultId,
+      path,
+      deps.hasVec,
+      deps.chunkContext,
+      deps.sqlHooksFor(vaultId),
+      Date.now,
+      excluded ? EXCLUDED_DISMISS_REASON : undefined,
+    );
+  const isExcludedPath = (vaultId: string, path: string): boolean =>
+    deps.indexExclusionFor?.(vaultId).isExcluded(path) === true;
   const indexCoordinator = new IndexCoordinator(
     {
-      write: (vaultId, path, content) =>
-        indexNote(
+      write: (vaultId, path, content) => {
+        if (isExcludedPath(vaultId, path)) {
+          if (hasIndexedState(deps.db, vaultId, path)) deindexPath(vaultId, path, true);
+          return undefined;
+        }
+        return indexNote(
           deps.db,
           deps.embeddingProvider,
           vaultId,
@@ -297,16 +318,9 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
           deps.chunkContext,
           deps.sqlHooksFor(vaultId),
           deps.isEgressExcluded,
-        ),
-      delete: (vaultId, path) =>
-        deindexNote(
-          deps.db,
-          vaultId,
-          path,
-          deps.hasVec,
-          deps.chunkContext,
-          deps.sqlHooksFor(vaultId),
-        ),
+        );
+      },
+      delete: (vaultId, path) => deindexPath(vaultId, path, isExcludedPath(vaultId, path)),
       onError: (e, vaultId, path) =>
         applyIndexWriteError(e, vaultId, path, deps.indexHealth, {
           db: deps.db,
@@ -364,6 +378,13 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
     onDelete: (vaultId, path) => {
       if (isLeader()) watcherDeindexHook(vaultId, path);
     },
+    ...(deps.onVaultConfigChange
+      ? {
+          onVaultConfigChange: (vaultId: string) => {
+            if (isLeader()) deps.onVaultConfigChange?.(vaultId);
+          },
+        }
+      : {}),
   });
 
   // F1 (fix round 2): drop pending watcher ops on demote (explicit tool writes stay untouched).

@@ -41,6 +41,9 @@ const key = (s: string, t: string, type: string): string => `${s}\n${t}\n${type}
 export function desiredEdges(
   noteLinks: Map<string, ExtractedLink[]>,
   notePaths: string[],
+  /** Notes left out of the graph (Obsidian's Excluded files). They resolve as link targets via
+   *  `notePaths`, but no edge with one of them as source or resolved target is emitted. */
+  graphExcluded: ReadonlySet<string> = new Set(),
 ): DesiredEdge[] {
   const index = buildVaultIndex(notePaths);
   const byKey = new Map<string, DesiredEdge>();
@@ -64,6 +67,7 @@ export function desiredEdges(
       if (res.resolved && res.target_path) {
         const target = res.target_path;
         if (target === source) continue; // self-loop guard
+        if (graphExcluded.has(target) || graphExcluded.has(source)) continue;
         put({
           source_path: source,
           target_path: target,

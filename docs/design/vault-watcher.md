@@ -23,6 +23,11 @@ so `NOTE.MD` is a note there and must be one here), and no dot-segment anywhere 
 `.obsidian-tc/`, where the server writes its own session traces and prewarm cache, so the watch
 cannot see its own bookkeeping).
 
+One exception: `.obsidian/app.json`, the file that carries the Excluded files list. The watch reports
+it through a separate `onVaultConfigChange` callback (debounced, leader only), never through
+`onUpsert`/`onDelete`: it is a settings file, not a note, and the callback only triggers a reconcile
+when the effective exclusion list changed (`runtime/exclusion-reload.ts`).
+
 ## No self-write feedback loop
 
 Indexing never writes a `.md` file back into the vault, and `cache.db` lives outside `vaultPath` by

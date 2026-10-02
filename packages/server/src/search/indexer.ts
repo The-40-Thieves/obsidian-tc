@@ -30,7 +30,7 @@ export { enrichChunkText } from "./chunk";
 // indexing/embed-batches.ts: the external-provider phase.
 export { embedPlans } from "./indexing/embed-batches";
 // indexing/index-note.ts: single-note orchestration + the index hook firing.
-export { deindexNote, indexNote } from "./indexing/index-note";
+export { deindexNote, hasIndexedState, indexNote } from "./indexing/index-note";
 // indexing/index-vault.ts: whole-vault orchestration (walk, batching, stale-note cleanup, edge
 // reconciliation, aggregated stats).
 export { indexVault } from "./indexing/index-vault";

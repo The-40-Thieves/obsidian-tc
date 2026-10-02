@@ -12,6 +12,10 @@ import { lstatSync, realpathSync, statSync, watch } from "node:fs";
 import { join } from "node:path";
 import { readNote } from "./notes-io";
 
+/** Vault-relative file Obsidian keeps its Files & links settings (incl. Excluded files) in. The one
+ *  dot-folder path the watch DOES report, because the index exclusion list is read from it. */
+export const OBSIDIAN_APP_CONFIG = ".obsidian/app.json";
+
 export interface VaultWatchTarget {
   vaultId: string;
   /** Absolute vault root. */
@@ -24,6 +28,10 @@ export interface VaultWatchOptions {
    *  the gate applies the read ACL, and a watcher must not index what a tool could not read. */
   onUpsert: (vaultId: string, relPath: string, content: string) => void;
   onDelete: (vaultId: string, relPath: string) => void;
+  /** Called (debounced, once per burst) when `.obsidian/app.json` changed in a vault, so the
+   *  exclusion list it carries can be reloaded. Not an index write: the callback decides what a
+   *  changed list means. */
+  onVaultConfigChange?: (vaultId: string) => void;
   /** Quiet period before a burst is flushed. An editor save emits several events and a sync pass
    *  emits one per file; coalescing turns both into a single pass per path. */
   debounceMs?: number;
@@ -63,7 +71,7 @@ export function normalizeWatchPath(filename: string): string {
 export function registerVaultWatch(
   vaults: readonly { id: string; path: string }[],
   cfg: { enabled: boolean; debounceMs: number },
-  hooks: Pick<VaultWatchOptions, "onUpsert" | "onDelete">,
+  hooks: Pick<VaultWatchOptions, "onUpsert" | "onDelete" | "onVaultConfigChange">,
 ): () => void {
   if (!cfg.enabled) return () => {};
   // Windows watch is enabled: recursive fs.watch was never the hazard it looked like. The crash was
@@ -75,6 +83,7 @@ export function registerVaultWatch(
     debounceMs: cfg.debounceMs,
     onUpsert: hooks.onUpsert,
     onDelete: hooks.onDelete,
+    ...(hooks.onVaultConfigChange ? { onVaultConfigChange: hooks.onVaultConfigChange } : {}),
     // stderr, never stdout: the stdio MCP transport owns stdout, and a log line written there would
     // be parsed as a protocol frame.
     onError: (e, vaultId) =>
@@ -146,6 +155,7 @@ export function resolveWatchedPath(root: string, rel: string): WatchResolution {
 export function startVaultWatch(opts: VaultWatchOptions): () => void {
   const debounceMs = opts.debounceMs ?? 500;
   const pending = new Map<string, Set<string>>(); // vaultId -> rel paths
+  const pendingConfig = new Set<string>(); // vaultIds whose .obsidian/app.json changed
   const rootById = new Map(opts.targets.map((t) => [t.vaultId, t.root]));
   let timer: NodeJS.Timeout | undefined;
 
@@ -167,6 +177,9 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
       }
     }
     pending.clear();
+    const configChanged = [...pendingConfig];
+    pendingConfig.clear();
+    for (const vaultId of configChanged) opts.onVaultConfigChange?.(vaultId);
   };
 
   const schedule = (): void => {
@@ -208,6 +221,15 @@ export function startVaultWatch(opts: VaultWatchOptions): () => void {
         // lstat in flush() is the single source of truth for what happened.
         if (filename === null) return; // platform gave us no name — nothing actionable
         const rel = normalizeWatchPath(String(filename));
+        // The one dot-folder file the watch reports: the exclusion list lives in it. A settings
+        // file is never an indexable note, so it never reaches onUpsert/onDelete.
+        if (rel === OBSIDIAN_APP_CONFIG) {
+          if (opts.onVaultConfigChange) {
+            pendingConfig.add(t.vaultId);
+            schedule();
+          }
+          return;
+        }
         if (!shouldWatchPath(rel)) return;
         let set = pending.get(t.vaultId);
         if (set === undefined) {

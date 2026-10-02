@@ -296,6 +296,20 @@
                 ]
               }
             }
+          },
+          "index": {
+            "description": "Per-vault index controls. Absent means only the Excluded files list in the vault's own `.obsidian/app.json` applies.",
+            "type": "object",
+            "properties": {
+              "excludePaths": {
+                "default": [],
+                "description": "Extra entries merged with the Excluded files list Obsidian keeps in `.obsidian/app.json` (Settings -> Files & links -> Excluded files). Same dialect as Obsidian: an entry is a case-insensitive path prefix (`Archive/` is a folder, `Notes/todo.md` a file), and an entry written `/regex/` is a case-insensitive regular expression tested against the vault-relative path. A matching note is left out of the search index (no chunks, no embeddings, no search results, no graph edges) but stays a normal vault file: links to it resolve and read_note still works. This is NOT `egress.excludePaths`, which only withholds text from model providers.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [
