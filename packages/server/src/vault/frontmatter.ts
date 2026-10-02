@@ -42,6 +42,16 @@ export function splitFrontmatterBody(raw: string): string {
   return m ? raw.slice(m[0].length) : raw;
 }
 
+/** Where the YAML text sits inside a note's frontmatter block (offsets into `raw`, between the
+ *  opening "---" line and the closing one); null when the note has no block. Same regex as
+ *  splitFrontmatterBody, so an edit confined to this span leaves both delimiters alone. */
+export function frontmatterYamlSpan(raw: string): { start: number; end: number } | null {
+  const m = FRONTMATTER.exec(raw);
+  if (!m) return null;
+  const start = 3 + (m[1] ?? "").length;
+  return { start, end: start + (m[2] ?? "").length };
+}
+
 /** Split a note into its frontmatter object (if any) and verbatim body. `path` is optional and
  *  purely diagnostic — some callers round-trip an in-memory buffer with no file behind it (e.g.
  *  parseEntityNote). THE-823: every call site that reads a note off disk passes one. */

@@ -8,6 +8,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { splitFrontmatterBody } from "../src/vault/frontmatter";
 import { inCodeRange, inlineCodeRanges, scanLinks } from "../src/vault/link-scan";
 import { buildVaultIndex, extractLinks } from "../src/vault/links";
 import { type PrunePolicy, pruneHubLinks } from "../src/vault/prune";
@@ -172,7 +173,7 @@ function randomCorpus(seed: number, lines: number): string {
 function sameEverywhere(doc: string): void {
   expect(extractLinks(doc)).toEqual(originalExtractLinks(doc));
   for (const [, map] of Object.entries(MAPS)) {
-    expect(rewriteLinks(doc, map)).toEqual(originalRewriteLinks(doc, map));
+    expect(rewriteLinks(doc, map)).toEqual({ ...originalRewriteLinks(doc, map), warnings: [] });
   }
   for (const policy of PRUNE_POLICIES) {
     expect(pruneHubLinks(doc, PRUNE_INDEX, policy)).toEqual(
@@ -264,10 +265,13 @@ describe("link-scan equivalence: production matches the commit-pinned regex orac
     const differing: string[] = [];
     for (const f of files) {
       const body = readFileSync(f, "utf8");
+      // rewriteLinks now treats frontmatter properties as YAML (rewrite-properties.ts), which the
+      // regex oracle cannot judge; the scanner equivalence it checks is the body's.
+      const { warnings: _w, ...rewritten } = rewriteLinks(splitFrontmatterBody(body), renameAll);
       const same =
         JSON.stringify(extractLinks(body)) === JSON.stringify(originalExtractLinks(body)) &&
-        JSON.stringify(rewriteLinks(body, renameAll)) ===
-          JSON.stringify(originalRewriteLinks(body, renameAll)) &&
+        JSON.stringify(rewritten) ===
+          JSON.stringify(originalRewriteLinks(splitFrontmatterBody(body), renameAll)) &&
         JSON.stringify(extractInlineTags(body)) === JSON.stringify(originalExtractInlineTags(body));
       if (!same) differing.push(f);
     }

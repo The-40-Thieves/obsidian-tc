@@ -290,6 +290,8 @@ const EXPECTED: ToolSnapshot[] = [
       "to",
       "trashed_dest_to",
       "vault",
+      "warnings",
+      "warnings_omitted",
     ],
   },
   {

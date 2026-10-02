@@ -24,7 +24,13 @@ import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/p
 import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
-import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
+import {
+  type RewriteWarning,
+  rewriteWarningsOut,
+  rewriteWarningsShape,
+  ScanWarnings,
+  scanWarningsShape,
+} from "../scan-warnings";
 import {
   isExternal,
   linksOf,
@@ -143,6 +149,7 @@ const RewriteLinkOutput = z.object({
   notes_changed: z.number().int(),
   links_rewritten: z.number().int(),
   changes: z.array(z.object({ path: z.string(), count: z.number().int() })).optional(),
+  ...rewriteWarningsShape,
 });
 
 // GH #1027: response_format=concise on a real run drops the removed[] list (removed_count stays) and
@@ -199,7 +206,11 @@ function planLinkRewrite(
   acl: FolderAcl | undefined,
   grantedScopes: Iterable<string>,
   input: z.infer<typeof RewriteInput>,
-): { edits: Array<{ rel: string; text: string; count: number }>; totalLinks: number } {
+): {
+  edits: Array<{ rel: string; text: string; count: number }>;
+  totalLinks: number;
+  warnings: RewriteWarning[];
+} {
   const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
   const paths = readableNotes(root, acl, grantedScopes, sub);
   const index = buildVaultIndex(readableNotes(root, acl, grantedScopes));
@@ -207,22 +218,24 @@ function planLinkRewrite(
   const fromPath = fromRes.resolved ? fromRes.target_path : null;
   const fromLiteral = normTarget(input.from_target);
   const edits: Array<{ rel: string; text: string; count: number }> = [];
+  const warnings: RewriteWarning[] = [];
   let totalLinks = 0;
   for (const p of paths) {
     const raw = readNote(resolveVaultPath(root, p)).raw;
-    const { text, count } = rewriteLinks(raw, (target, kind) => {
+    const rw = rewriteLinks(raw, (target, kind) => {
       if (!input.include_embeds && kind === "embed") return null;
       const match = fromPath
         ? resolveTarget(index, target).target_path === fromPath
         : normTarget(target) === fromLiteral;
       return match ? input.to_target : null;
     });
-    if (count > 0) {
-      edits.push({ rel: p, text, count });
-      totalLinks += count;
+    for (const w of rw.warnings) warnings.push({ path: p, ...w });
+    if (rw.count > 0) {
+      edits.push({ rel: p, text: rw.text, count: rw.count });
+      totalLinks += rw.count;
     }
   }
-  return { edits, totalLinks };
+  return { edits, totalLinks, warnings };
 }
 
 const PruneInput = z
@@ -476,7 +489,12 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           : null,
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const { edits, totalLinks } = planLinkRewrite(v.root, ctx.acl, ctx.grantedScopes, input);
+        const { edits, totalLinks, warnings } = planLinkRewrite(
+          v.root,
+          ctx.acl,
+          ctx.grantedScopes,
+          input,
+        );
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
 
         if (!input.dry_run) {
@@ -519,6 +537,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           notes_changed: edits.length,
           links_rewritten: totalLinks,
           ...(concise && !input.dry_run ? {} : { changes }),
+          ...rewriteWarningsOut(warnings),
         };
       },
     }),
