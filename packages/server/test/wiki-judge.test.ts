@@ -183,6 +183,20 @@ describe("createWikiJudge: outcomes, never throws", () => {
     expect(roles.calls[0]?.responseFormat).toEqual({ type: "json_object" });
   });
 
+  it("sends no temperature and no maxTokens: the gateway's judge model answers 400 to both", async () => {
+    // Incident, measured against the live gateway 2026-10-02: HTTP 400 "Unsupported parameter:
+    // 'max_tokens' is not supported with this model" and "'temperature' does not support 0 with
+    // this model. Only the default (1) value is supported."
+    const roles = stubRoles(() => OK);
+    const j = createWikiJudge({ roles, db: newDb(), settings: settings() });
+    await j.judgePair(A, B, j.newBudget());
+    await j.judgeTopic("t", A, j.newBudget());
+    expect(roles.calls).toHaveLength(2);
+    for (const c of roles.calls) {
+      expect(Object.keys(c).sort()).toEqual(["messages", "responseFormat", "sourcePaths"]);
+    }
+  });
+
   it("no gateway, or a daily cap of 0, is `unavailable` and sends nothing", async () => {
     const none = createWikiJudge({ roles: null, db: newDb(), settings: settings() });
     expect(none.available).toBe(false);

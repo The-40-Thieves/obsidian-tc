@@ -311,10 +311,11 @@ export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const res = await Promise.race([
+        // No temperature and no maxTokens, on purpose: the gateway's `judge` alias serves a
+        // reasoning model that answers HTTP 400 to temperature != 1 and to max_tokens (measured
+        // 2026-10-02), which would make every call an error. Other judge callers send neither.
         roles.judge({
           messages: buildJudgeMessages(a, b),
-          temperature: 0,
-          maxTokens: 200,
           responseFormat: { type: "json_object" },
           sourcePaths,
         }),
