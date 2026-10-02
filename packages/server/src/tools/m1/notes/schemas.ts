@@ -208,7 +208,7 @@ export const AppendNoteOutput = z.object({
 
 /** Mirrors the PatchAnchor input union verbatim — patch_note echoes the resolved anchor back. */
 export const PatchAnchorOut = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("heading"), heading: z.string() }),
+  z.object({ type: z.literal("heading"), heading: z.string(), occurrence: z.number().optional() }),
   z.object({ type: z.literal("block"), block_id: z.string() }),
   z.object({ type: z.literal("frontmatter") }),
 ]);
@@ -284,7 +284,9 @@ export const WriteInput = z
     vault: VaultId,
     path: VaultPath,
     content: z.string(),
-    mode: WriteMode.default("create"),
+    mode: WriteMode.default("create").describe(
+      '"create" (default) fails if the note exists; "overwrite" replaces an existing note; "upsert" creates or replaces. There is no overwrite flag; to add to an existing note use append_note.',
+    ),
     prev_hash: z.string().optional(),
     options: WriteOptions.prefault({}),
     // THE-824: advertised so a caller can discover the HITL confirmation parameter via
@@ -312,7 +314,25 @@ export const AppendInput = z
 
 // THE-198: target a heading section, a block reference (^id), or the frontmatter preamble.
 export const PatchAnchor = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("heading"), heading: z.string().min(1) }).strict(),
+  z
+    .object({
+      type: z.literal("heading"),
+      heading: z
+        .string()
+        .min(1)
+        .describe(
+          'Heading text without the # marks, e.g. "Notes"; case-insensitive. To pick one of several same-named headings by its parents write "Parent > Child" (outermost first).',
+        ),
+      occurrence: z
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .describe(
+          "1-based index among the headings that match, in document order. Needed when the heading appears more than once and no Parent > Child path singles it out; otherwise the call is refused with every match's line number.",
+        ),
+    })
+    .strict(),
   z.object({ type: z.literal("block"), block_id: z.string().min(1) }).strict(),
   z.object({ type: z.literal("frontmatter") }).strict(),
 ]);
@@ -325,13 +345,24 @@ export const PatchInputShape = {
   operation: z.enum(["append", "prepend", "replace", "replace_text"]),
   // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
   target_heading: z.string().min(1).optional(),
-  anchor: PatchAnchor.optional(),
+  anchor: PatchAnchor.optional().describe(
+    'Where to act: {type:"heading",heading:"Notes"[,occurrence:2]}, {type:"block",block_id:"abc"} or {type:"frontmatter"} (the preamble above the first heading). Required unless target_heading is given.',
+  ),
   // Required unless operation is replace_text (see the superRefine below).
   content: z.string().optional(),
   // THE-1038 / GH #928: replace_text's exact-string substitution, scoped to the resolved
   // anchor's section. Required (both fields) iff operation is replace_text.
-  old_string: z.string().min(1).optional(),
-  new_string: z.string().optional(),
+  old_string: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "replace_text only: the exact text to find inside the anchor's section; it must occur exactly once. To move or reorder sections, anchor on an enclosing heading and put the whole span here.",
+    ),
+  new_string: z
+    .string()
+    .optional()
+    .describe("replace_text only: the text that takes its place (may be empty to delete)."),
   prev_hash: z.string().optional(),
   // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
   // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
@@ -355,7 +386,8 @@ export function refinePatchInput(
   if (i.anchor === undefined && i.target_heading === undefined)
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "either anchor or target_heading is required",
+      message:
+        'either anchor or target_heading is required, e.g. anchor:{type:"heading",heading:"Notes"}, anchor:{type:"block",block_id:"abc"}, anchor:{type:"frontmatter"} (the preamble above the first heading) or target_heading:"Notes". To add content at the end of the note use append_note, which needs no anchor',
     });
   if (i.operation === "replace_text") {
     if (i.old_string === undefined)

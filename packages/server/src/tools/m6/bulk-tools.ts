@@ -50,6 +50,7 @@ import {
 } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { rewriteLinks } from "../../vault/rewrite";
+import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M6Deps } from "./shared";
@@ -322,10 +323,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const ex = noteExists(abs);
             if (ex.exists && ex.type === "folder")
               throw err.invalidInput("path is a folder", { path: rel });
-            if (item.mode === "create" && ex.exists)
-              throw err.noteExists("note already exists; use overwrite or upsert", { path: rel });
-            if (item.mode === "overwrite" && !ex.exists)
-              throw err.noteNotFound("note does not exist; use create or upsert", { path: rel });
+            if (item.mode === "create" && ex.exists) throw createModeConflictError(rel);
+            if (item.mode === "overwrite" && !ex.exists) throw overwriteModeMissingError(rel);
             const body = serializeNote(item.frontmatter ?? null, item.content);
             // same write_note guard, applied per bulk item — nothing upstream of this
             // batch tool has scanned an item's content/frontmatter.

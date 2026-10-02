@@ -5,10 +5,16 @@
 // strings: no filesystem, no vault types, nothing beyond the shared error taxonomy for the
 // ambiguous-anchor refusal (GH #922 shape 3).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  headingMatches,
+  matchHeadingBoundary,
+  scanHeadings,
+  stripAsciiIndent,
+} from "./heading-syntax";
 
 /** Mirrors the PatchAnchor input union (schemas.ts) without a zod dependency here. */
 export type ResolvedAnchor =
-  | { type: "heading"; heading: string }
+  | { type: "heading"; heading: string; occurrence?: number | undefined }
   | { type: "block"; block_id: string }
   | { type: "frontmatter" };
 
@@ -45,29 +51,6 @@ function leadingRun(s: string, ch: string): number {
   return n;
 }
 
-/** Strip ONLY ASCII space/tab indentation off the start of `line`, expanding a tab to the next
- *  4-column stop (CommonMark's rule, shared by fence AND heading indentation — review round 3
- *  G1/R3). `col` is the total indentation width in columns; `rest` is the line from the first
- *  non-space/tab character onward. Any OTHER leading whitespace-LOOKING character (NBSP U+00A0,
- *  ideographic space U+3000, ...) does NOT count as indentation — `rest` starts there instead, so
- *  the line is content, not a fence delimiter or heading, however it looks after a Unicode-aware
- *  `.trim()` — review round 4 R2. */
-function stripAsciiIndent(line: string): { col: number; rest: string } {
-  let i = 0;
-  let col = 0;
-  while (i < line.length) {
-    const ch = line[i];
-    if (ch === " ") {
-      col += 1;
-      i++;
-    } else if (ch === "\t") {
-      col = Math.floor(col / 4) * 4 + 4;
-      i++;
-    } else break;
-  }
-  return { col, rest: line.slice(i) };
-}
-
 /** Strip ONLY trailing ASCII space/tab off `line` — the counterpart of `stripAsciiIndent` for the
  *  other end of a fence delimiter line (pre-merge U1). `trimEnd()` strips every Unicode
  *  whitespace, which let a closer with a trailing NBSP (or ideographic space) close a fence that
@@ -80,35 +63,6 @@ function trimAsciiEnd(line: string): string {
     else break;
   }
   return line.slice(0, end);
-}
-
-/** Recognizes an ATX heading LINE as a section BOUNDARY — review round 4 R3: tolerates up to 3
- *  columns of leading ASCII space/tab indentation (4+ is an indented code block, not a heading —
- *  the same CommonMark rule fences use, review round 3 M8), an optional closing hash sequence
- *  (`"## A ##"` has the title `"A"` — pre-merge U3), and an EMPTY title (`"##"` alone, `"## "` with
- *  nothing after, or a bare closing sequence like `"## ##"` / `"### ###"` — pre-merge U4) — a real, if untargetable, boundary (no caller can anchor to
- *  `heading: ""` — the schema requires `min(1)`). Review round 5 D1: this is the ONE heading
- *  recognizer in this module — `dropDuplicateLeadingHeading` tests caller-supplied content with it
- *  too. A second, stricter column-0 regex used to live here for that narrower job, which meant an
- *  indented anchor heading was a valid TARGET whose indented duplicate in `content` went
- *  undetected, reviving the GH #922 shape 2 duplication the drop exists to prevent. */
-function matchHeadingBoundary(line: string): { level: number; title: string } | null {
-  const { col, rest } = stripAsciiIndent(line);
-  if (col > 3) return null;
-  // Pre-merge U2: the separator after the hashes is ASCII space/tab or end of line — `\s` also
-  // accepted NBSP and friends, which turned a non-heading into a section boundary.
-  const m = /^(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/.exec(rest);
-  if (!m) return null;
-  // Pre-merge U3: an ATX closing sequence (`## A ##`) is syntax, not title text — it must be
-  // preceded by a space or tab, so a trailing hash run written flush against the text (`## A#`)
-  // stays part of the title. Stripped here, in the ONE shared matcher, so every consumer agrees:
-  // boundary scan, anchor target, ambiguity count, and the duplicate-heading drop.
-  // Pre-merge U4: a remainder that is NOTHING BUT a hash run is the closing sequence of an EMPTY
-  // heading (CommonMark: `### ###` is an empty h3); the strip above cannot see it, its separator
-  // having been consumed by this regex's own `[ \t]+` — untreated, the title reads `"##"`.
-  const rest2 = m[2] ?? "";
-  const title = /^#+[ \t]*$/.test(rest2) ? "" : rest2.replace(/[ \t]+#+[ \t]*$/, "");
-  return { level: (m[1] ?? "").length, title: title.trim() };
 }
 
 /** CommonMark-ish fenced-code state machine, shared by `fenceMask` and `hasUnterminatedFence`
@@ -199,12 +153,18 @@ export interface SectionSpan {
   endIndex: number;
   /** Present only for a heading anchor. */
   headingLevel?: number;
+  /** Present only for a heading anchor: the RESOLVED heading's own text (the last segment of a
+   *  `Parent > Child` path), which is what a caller's repeated heading line is compared against. */
+  headingTitle?: string;
 }
 
 export type SectionResolution =
   | ({ found: true } & SectionSpan)
   | { found: false; reason: "not_found" }
-  | { found: false; reason: "ambiguous"; matchLines: number[] };
+  | { found: false; reason: "ambiguous"; matchLines: number[] }
+  // A heading anchor's `occurrence` exceeds the match count; `matchLines` are the 1-based lines of
+  // the matches that DO exist.
+  | { found: false; reason: "out_of_range"; matchLines: number[]; occurrence: number };
 
 /** Resolve `anchor` against `body`. Pure: never throws, never touches disk. Heading matching is
  *  skipped while fenced (GH #926) in every scan below: the anchor scan, the section-end scan, the
@@ -230,17 +190,16 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
   }
 
   if (anchor.type === "heading") {
-    const want = anchor.heading.trim().toLowerCase();
-    const matches: Array<{ index: number; level: number }> = [];
-    for (let i = 0; i < lines.length; i++) {
-      if (mask[i]) continue;
-      const m = matchHeadingBoundary(lines[i] ?? "");
-      if (m && m.title.toLowerCase() === want) matches.push({ index: i, level: m.level });
-    }
+    const matches = headingMatches(scanHeadings(lines, mask), anchor.heading);
     if (matches.length === 0) return { found: false, reason: "not_found" };
-    if (matches.length > 1)
-      return { found: false, reason: "ambiguous", matchLines: matches.map((m) => m.index + 1) };
-    const { index: hi, level } = matches[0] as { index: number; level: number };
+    const matchLines = matches.map((h) => h.index + 1);
+    // More than one match and no `occurrence` is ambiguous, never silently the first.
+    if (anchor.occurrence === undefined && matches.length > 1)
+      return { found: false, reason: "ambiguous", matchLines };
+    const occurrence = anchor.occurrence ?? 1;
+    const picked = matches[occurrence - 1];
+    if (!picked) return { found: false, reason: "out_of_range", matchLines, occurrence };
+    const { index: hi, level, title } = picked;
     let end = lines.length;
     for (let j = hi + 1; j < lines.length; j++) {
       if (mask[j]) continue;
@@ -250,7 +209,13 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
         break;
       }
     }
-    return { found: true, startIndex: hi, endIndex: end, headingLevel: level };
+    return {
+      found: true,
+      startIndex: hi,
+      endIndex: end,
+      headingLevel: level,
+      headingTitle: title,
+    };
   }
 
   // block — GH #926 review round 2 (N2) / M5: a `^id` marker that only exists as sample text
@@ -345,9 +310,24 @@ function ambiguousError(
   matchLines: number[],
   extra: Record<string, unknown>,
 ) {
+  const hint =
+    kind === "heading"
+      ? '; add occurrence (1-based, in document order) to the anchor, e.g. {type:"heading",heading:"Notes",occurrence:2}, or name the parent: heading:"Parent > Notes"'
+      : "";
   return err.invalidInput(
-    `ambiguous ${kind}: matches ${matchLines.length} lines (${matchLines.join(", ")})`,
+    `ambiguous ${kind}: matches ${matchLines.length} lines (${matchLines.join(", ")})${hint}`,
     { ...extra, count: matchLines.length, lines: matchLines },
+  );
+}
+
+function occurrenceOutOfRangeError(
+  matchLines: number[],
+  occurrence: number,
+  extra: Record<string, unknown>,
+) {
+  return err.invalidInput(
+    `heading occurrence ${occurrence} is out of range: the heading matches ${matchLines.length} line${matchLines.length === 1 ? "" : "s"} (${matchLines.join(", ")})`,
+    { ...extra, count: matchLines.length, lines: matchLines, occurrence },
   );
 }
 
@@ -356,6 +336,22 @@ function notFoundError(anchor: ResolvedAnchor, extra?: Record<string, unknown>) 
     anchor.type === "block" ? "block reference not found" : "target heading not found",
     { ...extra, anchor },
   );
+}
+
+/** Throw the refusal for an unresolved `SectionResolution` (heading or block; never frontmatter). */
+function throwUnresolved(
+  r: Exclude<SectionResolution, { found: true }>,
+  anchor: ResolvedAnchor,
+  extra: Record<string, unknown> | undefined,
+  ambiguousExtra: Record<string, unknown>,
+): never {
+  if (r.reason === "not_found") throw notFoundError(anchor, extra);
+  if (r.reason === "out_of_range")
+    throw occurrenceOutOfRangeError(r.matchLines, r.occurrence, { ...extra, anchor });
+  throw ambiguousError(anchor.type === "block" ? "block reference" : "heading", r.matchLines, {
+    ...ambiguousExtra,
+    anchor,
+  });
 }
 
 /** Resolve `anchor`, throwing the same `invalid_input` both tools surface for an anchor that
@@ -368,11 +364,7 @@ export function resolveSectionOrThrow(
   const r = resolveSection(body, anchor);
   if (r.found) return r;
   const extra = path ? { path } : undefined;
-  if (r.reason === "not_found") throw notFoundError(anchor, extra);
-  throw ambiguousError(anchor.type === "block" ? "block reference" : "heading", r.matchLines, {
-    ...extra,
-    anchor,
-  });
+  return throwUnresolved(r, anchor, extra, { ...extra });
 }
 
 function splice(
@@ -407,11 +399,13 @@ export function patchByHeading(
   target: string,
   content: string,
   eol: string,
+  occurrence?: number,
 ): PatchResult | null {
-  const r = resolveSection(body, { type: "heading", heading: target });
+  const anchor = { type: "heading" as const, heading: target, occurrence };
+  const r = resolveSection(body, anchor);
   if (!r.found) {
     if (r.reason === "not_found") return null;
-    throw ambiguousError("heading", r.matchLines, { heading: target });
+    return throwUnresolved(r, anchor, undefined, { heading: target });
   }
   const lines = body.split(/\r?\n/);
   return splice(lines, op, r.startIndex + 1, r.startIndex + 1, r.endIndex, content, eol);

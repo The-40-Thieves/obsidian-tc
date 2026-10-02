@@ -1958,7 +1958,7 @@ describe("Pre-merge U3: an ATX closing sequence is not part of the title", () =>
       expect(r.ok).toBe(false);
       if (!r.ok) {
         expect(r.error.code).toBe("invalid_input");
-        expect(r.error.message).toBe("ambiguous heading: matches 2 lines (1, 3)");
+        expect(r.error.message).toMatch(/^ambiguous heading: matches 2 lines \(1, 3\)/);
       }
       expect(v.read("a.md")).toBe(raw);
     } finally {
