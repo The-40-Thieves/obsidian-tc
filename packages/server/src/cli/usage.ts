@@ -270,6 +270,27 @@ Usage:
                                           --dry-run it runs synthesis and audit exactly once and
                                           prints both reports. --once is required; a bare
                                           "consolidate" is a usage error, not a no-op.
+  obsidian-tc contradiction-rejudge [path] [--dry-run] [--vault <id>] [--judge-model <m>] [--limit N] [--concurrency N] [--delay-ms N]
+                                          Re-judge the OPEN contradiction flags with the current
+                                          gateway judge. A row the judge now calls no_conflict is
+                                          dismissed (status 'dismissed', reason recorded, original
+                                          verdict kept), never deleted; a still-flagged row has its
+                                          verdict, rationale and judge_model updated. Every ruling
+                                          records the gateway's RESOLVED model (not the alias) and
+                                          rejudged_at. --dry-run prints counts (open by verdict,
+                                          already ruled, stale, excluded, calls a real run would
+                                          make) with ZERO gateway calls and ZERO writes. Resume-safe:
+                                          each row is written when its call returns and a row is
+                                          ruled on at most once, so an interrupted run re-run
+                                          continues where it stopped; rows the judge could not rule
+                                          on stay open and make the exit status non-zero.
+                                          --judge-model <m> only re-judges rows stored under that
+                                          judge_model (use "judge", the alias every pre-provenance
+                                          row carries). --concurrency (default 2) and --delay-ms
+                                          (default 250, per worker) rate-limit; --limit caps calls.
+                                          Needs the cache.db migration this command applies on open
+                                          (back up cache.db first). CLI-only: an agent-callable
+                                          trigger would be unattended egress.
   obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--kid <kid>] [--json]
                                           Mint a bearer token signed with the registry's active key
                                           (HS256, ES256 or EdDSA). --kid pins the mint to that key

@@ -8,6 +8,7 @@ import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-imp
 import { type MemoryImportCommand, parseMemoryImport } from "./parse-memory-import";
 import { type NoteQualityCommand, parseNoteQuality } from "./parse-note-quality";
 import { type ProvenanceCommand, parseProvenance } from "./parse-provenance";
+import { parseRejudge, type RejudgeCommand } from "./parse-rejudge";
 import { parseSetup, type SetupCommand } from "./parse-setup";
 import { parseTelemetry, type TelemetryCommand } from "./parse-telemetry";
 
@@ -119,6 +120,7 @@ export type CliCommand =
   | ImportAmbientCommand // THE-175: same shape, ambient screen observations. ./parse-import-ambient.ts.
   | MemoryImportCommand // THE-1124: `memory import` — basic-memory / claude-code-memory adapters. ./parse-memory-import.ts.
   | ConsolidateCommand // THE-934: one ambient consolidation pass, unscheduled. ./parse-consolidate.ts.
+  | RejudgeCommand // `contradiction-rejudge`. ./parse-rejudge.ts.
   | CompactCommand // THE-1039 (GH #930): compaction. Parser: ./parse-compact.ts.
   | AuthCommand // `auth rotate-key|list|revoke`. Parser: ./parse-auth.ts.
   | ProvenanceCommand // `provenance verify`. Parser: ./parse-provenance.ts.
@@ -404,9 +406,8 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const transcript = flagValue(rest, "--transcript");
       const transcriptIndex = flagValue(rest, "--transcript-index");
       // THE-617 item 3: caps how many stage-1 survivors reach the judge, against this command's
-      // own MAX_JUDGED (see citation.ts's InferCitationsOptions). THE-747: `reflect` used to carry
-      // an identically-shaped flag; THE-701 deleted the judge it capped, so this is now the only
-      // --max-judged in the CLI and there is no second knob to keep it distinct from.
+      // own MAX_JUDGED (see citation.ts's InferCitationsOptions). THE-747/THE-701: `reflect`'s
+      // identically-shaped flag went with the judge it capped, so this is the only --max-judged.
       const mv = flagValue(rest, "--max-judged");
       let maxJudged: number | undefined;
       if (mv !== undefined) {
@@ -415,9 +416,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
           return { kind: "error", message: "--max-judged must be a non-negative integer" };
       }
       // THE-621 items 1 and 2: the stage-2 fan-out cap and the kill-switch floor, same --flag shape
-      // as --max-judged above.
-      //
-      // Both reject 0, where --max-judged accepts it. That is not an inconsistency: judging 0
+      // as --max-judged above. Both reject 0, where --max-judged accepts it. That is not an inconsistency: judging 0
       // survivors is a meaningful instruction, but a fan-out of 0 sends nothing and a kill floor of
       // 0 cannot be reached by `judged >= floor`. citation.ts clamps both with Math.max(1, ...), so
       // accepting 0 here would silently hand back a 1 the operator did not ask for — a typo should
@@ -543,6 +542,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
     if (first === "import-ambient") return parseImportAmbient(rest);
     // THE-934: consolidate --once [--dry-run] [--config <path>].
     if (first === "consolidate") return parseConsolidate(rest);
+    if (first === "contradiction-rejudge") return parseRejudge(rest); // ./parse-rejudge.ts
     // THE-48: knowledge-gap detector over a batch of queries, or golden-set calibration.
     if (first === "gaps") {
       const num = (flag: string): number | undefined => {
@@ -614,8 +614,6 @@ export function parseCliArgs(argv: string[]): CliCommand {
     // THE-222: sleep-time reflect — episode-eligibility evaluator + preference-profile update.
     if (first === "reflect") {
       // THE-747/THE-701: `--max-judged` no longer applies to `reflect` — history in CHANGELOG.md.
-      // citation-infer's --max-judged is a separate, live knob, unaffected by this.
-      //
       // Rejected rather than silently ignored, for the reason the `token mint` branch documents:
       // the positional scan takes the first non-dash token, so dropping the flag would leave its
       // VALUE behind and `reflect --max-judged 5` would resolve the config path to "5".

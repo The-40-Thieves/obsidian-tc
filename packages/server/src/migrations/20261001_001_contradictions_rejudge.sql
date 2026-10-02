@@ -1,0 +1,21 @@
+-- 20261001_001_contradictions_rejudge.sql
+-- Re-judge support for the contradictions table. A 100-pair audit of stored rows (two frontier
+-- labelers agreeing on 86) found 81/86 were no_conflict and the stored verdict matched the labelers
+-- on 3/86: the rows were produced by a judge that over-flagged, and `judge_model` held the gateway
+-- ALIAS ('judge'), so rows written before and after the alias was repointed could not be told apart.
+--
+-- The owner decision was RE-JUDGE, not purge (cf. 20260724_001, which DELETEd the table because
+-- rows regenerate on the next reindex — that does not hold here: the detector only re-judges a
+-- chunk when it is re-indexed, so a purge would silently drop real flags until then).
+--   rejudged_at       when `obsidian-tc contradictions rejudge` last ruled on this row. NULL =
+--                     never re-judged; the command selects `status = 'open' AND rejudged_at IS NULL`,
+--                     which is what makes an interrupted run resume instead of repeat.
+--   resolution_reason why a row left `open`. A re-judged `no_conflict` is dismissed (status
+--                     'dismissed', resolved_at set) with the new rationale here, not deleted: the
+--                     original judge_verdict/judge_rationale stay as the audit trail. Every reader
+--                     already filters `status = 'open'`, so a dismissed row drops out of
+--                     list_contradictions, vault_context, knowledge_challenge and synthesis.
+-- No backfill: judge_model on existing rows is the alias and stays that way; the re-judge command
+-- overwrites it with the resolved model as it goes.
+ALTER TABLE contradictions ADD COLUMN rejudged_at INTEGER;
+ALTER TABLE contradictions ADD COLUMN resolution_reason TEXT;

@@ -10,7 +10,7 @@ import { semanticSearch } from "../../search/semantic";
 import { blobToFloats } from "../../search/vec";
 import { contentHash } from "../../vault/paths";
 import { type EgressFilter, EgressViolationError, isExcludedPath } from "../egress-filter";
-import { type GatewayRoles, prompt } from "../gateway";
+import { type GatewayCompletionRequest, type GatewayRoles, prompt } from "../gateway";
 
 const COSINE_THRESHOLD = 0.85;
 const NEAR_DUPE_CEILING = 0.99;
@@ -74,6 +74,23 @@ const verdictSchema = z.object({
 export type Verdict = z.infer<typeof verdictSchema>;
 
 const JUDGE_SYSTEM = `You judge whether two text fragments from the same knowledge base conflict. Reply ONLY with a single JSON object on one line: {"kind":"contradiction"|"tension"|"no_conflict","rationale":"<one sentence>"}. No prose before or after. contradiction = one fragment factually negates the other. tension = substantive disagreement on framing, emphasis, or recommendation. no_conflict = compatible, complementary, or unrelated.`;
+
+/** The ONE judge request shape. The detector below and the `contradictions rejudge` command both
+ *  build their request here, so a re-judged verdict is produced by byte-identical input to the
+ *  original one and the two cannot drift apart.
+ *
+ *  THE-934: `sourcePaths` is the egress guard's defence-in-depth check — both fragments' paths,
+ *  already filtered by the caller, are declared so a future change to the caller's filtering logic
+ *  (not this line) is what the guard exists to catch. */
+export function buildJudgeRequest(
+  a: { path: string; content: string },
+  b: { path: string; content: string },
+): GatewayCompletionRequest {
+  return {
+    ...prompt(JUDGE_SYSTEM, `FRAGMENT A:\n${a.content}\n\nFRAGMENT B:\n${b.content}`),
+    sourcePaths: [a.path, b.path],
+  };
+}
 
 /** Parse a judge response into a Verdict, or NULL when it cannot be parsed.
  *
@@ -205,16 +222,12 @@ export async function checkContradictions(
   // the floor. Null is counted as `unjudged` below and reaches the caller.
   const verdicts = await mapLimit(tasks, JUDGE_CONCURRENCY, async (t) => {
     try {
-      const res = await roles.judge({
-        ...prompt(
-          JUDGE_SYSTEM,
-          `FRAGMENT A:\n${t.chunk.content}\n\nFRAGMENT B:\n${t.neighborContent}`,
+      const res = await roles.judge(
+        buildJudgeRequest(
+          { path: t.chunk.path, content: t.chunk.content },
+          { path: t.neighborPath, content: t.neighborContent },
         ),
-        // THE-934: the egress guard's defence-in-depth check reads this — both fragments' paths,
-        // already filtered above, are declared so a future change to the filtering logic above
-        // (not this line) is what the guard exists to catch.
-        sourcePaths: [t.chunk.path, t.neighborPath],
-      });
+      );
       // `threw: false` even when parseVerdict returns null — the judge ANSWERED, its reply was
       // just unusable. This is the only place that can still tell the two apart.
       return { verdict: parseVerdict(res.text), model: res.model, threw: false };
@@ -271,7 +284,7 @@ export async function checkContradictions(
 
 // Bounded-concurrency ordered map: runs `fn` over `items` with at most `limit` in flight and
 // returns results in input order. Windows the contradiction judge calls (THE-277).
-async function mapLimit<T, R>(
+export async function mapLimit<T, R>(
   items: T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>,

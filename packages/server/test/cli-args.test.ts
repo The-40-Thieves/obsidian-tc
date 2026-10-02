@@ -1529,3 +1529,50 @@ describe("resolveServeConfigWithProvenance — default-path fallback to ~/.obsid
     expect(resolveServeConfig(vaultDir).vaults[0]?.id).toBe("main");
   });
 });
+
+describe("parseCliArgs contradiction-rejudge", () => {
+  it("bare command carries no flags", () => {
+    expect(parseCliArgs(["contradiction-rejudge"])).toStrictEqual({
+      kind: "contradiction-rejudge",
+    });
+  });
+
+  it("parses every flag and a positional config path", () => {
+    expect(
+      parseCliArgs([
+        "contradiction-rejudge",
+        "/etc/otc.json",
+        "--dry-run",
+        "--vault",
+        "main",
+        "--judge-model",
+        "judge",
+        "--limit",
+        "50",
+        "--concurrency",
+        "3",
+        "--delay-ms",
+        "0",
+      ]),
+    ).toStrictEqual({
+      kind: "contradiction-rejudge",
+      input: "/etc/otc.json",
+      vault: "main",
+      judgeModel: "judge",
+      dryRun: true,
+      limit: 50,
+      concurrency: 3,
+      delayMs: 0,
+    });
+  });
+
+  it("rejects a non-integer or out-of-range number and a flag with no value", () => {
+    expect(parseCliArgs(["contradiction-rejudge", "--limit", "x"])).toMatchObject({
+      kind: "error",
+    });
+    expect(parseCliArgs(["contradiction-rejudge", "--concurrency", "0"])).toMatchObject({
+      kind: "error",
+    });
+    expect(parseCliArgs(["contradiction-rejudge", "--vault"])).toMatchObject({ kind: "error" });
+  });
+});

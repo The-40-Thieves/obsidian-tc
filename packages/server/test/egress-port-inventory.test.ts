@@ -133,6 +133,7 @@ const GATEWAY_CLIENT_ALLOWLIST = [
   "cli/commands/citation-infer.ts",
   "cli/commands/cluster.ts",
   "cli/commands/consolidate.ts",
+  "cli/commands/contradiction-rejudge.ts",
   "cli/commands/densify-llm.ts",
   "cli/commands/index.ts",
   "providers/registry.ts",
