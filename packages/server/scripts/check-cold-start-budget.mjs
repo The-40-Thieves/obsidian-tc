@@ -17,6 +17,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createIsolatedHome } from "./lib/isolated-home.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PACKAGE_ROOT = join(HERE, "..");
@@ -36,6 +37,8 @@ const workDir = mkdtempSync(join(tmpdir(), "obtc-cold-start-"));
 const vaultDir = join(workDir, "vault");
 const cacheDir = join(workDir, "cache");
 const configPath = join(workDir, "config.json");
+// The index child runs under an isolated HOME/XDG, never the operator's real one.
+const isolated = createIsolatedHome("obtc-cold-start-home-");
 
 try {
   const gen = spawnSync(
@@ -64,6 +67,7 @@ try {
   const started = Date.now();
   const result = spawnSync("bun", [cliEntry, "index", configPath], {
     stdio: "inherit",
+    env: { ...process.env, ...isolated.env },
     timeout: ceilingMs + 30_000, // hard kill well past the budget so a true hang cannot wedge CI
   });
   const elapsedMs = Date.now() - started;

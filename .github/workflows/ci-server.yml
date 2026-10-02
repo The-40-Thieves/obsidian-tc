@@ -450,10 +450,12 @@ jobs:
       - name: cache local embedder model weights (nomic-embed-text-v1.5, q8)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.obsidian-tc/models/embedder-local/nomic-ai/nomic-embed-text-v1.5/e9b6763023c676ca8431644204f50c2b100d9aab
+          path: ~/.cache/obtc-smoke-models/embedder-local/nomic-ai/nomic-embed-text-v1.5/e9b6763023c676ca8431644204f50c2b100d9aab
           key: local-embedder-model-nomic-embed-text-v1.5-q8-e9b6763023c676ca8431644204f50c2b100d9aab
+      # The smoke runs under an isolated HOME; it copies this cache dir into that home's
+      # `.obsidian-tc/models` before the run and back after, so the real home is never touched.
       - name: zero-config smoke, local embeddings end-to-end (search_semantic, reconcile ok)
-        run: bun run smoke:zero-config -- --expect-local-embeddings --reconcile-timeout-ms 180000
+        run: bun run smoke:zero-config -- --expect-local-embeddings --reconcile-timeout-ms 180000 --model-cache "$HOME/.cache/obtc-smoke-models"
         working-directory: packages/server
 
   # THE-940: PR-time pre-flight for the MCP Registry publish that publish.yml's `publish-registry`
