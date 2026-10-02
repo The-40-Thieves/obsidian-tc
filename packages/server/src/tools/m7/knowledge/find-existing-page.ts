@@ -36,6 +36,7 @@ import {
   type PageCandidate,
   STRONG_KINDS,
 } from "./wiki-evidence";
+import { isGeneratedWikiPath } from "./wiki-folder";
 import {
   createWikiJudge,
   DEFAULT_WIKI_JUDGE_SETTINGS,
@@ -289,7 +290,7 @@ export async function findExistingPage(
   const folder = args.folder ? normalizeVaultPath(args.folder) : undefined;
   const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
   const identity = collectIdentityEvidence(
-    { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+    { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes, wikiFolder: v.wikiFolder },
     args.topic,
     { folder, isExcluded: exclusion.isExcluded },
   );
@@ -307,7 +308,8 @@ export async function findExistingPage(
       isReadable: (rel) =>
         readableRel(ctx.acl, rel, ctx.grantedScopes) &&
         (prefix === "" || rel.startsWith(prefix)) &&
-        !exclusion.isExcluded(rel),
+        !exclusion.isExcluded(rel) &&
+        !isGeneratedWikiPath(rel, v.wikiFolder),
       model: deps.embeddingProvider.id,
     });
     semantic.checked = true;

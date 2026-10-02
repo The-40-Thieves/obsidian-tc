@@ -424,7 +424,12 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const warnings = new ScanWarnings();
         const scan = scanProvenance(
-          { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+          {
+            root: v.root,
+            acl: ctx.acl,
+            grantedScopes: ctx.grantedScopes,
+            wikiFolder: v.wikiFolder,
+          },
           warnings,
           { field: input.field, include: input.include, exclude: input.exclude },
         );

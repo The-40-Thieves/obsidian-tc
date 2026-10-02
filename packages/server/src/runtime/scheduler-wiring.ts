@@ -6,7 +6,8 @@
 // registrations at exactly the point the original inline code did rather than grouping "all plane
 // jobs" together for tidiness. Not started here — scheduler.start() is a `ServerRuntime.start()`
 // activation step (server-runtime.ts), not construction.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig, VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { FolderAcl } from "../acl";
 import type { AuthRegistry } from "../auth/registry";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
@@ -33,6 +34,7 @@ import {
   registerPlaneSchedule,
 } from "./plane-wiring";
 import { registerWikiLintSweep, wikiLintSweepJudge } from "./wiki-lint-sweep";
+import { registerWikiPagesSweep } from "./wiki-pages-sweep";
 
 export interface SchedulerWiringDeps {
   config: ServerConfig;
@@ -44,7 +46,12 @@ export interface SchedulerWiringDeps {
    *  symlink. Narrowed to what configureMaintenance needs (id/root/workspace), field named
    *  `root` rather than `path` so this cannot silently go back to `VaultConfig[]` — see
    *  workspace/sessions.ts's resolveTraceDirs for why that distinction is load-bearing. */
-  vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
+  vaults: readonly {
+    id: string;
+    root: string;
+    workspace?: { traceFolder: string };
+    wikiFolder?: string | undefined;
+  }[];
   /** run_serve's first vault id — the process-wide sweep event is attributed to it. */
   eventVaultId: string;
   /** The live vault registry's ids, read at each memory orphan sweep (add_vault can grow it after
@@ -68,6 +75,10 @@ export interface SchedulerWiringDeps {
   embeddingProvider: EmbeddingProvider;
   /** The vault's Excluded-files filter, for the scheduled wiki lint. Absent -> nothing is excluded. */
   exclusionFor?: (vaultId: string) => VaultExclusion;
+  /** The vault's ACL for the scheduled wiki-page regeneration (the registry's per-vault resolver). */
+  aclFor?: (vaultId: string) => FolderAcl | undefined;
+  /** The vault's memoryDefense policy, applied to what that regeneration writes. */
+  memoryDefenseFor?: (vaultId: string) => VaultMemoryDefenseConfig | undefined;
   /** THE-634: publish side of the advisory push extension (mcp/advisories.ts). Present only when
    *  `experiential.proactive.enabled` — see server-runtime.ts's construction site. */
   advisoryBus?: AdvisoryBus;
@@ -208,6 +219,21 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       folder: config.maintenance.wikiLint.folder,
       maxNotes: config.maintenance.wikiLint.maxNotes,
       judge: wikiLintSweepJudge(config, deps.roles),
+    });
+  }
+
+  // The scheduled regeneration of each wiki folder's generated index.md / log.md. Registered ONLY
+  // when explicitly enabled (it writes into the vault unasked), and it also needs the maintenance
+  // sweep on. Vaults without a wiki folder are skipped inside the job.
+  if (config.maintenance.enabled && config.maintenance.wikiPages.enabled) {
+    registerWikiPagesSweep(scheduler, {
+      cacheDb: deps.db,
+      vaults: deps.vaults,
+      aclFor: deps.aclFor ?? (() => undefined),
+      exclusionFor: deps.exclusionFor ?? (() => NO_EXCLUSION),
+      memoryDefenseFor: deps.memoryDefenseFor,
+      snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
+      intervalMs: config.maintenance.wikiPages.intervalHours * 3_600_000,
     });
   }
 

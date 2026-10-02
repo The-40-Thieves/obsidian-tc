@@ -417,7 +417,12 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const warnings = new ScanWarnings();
         const orphans = scanOrphans(
-          { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+          {
+            root: v.root,
+            acl: ctx.acl,
+            grantedScopes: ctx.grantedScopes,
+            wikiFolder: v.wikiFolder,
+          },
           warnings,
           { folder: sub, requireNoOutgoing: input.require_no_outgoing },
         );

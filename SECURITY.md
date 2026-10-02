@@ -48,6 +48,10 @@ assumptions:
   name so a planted symlink cannot hijack it.
 - **The host system is trusted.** obsidian-tc does not protect against attacks from
   co-located processes.
+- **The server writes two files nobody asked for.** In a vault with a wiki folder it generates
+  `index.md` and `log.md` there. They are bounded by the rules in
+  [Server-generated wiki pages](#server-generated-wiki-pages): nothing a reader may not read is
+  listed, nothing outside the wiki folder is written, and a file a person edited is never replaced.
 - **The Local REST API key is a full-vault admin credential.** The companion plugin extends the
   Local REST API (LRA) plugin's HTTP server, and LRA's own endpoints already grant full read /
   write / delete over the vault. Possession of the LRA bearer key is therefore equivalent to full
@@ -257,6 +261,43 @@ obsidian-tc writes through the filesystem / native path, **not** through the Loc
 POST endpoint, so it is **not** affected by the upstream Obsidian Local REST API "append clobbers on
 overwrite" report (coddingtonbear/obsidian-local-rest-api #237, a metadata-cache miss on that POST
 path).
+
+## Server-generated wiki pages
+
+A vault with `vaults[].wiki.folder` gets two files the server writes itself, without a confirmation,
+because no caller asked for them: **`index.md`** (the pages of the folder grouped by their `SCHEMA.md`
+type, with links) and **`log.md`** (one line per change to the folder, projected from the write
+provenance chain). They are written after `commit_wiki_page` and, when `maintenance.wikiPages.enabled`
+is set, on a schedule. The rules, each pinned by a test (`wiki-generated.test.ts`):
+
+- **What they list is bounded by the read ACL.** Both files are one shared file, so they are built for
+  the least privileged reader: a path appears only when the vault's ACL lets a caller holding **no
+  rule-scopes** read it and Obsidian's Excluded files do not hide it. The caller who triggered the
+  write is not the audience; a caller holding a scope still does not widen the file. A page in a
+  read-denied subfolder never appears in `index.md`, and its changes never appear in `log.md`.
+- **No page text is copied in.** The index carries links and a `type` value only when it is plain words
+  (anything else is grouped as `(other)`). The log carries the time, the operation, the path, the
+  principal, the model the client *claimed*, the tool and the provenance sequence number; the
+  self-reported fields are stripped to plain characters, so a hostile client cannot plant a
+  line break or an instruction in a file other agents read. The log is a convenience view, not a trust
+  anchor: `verify_provenance` and `get_provenance` remain the record.
+- **Writes stay inside the folder and the ACL.** The path must be `index.md` or `log.md` directly in the
+  wiki folder (the same directory check `commit_wiki_page` applies to a page, symlinks included); the
+  vault ACL must allow the write (a read-only vault is never touched); memoryDefense scans the content;
+  the previous bytes are snapshotted (`restore_note` undoes a regeneration). They are never sent to the
+  search index by the write path.
+- **They never block a write.** A generation failure is a `generated_page` problem on the commit
+  response (and a log line from the scheduled pass), never an error.
+- **A hand edit is never overwritten.** A frontmatter hash seals each file. A file that is not ours
+  (no `generated_by: obsidian-tc` marker, for example a person's own `index.md`) or whose bytes no
+  longer match the seal is **left as it is** and reported (`generated_page` on a commit,
+  a `generated_page` proposal in `lint_wiki`). Delete it and the next pass rebuilds it.
+- **They are not wiki pages.** Duplicate-topic detection, `lint_wiki` and the orphan, dangling-link and
+  provenance scans skip them, and their links count for nothing: an index linking every page must not
+  hide an orphan.
+
+Residual: `log.md` lags by one write. The record of a call is appended after its handler returns, so a
+commit's own change appears in the next regeneration (the next commit, or the scheduled pass).
 
 ## Companion plugin trust boundary
 

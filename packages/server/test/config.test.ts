@@ -231,6 +231,8 @@ describe("maintenance config (THE-292)", () => {
         judge: true,
         judgeMaxCalls: 20,
       },
+      // Regenerating the wiki folder's index.md / log.md writes into the vault, so it is opt-in.
+      wikiPages: { enabled: false, intervalHours: 6 },
       // THE-458 item 6: reconcileIntervalMinutes is ABSENT by default, not 0 — a healthy server
       // with a working watcher does not need a periodic full vault walk, and 0 would parse as
       // "set" while meaning "off".
@@ -285,6 +287,8 @@ describe("maintenance config (THE-292)", () => {
         judge: true,
         judgeMaxCalls: 20,
       },
+      // Regenerating the wiki folder's index.md / log.md writes into the vault, so it is opt-in.
+      wikiPages: { enabled: false, intervalHours: 6 },
     });
   });
 

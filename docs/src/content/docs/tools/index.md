@@ -444,7 +444,33 @@ rename; POSIX has no conditional rename, so it cannot be closed. A successful co
 record listing every touched path; an aborted one ends with an `error` record only when the `pending`
 record was already written.
 
-Generated index and log pages are not part of these tools.
+### Generated index and log pages
+
+The wiki folder also holds two files the server writes, not you and not an LLM. Both start with
+`generated_by: obsidian-tc` in their frontmatter and a notice; do not edit them.
+
+* **`index.md`**: every page of the wiki folder grouped by its `SCHEMA.md` `type` (the schema's order <!-- config-path:ignore -->
+  first, then other types, then `(no type)`), one link each. Rebuilt after every `commit_wiki_page` and,
+  with `maintenance.wikiPages.enabled: true`, every `maintenance.wikiPages.intervalHours` (default 6). It
+  is never maintained by an LLM and is left unchanged when the listing did not change.
+* **`log.md`**: an append-only projection of the write provenance chain for the wiki folder, one line per
+  change: `time (UTC) | op | path | principal | model | tool#seq`, for example
+  `2026-10-02T09:15:00Z | create | wiki/concepts/Spaced repetition.md | alice | claude-opus | commit_wiki_page#41`.
+  `op` is `create`, `update` or `delete`. The last projected provenance sequence number is stored in
+  the file's `last_seq` frontmatter, so a re-run never repeats a line. It lags one write: a commit's own
+  line appears the next time the pages are regenerated. `model` is what the client said about itself.
+
+Both list only paths a reader holding no rule-scope may read under the vault's ACL and never an Excluded
+note, so a page in a read-denied folder is not named. They are written with no confirmation, inside the
+wiki folder only, with a snapshot of what they replace, and a failure is reported as a
+`generated_page` problem on the commit, never an error.
+
+**A hand-edited page is never overwritten.** A hash in the frontmatter seals each file. If the file was
+edited, or is someone's own `index.md` with no marker, the server leaves it as it is, `commit_wiki_page` <!-- config-path:ignore -->
+returns a `generated_page` problem, and `lint_wiki` (check `generated_pages`) proposes the fix: move
+your text to a page of its own and delete the file (`restore_note` keeps a copy); the next pass writes a
+fresh one. Duplicate-topic detection, `lint_wiki` and the orphan, dangling-link and provenance scans skip
+both files, and their links are not counted as inbound links.
 
 ## Response format
 
