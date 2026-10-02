@@ -88,7 +88,7 @@ Every call — direct or via `call_capability` — passes the same gates:
 
 ## Choosing a vault
 
-Tools that act on a vault take a `vault` id. It may be omitted when exactly one vault is available to the caller: the vaults a caller can see are those left after its token's vault binding and each vault's own folder ACL, so a token bound to a vault defaults to that vault. With more than one available vault an omitted `vault` is a `validation_error`; a caller holding `read:vault` gets the available ids in the error. An explicit `vault` is always used as given, and a bound token naming another vault is still refused.
+Tools that act on a vault take a `vault` id. It may be omitted when exactly one vault is available to the caller: the vaults a caller can see are those left after its token's vault binding and each vault's own folder ACL, so a token bound to a vault defaults to that vault; a vault the caller can read nothing in (an empty `readPaths`, or `strictReadDefault` with no `readPaths`) is not available, and `list_vaults` agrees. With more than one available vault an omitted `vault` is a `validation_error`; a caller holding `read:vault` gets the available ids in the error. An explicit `vault` is always used as given, and a bound token naming another vault is still refused.
 
 ## Errors
 

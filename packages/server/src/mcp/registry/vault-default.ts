@@ -62,6 +62,22 @@ export function withDefaultVault(
   return only === undefined ? rawInput : { ...args, [key]: only };
 }
 
+/** The caller context a call runs under: `ctx` with `vaultId` set to the vault the call ACTS ON (the
+ *  parsed vault argument, explicit or defaulted) when that differs from the caller's own. Everything
+ *  keyed on a per-call vault (the elicit_required text and mint command, token mint/redeem, audit,
+ *  idempotency claim, rate-limit bucket, metrics) reads `ctx.vaultId`, so it must name the effect
+ *  vault, never the stdio first-vault placeholder. Call only AFTER enforceVaultBinding, which needs
+ *  the caller's own `vaultId`. Returns `ctx` itself when nothing differs, so the common case keeps
+ *  one context object; a copy otherwise, which leaves a shared caller context untouched. */
+export function withEffectiveVault(
+  ctx: CallerContext,
+  def: ToolDefinition,
+  parsedInput: unknown,
+): CallerContext {
+  const v = (parsedInput as Record<string, unknown> | null)?.[def.vaultArg ?? "vault"];
+  return typeof v === "string" && v !== ctx.vaultId ? { ...ctx, vaultId: v } : ctx;
+}
+
 /** Advertised JSON Schema for a tool input: drop `vault` from `required` and describe when it may
  *  be omitted, for exactly the schemas `withDefaultVault` can fill. Mutates and returns `json` (a
  *  fresh conversion, memoized per schema by the caller). */

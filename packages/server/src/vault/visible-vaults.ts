@@ -14,14 +14,19 @@ export interface VaultVisibilityCaller {
  * Two gates, both mandatory so neither surface can name a vault the caller cannot use:
  *  - token vault binding (THE-924): a bound (HTTP-token) caller sees only its own vault; the
  *    trusted, unbound caller (stdio, an unbound token) sees every configured vault;
- *  - the vault's own folder ACL: a vault whose effective `readPaths` whitelist is EMPTY lets the
- *    caller read nothing at all, so it is hidden rather than offered as a target.
+ *  - the vault's own folder ACL: a vault the caller can read NOTHING in is hidden rather than
+ *    offered as a target: an EMPTY `readPaths` whitelist, or `strictReadDefault` with no whitelist
+ *    at all (acl-path.ts fails every read closed there).
  */
 export function makeVisibleVaultIds(
   vaultRegistry: Pick<VaultRegistry, "list" | "resolve">,
   aclFor: (vaultId: string) => FolderAcl | undefined,
 ): (ctx: VaultVisibilityCaller) => string[] {
-  const readable = (id: string): boolean => aclFor(id)?.readPaths?.length !== 0;
+  const readable = (id: string): boolean => {
+    const acl = aclFor(id);
+    if (acl?.readPaths === undefined) return acl?.strictReadDefault !== true;
+    return acl.readPaths.length !== 0;
+  };
   return (ctx) => {
     if (ctx.vaultBound !== true)
       return vaultRegistry

@@ -27,6 +27,7 @@ import {
   markEffectCommitted,
   readIdempotency,
 } from "./idempotency";
+import { idempotentErrorReplay } from "./idempotent-replay";
 import { applyVaultAcl, enforceVaultBinding, parseInput, vaultFailureHint } from "./input-binding";
 import {
   assertScopesGranted,
@@ -53,6 +54,7 @@ import {
 import type { ToolStore } from "./tool-store";
 import type { CallerContext, EpisodeKind, RegistryOptions, Status, VerifyElicit } from "./types";
 import { VERDICT_TOOL_TAG } from "./types";
+import { withDefaultVault, withEffectiveVault } from "./vault-default";
 
 // The dispatch orchestrator: the full try/catch/finally pipeline body, calling each gate
 // (input-binding.ts, policy-gates.ts, result-governance.ts, idempotency.ts) in a fixed order.
@@ -92,9 +94,12 @@ export async function runDispatch(
   deps: DispatchDeps,
   name: string,
   rawInput: unknown,
-  ctx: CallerContext,
+  callerCtx: CallerContext,
   rootSpan?: Span,
 ): Promise<ToolResult> {
+  // `let`: re-pointed once, after the vault binding/ACL gates, at a context whose `vaultId` is the
+  // vault this call ACTS ON (withEffectiveVault). Every closure below reads this binding.
+  let ctx = callerCtx;
   const now = ctx.now ?? Date.now;
   // undefined at detail "root": nothing below then allocates or records anything for tracing.
   const spans = openDispatchSpans(deps.tracer, deps.otelDetail, rootSpan);
@@ -153,33 +158,20 @@ export async function runDispatch(
   // #13: a retry against a row left `indeterminate` (post-effect fault) or orphaned
   // `effect_committed` (crash after effect) must never re-run the handler — it gets a definite
   // "may have applied" answer instead, so the caller can verify state before deciding to retry.
-  const indeterminateReplay = (key: string) => {
-    const duration = Math.max(0, now() - start);
-    const e = new ObsidianTcError(
-      "indeterminate_outcome",
-      "a prior attempt with this idempotency key may have applied its effect but did not record a result; verify state before retrying",
-      { key },
+  const indeterminateReplay = (key: string) =>
+    idempotentErrorReplay(
+      deps.observability,
+      ctx,
+      name,
+      audit,
+      new ObsidianTcError(
+        "indeterminate_outcome",
+        "a prior attempt with this idempotency key may have applied its effect but did not record a result; verify state before retrying",
+        { key },
+      ),
+      Math.max(0, now() - start),
+      0,
     );
-    audit("error", duration, 0, e.code);
-    deps.observability.meter((m) => {
-      m.incIdempotencyHit(ctx.vaultId, name);
-      m.observeToolCall(
-        ctx.vaultId,
-        name,
-        "error",
-        duration / 1000,
-        0,
-        telemetryDetail(ctx, e.code),
-      );
-    });
-    return {
-      ok: false as const,
-      error: e.toJSON(),
-      // THE-741: this is a replay of a prior attempt's terminal state, not a fresh execution —
-      // the handler did not run this time either.
-      meta: { duration_ms: duration, result_size: 0, idempotent_replay: true },
-    };
-  };
 
   try {
     // THE-514: an already-cancelled call never even resolves the tool, let alone claims an
@@ -209,7 +201,15 @@ export async function runDispatch(
     // WP4.3: input-schema parse, THE-267 vault-binding guard, THE-295 per-vault ACL swap — see
     // registry/input-binding.ts for the full reasoning behind each (unchanged, only relocated).
     spans?.stage("input_parse");
-    let inputData = parseInput(def, rawInput, ctx, deps.visibleVaultIds);
+    // Resolve the EFFECTIVE input (an omitted `vault` filled in when exactly one is visible) before
+    // anything is hashed, so the args hash behind idempotency, HITL tokens, audit and trace covers
+    // the vault the call acts on, not the caller's spelling of it.
+    const effectiveInput = withDefaultVault(def, rawInput, ctx, deps.visibleVaultIds);
+    if (effectiveInput !== rawInput) {
+      hash = argsHash(name, effectiveInput ?? {});
+      recordedInput = effectiveInput;
+    }
+    let inputData = parseInput(def, effectiveInput);
 
     // THE-727: authorization is a property of the CALL, not only of the tool. Without
     // `def.resolvePolicy` this is the static declaration verbatim, so existing tools are untouched.
@@ -229,13 +229,16 @@ export async function runDispatch(
     enforceVaultBinding(ctx, def, inputData);
 
     applyVaultAcl(ctx, def, inputData, deps.aclResolver);
+    // From here on `ctx.vaultId` is the effect vault (binding, the one reader of the caller's own
+    // vaultId, has run): the HITL error/mint/redeem, idempotency, audit and metrics all follow it.
+    ctx = withEffectiveVault(ctx, def, inputData);
 
     const mutating = isMutatingCall(policy);
     enforceReadOnlyGate(ctx, mutating, name, deps.toolVisibility);
     enforceVaultKindGate(ctx, def, inputData, mutating, name, deps.vaultKindResolver);
 
     // resolveTarget: after every gate that can refuse the caller, before precheck/idempotency/HITL.
-    const target = await bindResolvedTarget(def, inputData, rawInput, ctx, deps.rootResolver);
+    const target = await bindResolvedTarget(def, inputData, effectiveInput, ctx, deps.rootResolver);
     if (target) ({ input: inputData, recorded: recordedInput, hash } = target);
 
     await runPrecheck(def, inputData, ctx);
@@ -290,31 +293,16 @@ export async function runDispatch(
             // over-limit size and no payload. Replay the SAME overflow error rather than
             // re-executing or returning an absent/oversized payload.
             const overSize = claim.resultSize;
-            const duration = Math.max(0, now() - start);
-            const e = overflowError(overSize, deps.maxResponseBytes);
-            audit("error", duration, overSize, e.code);
-            deps.observability.meter((m) => {
-              m.incIdempotencyHit(ctx.vaultId, name);
-              m.observeToolCall(
-                ctx.vaultId,
-                name,
-                "error",
-                duration / 1000,
-                overSize,
-                telemetryDetail(ctx, e.code),
-              );
-            });
-            return {
-              ok: false,
-              error: e.toJSON(),
-              meta: {
-                duration_ms: duration,
-                result_size: overSize,
-                overflow_bytes: overSize - deps.maxResponseBytes,
-                // THE-741: the original call's committed effect is being replayed, not re-run.
-                idempotent_replay: true,
-              },
-            };
+            return idempotentErrorReplay(
+              deps.observability,
+              ctx,
+              name,
+              audit,
+              overflowError(overSize, deps.maxResponseBytes),
+              Math.max(0, now() - start),
+              overSize,
+              { overflow_bytes: overSize - deps.maxResponseBytes },
+            );
           }
           // outcome === "ok": a normal completed call within budget — replay its cached result.
           memoizeSerialized(claim.data, claim.json);
@@ -442,7 +430,9 @@ export async function runDispatch(
     // design note for the #13 marker-point reasoning.
     if (idemClaimed && idemKey) {
       const claimedKey = idemKey;
-      const slot = ctx as { markEffectCommitted?: () => void };
+      // The caller's OWN object carries the marker (it is what an overlapping dispatch would see);
+      // `ctx` may be a per-call copy (withEffectiveVault), which the handler reads it from.
+      const slot = callerCtx as { markEffectCommitted?: () => void };
       // THE-573 #1: mutating ctx to install this means two CONCURRENT dispatches sharing one
       // CallerContext would silently overwrite each other's callback and let a retry double-apply
       // a committed effect. Unreachable through the server today (each context factory builds a
@@ -459,6 +449,7 @@ export async function runDispatch(
         markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
         effectCommitted = true;
       };
+      if (ctx !== callerCtx) (ctx as typeof slot).markEffectCommitted = slot.markEffectCommitted;
       installedMarker = slot;
     }
 

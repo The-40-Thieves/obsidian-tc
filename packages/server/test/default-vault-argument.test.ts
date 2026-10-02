@@ -336,3 +336,69 @@ describe("surface sweep", () => {
     expect(stillRequired).toEqual([]);
   });
 });
+
+describe("visibility: one definition for the default, the hint and list_vaults", () => {
+  const STRICT = new FolderAcl({
+    readOnly: false,
+    defaultScopes: [],
+    rules: [],
+    strictReadDefault: true,
+  });
+  const STRICT_WITH_PATHS = new FolderAcl({
+    readOnly: false,
+    defaultScopes: [],
+    rules: [],
+    strictReadDefault: true,
+    readPaths: ["notes/**"],
+  });
+  const vr = new VaultRegistry([
+    { id: "strict", path: "/tmp/obtc-vis-strict" },
+    { id: "paths", path: "/tmp/obtc-vis-paths" },
+    { id: "open", path: "/tmp/obtc-vis-open" },
+    { id: "empty", path: "/tmp/obtc-vis-empty" },
+  ]);
+  const acls: Record<string, FolderAcl> = {
+    strict: STRICT,
+    paths: STRICT_WITH_PATHS,
+    empty: HIDDEN,
+  };
+  const aclFor = (id: string) => acls[id];
+
+  it("strictReadDefault without readPaths reads nothing, so the vault is not visible", () => {
+    const visible = makeVisibleVaultIds(vr, aclFor)({ vaultId: "open" });
+    expect(visible).toEqual(["paths", "open"]);
+  });
+
+  it("a bound caller on such a vault sees nothing", () => {
+    expect(makeVisibleVaultIds(vr, aclFor)({ vaultId: "strict", vaultBound: true })).toEqual([]);
+  });
+
+  it("list_vaults returns exactly the helper's set, bound or not", async () => {
+    const h = mk(["a", "strict", "empty"], ["empty"]);
+    const reg = new ToolRegistry({
+      aclResolver: (id) => (id === "strict" ? STRICT : id === "empty" ? HIDDEN : undefined),
+      visibleVaultIds: makeVisibleVaultIds(h.vaultRegistry, (id) =>
+        id === "strict" ? STRICT : id === "empty" ? HIDDEN : undefined,
+      ),
+    });
+    registerM1Tools(reg, {
+      vaultRegistry: h.vaultRegistry,
+      version: "test",
+      startedAt: 0,
+      embeddings: { provider: "ollama", model: "nomic-embed-text" },
+    });
+    const unbound = await reg.dispatch("list_vaults", {}, h.ctx());
+    expect(unbound.ok).toBe(true);
+    if (unbound.ok)
+      expect((unbound.data as { vaults: Array<{ id: string }> }).vaults.map((v) => v.id)).toEqual([
+        "a",
+      ]);
+    const bound = await reg.dispatch(
+      "list_vaults",
+      {},
+      h.ctx({ vaultId: "empty", vaultBound: true }),
+    );
+    expect(bound.ok).toBe(true);
+    if (bound.ok) expect((bound.data as { vaults: unknown[] }).vaults).toEqual([]);
+  });
+});

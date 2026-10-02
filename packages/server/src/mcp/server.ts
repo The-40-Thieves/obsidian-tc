@@ -590,7 +590,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
           owner: { vaultId: ctx.vaultId, caller: ctx.caller },
           payload: {
             tool: req.params.name,
-            args,
+            args: opts.registry.withDefaultVaultArgs(req.params.name, args, ctx),
             caller: ctx.caller,
             scopes: [...ctx.grantedScopes],
             vaultId: ctx.vaultId,

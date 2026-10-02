@@ -39,6 +39,7 @@ import {
   type ToolIcon,
   type VerifyElicit,
 } from "./registry/types";
+import { withDefaultVault } from "./registry/vault-default";
 import { ALLOW_ALL, type EffectiveToolVisibilityConfig, type VisibilityCaller } from "./visibility";
 
 // WP4.3: assertScopesGranted moved to registry/policy-gates.ts, memoizeSerialized/takeSerialized
@@ -231,6 +232,17 @@ export class ToolRegistry {
   }
   list(): ToolDefinition[] {
     return this.toolStore.list();
+  }
+  /** The arguments a dispatch of `name` runs with: `args`, plus the visible vault filled into an
+   *  omitted `vault` (registry/vault-default.ts). For a caller that queues a call to run LATER (a
+   *  task), so the job records the vault it was accepted for rather than re-deciding at run time. */
+  withDefaultVaultArgs(
+    name: string,
+    args: Record<string, unknown>,
+    ctx: CallerContext,
+  ): Record<string, unknown> {
+    const def = this.toolStore.get(name);
+    return def ? (withDefaultVault(def, args, ctx, this.visibleVaultIds) as typeof args) : args;
   }
   /** Tools advertised by tools/list: the registered set minus those the visibility config
    *  hides/disables (THE-219) and those the caller cannot dispatch (THE-250). `list()` stays
