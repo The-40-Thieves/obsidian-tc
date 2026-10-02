@@ -52,8 +52,9 @@ describe("link scanning stays linear under crafted adversarial input", {
 
   it("inlineCodeRanges alone stays linear over the backtick shape (no per-span objects)", () => {
     // "`x" repeated is one span per 4 bytes. A matchAll scan (a match array plus a tuple per span)
-    // took a GC-promotion step at 2 MB: macOS CI measured 5.5 ms, 11.1 ms, 41.9 ms, 100 ms (slope
-    // 1.49 to 1.64 against the 1.6 cap, in 6 of 20 runs). Run the scan alone, at the same sizes.
+    // took a GC-promotion step at 2 MB: macOS CI measured 5.5 ms, 11.1 ms, 42.9 ms, 102.7 ms
+    // (slope 1.46) in 5 of 20 runs (slopes 1.46 to 1.58), and two CI failures at 1.64 against the
+    // 1.6 cap. This runs the scan alone, at the same sizes.
     expectLinear("`x", (s) => inlineCodeRanges(s));
   });
 
