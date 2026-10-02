@@ -11,7 +11,10 @@ function stubServer(clientVersion?: { name: string; version?: string }): Server 
 
 describe("createFacadeModeResolver — caching (THE-1123 review fix MEDIUM #3)", () => {
   it("does NOT cache a nameless resolution — a later NAMED call still resolves for real", () => {
-    const resolver = createFacadeModeResolver(stubServer(), { facadeMode: "auto" });
+    const resolver = createFacadeModeResolver(stubServer(), {
+      facadeMode: "auto",
+      autoClients: { "claude-code": "domain" },
+    });
     expect(resolver.resolveFacadeMode(undefined)).toBe("triad"); // the fallback, uncached
     expect(resolver.resolveFacadeMode("claude-code")).toBe("domain"); // real resolution now
     // And it stays cached from here — a later nameless call gets the CACHED real answer, not a
