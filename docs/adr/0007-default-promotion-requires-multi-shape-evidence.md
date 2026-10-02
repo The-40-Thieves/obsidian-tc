@@ -143,7 +143,7 @@ by query id; artifacts and `runs.db` under `/data/obsidian-tc-eval/search-mode-r
 | --- | ---: | --- | --- | --- | ---: | ---: |
 | Matuschak evergreen, strict labels (public) | 78 | 0.8491 / 0.2543 | 0.9359 / 0.2885 | 0.8472 / 0.2500 | 52 | -0.678 |
 | Matuschak evergreen, lenient labels | 78 | 0.6266 / 0.1800 | 0.6345 / 0.1814 | 0.8694 / 0.2547 | 53 | -0.514 |
-| private multi-hop vault | 250 | 0.1009 / 0.0000 | 0.1083 / 0.0000 | 0.1123 / 0.0000 | 32 | -0.130 |
+| private multi-hop vault (CONTAMINATED, see correction below) | 250 | 0.1009 / 0.0000 | 0.1083 / 0.0000 | 0.1123 / 0.0000 | 32 | -0.130 |
 
 The arms are identical wherever the text leg finds a hit, and `auto` only falls back to the semantic leg when it
 finds none; forcing `text` removes that fallback, so every change is a loss (0 queries improve on any corpus,
@@ -159,6 +159,16 @@ Two English shapes are fewer than the three the bar asks for, and the preference
 all of them. The flag stays off, per the ADR 0003 pattern for a mechanism that loses. A side observation for
 follow-up: `auto` itself scores well below dense-only `search_semantic` on the private vault (0.1009 against
 0.4005 nDCG@10) because a text-leg hit, however irrelevant, prevents the semantic fallback.
+
+**Correction (2026-10-01): the private multi-hop row above is contaminated.** All 94 text-routed `auto` queries hit
+one note, a decision note in the private vault that quotes the golden-set candidates verbatim, so the 0.1009 is a
+self-reference artifact, not a property of `auto`. With that note moved out of the indexed tree (and dropped from a
+copy of the same index) every one of the 250 queries falls through to the semantic leg: `auto` scores 0.4016 nDCG@10
+(recall@10 0.4523, MRR@10 0.4284), identical to dense-only search, and the forced-`text` preference arm still scores
+0.0000 (no query is quoted anywhere, so the text leg returns nothing). The direction of the verdict stands; the private
+`auto` figure and the "0.1009 against 0.4005" observation do not. The two public rows are unaffected (evergreen corpus
+carries no such note). Numbers and artifacts: `/data/obsidian-tc-eval/golden-contamination-20261001/`. Eval runs now
+refuse a vault in this state (`eval/golden-guard.ts`).
 
 ## Status (2026-10-01): class (c) mechanism built, dark; it helps on every local corpus, and the evidence bar is not met
 
@@ -185,7 +195,7 @@ same index copies and query vectors, paired by query id; artifacts, `runs.db` an
 | --- | ---: | --- | --- | --- | ---: |
 | Matuschak evergreen, strict labels (public) | 78 | 0.8491 | 0.8491 (0 changed) | 0.8865, +0.037 (lower +0.007, p 0.049) | 9 (8 up, 1 down) |
 | Matuschak evergreen, lenient labels | 78 | 0.6266 | 0.6296 (+0.003) | 0.6550, +0.028 (lower +0.010, p 0.010) | 15 (12 up, 3 down) |
-| private multi-hop vault | 250 | 0.1009 | 0.3609 (+0.260) | 0.3609, +0.260 (lower +0.222, p 0.0001) | 94 (all up) |
+| private multi-hop vault (CONTAMINATED, see correction below) | 250 | 0.1009 | 0.3609 (+0.260) | 0.3609, +0.260 (lower +0.222, p 0.0001) | 94 (all up) |
 
 Recall@10 and MRR@10 move the same way (private: recall 0.1083 to 0.4497, MRR 0.1123 to 0.3639; strict hybrid recall
 0.9359 to 0.9551, MRR 0.8472 to 0.8835). Zero-text-hit queries are identical in every arm. Fused `hybrid` stays below
@@ -202,3 +212,15 @@ real shapes, both English, one of which is contaminated (the strict and lenient 
 sets). The code-documentation and CJK corpora this ADR names are still unsourced. `hybrid` also embeds, and sends to the
 embeddings provider, every string `auto` query that `text-first` answers locally, which is a cost and an egress change an
 operator should choose. The flag stays off; it is the first thing to re-measure when a third shape exists.
+
+**Correction (2026-10-01): the private multi-hop row is contaminated, and the cleaned vault carries no evidence either
+way.** The single note behind the 94 text hits (a decision note quoting the golden-set candidates verbatim) was moved
+out of the indexed tree and dropped from a copy of the same index (15 chunks, nothing else changed), then all three
+arms were re-run with the same command shape and query vectors. On the cleaned vault no query's whole phrase appears in
+any indexed note, so the text leg returns nothing for all 250 and every arm routes every query to the semantic leg:
+text-first, weak-text and hybrid all score 0.4016 nDCG@10 (recall@10 0.4523, MRR@10 0.4284), identical to dense-only
+search, with 0 queries changed. The +0.260 for `weak-text` and `hybrid` above, and the 0.3609 against 0.4005 gap to
+dense-only, were produced by the contamination and are withdrawn. The private vault is therefore a corpus on which the
+class (c) mechanism is a no-op, not one where it wins, which strengthens the verdict that the evidence bar is unmet
+(the contaminated shape no longer counts as a shape with a measured win). The public evergreen rows are unaffected.
+Artifacts, `runs.db` and the before/after comparison: `/data/obsidian-tc-eval/golden-contamination-20261001/`.

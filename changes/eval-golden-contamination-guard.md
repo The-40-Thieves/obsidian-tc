@@ -1,0 +1,4 @@
+---
+type: Added
+---
+- **Retrieval evals refuse a vault that quotes the golden set.** Before scoring, every eval that loads a golden set against a vault (`run.ts`, `search-mode.ts`, `query-cache.ts`, `search-and-read-cost.ts`, `export-rerank-pools.ts`, `colbert_spike.ts`, `the651-ceiling-probe.ts`) now fails when an indexed note contains 3 or more golden queries verbatim, naming the note path and count and never the query text. A note quoting its own eval queries makes the text leg hit that note instead of an expected one and skews every lexical/hybrid number measured on the vault. Move the note into a dot-folder (the indexer skips them) and rebuild the index; `EVAL_GOLDEN_CONTAMINATION_THRESHOLD` changes the limit, or `off` measures a contaminated vault on purpose. Wikilinks and queries under 3 tokens are not counted.

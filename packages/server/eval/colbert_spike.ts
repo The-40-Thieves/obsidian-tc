@@ -22,6 +22,7 @@ import { createEmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { type ColbertMatrix, colbertRerank } from "../src/search/colbert";
 import { semanticSearch } from "../src/search/semantic";
+import { assertGoldenNotInVault } from "./golden-guard";
 import {
   aggregateMetrics,
   computeQueryMetrics,
@@ -81,6 +82,8 @@ async function main(): Promise<void> {
   const firstVault = config.vaults[0];
   if (!firstVault) throw new Error("config.vaults is empty");
   const golden = GoldenSetSchema.parse(parseYaml(readGoldenOrExplain(goldenPath)));
+  // Fail before scoring if the vault quotes the golden set (see eval/golden-guard.ts).
+  assertGoldenNotInVault(golden, firstVault.path);
   const provider = createEmbeddingProvider(config.embeddings, {
     // THE-934 fix round 3 (H): eval/ scripts operate on a real vault corpus (loadConfig
     // reads the SAME config.egress.excludePaths a production run would), so the port must

@@ -27,6 +27,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM7Tools } from "../src/tools/m7";
 import { candidatePoolSize } from "../src/tools/m7/knowledge/search-and-read";
 import { VaultRegistry } from "../src/vault/registry";
+import { assertGoldenNotInVault } from "./golden-guard";
 import { computeQueryMetrics, GoldenSetSchema, type RankedChunk } from "./metrics";
 import type { EvalQueryResult } from "./run";
 
@@ -74,6 +75,8 @@ async function main(): Promise<void> {
   const vault = config.vaults[0];
   if (!vault) throw new Error("config.vaults is empty");
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
+  // Fail before scoring if the vault quotes the golden set (see eval/golden-guard.ts).
+  assertGoldenNotInVault(golden, vault.path);
   const queries = golden.queries.slice(0, limit);
 
   const provider = createEmbeddingProvider(config.embeddings, {

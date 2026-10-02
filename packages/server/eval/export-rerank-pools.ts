@@ -12,6 +12,7 @@ import { openConfiguredDatabase } from "../src/db/open";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { graphSearch } from "../src/search/graph_search";
+import { assertGoldenNotInVault } from "./golden-guard";
 import { GoldenSetSchema } from "./metrics";
 
 const argv = process.argv.slice(2);
@@ -38,6 +39,8 @@ async function main(): Promise<void> {
   });
   const db = await openConfiguredDatabase(config, "cache.db");
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath as string, "utf8")));
+  // Fail before scoring if the vault quotes the golden set (see eval/golden-guard.ts).
+  assertGoldenNotInVault(golden, vault.path);
   // chunk text lookup (raw display content — what a passage reranker should read).
   const textOf = db.prepare("SELECT content FROM chunks WHERE id = ? AND vault_id = ?");
 

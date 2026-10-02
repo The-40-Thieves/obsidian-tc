@@ -22,6 +22,18 @@ rule** (cosine top-1 vs z-margin, and the threshold) comes from the config's
 the gate a deployment reading that config file would run. `GATED_HARD_Z` still overrides the
 z-margin threshold for a quick sweep, but only takes effect in `zMargin` mode.
 
+**Golden-set contamination guard** (`golden-guard.ts`). Every script that scores a golden set against
+a vault (`run.ts`, `search-mode.ts`, `query-cache.ts`, `search-and-read-cost.ts`, `export-rerank-pools.ts`,
+`colbert_spike.ts`, `the651-ceiling-probe.ts`) first fails when an indexed note contains 3 or more
+golden queries verbatim, naming the note path and count (never the query text). Such a note makes the
+text leg hit itself instead of an expected note and skews every lexical/hybrid number measured on the
+vault; once, all 94 text-routed `auto` queries on a private corpus hit one note. The fix is to move the
+note out of the indexed tree (dot-folders are skipped) AND out of the index you score against (rebuild
+it, or `deindexNote` on a copy): the guard reads the vault on disk, so a stale index copy still
+carries the note. `EVAL_GOLDEN_CONTAMINATION_THRESHOLD=<n>|off` changes the limit; wikilinks and queries
+under 3 tokens are not counted. A new scoring script must call `assertGoldenNotInVault` or join the
+exempt list in `test/eval-golden-contamination.test.ts`.
+
 Compare two configs (paired by query id):
 
 ```

@@ -33,6 +33,7 @@ import { bumpGeneration } from "../src/search/generation";
 import { createRetrievalCaches, type RetrievalCaches } from "../src/search/query_cache";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
+import { assertGoldenNotInVault } from "./golden-guard";
 import { computeQueryMetrics, GoldenSetSchema, type RankedChunk } from "./metrics";
 import {
   buildStream,
@@ -74,6 +75,8 @@ const vault = config.vaults[0];
 if (!vault) throw new Error("config.vaults is empty");
 const { id: VAULT_ID, path: VAULT_PATH } = vault;
 const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
+// Fail before scoring if the vault quotes the golden set (see eval/golden-guard.ts).
+assertGoldenNotInVault(golden, vault.path);
 const queries = golden.queries.slice(0, distinct);
 const vecs = new Map<string, number[]>(
   Object.entries(JSON.parse(readFileSync(vecsPath, "utf8")) as Record<string, number[]>),

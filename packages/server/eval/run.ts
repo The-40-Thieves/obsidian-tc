@@ -37,6 +37,7 @@ import {
   DEFAULT_DECOMPOSE_MODEL,
   DEFAULT_DECOMPOSE_URL,
 } from "./flag-liveness";
+import { assertGoldenNotInVault } from "./golden-guard";
 import {
   type AggregateMetrics,
   aggregateMetrics,
@@ -802,6 +803,8 @@ async function main(): Promise<void> {
   if (!firstVault) throw new Error("config.vaults is empty");
 
   const golden = GoldenSetSchema.parse(parseYaml(readGoldenOrExplain(goldenPath)));
+  // Fail before scoring if the vault quotes the golden set (see eval/golden-guard.ts).
+  assertGoldenNotInVault(golden, firstVault.path);
   const baseProvider = createEmbeddingProvider(config.embeddings, {
     // THE-934 fix round 3 (H): eval/ scripts operate on a real vault corpus (loadConfig
     // reads the SAME config.egress.excludePaths a production run would), so the port must
