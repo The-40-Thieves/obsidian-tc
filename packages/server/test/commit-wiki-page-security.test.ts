@@ -7,6 +7,7 @@ import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CASE_INSENSITIVE_FS } from "../src/acl";
 import { contentHash } from "../src/vault/paths";
 import { captureSnapshot, listSnapshots } from "../src/vault/snapshots";
 import { hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
@@ -95,10 +96,12 @@ describe("a page must be inside the configured wiki folder", () => {
     "notes/Learning techniques.md",
     "Learning techniques.md",
     "wiki-evil/Learning techniques.md",
-    "Wiki/Learning techniques.md",
-    "WIKI/concepts/Learning techniques.md",
     "wikix.md",
     "journal/wiki/Learning techniques.md",
+    // On a case-insensitive filesystem these name the wiki folder itself, so they are in it.
+    ...(CASE_INSENSITIVE_FS
+      ? []
+      : ["Wiki/Learning techniques.md", "WIKI/concepts/Learning techniques.md"]),
   ]) {
     it(`refuses a new page at ${path} and writes nothing`, async () => {
       const hh = harness();
