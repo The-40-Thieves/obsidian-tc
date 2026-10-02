@@ -171,6 +171,23 @@ export const VaultIndexConfigSchema = z.object({
     ),
 });
 
+/** The folder a vault's LLM wiki lives in; draft_wiki_page / commit_wiki_page read its SCHEMA.md. */
+export const VaultWikiConfigSchema = z.object({
+  folder: z
+    .string()
+    .max(512)
+    // One or more `/`-separated segments, none of them `.` or `..`, empty, or holding a backslash,
+    // colon or NUL: so no `""`, `.`, `/`, `/abs`, `C:\x`, `a/../b` or trailing slash. Rejected, never
+    // reinterpreted: a value that quietly became "the whole vault" would turn every note into wiki.
+    .regex(
+      /^(?:(?!\.{1,2}(?:\/|$))[^/\\:\0]+)(?:\/(?!\.{1,2}(?:\/|$))[^/\\:\0]+)*$/,
+      "must be a folder path inside the vault: no leading or trailing slash, no `.` or `..` segment, no backslash or colon",
+    )
+    .describe(
+      "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path and `..` are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
+    ),
+});
+
 export const VaultConfigSchema = z.object({
   id: z
     .string()
@@ -247,6 +264,9 @@ export const VaultConfigSchema = z.object({
   ),
   reflect: VaultReflectConfigSchema.optional().describe(
     "Per-vault defaults for the reflect tool's citation_style and detail arguments. A call argument beats this; absent means the shipped defaults (numeric, concise).",
+  ),
+  wiki: VaultWikiConfigSchema.optional().describe(
+    "Per-vault LLM wiki settings (the wiki folder and its SCHEMA.md). Absent means no wiki folder.",
   ),
   index: VaultIndexConfigSchema.optional().describe(
     "Per-vault index controls. Absent means only the Excluded files list in the vault's own `.obsidian/app.json` applies.",

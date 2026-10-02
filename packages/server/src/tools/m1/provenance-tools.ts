@@ -72,7 +72,7 @@ const ProvenanceRecordOut = z.object({
   seq: z.number(),
   ts: z.number(),
   tool: z.string(),
-  outcome: z.enum(["ok", "error"]),
+  outcome: z.enum(["ok", "error", "pending"]),
   /** The path this record matched: the queried path, or an earlier path of the same note. */
   path: z.string(),
   /** sha256 of the matched path's bytes before and after the call, or `absent` / `unhashable`. */

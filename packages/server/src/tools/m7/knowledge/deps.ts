@@ -13,6 +13,7 @@ import type { PagingDeps } from "../../../mcp/byte-page";
 import type { MetricsRecorder } from "../../../metrics/registry";
 import type { EgressFilter } from "../../../plane/egress-filter";
 import type { GatewayRoles } from "../../../plane/gateway";
+import type { ProvenanceStamper } from "../../../provenance/stamp";
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
 import type { RetrievalCaches } from "../../../search/query_cache";
 import type { Reranker, RerankOutcome } from "../../../search/rerank";
@@ -180,4 +181,7 @@ export interface M7Deps {
   /** The wiki judge's answering backend, built once at wiring (gateway judge role or TypeSafe Jev).
    *  `null` is "no judge" and is never replaced by the gateway; absent derives it from `roles`. */
   wikiJudgeBackend?: WikiJudgeBackend | null;
+  /** `provenance.stamp.frontmatter`: the compact provenance key commit_wiki_page adds to a page it
+   *  creates (never to a note it patches or overwrites). Absent -> no stamp. */
+  provenanceStamp?: ProvenanceStamper;
 }

@@ -56,7 +56,7 @@ export function isExternal(kind: string, target: string): boolean {
 
 /** Frontmatter has the key with a non-empty value (non-empty string/array, or any present scalar). */
 export function fmHas(fm: Record<string, unknown> | null, key: string): boolean {
-  if (!fm || !(key in fm)) return false;
+  if (!fm || !Object.hasOwn(fm, key)) return false;
   const val = fm[key];
   if (val == null) return false;
   if (typeof val === "string") return val.trim().length > 0;

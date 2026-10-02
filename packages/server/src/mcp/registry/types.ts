@@ -105,6 +105,11 @@ export interface CallerContext {
    *  Idempotent, and absent (undefined) when the call carries no idempotency key — always
    *  invoke as `ctx.markEffectCommitted?.()`. */
   markEffectCommitted?: () => void;
+  /** Write provenance: a handler that replaces several notes in one call (commit_wiki_page) calls
+   *  this just before its first rename with the sha256 each named path is about to hold, so a crash
+   *  mid-commit leaves a `pending` record behind. Installed by dispatch for a mutating call when
+   *  provenance is wired; absent otherwise, so call it as `ctx.recordPendingWrite?.(...)`. */
+  recordPendingWrite?: (after: ReadonlyMap<string, string>) => void;
   now?: () => number;
   /** THE-514: the transport's per-request AbortSignal (MCP SDK `extra.signal`, an HTTP request's
    *  abort, or a stdio caller's own cancellation), threaded in by the context factory. runDispatch
@@ -478,4 +483,7 @@ export interface ProvenanceSink {
   /** `result` is the handler's return value (ok outcome only): a tool that reports the hash of the
    *  content it wrote has that hash, not a later disk read, recorded as the `after` digest. */
   commit(pending: object, outcome: "ok" | "error", result?: unknown): Promise<void>;
+  /** A multi-note commit's durable intent, written before its first rename (the `pending` record):
+   *  `after` maps each named path to the sha256 it is about to hold. Synchronous; never throws. */
+  recordPending?(pending: object, after: ReadonlyMap<string, string>): void;
 }

@@ -50,6 +50,7 @@ until this generator existed, by which point five entire defaulted blocks had go
 | `memory.folder` | string, `"memory"` | Where memory-entity projections, `_next-session.md`, and `reflections/` live. |
 | `workspace.traceFolder` | string, `".obsidian-tc/traces"` | Vault-relative JSONL session-trace folder (ACL-checked). |
 | `index.excludePaths` | string[], `[]` | Extra Excluded files entries merged with the vault's own Obsidian list. See [Excluded files](#excluded-files) below. |
+| `wiki.folder` | string, unset | Vault-relative folder of this vault's LLM wiki, holding its `SCHEMA.md`. `draft_wiki_page` proposes pages there and `commit_wiki_page` only writes pages inside it (it refuses when this is unset), creating them without a confirmation. The value is a plain relative folder such as `wiki` or `notes/wiki`; `.`, `/`, `""`, an absolute path and `..` are rejected. See [Wiki workflow](/tools/#wiki-workflow-draft-and-commit-a-page). |
 
 ## Excluded files
 

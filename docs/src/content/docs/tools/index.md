@@ -302,7 +302,7 @@ on a call, or `lintEnabled: false`, turns it off. The scheduled lint itself stil
 * **Privacy.** The topic and the opening text of the candidate pages (at most `maxNoteChars` each) go to the
   judge (the gateway model, or TypeSafe with `provider: typesafe`). A note is sent only if the caller may read it (ACL), it is outside `egress.excludePaths`
   and outside Obsidian's Excluded files; such notes are never sent and are listed as `unjudged`. `maxCallsPerDay: 0`
-  or no judge configured keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the provider, the model, today's
+  or no judge configured keeps everything local. `obsidian-tc doctor` (check `wiki.judge`) reports the provider, the model, today's <!-- config-path:ignore -->
   calls and failures.
 * **Model note.** The gateway's `judge` alias served `openai/gpt-6-sol` when this was measured. That model
   answers HTTP 400 to `temperature` and `max_tokens`, so the judge request sends neither.
@@ -344,6 +344,107 @@ embedding model and one threshold. TypeSafe's customer agreement bars publishing
 precision, recall, latency or threshold is published here: the figures and the tuned threshold stay with the operator
 (tune the threshold on labelled pairs from your own vault). The `find_existing_page` judge is unchanged: the
 topic-to-page recall that kept it off was measured with the gateway judge and has not been re-measured for Jev.
+
+## Wiki workflow (draft and commit a page)
+
+Two more `full`-profile tools take a wiki page from topic to a linked, schema-checked note. They split
+the work so the server does the bookkeeping and **the LLM writes the prose**: neither tool generates
+page text.
+
+1. **`find_existing_page`** (above): is there already a page on the topic?
+2. **`draft_wiki_page`** (read-only): runs the same duplicate check, then returns the existing page if
+   there is one, a **link map** (`link_to`: notes the page should link, `link_from`: notes that should
+   link to it, `already_linking`), the SCHEMA.md requirements for the page `type`, and a changeset
+   skeleton (a proposed path, frontmatter and a patch per note to link from). It writes nothing.
+3. **You write the page body**, using the notes the link map names.
+4. **`commit_wiki_page`**: applies the changeset in one step, the new page plus additive patches
+   (`link`: a bullet under a heading such as `See also`, added once; `append`: text at the end or under a
+   heading) that link the rest of the wiki to it.
+5. **`lint_wiki`** (above) is the periodic upkeep: orphans, unresolved links, stale or duplicate pages.
+
+**SCHEMA.md.** Set `vaults[].wiki.folder` (for example `wiki`) and put a `SCHEMA.md` in it. Its
+frontmatter declares the page types, the frontmatter each requires, the subfolder new pages of a type go
+in, and the allowed property vocabulary (a list of names, or a map of name to allowed values; an empty
+value means any). The body is free prose and is never parsed.
+
+```yaml
+---
+types:
+  concept:
+    description: An idea or term
+    required: [type, summary, sources]
+    folder: concepts
+  person:
+    required: [type, summary]
+properties:
+  type: [concept, person]
+  summary:
+  sources:
+  status: [draft, stable]
+---
+```
+
+Obsidian's own `tags`, `aliases` and `cssclasses` are always allowed. SCHEMA.md is read as a bounded
+file: one over 64 KiB is not parsed, and a section over 100 types, 100 fields per type, 500 properties,
+200 values per property or 200 characters per name or value is cut, each with a warning. A SCHEMA.md
+that cannot be read is a `schema_file` problem, never an error.
+
+**The wiki folder is required.** `commit_wiki_page` refuses (`invalid_input`, `reason: no_wiki_folder`)
+in a vault with no `wiki.folder`, and refuses a page outside it (`reason: outside_wiki_folder`). The
+page path is judged as written (`..` and absolute paths are `path_invalid`) and again after symlinks,
+and "inside" means the same directory as the filesystem sees it (the folder's device and inode against
+each directory above the page), never a string comparison: `Café` in two Unicode forms and `Wiki` against
+`wiki` are one directory on some volumes and two on others, and no spelling can make two different
+directories equal. So neither a sibling folder that shares the prefix, a case or Unicode variant nor a
+symlink out of the folder can carry a page past the check. While the folder does not exist yet only its
+exact configured spelling is accepted. The folder itself must be a plain relative path in the config:
+`.`, `/`, an empty string, an absolute path and `..` are rejected, never reinterpreted.
+
+**Scopes.** The tool needs `read:notes` as well as `write:notes`: the duplicate check reads every note
+the caller may read and names the matches.
+
+**Problems versus errors.** Things for you to fix do not block the write; they come back in
+`problems`: `schema` (missing required field, unknown type or property, value outside the vocabulary),
+`unresolved_link`, `missing_link` (a related note the page does not link), `no_inbound_link`,
+`patch_without_link`, `patch_skipped` (the note already links the page), `possible_duplicate`,
+`excluded_note`, `poison_suspect`, `redacted`. Refusals are errors and write nothing: no write
+or read permission on any existing note it touches (an unreadable note answers like a missing one and
+its hash is never returned), a stale `prev_hash` (every stale note is named in `details.stale`), a page that
+already covers the topic (`conflict`, `reason: duplicate_page`, checked again right before the write;
+`allow_duplicate: true` overrides), text that fails the poison scan, a heading that is missing or
+ambiguous, and two entries naming one note (paths are compared by their real path, case-folded). Open contradictions the detector
+already flagged on a touched note are listed in `contradictions`; new ones are found by the indexer
+afterwards.
+
+**Confirmation.** Per operation, as the single-note tools ask it. Creating a page inside the wiki folder
+needs **no confirmation**: every note a commit replaces is snapshotted first, so `restore_note` undoes
+it. Patching a related note anywhere asks nothing either, as `patch_note` does, under the same ACL (both
+read and write permission on the note). Overwriting an existing non-empty page (`page.mode: overwrite`,
+which needs `prev_hash`) asks for confirmation exactly like `write_note`. Everything else keeps its
+existing rules: `write_note`, `patch_note`, `delete_note` and the rest behave as before.
+
+**All or nothing on errors; not crash-atomic.** Before the first write, `commit_wiki_page` checks the
+read and write ACL of every path, the `prev_hash` of every existing note, the poison and memory-defense
+scans, and computes every resulting note. It then snapshots every existing note it will replace, stages
+a synced temp file for every note, writes one `pending` write-provenance record naming every path and the
+hash it is about to hold, and renames the files back to back, re-hashing each existing note immediately
+before it is replaced: a note edited since it was read aborts the whole batch and the edit is kept. If a
+write fails part way, every earlier write is undone, except a note whose content changed since the batch
+wrote it, which is left alone and named in `details.changed_since_written`; a page someone else created
+is never deleted. Each undo moves the note aside, hashes the moved file and only then drops it or puts
+the old text back (with a no-replace create), so it never deletes or overwrites what the batch did not
+write; while a note is aside its name is briefly empty, and a note another process writes there in that
+gap is kept. When any undo is incomplete (`internal_error`, `details.reason: rollback_incomplete`) the
+snapshots taken for the call are kept, so `restore_note` can recover each pre-image; after a clean
+rollback they are dropped. Snapshot retention is pruned only after the batch succeeds. A process crash (SIGKILL,
+power loss) between two renames can leave a partial batch: the `pending` record then has no `ok` or
+`error` record after it, which is how the batch is found, and `restore_note` returns each replaced note.
+The re-hash narrows the window for an edit by another process to the gap between the hash and the
+rename; POSIX has no conditional rename, so it cannot be closed. A successful commit ends with an `ok`
+record listing every touched path; an aborted one ends with an `error` record only when the `pending`
+record was already written.
+
+Generated index and log pages are not part of these tools.
 
 ## Response format
 
@@ -481,6 +582,7 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `list_contradictions` | The rationale is the product. |
 | `episode_stats` | Aggregate counts only. |
 | `find_orphans` | Bare paths already. |
+| `commit_wiki_page` | A short receipt of the writes plus the problems found: every field is a safety signal. |
 | `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search` | Read-only proxies of an external payload this server does not own. |
 | `reflect`, `knowledge_challenge` | The synthesized answer or verdict and its evidence are the product; the rest is a few short fields. |
 | `find_link_cycles`, `graph_centrality`, `graph_path_between` | The path lists, ranked rows or hop chain are the payload; the rest is a count or a presence flag. |

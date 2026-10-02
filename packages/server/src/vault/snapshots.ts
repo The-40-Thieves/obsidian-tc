@@ -28,7 +28,9 @@ export interface SnapshotContent {
 }
 
 /** Capture `content` as a snapshot of (vaultId, path). No-ops when cfg is undefined/disabled.
- *  Dedups the blob, appends a ledger row, prunes to cfg.retention. Returns the new id or null. */
+ *  Dedups the blob, appends a ledger row, prunes to cfg.retention. Returns the new id or null.
+ *  `prune: false` leaves the retention pass to the caller (`pruneSnapshots`), for a multi-note write
+ *  that must not evict an older recovery point until the whole write has succeeded. */
 export function captureSnapshot(
   db: Database,
   cfg: SnapshotCaptureConfig | undefined,
@@ -37,6 +39,7 @@ export function captureSnapshot(
   content: string,
   op: string,
   now: () => number = Date.now,
+  prune = true,
 ): number | null {
   if (!cfg?.enabled) return null;
   const hash = contentHash(content);
@@ -49,12 +52,23 @@ export function captureSnapshot(
       "INSERT INTO note_snapshots (vault_id, path, hash, op, created_at) VALUES (?, ?, ?, ?, ?)",
     )
     .run(vaultId, path, hash, op, now());
-  pruneSnapshots(db, vaultId, path, cfg.retention);
+  if (prune) pruneSnapshots(db, vaultId, path, cfg.retention);
   return Number(info.lastInsertRowid);
 }
 
+/** Drop ledger rows a write that never landed captured; their blobs go with the next retention pass. */
+export function discardSnapshots(db: Database, ids: readonly number[]): void {
+  const del = db.prepare("DELETE FROM note_snapshots WHERE id = ?");
+  for (const id of ids) del.run(id);
+}
+
 /** Keep only the newest `retention` snapshots of (vaultId, path); GC now-orphan blobs. */
-function pruneSnapshots(db: Database, vaultId: string, path: string, retention: number): void {
+export function pruneSnapshots(
+  db: Database,
+  vaultId: string,
+  path: string,
+  retention: number,
+): void {
   const ids = db
     .prepare("SELECT id FROM note_snapshots WHERE vault_id = ? AND path = ? ORDER BY id DESC")
     .all(vaultId, path) as Array<{ id: number }>;

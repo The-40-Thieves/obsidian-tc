@@ -11,11 +11,13 @@ import {
   constants,
   existsSync,
   fstatSync,
+  fsyncSync,
   linkSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   type Stats,
@@ -140,6 +142,32 @@ export function readNote(abs: string): { raw: string; hash: string } {
   }
 }
 
+/** readNote with a byte ceiling: `raw` is null over `maxBytes`; the JS path reads at most one byte past it. */
+export function readNoteBounded(abs: string, maxBytes: number): { raw: string | null } {
+  if (nativeIo) {
+    try {
+      const buf = nativeIo.safeReadNote(abs);
+      return { raw: buf.length > maxBytes ? null : buf.toString("utf8") };
+    } catch (e) {
+      mapNativeReadError(e, abs);
+    }
+  }
+  const fd = openSync(abs, constants.O_RDONLY);
+  try {
+    assertRegularSingleLink(fd, abs);
+    const buf = Buffer.allocUnsafe(maxBytes + 1);
+    let n = 0;
+    while (n < buf.length) {
+      const got = readSync(fd, buf, n, buf.length - n, null);
+      if (got === 0) break;
+      n += got;
+    }
+    return { raw: n > maxBytes ? null : buf.toString("utf8", 0, n) };
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Binary read (attachments) with the same inode-aliasing guard as readNote. */
 export function readFileChecked(abs: string): Buffer {
   if (nativeIo) {
@@ -232,7 +260,13 @@ function commitNoReplace(tmp: string, abs: string): void {
       if ((e2 as NodeJS.ErrnoException).code === "EEXIST") throw noteExistsConcurrently();
       throw e2;
     }
-    renameSync(tmp, abs);
+    try {
+      renameSync(tmp, abs);
+    } catch (e3) {
+      removeTemp(abs);
+      removeTemp(tmp);
+      throw e3;
+    }
     return;
   }
   // The target now exists under its final name; a temp name we cannot drop is only litter.
@@ -290,8 +324,18 @@ export function writeFileAtomic(
       throw err.aclDenied(`safe write refused the path: ${(e as Error).message}`, { path: abs });
     }
   }
-  // O_EXCL + O_NOFOLLOW on a RANDOM temp name: a symlink planted at a predictable temp path can
-  // not be opened, so a note write is never redirected into an arbitrary file (H-4).
+  const tmp = writeTempFile(abs, data, false);
+  try {
+    if (opts.exclusive) commitNoReplace(tmp, abs);
+    else renameSync(tmp, abs);
+  } catch (e) {
+    removeTemp(tmp);
+    throw e;
+  }
+}
+
+/** O_EXCL + O_NOFOLLOW on a RANDOM temp name (H-4); unlinked if the write fails. */
+function writeTempFile(abs: string, data: Buffer, sync: boolean): string {
   const tmp = `${abs}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
   const fd = openSync(
     tmp,
@@ -299,12 +343,61 @@ export function writeFileAtomic(
     0o600,
   );
   try {
-    writeAll(fd, data);
-  } finally {
-    closeSync(fd);
+    try {
+      writeAll(fd, data);
+      if (sync) fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  } catch (e) {
+    removeTemp(tmp);
+    throw e;
   }
-  if (opts.exclusive) commitNoReplace(tmp, abs);
-  else renameSync(tmp, abs);
+  return tmp;
+}
+
+function removeTemp(tmp: string): void {
+  try {
+    unlinkSync(tmp);
+  } catch {}
+}
+
+export interface StagedWrite {
+  commit(): void;
+  discard(): void;
+}
+
+export function stageNoteWrite(
+  abs: string,
+  content: string,
+  createDirs: boolean,
+  opts: WriteFileOpts = {},
+): StagedWrite {
+  const data = Buffer.from(content, "utf8");
+  if (nativeIo) return { commit: () => writeFileAtomic(abs, data, createDirs, opts), discard() {} };
+  if (!opts.replacesExisting && !existsNoFollow(abs))
+    assertCreatableName(basename(abs), basename(abs));
+  if (createDirs) ensureDirNoFollow(dirname(abs));
+  const tmp = writeTempFile(abs, data, true);
+  let settled = false;
+  return {
+    commit() {
+      if (settled) throw new Error("staged write already settled");
+      settled = true;
+      try {
+        if (opts.exclusive) commitNoReplace(tmp, abs);
+        else renameSync(tmp, abs);
+      } catch (e) {
+        removeTemp(tmp);
+        throw e;
+      }
+    },
+    discard() {
+      if (settled) return;
+      settled = true;
+      removeTemp(tmp);
+    },
+  };
 }
 
 /**
