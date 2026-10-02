@@ -224,6 +224,20 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
       recorded,
     };
 
+    // A call that acted on another vault than the session's: this run is bound to the session's own
+    // vault (`vaultBound` below), so re-issuing it would be refused as `forbidden` and read as a
+    // divergence. It is rerun's own refusal, not the vault disagreeing.
+    if (typeof rec.effect_vault === "string") {
+      records.push({
+        ...common,
+        verdict: "refused_by_policy",
+        reason: `this call acted on vault ${rec.effect_vault}, not the session's own vault; a re-run is bound to the session's vault`,
+        replayed: null,
+        divergence: "none",
+      });
+      continue;
+    }
+
     if (classified.verdict !== "runnable" || classified.args === null) {
       records.push({
         ...common,

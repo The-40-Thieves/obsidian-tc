@@ -314,8 +314,11 @@ export class DispatchObservability {
     // THE-209: mirror the audit row into the active session's JSONL trace, if any.
     if (ctx.sessionId && this.sessionTracer) {
       try {
+        // The session belongs to the caller's own vault; a call that acted on another one is still
+        // part of the session, so it is traced there with the vault it acted on named.
+        const sessionVault = ctx.callerVaultId ?? ctx.vaultId;
         this.sessionTracer(
-          { vaultId: ctx.vaultId, sessionId: ctx.sessionId, caller: ctx.caller },
+          { vaultId: sessionVault, sessionId: ctx.sessionId, caller: ctx.caller },
           {
             ts: Date.now(),
             type: "tool_invocation",
@@ -326,6 +329,7 @@ export class DispatchObservability {
             result_size: resultSize,
             status,
             ...(code ? { error_code: code } : {}),
+            ...(sessionVault !== ctx.vaultId ? { effect_vault: ctx.vaultId } : {}),
             // THE-736: the arguments, only when the operator turned capture on. Same policy as
             // experiential `captureContent` — secret-scanned, size-capped — and deliberately the
             // same helper, so the two capture surfaces cannot drift on what counts as a secret.

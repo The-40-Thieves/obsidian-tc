@@ -88,12 +88,10 @@ export function recordHitlOutcome(
 export function recordHitlAnswer(ctx: RecordCtx & Pick<CallerContext, "hitlAnswer">): void {
   const a = ctx.hitlAnswer;
   if (a)
-    recordHitlOutcome(ctx, {
-      tool: a.tool,
-      argsHash: a.argsHash,
-      outcome: a.action,
-      source: a.source,
-    });
+    recordHitlOutcome(
+      { ...ctx, vaultId: a.vaultId },
+      { tool: a.tool, argsHash: a.argsHash, outcome: a.action, source: a.source },
+    );
 }
 
 /** Records that a confirmation round trip was offered for `error`'s call (an `elicit_required`). */

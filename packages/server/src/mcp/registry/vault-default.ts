@@ -75,7 +75,9 @@ export function withEffectiveVault(
   parsedInput: unknown,
 ): CallerContext {
   const v = (parsedInput as Record<string, unknown> | null)?.[def.vaultArg ?? "vault"];
-  return typeof v === "string" && v !== ctx.vaultId ? { ...ctx, vaultId: v } : ctx;
+  return typeof v === "string" && v !== ctx.vaultId
+    ? { ...ctx, vaultId: v, callerVaultId: ctx.vaultId }
+    : ctx;
 }
 
 /** Advertised JSON Schema for a tool input: drop `vault` from `required` and describe when it may
