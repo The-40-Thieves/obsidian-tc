@@ -40,7 +40,10 @@ interface WalkRow {
   hop: number;
 }
 
-const DERIVED_EDGE_TYPES = ["similar_to", "shared_tag", "semantically_similar_to"];
+// Edge types the walk crosses only under includeDerived (the densify.includeInWalk gate). The three
+// derived ones are inferred; `property_link` is authored but joins them so that indexing property
+// links cannot move default ranking.
+const OPT_IN_EDGE_TYPES = ["similar_to", "shared_tag", "semantically_similar_to", "property_link"];
 
 /**
  * Walk the undirected edge graph from `seedPaths`, scoped to `opts.vaultId`. Returns one node per
@@ -79,7 +82,7 @@ export function expandGraphLiteral(
 
   // links_to always; derived types join only under includeDerived, so the default is the historical
   // literal walk unchanged.
-  const edgeTypes = opts.includeDerived ? ["links_to", ...DERIVED_EDGE_TYPES] : ["links_to"];
+  const edgeTypes = opts.includeDerived ? ["links_to", ...OPT_IN_EDGE_TYPES] : ["links_to"];
   const inList = edgeTypes.map(() => "?").join(", ");
 
   const rows = db

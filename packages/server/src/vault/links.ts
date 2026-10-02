@@ -9,15 +9,24 @@ import { inCodeRange, inlineCodeRanges, scanMdLinks, scanWikilinks } from "./lin
 
 export type LinkKind = "wikilink" | "markdown" | "embed";
 
+/** Where in a note a link was written: its body, or one of its properties (frontmatter). */
+export type LinkSource = "body" | "property";
+
 export interface ExtractedLink {
   raw: string;
   kind: LinkKind;
   target: string;
   display: string | null;
   heading: string | null;
-  line: number; // 1-based
+  /** 1-based. A body link counts from the first body line; a property link, from the note file's
+   *  first line (its frontmatter block opens at line 1). */
+  line: number;
   col: number; // 1-based
   inCodeblock: boolean;
+  /** Absent means "body" (what `extractLinks` returns); `extractPropertyLinks` sets "property". */
+  source?: LinkSource;
+  /** The top-level property a property link sits under; set only when `source` is "property". */
+  property?: string;
 }
 
 const FENCE = /^\s*(```|~~~)/;
@@ -85,6 +94,85 @@ export function extractLinks(body: string): ExtractedLink[] {
   }
   out.sort((a, b) => a.line - b.line || a.col - b.col);
   return out;
+}
+
+const MAX_PROPERTY_DEPTH = 16;
+
+/** Every string leaf of a parsed YAML value (scalars, list items, nested map values). */
+function stringLeaves(value: unknown, out: string[], depth = 0): void {
+  if (typeof value === "string") out.push(value);
+  else if (depth >= MAX_PROPERTY_DEPTH) return;
+  else if (Array.isArray(value)) for (const v of value) stringLeaves(v, out, depth + 1);
+  else if (value && typeof value === "object")
+    for (const v of Object.values(value)) stringLeaves(v, out, depth + 1);
+}
+
+/** Links written in a note's properties, as Obsidian caches them (`CachedMetadata.frontmatterLinks`,
+ *  1.4.0+): a `[[wikilink]]` inside a property's string value, in a text property or any item of a
+ *  list property. Obsidian requires the value quoted ("internal links must be surrounded by quotes",
+ *  help.obsidian.md/properties), which is the YAML rule that makes it a string: an unquoted `[[X]]`
+ *  parses as a nested list, holds no bracketed string, and yields nothing here. Link syntax (alias,
+ *  `#heading`, `#^block`) is the body parser's `scanWikilinks`/`splitWikilink`, not a second one.
+ *  Takes the PARSED frontmatter (null when absent or unparseable: no property links) and its
+ *  verbatim text, used only to give each link a file line/col. */
+export function extractPropertyLinks(
+  frontmatter: Record<string, unknown> | null,
+  rawFrontmatter: string | null,
+): ExtractedLink[] {
+  const out: ExtractedLink[] = [];
+  if (!frontmatter) return out;
+  const lines = (rawFrontmatter ?? "").split(/\r?\n/);
+  // Properties are walked in document order, so a forward-moving cursor pairs each link with its
+  // own occurrence even when the same link text repeats.
+  let curLine = 0;
+  let curCol = 0;
+  for (const [property, value] of Object.entries(frontmatter)) {
+    const strings: string[] = [];
+    stringLeaves(value, strings);
+    for (const text of strings) {
+      for (const textLine of text.split(/\r?\n/)) {
+        for (const m of scanWikilinks(textLine)) {
+          const { target, display, heading } = splitWikilink(m.inner);
+          let line = curLine;
+          let col = -1;
+          for (let i = curLine; i < lines.length && col < 0; i++) {
+            col = (lines[i] ?? "").indexOf(m.raw, i === curLine ? curCol : 0);
+            if (col >= 0) line = i;
+          }
+          if (col >= 0) {
+            curLine = line;
+            curCol = col + m.raw.length;
+          }
+          out.push({
+            raw: m.raw,
+            kind: m.bang ? "embed" : "wikilink",
+            target,
+            display,
+            heading,
+            // +1 to count from 1, +1 for the opening "---" line ahead of the block's first line.
+            line: line + 2,
+            col: col >= 0 ? col + 1 : 1,
+            inCodeblock: false,
+            source: "property",
+            property,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** All links of a parsed note: its property links, then its body links. */
+export function extractNoteLinks(note: {
+  frontmatter: Record<string, unknown> | null;
+  rawFrontmatter: string | null;
+  body: string;
+}): ExtractedLink[] {
+  return [
+    ...extractPropertyLinks(note.frontmatter, note.rawFrontmatter),
+    ...extractLinks(note.body),
+  ];
 }
 
 export interface VaultIndex {

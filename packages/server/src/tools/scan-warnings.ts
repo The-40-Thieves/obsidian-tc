@@ -5,9 +5,10 @@
 //
 // Callers feed ScanWarnings only paths they already ACL-filtered for read, so a warning can never
 // name a note the caller may not see. The link-scan code reads through `parse()`, which is also
-// where a later frontmatter-property link pass would hook in.
+// where the frontmatter-property link pass hooks in (`links()`).
 import { z } from "zod";
 import { type ParsedNote, parseNoteLenient } from "../vault/frontmatter";
+import { type ExtractedLink, extractNoteLinks } from "../vault/links";
 
 /** Warnings kept per result; the rest are only counted (`warnings_omitted`). */
 export const MAX_SCAN_WARNINGS = 50;
@@ -36,6 +37,12 @@ export class ScanWarnings {
     const { yamlError, ...parsed } = parseNoteLenient(raw, path);
     if (yamlError) this.add(path, yamlError.message);
     return parsed;
+  }
+
+  /** Every link of one note of a scan: property links (a note whose YAML failed has none), then
+   *  body links, which always count. */
+  links(raw: string, path: string): ExtractedLink[] {
+    return extractNoteLinks(this.parse(raw, path));
   }
 
   private add(path: string, message: string): void {

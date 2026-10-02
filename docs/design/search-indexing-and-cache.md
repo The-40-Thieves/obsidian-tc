@@ -115,6 +115,18 @@ to the same readable predicate the ACL uses, so a stale row never surfaces. Inde
 triggers a reconcile through `exclusion-reload.ts` when the effective list changed. Every production
 `indexVault` call site must pass `isIndexExcluded` (`test/index-exclusion-wiring.test.ts` scans for it).
 
+## Property links in the edge layer
+
+`processNote` extracts a note's links with `extractNoteLinks` (vault/links.ts): the wikilinks in the
+parsed frontmatter's string values (`extractPropertyLinks`, which reuses the body's `scanWikilinks` /
+`splitWikilink`), then the body's. A note whose YAML does not parse takes the `notes_frontmatter_failed`
+path and is extracted from its body only. `desiredEdges` turns a resolved property link into a
+`property_link` pair (`property_forward` / `property_reverse`, edge_kind `literal`) and an unresolved
+one into the usual `unresolved` row; `reconcileVaultEdges` owns `property_link` with `links_to` and
+`unresolved`. The type is separate on purpose: `expandGraphLiteral` follows it, and `nodeDegrees`
+counts it, only under the densify `includeInWalk` gate, so the default literal walk and hub degrees are
+byte-identical to a vault without property links.
+
 ## doctor index.coverage — missing and stale notes
 
 `doctor --probe` compares the notes on disk with the `notes` table. A readable note with no row is
