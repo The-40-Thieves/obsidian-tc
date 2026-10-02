@@ -17,7 +17,7 @@ import { type FolderAcl, isDefaultDenied } from "../acl";
 // path gets redacted, rather than a second copy that could drift.
 import { redactSecrets } from "../experiential/redact";
 import { recordAclCheck } from "./acl-audit";
-import { assertWritableVaultPath, resolveVaultPathChecked } from "./paths";
+import { assertWritableVaultPath, normalizeVaultPath, resolveVaultPathChecked } from "./paths";
 
 export type AclOp = "read" | "write" | "delete";
 
@@ -27,6 +27,9 @@ export type PathAclDecision =
       allowed: false;
       deniedBy: "read_only" | "read_paths" | "write_paths" | "delete_paths";
       matchedGlob: string | null;
+      /** Set when the path is under an immutable folder (a vault's raw sources), so the caller can
+       *  say so instead of blaming a whitelist. */
+      immutable?: true;
     };
 
 /**
@@ -48,6 +51,16 @@ export function evaluatePathAcl(
       deniedBy: `${op}_paths` as "read_paths" | "write_paths" | "delete_paths",
       matchedGlob: null,
     };
+  if (op !== "read") {
+    const immutable = acl.immutableGlobFor(path);
+    if (immutable !== null)
+      return {
+        allowed: false,
+        deniedBy: `${op}_paths` as "write_paths" | "delete_paths",
+        matchedGlob: immutable,
+        immutable: true,
+      };
+  }
   if (op !== "read" && acl.readOnly)
     return { allowed: false, deniedBy: "read_only", matchedGlob: null };
   // THE-618: match against the op's PRECOMPILED whitelist rather than re-reading a defensive copy
@@ -119,8 +132,19 @@ export function enforcePathAcl(
   // through the error envelope. Redact once, reuse for every throw site in this function; `path`
   // itself stays unredacted for the real ACL/audit logic below (recordAclCheck, scopesForPath).
   const redactedPath = redactSecrets(path).text;
+  const immutableDenied = (): never => {
+    throw err.aclDenied(`path is in an immutable folder (raw sources); ${op} denied`, {
+      path: redactedPath,
+      op,
+      reason: "immutable_folder",
+    });
+  };
+  // An immutable folder is judged on the name as written AND on the real path: a symlink under it
+  // that leads out (or one leading in) must not make a raw source writable.
+  if (op !== "read" && acl?.immutableGlobFor(normalizeVaultPath(rel)) != null) immutableDenied();
   const decision = evaluatePathAcl(acl, op, path);
   if (!decision.allowed) {
+    if (decision.immutable) immutableDenied();
     if (decision.deniedBy === "read_only")
       throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path: redactedPath, op });
     throw err.aclDenied(`path is outside the ${op} whitelist`, { path: redactedPath, op });

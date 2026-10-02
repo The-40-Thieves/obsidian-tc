@@ -51,6 +51,7 @@ until this generator existed, by which point five entire defaulted blocks had go
 | `workspace.traceFolder` | string, `".obsidian-tc/traces"` | Vault-relative JSONL session-trace folder (ACL-checked). |
 | `index.excludePaths` | string[], `[]` | Extra Excluded files entries merged with the vault's own Obsidian list. See [Excluded files](#excluded-files) below. |
 | `wiki.folder` | string, unset | Vault-relative folder of this vault's LLM wiki, holding its `SCHEMA.md`. `draft_wiki_page` proposes pages there and `commit_wiki_page` only writes pages inside it (it refuses when this is unset), creating them without a confirmation. The value is a plain relative folder such as `wiki` or `notes/wiki`; `.`, `/`, `""`, an absolute path and `..` are rejected. See [Wiki workflow](/tools/#wiki-workflow-draft-and-commit-a-page). |
+| `wiki.rawFolder` | string, `raw` beside `wiki.folder` | Vault-relative folder of this vault's raw sources, the inputs the wiki is built from (same rules as `wiki.folder`). Default: `raw` next to the wiki folder (`wiki` gives `raw`, `notes/wiki` gives `notes/raw`); none when that would be the wiki folder itself. It must not be, contain or sit inside `wiki.folder`. Its files are **immutable**: no tool writes, creates, renames or deletes there, whatever the ACL whitelists say (reads follow the read ACL). `draft_wiki_page` `source` ingests one of its notes. Add sources outside the server. See [Ingesting a raw source](/tools/#ingesting-a-raw-source). |
 
 ## Excluded files
 

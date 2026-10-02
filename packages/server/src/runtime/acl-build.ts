@@ -1,5 +1,6 @@
 import { FolderAcl } from "../acl";
 import { withWikiLogScope } from "../tools/m7/knowledge/wiki-log-acl";
+import { immutableGlobsFor, rawFolderOf } from "../vault/raw-folder";
 
 type FolderAclConfig = ConstructorParameters<typeof FolderAcl>[0];
 
@@ -12,20 +13,32 @@ type FolderAclConfig = ConstructorParameters<typeof FolderAcl>[0];
  *  Change ACL construction HERE and nowhere else.
  *
  *  A vault with a wiki folder gets its own ACL even when its config declares none: the root ACL plus
- *  the implicit rule that makes the generated `log.md` need `read:provenance` (wiki-log-acl.ts). */
+ *  the implicit rule that makes the generated `log.md` need `read:provenance` (wiki-log-acl.ts), and
+ *  the raw-sources folder (`wiki.rawFolder`), which is immutable whatever the ACL says. The two are
+ *  independent additions on different fields (a `rules` entry that only adds a scope, and
+ *  `immutablePaths` entries that only add write denials), so neither can loosen the other nor an
+ *  operator's own rules; an operator's `immutablePaths` are kept. */
 export function buildAcls(
   aclConfig: FolderAclConfig,
-  vaults: ReadonlyArray<{ id: string; acl?: unknown; wiki?: { folder?: string | undefined } }>,
+  vaults: ReadonlyArray<{
+    id: string;
+    acl?: unknown;
+    wiki?: { folder: string; rawFolder?: string | undefined } | undefined;
+  }>,
 ): { acl: FolderAcl; aclByVault: Map<string, FolderAcl> } {
-  return {
-    acl: new FolderAcl(aclConfig),
-    aclByVault: new Map(
-      vaults
-        .filter((v) => v.acl !== undefined || v.wiki?.folder !== undefined)
-        .map((v) => [
-          v.id,
-          new FolderAcl(withWikiLogScope((v.acl as FolderAclConfig) ?? aclConfig, v.wiki?.folder)),
-        ]),
-    ),
-  };
+  const aclByVault = new Map<string, FolderAcl>();
+  for (const v of vaults) {
+    const raw = rawFolderOf(v.id, v.wiki);
+    if (v.acl === undefined && v.wiki?.folder === undefined && raw === undefined) continue;
+    const base = withWikiLogScope((v.acl as FolderAclConfig | undefined) ?? aclConfig, v.wiki?.folder);
+    aclByVault.set(
+      v.id,
+      new FolderAcl(
+        raw === undefined
+          ? base
+          : { ...base, immutablePaths: [...(base.immutablePaths ?? []), ...immutableGlobsFor(raw)] },
+      ),
+    );
+  }
+  return { acl: new FolderAcl(aclConfig), aclByVault };
 }

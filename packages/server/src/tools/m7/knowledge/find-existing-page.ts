@@ -36,7 +36,7 @@ import {
   type PageCandidate,
   STRONG_KINDS,
 } from "./wiki-evidence";
-import { isGeneratedWikiPath } from "./wiki-folder";
+import { isGeneratedWikiPath, rawPathFilter } from "./wiki-folder";
 import {
   createWikiJudge,
   DEFAULT_WIKI_JUDGE_SETTINGS,
@@ -289,10 +289,12 @@ export async function findExistingPage(
 ): Promise<{ output: FindExistingPageResult; ranked: PageCandidate[]; scan: IdentityScan }> {
   const folder = args.folder ? normalizeVaultPath(args.folder) : undefined;
   const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
+  // A raw source is an input to the wiki, not a page: it never answers "does a page exist?".
+  const isRaw = rawPathFilter(v.rawFolder);
   const identity = collectIdentityEvidence(
     { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes, wikiFolder: v.wikiFolder },
     args.topic,
-    { folder, isExcluded: exclusion.isExcluded },
+    { folder, isExcluded: exclusion.isExcluded, ignore: isRaw },
   );
   const candidates = identity.candidates;
   const min = args.minSimilarity ?? TOPIC_MATCH_MIN;
@@ -308,6 +310,7 @@ export async function findExistingPage(
       isReadable: (rel) =>
         readableRel(ctx.acl, rel, ctx.grantedScopes) &&
         (prefix === "" || rel.startsWith(prefix)) &&
+        !isRaw(rel) &&
         !exclusion.isExcluded(rel) &&
         !isGeneratedWikiPath(rel, v.wikiFolder),
       model: deps.embeddingProvider.id,

@@ -87,13 +87,28 @@ export function assertWikiPagePath(
       wiki_folder: wikiFolder,
     });
   };
-  const realPage = resolveVaultPathChecked(root, pageRel).aclRel;
-  const folderId = dirIdentity(resolveVaultPath(root, wikiFolder));
+  if (!insideFolder(root, wikiFolder, pageRel)) outside();
+}
+
+/**
+ * Whether `rel` (normalised) is inside `folder` as the filesystem resolves it, on the path as
+ * written AND on the real path it leads to: a symlink under the folder must not carry a path out of
+ * it, and one leading in does not make a path outside it the folder's. `folder` that does not exist
+ * yet has no identity: only the exact configured spelling is in it (fail closed).
+ */
+export function insideFolder(root: string, folder: string, rel: string): boolean {
+  const realRel = resolveVaultPathChecked(root, rel).aclRel;
+  const folderId = dirIdentity(resolveVaultPath(root, folder));
   if (folderId === null) {
-    // Nothing to compare against: only the configured spelling, byte for byte, is in the folder.
-    const prefix = `${wikiFolder}/`;
-    if (!pageRel.startsWith(prefix) || !realPage.startsWith(prefix)) outside();
-    return;
+    const prefix = `${folder}/`;
+    return rel.startsWith(prefix) && realRel.startsWith(prefix);
   }
-  if (!folderAbove(root, folderId, pageRel) || !folderAbove(root, folderId, realPage)) outside();
+  return folderAbove(root, folderId, rel) && folderAbove(root, folderId, realRel);
+}
+
+/** Whether a vault-relative path is inside the vault's raw-sources folder, by name. Raw notes are
+ *  inputs, never wiki pages: the page checks (is there already a page on this topic, which notes
+ *  should link to a new page) leave them out. No raw folder: nothing is raw. */
+export function rawPathFilter(rawFolder: string | undefined): (rel: string) => boolean {
+  return rawFolder === undefined ? () => false : (rel) => pathInFolder(rel, rawFolder);
 }

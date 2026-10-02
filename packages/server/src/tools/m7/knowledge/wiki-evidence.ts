@@ -124,7 +124,13 @@ export interface IdentityScan {
 export function collectIdentityEvidence(
   scope: ScanScope,
   topicRaw: string,
-  opts: { folder?: string | undefined; isExcluded: (rel: string) => boolean },
+  opts: {
+    folder?: string | undefined;
+    isExcluded: (rel: string) => boolean;
+    /** Notes that are not pages (a vault's raw sources): readable and valid link targets, so they stay
+     *  in `notes`, but never evidence, candidates, mentions or linkers. */
+    ignore?: (rel: string) => boolean;
+  },
 ): IdentityScan {
   const topic = cleanTopic(topicRaw);
   const topicKey = looseKey(topic);
@@ -133,12 +139,13 @@ export function collectIdentityEvidence(
   const index = buildVaultIndex(all);
   const folderPrefix = opts.folder ? `${opts.folder.replace(/\/+$/, "")}/` : "";
   const inFolder = (p: string): boolean => folderPrefix === "" || p.startsWith(folderPrefix);
+  const ignored = opts.ignore ?? (() => false);
   const candidates = new Map<string, PageCandidate>();
   // The generated index.md / log.md are never a page, and never evidence for one: the index links
   // every page under its own name, which would read as every topic already having a page.
   const generated = (p: string): boolean => isGeneratedWikiPath(p, scope.wikiFolder);
   const add = (path: string, ev: Evidence): void => {
-    if (!inFolder(path) || generated(path)) return;
+    if (!inFolder(path) || generated(path) || ignored(path)) return;
     const c = candidates.get(path) ?? { path, evidence: [], excluded: opts.isExcluded(path) };
     // One entry per (kind, detail): a note listing the same alias twice is one piece of evidence.
     if (!c.evidence.some((e) => e.kind === ev.kind && e.detail === ev.detail)) c.evidence.push(ev);
@@ -162,7 +169,7 @@ export function collectIdentityEvidence(
   const mentions: string[] = [];
   const linkers: string[] = [];
   for (const rel of all) {
-    if (generated(rel)) continue;
+    if (generated(rel) || ignored(rel)) continue;
     const parsed = warnings.parse(readNote(resolveVaultPath(scope.root, rel)).raw, rel);
     const fm = parsed.frontmatter;
     if (fm) {

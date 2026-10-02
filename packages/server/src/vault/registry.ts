@@ -3,7 +3,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
-import { normalizeVaultPath } from "./paths";
+import { canonicalFolderOf, rawFolderOf } from "./raw-folder";
 
 /**
  * Canonicalize a configured vault root through realpath, once, at registration (THE-1081 / #946).
@@ -70,6 +70,9 @@ export interface ResolvedVault {
   indexExcludePaths?: readonly string[];
   /** `wiki.folder` from this vault's config, normalized (no trailing slash). Absent: no wiki folder. */
   wikiFolder?: string;
+  /** The vault's raw-sources folder (`wiki.rawFolder`, default `raw` beside the wiki folder): its
+   *  files are immutable (runtime/acl-build.ts) and are not wiki pages. Absent: none. */
+  rawFolder?: string;
 }
 
 /** The configured wiki folder, exactly as written. The config schema rejects `""`, `.`, `/`, an
@@ -77,18 +80,7 @@ export interface ResolvedVault {
  *  here rather than reinterpreted, because a folder that quietly became the whole vault would make
  *  every note "the wiki". */
 function wikiFolderOf(vaultId: string, folder: string | undefined): string | undefined {
-  if (folder === undefined) return undefined;
-  let canonical: string | undefined;
-  try {
-    canonical = folder === "" ? undefined : normalizeVaultPath(folder);
-  } catch {
-    canonical = undefined;
-  }
-  if (canonical === undefined || canonical === "" || canonical !== folder || /[:\0]/.test(folder))
-    throw new Error(
-      `vault "${vaultId}": wiki.folder must be a folder path inside the vault (for example "wiki"), got ${JSON.stringify(folder)}`,
-    );
-  return folder;
+  return folder === undefined ? undefined : canonicalFolderOf(vaultId, "wiki.folder", folder);
 }
 
 export class VaultRegistry {
@@ -100,6 +92,9 @@ export class VaultRegistry {
     for (const v of vaults) {
       const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
       const wikiFolder = wikiFolderOf(v.id, v.wiki?.folder);
+      const rawFolder = wikiFolder
+        ? rawFolderOf(v.id, { folder: wikiFolder, rawFolder: v.wiki?.rawFolder })
+        : undefined;
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,
@@ -110,6 +105,7 @@ export class VaultRegistry {
         restApiKey: v.restApiKey,
         ...(v.index?.excludePaths?.length ? { indexExcludePaths: v.index.excludePaths } : {}),
         ...(wikiFolder ? { wikiFolder } : {}),
+        ...(rawFolder ? { rawFolder } : {}),
       });
     }
     const first = vaults[0];

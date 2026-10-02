@@ -161,6 +161,18 @@ policy. A vault with no `acl` inherits the root ACL as its default:
 }
 ```
 
+### The raw-sources folder is immutable
+
+A vault with a wiki (`vaults[].wiki.folder`) has a raw-sources folder, `wiki.rawFolder` (default `raw` beside
+the wiki folder). The server derives one more rule from it for that vault, on top of any `acl` block: no
+write or delete may touch the folder or anything under it. It is not a config key of its own, so a config
+file cannot switch it off or widen it, and it holds even where `writePaths` or `deletePaths` list the folder.
+The denial is `acl_denied` and says the path is in an immutable folder; reads, search and `inspect_acl` follow
+the ordinary rules (`inspect_acl` reports a write there as denied by the write whitelist, with the folder as
+the matched rule). The rule is checked on the path as written and on the real path it leads to, so a symlink
+cannot carry a write into the folder or out of it. A hard-linked file is refused by the existing aliasing
+guard. See [Ingesting a raw source](/tools/#ingesting-a-raw-source).
+
 ## Scope classes & rate tiers
 
 Each tool's required scopes resolve to one **scope class**, chosen by

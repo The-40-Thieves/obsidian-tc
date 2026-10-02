@@ -62,7 +62,7 @@ import {
   WikiPatchSpec,
 } from "./wiki-changeset";
 import { collectIdentityEvidence } from "./wiki-evidence";
-import { assertWikiPagePath, foldPath } from "./wiki-folder";
+import { assertWikiPagePath, foldPath, rawPathFilter } from "./wiki-folder";
 import { regenerateWikiPages } from "./wiki-generated";
 import { buildLinkMap } from "./wiki-link-map";
 import { checkFrontmatter, loadWikiSchema } from "./wiki-schema";
@@ -477,6 +477,7 @@ export function createCommitWikiPageTool(
           ...collectIdentityEvidence(scope, topic, {
             folder: undefined,
             isExcluded: exclusion.isExcluded,
+            ignore: rawPathFilter(v.rawFolder),
           }).candidates.values(),
         ].filter((c) => c.path !== pageRel);
         if (verdictOf(fresh) === "exists")
