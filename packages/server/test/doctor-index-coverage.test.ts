@@ -6,7 +6,7 @@
 // `notes` rows — fix round 1 (MEDIUM, Opus): a hand-inserted-rows fixture cannot catch the probe
 // disagreeing with indexVault about which walked files get a `notes` row at all (a zero-byte note
 // gets none — see search/fts.ts's notesRowExpectedForSize, shared by both sides).
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
@@ -260,6 +260,83 @@ describe("probeIndexCoverage (THE-1073)", () => {
       const states = await probeIndexCoverage(cacheDir, [], 5_000);
       expect(states).toEqual([]);
     } finally {
+      rmTemp(cacheDir);
+    }
+  });
+});
+
+describe("index.coverage stale-but-present (notes changed on disk after indexing)", () => {
+  it("WARNS and names the sample path when indexed notes are older in the index than on disk", async () => {
+    const r = await run([
+      {
+        vaultId: "main",
+        notesOnDisk: 3,
+        notesIndexed: 3,
+        missing: 0,
+        samplePaths: [],
+        stale: 1,
+        staleSamplePaths: ["edited.md"],
+      },
+    ]);
+    expect(r.status).toBe("warning");
+    expect(r.summary).toContain("changed on disk since they were indexed");
+    expect(r.issues?.join(" ")).toContain("edited.md");
+    expect(r.remediation).toContain("index_vault");
+  });
+
+  it("stays ok when stale is 0 or absent", async () => {
+    const r = await run([
+      {
+        vaultId: "main",
+        notesOnDisk: 1,
+        notesIndexed: 1,
+        missing: 0,
+        samplePaths: [],
+        stale: 0,
+        staleSamplePaths: [],
+      },
+    ]);
+    expect(r.status).toBe("ok");
+  });
+
+  it("a real indexed note rewritten later is stale; a untouched one and one edited inside the 2 s slack are not", async () => {
+    const vaultRoot = makeTempDir("obtc-stale-vault-");
+    const cacheDir = makeTempDir("obtc-stale-cache-");
+    try {
+      writeFileSync(join(vaultRoot, "fresh.md"), "# Fresh\n\nunchanged.");
+      writeFileSync(join(vaultRoot, "edited.md"), "# Edited\n\nfirst version.");
+      writeFileSync(join(vaultRoot, "slack.md"), "# Slack\n\nfirst version.");
+      const db = await openDatabase(join(cacheDir, "cache.db"), 5_000);
+      provisionCacheDb(db);
+      const provider = fakeEmbeddingProvider({ dimensions: 8 });
+      await indexVault({
+        db,
+        provider,
+        vaultId: "main",
+        root: vaultRoot,
+        isReadable: () => true,
+        representation: buildRepresentationManifest(provider, {}),
+      });
+      db.close?.();
+
+      const nowS = Date.now() / 1000;
+      // Rewritten 60 s after indexing: the index holds the first version.
+      writeFileSync(join(vaultRoot, "edited.md"), "---\nbad: [1, 2\n---\n# Edited\n\nsecond.");
+      utimesSync(join(vaultRoot, "edited.md"), nowS + 60, nowS + 60);
+      // Touched 1 s ahead: inside the clock slack, not stale.
+      utimesSync(join(vaultRoot, "slack.md"), nowS + 1, nowS + 1);
+
+      const states = await probeIndexCoverage(
+        cacheDir,
+        [{ id: "main", root: vaultRoot, isReadable: () => true }],
+        5_000,
+      );
+      expect(states[0]?.missing).toBe(0);
+      expect(states[0]?.stale).toBe(1);
+      expect(states[0]?.staleSamplePaths).toEqual(["edited.md"]);
+      expect((await indexCoverageCheck({ probe: () => states }).run(ctx)).status).toBe("warning");
+    } finally {
+      rmTemp(vaultRoot);
       rmTemp(cacheDir);
     }
   });

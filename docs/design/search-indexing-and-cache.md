@@ -101,6 +101,15 @@ rewritten). That invariant is pinned by `test/index-selfheal.test.ts` — do not
 this is the whole reason the boot reconcile's "frontmatter is not valid YAML" degrade message used
 to name no file, even though this call site knew one. THE-823 fixed the degrade message to use it.
 
+## doctor index.coverage — missing and stale notes
+
+`doctor --probe` compares the notes on disk with the `notes` table. A readable note with no row is
+reported as missing. A note that has a row but whose file mtime is more than 2 seconds past the
+row's `indexed_at` is reported as stale: the index holds an earlier version, typically because a
+write's index step was skipped for broken frontmatter YAML. Both are warnings, never failures, and
+both clear on the next `index_vault` once the note's YAML is fixed. The 2 second slack absorbs the
+gap between a file's mtime and the `indexed_at` stamped just after it.
+
 ## index-vault.ts — graph densification (THE-486, docs/plans/2026-07-13-graph-densification.md)
 
 Densification reconciles derived edges — shared-tag co-occurrence and vec0 kNN neighbors — on
