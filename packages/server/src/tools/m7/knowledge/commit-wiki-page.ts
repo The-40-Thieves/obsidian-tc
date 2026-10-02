@@ -194,6 +194,25 @@ export function createCommitWikiPageTool(
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
 
       const scope = { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes };
+      const pageAbs = resolveVaultPath(v.root, pageRel);
+      // The page's mode against the disk. Run before the await so a plain mistake (creating over a
+      // page, overwriting a missing one) gets its own error, not a duplicate-topic one; run again
+      // after it, because the disk may have changed meanwhile.
+      const checkPageMode = (): void => {
+        const ex = noteExists(pageAbs);
+        if (ex.exists && ex.type === "folder")
+          throw err.invalidInput("path is a folder", { path: pageRel });
+        if (input.page.mode === "create") {
+          if (ex.exists) throw createModeConflictError(pageRel);
+        } else {
+          if (!ex.exists) throw overwriteModeMissingError(pageRel);
+          if (input.page.prev_hash === undefined)
+            throw err.invalidInput("page.prev_hash is required to overwrite an existing page", {
+              path: pageRel,
+            });
+        }
+      };
+      checkPageMode();
       const topic = input.topic ?? basename(pageRel);
       const problems: Problem[] = [];
 
@@ -253,19 +272,9 @@ export function createCommitWikiPageTool(
       const checkCas = (path: string, expected: string | undefined, actual: string): void => {
         if (expected !== undefined && expected !== actual) stale.push({ path, expected, actual });
       };
-      const pageAbs = resolveVaultPath(v.root, pageRel);
-      const pageEx = noteExists(pageAbs);
-      if (pageEx.exists && pageEx.type === "folder")
-        throw err.invalidInput("path is a folder", { path: pageRel });
+      checkPageMode();
       let pagePrev: { raw: string; hash: string } | null = null;
-      if (input.page.mode === "create") {
-        if (pageEx.exists) throw createModeConflictError(pageRel);
-      } else {
-        if (!pageEx.exists) throw overwriteModeMissingError(pageRel);
-        if (input.page.prev_hash === undefined)
-          throw err.invalidInput("page.prev_hash is required to overwrite an existing page", {
-            path: pageRel,
-          });
+      if (input.page.mode === "overwrite") {
         pagePrev = readNote(pageAbs);
         checkCas(pageRel, input.page.prev_hash, pagePrev.hash);
       }

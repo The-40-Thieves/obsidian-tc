@@ -208,7 +208,7 @@ describe("commit_wiki_page: all or nothing", () => {
     io.failOn = 3; // page, first patch, then the second patch fails
     const r = await commit(hh);
     expect(r.ok).toBe(false);
-    expect(errOf(r).message).toContain("disk full");
+    expect(errOf(r).code).toBe("internal");
     expect(hashTree(hh.v.root)).toEqual(before);
     expect(hh.v.exists(PAGE)).toBe(false);
     expect(existsSync(join(hh.v.root, "wiki/concepts"))).toBe(false);

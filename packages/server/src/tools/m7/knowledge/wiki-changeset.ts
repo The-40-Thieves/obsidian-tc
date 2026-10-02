@@ -7,7 +7,12 @@ import { z } from "zod";
 import { frontmatterFallbackSink } from "../../../util/errors";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
 import { type ExtractedLink, extractNoteLinks } from "../../../vault/links";
-import { hasUnterminatedFence, patchByHeading } from "../../m1/notes/anchors";
+import {
+  hasUnterminatedFence,
+  type ResolvedAnchor,
+  resolveSection,
+  resolveSectionOrThrow,
+} from "../../m1/notes/anchors";
 
 export const DEFAULT_LINK_HEADING = "See also";
 
@@ -87,6 +92,28 @@ export function linksTo(links: readonly ExtractedLink[], names: ReadonlySet<stri
 }
 
 /**
+ * `added` inserted directly after the last non-blank line of the section under `heading` (so a
+ * bullet extends the list instead of starting a new paragraph), or null when no heading matches.
+ * An ambiguous heading throws invalid_input like patch_note does.
+ */
+function appendUnderHeading(
+  body: string,
+  heading: string,
+  added: string,
+  eol: string,
+  rel: string,
+): string | null {
+  const anchor: ResolvedAnchor = { type: "heading", heading };
+  const r = resolveSection(body, anchor);
+  if (!r.found && r.reason === "not_found") return null;
+  const span = resolveSectionOrThrow(body, anchor, rel);
+  const lines = body.split(/\r?\n/);
+  let at = span.endIndex;
+  while (at > span.startIndex + 1 && (lines[at - 1] ?? "").trim() === "") at--;
+  return [...lines.slice(0, at), ...added.split(/\r?\n/), ...lines.slice(at)].join(eol);
+}
+
+/**
  * The note after `spec`, or why it is unchanged. Pure: reads nothing, writes nothing. `page` is how
  * the new page is linked (`link`, a wikilink) and the lowercase names that count as linking it.
  * Throws invalid_input, naming the note, for a patch that cannot be applied (a missing heading, a
@@ -116,8 +143,8 @@ export function computePatch(
     return { applied: false, content: raw, reason: "already_links" };
   const heading = spec.heading ?? DEFAULT_LINK_HEADING;
   let body: string;
-  const patched = patchByHeading(note.body, "append", heading, added, eol);
-  if (patched !== null) body = patched.body;
+  const patched = appendUnderHeading(note.body, heading, added, eol, rel);
+  if (patched !== null) body = patched;
   else if (spec.operation === "link")
     body = `${note.body.replace(/\s+$/, "")}${eol}${eol}## ${heading}${eol}${added}${eol}`;
   else throw err.invalidInput("heading not found", { path: rel, heading });
