@@ -37,10 +37,12 @@ import { createContradictionsTool } from "./knowledge/contradictions";
 import type { M7Deps } from "./knowledge/deps";
 import { createDiagnoseRetrievalTool } from "./knowledge/diagnose-retrieval";
 import { createExplainAnswerTool } from "./knowledge/explain-answer";
+import { createFindExistingPageTool } from "./knowledge/find-existing-page";
 import { createGraphSearchTool } from "./knowledge/graph-search";
 import { createKnowledgeChallengeTool } from "./knowledge/knowledge-challenge";
 import { createKnowledgeCriticalTool } from "./knowledge/knowledge-critical";
 import { createKnowledgeSearchTool } from "./knowledge/knowledge-search";
+import { createLintWikiTool } from "./knowledge/lint-wiki";
 import { createReflectTool } from "./knowledge/reflect";
 import {
   buildGraphSearchOptions,
@@ -107,5 +109,9 @@ export function buildKnowledgeTools(deps: M7Deps, aclFor: VaultAclResolver): Too
     createKnowledgeCriticalTool(deps),
     createKnowledgeChallengeTool(deps, retrieval),
     createContradictionsTool(deps),
+    // Wiki hygiene, both READ-ONLY: the page-exists check to run before write_note, and the
+    // one-call lint that folds the scattered link/quality/provenance checks into proposals.
+    createFindExistingPageTool(deps, retrieval),
+    createLintWikiTool(deps),
   ];
 }

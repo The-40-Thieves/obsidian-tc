@@ -150,6 +150,11 @@ const M1_SAMPLING_CONSUMERS = ["suggest_tags"] as const;
 // structural criterion; it stays registered and discoverable under `"core"`.
 const M1_PROVENANCE = ["get_provenance"] as const;
 
+// `find_existing_page` / `lint_wiki` (wiki upkeep): advisory read-only checks for agents that
+// maintain a wiki, and `core` is capped at 100 tools (docgen-stats.test.ts). Curated out on the same
+// structural criterion; both stay registered and discoverable, and the scheduled lint is separate.
+const M7_WIKI_UPKEEP = ["find_existing_page", "lint_wiki"] as const;
+
 /** Every tool name `toolFacade.profile: "core"` hides and dispatch-rejects. Absent from this list
  *  (and therefore always visible/callable) under `"full"` (the default) too — `"full"` disables
  *  nothing. See the module comment for the evidence behind each family. */
@@ -159,6 +164,7 @@ export const NON_CORE_TOOL_NAMES: readonly string[] = Object.freeze([
   ...M1_GRAPH_ANALYSIS,
   ...M1_SAMPLING_CONSUMERS,
   ...M1_PROVENANCE,
+  ...M7_WIKI_UPKEEP,
 ]);
 
 const NON_CORE_SET: ReadonlySet<string> = new Set(NON_CORE_TOOL_NAMES);

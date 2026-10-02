@@ -32,6 +32,7 @@ eval_dataview_field
 execute_command
 execute_template
 explain_answer
+find_existing_page
 find_link_cycles
 find_notes_by_property
 find_notes_by_tag
@@ -72,6 +73,7 @@ knowledge_challenge
 knowledge_get_critical
 knowledge_search
 link_entities
+lint_wiki
 list_attachments
 list_bookmarks
 list_capture_queue

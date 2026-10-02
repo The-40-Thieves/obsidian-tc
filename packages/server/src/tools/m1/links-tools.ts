@@ -17,56 +17,29 @@ import {
 import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
-import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../../vault/links";
+import { buildVaultIndex, resolveTarget } from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
-import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
+import {
+  isExternal,
+  linksOf,
+  originOf,
+  readableNotes,
+  scanOrphans,
+  scanUnresolved,
+} from "../wiki-scan";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-/** Read-ACL-visible `.md` note paths (optionally under a folder). */
-function readableNotes(
-  root: string,
-  acl: FolderAcl | undefined,
-  grantedScopes: Iterable<string>,
-  sub?: string,
-): string[] {
-  return walkVault(root, { sub, extensions: [".md"] })
-    .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel, grantedScopes));
-}
-
-/** A note's links for a scan: property links, then body links. Bad frontmatter YAML does not fail
- *  the scan: the note is named in `warnings`, it has no property links, and its body still counts. */
-function linksOf(root: string, rel: string, warnings: ScanWarnings): ExtractedLink[] {
-  return warnings.links(readNote(resolveVaultPath(root, rel)).raw, rel);
-}
-
-/** The fields that say a link was written in a property: `source: "property"` plus its `property`
- *  key. A body link carries neither, so a vault without property links gets the output it always
- *  had, in either response_format. */
-function originOf(l: Pick<ExtractedLink, "source" | "property">): {
-  source?: "property";
-  property?: string;
-} {
-  return l.source === "property" && l.property !== undefined
-    ? { source: "property", property: l.property }
-    : {};
-}
-
 function normTarget(t: string): string {
   return t.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\.md$/i, "").trim().toLowerCase();
-}
-
-function isExternal(kind: string, target: string): boolean {
-  return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
 }
 
 // ── output schemas (THE-417 Phase 1) ────────────────────────────────────────
@@ -429,24 +402,11 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const candidates = readableNotes(v.root, ctx.acl, ctx.grantedScopes, sub);
-        const all = readableNotes(v.root, ctx.acl, ctx.grantedScopes);
-        const index = buildVaultIndex(all);
-        const linkedTo = new Set<string>();
-        const hasOutgoing = new Set<string>();
         const warnings = new ScanWarnings();
-        for (const p of all) {
-          for (const l of linksOf(v.root, p, warnings)) {
-            if (l.inCodeblock) continue;
-            const r = resolveTarget(index, l.target);
-            if (r.resolved && r.target_path && r.target_path !== p) {
-              linkedTo.add(r.target_path);
-              hasOutgoing.add(p);
-            }
-          }
-        }
-        const orphans = candidates.filter(
-          (p) => !linkedTo.has(p) && (!input.require_no_outgoing || !hasOutgoing.has(p)),
+        const orphans = scanOrphans(
+          { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+          warnings,
+          { folder: sub, requireNoOutgoing: input.require_no_outgoing },
         );
         return {
           ...warnings.out(),
@@ -469,32 +429,12 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const scan = readableNotes(v.root, ctx.acl, ctx.grantedScopes, sub);
-        const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
-        const unresolved: Array<Record<string, unknown>> = [];
         const warnings = new ScanWarnings();
-        let truncated = false;
-        for (const p of scan) {
-          for (const l of linksOf(v.root, p, warnings)) {
-            if (l.inCodeblock) continue;
-            if (isExternal(l.kind, l.target)) continue;
-            if (l.target === "" || l.target.startsWith("#")) continue;
-            if (resolveTarget(index, l.target).resolved) continue;
-            if (unresolved.length >= input.limit) {
-              truncated = true;
-              break;
-            }
-            unresolved.push({
-              source_path: p,
-              target: l.target,
-              line: l.line,
-              col: l.col,
-              kind: l.kind,
-              ...originOf(l),
-            });
-          }
-          if (truncated) break;
-        }
+        const { unresolved, truncated } = scanUnresolved(
+          { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+          warnings,
+          { folder: sub, limit: input.limit },
+        );
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           ...warnings.out(),
