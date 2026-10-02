@@ -17,6 +17,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   type Stats,
@@ -141,6 +142,35 @@ export function readNote(abs: string): { raw: string; hash: string } {
   }
 }
 
+/** readNote with a size ceiling: `raw` is null when the file holds more than `maxBytes`. The JS path
+ *  never takes more than `maxBytes + 1` bytes off the open descriptor, so a file that grows after a
+ *  size check cannot make this read it whole; the native reader returns the whole file, and the
+ *  length is checked after. */
+export function readNoteBounded(abs: string, maxBytes: number): { raw: string | null } {
+  if (nativeIo) {
+    try {
+      const buf = nativeIo.safeReadNote(abs);
+      return { raw: buf.length > maxBytes ? null : buf.toString("utf8") };
+    } catch (e) {
+      mapNativeReadError(e, abs);
+    }
+  }
+  const fd = openSync(abs, constants.O_RDONLY);
+  try {
+    assertRegularSingleLink(fd, abs);
+    const buf = Buffer.allocUnsafe(maxBytes + 1);
+    let n = 0;
+    while (n < buf.length) {
+      const got = readSync(fd, buf, n, buf.length - n, null);
+      if (got === 0) break;
+      n += got;
+    }
+    return { raw: n > maxBytes ? null : buf.toString("utf8", 0, n) };
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Binary read (attachments) with the same inode-aliasing guard as readNote. */
 export function readFileChecked(abs: string): Buffer {
   if (nativeIo) {
@@ -233,7 +263,14 @@ function commitNoReplace(tmp: string, abs: string): void {
       if ((e2 as NodeJS.ErrnoException).code === "EEXIST") throw noteExistsConcurrently();
       throw e2;
     }
-    renameSync(tmp, abs);
+    try {
+      renameSync(tmp, abs);
+    } catch (e3) {
+      // The placeholder is ours (O_EXCL made it): a failed rename must not leave it as an empty note.
+      removeTemp(abs);
+      removeTemp(tmp);
+      throw e3;
+    }
     return;
   }
   // The target now exists under its final name; a temp name we cannot drop is only litter.

@@ -392,10 +392,16 @@ that cannot be read is a `schema_file` problem, never an error.
 **The wiki folder is required.** `commit_wiki_page` refuses (`invalid_input`, `reason: no_wiki_folder`)
 in a vault with no `wiki.folder`, and refuses a page outside it (`reason: outside_wiki_folder`). The
 page path is judged as written (`..` and absolute paths are `path_invalid`) and again after symlinks,
-and is case-folded on a case-insensitive filesystem, so neither a sibling folder that shares the
-prefix, a case variant nor a symlink out of the folder can carry a page past the check. The folder
-itself must be a plain relative path in the config: `.`, `/`, an empty string, an absolute path and
-`..` are rejected, never reinterpreted.
+and "inside" means the same directory as the filesystem sees it (the folder's device and inode against
+each directory above the page), never a string comparison: `Café` in two Unicode forms and `Wiki` against
+`wiki` are one directory on some volumes and two on others, and no spelling can make two different
+directories equal. So neither a sibling folder that shares the prefix, a case or Unicode variant nor a
+symlink out of the folder can carry a page past the check. While the folder does not exist yet only its
+exact configured spelling is accepted. The folder itself must be a plain relative path in the config:
+`.`, `/`, an empty string, an absolute path and `..` are rejected, never reinterpreted.
+
+**Scopes.** The tool needs `read:notes` as well as `write:notes`: the duplicate check reads every note
+the caller may read and names the matches.
 
 **Problems versus errors.** Things for you to fix do not block the write; they come back in
 `problems`: `schema` (missing required field, unknown type or property, value outside the vocabulary),
@@ -425,7 +431,12 @@ hash it is about to hold, and renames the files back to back, re-hashing each ex
 before it is replaced: a note edited since it was read aborts the whole batch and the edit is kept. If a
 write fails part way, every earlier write is undone, except a note whose content changed since the batch
 wrote it, which is left alone and named in `details.changed_since_written`; a page someone else created
-is never deleted. Snapshot retention is pruned only after the batch succeeds. A process crash (SIGKILL,
+is never deleted. Each undo moves the note aside, hashes the moved file and only then drops it or puts
+the old text back (with a no-replace create), so it never deletes or overwrites what the batch did not
+write; while a note is aside its name is briefly empty, and a note another process writes there in that
+gap is kept. When any undo is incomplete (`internal_error`, `details.reason: rollback_incomplete`) the
+snapshots taken for the call are kept, so `restore_note` can recover each pre-image; after a clean
+rollback they are dropped. Snapshot retention is pruned only after the batch succeeds. A process crash (SIGKILL,
 power loss) between two renames can leave a partial batch: the `pending` record then has no `ok` or
 `error` record after it, which is how the batch is found, and `restore_note` returns each replaced note.
 The re-hash narrows the window for an edit by another process to the gap between the hash and the

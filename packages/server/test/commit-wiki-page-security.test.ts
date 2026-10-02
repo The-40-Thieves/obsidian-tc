@@ -7,7 +7,7 @@ import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CASE_INSENSITIVE_FS } from "../src/acl";
+import { issueElicitToken } from "../src/elicit";
 import { contentHash } from "../src/vault/paths";
 import { captureSnapshot, listSnapshots } from "../src/vault/snapshots";
 import { hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
@@ -90,6 +90,24 @@ const pageAt = (path: string, extra: Record<string, unknown> = {}) => ({
   page: { path, frontmatter: { type: "concept" }, body: "# x\n", ...extra },
 });
 
+describe("commit_wiki_page needs read:notes as well as write:notes", () => {
+  // The duplicate re-check reads every ACL-visible note and names matching paths, and may send
+  // candidate text to the judge: a write-only token must not be able to probe the vault with it.
+  it("a token with write:notes only is refused, and nothing is written", async () => {
+    const hh = harness();
+    const before = hashTree(hh.v.root);
+    const r = await commit(hh, {}, { grantedScopes: new Set(["write:notes"]) });
+    expect(errOf(r).code).toBe("forbidden");
+    expect(hashTree(hh.v.root)).toEqual(before);
+  });
+
+  it("a token with read:notes and write:notes commits", async () => {
+    const hh = harness();
+    const r = await commit(hh, {}, { grantedScopes: new Set(["read:notes", "write:notes"]) });
+    expect(r.ok).toBe(true);
+  });
+});
+
 describe("a page must be inside the configured wiki folder", () => {
   // Every one of these used to be created without a confirmation (the old test blessed it).
   for (const path of [
@@ -98,10 +116,6 @@ describe("a page must be inside the configured wiki folder", () => {
     "wiki-evil/Learning techniques.md",
     "wikix.md",
     "journal/wiki/Learning techniques.md",
-    // On a case-insensitive filesystem these name the wiki folder itself, so they are in it.
-    ...(CASE_INSENSITIVE_FS
-      ? []
-      : ["Wiki/Learning techniques.md", "WIKI/concepts/Learning techniques.md"]),
   ]) {
     it(`refuses a new page at ${path} and writes nothing`, async () => {
       const hh = harness();
@@ -114,6 +128,42 @@ describe("a page must be inside the configured wiki folder", () => {
       expect(hashTree(hh.v.root)).toEqual(before);
     });
   }
+
+  // A case variant of the folder is in it exactly when the volume says it is the same directory.
+  for (const path of ["Wiki/Learning techniques.md", "WIKI/concepts/Learning techniques.md"]) {
+    it(`${path}: in the folder only if the filesystem says it is the folder`, async () => {
+      const hh = harness();
+      const sameDir = existsSync(join(hh.v.root, "WIKI"));
+      const before = hashTree(hh.v.root);
+      const r = await commit(hh, { ...pageAt(path), patches: [] });
+      if (sameDir) return void expect(r.ok).toBe(true);
+      expect(errOf(r)).toMatchObject({
+        code: "invalid_input",
+        details: { reason: "outside_wiki_folder" },
+      });
+      expect(hashTree(hh.v.root)).toEqual(before);
+    });
+  }
+
+  // An NFC folder and an NFD request are one directory on APFS and two on Linux: the filesystem
+  // decides, and where they differ the create would be outside the wiki with no confirmation.
+  it("an NFC wiki folder and an NFD page path: in the folder only if the filesystem agrees", async () => {
+    const nfc = "Caf\u00e9";
+    const nfd = "Cafe\u0301";
+    const hh = harness({
+      files: { ...FILES, [`${nfc}/SCHEMA.md`]: SCHEMA },
+      wikiFolder: nfc,
+    });
+    const sameDir = existsSync(join(hh.v.root, nfd));
+    const before = hashTree(hh.v.root);
+    const r = await commit(hh, { ...pageAt(`${nfd}/Learning techniques.md`), patches: [] });
+    if (sameDir) return void expect(r.ok).toBe(true);
+    expect(errOf(r)).toMatchObject({
+      code: "invalid_input",
+      details: { reason: "outside_wiki_folder" },
+    });
+    expect(hashTree(hh.v.root)).toEqual(before);
+  });
 
   for (const path of [
     "wiki/../notes/Learning techniques.md",
@@ -369,6 +419,42 @@ describe("snapshots", () => {
     const rows = listSnapshots(hh.v.db, "test", "wiki/Mentions.md", 10);
     expect(rows.map((r) => r.id)).toEqual([keep]);
     expect(rows[0]?.op).toBe("seed");
+  });
+
+  it("an incomplete rollback keeps the snapshots: restore_note still recovers the pre-image", async () => {
+    const hh = harness({ snapshots: { enabled: true, retention: 10 } });
+    const patches = ["wiki/Mentions.md", "wiki/Related.md"].map((path) => ({
+      path,
+      prev_hash: hash(path),
+      operation: "link",
+    }));
+    // The third rename fails; before it, someone edits Mentions.md, which this batch had already
+    // replaced, so the rollback cannot (and must not) put its old text back over their edit.
+    io.before = (n) => {
+      if (n === 3) hh.v.write("wiki/Mentions.md", "their edit\n");
+    };
+    io.failOn = 3;
+    const e = errOf(await commit(hh, { patches }));
+    expect(e).toMatchObject({
+      code: "internal_error",
+      details: { changed_since_written: ["wiki/Mentions.md"] },
+    });
+    expect(hh.v.read("wiki/Mentions.md")).toBe("their edit\n");
+
+    const rows = listSnapshots(hh.v.db, "test", "wiki/Mentions.md", 10);
+    expect(rows).toHaveLength(1);
+    const id = rows[0]?.id as number;
+    const args = { vault: "test", path: "wiki/Mentions.md", snapshot_id: id };
+    const need = await hh.v.call("restore_note", args);
+    const token = issueElicitToken(hh.v.db, {
+      vaultId: "test",
+      toolName: "restore_note",
+      argsHash: String((errOf(need).details as { args_hash?: string }).args_hash),
+      caller: "test",
+    });
+    const restored = await hh.v.call("restore_note", args, { elicitToken: token });
+    expect(restored.ok).toBe(true);
+    expect(hh.v.read("wiki/Mentions.md")).toBe(FILES["wiki/Mentions.md"]);
   });
 
   it("a successful batch snapshots every replaced note first, then prunes to the retention", async () => {

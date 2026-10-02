@@ -1,5 +1,8 @@
 // SCHEMA.md: parsing is forgiving (a malformed file is a warning, never an error), checking a page
 // against it returns problems for the caller to fix, and `vaults[].wiki.folder` reaches the registry.
+
+import { symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FolderAcl } from "../src/acl";
@@ -192,6 +195,16 @@ describe("SCHEMA.md size and structure limits", () => {
     expect(r.warnings.join(" ")).toContain("larger than");
   });
 
+  it("the byte cap is on what is read: exactly the cap is parsed, one byte over is not", () => {
+    const head = "---\ntypes: {}\n---\n";
+    const at = head + "x".repeat(SCHEMA_LIMITS.fileBytes - head.length);
+    v = makeTestVault({ files: { "wiki/SCHEMA.md": at } });
+    const scope = { root: v.root, acl: v.acl, grantedScopes: ["*"] };
+    expect(loadWikiSchema(scope, "wiki").warnings.join(" ")).not.toContain("larger than");
+    v.write("wiki/SCHEMA.md", `${at}x`);
+    expect(loadWikiSchema(scope, "wiki").warnings.join(" ")).toContain("larger than");
+  });
+
   it("cuts types, fields, properties and values at their caps, with a warning each", () => {
     const types = Object.fromEntries(
       Array.from({ length: SCHEMA_LIMITS.types + 5 }, (_, i) => [`t${i}`, { required: ["a"] }]),
@@ -249,6 +262,25 @@ describe("loadWikiSchema", () => {
     });
     expect(loadWikiSchema(scope(v), "wiki").found).toBe(false);
   });
+
+  // The ACL is checked on the REAL path: a readable alias must not carry a read-denied note out
+  // (the JS fallback follows the link; run with OBSIDIAN_TC_FORCE_JS_FALLBACK=1 to cover it).
+  it.skipIf(process.platform === "win32")(
+    "a SCHEMA.md symlinked to a read-denied note counts as missing and leaks nothing",
+    () => {
+      v = makeTestVault({
+        files: {
+          "wiki/a.md": "x",
+          "secret.md": "---\ntypes:\n  SECRET_TYPE:\n    description: TOPSECRET\n---\n",
+        },
+        acl: { readPaths: ["wiki/**"] },
+      });
+      symlinkSync("../secret.md", join(v.root, "wiki", "SCHEMA.md"));
+      const r = loadWikiSchema(scope(v), "wiki");
+      expect(r).toMatchObject({ found: false, schema: null });
+      expect(JSON.stringify(r)).not.toMatch(/SECRET_TYPE|TOPSECRET/);
+    },
+  );
 
   it("a SCHEMA.md that is a directory is not found and does not throw", () => {
     v = makeTestVault({ files: { "wiki/SCHEMA.md/inner.md": "x" } });

@@ -21,11 +21,18 @@ import { makeTempDir, rmTemp } from "./tmp";
 const seam = vi.hoisted(() => ({
   n: 0,
   onCommit: undefined as undefined | ((n: number) => void),
+  /** Runs just after a note's bytes were read (hashed) and before the caller acts on the hash. */
+  afterRead: undefined as undefined | ((path: string) => void),
 }));
 vi.mock("../src/vault/notes-io", async (orig) => {
   const actual = await orig<typeof import("../src/vault/notes-io")>();
   return {
     ...actual,
+    readNote: (...a: Parameters<typeof actual.readNote>) => {
+      const r = actual.readNote(...a);
+      seam.afterRead?.(a[0]);
+      return r;
+    },
     stageNoteWrite: (...a: Parameters<typeof actual.stageNoteWrite>) => {
       const s = actual.stageNoteWrite(...a);
       return {
@@ -44,6 +51,7 @@ beforeEach(() => {
   dir = makeTempDir("otc-write-batch-");
   seam.n = 0;
   seam.onCommit = undefined;
+  seam.afterRead = undefined;
 });
 afterEach(() => rmTemp(dir));
 
@@ -207,6 +215,64 @@ describe("rollback", () => {
     expect(read("p.md")).toBe("their page");
     expect(e.details).toMatchObject({ changed_since_written: ["p.md"] });
     expect(read("a.md")).toBe("old a");
+  });
+
+  // The rollback hashes the note, then acts on the hash. Whatever lands in between must survive.
+  it("a page recreated by someone else right after the rollback hashed it is not deleted", () => {
+    put("a.md", "old a");
+    seam.onCommit = (n) => {
+      if (n !== 2) return;
+      seam.afterRead = (path) => {
+        if (!path.includes("p.md")) return;
+        seam.afterRead = undefined;
+        writeFileSync(abs("p.md"), "their page", "utf8");
+      };
+      throw new Error("disk full");
+    };
+    expect(() => applyWriteBatch([w("p.md", "page", null), w("a.md", "new a", "old a")])).toThrow(
+      "disk full",
+    );
+    expect(read("p.md")).toBe("their page");
+    expect(read("a.md")).toBe("old a");
+    expect(litter()).toEqual([]);
+  });
+
+  it("a note rewritten right after the rollback hashed it is not overwritten with the old text", () => {
+    put("a.md", "old a");
+    put("b.md", "old b");
+    seam.onCommit = (n) => {
+      if (n !== 2) return;
+      seam.afterRead = (path) => {
+        if (!path.includes("a.md")) return;
+        seam.afterRead = undefined;
+        writeFileSync(abs("a.md"), "their a", "utf8");
+      };
+      throw new Error("disk full");
+    };
+    const e = thrown(() =>
+      applyWriteBatch([w("a.md", "new a", "old a"), w("b.md", "new b", "old b")]),
+    );
+    expect(read("a.md")).toBe("their a");
+    expect(read("b.md")).toBe("old b");
+    expect(e.code).toBe("internal_error");
+    expect(e.details).toMatchObject({
+      reason: "rollback_incomplete",
+      changed_since_written: ["a.md"],
+    });
+    expect(litter()).toEqual([]);
+  });
+
+  it("a note that is not what the batch wrote when it is moved aside is put back, not dropped", () => {
+    put("a.md", "old a");
+    put("b.md", "old b");
+    seam.onCommit = (n) => {
+      if (n !== 2) return;
+      writeFileSync(abs("a.md"), "edited just before the rollback", "utf8");
+      throw new Error("disk full");
+    };
+    thrown(() => applyWriteBatch([w("a.md", "new a", "old a"), w("b.md", "new b", "old b")]));
+    expect(read("a.md")).toBe("edited just before the rollback");
+    expect(litter()).toEqual([]);
   });
 
   it("a page someone else created first is never replaced or deleted", () => {

@@ -11,9 +11,10 @@
 // rest of the file still counts. Checking a page against it yields PROBLEMS for the calling LLM to
 // fix, never an error. The note is read as an ordinary vault file under the read ACL (denied ==
 // missing).
+import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { parseNoteLenient } from "../../../vault/frontmatter";
-import { noteExists, readNote, statNote } from "../../../vault/notes-io";
+import { noteExists, readNoteBounded } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
 import { fmHas, type ScanScope } from "../../wiki-scan";
 
@@ -238,18 +239,26 @@ export function loadWikiSchema(scope: ScanScope, folder: string | undefined): Wi
   const path = folder ? `${folder}/${WIKI_SCHEMA_FILE}` : WIKI_SCHEMA_FILE;
   if (!folder || !readableRel(scope.acl, path, scope.grantedScopes))
     return { path, found: false, schema: null, warnings: [] };
+  // The read ACL is enforced on the REAL path, not just the name: SCHEMA.md may be a symlink to a
+  // note the caller cannot read. Denied (or a link out of the vault) == missing.
+  try {
+    enforcePathAcl(scope.acl, "read", path, scope.root, scope.grantedScopes);
+  } catch {
+    return { path, found: false, schema: null, warnings: [] };
+  }
   try {
     const abs = resolveVaultPath(scope.root, path);
     if (noteExists(abs).type !== "file") return { path, found: false, schema: null, warnings: [] };
-    // Checked on the file's size, before a byte of it is read into memory.
-    if ((statNote(abs)?.size ?? 0) > SCHEMA_LIMITS.fileBytes)
+    // Read with a ceiling, not stat-then-read: a file that grows after a size check is still cut off.
+    const { raw } = readNoteBounded(abs, SCHEMA_LIMITS.fileBytes);
+    if (raw === null)
       return {
         path,
         found: true,
         schema: null,
         warnings: [`${path} was not read: it is larger than ${SCHEMA_LIMITS.fileBytes} bytes`],
       };
-    return parseWikiSchema(readNote(abs).raw, path);
+    return parseWikiSchema(raw, path);
   } catch (e) {
     return {
       path,
