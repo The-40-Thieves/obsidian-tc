@@ -273,6 +273,7 @@ decontamination effect sits between the two, so it is a detectable but small shi
 | multi-query fan-out against single query (graph nDCG@10) | -0.0373 (p 0.0025), recall +0.011 (p 0.16) | -0.0396 (p 0.0011), recall +0.012 (p 0.11) | unchanged: significant regression, same documents in a worse order |
 | `tagEdges` fanout 25 against its control | nDCG -0.0018 (p 0.56), bridge recall +0.000, 30 queries reorder | nDCG -0.0009 (p 0.76), bridge recall -0.004 (p 1.0), 33 reorder | unchanged: null |
 | `knnEdges` k 8 floor 0.0 against its control | nDCG -0.0017 (p 0.59), bridge recall -0.008 (p 0.73), 36 reorder | nDCG -0.0015 (p 0.63), bridge recall -0.008 (p 0.73), 37 reorder | unchanged: null |
+| retrieval cache, 10% repeat stream (`docs/design/search-indexing-and-cache.md`) | repeat calls 842 / 3.7 ms p50 OFF / ON; identity gap `coverage` only; 238 of 240 queries differ across callers | 416 / 0.8 ms; same single-key gap; 236 of 240 | unchanged: stays off |
 | `search_vault` `auto`, private row (corrected 2026-10-01) | 0.1009 recorded | 0.4016 (all three routes) | already withdrawn and annotated |
 | forced-`text` preference arm (search-mode reader) | 0.0000 | 0.0000 | unchanged: the text leg finds nothing |
 
