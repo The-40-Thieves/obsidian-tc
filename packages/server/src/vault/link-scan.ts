@@ -211,33 +211,34 @@ export function scanLinks(line: string): LinkScanMatch[] {
   return out;
 }
 
-const INLINE_CODE = /`[^`]*`/g;
-
-/** Half-open `[start, end)` spans of the inline `` `code` `` runs on one line, in increasing
- *  order and pairwise disjoint (each match resumes after the previous one). */
-export function inlineCodeRanges(line: string): Array<[number, number]> {
-  const ranges: Array<[number, number]> = [];
-  for (const m of line.matchAll(INLINE_CODE)) {
-    const i = m.index ?? 0;
-    ranges.push([i, i + m[0].length]);
+/** Inline `` `code` `` runs on one line, as a FLAT list of half-open spans: `[start0, end0, start1,
+ *  end1, ...]`, in increasing order and pairwise disjoint (each run resumes after the previous
+ *  one). A flat number list, not `[start, end]` tuples from `matchAll`: a line of "`x" repeated
+ *  holds one span per 4 bytes, and a match array plus a tuple per span put enough live objects on
+ *  the heap to push 2 MB inputs into GC promotion (scan time 2.5x per doubling on macOS CI,
+ *  slope 1.64 over the 1.6 cap); the flat list allocates no per-span object. */
+export function inlineCodeRanges(line: string): number[] {
+  const spans: number[] = [];
+  let open = line.indexOf("`");
+  while (open >= 0) {
+    const close = line.indexOf("`", open + 1);
+    if (close < 0) break; // an unclosed run has no closing backtick, so no later run can match either
+    spans.push(open, close + 1);
+    open = line.indexOf("`", close + 1);
   }
-  return ranges;
+  return spans;
 }
 
 /** Whether `idx` falls inside one of `ranges` (sorted and disjoint, as `inlineCodeRanges`
  *  returns them). Binary search: a per-link/per-tag `ranges.some` was O(spans x matches) — a line
  *  of "`a`[b](c) " repeated measured 23 s at 640 KB — where this is O(log spans). */
-export function inCodeRange(
-  ranges: ReadonlyArray<readonly [number, number]>,
-  idx: number,
-): boolean {
+export function inCodeRange(ranges: ReadonlyArray<number>, idx: number): boolean {
   let lo = 0;
-  let hi = ranges.length - 1;
+  let hi = (ranges.length >> 1) - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >>> 1;
-    const [a, b] = ranges[mid] as readonly [number, number];
-    if (idx < a) hi = mid - 1;
-    else if (idx >= b) lo = mid + 1;
+    if (idx < (ranges[mid * 2] as number)) hi = mid - 1;
+    else if (idx >= (ranges[mid * 2 + 1] as number)) lo = mid + 1;
     else return true;
   }
   return false;
