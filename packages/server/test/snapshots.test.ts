@@ -1,6 +1,12 @@
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
+import {
+  captureSnapshot,
+  discardSnapshots,
+  listSnapshots,
+  pruneSnapshots,
+} from "../src/vault/snapshots";
 import { makeTestVault } from "./m1-helpers";
 
 function hashOf(r: ToolResult): string {
@@ -179,6 +185,38 @@ describe("THE-374 snapshot + restore_note", () => {
       const bad = await v.call("restore_note", { vault: "test", path: "b.md", snapshot_id: aid });
       expect(bad.ok).toBe(false);
       if (!bad.ok) expect(bad.error.code).toBe("invalid_input");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("snapshot retention for a multi-note write", () => {
+  const cfg = { enabled: true, retention: 2 };
+  const count = (v: ReturnType<typeof makeTestVault>): number =>
+    listSnapshots(v.db, "test", "a.md", 50).length;
+
+  it("prune: false keeps every row until pruneSnapshots runs, then keeps only the newest", () => {
+    const v = makeTestVault({ files: { "a.md": "A" } });
+    try {
+      for (const c of ["1", "2"]) captureSnapshot(v.db, cfg, "test", "a.md", c, "t");
+      for (const c of ["3", "4"])
+        captureSnapshot(v.db, cfg, "test", "a.md", c, "t", Date.now, false);
+      expect(count(v)).toBe(4);
+      pruneSnapshots(v.db, "test", "a.md", cfg.retention);
+      expect(count(v)).toBe(2);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("discardSnapshots drops the rows a batch that never landed captured, and nothing else", () => {
+    const v = makeTestVault({ files: { "a.md": "A" } });
+    try {
+      const keep = captureSnapshot(v.db, cfg, "test", "a.md", "kept", "t");
+      const mine = captureSnapshot(v.db, cfg, "test", "a.md", "mine", "t", Date.now, false);
+      discardSnapshots(v.db, [mine as number]);
+      expect(listSnapshots(v.db, "test", "a.md", 50).map((r) => r.id)).toEqual([keep]);
     } finally {
       v.cleanup();
     }

@@ -11,6 +11,7 @@ import {
   constants,
   existsSync,
   fstatSync,
+  fsyncSync,
   linkSync,
   lstatSync,
   mkdirSync,
@@ -290,8 +291,18 @@ export function writeFileAtomic(
       throw err.aclDenied(`safe write refused the path: ${(e as Error).message}`, { path: abs });
     }
   }
-  // O_EXCL + O_NOFOLLOW on a RANDOM temp name: a symlink planted at a predictable temp path can
-  // not be opened, so a note write is never redirected into an arbitrary file (H-4).
+  const tmp = writeTempFile(abs, data, false);
+  try {
+    if (opts.exclusive) commitNoReplace(tmp, abs);
+    else renameSync(tmp, abs);
+  } catch (e) {
+    removeTemp(tmp);
+    throw e;
+  }
+}
+
+/** O_EXCL + O_NOFOLLOW on a RANDOM temp name (H-4); unlinked if the write fails. */
+function writeTempFile(abs: string, data: Buffer, sync: boolean): string {
   const tmp = `${abs}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
   const fd = openSync(
     tmp,
@@ -299,12 +310,62 @@ export function writeFileAtomic(
     0o600,
   );
   try {
-    writeAll(fd, data);
-  } finally {
-    closeSync(fd);
+    try {
+      writeAll(fd, data);
+      if (sync) fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  } catch (e) {
+    removeTemp(tmp);
+    throw e;
   }
-  if (opts.exclusive) commitNoReplace(tmp, abs);
-  else renameSync(tmp, abs);
+  return tmp;
+}
+
+function removeTemp(tmp: string): void {
+  try {
+    unlinkSync(tmp);
+  } catch {}
+}
+
+/** A staged write (temp file on disk): `commit` makes it the note, `discard` drops it. */
+export interface StagedWrite {
+  commit(): void;
+  discard(): void;
+}
+
+export function stageNoteWrite(
+  abs: string,
+  content: string,
+  createDirs: boolean,
+  opts: WriteFileOpts = {},
+): StagedWrite {
+  const data = Buffer.from(content, "utf8");
+  if (nativeIo) return { commit: () => writeFileAtomic(abs, data, createDirs, opts), discard() {} };
+  if (!opts.replacesExisting && !existsNoFollow(abs))
+    assertCreatableName(basename(abs), basename(abs));
+  if (createDirs) ensureDirNoFollow(dirname(abs));
+  const tmp = writeTempFile(abs, data, true);
+  let settled = false;
+  return {
+    commit() {
+      if (settled) throw new Error("staged write already settled");
+      settled = true;
+      try {
+        if (opts.exclusive) commitNoReplace(tmp, abs);
+        else renameSync(tmp, abs);
+      } catch (e) {
+        removeTemp(tmp);
+        throw e;
+      }
+    },
+    discard() {
+      if (settled) return;
+      settled = true;
+      removeTemp(tmp);
+    },
+  };
 }
 
 /**

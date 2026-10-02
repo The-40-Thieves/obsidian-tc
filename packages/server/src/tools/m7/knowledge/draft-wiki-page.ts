@@ -269,7 +269,7 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
         ...(v.wikiFolder
           ? []
           : [
-              "No wiki.folder is configured for this vault, so no SCHEMA.md applies and the page path is at the vault root; change `page.path` if it belongs elsewhere.",
+              "No wiki.folder is configured for this vault, so no SCHEMA.md applies and commit_wiki_page will refuse to write: set `vaults[].wiki.folder` first.",
             ]),
         ...(checkFrontmatter(load.schema, frontmatter, type.name ?? undefined).length > 0
           ? ["Fill in every empty frontmatter field before committing."]

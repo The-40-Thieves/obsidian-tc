@@ -3,6 +3,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
+import { normalizeVaultPath } from "./paths";
 
 /**
  * Canonicalize a configured vault root through realpath, once, at registration (THE-1081 / #946).
@@ -71,12 +72,23 @@ export interface ResolvedVault {
   wikiFolder?: string;
 }
 
-/** The configured wiki folder as a vault-relative path with no slashes at the ends; undefined for
- *  an absent value, the vault root, or anything that climbs out of the vault (a config mistake must
- *  not turn the whole vault into "the wiki"). */
-function wikiFolderOf(folder: string | undefined): string | undefined {
-  const parts = (folder ?? "").split(/[\\/]+/).filter((p) => p !== "" && p !== ".");
-  return parts.length === 0 || parts.includes("..") ? undefined : parts.join("/");
+/** The configured wiki folder, exactly as written. The config schema rejects `""`, `.`, `/`, an
+ *  absolute path and `..`; a value that got past it anyway (a registry built in code) is refused
+ *  here rather than reinterpreted, because a folder that quietly became the whole vault would make
+ *  every note "the wiki". */
+function wikiFolderOf(vaultId: string, folder: string | undefined): string | undefined {
+  if (folder === undefined) return undefined;
+  let canonical: string | undefined;
+  try {
+    canonical = folder === "" ? undefined : normalizeVaultPath(folder);
+  } catch {
+    canonical = undefined;
+  }
+  if (canonical === undefined || canonical === "" || canonical !== folder || /[:\0]/.test(folder))
+    throw new Error(
+      `vault "${vaultId}": wiki.folder must be a folder path inside the vault (for example "wiki"), got ${JSON.stringify(folder)}`,
+    );
+  return folder;
 }
 
 export class VaultRegistry {
@@ -87,7 +99,7 @@ export class VaultRegistry {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
     for (const v of vaults) {
       const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
-      const wikiFolder = wikiFolderOf(v.wiki?.folder);
+      const wikiFolder = wikiFolderOf(v.id, v.wiki?.folder);
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,

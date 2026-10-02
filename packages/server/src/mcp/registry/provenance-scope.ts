@@ -16,15 +16,26 @@ export function provenanceScope(
   rootResolver: RegistryOptions["rootResolver"],
 ): ProvenanceScope {
   let pending: object | undefined;
+  let installedOn: CallerContext | undefined;
+  const uninstall = (): void => {
+    if (installedOn !== undefined) delete installedOn.recordPendingWrite;
+    installedOn = undefined;
+  };
   return {
     async begin(def, input, ctx) {
       if (sink === undefined) return;
       const vault = vaultArgOf(def, input) ?? ctx.vaultId;
-      pending = await sink.begin(def, input, ctx, rootResolver?.(vault));
+      const p = await sink.begin(def, input, ctx, rootResolver?.(vault));
+      pending = p;
+      if (sink.recordPending !== undefined) {
+        ctx.recordPendingWrite = (after) => sink.recordPending?.(p, after);
+        installedOn = ctx;
+      }
     },
     async settle(outcome, result) {
       const p = pending;
       pending = undefined;
+      uninstall();
       if (p !== undefined) await sink?.commit(p, outcome, result);
     },
   };

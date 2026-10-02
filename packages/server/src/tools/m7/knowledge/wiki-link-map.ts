@@ -15,6 +15,7 @@
 // by the scan that produced it.
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
 import { cleanTopic, type IdentityScan, type PageCandidate } from "./wiki-evidence";
+import { pathInFolder } from "./wiki-folder";
 
 export interface LinkMapEntry {
   path: string;
@@ -60,8 +61,9 @@ export function proposedPagePath(
   return `${dir ? `${dir}/` : ""}${pageTitleOf(topic)}.md`;
 }
 
+/** No wiki folder configured means no path is in the wiki. */
 const inWikiFolder = (path: string, wikiFolder: string | undefined): boolean =>
-  !wikiFolder || path.startsWith(`${wikiFolder}/`);
+  wikiFolder !== undefined && pathInFolder(path, wikiFolder);
 
 function add(
   map: Map<string, LinkMapEntry>,

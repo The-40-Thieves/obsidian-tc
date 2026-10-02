@@ -1,7 +1,8 @@
-// commit_wiki_page: one atomic changeset (a page plus patches to related pages). Everything is
-// checked before anything is written and a failing write rolls the rest back, verified on disk. A
-// stale prev_hash or a denied path aborts the whole commit; schema, link and contradiction findings
-// are REPORTED, not blocking. Creates need no confirmation; overwrites keep write_note's rule.
+// commit_wiki_page: one all-or-nothing changeset (a page plus patches to related pages). Everything
+// is checked before anything is written and a failing write rolls the rest back, verified on disk. A
+// stale prev_hash, a denied path or a page outside the wiki folder aborts the whole commit; schema,
+// link and contradiction findings are REPORTED, not blocking. Creates inside the wiki folder need no
+// confirmation; overwrites keep write_note's rule.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
@@ -11,16 +12,28 @@ import { contentHash } from "../src/vault/paths";
 import { provenanceFixture, rowsFor } from "./provenance-helpers";
 import { hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
 
-// A seam on the real atomic writer: fails the Nth call, otherwise behaves exactly as it does.
-const io = vi.hoisted(() => ({ n: 0, failOn: 0 }));
+// A seam on the batch's rename step: fails the Nth rename, and `before(n)` runs just before it (a
+// test uses it to look at the vault, or to edit it, mid-commit). Otherwise exactly the real writer.
+const io = vi.hoisted(() => ({
+  n: 0,
+  failOn: 0,
+  before: undefined as undefined | ((n: number) => void),
+}));
 vi.mock("../src/vault/notes-io", async (orig) => {
   const actual = await orig<typeof import("../src/vault/notes-io")>();
   return {
     ...actual,
-    writeNoteAtomic: (...a: Parameters<typeof actual.writeNoteAtomic>) => {
-      io.n++;
-      if (io.failOn !== 0 && io.n === io.failOn) throw new Error("disk full");
-      return actual.writeNoteAtomic(...a);
+    stageNoteWrite: (...a: Parameters<typeof actual.stageNoteWrite>) => {
+      const s = actual.stageNoteWrite(...a);
+      return {
+        commit: () => {
+          io.n++;
+          io.before?.(io.n);
+          if (io.failOn !== 0 && io.n === io.failOn) throw new Error("disk full");
+          s.commit();
+        },
+        discard: () => s.discard(),
+      };
     },
   };
 });
@@ -51,6 +64,7 @@ let h: WikiHarness;
 beforeEach(() => {
   io.n = 0;
   io.failOn = 0;
+  io.before = undefined;
 });
 afterEach(() => h?.v.cleanup());
 
@@ -363,46 +377,41 @@ describe("commit_wiki_page: confirmation", () => {
     expect(hh.v.exists(PAGE)).toBe(true);
   });
 
-  it("creating a page outside the wiki folder needs none either, and is reported", async () => {
+  it("a patch to a related note anywhere in the vault needs no confirmation, as patch_note", async () => {
     const hh = harness();
     const d = data(
       await commit(hh, {
-        page: {
-          path: "notes/Learning techniques.md",
-          frontmatter: { type: "concept" },
-          body: "x\n",
-        },
-        patches: [],
+        patches: [
+          { path: "journal/Daily.md", prev_hash: hash("journal/Daily.md"), operation: "link" },
+        ],
       }),
     );
-    expect(d.page.created).toBe(true);
-    expect(kinds(d)).toContain("outside_wiki_folder");
-    expect(kinds(d)).not.toContain("schema");
+    expect(d.patches[0]).toMatchObject({ path: "journal/Daily.md", applied: true });
+    expect(hh.v.read("journal/Daily.md")).toContain("[[Learning techniques]]");
   });
 
-  for (const path of ["wiki/Related.md", "journal/Daily.md"]) {
-    it(`overwriting ${path} asks for confirmation, as write_note does`, async () => {
-      const hh = harness();
-      const before = hashTree(hh.v.root);
-      const input = {
-        topic: "Overwrite target",
-        page: { path, mode: "overwrite", prev_hash: hash(path), body: "# Replaced\n" },
-        patches: [],
-      };
-      const need = await commit(hh, input);
-      expect(errOf(need).code).toBe("elicit_required");
-      expect(hashTree(hh.v.root)).toEqual(before);
-      const token = issueElicitToken(hh.v.db, {
-        vaultId: "test",
-        toolName: "commit_wiki_page",
-        argsHash: String(errOf(need).details.args_hash),
-        caller: "test",
-      });
-      const done = data(await commit(hh, input, { elicitToken: token }));
-      expect(done.page).toMatchObject({ path, created: false, prev_hash: hash(path) });
-      expect(hh.v.read(path)).toBe("# Replaced\n");
+  it("overwriting a page in the wiki folder asks for confirmation, as write_note does", async () => {
+    const path = "wiki/Related.md";
+    const hh = harness();
+    const before = hashTree(hh.v.root);
+    const input = {
+      topic: "Overwrite target",
+      page: { path, mode: "overwrite", prev_hash: hash(path), body: "# Replaced\n" },
+      patches: [],
+    };
+    const need = await commit(hh, input);
+    expect(errOf(need).code).toBe("elicit_required");
+    expect(hashTree(hh.v.root)).toEqual(before);
+    const token = issueElicitToken(hh.v.db, {
+      vaultId: "test",
+      toolName: "commit_wiki_page",
+      argsHash: String(errOf(need).details.args_hash),
+      caller: "test",
     });
-  }
+    const done = data(await commit(hh, input, { elicitToken: token }));
+    expect(done.page).toMatchObject({ path, created: false, prev_hash: hash(path) });
+    expect(hh.v.read(path)).toBe("# Replaced\n");
+  });
 
   it("an overwrite needs prev_hash and checks it", async () => {
     const hh = harness();
@@ -436,13 +445,29 @@ describe("commit_wiki_page: confirmation", () => {
 });
 
 describe("commit_wiki_page: provenance", () => {
-  it("records one signed record naming every note written, with its before and after", async () => {
+  it("records a pending record before the first rename and the final record after, naming every note", async () => {
     const fx = await provenanceFixture();
     const hh = harness({ centralAcl: true, registryOpts: { provenance: fx.recorder } });
+    let atFirstRename: Array<{ body: string }> = [];
+    io.before = (n) => {
+      if (n === 1) atFirstRename = rowsFor(fx.db);
+    };
     const d = data(await commit(hh));
+    // Before the first note is replaced the intent is already durable: one signed `pending` record
+    // with the hash each path is about to hold.
+    expect(atFirstRename).toHaveLength(1);
+    const pending = JSON.parse(atFirstRename[0]?.body as string);
+    expect(pending).toMatchObject({ tool: "commit_wiki_page", outcome: "pending", vault: "test" });
+    const pendingBy = Object.fromEntries(pending.paths.map((p: any) => [p.path, p]));
+    expect(pendingBy[PAGE]).toMatchObject({ before: "absent", after: d.page.content_hash });
+    expect(pendingBy["wiki/Mentions.md"]).toMatchObject({
+      before: hash("wiki/Mentions.md"),
+      after: d.patches.find((p: any) => p.path === "wiki/Mentions.md").content_hash,
+    });
     const rows = rowsFor(fx.db);
-    expect(rows).toHaveLength(1);
-    const rec = JSON.parse(rows[0]?.body as string);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.sig).not.toBeNull();
+    const rec = JSON.parse(rows[1]?.body as string);
     expect(rec).toMatchObject({ tool: "commit_wiki_page", outcome: "ok", vault: "test" });
     const byPath = Object.fromEntries(rec.paths.map((p: any) => [p.path, p]));
     expect(Object.keys(byPath).sort()).toEqual(
@@ -456,11 +481,28 @@ describe("commit_wiki_page: provenance", () => {
     expect(byPath["wiki/Related.md"].before).toBe(hash("wiki/Related.md"));
   });
 
-  it("an aborted commit leaves no record", async () => {
+  it("a crash after the first rename leaves the pending record naming what was to be written", async () => {
     const fx = await provenanceFixture();
     const hh = harness({ centralAcl: true, registryOpts: { provenance: fx.recorder } });
+    // Stand-in for a process kill: the second rename never happens and nothing after it runs.
     io.failOn = 2;
-    expect((await commit(hh)).ok).toBe(false);
+    const r = await commit(hh);
+    expect(r.ok).toBe(false);
+    const rows = rowsFor(fx.db);
+    expect(rows.map((x) => JSON.parse(x.body).outcome)).toEqual(["pending", "error"]);
+    const pending = JSON.parse(rows[0]?.body as string);
+    expect(pending.paths.map((p: any) => p.path).sort()).toEqual(
+      [PAGE, "wiki/Mentions.md", "wiki/Related.md"].sort(),
+    );
+  });
+
+  it("a commit refused before any write records nothing", async () => {
+    const fx = await provenanceFixture();
+    const hh = harness({ centralAcl: true, registryOpts: { provenance: fx.recorder } });
+    const r = await commit(hh, {
+      patches: [{ path: "wiki/Mentions.md", prev_hash: "x", operation: "link" }],
+    });
+    expect(errOf(r).code).toBe("concurrent_modification");
     expect(rowsFor(fx.db)).toHaveLength(0);
   });
 });

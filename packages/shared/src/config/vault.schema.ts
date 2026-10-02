@@ -175,9 +175,16 @@ export const VaultIndexConfigSchema = z.object({
 export const VaultWikiConfigSchema = z.object({
   folder: z
     .string()
-    .min(1)
+    .max(512)
+    // One or more `/`-separated segments, none of them `.` or `..`, empty, or holding a backslash,
+    // colon or NUL: so no `""`, `.`, `/`, `/abs`, `C:\x`, `a/../b` or trailing slash. Rejected, never
+    // reinterpreted: a value that quietly became "the whole vault" would turn every note into wiki.
+    .regex(
+      /^(?:(?!\.{1,2}(?:\/|$))[^/\\:\0]+)(?:\/(?!\.{1,2}(?:\/|$))[^/\\:\0]+)*$/,
+      "must be a folder path inside the vault: no leading or trailing slash, no `.` or `..` segment, no backslash or colon",
+    )
     .describe(
-      "Vault-relative folder that holds this vault's LLM wiki. A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page creates them there without a confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder and the two tools apply no schema.",
+      "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path and `..` are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
     ),
 });
 

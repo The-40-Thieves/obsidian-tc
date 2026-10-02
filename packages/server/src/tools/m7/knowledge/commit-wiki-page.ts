@@ -3,16 +3,21 @@
 // first (ACL, compare-and-swap, the poison and memory-defense scans), and only then are the writes
 // made, with a rollback if one of them fails. The prose is the caller's; the server adds nothing.
 //
-// What stops a commit (an error, nothing written): a write the ACL denies, a stale `prev_hash`, a
-// path that cannot take the write, content the poison scan rejects, a topic that already has a page
-// (unless `allow_duplicate`). What does NOT stop it: schema, link and contradiction findings. Those
-// come back as `problems` / `contradictions` for the caller to fix with a later patch_note, because
-// a wiki that refuses a write over a missing property is a wiki nobody writes to.
+// What stops a commit (an error, nothing written): a vault with no wiki folder configured, a page
+// outside it, a write or read the ACL denies, a stale `prev_hash`, a path that cannot take the
+// write, content the poison scan rejects, a topic that already has a page (unless
+// `allow_duplicate`). What does NOT stop it: schema, link and contradiction findings. Those come
+// back as `problems` / `contradictions` for the caller to fix with a later patch_note, because a
+// wiki that refuses a write over a missing property is a wiki nobody writes to.
 //
-// Confirmation: creating a page needs none, in the wiki folder or out of it (restore_note undoes
-// it, and each overwritten or patched note is snapshotted first). Overwriting an existing non-empty
-// page asks exactly as write_note does, wherever it lives.
-import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+// Confirmation, per operation, as the single-note tools ask it: creating a page inside the wiki
+// folder needs none (restore_note undoes it); overwriting an existing non-empty page asks exactly
+// as write_note does; patching a related note anywhere asks nothing, as patch_note does, under the
+// same ACL (read and write). Each overwritten or patched note is snapshotted first.
+//
+// Atomicity: all or nothing on every error this process can catch. A process crash between two
+// renames can leave a partial batch; vault/write-batch.ts says how that is bounded and recorded.
+import { ElicitToken, err, ObsidianTcError, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import {
   enforceMemoryDefenseOnNoteWrite,
@@ -32,8 +37,13 @@ import {
   resolveTarget,
 } from "../../../vault/links";
 import { noteExists, readNote } from "../../../vault/notes-io";
-import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
-import { captureSnapshot } from "../../../vault/snapshots";
+import {
+  contentHash,
+  normalizeVaultPath,
+  resolveVaultPath,
+  resolveVaultPathChecked,
+} from "../../../vault/paths";
+import { captureSnapshot, discardSnapshots, pruneSnapshots } from "../../../vault/snapshots";
 import { applyWriteBatch, type BatchWrite } from "../../../vault/write-batch";
 import {
   createModeConflictError,
@@ -51,6 +61,8 @@ import {
   WikiPageSpec,
   WikiPatchSpec,
 } from "./wiki-changeset";
+import { collectIdentityEvidence } from "./wiki-evidence";
+import { assertWikiPagePath, foldPath } from "./wiki-folder";
 import { buildLinkMap } from "./wiki-link-map";
 import { checkFrontmatter, loadWikiSchema } from "./wiki-schema";
 
@@ -64,7 +76,6 @@ const ProblemSchema = z.object({
     "patch_without_link",
     "patch_skipped",
     "possible_duplicate",
-    "outside_wiki_folder",
     "excluded_note",
     "poison_suspect",
     "redacted",
@@ -123,12 +134,18 @@ export function createCommitWikiPageTool(
     name: "commit_wiki_page",
     domain: "knowledge",
     vaultArg: "vault",
+    // Every note that already exists is read (its hash is compared and returned, its text patched)
+    // as well as written, so it needs the read ACL too; a new page is only written.
     pathAcl: (input) => [
-      { op: "write", path: input.page.path },
-      ...input.patches.map((p) => ({ op: "write" as const, path: p.path })),
+      { op: "write" as const, path: input.page.path },
+      ...(input.page.mode === "overwrite" ? [{ op: "read" as const, path: input.page.path }] : []),
+      ...input.patches.flatMap((p) => [
+        { op: "write" as const, path: p.path },
+        { op: "read" as const, path: p.path },
+      ]),
     ],
     description:
-      "Apply a wiki changeset in ONE atomic step: a new page (path, frontmatter, the body you wrote) plus patches to existing pages that link them to it, from draft_wiki_page. All or nothing: every touched note is checked first (write ACL on each path, `prev_hash` compare-and-swap on each existing note, the poison and memory-defense scans), then written with a rollback if any write fails, so a failing patch leaves the vault exactly as it was. Creating a page needs NO confirmation (restore_note undoes it; each patched or overwritten note is snapshotted first); overwriting an existing non-empty page (`page.mode: overwrite`) asks for confirmation exactly like write_note. Re-checks at commit time that no other page already covers the topic (an identity match refuses the commit with the existing page named; `allow_duplicate: true` overrides). Problems that are for you to fix do NOT block the write and come back in `problems`: frontmatter that breaks the wiki folder's SCHEMA.md (missing required field, unknown type or property, value outside the vocabulary), links in the page that resolve to no note, related notes from the link map the page does not link, patches that add no link, a page nothing links to. Open contradictions already flagged on a touched note come back in `contradictions`. Patches only ADD (`link`: a bullet under a heading, once; `append`: text at the end or under a heading); rewrite prose with patch_note. Every write is recorded in the write provenance chain and indexed.",
+      "Apply a wiki changeset in one step: a new page (path, frontmatter, the body you wrote) plus patches to existing pages that link them to it, from draft_wiki_page. The page must be inside the vault's configured wiki folder (`vaults[].wiki.folder`; a vault without one refuses). All or nothing on errors: every touched note is checked first (write and read ACL on each path, `prev_hash` compare-and-swap on each existing note, the poison and memory-defense scans), temp files for every note are staged, then the notes are replaced back to back, each re-hashed just before it is replaced, with a rollback if any write fails, so a failing patch leaves the vault as it was. NOT crash-atomic: a process crash in the middle of the renames can leave a partial batch; a `pending` write-provenance record naming every path and the hash it was about to hold is written before the first rename, so the batch is visible and every replaced note has a snapshot (restore_note). Creating a page in the wiki folder needs NO confirmation (restore_note undoes it); patching a related note needs none either, as patch_note; overwriting an existing non-empty page (`page.mode: overwrite`) asks for confirmation exactly like write_note. Re-checks at commit time that no other page already covers the topic (an identity match refuses the commit with the existing page named; `allow_duplicate: true` overrides). Problems that are for you to fix do NOT block the write and come back in `problems`: frontmatter that breaks the wiki folder's SCHEMA.md (missing required field, unknown type or property, value outside the vocabulary), links in the page that resolve to no note, related notes from the link map the page does not link, patches that add no link, a page nothing links to. Open contradictions already flagged on a touched note come back in `contradictions`. Patches only ADD (`link`: a bullet under a heading, once; `append`: text at the end or under a heading); rewrite prose with patch_note. Every write is recorded in the write provenance chain and indexed.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -185,16 +202,35 @@ export function createCommitWikiPageTool(
           { path: pageRel },
         );
       const patchRels = input.patches.map((p) => normalizeVaultPath(p.path));
-      const seen = new Set([pageRel]);
-      for (const rel of patchRels) {
-        if (seen.has(rel))
+      // One note, one entry: keyed on the REAL path (a symlink alias is the same note) folded for
+      // case, so `Note.md` and `note.md` cannot be two patches that each read the same original
+      // bytes and the second write silently drop the first. Folded on every platform: a changeset
+      // that names two paths differing only in case is a mistake even where they are two files.
+      const seen = new Set<string>();
+      for (const rel of [pageRel, ...patchRels]) {
+        const key = foldPath(resolveVaultPathChecked(v.root, rel).aclRel, true);
+        if (seen.has(key))
           throw err.invalidInput("a path may appear once in a changeset (page or patch)", {
             path: rel,
           });
-        seen.add(rel);
+        seen.add(key);
       }
       for (const rel of [pageRel, ...patchRels])
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+      // Handler-side read check, defense in depth beside the central one: a note the caller may
+      // write but not read answers exactly like a missing one, before its bytes or hash are touched.
+      const requireReadable = (rel: string, what: string): void => {
+        try {
+          enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
+        } catch (e) {
+          if (e instanceof ObsidianTcError && e.code === "acl_denied")
+            throw err.noteNotFound(`${what} not found`, { path: rel });
+          throw e;
+        }
+      };
+      for (const rel of patchRels) requireReadable(rel, "note to patch");
+      if (input.page.mode === "overwrite") requireReadable(pageRel, "page to overwrite");
+      assertWikiPagePath(v.root, v.wikiFolder, pageRel);
 
       const scope = { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes };
       const pageAbs = resolveVaultPath(v.root, pageRel);
@@ -254,21 +290,13 @@ export function createCommitWikiPageTool(
       const load = loadWikiSchema(scope, wikiFolder);
       for (const w of load.warnings)
         problems.push({ kind: "schema_file", path: load.path, message: w });
-      const inWiki = !wikiFolder || pageRel.startsWith(`${wikiFolder}/`);
-      if (!inWiki)
+      for (const p of checkFrontmatter(load.schema, input.page.frontmatter ?? null, input.type))
         problems.push({
-          kind: "outside_wiki_folder",
+          kind: "schema",
           path: pageRel,
-          message: `the page is outside the wiki folder (${wikiFolder}), so SCHEMA.md was not applied`,
+          ...(p.field ? { field: p.field } : {}),
+          message: p.message,
         });
-      else
-        for (const p of checkFrontmatter(load.schema, input.page.frontmatter ?? null, input.type))
-          problems.push({
-            kind: "schema",
-            path: pageRel,
-            ...(p.field ? { field: p.field } : {}),
-            message: p.message,
-          });
 
       // Read every existing note the changeset touches, and check them all before judging any one.
       const stale: Array<{ path: string; expected: string; actual: string }> = [];
@@ -432,9 +460,35 @@ export function createCommitWikiPageTool(
           .filter((o) => o.r.applied)
           .map((o) => ({ abs: o.t.abs, rel: o.t.rel, content: o.content, prevRaw: o.t.cur.raw })),
       ];
-      applyWriteBatch(writes, (w) => {
-        if (w.prevRaw !== null)
-          captureSnapshot(
+
+      // The duplicate check above ran before an await; the disk may have changed since. Everything
+      // from here to the last rename is synchronous, so this is the last look before the write: an
+      // identity match (name, alias, id) on another page refuses the commit, as the first check does.
+      if (!input.allow_duplicate) {
+        const fresh = [
+          ...collectIdentityEvidence(scope, topic, {
+            folder: undefined,
+            isExcluded: exclusion.isExcluded,
+          }).candidates.values(),
+        ].filter((c) => c.path !== pageRel);
+        if (verdictOf(fresh) === "exists")
+          throw err.conflict(
+            `a page already covers "${topic}": ${fresh
+              .slice(0, 3)
+              .map((c) => c.path)
+              .join(", ")}. It appeared while this commit was being prepared; nothing was written`,
+            { reason: "duplicate_page", existing: fresh.slice(0, 3).map((c) => c.path), topic },
+          );
+      }
+
+      // A snapshot of every existing note the batch replaces (a new page has nothing to save), taken
+      // before the first temp file. Retention pruning waits for the batch to succeed, and a failed
+      // batch drops the rows it added, so an aborted commit never evicts an older recovery point.
+      const snapshotIds: number[] = [];
+      try {
+        for (const w of writes) {
+          if (w.prevRaw === null) continue;
+          const id = captureSnapshot(
             ctx.db,
             deps.snapshots,
             v.id,
@@ -442,8 +496,23 @@ export function createCommitWikiPageTool(
             w.prevRaw,
             "commit_wiki_page",
             ctx.now,
+            false,
           );
-      });
+          if (id !== null) snapshotIds.push(id);
+        }
+        applyWriteBatch(writes, {
+          // The batch's durable intent, before the first note is replaced: a crash from here on
+          // leaves a `pending` provenance record naming every path and the hash it was to hold.
+          beforeCommit: () =>
+            ctx.recordPendingWrite?.(new Map(writes.map((w) => [w.rel, contentHash(w.content)]))),
+        });
+      } catch (e) {
+        discardSnapshots(ctx.db, snapshotIds);
+        throw e;
+      }
+      if (deps.snapshots?.enabled)
+        for (const w of writes)
+          if (w.prevRaw !== null) pruneSnapshots(ctx.db, v.id, w.rel, deps.snapshots.retention);
       for (const w of writes) deps.reindex?.(v.id, w.rel, w.content);
 
       return {

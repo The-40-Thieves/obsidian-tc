@@ -13,7 +13,7 @@
 // missing).
 import { readableRel } from "../../../vault/acl-read-filter";
 import { parseNoteLenient } from "../../../vault/frontmatter";
-import { noteExists, readNote } from "../../../vault/notes-io";
+import { noteExists, readNote, statNote } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
 import { fmHas, type ScanScope } from "../../wiki-scan";
 
@@ -21,6 +21,19 @@ export const WIKI_SCHEMA_FILE = "SCHEMA.md";
 
 /** The frontmatter property that names a page's type. */
 export const WIKI_TYPE_KEY = "type";
+
+/** SCHEMA.md is read synchronously and expanded into every draft response, so it is bounded: a file
+ *  over the byte cap is not read at all, and a section over a count or length cap is cut with a
+ *  warning (the rest of the file still counts). Real schemas are a few KiB. */
+export const SCHEMA_LIMITS = {
+  fileBytes: 64 * 1024,
+  types: 100,
+  fieldsPerType: 100,
+  properties: 500,
+  valuesPerProperty: 200,
+  textChars: 200,
+  descriptionChars: 500,
+} as const;
 
 /** Obsidian's own properties: always allowed, whatever vocabulary the schema declares. */
 const BUILTIN_PROPERTIES: ReadonlySet<string> = new Set(["tags", "aliases", "cssclasses"]);
@@ -36,7 +49,9 @@ export interface WikiPageType {
 
 export interface WikiSchema {
   types: WikiPageType[];
-  /** Allowed property -> allowed values (`null`: any value). `null`: no vocabulary declared. */
+  /** Allowed property -> allowed values (`null`: any value). `null`: no vocabulary declared. A
+   *  null-prototype object: a property named `toString` or `__proto__` is a name like any other, so
+   *  read it with `Object.hasOwn`, never by plain lookup. */
   vocabulary: Record<string, string[] | null> | null;
 }
 
@@ -60,15 +75,32 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 const scalar = (v: unknown): string | undefined =>
   typeof v === "string" ? v.trim() || undefined : typeof v === "number" ? String(v) : undefined;
 
-/** A list of strings (a lone string is a list of one); bad entries are dropped and reported. */
-function stringList(v: unknown, where: string, warnings: string[]): string[] {
+/** `s` when it fits `max` characters; otherwise a warning and undefined. */
+function fitting(s: string, max: number, where: string, warnings: string[]): string | undefined {
+  if (s.length <= max) return s;
+  warnings.push(`${where}: ignored a value longer than ${max} characters`);
+  return undefined;
+}
+
+/** A list of strings (a lone string is a list of one); bad entries are dropped and reported, and
+ *  entries past `max` are cut with one warning. */
+function stringList(
+  v: unknown,
+  where: string,
+  warnings: string[],
+  max: number = SCHEMA_LIMITS.fieldsPerType,
+): string[] {
   if (v === undefined || v === null) return [];
   const items = Array.isArray(v) ? v : [v];
+  if (items.length > max) warnings.push(`${where}: only the first ${max} entries were read`);
   const out: string[] = [];
-  for (const item of items) {
-    const s = scalar(item);
-    if (s === undefined) warnings.push(`${where}: ignored a value that is not text`);
-    else out.push(s);
+  for (const item of items.slice(0, max)) {
+    const raw = scalar(item);
+    if (raw === undefined) warnings.push(`${where}: ignored a value that is not text`);
+    else {
+      const s = fitting(raw, SCHEMA_LIMITS.textChars, where, warnings);
+      if (s !== undefined) out.push(s);
+    }
   }
   return out;
 }
@@ -80,14 +112,33 @@ function parseTypes(raw: unknown, warnings: string[]): WikiPageType[] {
     return [];
   }
   const out: WikiPageType[] = [];
-  for (const [name, def] of Object.entries(raw)) {
+  const entries = Object.entries(raw);
+  if (entries.length > SCHEMA_LIMITS.types)
+    warnings.push(`\`types\`: only the first ${SCHEMA_LIMITS.types} types were read`);
+  for (const [name, def] of entries.slice(0, SCHEMA_LIMITS.types)) {
+    if (name.length > SCHEMA_LIMITS.textChars) {
+      warnings.push(
+        `\`types\`: ignored a type name longer than ${SCHEMA_LIMITS.textChars} characters`,
+      );
+      continue;
+    }
     if (def !== null && def !== undefined && !isRecord(def)) {
       warnings.push(`type "${name}": the definition must be a map; treated as having no fields`);
     }
     const d = isRecord(def) ? def : {};
-    const description = scalar(d.description);
+    const rawDescription = scalar(d.description);
+    const description =
+      rawDescription === undefined
+        ? undefined
+        : fitting(
+            rawDescription,
+            SCHEMA_LIMITS.descriptionChars,
+            `type "${name}" description`,
+            warnings,
+          );
     const folder = scalar(d.folder)
-      ?.replace(/\\/g, "/")
+      ?.slice(0, SCHEMA_LIMITS.textChars)
+      .replace(/\\/g, "/")
       .split("/")
       .filter((p) => p !== "" && p !== "." && p !== "..")
       .join("/");
@@ -101,11 +152,18 @@ function parseTypes(raw: unknown, warnings: string[]): WikiPageType[] {
   return out;
 }
 
+/** A map with no prototype, so no property name collides with an inherited one. */
+function vocabularyMap(): Record<string, string[] | null> {
+  return Object.create(null) as Record<string, string[] | null>;
+}
+
 function parseVocabulary(raw: unknown, warnings: string[]): WikiSchema["vocabulary"] {
   if (raw === undefined || raw === null) return null;
   if (Array.isArray(raw)) {
-    const names = stringList(raw, "properties", warnings);
-    return Object.fromEntries(names.map((n) => [n, null]));
+    const out = vocabularyMap();
+    for (const n of stringList(raw, "properties", warnings, SCHEMA_LIMITS.properties))
+      out[n] = null;
+    return out;
   }
   if (!isRecord(raw)) {
     warnings.push(
@@ -113,9 +171,25 @@ function parseVocabulary(raw: unknown, warnings: string[]): WikiSchema["vocabula
     );
     return null;
   }
-  const out: Record<string, string[] | null> = {};
-  for (const [name, values] of Object.entries(raw)) {
-    const list = stringList(values, `property "${name}"`, warnings);
+  const out = vocabularyMap();
+  const entries = Object.entries(raw);
+  if (entries.length > SCHEMA_LIMITS.properties)
+    warnings.push(
+      `\`properties\`: only the first ${SCHEMA_LIMITS.properties} properties were read`,
+    );
+  for (const [name, values] of entries.slice(0, SCHEMA_LIMITS.properties)) {
+    if (name.length > SCHEMA_LIMITS.textChars) {
+      warnings.push(
+        `\`properties\`: ignored a property name longer than ${SCHEMA_LIMITS.textChars} characters`,
+      );
+      continue;
+    }
+    const list = stringList(
+      values,
+      `property "${name}"`,
+      warnings,
+      SCHEMA_LIMITS.valuesPerProperty,
+    );
     out[name] = list.length > 0 ? list : null;
   }
   return out;
@@ -125,6 +199,13 @@ function parseVocabulary(raw: unknown, warnings: string[]): WikiSchema["vocabula
  *  or a partial one (a bad section is skipped, the rest is kept). */
 export function parseWikiSchema(raw: string, path: string): WikiSchemaLoad {
   const warnings: string[] = [];
+  if (Buffer.byteLength(raw, "utf8") > SCHEMA_LIMITS.fileBytes)
+    return {
+      path,
+      found: true,
+      schema: null,
+      warnings: [`${path} was not read: it is larger than ${SCHEMA_LIMITS.fileBytes} bytes`],
+    };
   const note = parseNoteLenient(raw, path);
   if (note.yamlError) {
     return {
@@ -160,6 +241,14 @@ export function loadWikiSchema(scope: ScanScope, folder: string | undefined): Wi
   try {
     const abs = resolveVaultPath(scope.root, path);
     if (noteExists(abs).type !== "file") return { path, found: false, schema: null, warnings: [] };
+    // Checked on the file's size, before a byte of it is read into memory.
+    if ((statNote(abs)?.size ?? 0) > SCHEMA_LIMITS.fileBytes)
+      return {
+        path,
+        found: true,
+        schema: null,
+        warnings: [`${path} was not read: it is larger than ${SCHEMA_LIMITS.fileBytes} bytes`],
+      };
     return parseWikiSchema(readNote(abs).raw, path);
   } catch (e) {
     return {
@@ -215,13 +304,12 @@ export function checkFrontmatter(
           });
   }
   if (schema.vocabulary && fm) {
+    const vocabulary = schema.vocabulary;
     for (const [key, value] of Object.entries(fm)) {
       if (BUILTIN_PROPERTIES.has(key.toLowerCase())) continue;
-      const allowed = schema.vocabulary[key];
+      const allowed = Object.hasOwn(vocabulary, key) ? vocabulary[key] : undefined;
       if (allowed === undefined) {
-        const near = Object.keys(schema.vocabulary).find(
-          (k) => k.toLowerCase() === key.toLowerCase(),
-        );
+        const near = Object.keys(vocabulary).find((k) => k.toLowerCase() === key.toLowerCase());
         problems.push({
           code: "unknown_property",
           field: key,

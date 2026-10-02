@@ -384,32 +384,54 @@ properties:
 ---
 ```
 
-Obsidian's own `tags`, `aliases` and `cssclasses` are always allowed. A page outside the wiki folder is
-not checked against SCHEMA.md and gets an `outside_wiki_folder` problem instead. A SCHEMA.md that cannot
-be read is a `schema_file` problem, never an error.
+Obsidian's own `tags`, `aliases` and `cssclasses` are always allowed. SCHEMA.md is read as a bounded
+file: one over 64 KiB is not parsed, and a section over 100 types, 100 fields per type, 500 properties,
+200 values per property or 200 characters per name or value is cut, each with a warning. A SCHEMA.md
+that cannot be read is a `schema_file` problem, never an error.
+
+**The wiki folder is required.** `commit_wiki_page` refuses (`invalid_input`, `reason: no_wiki_folder`)
+in a vault with no `wiki.folder`, and refuses a page outside it (`reason: outside_wiki_folder`). The
+page path is judged as written (`..` and absolute paths are `path_invalid`) and again after symlinks,
+and is case-folded on a case-insensitive filesystem, so neither a sibling folder that shares the
+prefix, a case variant nor a symlink out of the folder can carry a page past the check. The folder
+itself must be a plain relative path in the config: `.`, `/`, an empty string, an absolute path and
+`..` are rejected, never reinterpreted.
 
 **Problems versus errors.** Things for you to fix do not block the write; they come back in
 `problems`: `schema` (missing required field, unknown type or property, value outside the vocabulary),
 `unresolved_link`, `missing_link` (a related note the page does not link), `no_inbound_link`,
 `patch_without_link`, `patch_skipped` (the note already links the page), `possible_duplicate`,
 `excluded_note`, `poison_suspect`, `redacted`. Refusals are errors and write nothing: no write
-permission on any path, a stale `prev_hash` (every stale note is named in `details.stale`), a page that
-already covers the topic (`conflict`, `reason: duplicate_page`; `allow_duplicate: true` overrides), text
-that fails the poison scan, a heading that is missing or ambiguous. Open contradictions the detector
+or read permission on any existing note it touches (an unreadable note answers like a missing one and
+its hash is never returned), a stale `prev_hash` (every stale note is named in `details.stale`), a page that
+already covers the topic (`conflict`, `reason: duplicate_page`, checked again right before the write;
+`allow_duplicate: true` overrides), text that fails the poison scan, a heading that is missing or
+ambiguous, and two entries naming one note (paths are compared by their real path, case-folded). Open contradictions the detector
 already flagged on a touched note are listed in `contradictions`; new ones are found by the indexer
 afterwards.
 
-**Confirmation.** Creating a page and patching notes need **no confirmation**, inside the wiki folder or
-outside it: every note a commit replaces is snapshotted first, so `restore_note` undoes it, and a patch
-only adds. Overwriting an existing non-empty page (`page.mode: overwrite`, which needs `prev_hash`) asks
-for confirmation exactly like `write_note`, anywhere in the vault. Everything else keeps its existing
-rules: `write_note`, `patch_note`, `delete_note` and the rest behave as before.
+**Confirmation.** Per operation, as the single-note tools ask it. Creating a page inside the wiki folder
+needs **no confirmation**: every note a commit replaces is snapshotted first, so `restore_note` undoes
+it. Patching a related note anywhere asks nothing either, as `patch_note` does, under the same ACL (both
+read and write permission on the note). Overwriting an existing non-empty page (`page.mode: overwrite`,
+which needs `prev_hash`) asks for confirmation exactly like `write_note`. Everything else keeps its
+existing rules: `write_note`, `patch_note`, `delete_note` and the rest behave as before.
 
-**All or nothing.** Before the first write, `commit_wiki_page` checks the write ACL of every path, the
-`prev_hash` of every existing note, the poison and memory-defense scans, and computes every resulting
-note. If a write then fails part way, every earlier write is undone (a replaced note gets its old bytes
-back, a new page and any folder created for it are removed). The commit is recorded in the write
-provenance chain as one entry listing every touched path; an aborted commit records nothing.
+**All or nothing on errors; not crash-atomic.** Before the first write, `commit_wiki_page` checks the
+read and write ACL of every path, the `prev_hash` of every existing note, the poison and memory-defense
+scans, and computes every resulting note. It then snapshots every existing note it will replace, stages
+a synced temp file for every note, writes one `pending` write-provenance record naming every path and the
+hash it is about to hold, and renames the files back to back, re-hashing each existing note immediately
+before it is replaced: a note edited since it was read aborts the whole batch and the edit is kept. If a
+write fails part way, every earlier write is undone, except a note whose content changed since the batch
+wrote it, which is left alone and named in `details.changed_since_written`; a page someone else created
+is never deleted. Snapshot retention is pruned only after the batch succeeds. A process crash (SIGKILL,
+power loss) between two renames can leave a partial batch: the `pending` record then has no `ok` or
+`error` record after it, which is how the batch is found, and `restore_note` returns each replaced note.
+The re-hash narrows the window for an edit by another process to the gap between the hash and the
+rename; POSIX has no conditional rename, so it cannot be closed. A successful commit ends with an `ok`
+record listing every touched path; an aborted one ends with an `error` record only when the `pending`
+record was already written.
 
 Generated index and log pages are not part of these tools.
 

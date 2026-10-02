@@ -223,7 +223,10 @@ describe("draft_wiki_page: the dedupe judge keeps egress rules", () => {
     hh.seed("wiki/Embargo.md", [0.96, 0.1, 0, 0]);
     const d = await hh.data("draft_wiki_page", { ...TOPIC, judge: true });
     expect(d.dedupe.judge.ran).toBe(true);
+    // Not vacuous: the judge was really called, and what reached it is the PERMITTED candidate.
+    expect(calls.length).toBeGreaterThan(0);
     const sent = calls.map((c) => JSON.stringify(c.messages)).join("\n");
+    expect(sent).toContain("Other ideas about memory");
     expect(sent).not.toContain("BODY-EMBARGO");
     expect(sent).not.toContain("Private thoughts");
   });

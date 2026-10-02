@@ -28,6 +28,9 @@ export function makeWikiHarness(
     vectors?: Record<string, number[]>;
     edb?: Database;
     failEmbed?: boolean;
+    /** Runs inside the (async) query embedding: the one await in the wiki tools, so a test can
+     *  change the vault "while the call is in flight". */
+    onEmbed?: () => void;
     roles?: GatewayRoles | null;
     wikiJudgeBackend?: WikiJudgeBackend | null;
     wikiJudge?: Partial<WikiJudgeSettings>;
@@ -38,6 +41,7 @@ export function makeWikiHarness(
     vectors = {},
     edb,
     failEmbed = false,
+    onEmbed,
     roles = null,
     wikiJudge,
     wikiJudgeBackend,
@@ -53,6 +57,7 @@ export function makeWikiHarness(
       model: "stub",
       dimensions: 4,
       embed: async (texts: string[]) => {
+        onEmbed?.();
         if (failEmbed) throw new Error("provider down");
         return texts.map((t) => vectors[t] ?? [0, 0, 0, 0]);
       },

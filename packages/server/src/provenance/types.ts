@@ -48,8 +48,11 @@ export interface ProvenanceBody {
   ts: number;
   prev: string;
   tool: string;
-  /** `ok`: the call succeeded. `error`: the call failed but a named path changed anyway. */
-  outcome: "ok" | "error";
+  /** `ok`: the call succeeded. `error`: the call failed but a named path changed anyway.
+   *  `pending`: written by a multi-note commit BEFORE its first rename, with the digests it is about
+   *  to write as `after`. A `pending` record with no `ok` / `error` record after it for the same
+   *  call means the process died mid-commit: compare each path's `after` with the disk. */
+  outcome: "ok" | "error" | "pending";
   paths: PathEntry[];
   /** Paths the call named beyond the per-record cap; counted, not listed. */
   paths_omitted: number;

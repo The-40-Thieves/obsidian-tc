@@ -56,6 +56,12 @@ What a record does **not** claim:
   held just after the call".
 - **Failed and denied calls are not recorded.** The exception is a call that threw after a named
   path had already changed: it is recorded with `outcome: "error"`.
+- **A multi-note commit writes a `pending` record first.** `commit_wiki_page` replaces several notes
+  in one call and cannot be crash-atomic, so just before its first rename it appends a record with
+  `outcome: "pending"` listing each named path with the digest it holds now (`before`) and the digest
+  it is about to write (`after`). The normal `ok` / `error` record follows when the call settles (an
+  `error` record is then written even if nothing changed). A `pending` record with nothing after it
+  means the process died mid-commit: compare each path's `after` with the file.
 
 ## Signing
 

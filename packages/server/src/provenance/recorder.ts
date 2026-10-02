@@ -57,6 +57,9 @@ export interface PendingProvenance {
   root: string | undefined;
   before: Array<{ path: string; before: Digest }>;
   omitted: number;
+  /** Set once `recordPending` appended this call's pending record: the settling record is then
+   *  written even for an error that changed nothing, so the pending one is never left unanswered. */
+  pendingWritten?: boolean;
   attribution: Pick<ProvenanceBody, "verified" | "unauthenticated" | "self_reported">;
 }
 
@@ -77,6 +80,14 @@ function writtenDigest(result: unknown, named: Array<{ path: string }>): string 
     return normalizeVaultPath(path) === normalizeVaultPath(only.path) ? hash : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function safeNormalize(path: string): string {
+  try {
+    return normalizeVaultPath(path);
+  } catch {
+    return path;
   }
 }
 
@@ -137,6 +148,42 @@ export class ProvenanceRecorder implements ProvenanceSink {
   }
 
   /**
+   * Append the `pending` record of a multi-note commit, just before its first note is replaced:
+   * each named path with the digest it had at `begin` and the digest the commit is about to write
+   * (`after`; a path the commit leaves alone keeps its `before`). Synchronous and never throws, so
+   * it can run inside a synchronous commit; a fault is reported like any omitted record and the
+   * commit goes on.
+   */
+  recordPending(p: PendingProvenance, after: ReadonlyMap<string, string>): void {
+    try {
+      const appended = appendProvenance(
+        this.opts.db,
+        {
+          vaultId: p.vaultId,
+          ts: this.now(),
+          tool: p.tool,
+          outcome: "pending",
+          paths: p.before.map((b) => ({
+            path: b.path,
+            before: b.before,
+            after: after.get(b.path) ?? after.get(safeNormalize(b.path)) ?? b.before,
+          })),
+          pathsOmitted: p.omitted,
+          ...p.attribution,
+        },
+        this.signerSource?.(),
+        this.opts.hooks,
+      );
+      p.pendingWritten = true;
+      if (appended.headFault !== undefined) {
+        this.fault("head_untrusted", p.tool, p.vaultId, new Error(appended.headFault));
+      }
+    } catch (e) {
+      this.fault("omitted", p.tool, p.vaultId, e);
+    }
+  }
+
+  /**
    * Append the record for a settled call. `error` outcomes are recorded only when a named path's
    * digest actually moved. Never throws.
    */
@@ -150,7 +197,8 @@ export class ProvenanceRecorder implements ProvenanceSink {
           after: written ?? (await digestUnder(p.root, b.path)),
         })),
       );
-      if (outcome === "error" && !paths.some((e) => e.before !== e.after)) return;
+      if (outcome === "error" && !p.pendingWritten && !paths.some((e) => e.before !== e.after))
+        return;
       const appended = appendProvenance(
         this.opts.db,
         {
