@@ -11,6 +11,7 @@ import { z } from "zod";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { describeCapability, JSON_SCHEMA_OPTS } from "../src/mcp/facade";
 import type { CallerContext, ToolDefinition } from "../src/mcp/registry";
+import { relaxVaultInJson } from "../src/mcp/registry/vault-default";
 import { createMcpServer } from "../src/mcp/server";
 
 function findOrThrow(defs: ToolDefinition[], name: string): ToolDefinition {
@@ -28,7 +29,12 @@ describe('THE-1041: input schemas emit in zod io:"input" mode', () => {
     const diverging: string[] = [];
     for (const def of defs) {
       const advertised = describeCapability(def).input_schema;
-      const inputMode = z.toJSONSchema(def.inputSchema, { ...JSON_SCHEMA_OPTS, io: "input" });
+      // The one deliberate post-conversion edit: `vault` is advertised optional wherever dispatch
+      // can default it (default-vault-argument.test.ts pins that rule).
+      const inputMode = relaxVaultInJson(
+        z.toJSONSchema(def.inputSchema, { ...JSON_SCHEMA_OPTS, io: "input" }),
+        def.inputSchema,
+      );
       if (JSON.stringify(advertised) !== JSON.stringify(inputMode)) diverging.push(def.name);
     }
     // The reporter's repro (GH #934) found 98 of 163 diverging against zod's default io:"output".
