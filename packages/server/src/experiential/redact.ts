@@ -19,14 +19,52 @@ type SecretPattern =
   // replacement loop and calls `hit()` once per redaction for the replacement text.
   | { id: string; redact: (text: string, hit: () => string) => string };
 
-// Longest body between a PEM BEGIN and END marker. 16384 covers a 4096-bit key's base64 body with
-// room to spare; a body longer than that is not a key this scanner was written to catch.
+// Longest body between a PEM BEGIN and END marker, counted in UTF-16 code units (`string.length`),
+// not bytes. 16384 covers a 4096-bit key's base64 body with room to spare; a body longer than that
+// is not a key this scanner was written to catch.
 const PEM_BODY_MAX = 16384;
-const PEM_BEGIN = /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----/g;
-const PEM_END = /-----END [A-Z ]{0,64}PRIVATE KEY-----/g;
+const PEM_BEGIN_PREFIX = "-----BEGIN ";
+const PEM_END_PREFIX = "-----END ";
+const PEM_KEY_LABEL = "PRIVATE KEY";
+const PEM_RULE = "-----";
+// Longest label before "PRIVATE KEY" ("ENCRYPTED ", "RSA ", "EC " are the real ones).
+const PEM_LABEL_MAX = 64;
+
+/** End offset of a `<prefix>[A-Z ]{0,64}PRIVATE KEY-----` marker starting exactly at `at`, or -1.
+ *  Hand-scanned rather than a regex so the fail-closed ReDoS gate (scripts/check-redos.mjs) has no
+ *  pattern here to second-guess: the label alphabet `[A-Z ]` contains every character of
+ *  "PRIVATE KEY" and not "-", so the label run ends at the first other character and "PRIVATE KEY"
+ *  must be its last 11 characters. That makes the check one bounded walk, never a backtrack. */
+function pemMarkerEnd(text: string, at: number, prefix: string): number {
+  const labelStart = at + prefix.length;
+  const limit = Math.min(text.length, labelStart + PEM_LABEL_MAX + PEM_KEY_LABEL.length);
+  let run = labelStart;
+  while (run < limit) {
+    const c = text.charCodeAt(run);
+    if (c !== 32 && (c < 65 || c > 90)) break;
+    run += 1;
+  }
+  const keyStart = run - PEM_KEY_LABEL.length;
+  if (keyStart < labelStart || !text.startsWith(PEM_KEY_LABEL, keyStart)) return -1;
+  return text.startsWith(PEM_RULE, run) ? run + PEM_RULE.length : -1;
+}
+
+/** Start of the first valid `prefix` marker at or after `from`, with its end in `endOut[0]`;
+ *  -1 when none. Candidates are at least `prefix.length` apart (the prefix has no self-overlap) and
+ *  each costs at most 75 characters, so a search is linear in the text it covers. */
+function findPemMarker(text: string, prefix: string, from: number, endOut: number[]): number {
+  for (let at = text.indexOf(prefix, from); at !== -1; at = text.indexOf(prefix, at + 1)) {
+    const end = pemMarkerEnd(text, at, prefix);
+    if (end !== -1) {
+      endOut[0] = end;
+      return at;
+    }
+  }
+  return -1;
+}
 
 /** Redact `BEGIN ... PRIVATE KEY` through the nearest `END ... PRIVATE KEY` at most
- *  `PEM_BODY_MAX` bytes after it, in ONE forward pass.
+ *  `PEM_BODY_MAX` UTF-16 code units after it, in ONE forward pass.
  *
  *  The regex form, `BEGIN[\s\S]{0,16384}?END`, is bounded but not cheap: on input that repeats
  *  the BEGIN marker with no END, every BEGIN re-walks its whole 16 KB window before failing, so
@@ -34,28 +72,31 @@ const PEM_END = /-----END [A-Z ]{0,64}PRIVATE KEY-----/g;
  *  3.1-3.5x per doubling on a windows runner. Here the next END is searched for ONCE and kept:
  *  every later BEGIN before that END reuses it, and once no END remains every later BEGIN fails
  *  without scanning. Matches are the regex's: the nearest END starting within the bound of the
- *  BEGIN's end, scanning resumes after a match, and a failed BEGIN resumes one character on. */
+ *  BEGIN's end, scanning resumes after a match, and a failed BEGIN resumes one character on.
+ *  test/redact-private-key-differential.test.ts holds the regex as a reference and diffs the two. */
 function redactPrivateKeys(text: string, hit: () => string): string {
   let out = "";
   let copied = 0; // text[0..copied) is already accounted for in `out`
   let endStart = -1; // start of the first END at or after the last search origin; Infinity = none
   let endLen = 0;
-  PEM_BEGIN.lastIndex = 0;
-  for (let begin = PEM_BEGIN.exec(text); begin !== null; begin = PEM_BEGIN.exec(text)) {
-    const bodyStart = begin.index + begin[0].length;
+  const markerEnd = [0];
+  let from = 0;
+  for (;;) {
+    const begin = findPemMarker(text, PEM_BEGIN_PREFIX, from, markerEnd);
+    if (begin === -1) break;
+    const bodyStart = markerEnd[0] as number;
     if (endStart < bodyStart) {
-      PEM_END.lastIndex = bodyStart;
-      const end = PEM_END.exec(text);
-      endStart = end === null ? Number.POSITIVE_INFINITY : end.index;
-      endLen = end === null ? 0 : end[0].length;
+      const end = findPemMarker(text, PEM_END_PREFIX, bodyStart, markerEnd);
+      endStart = end === -1 ? Number.POSITIVE_INFINITY : end;
+      endLen = end === -1 ? 0 : (markerEnd[0] as number) - end;
     }
     if (endStart - bodyStart > PEM_BODY_MAX) {
-      PEM_BEGIN.lastIndex = begin.index + 1; // no END in reach: this BEGIN opens no block
+      from = begin + 1; // no END in reach: this BEGIN opens no block
       continue;
     }
-    out += text.slice(copied, begin.index) + hit();
+    out += text.slice(copied, begin) + hit();
     copied = endStart + endLen;
-    PEM_BEGIN.lastIndex = copied;
+    from = copied;
   }
   return copied === 0 ? text : out + text.slice(copied);
 }
@@ -69,8 +110,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
   // text is attacker-controlled and unbounded at this point. The cap cannot move earlier without
   // reintroducing the split-secret problem it exists to prevent, so the BOUND belongs here.
   //
-  // Both quantifiers are bounded: 64 covers every real PEM label ("ENCRYPTED ", "RSA ", "EC "),
-  // 16384 the body. The bounded regex was still ~600 steps per input byte on that input, so the
+  // Both bounds hold: 64 covers every real PEM label ("ENCRYPTED ", "RSA ", "EC "), 16384 code
+  // units the body. The bounded regex was still ~600 steps per input byte on that input, so the
   // scan is `redactPrivateKeys`, a single pass with the same two bounds.
   { id: "private_key", redact: redactPrivateKeys },
   { id: "aws_access_key_id", pattern: /\bAKIA[0-9A-Z]{16}\b/g },
